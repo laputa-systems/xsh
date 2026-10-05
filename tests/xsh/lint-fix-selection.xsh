@@ -27,7 +27,7 @@ print ${pick(B)}
   assert fixed.status.exited_with(0), fixed.stderr
   # Only the selected code is reported, and only its edit is applied.
   assert "check.non-exhaustive-match" not in fixed.stderr, fixed.stderr
-  assert file.read_text()? == source.replace("    _ => 2,", "    else => 2,")
+  assert file.read_text()? == source.replace("    _ => 2,", with: "    else => 2,")
 }
 
 test test_selected_check_fix_applies_beside_an_unselected_check_warning { |ctx|
@@ -49,7 +49,7 @@ show(A)
   let file = test.temp_file(ctx, name: "selected-check-fix.xsh", contents: bytes.from_text(source))?
   let fixed = run.capture --text "xsht" lint --fix --only check.bool-statement $file ?
   assert fixed.status.exited_with(0), fixed.stderr
-  assert file.read_text()? == source.replace("  t == A", "  assert t == A")
+  assert file.read_text()? == source.replace("  t == A", with: "  assert t == A")
   let all = run.capture --text "xsht" lint $file ?
   assert "check.non-exhaustive-match" in all.stderr, all.stderr
 }

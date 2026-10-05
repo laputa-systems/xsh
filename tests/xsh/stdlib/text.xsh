@@ -2,7 +2,7 @@ test test_text_fields_replacement_and_counts {
   let row = " alpha::beta::gamma "
   let fields = row.trim().fields(delimiter: "::")
   let joined = fields.join(separator: "/")
-  let replaced = joined.replace("beta", "B")
+  let replaced = joined.replace("beta", with: "B")
   let scalars = "hé".split("")
   let wrapped = "alpha beta gamma".wrap(10)
   let slug = "alpha beta_gamma".translate(" _", "--")

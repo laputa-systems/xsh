@@ -659,10 +659,10 @@ type CgroupCollection = {
 }
 
 pure decode_mount_field(value: Str) -> Str {
-  value.replace("\\040", " ")
-    .replace("\\011", "\t")
-    .replace("\\012", "\n")
-    .replace("\\134", "\\")
+  value.replace("\\040", with: " ")
+    .replace("\\011", with: "\t")
+    .replace("\\012", with: "\n")
+    .replace("\\134", with: "\\")
 }
 
 pure mount_usage_eligible(filesystem: Str) -> Bool {
@@ -2268,7 +2268,7 @@ proc read_process(root: FsRoot, process_path: Path, pid: Int, page_size_bytes: I
     for line in status.observation.value.lines() {
       if line.starts_with("Uid:") {
         uid_rows += 1
-        let fields = parse_words((line.split(":", maxsplit: 1).get(1) ?? "").replace("\t", " "))
+        let fields = parse_words((line.split(":", maxsplit: 1).get(1) ?? "").replace("\t", with: " "))
         if fields.len() != 4 {
           uid_issue = report.Malformed
           continue
@@ -4952,7 +4952,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
       let name = pair[0].trim()
       continue when name in duplicate_names
-      let values = parse_words(pair[1].trim().replace("\t", " "))
+      let values = parse_words(pair[1].trim().replace("\t", with: " "))
       if values.is_empty() {
         issues += [issue("memory", f"meminfo.{name}", report.Malformed, "missing_integer", null)]
         continue
@@ -5031,7 +5031,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
     issues += [issue("memory", "swaps", swaps_source.observation.state, swaps_source.error_kind, swaps_source.errno)]
   } else {
     let swap_lines = swaps_source.observation.value.lines()
-    if swap_lines.is_empty() or parse_words(swap_lines[0].replace("\t", " ")) != [
+    if swap_lines.is_empty() or parse_words(swap_lines[0].replace("\t", with: " ")) != [
       "Filename",
       "Type",
       "Size",
@@ -5041,7 +5041,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       issues += [issue("memory", "swaps", report.Malformed, "invalid_swap_header", null)]
     } else {
       for line in swap_lines |> drop(1) {
-        let columns = parse_words(line.replace("\t", " "))
+        let columns = parse_words(line.replace("\t", with: " "))
         if columns.len() != 5 {
           issues += [issue("memory", "swaps", report.Malformed, "invalid_swap_row", null)]
           continue
@@ -5220,7 +5220,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
 
     var seen_kinds: List[Str] = []
     for line in pressure_source.observation.value.lines() {
-      let columns = parse_words(line.replace("\t", " "))
+      let columns = parse_words(line.replace("\t", with: " "))
       if columns.len() != 5 or columns[0] not in ["some", "full"] {
         issues += [issue("memory", f"pressure.{resource}", report.Malformed, "invalid_psi_row", null)]
         continue
@@ -5326,7 +5326,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
         continue
       }
 
-      let labels = parse_words(pair[0].trim().replace("\t", " "))
+      let labels = parse_words(pair[0].trim().replace("\t", with: " "))
       let field_name = labels.get(2) ?? ""
       if labels.len() != 3 or labels[0] != "Node" or labels[1] != f"{node_id}" or field_name == "" {
         let field = if field_name != "" {
@@ -5339,7 +5339,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       }
 
       let field = f"numa.{node_path.name()}.{field_name}"
-      let values = parse_words(pair[1].trim().replace("\t", " "))
+      let values = parse_words(pair[1].trim().replace("\t", with: " "))
       if values.len() < 1 or values.len() > 2 {
         issues += [issue("memory", field, report.Malformed, "invalid_numa_columns", null)]
         continue

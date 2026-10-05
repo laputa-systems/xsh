@@ -64,7 +64,7 @@ proc main(input = "") [fs, error] {
 
   for entry in errors {
     let hits: List[Match] = ip_re.find(entry.message)
-    let redacted = ip_re.replace(entry.message, "<IP>")
+    let redacted = ip_re.replace(entry.message, with: "<IP>")
     print f"error [{entry.module}] IPs found: {hits.len()}  redacted: {redacted}"
   }
 }

@@ -683,7 +683,7 @@ test test_cli_command_option_path_constraints { |ctx|
     ),
   ) == ""
   let file_link = test.temp_path(ctx, name: "cli-file-link")
-  fs.symlink(present, file_link)
+  file_link.symlink(to: present)
   assert failure_message(
     cli.commands(
       ["go", "--target", file_link.display()],
@@ -691,7 +691,7 @@ test test_cli_command_option_path_constraints { |ctx|
     ),
   ) == ""
   let dangling = test.temp_path(ctx, name: "cli-dangling")
-  fs.symlink(missing, dangling)
+  dangling.symlink(to: missing)
   assert failure_message(
     cli.commands(
       ["go", "--target", dangling.display()],

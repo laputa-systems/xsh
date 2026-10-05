@@ -43,16 +43,16 @@ test test_path_methods { |ctx|
   file.truncate(2)
   assert file.read_text()? == "by"
   let copied = fp"{root}/copy.txt"
-  file.copy(copied)
+  file.copy(to: copied)
   assert copied.read_text()? == "by"
   let renamed = fp"{root}/renamed.txt"
-  copied.rename(renamed)
+  copied.rename(to: renamed)
   assert renamed.exists()?
   let link = fp"{root}/link.txt"
-  file.hardlink(link)
+  file.hardlink(at: link)
   assert link.read_text()? == "by"
   let symlink = fp"{root}/symlink.txt"
-  fs.symlink(file, symlink)
+  symlink.symlink(to: file)
   assert symlink.readlink()?.display() == file.display()
   link.unlink()
   assert ! link.exists()?
@@ -114,7 +114,7 @@ test test_absolute_glob_traverses_symlinked_literal_components { |ctx|
   let link = fp"{root}/link"
   real.mkdir()
   fp"{real}/hit.txt".write("ok")
-  fs.symlink(real, link)
+  link.symlink(to: real)
 
   let output = test.run_script(
     ctx,

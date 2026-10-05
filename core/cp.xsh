@@ -100,9 +100,9 @@ proc main(...argv: List[Str]) [fs, error] {
     continue when no_clobber and target.exists()
 
     if link_mode == "symlink" {
-      fs.symlink(source, target)
+      target.symlink(to: source)
     } else if link_mode == "hardlink" {
-      source.hardlink(target)
+      source.hardlink(at: target)
     } else if source_meta.kind == "dir" {
       guard recursive else {
         return Err(AppletError.Usage(f"cp: omitting directory '{source}'"))
@@ -110,7 +110,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
       let _ = fs.copy_tree(source, target, parents: true, overwrite: ! no_clobber)?
     } else {
-      source.copy(target, overwrite: ! no_clobber)
+      source.copy(to: target, overwrite: ! no_clobber)
     }
   }
 }

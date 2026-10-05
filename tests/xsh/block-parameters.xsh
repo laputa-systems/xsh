@@ -234,7 +234,7 @@ print recover()
   let fixed = run.capture --text "xsht" lint --fix $candidate ?
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
-  assert rewritten == source.replace("else |failure| {", "else { |failure|")
+  assert rewritten == source.replace("else |failure| {", with: "else { |failure|")
   let again = run.capture --text "xsht" lint --fix $candidate ?
   assert again.status.exited_with(0), again.stderr
   assert candidate.read_text()? == rewritten
@@ -342,7 +342,7 @@ print recover()
   let fixed = run.capture --text "xsht" lint --fix $directory ?
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = shared.read_text()?
-  assert rewritten == shared_source.replace("else |failure| {", "else { |failure|")
+  assert rewritten == shared_source.replace("else |failure| {", with: "else { |failure|")
   let again = run.capture --text "xsht" lint --fix $directory ?
   assert again.status.exited_with(0), again.stderr
   assert shared.read_text()? == rewritten

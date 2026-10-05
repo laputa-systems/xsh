@@ -4,5 +4,5 @@ cli main(src: Path, dest: Path, jobs: UInt = 4, verbose = false) {
     print f"copying {src} to {dest} with {jobs} jobs"
   }
 
-  src.copy(dest)
+  src.copy(to: dest)
 }

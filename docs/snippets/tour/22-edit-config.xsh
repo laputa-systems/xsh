@@ -2,7 +2,7 @@ pure set_option(text: Str, key: Str, value: Str) -> Str {
   var out = []
   var done = false
   for line in text.lines() {
-    let words = line.replace("#", " ").fields()
+    let words = line.replace("#", with: " ").fields()
     if ! done and ! words.is_empty() and words[0] == key {
       out += [f"{key} {value}"]
       done = true
@@ -27,7 +27,7 @@ proc edit_config(file: Path, key: Str, value: Str) {
   }
 
   let backup = fp"{file}.bak"
-  file.copy(backup, overwrite: true)
+  file.copy(to: backup, overwrite: true)
   file.write_atomic(after)
   print diff.unified(backup, file)?.text.trim()
 }

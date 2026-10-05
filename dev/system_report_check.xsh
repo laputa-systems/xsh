@@ -7190,7 +7190,7 @@ proc reference_cpuidle_number(root: FsRoot, source_path: Path) [fs, error] -> Re
 }
 
 pure reference_cpuidle_words(value: Str) -> List[Str] {
-  value.replace("\t", " ").split(" ") |> where .trim() != ""
+  value.replace("\t", with: " ").split(" ") |> where .trim() != ""
 }
 
 ## Reads global CPUIdle metadata and indexed states for every present CPU through bounded sysfs sources.
@@ -7256,7 +7256,7 @@ export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleRe
 pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
   var ids: List[Int] = []
   var seen = set.empty()
-  for word in output.trim().replace("\t", " ").split(" ") {
+  for word in output.trim().replace("\t", with: " ").split(" ") {
     continue when word == ""
     let id = reference_cpu_number(word)?
     let key = f"{id}"
@@ -7278,7 +7278,7 @@ pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
 }
 
 pure reference_cpufreq_words(value: Str) -> List[Str] {
-  value.replace("\t", " ").split(" ") |> where .trim() != ""
+  value.replace("\t", with: " ").split(" ") |> where .trim() != ""
 }
 
 ## Interprets the generic boost control before the inverted Intel-specific control.
@@ -8619,7 +8619,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
       return Err(check_failure("meminfo reference has an empty or duplicate field name"))
     }
 
-    let fields = pair[1].replace("\t", " ").split(" ") |> where .trim() != ""
+    let fields = pair[1].replace("\t", with: " ").split(" ") |> where .trim() != ""
     if fields.is_empty() or fields.len() > 2 {
       return Err(check_failure("meminfo reference has an invalid value column count"))
     }
@@ -8782,7 +8782,7 @@ export pure parse_thp_reference(output: Str) -> Result[Str, Error] {
   }
 
   let value = output.trim()
-  let words = value.replace("\t", " ").split(" ") |> where .trim() != ""
+  let words = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
   return Err(check_failure("THP reference is empty")) when words.is_empty()
 
   var selected_count = 0
@@ -9353,7 +9353,7 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
   var rows: List[PsiReferenceRow] = []
   var kinds = set.empty()
   for line in output.lines() {
-    let columns = line.replace("\t", " ").split(" ") |> where .trim() != ""
+    let columns = line.replace("\t", with: " ").split(" ") |> where .trim() != ""
     if columns.len() != 5 or columns[0] not in ["some", "full"] or columns[0] in kinds {
       return Err(check_failure("PSI reference has an invalid or duplicate row"))
     }
@@ -9738,7 +9738,7 @@ export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice], E
   var devices: List[SwapReferenceDevice] = []
   var seen = set.empty()
   for line in lines |> drop(1) {
-    let columns = line.replace("\t", " ").split(" ") |> where .trim() != ""
+    let columns = line.replace("\t", with: " ").split(" ") |> where .trim() != ""
     if columns.len() != 5 or columns[0] == "" or columns[0] in seen {
       return Err(check_failure("swapon reference has ambiguous or duplicate swap identity"))
     }
@@ -9758,11 +9758,14 @@ export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice], E
 }
 
 pure proc_swap_words(line: Str) -> List[Str] {
-  line.replace("\t", " ").split(" ") |> where .trim() != ""
+  line.replace("\t", with: " ").split(" ") |> where .trim() != ""
 }
 
 pure proc_swap_name(value: Str) -> Str {
-  value.replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
+  value.replace("\\040", with: " ")
+    .replace("\\011", with: "\t")
+    .replace("\\012", with: "\n")
+    .replace("\\134", with: "\\")
 }
 
 ## Decodes the kernel's KiB-valued swap table independently of the report collector.
@@ -10098,7 +10101,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference], E
   for block in output.replace(
     """\r
 """,
-    "\n",
+    with: "\n",
   )
     .split("""
 
@@ -11277,7 +11280,7 @@ proc pci_raw_hex(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Res
     return Err(check_failure(f"PCI raw identity {source_path} is absent or lacks a hex prefix"))
   }
 
-  pci_reference_hex(raw.replace("0x", ""), width)
+  pci_reference_hex(raw.replace("0x", with: ""), width)
 }
 
 ## Interprets fixed-width sysfs numbers independently from the collector's decoder.
@@ -14269,7 +14272,7 @@ export pure block_queue_reference_stable(before: List[BlockQueueReference], afte
 }
 
 pure parse_block_queue_stat(output: Str) -> Result[List[BlockQueueCounter]] {
-  let words = output.replace("\t", " ").trim().split(" ") |> where .trim() != ""
+  let words = output.replace("\t", with: " ").trim().split(" ") |> where .trim() != ""
   if words.len() not in [11, 15, 17] {
     return Err(check_failure("block stat reference has an unsupported field count"))
   }
@@ -16164,7 +16167,7 @@ pure reference_module_number(value: Str) -> Result[Int] {
 }
 
 pure module_reference_words(line: Str) -> List[Str] {
-  line.replace("\t", " ").split(" ") |> where .trim() != ""
+  line.replace("\t", with: " ").split(" ") |> where .trim() != ""
 }
 
 ## Decodes the complete procfs row set independently of the report collector.
@@ -17219,7 +17222,7 @@ export pure parse_reference_od_bytes(output: Str, max_bytes: Int) -> Result[Byte
     return Err(check_failure("device-tree reference has an invalid byte bound"))
   }
 
-  let tokens = output.replace("\n", " ").replace("\t", " ").split(" ") |> where .trim() != ""
+  let tokens = output.replace("\n", with: " ").replace("\t", with: " ").split(" ") |> where .trim() != ""
   if tokens.len() > max_bytes {
     return Err(check_failure("device-tree reference exceeds its byte bound"))
   }
@@ -17878,7 +17881,7 @@ pure uptime_reference_digits(value: Str) -> Bool {
 
 ## Parses the uptime gauge from the kernel's two-column decimal source.
 export pure parse_reference_uptime_seconds(output: Str) -> Result[Int, Error] {
-  let columns = output.trim().replace("\t", " ").split(" ") |> where .trim() != ""
+  let columns = output.trim().replace("\t", with: " ").split(" ") |> where .trim() != ""
   if columns.len() != 2 {
     return Err(check_failure("/proc/uptime requires exactly two decimal columns"))
   }
@@ -18050,7 +18053,7 @@ pure process_reference_stat_fields(output: Str) -> Result[ProcStatReferenceField
   }
 
   let command = command_and_fields |> take(command_and_fields.len() - 1).join(") ")
-  let fields = command_and_fields[-1].replace("\t", " ").split(" ") |> where .trim() != ""
+  let fields = command_and_fields[-1].replace("\t", with: " ").split(" ") |> where .trim() != ""
   if pid == 0 or fields.len() < 22 or fields[0].count_chars() != 1 {
     return Err(check_failure("process stat reference has invalid identity or field count"))
   }
@@ -18094,7 +18097,7 @@ export pure parse_proc_status_uid_reference(output: Str) -> Result[Int, Error] {
       return Err(check_failure("process status reference has duplicate UID rows"))
     }
 
-    let columns = (line.split(":", maxsplit: 1).get(1) ?? "").replace("\t", " ").split(" ") |> where .trim() != ""
+    let columns = (line.split(":", maxsplit: 1).get(1) ?? "").replace("\t", with: " ").split(" ") |> where .trim() != ""
     if columns.len() != 4 {
       return Err(check_failure("process status reference has an incomplete UID row"))
     }
@@ -18116,7 +18119,7 @@ export pure parse_proc_statm_reference(output: Str, page_size_bytes: Int) -> Res
     return Err(check_failure("process page size is outside the exact byte range"))
   }
 
-  let fields = output.trim().replace("\t", " ").split(" ") |> where .trim() != ""
+  let fields = output.trim().replace("\t", with: " ").split(" ") |> where .trim() != ""
   if fields.len() != 7 {
     return Err(check_failure("process statm reference does not have seven fields"))
   }
@@ -18318,7 +18321,10 @@ pure visible_cgroup2_path_safe(value: Str) -> Bool {
 }
 
 pure visible_cgroup2_decode_mount_field(value: Str) -> Str {
-  value.replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
+  value.replace("\\040", with: " ")
+    .replace("\\011", with: "\t")
+    .replace("\\012", with: "\n")
+    .replace("\\134", with: "\\")
 }
 
 pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[VisibleCgroup2Location?] {
@@ -18442,7 +18448,7 @@ export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Resul
 
 ## Decodes the kernel's two-field cpu.max value with exact integer bounds.
 export pure parse_cpu_scope_quota(output: Str) -> Result[CpuScopeQuota, Error] {
-  let fields = output.trim().replace("\t", " ").split(" ") |> where .trim() != ""
+  let fields = output.trim().replace("\t", with: " ").split(" ") |> where .trim() != ""
   if fields.len() != 2 {
     return Err(check_failure("CPU scope quota reference requires two fields"))
   }
@@ -18476,7 +18482,7 @@ pure cgroup2_reference_number(value: Str) -> Result[Int] {
 }
 
 pure cgroup2_reference_words(value: Str) -> List[Str] {
-  value.replace("\t", " ").split(" ") |> where .trim() != ""
+  value.replace("\t", with: " ").split(" ") |> where .trim() != ""
 }
 
 ## Parses a single unlimited or exact decimal cgroup limit.

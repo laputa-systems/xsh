@@ -170,7 +170,7 @@ helper.anything()
 without net {
   helper.anything()
 }
-""".replace("HELPER", helper.display())
+""".replace("HELPER", with: helper.display())
   let output = test.run_script(ctx, source)?
   assert output.status == 2, f"{output.stdout}{output.stderr}"
   assert "err[check.effect-violation]" in output.stderr, output.stderr

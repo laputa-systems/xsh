@@ -54,7 +54,7 @@ test xsh_reads_the_nearest_config_and_defaults_to_its_directory { |ctx|
   fp"{root}/bin/xsht-config.ini".write("test_roots = tests\n")
   fp"{root}/bin/shared".mkdir()
   fp"{root}/bin/nested".mkdir()
-  fp"{root}/bin/shared/answers.xsh".write(answers_module.replace("42", "7"))
+  fp"{root}/bin/shared/answers.xsh".write(answers_module.replace("42", with: "7"))
   fp"{root}/bin/nested/entry.xsh".write(entry_script)
 
   let output = run.capture --text "xsh" fp"{root}/bin/nested/entry.xsh" ?

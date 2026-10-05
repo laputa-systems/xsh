@@ -52,7 +52,7 @@ test test_string_literal_reaches_standard_path_parameters_as_a_path { |ctx|
   cd $root {
     assert p"file.txt".exists()?
     assert ! p"absent.txt".exists()?
-    p"file.txt".copy("copy.txt")
+    p"file.txt".copy(to: "copy.txt")
     assert p"copy.txt".read_text()? == "x"
     p"written.txt".write("text stays text")
     assert p"written.txt".read_text()? == "text stays text"

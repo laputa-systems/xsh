@@ -3,7 +3,7 @@ type CoverageReport = {standard_apis: List[Str], api_hits: Record}
 type CoverageHitCounts = {tests: Int, examples: Int}
 
 proc coverage_merge_script(source: Str, root: Path) [error] -> Result[Str] {
-  source.replace("proc main(", "proc coverage_main(") + """\nlet root = p""" + json.encode(root.display())? + """\nlet report = merge_reports(root, [{name: "sample", path: "input.json"}])?
+  source.replace("proc main(", with: "proc coverage_main(") + """\nlet root = p""" + json.encode(root.display())? + """\nlet report = merge_reports(root, [{name: "sample", path: "input.json"}])?
 print json.encode(report)?
 """
 }

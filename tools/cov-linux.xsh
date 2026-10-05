@@ -135,9 +135,9 @@ proc main() [fs, process, env, error, io] {
   raw_dir.mkdir()
   api_dir.mkdir()
   shim_dir.mkdir()
-  fs.symlink(xsh, fp"{shim_dir}/xsh")
-  fs.symlink(xsht, fp"{shim_dir}/xsht")
-  fs.symlink(xshi, fp"{shim_dir}/xshi")
+  fp"{shim_dir}/xsh".symlink(to: xsh)
+  fp"{shim_dir}/xsht".symlink(to: xsht)
+  fp"{shim_dir}/xshi".symlink(to: xshi)
   let existing_rustflags = env.get_or("RUSTFLAGS", "")?.trim()
 
   let rustflags = if existing_rustflags == "" {

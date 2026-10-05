@@ -262,7 +262,7 @@ pure render(fmt: Str) -> Str {
 
 let value = helper("OK")
 """
-  fp"{root}/script.xsh".write_atomic(script.replace("'''", "\"\"\""))
+  fp"{root}/script.xsh".write_atomic(script.replace("'''", with: "\"\"\""))
   let report_path = fp"{root}/target/ir-coverage.json"
   let stdout_path = fp"{root}/stdout.txt"
   let stderr_path = fp"{root}/stderr.txt"

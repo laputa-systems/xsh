@@ -10,10 +10,10 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
 }
 
 pure unescape(raw: Str) -> Str {
-  let newline = raw.replace("\\n", "\n")
-  let tab = newline.replace("\\t", "\t")
-  let slash = tab.replace("\\\\", "\\")
-  slash.replace("%%", "%")
+  let newline = raw.replace("\\n", with: "\n")
+  let tab = newline.replace("\\t", with: "\t")
+  let slash = tab.replace("\\\\", with: "\\")
+  slash.replace("%%", with: "%")
 }
 
 pure render_string_lines(values: List[Str]) -> Str {

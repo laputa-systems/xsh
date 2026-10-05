@@ -70,7 +70,7 @@ test test_llvm_lines_repeat_offenders_keeps_numeric_failures_and_unknown_totals 
   assert "json" in rejected.stderr
 
   input.write(
-    llvm_lines_capture.replace(from: "1000 100% 100% 10 100% 100% (TOTAL)", to: "true 100% 100% 10 100% 100% (TOTAL)"),
+    llvm_lines_capture.replace(from: "1000 100% 100% 10 100% 100% (TOTAL)", with: "true 100% 100% 10 100% 100% (TOTAL)"),
   )
   let unknown = test.run_script(ctx, source, args: [input, "--sum", "--json"])?
   let {success: succeeded, stderr: failure_details, ..} = unknown

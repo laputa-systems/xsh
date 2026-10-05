@@ -32,7 +32,7 @@ test test_archive_unpack_failure_leaves_existing_destination_untouched { |ctx|
 test test_archive_unpack_cleans_partial_staging_after_unsafe_member { |ctx|
   let src = test.temp_dir(ctx, name: "unsafe-src")?
   fp"{src}/a.txt".write("first")
-  fs.symlink(../outside, fp"{src}/bad")
+  fp"{src}/bad".symlink(to: ../outside)
   let tarball = test.temp_path(ctx, name: "unsafe.tar")
   archive.tar_create(tarball, src, [p"a.txt", p"bad"])
 

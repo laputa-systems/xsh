@@ -364,7 +364,7 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   assert after.stdout == before.stdout
 
   # With every call positional, the manual declaration edit keeps behavior.
-  module_file.write_atomic(fixed_module.replace("Usage(message: Str)", "Usage"))
+  module_file.write_atomic(fixed_module.replace("Usage(message: Str)", with: "Usage"))
   let migrated = test.expect(ctx, fixed_importer, status: 0, args: [], env: module_env)?
   assert migrated.stdout == before.stdout
 

@@ -79,8 +79,8 @@ test test_tui_pad_large_width_keeps_space_filler {
     assert right.byte_len() == width
     assert left.ends_with("x")
     assert right.starts_with("x")
-    assert left.replace(" ", "") == "x"
-    assert right.replace(" ", "") == "x"
+    assert left.replace(" ", with: "") == "x"
+    assert right.replace(" ", with: "") == "x"
   }
 }
 

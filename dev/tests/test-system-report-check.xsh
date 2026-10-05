@@ -140,11 +140,15 @@ test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds {
   assert exact.exact_bounds
   assert exact.eligible_controls
   assert exact.exact_controls
-  let wrong_membership = report_checks.compare_cpufreq_policies(candidate.replace("[0,2]", "[0]"), [policy], [policy])?
+  let wrong_membership = report_checks.compare_cpufreq_policies(
+    candidate.replace("[0,2]", with: "[0]"),
+    [policy],
+    [policy],
+  )?
   assert wrong_membership.policy_mismatches == ["policy3.related_cpus"]
   assert ! wrong_membership.exact_policies
   let wrong_bound = report_checks.compare_cpufreq_policies(
-    candidate.replace("\"scaling_max_khz\":3000000", "\"scaling_max_khz\":null"),
+    candidate.replace("\"scaling_max_khz\":3000000", with: "\"scaling_max_khz\":null"),
     [policy],
     [policy],
   )?
@@ -154,18 +158,21 @@ test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds {
   assert unstable.unstable_bounds == ["policy3.scaling_min_khz"]
   assert ! unstable.exact_bounds
   let missing_gauge = report_checks.compare_cpufreq_policies(
-    candidate.replace("\"hardware_current_khz\":1800000", "\"hardware_current_khz\":null"),
+    candidate.replace("\"hardware_current_khz\":1800000", with: "\"hardware_current_khz\":null"),
     [policy],
     [policy],
   )?
   assert missing_gauge.gauge_mismatches == ["policy3.hardware_current_khz"]
   assert ! missing_gauge.exact_bounds
-  let would_block_candidate = candidate.replace("\"hardware_current_khz\":1800000", "\"hardware_current_khz\":null")
-    .replace("]}}", "]},\"issues\":[{\"section\":\"cpu\",\"field\":\"policy3.cpuinfo_cur_freq\",\"errno\":11}]}")
+  let would_block_candidate = candidate.replace(
+    "\"hardware_current_khz\":1800000",
+    with: "\"hardware_current_khz\":null",
+  )
+    .replace("]}}", with: "]},\"issues\":[{\"section\":\"cpu\",\"field\":\"policy3.cpuinfo_cur_freq\",\"errno\":11}]}")
   let would_block_during_collection = report_checks.compare_cpufreq_policies(would_block_candidate, [policy], [policy])?
   assert would_block_during_collection.unstable_gauges == ["policy3.hardware_current_khz"]
   assert would_block_during_collection.gauge_mismatches == []
-  let denied_candidate = would_block_candidate.replace("\"errno\":11", "\"errno\":13")
+  let denied_candidate = would_block_candidate.replace("\"errno\":11", with: "\"errno\":13")
   let denied_during_collection = report_checks.compare_cpufreq_policies(denied_candidate, [policy], [policy])?
   assert denied_during_collection.unstable_gauges == ["policy3.hardware_current_khz"]
   let changed_gauge = report_checks.compare_cpufreq_policies(
@@ -176,7 +183,7 @@ test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds {
   assert changed_gauge.unstable_gauges == ["policy3.hardware_current_khz"]
   assert ! changed_gauge.exact_bounds
   let intervening_gauge = report_checks.compare_cpufreq_policies(
-    candidate.replace("\"hardware_current_khz\":1800000", "\"hardware_current_khz\":1900000"),
+    candidate.replace("\"hardware_current_khz\":1800000", with: "\"hardware_current_khz\":1900000"),
     [policy],
     [policy],
   )?
@@ -188,18 +195,18 @@ test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds {
   )?
   assert would_block.unstable_gauges == ["policy3.hardware_current_khz"]
   let absent = report_checks.compare_cpufreq_policies(
-    candidate.replace("\"average_current_khz\":null", "\"average_current_khz\":1700000"),
+    candidate.replace("\"average_current_khz\":null", with: "\"average_current_khz\":1700000"),
     [policy],
     [policy],
   )?
   assert absent.unstable_gauges == ["policy3.average_current_khz"]
   let userspace_policy = {...policy, governor: "userspace", governor_requested: {value: 1900000, complete: true}}
-  let userspace_candidate = candidate.replace("\"governor\":\"powersave\"", "\"governor\":\"userspace\"")
-    .replace("\"governor_requested_khz\":null", "\"governor_requested_khz\":1900000")
+  let userspace_candidate = candidate.replace("\"governor\":\"powersave\"", with: "\"governor\":\"userspace\"")
+    .replace("\"governor_requested_khz\":null", with: "\"governor_requested_khz\":1900000")
   let userspace = report_checks.compare_cpufreq_policies(userspace_candidate, [userspace_policy], [userspace_policy])?
   assert userspace.exact_bounds
   let missing_request = report_checks.compare_cpufreq_policies(
-    candidate.replace("\"governor\":\"powersave\"", "\"governor\":\"userspace\""),
+    candidate.replace("\"governor\":\"powersave\"", with: "\"governor\":\"userspace\""),
     [userspace_policy],
     [userspace_policy],
   )?
@@ -207,26 +214,26 @@ test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds {
   let wrong_epp = report_checks.compare_cpufreq_policies(
     candidate.replace(
       "\"energy_performance_preference\":\"balance_performance\"",
-      "\"energy_performance_preference\":\"power\"",
+      with: "\"energy_performance_preference\":\"power\"",
     ),
     [policy],
     [policy],
   )?
   assert wrong_epp.control_mismatches == ["policy3.energy_performance_preference"]
   let wrong_boost = report_checks.compare_cpufreq_policies(
-    candidate.replace("\"boost_allowed\":true", "\"boost_allowed\":false"),
+    candidate.replace("\"boost_allowed\":true", with: "\"boost_allowed\":false"),
     [policy],
     [policy],
   )?
   assert wrong_boost.control_mismatches == ["policy3.boost_allowed"]
   let inferred_boost = report_checks.compare_cpufreq_policies(
-    candidate.replace("\"boost_active\":null", "\"boost_active\":true"),
+    candidate.replace("\"boost_active\":null", with: "\"boost_active\":true"),
     [policy],
     [policy],
   )?
   assert inferred_boost.control_mismatches == ["policy3.boost_active"]
   let wrong_choices = report_checks.compare_cpufreq_policies(
-    candidate.replace("[\"performance\",\"balance_performance\"]", "[\"performance\"]"),
+    candidate.replace("[\"performance\",\"balance_performance\"]", with: "[\"performance\"]"),
     [policy],
     [policy],
   )?
@@ -244,12 +251,12 @@ test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds {
   }
   let unsupported_candidate = candidate.replace(
     "\"energy_performance_preference\":\"balance_performance\"",
-    "\"energy_performance_preference\":null",
+    with: "\"energy_performance_preference\":null",
   )
-    .replace("[\"performance\",\"balance_performance\"]", "[]")
-    .replace("\"boost_supported\":true", "\"boost_supported\":null")
-    .replace("\"boost_allowed\":true", "\"boost_allowed\":null")
-    .replace("\"boost_scope\":\"system\"", "\"boost_scope\":null")
+    .replace("[\"performance\",\"balance_performance\"]", with: "[]")
+    .replace("\"boost_supported\":true", with: "\"boost_supported\":null")
+    .replace("\"boost_allowed\":true", with: "\"boost_allowed\":null")
+    .replace("\"boost_scope\":\"system\"", with: "\"boost_scope\":null")
   let unexposed = report_checks.compare_cpufreq_policies(unsupported_candidate, [unsupported], [unsupported])?
   assert ! unexposed.eligible_controls
   assert ! unexposed.exact_controls
@@ -260,10 +267,10 @@ test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds {
     scaling_min_khz: null,
     scaling_max_khz: null,
   }
-  let no_bounds_candidate = candidate.replace("\"hardware_min_khz\":800000", "\"hardware_min_khz\":null")
-    .replace("\"hardware_max_khz\":4000000", "\"hardware_max_khz\":null")
-    .replace("\"scaling_min_khz\":1000000", "\"scaling_min_khz\":null")
-    .replace("\"scaling_max_khz\":3000000", "\"scaling_max_khz\":null")
+  let no_bounds_candidate = candidate.replace("\"hardware_min_khz\":800000", with: "\"hardware_min_khz\":null")
+    .replace("\"hardware_max_khz\":4000000", with: "\"hardware_max_khz\":null")
+    .replace("\"scaling_min_khz\":1000000", with: "\"scaling_min_khz\":null")
+    .replace("\"scaling_max_khz\":3000000", with: "\"scaling_max_khz\":null")
   let unbounded = report_checks.compare_cpufreq_policies(no_bounds_candidate, [no_bounds], [no_bounds])?
   assert ! unbounded.eligible_bounds
   assert ! unbounded.exact_bounds
@@ -317,7 +324,7 @@ test test_system_report_usb_topology_reference_scores_parent_links_and_stable_nu
   assert exact.exact
   assert exact.matched_count == 3
   let wrong_parent = report_checks.compare_usb_topology(
-    candidate.replace("\"parent_device_index\":1", "\"parent_device_index\":2"),
+    candidate.replace("\"parent_device_index\":1", with: "\"parent_device_index\":2"),
     [root, hub, child],
     [root, hub, child],
   )?
@@ -330,13 +337,13 @@ test test_system_report_usb_topology_reference_scores_parent_links_and_stable_nu
   assert changed_number.unstable_fields == ["1-2.3.device_number"]
   assert ! changed_number.exact
   let wrong_speed = report_checks.compare_usb_topology(
-    candidate.replace("\"speed_mbps\":\"12\"", "\"speed_mbps\":\"480\""),
+    candidate.replace("\"speed_mbps\":\"12\"", with: "\"speed_mbps\":\"480\""),
     [root, hub, child],
     [root, hub, child],
   )?
   assert wrong_speed.field_mismatches == ["1-2.3.speed_mbps"]
-  let unreadable_speed_candidate = candidate.replace("\"speed_mbps\":\"12\"", "\"speed_mbps\":null")
-    .replace("]}}", "]},\"issues\":[{\"section\":\"usb\",\"field\":\"devices.1-2.3.speed_mbps\"}]}")
+  let unreadable_speed_candidate = candidate.replace("\"speed_mbps\":\"12\"", with: "\"speed_mbps\":null")
+    .replace("]}}", with: "]},\"issues\":[{\"section\":\"usb\",\"field\":\"devices.1-2.3.speed_mbps\"}]}")
   let unreadable_speed = report_checks.compare_usb_topology(
     unreadable_speed_candidate,
     [root, hub, child],
@@ -353,7 +360,7 @@ test test_system_report_usb_topology_reference_scores_parent_links_and_stable_nu
   )
   test.error_kind(
     report_checks.compare_usb_topology(
-      candidate.replace("\"parent_device_index\":1", "\"parent_device_index\":9"),
+      candidate.replace("\"parent_device_index\":1", with: "\"parent_device_index\":9"),
       [root, hub, child],
       [root, hub, child],
     ),
@@ -481,13 +488,13 @@ test test_system_report_usb_ids_reference_scores_raw_ids_and_observed_labels {
   let exact = report_checks.compare_usb_ids(candidate, [reference], [reference])?
   assert exact.exact
   let wrong_id = report_checks.compare_usb_ids(
-    candidate.replace("\"product_id\":1573", "\"product_id\":1574"),
+    candidate.replace("\"product_id\":1573", with: "\"product_id\":1574"),
     [reference],
     [reference],
   )?
   assert wrong_id.field_mismatches == ["4-2.product_id"]
   let wrong_label = report_checks.compare_usb_ids(
-    candidate.replace("USB3.2 Hub", "USB2.1 Hub"),
+    candidate.replace("USB3.2 Hub", with: "USB2.1 Hub"),
     [reference],
     [reference],
   )?
@@ -506,27 +513,27 @@ test test_system_report_usb_ids_reference_scores_raw_ids_and_observed_labels {
   assert unreadable.unstable_fields == ["4-2.product_id"]
   let unreadable_label_candidate = candidate.replace(
     "\"manufacturer\":{\"state\":\"observed\",\"value\":\"GenesysLogic\"}",
-    "\"manufacturer\":{\"state\":\"read_failure\",\"value\":null}",
+    with: "\"manufacturer\":{\"state\":\"read_failure\",\"value\":null}",
   )
-    .replace("]}}", "]},\"issues\":[{\"section\":\"usb\",\"field\":\"devices.4-2.manufacturer\"}]}")
+    .replace("]}}", with: "]},\"issues\":[{\"section\":\"usb\",\"field\":\"devices.4-2.manufacturer\"}]}")
   let unreadable_label = report_checks.compare_usb_ids(unreadable_label_candidate, [reference], [reference])?
   assert unreadable_label.unstable_fields == ["4-2.manufacturer"]
   assert unreadable_label.field_mismatches == []
   let sibling = {...reference, name: "4-3", product: {value: "Another Hub", complete: true}}
   let repeated_ids_candidate = candidate.replace(
     "]}}",
-    ",{\"sysfs_name\":\"4-3\",\"vendor_id\":1507,\"product_id\":1573,\"device_version\":\"9406\",\"class_code\":9,\"subclass\":0,\"protocol\":3,\"manufacturer\":{\"state\":\"observed\",\"value\":\"GenesysLogic\"},\"product\":{\"state\":\"observed\",\"value\":\"Another Hub\"}}]}}",
+    with: ",{\"sysfs_name\":\"4-3\",\"vendor_id\":1507,\"product_id\":1573,\"device_version\":\"9406\",\"class_code\":9,\"subclass\":0,\"protocol\":3,\"manufacturer\":{\"state\":\"observed\",\"value\":\"GenesysLogic\"},\"product\":{\"state\":\"observed\",\"value\":\"Another Hub\"}}]}}",
   )
   assert report_checks.compare_usb_ids(repeated_ids_candidate, [reference, sibling], [reference, sibling])?.exact
   let mislabeled = report_checks.compare_usb_ids(
-    repeated_ids_candidate.replace("Another Hub", "USB3.2 Hub"),
+    repeated_ids_candidate.replace("Another Hub", with: "USB3.2 Hub"),
     [reference, sibling],
     [reference, sibling],
   )?
   assert mislabeled.field_mismatches == ["4-3.product"]
   test.error_kind(
     report_checks.compare_usb_ids(
-      candidate.replace("\"sysfs_name\":\"4-2\"", "\"sysfs_name\":null"),
+      candidate.replace("\"sysfs_name\":\"4-2\"", with: "\"sysfs_name\":null"),
       [reference],
       [reference],
     ),
@@ -621,7 +628,7 @@ test test_system_report_usb_power_reference_scores_controls_and_brackets_runtime
   let candidate = """{"usb":{"status":{"state":"complete","enumeration_succeeded":true},"devices":[{"sysfs_name":"4-2","power_control":"auto","autosuspend_delay_ms":-1,"runtime_status":"active","configuration_count":2,"active_configuration":1}]}}"""
   assert report_checks.compare_usb_power(candidate, [reference], [reference])?.exact
   let wrong = report_checks.compare_usb_power(
-    candidate.replace("\"power_control\":\"auto\"", "\"power_control\":\"on\""),
+    candidate.replace("\"power_control\":\"auto\"", with: "\"power_control\":\"on\""),
     [reference],
     [reference],
   )?
@@ -633,8 +640,8 @@ test test_system_report_usb_power_reference_scores_controls_and_brackets_runtime
   )?
   assert changed.unstable_fields == ["4-2.runtime_status"]
   let incomplete = report_checks.compare_usb_power(
-    candidate.replace("\"runtime_status\":\"active\"", "\"runtime_status\":null")
-      .replace("]}}", "]},\"issues\":[{\"section\":\"usb\",\"field\":\"devices.4-2.runtime_status\"}]}"),
+    candidate.replace("\"runtime_status\":\"active\"", with: "\"runtime_status\":null")
+      .replace("]}}", with: "]},\"issues\":[{\"section\":\"usb\",\"field\":\"devices.4-2.runtime_status\"}]}"),
     [reference],
     [reference],
   )?
@@ -757,13 +764,13 @@ test test_system_report_usb_interface_reference_scores_active_and_available_sett
   let candidate = """{"usb":{"status":{"state":"complete","enumeration_succeeded":true},"devices":[{"sysfs_name":"4-2","interfaces":[{"number":0,"name":"4-2:1.0","driver":"usbhid","active_alternate":0,"alternate_settings":[{"configuration_value":1,"number":0,"class_code":255,"subclass":0,"protocol":0,"endpoints":[{"address":129,"direction":"in","transfer_type":"bulk","max_packet_size":64,"interval":0}]}]}]}]}}"""
   assert report_checks.compare_usb_interfaces(candidate, [reference], [reference])?.exact
   let wrong_driver = report_checks.compare_usb_interfaces(
-    candidate.replace("usbhid", "usb-storage"),
+    candidate.replace("usbhid", with: "usb-storage"),
     [reference],
     [reference],
   )?
   assert wrong_driver.field_mismatches == ["4-2:1.0.driver"]
   let wrong_endpoint = report_checks.compare_usb_interfaces(
-    candidate.replace("\"address\":129", "\"address\":130"),
+    candidate.replace("\"address\":129", with: "\"address\":130"),
     [reference],
     [reference],
   )?
@@ -932,7 +939,7 @@ test test_system_report_power_supply_reference_scores_units_and_brackets_gauges 
   let candidate = """{"power":{"status":{"state":"complete","enumeration_succeeded":true},"supplies":[{"name":"BAT0","kind":"Battery","status":"Charging","health":"Good","capacity_percent":68,"energy_now_uwh":null,"energy_full_uwh":null,"charge_now_uah":2000000,"charge_full_uah":3000000,"voltage_now_uv":12000000,"current_now_ua":-250000,"cycle_count":null}]}}"""
   assert report_checks.compare_power_supplies(candidate, [battery], [battery])?.exact
   let wrong = report_checks.compare_power_supplies(
-    candidate.replace("\"capacity_percent\":68", "\"capacity_percent\":67"),
+    candidate.replace("\"capacity_percent\":68", with: "\"capacity_percent\":67"),
     [battery],
     [battery],
   )?
@@ -947,8 +954,8 @@ test test_system_report_power_supply_reference_scores_units_and_brackets_gauges 
   let partial = report_checks.compare_power_supplies(partial_candidate, [battery], [battery])?
   assert partial.missing_names == []
   assert "BAT0.presence" in partial.unstable_fields
-  let cap_only_issue = candidate.replace("\"state\":\"complete\"", "\"state\":\"partial\"")
-    .replace("]}}", "]},\"issues\":[{\"section\":\"power\",\"field\":\"cap_zones\"}]}")
+  let cap_only_issue = candidate.replace("\"state\":\"complete\"", with: "\"state\":\"partial\"")
+    .replace("]}}", with: "]},\"issues\":[{\"section\":\"power\",\"field\":\"cap_zones\"}]}")
   assert report_checks.compare_power_supplies(cap_only_issue, [battery], [battery])?.exact
 }
 
@@ -1206,19 +1213,19 @@ test test_system_report_powercap_reference_scores_nested_zones_constraints_and_c
   let later = {...package, energy_uj: {value: 150, complete: true}}
   assert report_checks.compare_powercap(candidate, [package, core], [later, core])?.exact
   let wrong_parent = report_checks.compare_powercap(
-    candidate.replace("\"parent\":\"intel-rapl:0\"", "\"parent\":null"),
+    candidate.replace("\"parent\":\"intel-rapl:0\"", with: "\"parent\":null"),
     [package, core],
     [later, core],
   )?
   assert wrong_parent.field_mismatches == ["intel-rapl:0:0.parent"]
   let wrong_counter = report_checks.compare_powercap(
-    candidate.replace("\"energy_uj\":120", "\"energy_uj\":200"),
+    candidate.replace("\"energy_uj\":120", with: "\"energy_uj\":200"),
     [package, core],
     [later, core],
   )?
   assert wrong_counter.field_mismatches == ["intel-rapl:0.energy_uj"]
   let wrong_limit = report_checks.compare_powercap(
-    candidate.replace("\"power_limit_uw\":80000000", "\"power_limit_uw\":80000001"),
+    candidate.replace("\"power_limit_uw\":80000000", with: "\"power_limit_uw\":80000001"),
     [package, core],
     [later, core],
   )?
@@ -2260,7 +2267,7 @@ test test_system_report_smbios_raw_reference_scores_records_fields_and_strings {
   assert reference.records[0].strings.len() == 3
   let candidate = """{"firmware":{"status":{"state":"complete","enumeration_succeeded":true},"source":"smbios","records":[{"record_type":1,"handle":4660,"formatted_length":8,"fields":[{"name":"manufacturer_index","value":1,"unit":"string_index"},{"name":"product_index","value":2,"unit":"string_index"},{"name":"version_index","value":3,"unit":"string_index"},{"name":"serial_index","value":0,"unit":"string_index"}],"strings":[{"state":"observed","value":"Vendor","raw_bytes_base64":null},{"state":"observed","value":"Model","raw_bytes_base64":null},{"state":"observed","value":"Version","raw_bytes_base64":null}]},{"record_type":127,"handle":0,"formatted_length":4,"fields":[],"strings":[]}]}}"""
   assert smbios_reference.compare_smbios(candidate, table, table)?.exact
-  let wrong = candidate.replace("\"product_index\",\"value\":2", "\"product_index\",\"value\":1")
+  let wrong = candidate.replace("\"product_index\",\"value\":2", with: "\"product_index\",\"value\":1")
   let mismatch = smbios_reference.compare_smbios(wrong, table, table)?
   assert mismatch.field_mismatches == ["1:4660.field.product_index"]
   let unknown = smbios_reference.parse_smbios_reference(b"\x90\x06E#\xaa\xbb\0\0\x7f\x04\0\0\0\0")?
@@ -2416,18 +2423,18 @@ End Of Table
     output.replace(
   """    Vendor
 """,
-  """    Handle 0xDEAD
+  with: """    Handle 0xDEAD
 """,
 ),
   )?.exact
-  let wrong_field = output.replace("01 08 34 12 01 02 03 00", "01 08 34 12 01 01 03 00")
+  let wrong_field = output.replace("01 08 34 12 01 02 03 00", with: "01 08 34 12 01 01 03 00")
   assert smbios_reference.compare_dmidecode_hex_output(raw, wrong_field)?.field_mismatches == [
     "1:4660.field.product_index",
   ]
-  let wrong_string = output.replace("4D 6F 64 65 6C 00", "4D 6F 64 65 58 00")
+  let wrong_string = output.replace("4D 6F 64 65 6C 00", with: "4D 6F 64 65 58 00")
   assert smbios_reference.compare_dmidecode_hex_output(raw, wrong_string)?.field_mismatches == ["1:4660.string.2"]
   test.error_kind(
-    smbios_reference.parse_dmidecode_hex_output(output.replace("01 08 34 12 01 02 03 00", "GG 08 34 12 01 02 03 00")),
+    smbios_reference.parse_dmidecode_hex_output(output.replace("01 08 34 12 01 02 03 00", with: "GG 08 34 12 01 02 03 00")),
     "SmbiosCheckError.Invalid",
   )
 }
@@ -3093,14 +3100,14 @@ test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
   let bad_disable = report_checks.compare_cpuidle(
     candidate.replace(
       "\"state_index\":0,\"name\":\"C1\",\"description\":\"first\",\"disable_setting\":0",
-      "\"state_index\":0,\"name\":\"C1\",\"description\":\"first\",\"disable_setting\":1",
+      with: "\"state_index\":0,\"name\":\"C1\",\"description\":\"first\",\"disable_setting\":1",
     ),
     before,
     after,
   )?
   assert bad_disable.field_mismatches == ["0:0.disable_setting"]
   let bad_counter = report_checks.compare_cpuidle(
-    candidate.replace("\"usage_count\":4", "\"usage_count\":9"),
+    candidate.replace("\"usage_count\":4", with: "\"usage_count\":9"),
     before,
     after,
   )?
@@ -3111,7 +3118,7 @@ test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
   let missing = report_checks.compare_cpuidle(
     candidate.replace(
       ",{\"cpu_id\":0,\"state_index\":0,\"name\":\"C1\",\"description\":\"first\",\"disable_setting\":0,\"latency_us\":1,\"residency_us\":2,\"usage_count\":4,\"time_us\":20}",
-      "",
+      with: "",
     ),
     before,
     after,
@@ -3306,7 +3313,7 @@ test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
   let output = """{"cpus":[{"cpu":0,"online":true,"socket":0,"core":20,"node":0},{"cpu":1,"online":true,"socket":0,"core":20,"node":0},{"cpu":2,"online":true,"socket":1,"core":21,"node":1}]}"""
   let reference = report_checks.parse_lscpu_topology(output)?
   let possible_extra = report_checks.parse_lscpu_topology(
-    output.replace("]}", ",{\"cpu\":3,\"online\":false,\"socket\":1,\"core\":22,\"node\":1}]}"),
+    output.replace("]}", with: ",{\"cpu\":3,\"online\":false,\"socket\":1,\"core\":22,\"node\":1}]}"),
   )?
   assert report_checks.select_present_lscpu_topology(possible_extra, [0, 1, 2])? == reference
   test.error_kind(
@@ -3318,7 +3325,7 @@ test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
   assert exact.exact
   assert exact.matched_count == 3
   let bad_siblings = report_checks.compare_lscpu_topology(
-    candidate.replace("\"thread_siblings\":[0,1]", "\"thread_siblings\":[0]"),
+    candidate.replace("\"thread_siblings\":[0,1]", with: "\"thread_siblings\":[0]"),
     reference,
     reference,
   )?
@@ -3327,7 +3334,7 @@ test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
   let bad_package = report_checks.compare_lscpu_topology(
     candidate.replace(
       "\"package_id\":7,\"core_id\":5,\"thread_siblings\":[0,1],\"numa_node\":0}]",
-      "\"package_id\":8,\"core_id\":5,\"thread_siblings\":[0,1],\"numa_node\":0}]",
+      with: "\"package_id\":8,\"core_id\":5,\"thread_siblings\":[0,1],\"numa_node\":0}]",
     ),
     reference,
     reference,
@@ -3335,13 +3342,13 @@ test test_system_report_lscpu_topology_scores_relationships_across_id_spaces {
   assert ! bad_package.exact
   assert ! bad_package.package_group_mismatches.is_empty()
   let missing_package = report_checks.compare_lscpu_topology(
-    candidate.replace("\"package_id\":7", "\"package_id\":null"),
+    candidate.replace("\"package_id\":7", with: "\"package_id\":null"),
     reference,
     reference,
   )?
   assert ! missing_package.exact
   assert ! missing_package.field_missing.is_empty()
-  let changed = report_checks.parse_lscpu_topology(output.replace("\"node\":1", "\"node\":0"))?
+  let changed = report_checks.parse_lscpu_topology(output.replace("\"node\":1", with: "\"node\":0"))?
   test.error_kind(report_checks.compare_lscpu_topology(candidate, reference, changed), "SystemReportCheckError.Invalid")
   let duplicate = """{"cpus":[{"cpu":0,"online":true,"socket":0,"core":0,"node":0},{"cpu":0,"online":true,"socket":0,"core":0,"node":0}]}"""
   test.error_kind(report_checks.parse_lscpu_topology(duplicate), "SystemReportCheckError.Invalid")
@@ -3369,14 +3376,14 @@ test test_system_report_cache_reference_scores_unique_instances_and_cpu_links {
   assert exact.reference_count == 1
   assert exact.matched_count == 1
   let missing_link = report_checks.compare_cpu_cache_sharing(
-    candidate.replace("\"id\":2,\"cache_ids\":[0]", "\"id\":2,\"cache_ids\":[]"),
+    candidate.replace("\"id\":2,\"cache_ids\":[0]", with: "\"id\":2,\"cache_ids\":[]"),
     [source0, source2],
     [source0, source2],
   )?
   assert missing_link.relationship_mismatches == ["2.cache_ids"]
   assert ! missing_link.exact
   let wrong_size = report_checks.compare_cpu_cache_sharing(
-    candidate.replace("\"size_bytes\":1048576", "\"size_bytes\":null"),
+    candidate.replace("\"size_bytes\":1048576", with: "\"size_bytes\":null"),
     [source0, source2],
     [source0, source2],
   )?
@@ -3384,7 +3391,7 @@ test test_system_report_cache_reference_scores_unique_instances_and_cpu_links {
   assert ! wrong_size.exact
   let duplicate = candidate.replace(
     "}]}}",
-    "},{\"id\":1,\"owner_cpu_id\":0,\"sysfs_index\":7,\"level\":2,\"kind\":\"Unified\",\"size_bytes\":1048576,\"line_size_bytes\":64,\"sets\":16384,\"shared_cpus\":[0,2]}]}}",
+    with: "},{\"id\":1,\"owner_cpu_id\":0,\"sysfs_index\":7,\"level\":2,\"kind\":\"Unified\",\"size_bytes\":1048576,\"line_size_bytes\":64,\"sets\":16384,\"shared_cpus\":[0,2]}]}}",
   )
   test.error_kind(
     report_checks.compare_cpu_cache_sharing(duplicate, [source0, source2], [source0, source2]),
@@ -3502,23 +3509,23 @@ test test_system_report_network_link_raw_reference_scores_flags_type_and_stable_
   assert exact.matched_count == 1
   let operational_flags = candidate.replace(
     "\"multicast\",\"raw_bits=4099\"",
-    "\"multicast\",\"running\",\"lower_up\",\"raw_bits=69699\"",
+    with: "\"multicast\",\"running\",\"lower_up\",\"raw_bits=69699\"",
   )
   assert report_checks.compare_network_link_raw(operational_flags, reference, reference)?.exact
   let wrong_flags = report_checks.compare_network_link_raw(
-    candidate.replace("\"multicast\",", ""),
+    candidate.replace("\"multicast\",", with: ""),
     reference,
     reference,
   )?
   assert wrong_flags.field_mismatches == ["2.flags"]
   let wrong_type = report_checks.compare_network_link_raw(
-    candidate.replace("\"hardware_type\":1", "\"hardware_type\":772"),
+    candidate.replace("\"hardware_type\":1", with: "\"hardware_type\":772"),
     reference,
     reference,
   )?
   assert wrong_type.field_mismatches == ["2.hardware_type"]
   let wrong_counter = report_checks.compare_network_link_raw(
-    candidate.replace("\"value\":100", "\"value\":90"),
+    candidate.replace("\"value\":100", with: "\"value\":90"),
     reference,
     reference,
   )?
@@ -3527,7 +3534,7 @@ test test_system_report_network_link_raw_reference_scores_flags_type_and_stable_
   assert changed.unstable_fields == []
   assert changed.exact
   let outside = report_checks.compare_network_link_raw(
-    candidate.replace("\"value\":100", "\"value\":121"),
+    candidate.replace("\"value\":100", with: "\"value\":121"),
     reference,
     [{...reference[0], rx_bytes: 120}],
   )?
@@ -3611,11 +3618,14 @@ test test_system_report_ip_link_reference_scores_stable_identity_and_state {
   let exact = report_checks.compare_ip_links(reordered_candidate, reference)?
   assert exact.exact
   assert exact.matched_count == 2
-  let partial = report_checks.compare_ip_links(reordered_candidate.replace("\"complete\"", "\"partial\""), reference)?
+  let partial = report_checks.compare_ip_links(
+    reordered_candidate.replace("\"complete\"", with: "\"partial\""),
+    reference,
+  )?
   assert ! partial.candidate_field_missing
   assert partial.exact
   let incomplete = report_checks.compare_ip_links(
-    reordered_candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
+    reordered_candidate.replace("\"enumeration_succeeded\":true", with: "\"enumeration_succeeded\":false"),
     reference,
   )?
   assert incomplete.candidate_field_missing
@@ -3650,7 +3660,7 @@ test test_system_report_ip_link_reference_scores_stable_identity_and_state {
   let typed_candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":5,"name":{"state":"observed","value":"eth0.42"},"mtu":1500,"admin_up":true,"operational_state":"up","kind":"vlan","master_ifindex":null,"lower_ifindex":null}]}}"""
   assert report_checks.compare_ip_links(typed_candidate, typed_reference)?.exact
   let wrong_kind = report_checks.compare_ip_links(
-    typed_candidate.replace("\"kind\":\"vlan\"", "\"kind\":\"bridge\""),
+    typed_candidate.replace("\"kind\":\"vlan\"", with: "\"kind\":\"bridge\""),
     typed_reference,
   )?
   assert wrong_kind.field_mismatches == ["5.kind"]
@@ -3664,7 +3674,7 @@ test test_system_report_ip_link_reference_checks_master_relationship {
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":5,"name":{"state":"observed","value":"eth0"},"mtu":1500,"admin_up":true,"operational_state":"up","kind":null,"master_ifindex":6,"lower_ifindex":null},{"ifindex":6,"name":{"state":"observed","value":"br0"},"mtu":1500,"admin_up":true,"operational_state":"up","kind":"bridge","master_ifindex":null,"lower_ifindex":null}]}}"""
   assert report_checks.compare_ip_links(candidate, reference)?.exact
   let wrong_parent = report_checks.compare_ip_links(
-    candidate.replace("\"master_ifindex\":6", "\"master_ifindex\":7"),
+    candidate.replace("\"master_ifindex\":6", with: "\"master_ifindex\":7"),
     reference,
   )?
   assert wrong_parent.field_mismatches == ["5.master_ifindex"]
@@ -3682,7 +3692,7 @@ test test_system_report_ip_link_reference_checks_lower_link_relationship {
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":5,"name":{"state":"observed","value":"eth0.42"},"mtu":1500,"admin_up":true,"operational_state":"up","kind":"vlan","master_ifindex":null,"lower_ifindex":2},{"ifindex":2,"name":{"state":"observed","value":"eth0"},"mtu":1500,"admin_up":true,"operational_state":"up","kind":null,"master_ifindex":null,"lower_ifindex":null}]}}"""
   assert report_checks.compare_ip_links(candidate, reference)?.exact
   let wrong_lower = report_checks.compare_ip_links(
-    candidate.replace("\"lower_ifindex\":2", "\"lower_ifindex\":7"),
+    candidate.replace("\"lower_ifindex\":2", with: "\"lower_ifindex\":7"),
     reference,
   )?
   assert wrong_lower.field_mismatches == ["5.lower_ifindex"]
@@ -3708,27 +3718,27 @@ test test_system_report_ip_address_reference_preserves_ipv6_identity_and_link_me
   assert reference[1].address == "2001:db8::10"
   assert reference[2].ifindex == 3
   let later = report_checks.parse_ip_address_json(
-    ip_output.replace("\"valid_life_time\":300", "\"valid_life_time\":299"),
+    ip_output.replace("\"valid_life_time\":300", with: "\"valid_life_time\":299"),
   )?
   assert report_checks.ip_address_reference_stable(reference, later)
-  let moved = report_checks.parse_ip_address_json(ip_output.replace("2001:db8:42::5", "2001:db8:42::6"))?
+  let moved = report_checks.parse_ip_address_json(ip_output.replace("2001:db8:42::5", with: "2001:db8:42::6"))?
   assert ! report_checks.ip_address_reference_stable(reference, moved)
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":3,"addresses":[{"family":"ipv6","address":{"state":"observed","value":"2001:db8:42::5"},"prefix_length":64,"broadcast":{"state":"absent","value":null},"scope":"link"}]},{"ifindex":2,"addresses":[{"family":"ipv6","address":{"state":"observed","value":"2001:db8::10"},"prefix_length":64,"broadcast":{"state":"absent","value":null},"scope":"global"},{"family":"ipv4","address":{"state":"observed","value":"192.0.2.10"},"prefix_length":24,"broadcast":{"state":"observed","value":"192.0.2.255"},"scope":"global"}]}]}}"""
   let exact = report_checks.compare_ip_addresses(candidate, reference)?
   assert exact.exact_static
   assert exact.matched_count == 3
-  assert report_checks.compare_ip_addresses(candidate.replace("\"complete\"", "\"partial\""), reference)?.exact_static
+  assert report_checks.compare_ip_addresses(candidate.replace("\"complete\"", with: "\"partial\""), reference)?.exact_static
   assert report_checks.compare_ip_addresses(
-    candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
+    candidate.replace("\"enumeration_succeeded\":true", with: "\"enumeration_succeeded\":false"),
     reference,
   )?.candidate_field_missing
-  let missing = candidate.replace("2001:db8:42::5", "2001:db8:42::6")
+  let missing = candidate.replace("2001:db8:42::5", with: "2001:db8:42::6")
   let changed = report_checks.compare_ip_addresses(missing, reference)?
   assert ! changed.exact_static
   assert changed.missing_keys.len() == 1
   assert changed.unexpected_keys.len() == 1
   let wrong_scope = report_checks.compare_ip_addresses(
-    candidate.replace("\"scope\":\"link\"", "\"scope\":\"host\""),
+    candidate.replace("\"scope\":\"link\"", with: "\"scope\":\"host\""),
     reference,
   )?
   assert wrong_scope.field_mismatches.len() == 1
@@ -3769,13 +3779,13 @@ test test_system_report_ip_address_lifetimes_score_bracketed_countdowns {
   assert exact.exact
   assert exact.field_mismatches == []
   let outside = report_checks.compare_ip_address_lifetimes(
-    candidate.replace("\"valid_lifetime_seconds\":299", "\"valid_lifetime_seconds\":301"),
+    candidate.replace("\"valid_lifetime_seconds\":299", with: "\"valid_lifetime_seconds\":301"),
     first,
     later,
   )?
   assert outside.field_mismatches == ["2|ipv6|2001:db8::10|64.valid_lifetime_seconds"]
   let missing = report_checks.compare_ip_address_lifetimes(
-    candidate.replace("\"preferred_lifetime_seconds\":119", "\"preferred_lifetime_seconds\":null"),
+    candidate.replace("\"preferred_lifetime_seconds\":119", with: "\"preferred_lifetime_seconds\":null"),
     first,
     later,
   )?
@@ -3821,15 +3831,15 @@ test test_system_report_ip_rule_reference_keeps_family_and_static_selectors {
   let exact = report_checks.compare_ip_rules(candidate, reference)?
   assert exact.exact_static
   assert exact.matched_count == 3
-  assert report_checks.compare_ip_rules(candidate.replace("\"priority\":0", "\"priority\":null"), reference)?.exact_static
-  let wrong_mark = report_checks.compare_ip_rules(candidate.replace("\"fwmark\":7", "\"fwmark\":8"), reference)?
+  assert report_checks.compare_ip_rules(candidate.replace("\"priority\":0", with: "\"priority\":null"), reference)?.exact_static
+  let wrong_mark = report_checks.compare_ip_rules(candidate.replace("\"fwmark\":7", with: "\"fwmark\":8"), reference)?
   assert ! wrong_mark.exact_static
   assert wrong_mark.missing_keys.len() == 1
   assert wrong_mark.unexpected_keys.len() == 1
-  let partial = report_checks.compare_ip_rules(candidate.replace("\"complete\"", "\"partial\""), reference)?
+  let partial = report_checks.compare_ip_rules(candidate.replace("\"complete\"", with: "\"partial\""), reference)?
   assert partial.exact_static
   assert report_checks.compare_ip_rules(
-    candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
+    candidate.replace("\"enumeration_succeeded\":true", with: "\"enumeration_succeeded\":false"),
     reference,
   )?.candidate_field_missing
   test.error_kind(
@@ -3848,12 +3858,12 @@ test test_system_report_ip_rule_goto_target_is_part_of_rule_identity {
   assert ! report_checks.ip_rule_reference_stable(before, changed)?
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[],"rules":[{"family":"ipv4","priority":150,"source":{"state":"absent","value":null},"source_prefix_length":0,"destination":{"state":"absent","value":null},"destination_prefix_length":0,"fwmark":null,"fwmask":null,"table":0,"action":"goto","input_ifindex":null,"output_ifindex":null,"attributes":[{"kind":4,"data":{"state":"observed","value":"ewAAAA=="}}]}]}}"""
   assert report_checks.compare_ip_rules(candidate, before)?.exact_static
-  assert report_checks.compare_ip_rules(candidate.replace("\"kind\":4", "\"kind\":32772"), before)?.exact_static
-  let wrong = report_checks.compare_ip_rules(candidate.replace("ewAAAA==", "fAAAAA=="), before)?
+  assert report_checks.compare_ip_rules(candidate.replace("\"kind\":4", with: "\"kind\":32772"), before)?.exact_static
+  let wrong = report_checks.compare_ip_rules(candidate.replace("ewAAAA==", with: "fAAAAA=="), before)?
   assert ! wrong.exact_static
   assert wrong.missing_keys.len() == 1
   assert wrong.unexpected_keys.len() == 1
-  let missing = report_checks.compare_ip_rules(candidate.replace("\"kind\":4", "\"kind\":5"), before)?
+  let missing = report_checks.compare_ip_rules(candidate.replace("\"kind\":4", with: "\"kind\":5"), before)?
   assert missing.candidate_field_missing
   assert ! missing.exact_static
 }
@@ -3879,18 +3889,18 @@ test test_system_report_ip_rule_full_score_requires_representable_selectors {
   let unknown_attribute = report_checks.compare_ip_rules(
     candidate.replace(
       "\"attributes\":[]",
-      "\"attributes\":[{\"kind\":99,\"data\":{\"state\":\"observed\",\"value\":\"AA==\"}}]",
+      with: "\"attributes\":[{\"kind\":99,\"data\":{\"state\":\"observed\",\"value\":\"AA==\"}}]",
     ),
     reference,
   )?
   assert unknown_attribute.exact_static
   assert ! unknown_attribute.exact_scored
-  let flagged = report_checks.compare_ip_rules(candidate.replace("\"flags\":0", "\"flags\":1"), reference)?
+  let flagged = report_checks.compare_ip_rules(candidate.replace("\"flags\":0", with: "\"flags\":1"), reference)?
   assert flagged.exact_static
   assert ! flagged.exact_scored
   let zero_reference = report_checks.parse_ip_rule_json("""[{"priority":0,"src":"all","table":"main"}]""", "ipv4")?
   let missing_priority = report_checks.compare_ip_rules(
-    candidate.replace("\"priority\":100", "\"priority\":null"),
+    candidate.replace("\"priority\":100", with: "\"priority\":null"),
     zero_reference,
   )?
   assert missing_priority.exact_static
@@ -3959,12 +3969,12 @@ test test_system_report_ip_route_reference_keeps_family_table_and_link_identity 
   let exact = report_checks.compare_ip_routes(candidate, reference)?
   assert exact.exact_static
   assert exact.matched_count == 3
-  assert report_checks.compare_ip_routes(candidate.replace("\"complete\"", "\"partial\""), reference)?.exact_static
+  assert report_checks.compare_ip_routes(candidate.replace("\"complete\"", with: "\"partial\""), reference)?.exact_static
   assert report_checks.compare_ip_routes(
-    candidate.replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false"),
+    candidate.replace("\"enumeration_succeeded\":true", with: "\"enumeration_succeeded\":false"),
     reference,
   )?.candidate_field_missing
-  let changed = report_checks.compare_ip_routes(candidate.replace("\"metric\":100", "\"metric\":101"), reference)?
+  let changed = report_checks.compare_ip_routes(candidate.replace("\"metric\":100", with: "\"metric\":101"), reference)?
   assert ! changed.exact_static
   assert changed.missing_keys.len() == 1
   assert changed.unexpected_keys.len() == 1
@@ -3995,66 +4005,72 @@ test test_system_report_ip_route_reference_scores_source_and_multipath_hops {
   let reordered = report_checks.parse_ip_route_json(
     output.replace(
       "\"nexthops\":[{\"gateway\":\"2001:db8::1\",\"dev\":\"eth0\",\"weight\":2,\"flags\":[\"onlink\"]},{\"gateway\":\"2001:db8::2\",\"dev\":\"eth1\",\"weight\":1,\"flags\":[]}]",
-      "\"nexthops\":[{\"gateway\":\"2001:db8::2\",\"dev\":\"eth1\",\"weight\":1,\"flags\":[]},{\"gateway\":\"2001:db8::1\",\"dev\":\"eth0\",\"weight\":2,\"flags\":[\"onlink\"]}]",
+      with: "\"nexthops\":[{\"gateway\":\"2001:db8::2\",\"dev\":\"eth1\",\"weight\":1,\"flags\":[]},{\"gateway\":\"2001:db8::1\",\"dev\":\"eth0\",\"weight\":2,\"flags\":[\"onlink\"]}]",
     ),
     "ipv6",
   )?
   assert report_checks.ip_route_reference_stable(reference, reordered)?
-  let changed_flags = report_checks.parse_ip_route_json(output.replace("\"onlink\"", "\"offload\""), "ipv6")?
+  let changed_flags = report_checks.parse_ip_route_json(output.replace("\"onlink\"", with: "\"offload\""), "ipv6")?
   assert ! report_checks.ip_route_reference_stable(reference, changed_flags)?
-  let changed_route_flags = report_checks.parse_ip_route_json(output.replace("\"notify\"", "\"rt_offload\""), "ipv6")?
+  let changed_route_flags = report_checks.parse_ip_route_json(
+    output.replace("\"notify\"", with: "\"rt_offload\""),
+    "ipv6",
+  )?
   assert ! report_checks.ip_route_reference_stable(reference, changed_route_flags)?
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":2,"name":{"state":"observed","value":"eth0"}},{"ifindex":3,"name":{"state":"observed","value":"eth1"}}],"routes":[{"family":"ipv6","destination":{"state":"observed","value":"2001:db8::"},"prefix_length":64,"source":{"state":"observed","value":"2001:db8:1::"},"source_prefix_length":64,"preferred_source":{"state":"observed","value":"2001:db8::10"},"gateway":{"state":"absent","value":null},"table":1000,"metric":null,"route_type":"unicast","scope":"global","protocol":"boot","flags":256,"output_ifindex":null,"nexthops":[{"ifindex":3,"hops":0,"flags":0,"gateway":{"state":"observed","value":"2001:db8::2"}},{"ifindex":2,"hops":1,"flags":4,"gateway":{"state":"observed","value":"2001:db8::1"}}]}]}}"""
   assert report_checks.compare_ip_routes(candidate, reference)?.exact_static
-  let wrong_source = report_checks.compare_ip_routes(candidate.replace("2001:db8:1::", "2001:db8:2::"), reference)?
+  let wrong_source = report_checks.compare_ip_routes(candidate.replace("2001:db8:1::", with: "2001:db8:2::"), reference)?
   assert ! wrong_source.exact_static
   let wrong_source_prefix = report_checks.compare_ip_routes(
-    candidate.replace("\"source_prefix_length\":64", "\"source_prefix_length\":63"),
+    candidate.replace("\"source_prefix_length\":64", with: "\"source_prefix_length\":63"),
     reference,
   )?
   assert ! wrong_source_prefix.exact_static
   let wrong_preferred_source = report_checks.compare_ip_routes(
-    candidate.replace("2001:db8::10", "2001:db8::11"),
+    candidate.replace("2001:db8::10", with: "2001:db8::11"),
     reference,
   )?
   assert ! wrong_preferred_source.exact_static
-  let wrong_gateway = report_checks.compare_ip_routes(candidate.replace("2001:db8::1", "2001:db8::3"), reference)?
+  let wrong_gateway = report_checks.compare_ip_routes(candidate.replace("2001:db8::1", with: "2001:db8::3"), reference)?
   assert ! wrong_gateway.exact_static
-  let wrong_weight = report_checks.compare_ip_routes(candidate.replace("\"hops\":1", "\"hops\":2"), reference)?
+  let wrong_weight = report_checks.compare_ip_routes(candidate.replace("\"hops\":1", with: "\"hops\":2"), reference)?
   assert ! wrong_weight.exact_static
-  assert ! report_checks.compare_ip_routes(candidate.replace("\"flags\":256", "\"flags\":0"), reference)?.exact_static
-  let extra_route_flag = report_checks.compare_ip_routes(candidate.replace("\"flags\":256", "\"flags\":768"), reference)?
+  assert ! report_checks.compare_ip_routes(candidate.replace("\"flags\":256", with: "\"flags\":0"), reference)?.exact_static
+  let extra_route_flag = report_checks.compare_ip_routes(
+    candidate.replace("\"flags\":256", with: "\"flags\":768"),
+    reference,
+  )?
   assert extra_route_flag.exact_static
   assert ! extra_route_flag.exact_scored
   let missing_hop = report_checks.compare_ip_routes(
     candidate.replace(
       "},{\"ifindex\":2,\"hops\":1,\"flags\":4,\"gateway\":{\"state\":\"observed\",\"value\":\"2001:db8::1\"}}",
-      "}",
+      with: "}",
     ),
     reference,
   )?
   assert ! missing_hop.exact_static
-  assert ! report_checks.compare_ip_routes(candidate.replace("\"flags\":4", "\"flags\":8"), reference)?.exact_static
+  assert ! report_checks.compare_ip_routes(candidate.replace("\"flags\":4", with: "\"flags\":8"), reference)?.exact_static
   let unknown_candidate_flag = report_checks.compare_ip_routes(
-    candidate.replace("\"flags\":4", "\"flags\":132"),
+    candidate.replace("\"flags\":4", with: "\"flags\":132"),
     reference,
   )?
   assert unknown_candidate_flag.exact_static
   assert ! unknown_candidate_flag.exact_scored
   test.error_kind(
-    report_checks.parse_ip_route_json(output.replace("\"weight\":2", "\"weight\":0"), "ipv6"),
+    report_checks.parse_ip_route_json(output.replace("\"weight\":2", with: "\"weight\":0"), "ipv6"),
     "SystemReportCheckError.Invalid",
   )
   test.error_kind(
-    report_checks.parse_ip_route_json(output.replace("\"onlink\"", "\"future_flag\""), "ipv6"),
+    report_checks.parse_ip_route_json(output.replace("\"onlink\"", with: "\"future_flag\""), "ipv6"),
     "SystemReportCheckError.Invalid",
   )
   test.error_kind(
-    report_checks.parse_ip_route_json(output.replace("\"onlink\"", "\"onlink\",\"onlink\""), "ipv6"),
+    report_checks.parse_ip_route_json(output.replace("\"onlink\"", with: "\"onlink\",\"onlink\""), "ipv6"),
     "SystemReportCheckError.Invalid",
   )
   test.error_kind(
-    report_checks.parse_ip_route_json(output.replace("\"notify\"", "\"future_flag\""), "ipv6"),
+    report_checks.parse_ip_route_json(output.replace("\"notify\"", with: "\"future_flag\""), "ipv6"),
     "SystemReportCheckError.Invalid",
   )
 }
@@ -4073,14 +4089,20 @@ test test_system_report_ip_route_full_score_requires_representable_fields {
   let extra = report_checks.compare_ip_routes(candidate, extra_reference)?
   assert extra.exact_static
   assert ! extra.exact_scored
-  let unknown_attribute = report_checks.compare_ip_routes(candidate.replace("\"kind\":1", "\"kind\":99"), reference)?
+  let unknown_attribute = report_checks.compare_ip_routes(
+    candidate.replace("\"kind\":1", with: "\"kind\":99"),
+    reference,
+  )?
   assert unknown_attribute.exact_static
   assert ! unknown_attribute.exact_scored
-  let flagged_attribute = report_checks.compare_ip_routes(candidate.replace("\"kind\":1", "\"kind\":32769"), reference)?
+  let flagged_attribute = report_checks.compare_ip_routes(
+    candidate.replace("\"kind\":1", with: "\"kind\":32769"),
+    reference,
+  )?
   assert flagged_attribute.exact_static
   assert ! flagged_attribute.exact_scored
   let input_link = report_checks.compare_ip_routes(
-    candidate.replace("\"input_ifindex\":null", "\"input_ifindex\":2"),
+    candidate.replace("\"input_ifindex\":null", with: "\"input_ifindex\":2"),
     reference,
   )?
   assert input_link.exact_static
@@ -4089,18 +4111,18 @@ test test_system_report_ip_route_full_score_requires_representable_fields {
     """[{"dst":"192.0.2.0/24","table":"main","protocol":"static","nexthops":[{"dev":"eth0","weight":2,"flags":[]}]}]""",
     "ipv4",
   )?
-  let with_hop = candidate.replace("\"output_ifindex\":2", "\"output_ifindex\":null")
+  let with_hop = candidate.replace("\"output_ifindex\":2", with: "\"output_ifindex\":null")
     .replace(
       "\"nexthops\":[]",
-      "\"nexthops\":[{\"ifindex\":2,\"hops\":1,\"flags\":0,\"gateway\":{\"state\":\"absent\",\"value\":null}}]",
+      with: "\"nexthops\":[{\"ifindex\":2,\"hops\":1,\"flags\":0,\"gateway\":{\"state\":\"absent\",\"value\":null}}]",
     )
     .replace(
       "\"kind\":1,\"data\":{\"state\":\"observed\",\"value\":\"wAACAQ==\"}",
-      "\"kind\":9,\"data\":{\"state\":\"observed\",\"value\":\"CAAAAQIAAAA=\"}",
+      with: "\"kind\":9,\"data\":{\"state\":\"observed\",\"value\":\"CAAAAQIAAAA=\"}",
     )
   assert report_checks.compare_ip_routes(with_hop, hop_reference)?.exact_scored
   let unknown_hop = report_checks.compare_ip_routes(
-    with_hop.replace("CAAAAQIAAAA=", "EAAAAQIAAAAIAGMAAAAAAA=="),
+    with_hop.replace("CAAAAQIAAAA=", with: "EAAAAQIAAAAIAGMAAAAAAA=="),
     hop_reference,
   )?
   assert unknown_hop.exact_static
@@ -4283,7 +4305,7 @@ MemFree: 4 kB
   assert reference.thp[0].name == "enabled"
   let metadata = bundle.read_text(p"capture.json")?
   assert "\"stable\": true" in metadata
-  bundle.write(p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))
+  bundle.write(p"capture.json", metadata.replace("\"stable\": true", with: "\"stable\": false"))
   assert report_checks.validate_memory_bundle(bundle)?.meminfo.len() == 2
   source.write(
     p"proc/meminfo",
@@ -4551,30 +4573,30 @@ test test_system_report_proc_stat_reference_preserves_identity_and_rejects_unsaf
   assert parsed.start_ticks == 100
   assert report_checks.parse_proc_stat_thread_reference(stat)?.thread_count == 2
   test.error_kind(
-    report_checks.parse_proc_stat_identity_reference(stat.replace("123 (", "0x7b (")),
+    report_checks.parse_proc_stat_identity_reference(stat.replace("123 (", with: "0x7b (")),
     "SystemReportCheckError.Invalid",
   )
   test.error_kind(
-    report_checks.parse_proc_stat_identity_reference(stat.replace("100 8192 2", "9007199254740992 8192 2")),
+    report_checks.parse_proc_stat_identity_reference(stat.replace("100 8192 2", with: "9007199254740992 8192 2")),
     "SystemReportCheckError.Invalid",
   )
   test.error_kind(
-    report_checks.parse_proc_stat_thread_reference(stat.replace("2 0 100", "9007199254740992 0 100")),
+    report_checks.parse_proc_stat_thread_reference(stat.replace("2 0 100", with: "9007199254740992 0 100")),
     "SystemReportCheckError.Invalid",
   )
   let valid_identity = report_checks.parse_proc_stat_identity_reference(
-    stat.replace("100 8192 2", "100 8192 9007199254740992"),
+    stat.replace("100 8192 2", with: "100 8192 9007199254740992"),
   )?
   assert valid_identity.pid == 123
   assert valid_identity.start_ticks == 100
   assert valid_identity.command == "worker) pool"
   let valid_threads = report_checks.parse_proc_stat_thread_reference(
-    stat.replace("100 8192 2", "100 9007199254740992 9007199254740992"),
+    stat.replace("100 8192 2", with: "100 9007199254740992 9007199254740992"),
   )?
   assert valid_threads.thread_count == 2
   assert valid_threads.start_ticks == 100
   test.error_kind(
-    report_checks.parse_proc_stat_identity_reference(stat.replace("100 8192 2", "9007199254740992 8192 2")),
+    report_checks.parse_proc_stat_identity_reference(stat.replace("100 8192 2", with: "9007199254740992 8192 2")),
     "SystemReportCheckError.Invalid",
   )
   test.error_kind(
@@ -4887,7 +4909,7 @@ test test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits {
   assert exact.eligible == true
   assert exact.exact == true
   assert exact.checked_resources == 4
-  let wrong = candidate.replace("\"quota\":50000", "\"quota\":60000")
+  let wrong = candidate.replace("\"quota\":50000", with: "\"quota\":60000")
   assert report_checks.compare_cpu_scope_cgroup(wrong, before, before)?.exact == false
   let changed = {
     ...before,
@@ -4906,7 +4928,7 @@ test test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits {
   test.error_kind(report_checks.compare_cpu_scope_cgroup(candidate, before, changed), "SystemReportCheckError.Invalid")
   let duplicate = candidate.replace(
     "\"cgroup\":[",
-    "\"cgroup\":[{\"path\":{\"state\":\"observed\",\"value\":\"/tenant/worker\"},\"hierarchy_level\":0,\"resource\":\"cpu.max\",\"state\":\"observed\",\"quota\":50000,\"period\":100000,\"maximum_unlimited\":false,\"effective_cpus\":[]},",
+    with: "\"cgroup\":[{\"path\":{\"state\":\"observed\",\"value\":\"/tenant/worker\"},\"hierarchy_level\":0,\"resource\":\"cpu.max\",\"state\":\"observed\",\"quota\":50000,\"period\":100000,\"maximum_unlimited\":false,\"effective_cpus\":[]},",
   )
   test.error_kind(report_checks.compare_cpu_scope_cgroup(duplicate, before, before), "SystemReportCheckError.Invalid")
   let no_cgroup = {...before, ancestors: []}
@@ -5249,12 +5271,12 @@ test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
   assert exact.exact_scored == true
   assert exact.reference_count == 2
   assert report_checks.compare_cgroup2_resources(
-    candidate.replace("\"maximum_value\":8192", "\"maximum_value\":9000"),
+    candidate.replace("\"maximum_value\":8192", with: "\"maximum_value\":9000"),
     before,
     after,
   )?.exact_scored == false
   assert report_checks.compare_cgroup2_resources(
-    candidate.replace("\"current_value\":10", "\"current_value\":13"),
+    candidate.replace("\"current_value\":10", with: "\"current_value\":13"),
     before,
     after,
   )?.exact_scored == false
@@ -5332,11 +5354,11 @@ VendorCounter: 12 widgets
   assert compared.mismatched_names == []
   assert compared.exact_scored
 
-  let wrong_scalar = candidate.replace("\"total_bytes\":16384", "\"total_bytes\":32768")
+  let wrong_scalar = candidate.replace("\"total_bytes\":16384", with: "\"total_bytes\":32768")
   let projection = report_checks.compare_meminfo(wrong_scalar, before, after)?
   assert projection.scalar_mismatches == ["MemTotal"]
   assert ! projection.exact_scored
-  let missing = candidate.replace(",{\"name\":\"VendorCounter\",\"value\":12,\"unit\":\"widgets\"}", "")
+  let missing = candidate.replace(",{\"name\":\"VendorCounter\",\"value\":12,\"unit\":\"widgets\"}", with: "")
   assert report_checks.compare_meminfo(missing, before, after)?.missing_names == ["VendorCounter"]
   let duplicate = report_checks.parse_meminfo_reference("""MemTotal: 16 kB
 """)?
@@ -5378,13 +5400,13 @@ test test_system_report_thp_reference_requires_one_selected_policy_and_stable_fi
   let matched = report_checks.compare_thp(candidate, before, before)?
   assert matched.exact
   assert matched.matched_count == 2
-  let missing = candidate.replace("\"defrag=always defer [madvise] never\",", "")
+  let missing = candidate.replace("\"defrag=always defer [madvise] never\",", with: "")
   assert report_checks.compare_thp(missing, before, before)?.missing_names == ["defrag"]
-  let wrong = candidate.replace("[future_policy]", "[always]")
+  let wrong = candidate.replace("[future_policy]", with: "[always]")
   assert report_checks.compare_thp(wrong, before, before)?.mismatched_names == ["enabled"]
   let duplicate = candidate.replace(
     "\"enabled=always [future_policy] never\"",
-    "\"enabled=always [future_policy] never\",\"enabled=always [future_policy] never\"",
+    with: "\"enabled=always [future_policy] never\",\"enabled=always [future_policy] never\"",
   )
   test.error_kind(report_checks.compare_thp(duplicate, before, before), "SystemReportCheckError.Invalid")
   let changed = [{name: "enabled", value: "[always] never"}, {name: "defrag", value: "always defer [madvise] never"}]
@@ -5410,19 +5432,19 @@ test test_system_report_vulnerability_reference_requires_complete_stable_named_v
   assert report_checks.compare_vulnerabilities(missing, before, before)?.missing_names == ["spectre_v1"]
   let unexpected = candidate.replace(
     "]}}",
-    ",{\"name\":\"new_issue\",\"description\":{\"state\":\"observed\",\"value\":\"Unknown\",\"raw_bytes_base64\":null}}]}}",
+    with: ",{\"name\":\"new_issue\",\"description\":{\"state\":\"observed\",\"value\":\"Unknown\",\"raw_bytes_base64\":null}}]}}",
   )
   assert report_checks.compare_vulnerabilities(unexpected, before, before)?.unexpected_names == ["new_issue"]
-  let changed_value = candidate.replace("Mitigation: custom policy", "Vulnerable: custom policy")
+  let changed_value = candidate.replace("Mitigation: custom policy", with: "Vulnerable: custom policy")
   assert report_checks.compare_vulnerabilities(changed_value, before, before)?.mismatched_names == ["spectre_v1"]
   let unavailable = candidate.replace(
     "\"state\":\"observed\",\"value\":\"Mitigation: custom policy\"",
-    "\"state\":\"absent\",\"value\":null",
+    with: "\"state\":\"absent\",\"value\":null",
   )
   assert report_checks.compare_vulnerabilities(unavailable, before, before)?.mismatched_names == ["spectre_v1"]
   let duplicate = candidate.replace(
     "}]}}",
-    "},{\"name\":\"spectre_v1\",\"description\":{\"state\":\"observed\",\"value\":\"Mitigation: custom policy\",\"raw_bytes_base64\":null}}]}}",
+    with: "},{\"name\":\"spectre_v1\",\"description\":{\"state\":\"observed\",\"value\":\"Mitigation: custom policy\",\"raw_bytes_base64\":null}}]}}",
   )
   test.error_kind(report_checks.compare_vulnerabilities(duplicate, before, before), "SystemReportCheckError.Invalid")
   test.error_kind(
@@ -5551,7 +5573,7 @@ test test_system_report_huge_page_reference_scores_global_and_numa_pools {
   let matched = report_checks.compare_huge_pages(candidate, before, before)?
   assert matched.exact_scored
   assert matched.matched_count == 2
-  let wrong = candidate.replace("\"total\":4", "\"total\":5")
+  let wrong = candidate.replace("\"total\":4", with: "\"total\":5")
   assert report_checks.compare_huge_pages(wrong, before, before)?.mismatched_fields == ["global:2097152.total"]
   let after = [{...before[0], free: 2}, before[1]]
   let changing = report_checks.compare_huge_pages(candidate, before, after)?
@@ -5562,7 +5584,7 @@ test test_system_report_huge_page_reference_scores_global_and_numa_pools {
   assert report_checks.compare_huge_pages(missing, before, before)?.missing_keys == ["node0:2097152"]
   let duplicate = candidate.replace(
     "]}}",
-    ",{\"node_id\":0,\"page_size_bytes\":2097152,\"total\":2,\"free\":1,\"reserved\":null,\"surplus\":0}]}}",
+    with: ",{\"node_id\":0,\"page_size_bytes\":2097152,\"total\":2,\"free\":1,\"reserved\":null,\"surplus\":0}]}}",
   )
   test.error_kind(report_checks.compare_huge_pages(duplicate, before, before), "SystemReportCheckError.Invalid")
   test.error_kind(
@@ -5645,11 +5667,11 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
   assert partial.changing_averages == ["memory.some.avg10"]
   assert partial.exact_stable
   assert ! partial.exact_scored
-  let outside = candidate.replace("\"total_us\":11", "\"total_us\":13")
+  let outside = candidate.replace("\"total_us\":11", with: "\"total_us\":13")
   assert report_checks.compare_psi(outside, before, after)?.mismatched_fields == ["memory.some.total_us"]
-  let below = candidate.replace("\"total_us\":11", "\"total_us\":9")
+  let below = candidate.replace("\"total_us\":11", with: "\"total_us\":9")
   assert report_checks.compare_psi(below, before, after)?.mismatched_fields == ["memory.some.total_us"]
-  let missing_average = candidate.replace("\"avg10\":\"0.10\"", "\"avg10\":null")
+  let missing_average = candidate.replace("\"avg10\":\"0.10\"", with: "\"avg10\":null")
   assert report_checks.compare_psi(missing_average, before, after)?.mismatched_fields == ["memory.some.avg10"]
   let missing = """{"memory":{"pressure":[{"resource":"memory","kind":"full","avg10":"0.00","avg60":"0.00","avg300":"0.00","total_us":2}]}}"""
   assert report_checks.compare_psi(missing, before, after)?.missing_keys == ["memory.some"]
@@ -5665,7 +5687,7 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
   let duplicate = raw.replace(
     """full avg10=0.00 avg60=0.00 avg300=0.00 total=2
 """,
-    """some avg10=0.00 avg60=0.00 avg300=0.00 total=2
+    with: """some avg10=0.00 avg60=0.00 avg300=0.00 total=2
 """,
   )
   test.error_kind(report_checks.parse_psi_reference(duplicate, "memory"), "SystemReportCheckError.Invalid")
@@ -5974,11 +5996,11 @@ test test_system_report_process_identity_reference_excludes_pid_reuse_and_scores
   assert compared.state_unscored_count == 1
   assert compared.exact_static
 
-  let wrong_uid = candidate.replace("\"uid\":1000", "\"uid\":1001")
+  let wrong_uid = candidate.replace("\"uid\":1000", with: "\"uid\":1001")
   let changed = report_checks.compare_process_identity(wrong_uid, [stable], [stable])?
   assert changed.mismatched_pids == [123]
   assert ! changed.exact_static
-  let wrong_start = candidate.replace("\"start_ticks\":100", "\"start_ticks\":101")
+  let wrong_start = candidate.replace("\"start_ticks\":100", with: "\"start_ticks\":101")
   let missing = report_checks.compare_process_identity(wrong_start, [stable], [stable])?
   assert missing.missing_pids == [123]
   assert ! missing.exact_static
@@ -6080,11 +6102,11 @@ test test_system_report_process_resource_reference_scores_only_stable_fields {
   assert changed.unscored_fields == ["123.resident_bytes"]
   assert changed.exact_scored
 
-  let wrong = candidate.replace("\"virtual_bytes\":131072", "\"virtual_bytes\":262144")
+  let wrong = candidate.replace("\"virtual_bytes\":131072", with: "\"virtual_bytes\":262144")
   let mismatch = report_checks.compare_process_resources(wrong, [stable], [stable])?
   assert mismatch.mismatched_fields == ["123.virtual_bytes"]
   assert ! mismatch.exact_scored
-  let reused_candidate = candidate.replace("\"start_ticks\":100", "\"start_ticks\":101")
+  let reused_candidate = candidate.replace("\"start_ticks\":100", with: "\"start_ticks\":101")
   let missing = report_checks.compare_process_resources(reused_candidate, [stable], [stable])?
   assert missing.missing_pids == [123]
   test.error_kind(
@@ -7480,13 +7502,13 @@ ProgIf:	00
   assert report_checks.compare_lspci_identity(missing_vendor, reference)?.candidate_field_missing
   assert ! report_checks.pci_reference_stable(
     reference,
-    report_checks.parse_lspci_vmm_numeric(first.replace("Driver:\tpcieport", "Driver:\tother") + "\n" + second + "\n")?,
+    report_checks.parse_lspci_vmm_numeric(first.replace("Driver:\tpcieport", with: "Driver:\tother") + "\n" + second + "\n")?,
   )
   let no_prog_if = report_checks.parse_lspci_vmm_numeric(
     first + "\n" + second.replace(
   """ProgIf:	00
 """,
-  "",
+  with: "",
 ) + "\n",
   )?
   let candidate_unknown_prog_if = json.encode(
@@ -7495,11 +7517,11 @@ ProgIf:	00
   assert report_checks.compare_lspci_identity(candidate_unknown_prog_if, no_prog_if)?.exact_static
   test.error_kind(report_checks.parse_lspci_vmm_numeric(first + "\n" + first + "\n"), "SystemReportCheckError.Invalid")
   test.error_kind(
-    report_checks.parse_lspci_vmm_numeric(first.replace("Class:\t0600", "Class:\t06zz") + "\n"),
+    report_checks.parse_lspci_vmm_numeric(first.replace("Class:\t0600", with: "Class:\t06zz") + "\n"),
     "SystemReportCheckError.Invalid",
   )
   test.error_kind(
-    report_checks.parse_lspci_vmm_numeric(first.replace("NUMANode:\t0", "NUMANode:\t0x1") + "\n"),
+    report_checks.parse_lspci_vmm_numeric(first.replace("NUMANode:\t0", with: "NUMANode:\t0x1") + "\n"),
     "SystemReportCheckError.Invalid",
   )
 }
@@ -7525,7 +7547,7 @@ test test_system_report_pci_link_reference_scores_all_functions_and_stable_link_
   assert exact.exact
   assert exact.matched_count == 2
   let wrong = report_checks.compare_pci_links(
-    candidate.replace("\"current_link_width\":4", "\"current_link_width\":2"),
+    candidate.replace("\"current_link_width\":4", with: "\"current_link_width\":2"),
     [linked, unlinked],
     [linked, unlinked],
   )?
@@ -7557,19 +7579,19 @@ test test_system_report_pci_binding_reference_resolves_parent_indexes_and_absent
   assert exact.exact
   assert exact.matched_count == 2
   let wrong_parent = report_checks.compare_pci_bindings(
-    candidate.replace("\"parent_function_index\":1", "\"parent_function_index\":null"),
+    candidate.replace("\"parent_function_index\":1", with: "\"parent_function_index\":null"),
     [bridge, child],
     [bridge, child],
   )?
   assert wrong_parent.field_mismatches == ["0001:03:00.0.parent_function_index"]
   let invalid_parent = report_checks.compare_pci_bindings(
-    candidate.replace("\"parent_function_index\":1", "\"parent_function_index\":8"),
+    candidate.replace("\"parent_function_index\":1", with: "\"parent_function_index\":8"),
     [bridge, child],
     [bridge, child],
   )?
   assert invalid_parent.field_mismatches == ["0001:03:00.0.parent_function_index"]
   let wrong_absence = report_checks.compare_pci_bindings(
-    candidate.replace("\"driver\":null", "\"driver\":\"other\""),
+    candidate.replace("\"driver\":null", with: "\"driver\":\"other\""),
     [bridge, child],
     [bridge, child],
   )?
@@ -7578,7 +7600,7 @@ test test_system_report_pci_binding_reference_resolves_parent_indexes_and_absent
   assert changed.unstable_fields == ["0001:03:00.0.driver"]
   assert ! changed.exact
   let incomplete = report_checks.compare_pci_bindings(
-    candidate.replace("\"state\":\"complete\"", "\"state\":\"partial\""),
+    candidate.replace("\"state\":\"complete\"", with: "\"state\":\"partial\""),
     [bridge, child],
     [bridge, child],
   )?
@@ -7658,22 +7680,26 @@ test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brac
   let candidate = """{"sensors":{"status":{"state":"complete","enumeration_succeeded":true},"thermal_zones":[{"id":3,"kind":"cpu_thermal","temperature_millidegrees":41000,"trips":[{"index":0,"kind":"critical","temperature_millidegrees":95000,"hysteresis_millidegrees":2000},{"index":2,"kind":"passive","temperature_millidegrees":85000,"hysteresis_millidegrees":0}]}]}}"""
   let exact = report_checks.compare_thermal_zones(candidate, [zone], [zone])?
   assert exact.exact
-  let wrong_index = report_checks.compare_thermal_zones(candidate.replace("\"index\":2", "\"index\":1"), [zone], [zone])?
+  let wrong_index = report_checks.compare_thermal_zones(
+    candidate.replace("\"index\":2", with: "\"index\":1"),
+    [zone],
+    [zone],
+  )?
   assert ! wrong_index.exact
   assert wrong_index.field_mismatches |> any "trip.2" in .
   let changed = report_checks.compare_thermal_zones(candidate, [zone], [{...zone, temperature_millidegrees: 42000}])?
   assert changed.unstable_fields == ["zone.3.temperature_millidegrees"]
   assert ! changed.exact
-  let unrelated_hwmon = candidate.replace("\"state\":\"complete\"", "\"state\":\"partial\"")
-    .replace("\"enumeration_succeeded\":true", "\"enumeration_succeeded\":false")
+  let unrelated_hwmon = candidate.replace("\"state\":\"complete\"", with: "\"state\":\"partial\"")
+    .replace("\"enumeration_succeeded\":true", with: "\"enumeration_succeeded\":false")
   let with_hwmon_issue = unrelated_hwmon.replace(
     "\"sensors\":",
-    "\"issues\":[{\"section\":\"sensors\",\"field\":\"hwmon.hwmon0.name\"}],\"sensors\":",
+    with: "\"issues\":[{\"section\":\"sensors\",\"field\":\"hwmon.hwmon0.name\"}],\"sensors\":",
   )
   assert report_checks.compare_thermal_zones(with_hwmon_issue, [zone], [zone])?.exact
   let thermal_issue = candidate.replace(
     "\"sensors\":",
-    "\"issues\":[{\"section\":\"sensors\",\"field\":\"thermal_zones.thermal_zone3.temp\"}],\"sensors\":",
+    with: "\"issues\":[{\"section\":\"sensors\",\"field\":\"thermal_zones.thermal_zone3.temp\"}],\"sensors\":",
   )
   assert report_checks.compare_thermal_zones(thermal_issue, [zone], [zone])?.candidate_field_missing
 }
@@ -7763,9 +7789,9 @@ test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering {
   assert "\"origin\": \"synthetic_fixture\"" in metadata
   assert "\"reference_adapter\": \"thermal-raw-v1\"" in metadata
   assert "\"scoreable\": true" in metadata, metadata
-  bundle.write(p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))
+  bundle.write(p"capture.json", metadata.replace("\"stable\": true", with: "\"stable\": false"))
   assert report_checks.validate_thermal_bundle(bundle)?.len() == 1
-  bundle.write(p"capture.json", metadata.replace("\"errno\": null", "\"errno\": 13"))
+  bundle.write(p"capture.json", metadata.replace("\"errno\": null", with: "\"errno\": 13"))
   test.error_kind(report_checks.validate_thermal_bundle(bundle), "SystemReportCheckError.Invalid")
   bundle.write(p"capture.json", metadata)
   assert report_checks.replay_thermal_bundle(bundle)?.exact
@@ -8088,7 +8114,7 @@ test test_system_report_mountinfo_capture_validates_saved_bytes_and_oracle {
   bundle.write_atomic(p"capture.json", json.encode(contradictory)?)
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")
   bundle.write_atomic(p"capture.json", metadata)
-  bundle.write(p"proc/self/mountinfo", raw.replace("/mnt/shared", "/mnt/other"))
+  bundle.write(p"proc/self/mountinfo", raw.replace("/mnt/shared", with: "/mnt/other"))
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")
 }
 
@@ -8358,11 +8384,11 @@ beta 8192 1 alpha Live 0x1
   assert report_checks.validate_kernel_modules_bundle(bundle)?.len() == 2
   let metadata = bundle.read_text(p"capture.json")?
   assert "\"users\": 1" in metadata
-  bundle.write(p"capture.json", metadata.replace("\"users\": 1", "\"users\": 2"))
+  bundle.write(p"capture.json", metadata.replace("\"users\": 1", with: "\"users\": 2"))
   test.error_kind(report_checks.validate_kernel_modules_bundle(bundle), "SystemReportCheckError.Invalid")
   bundle.write(p"capture.json", metadata)
   assert "\"errno\": null" in metadata
-  bundle.write(p"capture.json", metadata.replace("\"errno\": null", "\"errno\": 13"))
+  bundle.write(p"capture.json", metadata.replace("\"errno\": null", with: "\"errno\": 13"))
   test.error_kind(report_checks.validate_kernel_modules_bundle(bundle), "SystemReportCheckError.Invalid")
   bundle.write(p"capture.json", metadata)
   bundle.write(
@@ -8934,7 +8960,11 @@ test test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_o
   }
   let candidate = """{"identity":{"firmware":{"source":"dmi","vendor":"Example Vendor","product":"Example Host","board_vendor":"Board Vendor","board_product":"Board A","bios_vendor":"BIOS Vendor","bios_version":"1.2","serial":{"state":"observed","value":"serial-123"},"uuid":{"state":"absent","value":null}}},"issues":[]}"""
   assert report_checks.compare_dmi_identity(candidate, reference, reference)?.exact
-  let wrong_board = report_checks.compare_dmi_identity(candidate.replace("Board A", "Board B"), reference, reference)?
+  let wrong_board = report_checks.compare_dmi_identity(
+    candidate.replace("Board A", with: "Board B"),
+    reference,
+    reference,
+  )?
   assert wrong_board.field_mismatches == ["board_product"]
   let changed_serial = report_checks.compare_dmi_identity(
     candidate,
@@ -8943,27 +8973,27 @@ test test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_o
   )?
   assert changed_serial.unstable_fields == ["serial"]
   let changed_vendor = report_checks.compare_dmi_identity(
-    candidate.replace("\"source\":\"dmi\"", "\"source\":\"unavailable\""),
+    candidate.replace("\"source\":\"dmi\"", with: "\"source\":\"unavailable\""),
     reference,
     {...reference, vendor: {value: null, complete: false}},
   )?
   assert "source" in changed_vendor.unstable_fields
   assert "source" not in changed_vendor.field_mismatches
   let redacted = report_checks.compare_dmi_identity(
-    candidate.replace("\"state\":\"observed\",\"value\":\"serial-123\"", "\"state\":\"redacted\",\"value\":null"),
+    candidate.replace("\"state\":\"observed\",\"value\":\"serial-123\"", with: "\"state\":\"redacted\",\"value\":null"),
     reference,
     reference,
   )?
   assert redacted.field_mismatches == ["serial"]
   let default_report = candidate.replace(
     "\"state\":\"observed\",\"value\":\"serial-123\"",
-    "\"state\":\"redacted\",\"value\":null",
+    with: "\"state\":\"redacted\",\"value\":null",
   )
   assert report_checks.dmi_identity_redacted(default_report, reference)?
   assert ! report_checks.dmi_identity_redacted(candidate, reference)?
   let invented_uuid = default_report.replace(
     "\"state\":\"absent\",\"value\":null",
-    "\"state\":\"observed\",\"value\":\"invented\"",
+    with: "\"state\":\"observed\",\"value\":\"invented\"",
   )
   assert ! report_checks.dmi_identity_redacted(invented_uuid, reference)?
   let leaked_bytes = json.set(

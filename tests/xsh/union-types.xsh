@@ -436,7 +436,7 @@ test test_lint_names_the_union_of_a_list_any_filled_from_typed_literals { |ctx|
   let fixed = run.capture --text "xsht" lint --fix --only lint.list-any-union $file ?
   assert file.read_text()? == source, fixed.stderr
 
-  let migrated = source.replace("List[Any]", "List[Union[Str, Path]]")
+  let migrated = source.replace("List[Any]", with: "List[Union[Str, Path]]")
   let output = test.expect(ctx, migrated, status: 0)?
   assert output.stdout == "5\n"
 }

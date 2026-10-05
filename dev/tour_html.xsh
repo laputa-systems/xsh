@@ -492,11 +492,11 @@ tr:last-child td { border-bottom: 0; }
 """
 
 pure esc(text: Str) -> Str {
-  text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+  text.replace("&", with: "&amp;").replace("<", with: "&lt;").replace(">", with: "&gt;")
 }
 
 pure attr(text: Str) -> Str {
-  esc(text).replace("\"", "&quot;")
+  esc(text).replace("\"", with: "&quot;")
 }
 
 pure span(kind: Str, text: Str) -> Str {
@@ -511,7 +511,7 @@ pure between(text: Str, start: Int, end: Int) -> Str {
 }
 
 pure slug(markup: Str) -> Str {
-  slug_edge.replace(slug_gap.replace(markup.lower(), "-"), "")
+  slug_edge.replace(slug_gap.replace(markup.lower(), with: "-"), with: "")
 }
 
 # Prose markup with code spans and links turned into elements.
@@ -598,7 +598,7 @@ pure take_list(lines: List[Str], start: Int) -> Items {
 }
 
 pure table_cells(line: Str) -> List[Str] {
-  [cell.trim() for cell in table_edge.replace(line.trim(), "").split("|")]
+  [cell.trim() for cell in table_edge.replace(line.trim(), with: "").split("|")]
 }
 
 pure take_table(lines: List[Str], start: Int) -> Result[Taken] {
@@ -860,7 +860,7 @@ pure toc_html(headings: List[HeadingBlock]) -> Str {
 }
 
 pure plain_text(markup: Str) -> Str {
-  markup.replace("`", "")
+  markup.replace("`", with: "")
 }
 
 pure tour_title(first: Block) -> Result[HeadingBlock] {

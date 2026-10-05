@@ -162,7 +162,7 @@ proc show() {
 
 show()
 """
-  let expected = source.replace(r"hex \x24name, price \$5", r"hex \$name, price $5")
+  let expected = source.replace(r"hex \x24name, price \$5", with: r"hex \$name, price $5")
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "dollar-escapes.xsh", contents: bytes.from_text(source))?
   let flagged = run.capture --text "xsht" lint --only lint.dollar-in-expression-string $candidate ?

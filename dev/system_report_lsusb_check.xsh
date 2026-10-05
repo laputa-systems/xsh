@@ -175,7 +175,7 @@ export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow], Error] {
   var rows = []
   for line in output.lines() {
     continue when line.trim() == ""
-    let fields = words(line.trim().replace(",", "").replace(":", " "))
+    let fields = words(line.trim().replace(",", with: "").replace(":", with: " "))
     let bus_token = field_after(fields, "Bus")
     var root_port = null
     if bus_token != null {

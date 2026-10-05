@@ -6,7 +6,7 @@ test test_regex_literals_preserve_raw_patterns_and_existing_operations {
   let assignment = assignment_regex()
   assert assignment.matches("  SIZE=42")
   assert assignment.captures("SIZE=42")[1] == "42"
-  assert assignment.replace("SIZE=42", "$1") == "42"
+  assert assignment.replace("SIZE=42", with: "$1") == "42"
   assert rx"[a-z]+".find("a 1 bc").len() == 2
   assert rx"\$\{literal\}".matches(r"${literal}")
   assert rx"""(?x)

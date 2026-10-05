@@ -91,17 +91,20 @@ test test_prefer_write_mode_lint_merges_a_write_and_its_chmod { |ctx|
 }
 
 install(p"ROOT/host.key", "secret")?
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "write-mode.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only lint.prefer-write-mode --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
-  let merged = source.replace("  key.write(secret)?\n  key.chmod(0o640)?\n", "  key.write(secret, mode: 0o640)?\n")
+  let merged = source.replace(
+    "  key.write(secret)?\n  key.chmod(0o640)?\n",
+    with: "  key.write(secret, mode: 0o640)?\n",
+  )
     .replace(
       r"""  fs.write(fp"{key}.pub", "public\n")?
   fs.chmod(fp"{key}.pub", 0o604)?
 """,
-      r"""  fs.write(fp"{key}.pub", "public\n", mode: 0o604)?
+      with: r"""  fs.write(fp"{key}.pub", "public\n", mode: 0o604)?
 """,
     )
   assert fixed == merged

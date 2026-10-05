@@ -49,10 +49,10 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> par-map(jobs: opts.jobs) { |entry|
       var out: WebpResult = WebpResult(false)
       let rel = entry.path.relative_to(opts.root)
-      let safe = rel.display().replace("/", "_")
-      let webp_name = safe.replace(f".{entry.ext}", ".webp")
+      let safe = rel.display().replace("/", with: "_")
+      let webp_name = safe.replace(f".{entry.ext}", with: ".webp")
       let tmp_out = fp"{tmp_dir}/{webp_name}"
-      let dest = fp"{entry.path.parent()}/{entry.name.replace(f".{entry.ext}", ".webp")}"
+      let dest = fp"{entry.path.parent()}/{entry.name.replace(f".{entry.ext}", with: ".webp")}"
       let quality = f"{opts.quality}"
 
       if opts.apply {
@@ -81,7 +81,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
               let trash_status = run.status trash $entry.path
 
               if trash_status.ok {
-                tmp_out.rename(dest, overwrite: true)
+                tmp_out.rename(to: dest, overwrite: true)
                 print f"{entry.path} -> {dest}"
                 out = {converted: true}
               } else {

@@ -7,7 +7,7 @@ pure helper_bin(ctx: TestContext) -> Path {
 proc marker_command(ctx: TestContext, marker: Str) [fs, error] -> Result[Command] {
   let root = test.temp_dir(ctx, name: marker)?
   let executable = fp"{root}/{marker}"
-  helper_bin(ctx).resolve()?.copy(executable)
+  helper_bin(ctx).resolve()?.copy(to: executable)
   executable.chmod(0o755)
   process.command_argv(executable, [executable, "ready-sleep", fp"{root}/ready"])
 }

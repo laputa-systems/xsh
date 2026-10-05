@@ -2545,24 +2545,24 @@ pure uri_encode(s: Str) -> Str {
 }
 
 pure html_escape(s: Str) -> Str {
-  var r = s.replace("&", "&amp;")
-  r = r.replace("<", "&lt;")
-  r = r.replace(">", "&gt;")
-  r = r.replace("'", "&apos;")
-  r = r.replace("\"", "&quot;")
+  var r = s.replace("&", with: "&amp;")
+  r = r.replace("<", with: "&lt;")
+  r = r.replace(">", with: "&gt;")
+  r = r.replace("'", with: "&apos;")
+  r = r.replace("\"", with: "&quot;")
   r
 }
 
 pure tsv_escape(s: Str) -> Str {
-  var r = s.replace("\\", "\\\\")
-  r = r.replace("\t", "\\t")
-  r = r.replace("\n", "\\n")
-  r = r.replace("\r", "\\r")
+  var r = s.replace("\\", with: "\\\\")
+  r = r.replace("\t", with: "\\t")
+  r = r.replace("\n", with: "\\n")
+  r = r.replace("\r", with: "\\r")
   r
 }
 
 pure sh_quote(s: Str) -> Str {
-  "'" + s.replace("'", "'\\''") + "'"
+  "'" + s.replace("'", with: "'\\''") + "'"
 }
 
 pure fmt_cell_sh(x: Json) -> Result[Str] {
@@ -2603,7 +2603,7 @@ pure apply_format(name: Str, value: Json) -> Result[Str] {
         JNum(n) => cells += [render_num(n)]
         JStr(s) => {
           if name == "csv" {
-            cells += ["\"" + s.replace("\"", "\"\"") + "\""]
+            cells += ["\"" + s.replace("\"", with: "\"\"") + "\""]
           } else {
             cells += [tsv_escape(s)]
           }

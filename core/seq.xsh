@@ -29,7 +29,7 @@ proc repeat_char(ch: Str, count: Int) [error, io] -> Str {
 }
 
 pure unescape(raw: Str) -> Str {
-  raw.replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\")
+  raw.replace("\\n", with: "\n").replace("\\t", with: "\t").replace("\\\\", with: "\\")
 }
 
 proc pad_equal_width(raw: Str, width: Int) [error, io] -> Str {
@@ -39,7 +39,7 @@ proc pad_equal_width(raw: Str, width: Int) [error, io] -> Str {
 
   let padding = repeat_char("0", missing)
 
-  return f"-{padding}{raw.replace("-", "")}" when raw.starts_with("-")
+  return f"-{padding}{raw.replace("-", with: "")}" when raw.starts_with("-")
 
   f"{padding}{raw}"
 }

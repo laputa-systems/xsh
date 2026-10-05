@@ -1179,7 +1179,7 @@ test test_filesystem_errors_name_their_paths { |ctx|
   for failure in [
     fp"{missing}/child".mkdir(),
     fp"{missing}/file.txt".write("x"),
-    fp"{missing}/a".copy(fp"{missing}/b"),
+    fp"{missing}/a".copy(to: fp"{missing}/b"),
   ] {
     if let Err(error) = failure {
       assert missing.display() in error.message, error.message
@@ -1199,7 +1199,7 @@ test test_run_accepts_relative_command_paths { |ctx|
   let out = run.text ./tool ?
   print ${out.trim()}
 }
-""".replace("ROOT", f"p\"{ctx.temp_root}\""),
+""".replace("ROOT", with: f"p\"{ctx.temp_root}\""),
     status: 0,
   )?
   assert output.stdout == "ran\nran\n"

@@ -1205,7 +1205,7 @@ pure set_option(text: Str, key: Str, value: Str) -> Str {
   var out = []
   var done = false
   for line in text.lines() {
-    let words = line.replace("#", " ").fields()
+    let words = line.replace("#", with: " ").fields()
     if ! done and ! words.is_empty() and words[0] == key {
       out += [f"{key} {value}"]
       done = true
@@ -1230,7 +1230,7 @@ proc edit_config(file: Path, key: Str, value: Str) {
   }
 
   let backup = fp"{file}.bak"
-  file.copy(backup, overwrite: true)
+  file.copy(to: backup, overwrite: true)
   file.write_atomic(after)
   print diff.unified(backup, file)?.text.trim()
 }
@@ -1353,7 +1353,7 @@ proc fetch(url: Str, out: Path) {
   }
 
   run curl -fsSL -o $partial $url
-  partial.rename(out)
+  partial.rename(to: out)
 }
 
 fetch("https://mirror.example.org/laputa.iso", p"laputa.iso")
@@ -1701,7 +1701,7 @@ export pure set_option(text: Str, key: Str, value: Str) -> Str {
   var out = []
   var done = false
   for line in text.lines() {
-    let words = line.replace("#", " ").fields()
+    let words = line.replace("#", with: " ").fields()
     if ! done and ! words.is_empty() and words[0] == key {
       out += [f"{key} {value}"]
       done = true
@@ -1726,7 +1726,7 @@ cli main(config: Path = /etc/ssh/sshd_config) {
   let before = config.read_text()?
   let after = sshd.set_option(before, "PermitRootLogin", "no")
   if after != before {
-    config.copy(fp"{config}.bak", overwrite: true)
+    config.copy(to: fp"{config}.bak", overwrite: true)
     config.write_atomic(after)
     print f"updated {config}"
   }

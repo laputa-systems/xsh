@@ -103,7 +103,7 @@ true try type unless use var wait when while with yield
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
-statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
+statement (8.6), `at` in the head of a `tempdir NAME at PATH` scope (10.4),
 `fail` at the start of a `fail` statement and `because` after its first
 operand (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
@@ -350,7 +350,7 @@ cli main(src: Path, dest: Path, jobs: UInt = 4, verbose = false) {
     print f"copying {src} to {dest} with {jobs} jobs"
   }
 
-  src.copy(dest)
+  src.copy(to: dest)
 }
 ```
 
@@ -1778,8 +1778,13 @@ its result is made optional. Guard each hop: `config?.server?.host?.trim()`.
 The receiver's type decides what the `?` of `?.` and `?[` guards. On a
 `Result` receiver it is propagation (8.3) followed by the ordinary operation:
 `load()?.trim()` means `(load()?).trim()`, fails as that does, and its value is
-not optional. One hop is one layer, so a `Result[T?]` receiver needs both:
-`(find()?)?.trim()`; `find()?.trim()` is `check.optional-method`. On any other
+not optional. The same holds for a field and an index: `stat()?.kind` is
+`(stat()?).kind` and `list()?[0]` is `(list()?)[0]`. One hop is one layer, so
+a `Result[T?]` receiver needs both: `(find()?)?.trim()`. With one hop the
+optional it held is unguarded, and that is an error named after the access:
+`find()?.trim()` is `check.optional-method`, `find()?.name` is
+`check.null-safe-field`, and `find()?[0]` or `find()?[a..b]` is
+`check.null-safe-index`. On any other
 receiver `?.` is `check.null-safe-field`. An
 optional method that returns a `Result` produces `Result[T, E]?`; handle the
 layers separately, as in `(text?.parse_int() ?? Ok(0))?`.
@@ -2326,6 +2331,38 @@ function declared `-> Result[T]` may return or tail-produce either a
 simply finish. Ignoring a value-producing `Result` is an error; `let _ =`
 discards one deliberately.
 
+A tail that is a bare block (6.9), or a branch of a tail `if` or `match`, is
+still the function's tail, so its own last statement follows the same rule.
+A scope there (`try`, `cd`, `env`, `tempdir`, `within`; 8.8, 10.4) does not:
+its value is a `Result` of its body's tail, so the body's tail must be the
+plain `T`, and a `Result` there is propagated with `?`:
+
+```xsh
+proc stamp_line(root: Path) [fs, error] -> Result[Str] {
+  {
+    let stamp = fp"{root}/stamp"
+    stamp.write("staged\n")
+    first_line(stamp)
+  }
+}
+
+proc staged_line(root: Path) [fs, error] -> Result[Str] {
+  tempdir scratch at fp"{root}/stage" {
+    fp"{scratch}/stamp".write("staged\n")
+    first_line(fp"{scratch}/stamp")?
+  }
+}
+```
+
+```xsh
+proc staged_line(root: Path) [fs, error] -> Result[Str] {
+  tempdir scratch at fp"{root}/stage" { # error: check.type-mismatch
+    fp"{scratch}/stamp".write("staged\n")
+    first_line(fp"{scratch}/stamp") # error: check.type-mismatch
+  }
+}
+```
+
 `result.context(kind, message)` returns `Ok` unchanged and adds a diagnostic
 context frame to an `Err`.
 
@@ -2613,8 +2650,8 @@ runs with the error (the common nominal type, or `Error` for mixed families).
 Bindings are not visible in the handler.
 
 Parameterized blocks always put the parameters inside the brace:
-`{ |name| ... }`, except `tempdir NAME { ... }` (10.4), whose name before the
-brace is its parameter. Plain conditional branches, `guard` failure blocks,
+`{ |name| ... }`, except a `tempdir` scope (10.4), whose name after the word
+`tempdir` is its parameter. Plain conditional branches, `guard` failure blocks,
 and deferred blocks take no parameters.
 
 ### 8.7 `defer`
@@ -2641,7 +2678,7 @@ proc publish(output: Path) {
   let partial = fp"{output}.partial"
   errdefer partial.remove()
   render(partial)
-  partial.rename(output)
+  partial.rename(to: output)
 }
 ```
 
@@ -2656,11 +2693,13 @@ an error when
   at an enclosing `try` or `retry`;
 - the function returns an `Err` through it, by `return` or as the function's
   tail value;
-- `exit`, or cancellation, unwinds through it; or
+- `exit` with a nonzero status, or cancellation (12.1), unwinds through it; or
 - one of its own deferred actions, registered later, fails.
 
 It leaves without an error on normal completion, on `break` and `continue`,
-and when the function returns any other value. An `Err` that is the tail of a
+when the function returns any other value, and when `exit 0` unwinds through
+it: a deliberate exit in success is not an error, so only `defer` actions
+run. The status is the evaluated one, whatever expression wrote it. An `Err` that is the tail of a
 value block is that block's value, not a failure. A block inside `try` that the captured failure passes through leaves with an
 error; the block that contains the `try` does not. Each `retry` attempt is a
 block, so a failed attempt runs its `errdefer` actions before the next
@@ -2668,54 +2707,11 @@ attempt. A stream producer that its consumer stops early leaves without an
 error. A failing `errdefer` action is a cleanup failure like any other: the
 failure that triggered it stays primary, the other actions still run, and the
 cleanup failure is reported with its location. At the top level, the scope is
-the script, and it leaves with an error when the script fails or exits with
-`exit`.
+the script, and it leaves with an error when the script fails, is canceled,
+or exits with a nonzero status.
 
-`tempdir name at path { ... }` runs its block with a scratch directory at a
-path the program chooses. It is sugar, defined by its expansion:
-
-```xsh
-tempdir scratch at fp"{root}/stage" {
-  fp"{scratch}/stamp".write("staged\n")
-  fp"{scratch}/stamp".read_text()?
-}
-```
-
-means exactly
-
-```xsh
-{
-  let scratch: Path = fp"{root}/stage"
-  fs.remove(scratch, missing_ok: true)
-  fs.mkdir(scratch)
-  defer fs.remove(scratch, missing_ok: true)
-  {
-    fp"{scratch}/stamp".write("staged\n")
-    fp"{scratch}/stamp".read_text()?
-  }
-}
-```
-
-So the path is a `Path` evaluated once and bound to the immutable `name`,
-which is in scope for the body only. Both removals are `fs.remove` (15),
-which the expansion writes with its default `missing_ok: true`: whatever is
-at the path, a file, a symlink (itself, never
-its target), or a directory with everything below it, is removed, and nothing
-being there is not an error. A failure to remove what is there or to create
-the directory propagates before the body runs. The deferred removal runs
-however control leaves the statement, after the body's own defers, and follows
-the `defer` rules above: when it fails, the body's failure stays primary, and
-if the body succeeded the removal's failure is the statement's failure. The
-statement needs the `fs` effect, and the `error` effect where a failure can
-leave a restricted proc. The body is a block (6.9): as the tail of a body that
-produces a value it produces its own tail, computed before the directory is
-removed. The expansion names the standard `fs` module, so the statement is
-rejected where a local binding named `fs` hides it. A statement is a `tempdir`
-statement when it begins with the word `tempdir`, a name, and the word `at`
-on one line; neither word is reserved, and the path is a head expression like
-the source of a `for`.
-`fs.tempdir()` (15) is the other scratch directory: a private one at a path
-the runtime chooses, owned through its handle.
+A `tempdir` scope (10.4) removes its directory with a deferred action of this
+kind, registered before the body runs.
 
 `atomically replace dest as name { ... }` publishes a file that something
 other than XSH writes (an archiver, a compiler, an image builder): the block
@@ -2761,7 +2757,17 @@ as above, when the contents must be durable before they are visible.
 Two writers to one destination, or to two destinations in one directory, never
 share a temporary file: each runs with a name of its own, and of two that
 replace the same destination the one that renames last wins. The name is
-unused when it is drawn and is not reserved by a lock. A run that is killed
+unused when it is drawn and is not reserved, by a lock or by creating a file
+there: the body has to be free to make the path itself, as a directory, or
+through a producer that refuses a path that exists. So the names differ by
+chance. `RANDOM` is six letters and digits, and a name that exists is never
+drawn, which leaves one window: two runs that draw the same name before
+either has produced anything at it, about one chance in 56 billion for two
+statements that start together on one destination. Those two would write one
+path, and the destination could receive a mix of both or a file that is
+still being written; nothing detects it. A program that cannot accept that
+holds an `fs.lock` on a lock file of its own around the statement. A run
+that is killed
 leaves its temporary file behind; a later run neither publishes nor removes
 it, because it never uses that name.
 
@@ -2789,7 +2795,7 @@ a `for`. It ends at the `as` that stands directly before the name and the `{`
 of the body, outside every bracket the destination opens: a pattern test
 there keeps an alias of its own only inside brackets or before that word
 (`atomically replace (kind is Image as image) as partial {`). Those two words,
-like the three that begin a `tempdir NAME at PATH` statement, never begin a
+like the three that begin a `tempdir NAME at PATH` scope, never begin a
 command. `Path.write_atomic` (15) is the same publication for bytes the
 program already holds.
 
@@ -2845,7 +2851,7 @@ one. A non-empty delay list requires the `time` effect. Each attempt emits a
 
 ```xsh
 ctx f"installing {package.name}" {
-  src.copy(dest)
+  src.copy(to: dest)
 }
 ```
 
@@ -2863,7 +2869,9 @@ different one.
 `exit status` ends the script with `status` as a deliberate exit. It is not an
 error: no traceback is printed and `try` does not capture it. Deferred cleanup
 runs while unwinding, and the status is an `Int` expression from 0 to 255
-(12.3), evaluated once.
+(12.3), evaluated once. Every `defer` action of the scopes it unwinds runs;
+their `errdefer` actions (8.7) run when the status is not zero and are skipped
+by `exit 0`.
 
 ```xsh
 guard uid == 0 else {
@@ -3331,14 +3339,7 @@ escape a scope as its value, through an assignment, a `return`, or a `yield`;
 consume it inside. A producer that yields from inside a scope keeps its own
 directory and environment between pulls.
 
-`tempdir NAME { ... }` runs its body with `NAME: Path` bound to a fresh, empty
-temporary directory, which is removed with its contents when the body ends for
-any reason, after the body's defers run and its owned handles are cleaned up
-(8.7, 11.8). It is the scope that `let root = fs.tempdir()?`,
-`defer root.close()?`, and `let NAME = root.host_path()?` open over the rest
-of a block, without the handle: use that form when the code needs the
-`FsRoot`'s rooted operations or passes the handle on. Removal is the handle's
-`close()`.
+`tempdir` is the scope for scratch space. It has two heads:
 
 ```xsh
 tempdir stage {
@@ -3352,14 +3353,69 @@ let files = tempdir scratch {
 }?
 ```
 
-Like `cd` and `env`, a `tempdir` scope returns `Result[Unit]` in statement
-position and `Result[T]` of the body's tail in value position, where it needs
-no parentheses (`let count = tempdir dir { ... }?`). Its `Err` reports only a
-failure to create the directory; failures inside the body propagate to their
-ordinary destination. It needs the `fs` effect and is rejected in pure
-functions. The path is an ordinary value that may leave the scope, but it
-names a removed directory once the scope ends. `tempdir` starts a scope only
-when the name and `{` follow on the same line.
+`tempdir NAME { ... }` runs its body with `NAME: Path` bound to a fresh, empty
+temporary directory at a path the runtime chooses. It is the scope that
+`let root = fs.tempdir()?`, `defer root.close()?`, and
+`let NAME = root.host_path()?` open over the rest of a block, without the
+handle: use that form when the code needs the `FsRoot`'s rooted operations or
+passes the handle on.
+
+`tempdir NAME at PATH { ... }` runs its body with `NAME` bound to a directory
+at a path the program names:
+
+```xsh
+tempdir scratch at fp"{root}/stage" {
+  fp"{scratch}/stamp".write("staged\n")
+}
+
+let stamp = tempdir scratch at fp"{root}/stage" {
+  fp"{scratch}/stamp".write("staged again\n")
+  fp"{scratch}/stamp".read_text()?
+}?
+```
+
+`PATH` is a `Path`, evaluated once, before `NAME` is in scope. Whatever is at
+the path is removed first, as `fs.remove` with `missing_ok: true` removes it:
+a file, a symlink (itself, never its target), or a directory with everything
+below it, and nothing being there is not an error. Then the directory is
+created, with any missing parents.
+
+With either head, `NAME` is immutable and in scope for the body only, and the
+directory is removed with its contents when the body ends for any reason,
+after the body's defers run and its owned handles are cleaned up (8.7, 11.8).
+The removal is a deferred action (8.7) registered before the body runs: when
+it fails after a body that failed, the body's failure stays primary, and
+after a body that succeeded its failure leaves the enclosing function as any
+deferred action's does. It is not the scope's `Err`.
+
+Both heads follow the rule of `cd` and `env`. In statement position the scope
+returns `Result[Unit]`, and a failure propagates as a failed statement does
+(8.1), with or without `?`. In value position it returns `Result[T]` of the
+body's tail and needs no parentheses (`let count = tempdir dir { ... }?`,
+`let text = tempdir dir at path { ... }?`); the tail is computed before the
+directory is removed. A `Result` tail stays nested, and so does the scope as
+the tail of a `try` block: `try { tempdir dir at path { 1 } }` is a
+`Result[Result[Int]]`. As the tail of a function that returns `Result[T]`,
+the scope with a `T` tail is the function's result. The scope's `Err` reports
+only a failure to enter: to create the fresh directory, or to clear the path
+and create the directory there; the body does not run. Failures inside the
+body propagate to their ordinary destination. The scope needs the `fs` effect
+and is rejected in pure functions. The path is an ordinary value that may
+leave the scope, but it names a removed directory once the scope ends.
+
+Neither `tempdir` nor `at` is reserved. `tempdir` starts a scope only when a
+name and then `{` or the word `at` follow on the same line; the path after
+`at` is a head expression like the source of a `for`, and the body takes no
+`|...|` parameters.
+
+Two lints lead to the scope. `lint.prefer-tempdir-scope` reports
+`let root = fs.tempdir()?` with its `defer root.close()?` where the handle is
+used only for its path, and `lint.prefer-tempdir` reports
+`fs.remove(NAME, missing_ok: true)`, `fs.mkdir(NAME)`, and
+`defer fs.remove(NAME, missing_ok: true)` in a row. Each offers the rewrite
+of the rest of the block into the scope's body only where that is the same
+program; in particular a last statement that is the block's value moves only
+out of the body of a function that returns `Result[T]`, as a `T`.
 
 `within DURATION { ... }` runs its body under a deadline, `DURATION` from
 the moment the scope is entered:
@@ -3768,7 +3824,9 @@ Every `run` command gets its own process group, and a byte pipeline shares one
 group. When XSH receives `SIGINT` or `SIGTERM` with no matching hook, it
 forwards the same signal to active child groups, waits a short grace period,
 kills the remaining children with `SIGKILL`, cancels live handles and network
-jobs, runs cleanup, and fails with `Canceled`; the script exits `3`. XSH does
+jobs, runs cleanup, and fails with `Canceled`; the script exits `3`. Cleanup
+is every `defer` and every `errdefer` action (8.7) of the scopes that were
+open: cancellation leaves each of them with an error. XSH does
 not manage descendants that move to another process group or session.
 
 OS signal handlers only record that a signal arrived. XSH code runs only at
@@ -3855,6 +3913,12 @@ Stage blocks see the current item as `.` (`where .kind == "file"`,
 `map { .path.name }`) or bind it explicitly with `{ |item| ... }`, but not
 both (6.9). They may contain statements followed by a tail. Inside a stage
 block `.name` is always a field of the item, never a target-typed variant (5.5).
+
+A `(` after a stage name always opens that stage's arguments, and a `{` after
+the name or its arguments is always the block of a stage that takes one. That
+holds in the head of a `for`, `while`, `if`, or `tempdir ... at` too: in
+`for x in xs |> fold(0) { ... }` the block belongs to `fold` and the loop has
+no body, so group the pipeline or bind it first.
 
 A stage that is not a stream stage is a value call: a bare method name uses
 the previous value as its receiver (`text |> split(",")` is `text.split(",")`),
@@ -3949,17 +4013,40 @@ batch at the first limit reached, and keeps a final short batch.
 `batch(max_argv: true)` sizes batches to fit an argv.
 
 `par-map` maps items on a bounded pool of workers (by default about one per
-CPU) and keeps input order. When a callback fails with `?`, no new work is
-scheduled and the stage propagates exactly as `map` does: of the items that
-ran, the earliest failure becomes the enclosing function's `Err`. Items that
-are already running then run to their end. The stage maps every item before
-the next stage sees one, so a later `take` or a `break` around the pipeline
-never leaves a worker running. The stage returns only when every worker has:
-when it is given up before that, by cancellation, a `within` deadline
-(10.4), or the script shutting down, each worker stops the child process it
-is running the way a cancelled one is stopped, fails its item at its next
-checkpoint, and runs its cleanup, and the stage then fails with the reason
-it was given up. Every other stage runs serially. `each`,
+CPU) and keeps input order. The stage is eager: it maps every item before the
+next stage sees one, and the code around the pipeline does not run while it
+does. So a later `take`, a `break` around the pipeline, or a `return` after
+it never finds a worker running, and none of them can leave while the stage
+runs. Only what happens inside an item, or outside the script, ends the stage
+early.
+
+An item fails when a failure leaves its callback: a `?` on an `Err`, a failed
+statement-position `Result[Unit]`, a failed command or assertion, a runtime
+failure, or `fail` (a `return` of an `Err`). When an item fails, the stage
+stops: no new item starts, and each item still running is stopped as a
+deadline (10.4) stops it. Its worker sends the child process it is running
+`SIGTERM`, and `SIGKILL` after the grace period (12.1), fails the item at its
+next checkpoint, and runs the item's cleanup; an item that handles that
+failure is failed again at its next statement. The stage returns when every
+worker has, and then propagates exactly as `map` does: one item's failure
+becomes the enclosing function's `Err`. That item is the first, in input
+order, of the items that failed on their own, meaning before their worker
+acted on the stop. An item the stage stopped never reports, whatever it was
+doing and wherever it stands in the input. So one failing item is always the
+one reported, and when several items fail independently before the stop
+reaches them, the earliest of those in the input is.
+
+An item that leaves by a `return` that is not an `Err`, or by `break` or
+`continue`, is not a failure: no new item starts, the items already running
+run to their end, and the earliest item in input order that left or failed
+decides the stage.
+
+When the stage is given up from outside, by cancellation, a `within` deadline
+(10.4), or the script shutting down, every item still running is stopped the
+same way and the stage then fails with the reason it was given up. `par-map`
+followed by `reduce-by`, with or without an identity `flat-map` between them,
+runs as one stage that reduces on the workers; it stops and reports as
+`par-map` does. Every other stage runs serially. `each`,
 `group-by`, and `count` reject `jobs:`.
 
 `sort` and `sort-by` are stable. They order `Int`, `Str`, `Bool`, and `Path`
@@ -4182,6 +4269,39 @@ fp"{key}.pub".write("public\n", mode: 0o644)
   and free of an escaping `..`; a function that passes a path on to a root
   should declare it `RelPath`. The handle still resolves every path it is
   given, because only resolution sees a symlink.
+- Six methods take an argument whose label makes the call read as a
+  sentence, so that two operands of one type cannot be swapped unnoticed:
+
+  ```xsh
+  build.copy(to: release)
+current.symlink(to: release)
+let text = notes.replace("DRAFT", with: "FINAL")
+  ```
+
+  They are `Path.copy(to:)`, `Path.rename(to:)`, `Path.hardlink(at:)`,
+  `Path.symlink(to:)`, `Str.replace(from, with:)`, and
+  `Regex.replace(text, with:)`. The receiver of `symlink` is the link and
+  its argument is what the link names, stored as written; the receiver of
+  `hardlink` is the file that exists and its argument is the new name. The
+  label is a rule on the parameter in the registry (`xsht api` shows the
+  parameter under that name). The argument still checks when it is passed
+  by position or under the parameter's former name (`dest:`, `path:`, `to:`
+  of `replace`, `replacement:`), also as the field of a spread record, and
+  means the same. `lint.prefer-argument-label` writes the label at both and
+  rewrites `fs.symlink(target, link)` to `link.symlink(to: target)`. The
+  method evaluates the link before the target, so that rewrite is offered
+  only where the order cannot be observed: one operand is a literal, or
+  both only read (a name, a field path, text that interpolates those). A
+  function declared in XSH has no such rule: each of its parameters may be
+  passed by position or by name, and `with` is a keyword, so it can label
+  an argument of a standard method but cannot name a declared parameter.
+- `fs.mounts()` and `linux.disk_usage()` without a path list every mount
+  whose statistics the host gives the process. A mount that refuses them
+  with a permission error (`EACCES`, `EPERM`) is left out, as `df` leaves it
+  out, so an unprivileged listing does not fail on a mount it may not look
+  into; any other failure fails the listing at that row. `fs.mount_for(path)`
+  and `linux.disk_usage(path)` name one mount and fail with the host's error
+  when it is refused.
 - Archive extraction and `patch.apply` reject absolute paths, parent
   traversal, symlink escapes, and overwrites unless asked.
 - `time` has no civil-time formatter; run `date` for locale-aware output.

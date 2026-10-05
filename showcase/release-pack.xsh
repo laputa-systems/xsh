@@ -73,7 +73,7 @@ proc main(...argv: List[Str]) [fs, error] {
   archive.tar_create(staged_tarball, stage, [p"."], "auto")
   let listed = archive.tar_list(staged_tarball)?.collect()
   let digest = staged_tarball.read_bytes()?.sha256().hex()
-  pending.rename(output)
+  pending.rename(to: output)
   let tarball = fp"{output}/release.tar"
   print f"staged {copied.files} files {copied.dirs} dirs"
   print f"archive {tarball} entries {listed.len()} sha256 {digest}"

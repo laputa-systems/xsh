@@ -4,7 +4,7 @@ pure basename_value(name: Str, suffix: Str) -> Str {
   let raw = if ! parts.is_empty() { parts[-1] } else { name }
   let base = if raw == "" and parts.len() > 1 { parts[-2] } else { raw }
 
-  return base.replace(suffix, "") when suffix != "" and base.ends_with(suffix)
+  return base.replace(suffix, with: "") when suffix != "" and base.ends_with(suffix)
 
   base
 }

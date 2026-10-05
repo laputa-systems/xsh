@@ -11,11 +11,17 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
   if raw.ends_with("k") or raw.ends_with("K") {
-    return raw.replace("k", "").replace("K", "").parse_int().context("usage", f"unsupported {label} '{raw}'")? * 1024
+    return raw.replace("k", with: "")
+      .replace("K", with: "")
+      .parse_int()
+      .context("usage", f"unsupported {label} '{raw}'")? * 1024
   }
 
   if raw.ends_with("m") or raw.ends_with("M") {
-    return raw.replace("m", "").replace("M", "").parse_int().context("usage", f"unsupported {label} '{raw}'")? * 1024 * 1024
+    return raw.replace("m", with: "")
+      .replace("M", with: "")
+      .parse_int()
+      .context("usage", f"unsupported {label} '{raw}'")? * 1024 * 1024
   }
 
   raw.parse_int().context("usage", f"unsupported {label} '{raw}'")?

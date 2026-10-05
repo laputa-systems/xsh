@@ -17,9 +17,9 @@ test test_path_kind_predicates_ask_what_the_path_itself_is { |ctx|
   let to_dir = fp"{root}/to-dir"
   let to_file = fp"{root}/to-file"
   let dangling = fp"{root}/dangling"
-  fs.symlink(dir, to_dir)
-  fs.symlink(file, to_file)
-  fs.symlink(fp"{root}/absent", dangling)
+  to_dir.symlink(to: dir)
+  to_file.symlink(to: file)
+  dangling.symlink(to: fp"{root}/absent")
   for link in [to_dir, to_file, dangling] {
     assert link.is_symlink()?
     assert ! link.is_dir()?
@@ -44,7 +44,7 @@ test test_path_kind_predicates_agree_with_metadata_kind { |ctx|
   let link = fp"{root}/link"
   dir.mkdir()
   file.write("text")
-  fs.symlink(file, link)
+  link.symlink(to: file)
   for entry in [dir, file, link, /dev/null] {
     let kind = entry.metadata()?.kind
     assert entry.is_dir()? == (kind == "dir")
@@ -71,7 +71,7 @@ test test_path_kind_predicates_on_an_optional_path { |ctx|
 
 test test_prefer_path_kind_lint_rewrites_a_kind_comparison { |ctx|
   let root = test.temp_dir(ctx, name: "path-kind-lint")?
-  fs.symlink(root, fp"{root}/link")
+  fp"{root}/link".symlink(to: root)
   fp"{root}/file".write("text")
   let source = r"""proc classify(out: Path) [fs, error] -> Result[Str] {
   if out.metadata()?.kind == "symlink" {
@@ -85,13 +85,13 @@ test test_prefer_path_kind_lint_rewrites_a_kind_comparison { |ctx|
 
 print (classify(p"ROOT")?) (classify(p"ROOT/link")?) (classify(p"ROOT/file")?)
 print (classify(p"ROOT/absent")?)
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-kind.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only lint.prefer-path-kind --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
-  let expected = source.replace("out.metadata()?.kind == \"symlink\"", "out.is_symlink()?")
-    .replace("fs.metadata(out)?.kind != \"dir\"", "! out.is_dir()?")
+  let expected = source.replace("out.metadata()?.kind == \"symlink\"", with: "out.is_symlink()?")
+    .replace("fs.metadata(out)?.kind != \"dir\"", with: "! out.is_dir()?")
   assert fixed == expected
   assert fixed != source
 

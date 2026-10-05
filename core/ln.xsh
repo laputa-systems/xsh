@@ -67,9 +67,9 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
     if symbolic {
-      fs.symlink(source, target)
+      target.symlink(to: source)
     } else {
-      source.hardlink(target)
+      source.hardlink(at: target)
     }
   }
 }

@@ -26,14 +26,14 @@ Device Descriptor:
   assert exact.matched_descriptor_fields == 4
   assert exact.mismatches.is_empty() and exact.partial.is_empty()
   let wrong = lsusb_reference.compare_lsusb(
-    candidate.replace("\"driver\":\"hub\"", "\"driver\":\"wrong\""),
+    candidate.replace("\"driver\":\"hub\"", with: "\"driver\":\"wrong\""),
     devices,
     tree,
     descriptor,
   )?
   assert "1:2.driver" in wrong.mismatches
   let wrong_port = lsusb_reference.compare_lsusb(
-    candidate.replace("\"port_path\":\"2\"", "\"port_path\":\"3\""),
+    candidate.replace("\"port_path\":\"2\"", with: "\"port_path\":\"3\""),
     devices,
     tree,
     descriptor,

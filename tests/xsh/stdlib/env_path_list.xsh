@@ -139,7 +139,7 @@ test test_prefer_env_path_list_lint_offers_the_list_without_applying_it { |ctx|
 
 show(p"/stage")?
 """
-  let source = program.replace("VALUE", "f\"{root}/usr/bin:/opt/bin:{e\"XSH_PATH_LIST\" ?? \"\"}\"")
+  let source = program.replace("VALUE", with: "f\"{root}/usr/bin:/opt/bin:{e\"XSH_PATH_LIST\" ?? \"\"}\"")
   let candidate = test.temp_file(ctx, name: "env-path-list.xsh", contents: bytes.from_text(source))?
   let reported = run.capture --text "xsht" lint --only lint.prefer-env-path-list --fix $candidate ?
   assert "lint.prefer-env-path-list" in reported.stderr, reported.stderr
@@ -151,7 +151,7 @@ show(p"/stage")?
   # the file alone.
   assert candidate.read_text()? == source
 
-  let listed = program.replace("VALUE", rewrite)
+  let listed = program.replace("VALUE", with: rewrite)
   assert listed != source
   let inherited = {XSH_PATH_LIST: "/usr/bin:/bin"}
   let before_set = test.run_script(ctx, source, [], inherited)?

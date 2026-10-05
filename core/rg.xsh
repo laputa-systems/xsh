@@ -42,7 +42,7 @@ pure selected_by_glob_at(globs: List[Str], text: Str, index: Int, selected: Bool
 
   let glob = globs[index]
 
-  return false when glob.starts_with("!") and glob_match(glob.replace("!", ""), text)
+  return false when glob.starts_with("!") and glob_match(glob.replace("!", with: ""), text)
 
   let next_selected = selected or (! glob.starts_with("!") and glob_match(glob, text))
   selected_by_glob_at(globs, text, index + 1, next_selected)
@@ -125,7 +125,7 @@ proc search_file(
       var out = line
 
       if color {
-        out = line.replace(pattern, f"[1;31m{pattern}[0m")
+        out = line.replace(pattern, with: f"[1;31m{pattern}[0m")
       }
 
       if show_file and line_numbers {

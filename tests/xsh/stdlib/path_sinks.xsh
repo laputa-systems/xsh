@@ -69,7 +69,7 @@ test test_path_display_sink_lint_passes_the_path_itself { |ctx|
 }
 
 show(process.which("sh")?, p"ROOT/a marker", p"ROOT/out.txt")?
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-display-sink.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only lint.path-display-sink --fix $candidate ?
   let applied_succeeded = applied.status.exited_with(0)
@@ -80,9 +80,9 @@ show(process.which("sh")?, p"ROOT/a marker", p"ROOT/out.txt")?
   # A Str binding is a text boundary and keeps its conversion.
   let passed_directly = source.replace(
     r"""process.command_argv(sh.display(), [sh.display(), "-c", script, "arg0", marker.display()], env: {SINK: marker.display()}, stdout: out)""",
-    r"""process.command_argv(sh, [sh, "-c", script, "arg0", marker], env: {SINK: marker}, stdout: out)""",
+    with: r"""process.command_argv(sh, [sh, "-c", script, "arg0", marker], env: {SINK: marker}, stdout: out)""",
   )
-  assert fixed == passed_directly.replace("bytes.from_text(marker.display())", "marker.bytes()")
+  assert fixed == passed_directly.replace("bytes.from_text(marker.display())", with: "marker.bytes()")
   assert fixed != source
   assert "let label = marker.display()" in fixed
   let before = test.run_script(ctx, source)?

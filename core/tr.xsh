@@ -19,28 +19,28 @@ pure ascii_chars() -> Str {
 
 pure expand_classes(spec: Str) -> Str {
   var out = spec
-  out = out.replace("[:alnum:]", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
-  out = out.replace("[:alpha:]", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
-  out = out.replace("[:blank:]", "\t ")
-  out = out.replace("[:digit:]", "0123456789")
-  out = out.replace("[:lower:]", "abcdefghijklmnopqrstuvwxyz")
+  out = out.replace("[:alnum:]", with: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+  out = out.replace("[:alpha:]", with: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+  out = out.replace("[:blank:]", with: "\t ")
+  out = out.replace("[:digit:]", with: "0123456789")
+  out = out.replace("[:lower:]", with: "abcdefghijklmnopqrstuvwxyz")
 
   out = out.replace(
     "[:space:]",
-    """	
+    with: """	
 """,
   )
 
-  out = out.replace("[:upper:]", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-  out = out.replace("[:xdigit:]", "0123456789ABCDEFabcdef")
+  out = out.replace("[:upper:]", with: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+  out = out.replace("[:xdigit:]", with: "0123456789ABCDEFabcdef")
   out
 }
 
 pure expand_ranges(spec: Str) -> Str {
   var out = expand_classes(spec)
-  out = out.replace("a-z", "abcdefghijklmnopqrstuvwxyz")
-  out = out.replace("A-Z", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-  out = out.replace("0-9", "0123456789")
+  out = out.replace("a-z", with: "abcdefghijklmnopqrstuvwxyz")
+  out = out.replace("A-Z", with: "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+  out = out.replace("0-9", with: "0123456789")
   out
 }
 

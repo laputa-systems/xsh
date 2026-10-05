@@ -1,5 +1,5 @@
 proc install(src: Path, dest: Path = "/usr/local/bin") [fs, error] {
-  src.copy(fp"{dest}/{src.name()}")
+  src.copy(to: fp"{dest}/{src.name()}")
 }
 
 proc classify(config: Path, seen: List[Path]) [fs, error] -> Result[Str] {

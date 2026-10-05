@@ -44,7 +44,7 @@ pure display_args(row: Process) -> Str {
 
   let prefix = f"{argv0} "
 
-  return row.argv.replace(prefix, "") when row.argv.starts_with(prefix)
+  return row.argv.replace(prefix, with: "") when row.argv.starts_with(prefix)
 
   row.argv
 }

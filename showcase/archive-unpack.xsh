@@ -78,7 +78,7 @@ proc main(...argv: List[Str]) [fs, error] {
     defer output.pending.remove()?
     let staged_file = fp"{output.pending}/{dest.name()}"
     archive.compress(src, staged_file)
-    staged_file.rename(output.published)
+    staged_file.rename(to: output.published)
     print f"compressed {src.name()} → {dest.name()} ({dest.metadata()?.size} bytes)"
     return
   }
@@ -96,7 +96,7 @@ proc main(...argv: List[Str]) [fs, error] {
     defer output.pending.remove()?
     let staged_file = fp"{output.pending}/{dest.name()}"
     archive.decompress(src, staged_file)
-    staged_file.rename(output.published)
+    staged_file.rename(to: output.published)
     print f"decompressed {src.name()} → {dest.name()}"
     return
   }
@@ -130,7 +130,7 @@ proc main(...argv: List[Str]) [fs, error] {
         archive.tar_extract(archive_path, output.pending)
       }
 
-      output.pending.rename(output.published)
+      output.pending.rename(to: output.published)
       print f"extracted to {opts.out}"
     }
   }

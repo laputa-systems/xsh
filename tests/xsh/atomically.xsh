@@ -334,7 +334,7 @@ test test_atomically_words_stay_ordinary_names { |ctx|
 
   assert replace == 1
   assert atomically.read_text()? == "as"
-  assert "a-b".replace("-", "+") == "a+b"
+  assert "a-b".replace("-", with: "+") == "a+b"
 }
 
 test test_atomically_at_script_top_level { |ctx|

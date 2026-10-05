@@ -72,9 +72,9 @@ stop(pick(5))
   let file = test.temp_file(ctx, name: "stops.xsh", contents: bytes.from_text(source))?
   let fixed = run.capture --text "xsht" lint --fix --only "check.removed-abort" $file ?
   assert fixed.status.exited_with(0), fixed.stderr
-  assert file.read_text()? == source.replace("abort(code + 1)", "exit code + 1")
-    .replace("abort(2)", "exit 2")
-    .replace("abort(4)", "exit 4")
+  assert file.read_text()? == source.replace("abort(code + 1)", with: "exit code + 1")
+    .replace("abort(2)", with: "exit 2")
+    .replace("abort(4)", with: "exit 4")
   let _ = test.expect(ctx, file.read_text()?, status: 6)?
 }
 

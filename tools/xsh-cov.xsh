@@ -53,7 +53,7 @@ proc relative_display(root: Path, target: Path) [error] -> Result[Str] {
 pure suite_json_name(name: Str) -> Str {
   return "root.json" when name == "."
 
-  f"{name.replace("/", "__")}.json"
+  f"{name.replace("/", with: "__")}.json"
 }
 
 pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {

@@ -70,7 +70,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
     ),
   )
   p"/bin/xsh".remove()
-  fs.symlink(fp"{ctx.target_dir}/release/xsh", /bin/xsh)
+  p"/bin/xsh".symlink(to: fp"{ctx.target_dir}/release/xsh")
   let stress_repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?.trim()
   stages.execute(
     stages.command(
@@ -172,7 +172,7 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
       let source = fp"{ctx.target_dir}/{ctx.target.triple}/debug/{product}"
       if destination != source {
         destination.remove()
-        fs.symlink(source, destination)
+        destination.symlink(to: source)
       }
     }
   }

@@ -30,10 +30,10 @@ Available idle states: POLL C1
   let exact = cpupower_reference.compare_cpupower(candidate, reference)?
   assert exact.matched_fields == 6
   assert exact.mismatches.is_empty() and exact.partial.is_empty()
-  let wrong = candidate.replace("\"hardware_max_khz\":5756452", "\"hardware_max_khz\":5756451")
+  let wrong = candidate.replace("\"hardware_max_khz\":5756452", with: "\"hardware_max_khz\":5756451")
   let mismatch = cpupower_reference.compare_cpupower(wrong, reference)?
   assert "hardware_max_khz" in mismatch.mismatches
-  let shifted = candidate.replace("\"state_index\":1", "\"state_index\":2")
+  let shifted = candidate.replace("\"state_index\":1", with: "\"state_index\":2")
   let shifted_comparison = cpupower_reference.compare_cpupower(shifted, reference)?
   assert "idle_state_names" in shifted_comparison.mismatches
 }

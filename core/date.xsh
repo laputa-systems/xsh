@@ -21,8 +21,8 @@ proc main(...argv: List[Str]) [process, error] {
   }
 
   let format_arg = opts.operands.get(0) ?? "+%a %b %d %H:%M:%S %Y"
-  let format = if format_arg.starts_with("+") { format_arg.replace("+", "") } else { format_arg }
-  let host_format = format.replace("%:z", "%z")
+  let format = if format_arg.starts_with("+") { format_arg.replace("+", with: "") } else { format_arg }
+  let host_format = format.replace("%:z", with: "%z")
   let date_argv = if opts.utc {
     ["date", "-u", f"+{host_format}"]
   } else {

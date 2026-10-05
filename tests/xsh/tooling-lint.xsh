@@ -334,8 +334,14 @@ test test_lint_only_fix_leaves_bytes_outside_edited_spans { |ctx|
   let root = test.temp_dir(ctx, name: "scoped-fix")?
   let script = fp"{root}/main.xsh"
   for case in [
-    {rule: "lint.needless-annotation", expected: source.replace("let total: Int =", "let total =")},
-    {rule: "lint.prefer-const", expected: source.replace("let xs", "const xs").replace("let ys", "const ys")},
+    {
+      rule: "lint.needless-annotation",
+      expected: source.replace("let total: Int =", with: "let total ="),
+    },
+    {
+      rule: "lint.prefer-const",
+      expected: source.replace("let xs", with: "const xs").replace("let ys", with: "const ys"),
+    },
   ] {
     script.write(source)
     let fixed = xsht(root, ["lint", "--only", case.rule, "--fix", "main.xsh"])?

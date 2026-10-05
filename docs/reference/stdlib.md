@@ -127,7 +127,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.metadata(path: Path) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads filesystem metadata into an FsEntry record.
 - `fs.mkdir(path: Path, parents: Bool = default) -> Result[Unit, Error]` — Creates a directory with an explicit parent policy.
 - `fs.mkfifo(path: Path, mode: Int) -> Result[Unit, Error]` — Creates a named FIFO at a path.
-- `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` — Reads mounted-filesystem records for the host.
+- `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` — Reads the mounted-filesystem record of the mount that holds a path.
 - `fs.mounts() -> Result[Stream[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]` — Reads mounted-filesystem records for the host.
 - `fs.open_root(path: Path) -> Result[FsRoot, Error]` — Creates or accesses a rooted filesystem capability.
 - `fs.other_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
@@ -608,7 +608,7 @@ Process-scoped utility helpers.
 - `Path.bytes_lines() -> Result[Stream[Bytes], Error]` — Streams file lines as Bytes.
 - `Path.chmod(mode: Int) -> Result[Unit, Error]` — Changes permission bits on a path.
 - `Path.components() -> List[Path]` — Splits a path into its components, each a Path.
-- `Path.copy(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies a path to an explicit destination.
+- `Path.copy(to: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies a path to an explicit destination.
 - `Path.dirname() -> Path` — Returns the directory component using POSIX dirname semantics.
 - `Path.display() -> Str` — Formats a path for display.
 - `Path.du() -> Result[Int, Error]` — Calculates disk usage for a path.
@@ -618,7 +618,7 @@ Process-scoped utility helpers.
 - `Path.ext() -> Str` — Returns the path extension.
 - `Path.ext_or(fallback: Str) -> Str` — Returns the path extension, or a fallback when there is no extension.
 - `Path.glob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern below a path.
-- `Path.hardlink(path: Path) -> Result[Unit, Error]` — Creates a hard link to a path.
+- `Path.hardlink(at: Path) -> Result[Unit, Error]` — Creates a hard link to the path at another path.
 - `Path.is_dir() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
 - `Path.is_file() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
 - `Path.is_symlink() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
@@ -635,11 +635,12 @@ Process-scoped utility helpers.
 - `Path.relative_to(base: Path) -> Path` — Computes a path relative to an explicit base.
 - `Path.remove(missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree, leaving the path gone.
 - `Path.remove_dir() -> Result[Unit, Error]` — Removes an empty directory.
-- `Path.rename(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
+- `Path.rename(to: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
 - `Path.resolve() -> Result[Path, Error]` — Resolves a path through the filesystem.
 - `Path.rglob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern at any depth below a path.
 - `Path.starts_with(prefix: Path) -> Bool` — Tests whether a path begins with the components of another path.
 - `Path.strip_prefix(prefix: Path) -> Result[RelPath, Error]` — Removes an explicit path prefix.
+- `Path.symlink(to: Path) -> Result[Unit, Error]` — Creates a symbolic link at the path that names a target.
 - `Path.touch(create: Bool = default) -> Result[Unit, Error]` — Creates or updates a path timestamp.
 - `Path.touch_from(reference: Path) -> Result[Unit, Error]` — Creates or updates a path timestamp.
 - `Path.truncate(size: Int) -> Result[Unit, Error]` — Changes a file's length.
@@ -663,7 +664,7 @@ Process-scoped utility helpers.
 - `Regex.captures(text: Str) -> List[Str]` — Extracts regex capture groups.
 - `Regex.find(text: Str) -> List[{end: Int, start: Int, text: Str}]` — Finds regex matches in text.
 - `Regex.matches(text: Str) -> Bool` — Tests whether a regex matches text.
-- `Regex.replace(text: Str, replacement: Str) -> Str` — Replaces regex matches in text.
+- `Regex.replace(text: Str, with: Str) -> Str` — Replaces regex matches in text.
 
 ### RelPath
 
@@ -704,7 +705,7 @@ Process-scoped utility helpers.
 - `Str.parse_int_decimal() -> Result[Int, Error]` — Parses text as a strict decimal integer.
 - `Str.parse_uint() -> Result[Int, Error]` — Parses text as a non-negative decimal integer, trimming surrounding whitespace.
 - `Str.parse_uint_positive() -> Result[Int, Error]` — Parses text as a positive decimal integer, trimming surrounding whitespace.
-- `Str.replace(from: Str, to: Str) -> Str` — Replaces text occurrences.
+- `Str.replace(from: Str, with: Str) -> Str` — Replaces text occurrences.
 - `Str.reverse() -> Str` — Transforms text characters.
 - `Str.split(separator: Str, maxsplit: Int = default) -> List[Str]` — Splits text at an explicit separator.
 - `Str.squeeze(chars: Str = default) -> Str` — Transforms text characters.

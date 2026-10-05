@@ -480,7 +480,7 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
     return Err(SystemReportSourceError.InvalidThpPolicy("THP policy must contain one line"))
   }
 
-  let choices = value.replace("\t", " ").split(" ") |> where .trim() != ""
+  let choices = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
   var available: List[Str] = []
   var selected: Str? = null
   for choice in choices {
@@ -514,7 +514,7 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
 export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
   return null when value.trim() == "" or value.lines().len() != 1
 
-  let choices = value.replace("\t", " ").split(" ") |> where .trim() != ""
+  let choices = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
   var available: List[Str] = []
   var active: Str? = null
   for choice in choices {
@@ -685,7 +685,7 @@ export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumber {
     return {value: null, state: observed.state, error_kind: source.error_kind, errno: source.errno}
   }
 
-  let columns = (observed.value ?? "").replace("\t", " ").split(" ") |> where .trim() != ""
+  let columns = (observed.value ?? "").replace("\t", with: " ").split(" ") |> where .trim() != ""
   if columns.len() != 2 {
     return {value: null, state: report.Malformed, error_kind: "invalid_uptime_columns", errno: null}
   }

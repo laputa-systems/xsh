@@ -7,7 +7,7 @@ proc publish(output: Path) {
   let partial = fp"{output}.partial"
   errdefer partial.remove()
   render(partial)
-  partial.rename(output)
+  partial.rename(to: output)
 }
 
 # end example

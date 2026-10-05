@@ -112,7 +112,7 @@ test test_fs_remove_deletes_trees_without_following_symlinks { |ctx|
   let tree = fp"{root}/tree"
   fp"{tree}/nested/deeper".mkdir()
   fp"{tree}/nested/deeper/file.txt".write("gone")
-  fs.symlink(outside, fp"{tree}/nested/link")
+  fp"{tree}/nested/link".symlink(to: outside)
 
   tree.remove(missing_ok: false)
   assert ! tree.exists()?
@@ -219,10 +219,10 @@ print \$entry.size
   assert cache.exists()?
   assert tarball.exists()?
   let copied = fp"{root}/copied.txt"
-  file.copy(copied)
+  file.copy(to: copied)
   assert copied.read_text()? == "hello"
   let renamed = fp"{root}/renamed.txt"
-  copied.rename(renamed)
+  copied.rename(to: renamed)
   assert ! copied.exists()?
   assert renamed.read_text()? == "hello"
   let tree = fp"{root}/tree-copy"
@@ -245,7 +245,7 @@ print \$entry.size
   fs.fsync(file)
   fs.sync()
   let link = fp"{root}/link"
-  fs.symlink(file, link)
+  link.symlink(to: file)
   assert link.readlink()?.display() == file.display()
   let lock_file = fp"{root}/lock"
   let lock = fs.lock(lock_file, shared: true)?
@@ -370,7 +370,7 @@ test test_fs_root_operations_reject_traversal { |ctx|
 
   fs.root_install_file(source_root, p"secret.txt", root, p"installed/secret.txt", 0o600, overwrite: true)
   assert root.read_text(p"installed/secret.txt")? == "changed"
-  fs.symlink(fp"{outside}/secret.txt", fp"{root_dir}/nested/link")
+  fp"{root_dir}/nested/link".symlink(to: fp"{outside}/secret.txt")
   test.error_kind(root.read_text(p"nested/link"), "fs-root-read")
   let escaped_directory = root.children(p"nested/link")?
   assert ! escaped_directory.enumeration_succeeded
@@ -652,7 +652,7 @@ test test_filesystem_path_and_install_apis { |ctx|
   let note_text = note.read_text()?
   note.chmod(0o600)
   let link = fp"{root}/note.link"
-  fs.symlink(note, link)
+  link.symlink(to: note)
   let entries = fs.children(root) |> sort-by .name
   let files = fs.children(root) |> where .kind == "file"
   let usage = root.du()?
@@ -683,9 +683,9 @@ test test_filesystem_path_and_install_apis { |ctx|
   let moved = fp"{root}/moved.txt"
   let hard = fp"{root}/hard.txt"
   let empty = fp"{root}/empty"
-  note.copy(copy)
-  let refused = note.copy(copy)
-  copy.rename(moved)
+  note.copy(to: copy)
+  let refused = note.copy(to: copy)
+  copy.rename(to: moved)
   moved.truncate(4)
   let moved_text = moved.read_text()?
   let moved_meta = moved.metadata()?
@@ -699,12 +699,12 @@ test test_filesystem_path_and_install_apis { |ctx|
   fs.mkfifo(fifo, 0o600)
   let fifo_meta = fifo.metadata()?
   let install_link = fp"{root}/installed.link"
-  fs.symlink(installed, install_link)
+  install_link.symlink(to: installed)
   let symlink_refused = fs.install(moved, install_link, 0o755)
   fp"{root}/stamp".touch()
   empty.mkdir()
   empty.remove_dir()
-  moved.hardlink(hard)
+  moved.hardlink(at: hard)
   hard.unlink()
   let link_target = link.readlink()?
   assert moved_text == "hell"
@@ -732,7 +732,7 @@ test test_filesystem_package_policy_apis { |ctx|
 """,
     mode: 0o755,
   )
-  fs.symlink(p"dir/tool", fp"{src}/tool.link")
+  fp"{src}/tool.link".symlink(to: p"dir/tool")
   let copied = fs.copy_tree(src, fp"{root}/copy")?
   let me = user.current()?
   let grp = group.current()?

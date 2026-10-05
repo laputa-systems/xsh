@@ -10,7 +10,7 @@ test test_archive_tar_cpio_and_compression { |ctx|
 """,
   )
 
-  fs.symlink(p"dir/a.txt", fp"{src}/link")
+  fp"{src}/link".symlink(to: p"dir/a.txt")
   let tarball = fp"{out}/pkg.tar.gz"
   archive.tar_create(tarball, src, [p"."], compression: "gz")
   let entries = archive.tar_list(tarball)?.collect()

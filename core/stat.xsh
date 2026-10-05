@@ -56,20 +56,20 @@ proc render_format(fmt: Str, target: Path, meta: FsEntry) [fs, error] -> Str {
   }
 
   var out = fmt
-  out = out.replace("%s", f"{meta.size}")
-  out = out.replace("%b", f"{meta.blocks_512}")
-  out = out.replace("%B", "512")
-  out = out.replace("%a", mode_octal(meta.mode))
-  out = out.replace("%A", mode_string(meta.kind, meta.mode))
-  out = out.replace("%u", f"{meta.uid}")
-  out = out.replace("%g", f"{meta.gid}")
-  out = out.replace("%U", owner)
-  out = out.replace("%G", owner_group)
-  out = out.replace("%X", f"{meta.accessed}")
-  out = out.replace("%Y", f"{meta.modified}")
-  out = out.replace("%F", file_type_name(meta.kind))
-  out = out.replace("%n", target.display())
-  out = out.replace("%N", f"'{target}'")
+  out = out.replace("%s", with: f"{meta.size}")
+  out = out.replace("%b", with: f"{meta.blocks_512}")
+  out = out.replace("%B", with: "512")
+  out = out.replace("%a", with: mode_octal(meta.mode))
+  out = out.replace("%A", with: mode_string(meta.kind, meta.mode))
+  out = out.replace("%u", with: f"{meta.uid}")
+  out = out.replace("%g", with: f"{meta.gid}")
+  out = out.replace("%U", with: owner)
+  out = out.replace("%G", with: owner_group)
+  out = out.replace("%X", with: f"{meta.accessed}")
+  out = out.replace("%Y", with: f"{meta.modified}")
+  out = out.replace("%F", with: file_type_name(meta.kind))
+  out = out.replace("%n", with: target.display())
+  out = out.replace("%N", with: f"'{target}'")
   out
 }
 

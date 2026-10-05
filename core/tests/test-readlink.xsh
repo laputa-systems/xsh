@@ -3,7 +3,7 @@ test test_readlink { |ctx|
   let target = fp"{root}/target.txt"
   let link = fp"{root}/link.txt"
   target.write("ok")
-  fs.symlink(target, link)
+  link.symlink(to: target)
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/readlink.xsh" -- $link ?
   assert "target.txt" in output
   let resolved = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/readlink.xsh" -- -f $link ?

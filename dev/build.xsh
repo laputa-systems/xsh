@@ -18,9 +18,9 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
   fp"{sysroot}/libgcc_s.so".remove()
   fp"{sysroot}/libgcc_s.so.1".remove()
   fp"{sysroot}/libc.so".remove()
-  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so")
-  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so.1")
-  fs.symlink(libc, fp"{sysroot}/libc.so")
+  fp"{sysroot}/libgcc_s.so".symlink(to: libgcc)
+  fp"{sysroot}/libgcc_s.so.1".symlink(to: libgcc)
+  fp"{sysroot}/libc.so".symlink(to: libc)
 }
 
 ## Builds the repository with the current development Cargo profile.

@@ -56,7 +56,7 @@ type CoverageReport = {
 type CodeDelimiterScan = {brace_delta: Int, delimiter_delta: Int, in_triple_string: Bool}
 
 pure count_char(text: Str, needle: Str) -> Int {
-  text.count_chars() - text.replace(needle, "").count_chars()
+  text.count_chars() - text.replace(needle, with: "").count_chars()
 }
 
 pure brace_delta(line: Str) -> Int {
@@ -75,7 +75,7 @@ pure variant_name(line: Str) -> Str {
 
   return "" when trimmed == "" or trimmed.starts_with("}") or trimmed.starts_with("//")
 
-  trimmed.replace("{", " ").replace("(", " ").replace(",", " ").fields().get(0) ?? ""
+  trimmed.replace("{", with: " ").replace("(", with: " ").replace(",", with: " ").fields().get(0) ?? ""
 }
 
 pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
@@ -240,13 +240,13 @@ pure starts_proc(line: Str) -> Bool {
 }
 
 pure pure_name(signature: Str) -> Str {
-  let trimmed = signature.trim().replace("export pure ", "pure ")
+  let trimmed = signature.trim().replace("export pure ", with: "pure ")
   let after_pure = trimmed.split("pure ").get(1) ?? trimmed
   (after_pure.split("(").get(0) ?? after_pure).trim()
 }
 
 pure proc_name(signature: Str) -> Str {
-  let trimmed = signature.trim().replace("export proc ", "proc ")
+  let trimmed = signature.trim().replace("export proc ", with: "proc ")
   let after_proc = trimmed.split("proc ").get(1) ?? trimmed
   (after_proc.split("(").get(0) ?? after_proc).trim()
 }
@@ -291,7 +291,7 @@ pure record_schema_names(source: Str) -> List[Str] {
   var names = []
 
   for raw in source.lines() {
-    let line = raw.trim().replace("export type ", "type ")
+    let line = raw.trim().replace("export type ", with: "type ")
 
     if line.starts_with("type ") and "= {" in line {
       let name = ((line.split("type ").get(1) ?? "").split("=").get(0) ?? "").trim()
@@ -309,7 +309,7 @@ pure tag_union_names(source: Str) -> List[Str] {
   var names = []
 
   for raw in source.lines() {
-    let line = raw.trim().replace("export enum ", "enum ")
+    let line = raw.trim().replace("export enum ", with: "enum ")
 
     if line.starts_with("enum ") and "{" in line {
       let name = ((line.split("enum ").get(1) ?? "").split("{").get(0) ?? "").trim()
@@ -366,7 +366,7 @@ pure error_variant_names(source: Str) -> List[Str] {
   var in_braces = false
 
   for raw in source.lines() {
-    let line = raw.trim().replace("export error ", "error ")
+    let line = raw.trim().replace("export error ", with: "error ")
     var variants = []
 
     if in_braces {
@@ -382,7 +382,7 @@ pure error_variant_names(source: Str) -> List[Str] {
     }
 
     for raw_variant in variants {
-      let name = raw_variant.trim().replace("(", " ").fields().get(0) ?? ""
+      let name = raw_variant.trim().replace("(", with: " ").fields().get(0) ?? ""
 
       if name != "" and ! (name in names) {
         names += [name]
@@ -403,7 +403,7 @@ pure lowerable_named_type(raw: Str, record_types: List[Str]) -> Bool {
 }
 
 pure lowerable_type(raw: Str, allow_result: Bool, record_types: List[Str]) -> Bool {
-  let ty = raw.trim().replace("?", "")
+  let ty = raw.trim().replace("?", with: "")
 
   return true when lowerable_named_type(ty, record_types)
 
@@ -424,7 +424,10 @@ pure add_reason(reasons: List[Str], reason: Str) -> List[Str] {
 }
 
 pure signature_reasons(signature: Str, record_types: List[Str]) -> List[Str] {
-  let normalized = signature.replace("(", " ").replace(")", " ").replace(",", " ").replace("{", " ")
+  let normalized = signature.replace("(", with: " ")
+    .replace(")", with: " ")
+    .replace(",", with: " ")
+    .replace("{", with: " ")
   let tokens = normalized.fields()
   var reasons = []
   var index = 0
@@ -477,7 +480,7 @@ pure method_reasons(
 }
 
 pure receiver_name(raw: Str) -> Str {
-  let fields = raw.replace("(", " ").replace("{", " ").replace("[", " ").fields()
+  let fields = raw.replace("(", with: " ").replace("{", with: " ").replace("[", with: " ").fields()
 
   return "" when fields.is_empty()
 
@@ -1035,7 +1038,7 @@ pure script_shape(line: Str) -> Str {
 
   return "" when trimmed == "" or trimmed.starts_with("#") or trimmed.starts_with("}")
 
-  let normalized = trimmed.replace("export ", "")
+  let normalized = trimmed.replace("export ", with: "")
 
   return "Use" when normalized.starts_with("use ")
 
@@ -1088,7 +1091,7 @@ pure script_continuation_line(line: Str) -> Bool {
 }
 
 pure non_executable_signature_start(line: Str) -> Bool {
-  let normalized = line.trim().replace("export ", "")
+  let normalized = line.trim().replace("export ", with: "")
   normalized.starts_with("proc ") or normalized.starts_with("pure ")
 }
 

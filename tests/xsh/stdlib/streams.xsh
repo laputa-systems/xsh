@@ -55,7 +55,7 @@ let explicit = totals("initial", "outer")
 let implicit_item = implicit("initial")
 print f"{explicit.values["initial"]}:{explicit.values["sum"]}:{explicit.seed}:{explicit.item}"
 print f"{implicit_item.values["initial"]}:{implicit_item.values["sum"]}:{implicit_item.seed}"
-""".replace("STAGE", stage)
+""".replace("STAGE", with: stage)
     let output = test.expect(ctx, source, status: 0)?
     assert output.stdout == "0:3:initial:outer\n0:3:initial\n", output.stdout
   }

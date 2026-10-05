@@ -27,13 +27,13 @@ proc publish(root: Path) [fs, error] {
 }
 
 publish(p"ROOT")
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-method.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only lint.prefer-path-method --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   assert fixed != source
-  assert "fs." not in fixed.replace("[fs, error]", "")
+  assert "fs." not in fixed.replace("[fs, error]", with: "")
   for call in [
     r"""log.write((log.read_text() ?? "") + label + "\n")""",
     r"""fp"{root}/out/deep".mkdir(parents: true)""",
@@ -74,7 +74,7 @@ test test_prefer_path_method_lint_keeps_the_escapes_of_a_string_operand { |ctx|
 }
 
 publish()
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-method-escape.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only lint.prefer-path-method --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr

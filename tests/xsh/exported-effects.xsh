@@ -29,7 +29,7 @@ proc run_tool(ctx: TestContext, tool: Str, args: List[Str], main: Str) [fs, proc
   fp"{root}/xsht-config.ini".write("")
   fp"{root}/helper.xsh".write(HELPER)
   let entry = fp"{root}/main.xsh"
-  entry.write(main.replace("@ROOT@", root.display()))
+  entry.write(main.replace("@ROOT@", with: root.display()))
   let out = run.capture --text $tool @args $entry ?
   {ok: out.status.exited_with(0), out: out.stdout + out.stderr}
 }
@@ -88,7 +88,7 @@ proc caller() [] -> Int { forwarding() }
   assert ! rejected.ok
   assert "check.effect-violation" in rejected.out
   assert "time" in rejected.out
-  let allowed = run_tool(ctx, "xsh", [], main.replace("[]", "[time]") + "print \${caller()}\n")?
+  let allowed = run_tool(ctx, "xsh", [], main.replace("[]", with: "[time]") + "print \${caller()}\n")?
   assert allowed.ok, allowed.out
   assert allowed.out == "42\n"
 }

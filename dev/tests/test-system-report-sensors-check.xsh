@@ -22,7 +22,7 @@ test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
   assert exact.compared == 2
   assert exact.mismatches == []
   assert exact.partial == []
-  let wrong = sensors_reference.compare_sensors_json(candidate.replace("41125", "42000"), first, first)?
+  let wrong = sensors_reference.compare_sensors_json(candidate.replace("41125", with: "42000"), first, first)?
   assert wrong.mismatches == []
   assert wrong.partial == ["coretemp-isa-0000:temp2_input"]
   assert wrong.compared == 1
@@ -36,8 +36,8 @@ test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
   assert changed.compared == 1
   assert changed.partial == ["coretemp-isa-0000:temp2_input"]
   let ambiguous = sensors_reference.compare_sensors_json(
-    candidate.replace("\"chip\":\"nvme\"", "\"chip\":\"coretemp\"")
-      .replace("\"channel\":\"temp1\"", "\"channel\":\"temp2\""),
+    candidate.replace("\"chip\":\"nvme\"", with: "\"chip\":\"coretemp\"")
+      .replace("\"channel\":\"temp1\"", with: "\"channel\":\"temp2\""),
     first,
     first,
   )?

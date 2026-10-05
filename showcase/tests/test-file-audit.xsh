@@ -12,9 +12,9 @@ test test_file_audit_findings { |ctx|
     mode: 0o4755,
   )
   fp"{outside}/target.txt".write("outside")
-  fs.symlink(p"missing-target", fp"{root}/broken")
-  fs.symlink(fp"{root}/world.txt", fp"{root}/absolute")
-  fs.symlink(fp"{outside}/target.txt", fp"{root}/escape")
+  fp"{root}/broken".symlink(to: p"missing-target")
+  fp"{root}/absolute".symlink(to: fp"{root}/world.txt")
+  fp"{root}/escape".symlink(to: fp"{outside}/target.txt")
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root ?
   assert "broken-symlink broken" in output
   assert "absolute-symlink absolute" in output
@@ -42,11 +42,11 @@ test test_file_audit_distinguishes_non_utf8_sibling_paths { |ctx|
   root.mkdir()
   outside.mkdir()
   let root_alias = fp"{parent}/root-alias"
-  fs.symlink(root, root_alias)
+  root_alias.symlink(to: root)
   let target = bytes.concat([outside_bytes, b"/target"]) as Path
   let link = bytes.concat([root_bytes, b"/escape"]) as Path
   target.write("outside")
-  fs.symlink(target, link)
+  link.symlink(to: target)
 
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root_alias ?
   assert "escaping-symlink escape" in output

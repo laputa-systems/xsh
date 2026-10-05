@@ -354,7 +354,7 @@ print values.len()
     assert assertion_condition, assertion_message
   }
   let fixed = candidate.read_text()?
-  assert fixed == source.replace("--jobs=2", "(jobs: 2)")
+  assert fixed == source.replace("--jobs=2", with: "(jobs: 2)")
   let output = test.run_script(ctx, fixed)?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output

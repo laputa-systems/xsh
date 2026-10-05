@@ -23,9 +23,9 @@ pure usage() -> Str {
 pure clean_symbol(raw: Str) -> Str {
   let trimmed = raw.trim()
   let without_offset = trimmed.split("+0x")[0]
-  let without_semis = without_offset.replace(";", ":")
-  let without_open = without_semis.replace("(", "")
-  let symbol = without_open.replace(")", "")
+  let without_semis = without_offset.replace(";", with: ":")
+  let without_open = without_semis.replace("(", with: "")
+  let symbol = without_open.replace(")", with: "")
 
   return "[unknown]" when symbol == ""
 

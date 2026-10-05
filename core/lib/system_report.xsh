@@ -2816,7 +2816,7 @@ pure terminal_quote(value: Str) -> Result[Str] {
       replacement: "\\u{feff}",
     },
   ] {
-    safe = safe.replace(escape.source, escape.replacement)
+    safe = safe.replace(escape.source, with: escape.replacement)
   }
 
   json.encode(safe)

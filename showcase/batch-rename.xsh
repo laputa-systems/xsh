@@ -105,7 +105,7 @@ proc main(...argv: List[Str]) [fs, error] {
     print f"{action}: {old_name} → {new_name}"
 
     if ! opts.dry_run {
-      src.rename(dest)
+      src.rename(to: dest)
     }
 
     renamed += 1

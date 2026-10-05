@@ -24,7 +24,7 @@ test test_optional_record_return_field_alias_preserves_receiver_type {
 test test_optional_method_skips_arguments_and_preserves_fallback {
   let absent: Str? = null
   assert (absent?.trim() ?? "default") == "default"
-  assert (absent?.replace("x", "y") ?? "default") == "default"
+  assert (absent?.replace("x", with: "y") ?? "default") == "default"
   let present: Str? = "  label  "
   assert (present?.trim() ?? "default") == "label"
 }

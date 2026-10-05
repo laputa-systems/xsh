@@ -231,7 +231,7 @@ proc initialize() [fs, error] -> Int { fs.write(p"IMPORTED_MARKER", "ran")?; 1 }
 let initialized_marker = initialize()
 ## A callable exported value.
 export pure value() -> Int { initialized_marker }
-""".replace("IMPORTED_MARKER", imported_marker.display()),
+""".replace("IMPORTED_MARKER", with: imported_marker.display()),
   )
   let script = fp"{root}/entry.xsh"
   script.write(
@@ -240,7 +240,7 @@ use marker
 proc initialize() [fs, error] -> Int { fs.write(p"ENTRY_MARKER", "ran")?; 1 }
 let initialized = initialize()
 cli main(root: Path, jobs: marker.WorkerCount = 4) [error] { print ${marker.value()} $initialized $jobs }
-""".replace("ENTRY_MARKER", entry_marker.display()),
+""".replace("ENTRY_MARKER", with: entry_marker.display()),
   )
   for {arguments, status} in [
     {arguments: ["--help"], status: 0},

@@ -154,7 +154,6 @@ compound_statement = if_statement
                    | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook )
                    | repeat_statement
                    | without_statement
-                   | tempdir_statement
                    | atomically_statement ;
 simple_statement = binding
                  | assert_statement
@@ -229,7 +228,6 @@ for_statement = "for" ( IDENT "," )? binding_target "in" condition_expression bl
 loop_statement = "loop" block ;
 repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
-tempdir_statement = "tempdir" IDENT "at" condition_expression block ;
 atomically_statement = "atomically" "replace" condition_expression "as" IDENT block ;
 match_statement = "match" condition_expression "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
 arm_head = !( "." IDENT ) pattern ( "if" expression )? "=>" ;
@@ -256,9 +254,9 @@ equality = ordering
 pipe_stage = stream_stage | value_stage ;
 value_stage = !( "where" | "map" | "par-map" | "each" | "batch" | "sort" | "sort-by" | "take" | "drop" | "first" | "last" | "unique-by" | "enumerate" | "zip" | "range" | "repeat" | "tee" | "sum" | "min" | "max" | "group-by" | "fold" | "reduce" | "flat-map" | "any" | "all" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" | "count" | "collect" | "reduce-by" ) stage_expression ;
 stage_expression = logical ;
-stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" )? ( block postfix* logical_tail | !( "{" | "(" ) stage_expression | stage_end )
-             | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" )? ( block postfix* logical_tail | !"{" postfix* logical_tail )
-             | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" )? postfix* logical_tail ;
+stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* logical_tail | !( "{" | "(" ) stage_expression | stage_end )
+             | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* logical_tail | !"{" postfix* logical_tail )
+             | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" | !"(" ) postfix* logical_tail ;
 equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
               | additive_tail ( ( "in" | "not" "in" ) NEWLINE* additive )* ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* test_pattern )* ;
 conjunction_tail = equality_tail ( "and" NEWLINE* equality )* ;
@@ -302,7 +300,7 @@ primary = literal
         | "try" run_form !"?" ( run_end | &")" )
         | retry_expression
         | run_form ( "?" &"|>" | run_end )
-        | "spawn" ( run_form run_end | operand )
+        | "spawn" ( run_form ( run_end | &")" ) | operand )
         | "wait" operand
         | "ctx" line(condition_expression) block
         | context_scope
@@ -342,7 +340,7 @@ retry_expression = "retry" "[" list(expression) "]" ( "on" "(" NEWLINE* pattern 
 operand = ( ( "!" | "-" ) unary | primary ( ~"." MEMBER | ~"[" index "]" | ~"(" call_arguments ")" )* ) !( "." MEMBER | "[" | "(" ) ;
 context_scope = ( "cd" | "env" ) "(" expression ")" NEWLINE* block ;
 within_scope = "within" ( DURATION | IDENT ( "." IDENT )* ) block ;
-tempdir_scope = "tempdir" IDENT "{" separator* statements "}" ;
+tempdir_scope = "tempdir" IDENT ( "at" condition_expression )? "{" separator* statements "}" ;
 builder_call = ( "process" ~"." ~"command" ) ( ~"(" call_arguments ")" )? builder_block ;
 builder_block = "{" ( separator | builder_compound_entry | builder_entry separator )* builder_entry? "}" ;
 builder_compound_entry = if_statement
@@ -374,9 +372,9 @@ condition_equality = ordering
 condition_pipe_stage = condition_stream_stage | condition_value_stage ;
 condition_value_stage = !( "where" | "map" | "par-map" | "each" | "batch" | "sort" | "sort-by" | "take" | "drop" | "first" | "last" | "unique-by" | "enumerate" | "zip" | "range" | "repeat" | "tee" | "sum" | "min" | "max" | "group-by" | "fold" | "reduce" | "flat-map" | "any" | "all" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" | "count" | "collect" | "reduce-by" ) condition_stage_expression ;
 condition_stage_expression = condition_logical ;
-condition_stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" )? ( block postfix* condition_logical_tail | !( "{" | "(" ) condition_stage_expression | stage_end )
-                       | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" )? ( block postfix* condition_logical_tail | !"{" postfix* condition_logical_tail )
-                       | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" )? postfix* condition_logical_tail ;
+condition_stream_stage = ( "where" | "map" | "par-map" | "each" | "sort-by" | "unique-by" | "tee" | "group-by" | "flat-map" | "any" | "all" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* condition_logical_tail | !( "{" | "(" ) condition_stage_expression | stage_end )
+                       | ( "batch" | "fold" | "reduce" | "count" | "collect" | "reduce-by" ) ( "(" call_arguments ")" | !"(" ) ( block postfix* condition_logical_tail | !"{" postfix* condition_logical_tail )
+                       | ( "sort" | "take" | "drop" | "first" | "last" | "enumerate" | "zip" | "range" | "repeat" | "sum" | "min" | "max" | "shuffle" | "table" ~"." ~"print" | "text" ~"." ~"lines" | "bytes" ~"." ~"chunks" | "json" ~"." ~"lines" | "json" ~"." ~"stream" ) ( "(" call_arguments ")" | !"(" ) postfix* condition_logical_tail ;
 condition_equality_tail = additive_tail ( ( "<" | "<=" | ">" | ">=" ) NEWLINE* additive )+
                         | additive_tail ( ( "in" | "not" "in" ) NEWLINE* additive )* ( ( "==" | "!=" ) NEWLINE* equality_operand | "is" NEWLINE* condition_test_pattern )* ;
 condition_conjunction_tail = condition_equality_tail ( "and" NEWLINE* condition_equality )* ;

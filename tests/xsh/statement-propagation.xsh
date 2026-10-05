@@ -62,8 +62,8 @@ pure site(line: Str) -> Str {
 }
 
 proc run_both(ctx: TestContext, body: Str) [fs, process, env, time, error] {
-  let explicit = test.run_script(ctx, PRELUDE + body.replace("<?>", "?"), [], {}, b"", "both.xsh")?
-  let implicit = test.run_script(ctx, PRELUDE + body.replace("<?>", ""), [], {}, b"", "both.xsh")?
+  let explicit = test.run_script(ctx, PRELUDE + body.replace("<?>", with: "?"), [], {}, b"", "both.xsh")?
+  let implicit = test.run_script(ctx, PRELUDE + body.replace("<?>", with: ""), [], {}, b"", "both.xsh")?
   # Both spellings check, and fail only by the propagated error.
   assert "err[" not in explicit.stderr, explicit.stderr
   assert "err[" not in implicit.stderr, implicit.stderr
@@ -430,13 +430,16 @@ work(p"{root}/missing")
 # a value).
 test test_propagation_lints_fix_only_the_redundant_spellings { |ctx|
   let root = test.temp_dir(ctx, name: "propagation-lints")?
-  let outline = LINT_CANDIDATE.replace("ROOT", root.display())
-  let source = outline.replace("<removed>", "?")
-    .replace("<unit-match>", "  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }")
-    .replace("<value-match>", "  match count() {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }")
-  let expected = outline.replace("<removed>", "")
-    .replace("<unit-match>", "  step(false)")
-    .replace("<value-match>", "  let _ = count()?")
+  let outline = LINT_CANDIDATE.replace("ROOT", with: root.display())
+  let source = outline.replace("<removed>", with: "?")
+    .replace(
+      "<unit-match>",
+      with: "  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }",
+    )
+    .replace("<value-match>", with: "  match count() {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }")
+  let expected = outline.replace("<removed>", with: "")
+    .replace("<unit-match>", with: "  step(false)")
+    .replace("<value-match>", with: "  let _ = count()?")
   let rules = "lint.redundant-propagation,lint.redundant-scope-propagation,lint.prefer-propagation"
   let candidate = test.temp_file(ctx, name: "propagation-lints.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only $rules --fix $candidate ?
@@ -491,7 +494,7 @@ pure length(fail: Bool) -> Int {
     let call = r"""
 print ${length(false)}
 """
-    let checked = test.run_script(ctx, PRELUDE.replace("proc step", "pure step") + body + call)?
+    let checked = test.run_script(ctx, PRELUDE.replace("proc step", with: "pure step") + body + call)?
     assert ! checked.success
     assert checked.status == 2
     assert "check.try-context" in checked.stderr, checked.stderr
@@ -501,7 +504,7 @@ print ${length(false)}
   # A capture gives the failure somewhere to go, and so does a `Result`.
   let accepted = test.expect(
     ctx,
-    PRELUDE.replace("proc step", "pure step") + r"""
+    PRELUDE.replace("proc step", with: "pure step") + r"""
 pure captured(fail: Bool) -> Int {
   let outcome = try {
     step(fail)

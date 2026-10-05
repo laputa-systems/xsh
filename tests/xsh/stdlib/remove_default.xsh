@@ -44,7 +44,7 @@ fs.remove(gone, missing_ok: true)?
 fs.remove $gone
 fs.remove $gone --missing-ok
 print (fs.remove(gone, missing_ok: false) is Err(_))
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let _ = test.expect(ctx, script, status: 0, stdout: ["true\n"])?
 }
 
@@ -61,13 +61,13 @@ let present = p"ROOT/present"
 present.write("text")
 print (clean(present)?) (present.exists()?)
 print (clean(present)?)
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "remove-redundant.xsh", contents: bytes.from_text(source))?
 
   let applied = run.capture --text "xsht" lint --only lint.redundant-default --fix $candidate ?
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
-  assert fixed == source.replace("stale.remove(missing_ok: true)", "stale.remove()")
+  assert fixed == source.replace("stale.remove(missing_ok: true)", with: "stale.remove()")
   assert fixed != source
 
   let before = test.run_script(ctx, source)?

@@ -32,7 +32,7 @@ const whitespace_re = rx"\s+"
 const warn_re = rx"WARN.*unused"
 let matches = word_re.find(line)
 let captures = capture_re.captures(line)
-let rewritten = whitespace_re.replace(line, "|")
+let rewritten = whitespace_re.replace(line, with: "|")
 
 const command_specs = {
   build: {

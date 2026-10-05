@@ -5,7 +5,7 @@ test test_tree_renders_sorted_branches_and_symlinks { |ctx|
   fp"{root}/a.txt".write("a")
   fp"{root}/z.txt".write("z")
   fp"{root}/.hidden".write("dot")
-  fs.symlink(fp"{root}/a.txt", fp"{root}/link-a")
+  fp"{root}/link-a".symlink(to: fp"{root}/a.txt")
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- $root ?
   let lines = output.lines().collect()
   assert lines[0] == root.display()

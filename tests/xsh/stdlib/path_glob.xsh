@@ -39,7 +39,7 @@ test test_path_rglob_matches_at_any_depth_in_byte_order { |ctx|
 
   # A recursive match does not enter a symbolic link to a directory; a
   # literal component does.
-  fs.symlink(fp"{root}/src", fp"{root}/link")
+  fp"{root}/link".symlink(to: fp"{root}/src")
   assert root.rglob("lib.txt")? == [fp"{root}/src/lib.txt"]
   assert root.glob("link/*.txt")? == [fp"{root}/link/lib.txt"]
 }

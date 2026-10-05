@@ -172,9 +172,9 @@ for line in output { print \${line.len()} }
     let applied_details = applied.stderr
     assert applied_succeeded, applied_details
     let fixed = candidate.read_text()?
-    assert fixed == source.replace("run.builtin", "run")
+    assert fixed == source.replace("run.builtin", with: "run")
     let actual = test.run_script(ctx, fixed)?
-    let expected = test.run_script(ctx, source.replace("run.builtin", "run"))?
+    let expected = test.run_script(ctx, source.replace("run.builtin", with: "run"))?
     let {success: succeeded, stderr: failure_details, ..} = actual
     assert succeeded, failure_details
     assert actual.stdout == expected.stdout
@@ -294,7 +294,7 @@ print $width\r
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
-  assert fixed == source.replace(".count_bytes()", ".byte_len()")
+  assert fixed == source.replace(".count_bytes()", with: ".byte_len()")
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
   let repeated_succeeded = repeated.status.exited_with(0)
   let repeated_details = repeated.stderr

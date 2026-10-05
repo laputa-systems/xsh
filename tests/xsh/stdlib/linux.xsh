@@ -412,7 +412,7 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   print fs.read_text(p\"{ROOT_DIR}/modules.dep\")?
 }
 """
-  let source = nested_template.replace("{ROOT_DIR}", f"{root}")
+  let source = nested_template.replace("{ROOT_DIR}", with: f"{root}")
 
   let environment = {XSH_MODULES_DIR: f"{root}"}
 

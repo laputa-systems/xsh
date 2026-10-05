@@ -13,7 +13,7 @@ test test_path_audit_findings { |ctx|
   noexec.mkdir()
   noexec.chmod(0o666)
   file_entry.write("not a directory")
-  fs.symlink(bin1, duplicate)
+  duplicate.symlink(to: bin1)
 
   fp"{bin1}/tool".write(
     """#!/bin/sh

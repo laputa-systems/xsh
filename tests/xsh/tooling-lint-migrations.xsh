@@ -86,7 +86,7 @@ test test_mixed_enum_and_record_require_migration_refuses_unrelated_import_graph
     # remain checker failures, even when the call has an identity fix.
     {
       module: legacy_choice_module,
-      entry: entry_source.replace("let _ =", "let value =") + "print \$value.name\n",
+      entry: entry_source.replace("let _ =", with: "let value =") + "print \$value.name\n",
       code: "check.field-access",
     },
   ] {

@@ -78,7 +78,7 @@ test test_write_lines_lint_fixes_only_lists_proven_nonempty { |ctx|
 
 save(p"ROOT/out.txt", ["a", "b"])?
 save(p"ROOT/out.txt", [])?
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "write-lines.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only lint.prefer-write-lines --fix $candidate ?
   let applied_succeeded = applied.status.exited_with(0)
@@ -90,7 +90,7 @@ save(p"ROOT/out.txt", [])?
   # writes nothing, so that call keeps its spelling and is only reported.
   assert fixed == source.replace(
     r"""fs.write(out, ["header", @names].join("\n") + "\n")?""",
-    r"""out.write_lines(["header", @names])?""",
+    with: r"""out.write_lines(["header", @names])?""",
   )
   assert fixed != source
   let before = test.run_script(ctx, source)?
@@ -185,7 +185,7 @@ proc describe(source: Path) [fs, error] -> Str {
 print (describe(p"ROOT/list.txt"))
 print (describe(p"ROOT/missing.txt"))
 print (describe(p"ROOT/binary"))
-""".replace("ROOT", root.display())
+""".replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "read-lines.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --only lint.prefer-read-lines --fix $candidate ?
   let applied_succeeded = applied.status.exited_with(0)
@@ -194,8 +194,8 @@ print (describe(p"ROOT/binary"))
   let fixed = candidate.read_text()?
 
   # A read that is trimmed before the split is a different program.
-  assert fixed == source.replace("let direct = source.read_text()?.lines()", "let direct = source.read_lines()?")
-    .replace("let by_module = fs.read_text(source)?.lines()", "let by_module = source.read_lines()?")
+  assert fixed == source.replace("let direct = source.read_text()?.lines()", with: "let direct = source.read_lines()?")
+    .replace("let by_module = fs.read_text(source)?.lines()", with: "let by_module = source.read_lines()?")
   assert "source.read_text()?.trim().lines()" in fixed
   let before = test.run_script(ctx, source)?
   let after = test.run_script(ctx, fixed)?

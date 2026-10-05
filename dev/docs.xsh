@@ -144,7 +144,7 @@ pure body(text: Str) -> Str {
 }
 
 pure field_key(rel: Str) -> Str {
-  rx"[^A-Za-z0-9]+".replace(rx"\.[A-Za-z0-9]+$".replace(rel, ""), "_")
+  rx"[^A-Za-z0-9]+".replace(rx"\.[A-Za-z0-9]+$".replace(rel, with: ""), with: "_")
 }
 
 # The names of the `collection` snippets whose output some template shows.
@@ -282,7 +282,7 @@ proc snippet_files(dir: Path) [fs, error] -> Result[List[SnippetFile]] {
     continue unless parent == dir or parent == rejected_dir
     let parts = snippet_name.captures(entry.name)
     if parts.len() == 2 {
-      let key = parts[1].replace("-", "_")
+      let key = parts[1].replace("-", with: "_")
       files += [SnippetFile(name: entry.name, key:, path: entry.path, rejected: parent == rejected_dir)]
     } else if numbered_name.matches(entry.name) or parent == rejected_dir {
       return Err(DocsError.Layout(f"snippet {entry.name} is not named NN-name.xsh"))

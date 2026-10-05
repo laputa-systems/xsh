@@ -77,6 +77,6 @@ proc main(...argv: List[Str]) [fs, error] {
     let source = fp"{source_text}"
     let target = dest_for(source, dest, target_is_dir)
     continue when no_clobber and target.exists()
-    source.rename(target, overwrite: ! no_clobber)
+    source.rename(to: target, overwrite: ! no_clobber)
   }
 }

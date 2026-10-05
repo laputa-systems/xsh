@@ -120,7 +120,7 @@ print first_label().byte_len() second_label().byte_len() third_label().byte_len(
   let fixed = module_file.read_text()?
   assert fixed == module_source.replace(
     "record.require(PackageName(name: \"demo\"), {name: \"Str\"})",
-    "PackageName(name: \"demo\").require(PackageName)",
+    with: "PackageName(name: \"demo\").require(PackageName)",
   ), fixed
   let after = test.expect(ctx, main.read_text()?, status: 0, args: [], env: {XSH_MODULE_PATH: root})?
   assert after.stdout == "demo\n57 58 57 58\n"
