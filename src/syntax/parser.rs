@@ -19,6 +19,7 @@ pub(crate) mod expr;
 mod literals;
 mod pattern;
 mod stmt;
+mod sugar;
 mod types;
 
 pub(in crate::syntax::parser) use self::literals::{

@@ -1207,6 +1207,11 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
     let mut diagnostics = Vec::new();
     for (index, tag) in arena.expr_tags.iter().enumerate() {
         use crate::syntax::arena::ArenaExprTag as Tag;
+        // An expansion's own expressions are not spelled in the source, so
+        // they hold nothing and no source text follows them.
+        if arena.expr_is_synthetic(ExprId::from_index(index)) {
+            continue;
+        }
         let logical = matches!(
             tag,
             Tag::BinaryResultFallback | Tag::BinaryOr | Tag::BinaryAnd

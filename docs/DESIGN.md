@@ -26,7 +26,10 @@ expansion into forms the language already has, with the same evaluation
 order, effects, and failures. `return x when c` is `if c { return x }`;
 a fixed-path `tempdir` is remove, create, a deferred remove, and the body.
 If explaining a form needs a new runtime concept, it is not sugar and must
-justify itself as a feature.
+justify itself as a feature. The implementation takes this literally: the
+parser builds a sugar form's expansion beside its operands, the checker and
+runtime see only the expansion, and a test compares it with the expansion the
+SPEC states (`docs/ARCHITECTURE.md`, "Adding a sugar form").
 
 ## One name per concept, no overloaded sigils
 

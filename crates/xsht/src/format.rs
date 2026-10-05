@@ -10,7 +10,7 @@ use xsh::frontend::syntax::arena::{
     ArenaCommandArgKind, ArenaCompQualifier, ArenaEnvAssignment, ArenaEnvAssignmentValue,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
     ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaText, ArenaTypeExprTag, ArenaWordPart,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaText, ArenaTypeExprTag, ArenaWordPart,
     AstArena, BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
@@ -627,6 +627,16 @@ impl<'a> Writer<'a> {
                 output.push_str("loop ");
                 self.write_block(*block, indent, output);
             }
+            ArenaStmtKind::Sugar { form, operands, .. } => {
+                match self.arena.sugar(*form, *operands) {
+                    ArenaSugar::Repeat { count, body } => {
+                        output.push_str("repeat ");
+                        self.write_expr(count, WORD, output);
+                        output.push_str(" times ");
+                        self.write_block(body, indent, output);
+                    }
+                }
+            }
             ArenaStmtKind::Guard {
                 target,
                 ty,
@@ -1143,7 +1153,7 @@ impl<'a> Writer<'a> {
                         | ArenaStmtKind::For { .. }
                         | ArenaStmtKind::Match { .. }
                         | ArenaStmtKind::With { .. }
-                );
+                ) || matches!(stmt.kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound());
                 let write_arm = |writer: &mut Self, line: &mut String| {
                     // An initializer's nested statements have ordinary block
                     // syntax; only the arm's own expression needs arm grouping.
@@ -1602,7 +1612,7 @@ impl<'a> Writer<'a> {
                 _ => self.write_stmt(*stmt_id, indent + 1, output),
             }
             previous_span = Some(stmt_span);
-            previous_multiline_control_flow = matches!(
+            previous_multiline_control_flow = (matches!(
                 stmt.kind,
                 ArenaStmtKind::If { .. }
                     | ArenaStmtKind::While { .. }
@@ -1610,7 +1620,8 @@ impl<'a> Writer<'a> {
                     | ArenaStmtKind::With { .. }
                     | ArenaStmtKind::Loop { .. }
                     | ArenaStmtKind::Match { .. }
-            ) && output[stmt_output_start..].contains('\n');
+            ) || matches!(stmt.kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound()))
+                && output[stmt_output_start..].contains('\n');
         }
         if self.has_comment_before(close) {
             if let Some(previous) = previous_span {
@@ -4174,7 +4185,7 @@ fn is_top_level_section(kind: &ArenaStmtKind) -> bool {
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. }
             | ArenaStmtKind::With { .. }
-    )
+    ) || matches!(kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound())
 }
 
 fn original_preserved_string_literal(source: &str, span: Span) -> Option<&str> {
@@ -4534,6 +4545,30 @@ mod tests {
     #[test]
     fn equivalence_ignores_lowered_value_pipeline_sugar() {
         assert_round_trip("let t = \" x \" |> trim()\n", "let t = \" x \".trim()\n");
+    }
+
+    #[test]
+    fn repeat_prints_its_operands_and_keeps_needed_grouping() {
+        for (source, expected) in [
+            (
+                "repeat   n+1   times{\nprint \"tick\"\n}\n",
+                "repeat n + 1 times {\n  print \"tick\"\n}\n",
+            ),
+            (
+                "repeat (n) times { # each\n  total += 1 # one\n}\n",
+                "repeat n times {\n  # each\n  total += 1 # one\n}\n",
+            ),
+            (
+                "repeat times times { repeat (a |> len()) times { total += 1 } }\n",
+                "repeat times times { repeat a.len() times { total += 1 } }\n",
+            ),
+            (
+                "match n {\n  0 => repeat 2 times { total += 1 }\n  _ => {}\n}\n",
+                "match n {\n  0 => repeat 2 times { total += 1 }\n  _ => {}\n}\n",
+            ),
+        ] {
+            assert_round_trip(source, expected);
+        }
     }
 
     #[test]

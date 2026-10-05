@@ -1687,7 +1687,7 @@ fn compact_collect_stmt_call_edges(
     edges: &mut Vec<usize>,
 ) {
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) => {
+        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
             compact_collect_stmt_call_edges(program, inner, namespace, index_of, edges)
         }
         ArenaStmtKind::Let { initializer, .. }
@@ -2272,6 +2272,9 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::TailBareIdent(_) => 25,
         ArenaStmtKind::Expr(_) => 26,
         ArenaStmtKind::BooleanGuard { .. } => 27,
+        ArenaStmtKind::Sugar { .. } => {
+            unreachable!("a sugar statement is classified by its expansion")
+        }
         ArenaStmtKind::Assert { .. } => 28,
     }
 }
@@ -2308,12 +2311,16 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::TailBareIdent(_) => "tail_bare_ident",
         ArenaStmtKind::Expr(_) => "expr",
         ArenaStmtKind::BooleanGuard { .. } => "boolean_guard",
+        ArenaStmtKind::Sugar { .. } => {
+            unreachable!("a sugar statement is classified by its expansion")
+        }
         ArenaStmtKind::Assert { .. } => "assert",
     }
 }
 
 fn compact_stmt_blocker_label(program: &ArenaProgram, stmt: StmtId) -> String {
     match program.arena.stmt(stmt).kind {
+        ArenaStmtKind::Sugar { expansion, .. } => compact_stmt_blocker_label(program, expansion),
         ArenaStmtKind::Command(command) => {
             format!(
                 "command:{}",
@@ -2965,7 +2972,9 @@ fn compact_body_tail_stmt_kind(program: &ArenaProgram, block: BlockId) -> usize 
         .arena
         .stmt_ids(program.arena.block(block).statements)
         .last()
-        .map(|stmt| compact_stmt_kind_index(program.arena.stmt(stmt).kind))
+        .map(|stmt| {
+            compact_stmt_kind_index(program.arena.stmt(program.arena.core_stmt_id(stmt)).kind)
+        })
         .unwrap_or(COMPACT_STMT_KIND_COUNT - 1)
 }
 
@@ -2974,7 +2983,7 @@ fn compact_body_tail_call_blocker_callee(program: &ArenaProgram, block: BlockId)
         .arena
         .stmt_ids(program.arena.block(block).statements)
         .last()?;
-    match program.arena.stmt(stmt).kind {
+    match program.arena.stmt(program.arena.core_stmt_id(stmt)).kind {
         ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr))) | ArenaStmtKind::Expr(expr) => {
             compact_expr_call_blocker_callee(program, expr)
         }
@@ -3002,7 +3011,7 @@ fn compact_body_tail_command_blocker(
         .arena
         .stmt_ids(program.arena.block(block).statements)
         .last()?;
-    match program.arena.stmt(stmt).kind {
+    match program.arena.stmt(program.arena.core_stmt_id(stmt)).kind {
         ArenaStmtKind::Command(command) => Some(command),
         _ => None,
     }
@@ -3613,7 +3622,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_top_level_blocker_detail(&mut self, id: StmtId, blocker: CompactTopLevelBlocker) {
-        if let ArenaStmtKind::Export(inner) = self.program.arena.stmt(id).kind {
+        if let ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar {
+            expansion: inner, ..
+        } = self.program.arena.stmt(id).kind
+        {
             self.record_top_level_blocker_detail(inner, blocker);
             return;
         }
@@ -3706,7 +3718,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn top_level_blocker_kind(&self, id: StmtId) -> CompactTopLevelBlocker {
         match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) => self.top_level_blocker_kind(inner),
+            ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
+                self.top_level_blocker_kind(inner)
+            }
             ArenaStmtKind::Use(_) => CompactTopLevelBlocker::Use,
             ArenaStmtKind::Let { target, ty, .. }
             | ArenaStmtKind::Const { target, ty, .. }
@@ -3755,7 +3769,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<BuildTopStmtId> {
         match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) => self.lower_top_level_stmt(inner, known),
+            ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
+                self.lower_top_level_stmt(inner, known)
+            }
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = self.program.arena.use_stmt(use_id);
                 let key = use_stmt.resolved.clone()?;
@@ -4774,6 +4790,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let Some((&tail, prefix)) = ids.split_last() else {
             return Some(Vec::new());
         };
+        let tail = self.program.arena.core_stmt_id(tail);
         let mut lowered = Vec::with_capacity(ids.len());
         for stmt in prefix {
             lowered.push(self.lower_stmt_with_blocker_guard(
@@ -5008,8 +5025,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
+        if let ArenaStmtKind::Sugar { expansion, .. } = self.program.arena.stmt(id).kind {
+            return self.lower_stmt(expansion, slots, current_function, item_slot);
+        }
         self.output.statements += 1;
         let lowered = match self.program.arena.stmt(id).kind {
+            ArenaStmtKind::Sugar { .. } => unreachable!("lowered through its expansion above"),
             ArenaStmtKind::BooleanGuard {
                 condition,
                 else_block,
@@ -6064,6 +6085,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_lower_stmt_blocker(&mut self, id: StmtId) -> Option<BuildStmtId> {
+        let id = self.program.arena.core_stmt_id(id);
         let kind = self.program.arena.stmt(id).kind;
         let stmt_span = self.program.arena.stmt(id).span;
         self.output.statement_blockers[compact_stmt_kind_index(kind)] += 1;
@@ -12926,6 +12948,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        let stmt = self.program.arena.core_stmt_id(stmt);
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
@@ -13016,6 +13039,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        let stmt = self.program.arena.core_stmt_id(stmt);
         let span = self.program.arena.stmt(stmt).span;
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
@@ -14152,7 +14176,9 @@ fn construct_top_level_stmt_is_skippable(program: &ArenaProgram, id: StmtId) -> 
         return true;
     }
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) => construct_top_level_stmt_is_skippable(program, inner),
+        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
+            construct_top_level_stmt_is_skippable(program, inner)
+        }
         ArenaStmtKind::Use(use_id) => construct_use_stmt_is_skippable(program, use_id),
         ArenaStmtKind::Expr(expr) if construct_expr_is_reveal_type_call(program, expr) => true,
         ArenaStmtKind::TypeDef(_)

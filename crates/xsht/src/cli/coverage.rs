@@ -6,7 +6,7 @@ use xsh::api::{MethodReceiver, api_spec};
 use xsh::frontend::load::parse_script_with_module_roots;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaStmtKind, BlockId, ExprId, FunctionDefId, StmtId,
+    ArenaProgram, ArenaStmtKind, ArenaSugarOperand, BlockId, ExprId, FunctionDefId, StmtId,
 };
 use xsh::host::json::{
     parse_raw_json, pretty_raw_json, raw_json_array, raw_json_as_str, raw_json_as_u64,
@@ -670,6 +670,22 @@ fn collect_statement(
             collect_block(program, sources, else_block, by_source);
         }
         ArenaStmtKind::Loop { block } => collect_block(program, sources, block, by_source),
+        ArenaStmtKind::Sugar { operands, .. } => {
+            for operand in program.arena.sugar_operands(operands) {
+                match *operand {
+                    ArenaSugarOperand::Expr(expr) => add_expr(program, sources, expr, by_source),
+                    ArenaSugarOperand::Block(block) => {
+                        collect_block(program, sources, block, by_source);
+                    }
+                    ArenaSugarOperand::Stmt(inner) => {
+                        collect_statement(program, sources, inner, by_source);
+                    }
+                    ArenaSugarOperand::BindingTarget(_)
+                    | ArenaSugarOperand::TypeExpr(_)
+                    | ArenaSugarOperand::Name(_) => {}
+                }
+            }
+        }
         ArenaStmtKind::Guard { else_block, .. }
         | ArenaStmtKind::BooleanGuard { else_block, .. } => {
             add_span(sources, statement.span, by_source);

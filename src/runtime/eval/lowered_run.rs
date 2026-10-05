@@ -1689,7 +1689,7 @@ fn validate_dynamic_module_top_level(
     span: Span,
 ) -> Result<(), RuntimeError> {
     for stmt in program.statement_ids() {
-        let code = match program.arena.stmt(stmt).kind {
+        let code = match program.arena.stmt(program.arena.core_stmt_id(stmt)).kind {
             crate::syntax::arena::ArenaStmtKind::SignalHook(_) => {
                 Some(DiagnosticCode::CheckSignalHookModule)
             }

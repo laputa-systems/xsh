@@ -71,6 +71,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-record-constructor` | Use the named schema constructor for a record literal of a schema type |
 | `lint.prefer-record-destructuring` | Bind adjacent fields of one record together with a destructuring `let` |
 | `lint.prefer-regex-literal` | Prepare a static regex pattern with an `rx` literal instead of a call |
+| `lint.prefer-repeat` | Use `repeat N times` instead of `for _ in range(N)` |
 | `lint.prefer-scalar-iteration` | Iterate a Str by scalars or bytes without a split List or unused offsets |
 | `lint.prefer-signature-cli` | Declare a literal CLI schema as a `cli main(...)` entry signature |
 | `lint.prefer-slice` | Use half-open slicing where offset/count method bounds are equivalent |

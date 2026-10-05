@@ -90,6 +90,26 @@ source-preserving edits and is never executed. Do not add a recursive AST or a
 CST-to-AST bridge for convenience. The parser decides language shape; later
 stages do not recover from ambiguous trees the parser could have represented.
 
+A surface form that is sugar (`docs/DESIGN.md`) is one statement row,
+`ArenaStmtKind::Sugar { form, operands, expansion }`, that carries two views of
+the same nodes. `operands` are the parts the user wrote, as `ArenaSugarOperand`
+ids into the ordinary tables, in source order. `expansion` is a core statement
+that the form's function in `src/syntax/parser/sugar.rs` builds, once, from
+those same ids plus the nodes it adds; that function is the only definition of
+the form's meaning, and no later pass rewrites anything.
+`ArenaProgramBuilder::push_sugar` records the rows an expansion adds, so
+`AstArena::expr_is_synthetic` (and the statement and block equivalents) lets a
+whole-table scan leave them out. Semantic code reads the expansion: a match
+that recurses has one arm that delegates to it, and code that classifies a
+statement by kind resolves it with `AstArena::core_stmt_id` first. Source
+tools read the operands: a walker that only recurses has one arm over
+`AstArena::sugar_operands`, and only a consumer that prints or matches a
+particular form switches on `AstArena::sugar`. Lint has both kinds of walker:
+a rule that looks for a spelling walks operands, and an analysis of meaning
+(`stmt_flow`) follows the expansion. The mechanism is statement-level; an
+expression-level form would use the same shape on `ArenaExprKind` when the
+first one is scheduled.
+
 **Checking.** `Checker` owns lexical scopes, signatures, imports, return and
 purity context, and stream item context. Focused rules live beside it:
 `src/sema/constraints.rs::TypeConstraints` (bounded monomorphic inference),
@@ -219,6 +239,16 @@ annotated ones, and `xsht test` in the project.
 8. **No speculative machinery.** No JIT, green threads, async task runtime, or
    bytecode VM. Reconsider only with measured bottlenecks and only if every
    observability and OS contract stays exact.
+9. **Sugar has one meaning and two readers.** A sugar form reaches the checker,
+   lowering, and execution only as its expansion; syntax tools read only its
+   operands. The expansion references each operand exactly once and in source
+   order, its root carries the surface statement's span and is never a
+   declaration or binding, and every other node it adds has a span of its own
+   inside the surface statement, because checker facts are keyed by span.
+   `every_form_keeps_the_expansion_rules` checks this for every `SugarForm`,
+   and `every_form_expands_to_its_stated_core_program` holds each expansion to
+   the hand-written core program the SPEC shows
+   (`crates/xsht/src/sugar_expansion_tests.rs`).
 
 ## Adding a language feature
 
@@ -243,6 +273,31 @@ annotated ones, and `xsht test` in the project.
 7. Add native tests (see `docs/TESTING.md`) plus a verifier unit test for new
    instruction shapes, and update `tools/xsh-ir-coverage.xsh` if coverage
    accounting changes.
+
+## Adding a sugar form
+
+A form qualifies when `docs/DESIGN.md` says it desugars trivially. It then
+needs nothing in the checker, lowering, the verifier, or the executor.
+
+1. Specify it in `docs/templates/SPEC.md` by its expansion, with the sugar and
+   the hand-written core program as two snippets in `docs/snippets/spec/`.
+2. Add its productions and any keyword or contextual-word rows to
+   `src/syntax/grammar.rs`, a `SugarForm` variant with its `ArenaSugar` view in
+   `src/syntax/arena.rs`, and one function in `src/syntax/parser/sugar.rs` that
+   parses the operands and builds the expansion inside
+   `ArenaProgramBuilder::push_sugar`. Give each node the expansion adds a span
+   on the keyword or operand a diagnostic about it should point at. Bind a
+   value the expansion needs twice to one local whose name no identifier can
+   spell, as the embedded standard library does for its namespaces.
+3. Print it in `crates/xsht/src/format.rs` and paint its contextual words in
+   `src/syntax/highlight.rs`. A form whose operands bind names also states
+   their scope in the `Sugar` arm of `Linter::lint_stmt`.
+4. Add its two snippets to `cases` in
+   `crates/xsht/src/sugar_expansion_tests.rs`, native tests under `tests/xsh/`,
+   and the migration lint with its autofix in its own `lint_*.rs` file.
+5. Read the diagnostics a user sees for a wrong operand and a wrong body. They
+   carry the core form's wording; change a synthetic span, not the checker, if
+   one lands in the wrong place.
 
 Change frame layouts, token/arena storage, or instruction encodings only with
 retained-memory, RSS, latency, or stack-depth evidence from

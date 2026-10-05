@@ -670,6 +670,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     kw(Keyword::Export),
                     alt(exported(true).into_iter().chain([r("signal_hook")])),
                 ]),
+                r("repeat_statement"),
             ])),
         ),
         rule(
@@ -1168,6 +1169,18 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "loop_statement",
             seq([kw(Keyword::Loop), block()]),
+        ),
+        // `repeat` and `times` are contextual words: the statement is the
+        // whole head `repeat COUNT times {`, written on one line.
+        rule(
+            Statements,
+            "repeat_statement",
+            seq([
+                w("repeat"),
+                line(r("condition_expression")),
+                w("times"),
+                block(),
+            ]),
         ),
         rule(
             Statements,

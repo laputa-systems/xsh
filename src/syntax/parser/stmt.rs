@@ -50,6 +50,9 @@ impl<'a> Parser<'a> {
         }
         match (self.current_tag(), self.current_keyword()) {
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
+                if self.lookahead_is_repeat() {
+                    return self.parse_repeat_arena_only(start, arena);
+                }
                 if self.current_name().is_some_and(|name| name == "env")
                     && self.peek_tag(1) == Some(TokenTag::LBrace)
                 {

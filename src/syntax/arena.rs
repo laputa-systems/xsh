@@ -2741,6 +2741,53 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
+    /// Build a surface statement together with the expansion that defines it.
+    ///
+    /// `operands` are the parts the user wrote, already parsed, in source
+    /// order. `expand` builds the expansion from them and returns its root,
+    /// which must be the statement it registered last; that root is popped so
+    /// only the surface node appears in the current statement list. Every
+    /// expression, statement, and block row `expand` adds is recorded as
+    /// synthetic, so tools that scan whole tables can leave them out.
+    pub fn push_sugar(
+        &mut self,
+        form: SugarForm,
+        operands: &[ArenaSugarOperand],
+        span: Span,
+        expand: impl FnOnce(&mut Self) -> StmtId,
+    ) -> StmtId {
+        let exprs = self.lowerer.arena.expr_tags.len();
+        let stmts = self.lowerer.arena.stmt_tags.len();
+        let blocks = self.lowerer.arena.blocks.len();
+        let expansion = expand(self);
+        let popped = self.pop_last_statement();
+        assert_eq!(
+            popped, expansion,
+            "a sugar expansion must be the statement registered last"
+        );
+        let arena = &mut self.lowerer.arena;
+        arena.sugar_expansions.push(ArenaSugarExpansion {
+            exprs: ArenaRange::new(exprs, arena.expr_tags.len() - exprs),
+            stmts: ArenaRange::new(stmts, arena.stmt_tags.len() - stmts),
+            blocks: ArenaRange::new(blocks, arena.blocks.len() - blocks),
+        });
+        let start = self.lowerer.arena.sugar_operands.len();
+        self.lowerer
+            .arena
+            .sugar_operands
+            .extend_from_slice(operands);
+        let id = self.lowerer.push_stmt_kind(
+            ArenaStmtKind::Sugar {
+                form,
+                operands: ArenaRange::new(start, operands.len()),
+                expansion,
+            },
+            span,
+        );
+        self.push_current_statement(id);
+        id
+    }
+
     pub fn push_assert(
         &mut self,
         condition: ExprId,
@@ -3687,6 +3734,9 @@ pub struct AstArena {
     pub error_fields: Vec<ArenaErrorField>,
     pub if_branches: Vec<ArenaIfBranch>,
     pub with_bindings: ArenaColdVec<ArenaWithBinding>,
+    pub sugar_operands: ArenaColdVec<ArenaSugarOperand>,
+    /// The rows each sugar expansion added, in table order.
+    pub sugar_expansions: ArenaColdVec<ArenaSugarExpansion>,
     pub match_arms: Vec<ArenaMatchArm>,
     pub destructure_fields: ArenaColdVec<ArenaDestructureField>,
     pub pattern_fields: Vec<ArenaRecordPatternField>,
@@ -3864,6 +3914,8 @@ impl AstArena {
     pub fn control_storage_bytes(&self) -> usize {
         vec_capacity_bytes(&self.if_branches)
             + vec_capacity_bytes(&self.with_bindings)
+            + vec_capacity_bytes(&self.sugar_operands)
+            + vec_capacity_bytes(&self.sugar_expansions)
             + vec_capacity_bytes(&self.match_arms)
             + vec_capacity_bytes(&self.if_expr_branches)
             + vec_capacity_bytes(&self.match_expr_arms)
@@ -3982,6 +4034,8 @@ impl AstArena {
             table!(error_fields),
             table!(if_branches),
             table!(with_bindings),
+            table!(sugar_operands),
+            table!(sugar_expansions),
             table!(match_arms),
             table!(destructure_fields),
             table!(pattern_fields),
@@ -4039,6 +4093,8 @@ impl AstArena {
             + vec_capacity_bytes(&self.params)
             + vec_capacity_bytes(&self.if_branches)
             + vec_capacity_bytes(&self.with_bindings)
+            + vec_capacity_bytes(&self.sugar_operands)
+            + vec_capacity_bytes(&self.sugar_expansions)
             + vec_capacity_bytes(&self.match_arms)
             + vec_capacity_bytes(&self.destructure_fields)
             + vec_capacity_bytes(&self.pattern_fields)
@@ -4069,6 +4125,8 @@ impl AstArena {
             + self.error_fields.len()
             + self.if_branches.len()
             + self.with_bindings.len()
+            + self.sugar_operands.len()
+            + self.sugar_expansions.len()
             + self.match_arms.len()
             + self.destructure_fields.len()
             + self.pattern_fields.len()
@@ -4261,6 +4319,14 @@ impl AstArena {
                     condition: ExprId::new(data.rhs as usize),
                 }
             }
+            ArenaStmtTag::Sugar => {
+                let raw = range_slice(&self.extra, range_from_stmt_data(data));
+                ArenaStmtKind::Sugar {
+                    form: SugarForm::from_raw(raw[0]),
+                    operands: ArenaRange::new(raw[1] as usize, raw[2] as usize),
+                    expansion: StmtId::new(raw[3] as usize),
+                }
+            }
             ArenaStmtTag::Assert => ArenaStmtKind::Assert {
                 condition: ExprId::new(data.lhs as usize),
                 message: Some(ExprId::new(data.rhs as usize)),
@@ -4287,6 +4353,18 @@ impl AstArena {
             }
             ArenaStmtTag::Expr => ArenaStmtKind::Expr(ExprId::new(data.lhs as usize)),
         }
+    }
+
+    /// The core statement that carries `id`'s meaning: the expansion of a
+    /// sugar statement, or the statement itself.
+    ///
+    /// For code that classifies a statement by kind without recursing, where
+    /// a delegating match arm has nothing to call.
+    pub fn core_stmt_id(&self, mut id: StmtId) -> StmtId {
+        while let ArenaStmtKind::Sugar { expansion, .. } = self.stmt(id).kind {
+            id = expansion;
+        }
+        id
     }
 
     pub fn block(&self, id: BlockId) -> &ArenaBlock {
@@ -4722,6 +4800,64 @@ impl AstArena {
 
     pub fn with_bindings(&self, range: ArenaRange) -> &[ArenaWithBinding] {
         range_slice(&self.with_bindings, range)
+    }
+
+    /// The parts of a sugar statement the user wrote, in source order.
+    ///
+    /// This is the whole syntactic content of the statement: a walker that
+    /// only recurses visits these and never the expansion, so one arm covers
+    /// every form.
+    pub fn sugar_operands(&self, range: ArenaRange) -> &[ArenaSugarOperand] {
+        range_slice(&self.sugar_operands, range)
+    }
+
+    /// A sugar statement's operands by role.
+    pub fn sugar(&self, form: SugarForm, operands: ArenaRange) -> ArenaSugar {
+        match (form, self.sugar_operands(operands)) {
+            (
+                SugarForm::Repeat,
+                &[
+                    ArenaSugarOperand::Expr(count),
+                    ArenaSugarOperand::Block(body),
+                ],
+            ) => ArenaSugar::Repeat { count, body },
+            (SugarForm::Repeat, operands) => {
+                unreachable!("`repeat` has a count and a body, found {operands:?}")
+            }
+        }
+    }
+
+    /// Whether a sugar expansion added this expression. A tool that scans the
+    /// whole expression table for what the user wrote skips these rows: their
+    /// spans cover surface text that does not spell them.
+    pub fn expr_is_synthetic(&self, id: ExprId) -> bool {
+        self.row_is_synthetic(id.index(), |rows| rows.exprs)
+    }
+
+    /// Whether a sugar expansion added this statement.
+    pub fn stmt_is_synthetic(&self, id: StmtId) -> bool {
+        self.row_is_synthetic(id.index(), |rows| rows.stmts)
+    }
+
+    /// Whether a sugar expansion added this block.
+    pub fn block_is_synthetic(&self, id: BlockId) -> bool {
+        self.row_is_synthetic(id.index(), |rows| rows.blocks)
+    }
+
+    // Expansions are recorded in the order their rows were pushed, so each
+    // table's ranges are disjoint and ascending.
+    fn row_is_synthetic(
+        &self,
+        index: usize,
+        table: impl Fn(&ArenaSugarExpansion) -> ArenaRange,
+    ) -> bool {
+        let after = self
+            .sugar_expansions
+            .partition_point(|rows| table(rows).start as usize <= index);
+        after > 0 && {
+            let range = table(&self.sugar_expansions[after - 1]);
+            index < range.start as usize + range.len as usize
+        }
     }
 
     pub fn match_arms(&self, range: ArenaRange) -> &[ArenaMatchArm] {
@@ -5199,6 +5335,7 @@ pub enum ArenaStmtTag {
     BooleanGuard,
     GuardedStmt,
     GuardedStmtNegated,
+    Sugar,
     Assert,
     AssertBare,
     BreakNone,
@@ -5303,6 +5440,18 @@ pub enum ArenaStmtKind {
         condition: ExprId,
         else_block: BlockId,
     },
+    /// A surface form whose meaning is its expansion into core statements.
+    ///
+    /// The parser builds both views once. Checking, lowering, and execution
+    /// read only `expansion`; tools that work on what the user wrote
+    /// (formatting, lint, grep, coverage) read only `form` and `operands`.
+    /// The expansion references every operand exactly once, so the two views
+    /// share the operand nodes and nothing is checked or reported twice.
+    Sugar {
+        form: SugarForm,
+        operands: ArenaRange,
+        expansion: StmtId,
+    },
     Assert {
         condition: ExprId,
         message: Option<ExprId>,
@@ -5318,6 +5467,58 @@ pub enum ArenaStmtKind {
     Command(CommandStmtId),
     TailBareIdent(Name),
     Expr(ExprId),
+}
+
+/// The surface forms defined by expansion. Each has one expansion function
+/// in the parser, which is the single definition of its meaning.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum SugarForm {
+    /// `repeat COUNT times { BODY }`: operands are the count expression and
+    /// the body block.
+    Repeat,
+}
+
+impl SugarForm {
+    pub const ALL: [Self; 1] = [Self::Repeat];
+
+    /// A compound statement ends with a block and needs no terminator.
+    pub const fn is_compound(self) -> bool {
+        match self {
+            Self::Repeat => true,
+        }
+    }
+
+    fn from_raw(raw: u32) -> Self {
+        Self::ALL[raw as usize]
+    }
+}
+
+/// One part of a sugar statement that the user wrote: an id into the arena
+/// table that already stores that kind of node.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArenaSugarOperand {
+    Expr(ExprId),
+    Block(BlockId),
+    Stmt(StmtId),
+    BindingTarget(BindingTargetId),
+    TypeExpr(TypeExprId),
+    Name(Name),
+}
+
+/// A sugar statement's operands by role, for the consumers that print or
+/// match one particular form. Everything else walks `sugar_operands`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArenaSugar {
+    Repeat { count: ExprId, body: BlockId },
+}
+
+/// The table rows one sugar expansion added.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaSugarExpansion {
+    pub exprs: ArenaRange,
+    pub stmts: ArenaRange,
+    pub blocks: ArenaRange,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -6753,6 +6954,19 @@ impl ArenaLowerer<'_> {
                     tag,
                     ArenaStmtData::new(raw_stmt_id(stmt), raw_expr_id(condition)),
                 )
+            }
+            ArenaStmtKind::Sugar {
+                form,
+                operands,
+                expansion,
+            } => {
+                let data = self.push_stmt_extra(&[
+                    form as u32,
+                    operands.start,
+                    operands.len,
+                    raw_stmt_id(expansion),
+                ]);
+                (ArenaStmtTag::Sugar, data)
             }
             ArenaStmtKind::Assert {
                 condition,

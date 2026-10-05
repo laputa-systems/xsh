@@ -64,7 +64,7 @@ impl Checker {
         if statements.next().is_some() {
             return None;
         }
-        match arena.arena.stmt(statement).kind {
+        match arena.arena.stmt(arena.arena.core_stmt_id(statement)).kind {
             ArenaStmtKind::Expr(value)
             | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(value),
             _ => None,

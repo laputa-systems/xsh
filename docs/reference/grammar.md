@@ -147,7 +147,8 @@ compound_statement = if_statement
                    | guard_statement
                    | with_statement
                    | signal_hook
-                   | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook ) ;
+                   | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook )
+                   | repeat_statement ;
 simple_statement = binding
                  | assert_statement
                  | return_statement
@@ -213,6 +214,7 @@ condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME
 while_statement = "while" condition block ;
 for_statement = "for" binding_target "in" condition_expression block ;
 loop_statement = "loop" block ;
+repeat_statement = "repeat" condition_expression "times" block ;
 match_statement = "match" condition_expression "{" ( separator | arm_head ( block | compound_statement ) ","? | arm_head arm_statement separator | arm_head !( "assert" | "error" IDENT "=" | "export" "error" ) arm_statement "," )* ( arm_head arm_statement )? "}" ;
 arm_head = pattern ( "if" expression )? "=>" ;
 arm_statement = !"{" simple_statement

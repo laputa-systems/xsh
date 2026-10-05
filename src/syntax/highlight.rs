@@ -388,6 +388,11 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     {
         return Kind::Keyword;
     }
+    // `repeat` and `times` are ordinary names except in the head of a
+    // `repeat COUNT times {` statement.
+    if matches!(text, "repeat" | "times") && repeat_head_word(source, tokens, at) {
+        return Kind::Keyword;
+    }
     // `print` is a statement form, not a reserved word, so only a bare use
     // reads as one.
     if text == "print" && !after_dot && !called {
@@ -434,6 +439,34 @@ fn is_binding_name(before: &[Token], source: &str) -> bool {
     before.last().is_some_and(|last| {
         last.tag == TokenTag::Keyword && matches!(&source[last.start..last.end], "let" | "var" | "const")
     })
+}
+
+/// Whether `tokens[at]` is the `repeat` or the `times` of a statement head
+/// `repeat COUNT times {` written on one line.
+fn repeat_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let text = |token: &Token| &source[token.start..token.end];
+    let line_start = tokens[..at]
+        .iter()
+        .rposition(|token| matches!(token.tag, TokenTag::Newline | TokenTag::Semicolon))
+        .map_or(0, |separator| separator + 1);
+    let Some(first) = (line_start..=at).find(|&index| {
+        text(&tokens[index]) == "repeat"
+            && statement_start(index.checked_sub(1).map(|before| tokens[before]), source)
+    }) else {
+        return false;
+    };
+    let times = tokens[first + 1..]
+        .iter()
+        .take_while(|token| token.tag != TokenTag::Newline)
+        .position(|token| token.tag == TokenTag::Ident && text(token) == "times")
+        .map(|offset| first + 1 + offset)
+        .filter(|&times| {
+            times > first + 1
+                && tokens
+                    .get(times + 1)
+                    .is_some_and(|next| next.tag == TokenTag::LBrace)
+        });
+    times.is_some_and(|times| at == first || at == times)
 }
 
 /// Whether the token after `previous` starts a statement.
@@ -694,6 +727,16 @@ mod tests {
         assert_eq!(kind_of(source, "it_works"), Kind::Function);
         assert_eq!(kind_of(source, "error"), Kind::Keyword);
         assert_eq!(kind_of(source, "x"), Kind::Plain);
+    }
+
+    #[test]
+    fn repeat_head_words_are_keywords_only_in_a_repeat_statement() {
+        let source = "repeat n times {\n}\nlet times = xs |> repeat(count: 2)\nlet repeat = times\n";
+        assert_eq!(kind_of(source, "repeat n"), Kind::Keyword);
+        assert_eq!(kind_of(source, "times {"), Kind::Keyword);
+        assert_eq!(kind_of(source, "times ="), Kind::Plain);
+        assert_eq!(kind_of(source, "repeat(count"), Kind::Function);
+        assert_eq!(kind_of(source, "repeat = times"), Kind::Plain);
     }
 
     #[test]

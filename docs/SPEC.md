@@ -88,8 +88,9 @@ type unless use var wait when while with yield
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
-`on`, `test`, the core commands `print`, `eprint`, `cd`, and `env`, and builder
-entries such as `run` inside a builder block.
+`on`, `test`, `repeat` and `times` in the head of a `repeat` statement (8.6),
+the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
+as `run` inside a builder block.
 
 Builtin type and constructor names:
 
@@ -1255,6 +1256,31 @@ change the iteration. A pipeline as the source is consumed item by item (see
 `loop { ... }` repeats until `break`; `break value` makes the loop an
 expression with that value. `break` and `continue` target the nearest loop and
 are not allowed inside stream stage blocks.
+
+`repeat count times { ... }` runs its block once per item of `range(count)`.
+It is sugar, defined by its expansion:
+
+```xsh
+repeat attempts times {
+  print "poll"
+}
+```
+
+means exactly
+
+```xsh
+for _ in range(attempts) {
+  print "poll"
+}
+```
+
+So the count is an `Int` evaluated once before the first iteration, `break`
+and `continue` target the `repeat`, a count of zero runs the block no times,
+and a negative count runs it `-count` times because `range` then counts down
+from zero. Diagnostics about the count are those of the `range` argument. A
+statement is a `repeat` statement when it begins with the word `repeat` and
+its count is followed by the word `times` directly before `{`; neither word is
+reserved.
 
 `return`, `break`, `continue`, and `yield` accept a postfix guard:
 

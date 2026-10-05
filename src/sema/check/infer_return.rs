@@ -37,7 +37,7 @@ impl ReturnInferenceIndex {
         for block in &program.arena.blocks {
             let block_span = program.arena.span(block.span);
             for id in program.arena.stmt_ids(block.statements) {
-                let stmt = program.arena.stmt(id);
+                let stmt = program.arena.stmt(program.arena.core_stmt_id(id));
                 match stmt.kind {
                     ArenaStmtKind::Let { target, .. }
                     | ArenaStmtKind::Const { target, .. }
@@ -657,7 +657,7 @@ fn proc_may_return_value(
     program: &ArenaProgram,
     def: &crate::syntax::arena::ArenaFunctionDef,
 ) -> bool {
-    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(tail).kind {
+    let tail_value = program.arena.stmt_ids(program.arena.block(def.body).statements).last().is_some_and(|tail| match program.arena.stmt(program.arena.core_stmt_id(tail)).kind {
         ArenaStmtKind::Expr(_) | ArenaStmtKind::TailBareIdent(_) | ArenaStmtKind::Match { .. } | ArenaStmtKind::If { else_block: Some(_), .. } => true,
         ArenaStmtKind::Command(command) => matches!(program.arena.command_stmt(command).command,
             crate::syntax::arena::ArenaCommand::Run(run) if super::command::run_capture_result_type_arena(program, run).is_some()),

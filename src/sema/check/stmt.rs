@@ -47,6 +47,7 @@ pub(super) fn block_always_returns_arena(arena: &ArenaProgram, block_id: BlockId
 #[allow(dead_code)]
 pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> bool {
     match arena.arena.stmt(id).kind {
+        ArenaStmtKind::Sugar { expansion, .. } => stmt_always_returns_arena(arena, expansion),
         ArenaStmtKind::Return(_) => true,
         ArenaStmtKind::BooleanGuard {
             condition,
@@ -136,7 +137,10 @@ pub(super) fn stmt_has_exit_point_arena(arena: &ArenaProgram, id: StmtId) -> boo
             ArenaExprKind::ErrorContext { block, .. } => block_has_exit_point_arena(arena, block),
             _ => false,
         },
-        ArenaStmtKind::GuardedStmt { stmt: inner, .. } => stmt_has_exit_point_arena(arena, *inner),
+        ArenaStmtKind::GuardedStmt { stmt: inner, .. }
+        | ArenaStmtKind::Sugar {
+            expansion: inner, ..
+        } => stmt_has_exit_point_arena(arena, *inner),
         _ => false,
     }
 }
@@ -621,6 +625,9 @@ impl Checker {
             );
         }
         match stmt.kind {
+            ArenaStmtKind::Sugar { expansion, .. } => {
+                self.check_stmt_arena(arena, source, expansion);
+            }
             ArenaStmtKind::BooleanGuard {
                 condition,
                 else_block,
@@ -1637,7 +1644,11 @@ impl Checker {
         let block = arena.arena.block(block_id);
         self.push_scope();
         self.block_depth += 1;
-        let stmt_ids: Vec<StmtId> = arena.arena.stmt_ids(block.statements).collect();
+        let stmt_ids: Vec<StmtId> = arena
+            .arena
+            .stmt_ids(block.statements)
+            .map(|id| arena.arena.core_stmt_id(id))
+            .collect();
         let block_span = arena.arena.span(block.span);
         if let Some((&tail, non_tail)) = stmt_ids.split_last() {
             let tail_producing = matches!(
@@ -2793,6 +2804,7 @@ impl Checker {
             self.push_scope();
             self.block_depth += 1;
             for statement in arena.arena.stmt_ids(body.statements) {
+                let statement = arena.arena.core_stmt_id(statement);
                 self.check_non_tail_stmt_arena(arena, source, statement);
                 if let ArenaStmtKind::TailBareIdent(name) = arena.arena.stmt(statement).kind {
                     let ty = self
@@ -2895,6 +2907,9 @@ impl Checker {
 
     fn stmt_definitely_exits_arena(&self, arena: &ArenaProgram, statement: StmtId) -> bool {
         match arena.arena.stmt(statement).kind {
+            ArenaStmtKind::Sugar { expansion, .. } => {
+                self.stmt_definitely_exits_arena(arena, expansion)
+            }
             ArenaStmtKind::Return(_) => self.current_return.is_some(),
             ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => self.loop_depth > 0,
             ArenaStmtKind::Expr(expr) => self.expr_definitely_exits_arena(arena, expr),
@@ -3006,7 +3021,11 @@ impl Checker {
     ) -> Type {
         let block = arena.arena.block(block_id);
         self.block_depth += 1;
-        let stmt_ids: Vec<StmtId> = arena.arena.stmt_ids(block.statements).collect();
+        let stmt_ids: Vec<StmtId> = arena
+            .arena
+            .stmt_ids(block.statements)
+            .map(|id| arena.arena.core_stmt_id(id))
+            .collect();
         let previous_reachable = self.inference_reachable;
         let result = if let Some((&tail, non_tail)) = stmt_ids.split_last() {
             let tail_producing = matches!(
@@ -3093,6 +3112,9 @@ impl Checker {
 
     fn return_inference_stmt_returns(&self, arena: &ArenaProgram, id: StmtId) -> bool {
         match arena.arena.stmt(id).kind {
+            ArenaStmtKind::Sugar { expansion, .. } => {
+                self.return_inference_stmt_returns(arena, expansion)
+            }
             ArenaStmtKind::Return(_) => true,
             ArenaStmtKind::With {
                 body, else_block, ..
@@ -3139,6 +3161,7 @@ impl Checker {
     }
 
     fn check_non_tail_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
+        let id = arena.arena.core_stmt_id(id);
         let stmt = arena.arena.stmt(id);
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Statement);
@@ -3183,6 +3206,7 @@ impl Checker {
         id: StmtId,
         expected: Option<&Type>,
     ) -> Type {
+        let id = arena.arena.core_stmt_id(id);
         let stmt = arena.arena.stmt(id);
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Value);
@@ -3663,6 +3687,9 @@ fn tail_stmt_uses_result_context_arena(arena: &ArenaProgram, stmt: StmtId) -> bo
             .is_some_and(|tail| tail_stmt_uses_result_context_arena(arena, tail))
     };
     match arena.arena.stmt(stmt).kind {
+        ArenaStmtKind::Sugar { expansion, .. } => {
+            tail_stmt_uses_result_context_arena(arena, expansion)
+        }
         ArenaStmtKind::Expr(expr) => tail_expr_uses_result_context_arena(arena, expr),
         ArenaStmtKind::Match { arms, .. } => arena
             .arena

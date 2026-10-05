@@ -11,6 +11,9 @@ mod lint_try_capture;
 #[path = "lint_context_scope.rs"]
 mod context_scope;
 
+#[path = "lint_prefer_repeat.rs"]
+mod prefer_repeat;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -29,7 +32,7 @@ use xsh::frontend::syntax::arena::{
     ArenaFmtPart, ArenaFunctionDef, ArenaMatchExprArm, ArenaModuleContractEntryKind,
     ArenaPatternKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgram, ArenaRange,
     ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaTypeDefBody, ArenaTypeExprTag,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprTag,
     ArenaWordPart, AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId,
     CommandStmtId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
 };
@@ -872,6 +875,15 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::While { block, .. }
             | ArenaStmtKind::For { block, .. }
             | ArenaStmtKind::Loop { block } => self.collect_assigned_names_block(block),
+            ArenaStmtKind::Sugar { operands, .. } => {
+                for operand in self.arena.sugar_operands(operands).to_vec() {
+                    match operand {
+                        ArenaSugarOperand::Block(block) => self.collect_assigned_names_block(block),
+                        ArenaSugarOperand::Stmt(stmt) => self.collect_assigned_names_stmt(stmt),
+                        _ => {}
+                    }
+                }
+            }
             ArenaStmtKind::With {
                 body, else_block, ..
             } => {
@@ -1396,6 +1408,7 @@ impl<'a> Linter<'a> {
                 self.lint_map_entry_iteration(stmt_id, target, iter, block);
                 self.lint_yield_delegation(stmt.span, target, iter, block);
                 self.lint_prefer_file_lines(iter);
+                prefer_repeat::lint_counted_loop(self, stmt.span, target, iter, block);
                 self.lint_expr(iter);
                 self.push_scope();
                 self.define_binding_target(target, stmt.span, true);
@@ -1409,6 +1422,16 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Continue => {}
             ArenaStmtKind::Loop { block } => self.lint_block(block),
+            ArenaStmtKind::Sugar { operands, .. } => {
+                for operand in self.arena.sugar_operands(operands).to_vec() {
+                    match operand {
+                        ArenaSugarOperand::Expr(expr) => self.lint_expr(expr),
+                        ArenaSugarOperand::Block(block) => self.lint_block(block),
+                        ArenaSugarOperand::Stmt(stmt) => self.lint_stmt(stmt, false),
+                        _ => {}
+                    }
+                }
+            }
             ArenaStmtKind::Guard {
                 target,
                 initializer,
@@ -10390,6 +10413,16 @@ fn lazy_visit_stmt(
             lazy_visit_block(arena, block, out);
         }
         ArenaStmtKind::Loop { block } => lazy_visit_block(arena, block, out),
+        ArenaStmtKind::Sugar { operands, .. } => {
+            for operand in arena.sugar_operands(operands) {
+                match *operand {
+                    ArenaSugarOperand::Expr(expr) => lazy_visit_expr(arena, expr, out),
+                    ArenaSugarOperand::Block(block) => lazy_visit_block(arena, block, out),
+                    ArenaSugarOperand::Stmt(stmt) => lazy_visit_stmt(arena, stmt, out),
+                    _ => {}
+                }
+            }
+        }
         ArenaStmtKind::Guard { initializer, else_block, .. } => {
             lazy_visit_expr_or_run(arena, &initializer, out);
             lazy_visit_block(arena, else_block, out);
@@ -10927,6 +10960,14 @@ fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_pushes_to(arena, block, name),
+        ArenaStmtKind::Sugar { operands, .. } => arena
+            .sugar_operands(operands)
+            .iter()
+            .any(|operand| match *operand {
+                ArenaSugarOperand::Block(block) => block_pushes_to(arena, block, name),
+                ArenaSugarOperand::Stmt(stmt) => stmt_pushes_to(arena, stmt, name),
+                _ => false,
+            }),
         ArenaStmtKind::Guard { else_block, .. }
         | ArenaStmtKind::BooleanGuard { else_block, .. } => {
             block_pushes_to(arena, else_block, name)
@@ -10975,6 +11016,14 @@ fn stmt_assigns_non_push_to(
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_assigns_non_push_to(arena, block, name),
+        ArenaStmtKind::Sugar { operands, .. } => arena
+            .sugar_operands(operands)
+            .iter()
+            .any(|operand| match *operand {
+                ArenaSugarOperand::Block(block) => block_assigns_non_push_to(arena, block, name),
+                ArenaSugarOperand::Stmt(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
+                _ => false,
+            }),
         ArenaStmtKind::Guard { else_block, .. }
         | ArenaStmtKind::BooleanGuard { else_block, .. } => {
             block_assigns_non_push_to(arena, else_block, name)
@@ -11707,6 +11756,15 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
                 || block_contains_read_text_lines_call(arena, block)
         }
         ArenaStmtKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
+        ArenaStmtKind::Sugar { operands, .. } => arena
+            .sugar_operands(operands)
+            .iter()
+            .any(|operand| match *operand {
+                ArenaSugarOperand::Expr(expr) => expr_contains_read_text_lines_call(arena, expr),
+                ArenaSugarOperand::Block(block) => block_contains_read_text_lines_call(arena, block),
+                ArenaSugarOperand::Stmt(stmt) => stmt_contains_read_text_lines_call(arena, stmt),
+                _ => false,
+            }),
         ArenaStmtKind::Guard {
             initializer,
             else_block,
@@ -13304,6 +13362,16 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.pop_scope();
             }
             ArenaStmtKind::Loop { block } => self.scan_block(block),
+            ArenaStmtKind::Sugar { operands, .. } => {
+                for operand in self.arena().sugar_operands(operands).to_vec() {
+                    match operand {
+                        ArenaSugarOperand::Expr(expr) => self.scan_expr(expr),
+                        ArenaSugarOperand::Block(block) => self.scan_block(block),
+                        ArenaSugarOperand::Stmt(stmt) => self.scan_stmt(stmt),
+                        _ => {}
+                    }
+                }
+            }
             ArenaStmtKind::Guard {
                 target,
                 initializer,
@@ -13963,7 +14031,10 @@ fn stmt_flow(
     terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Export(inner) => stmt_flow(arena, inner, terminating_call_spans),
+        // Control flow is the form's meaning, which only its expansion states.
+        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
+            stmt_flow(arena, inner, terminating_call_spans)
+        }
         ArenaStmtKind::Let { initializer, .. }
         | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. } => {
