@@ -527,3 +527,67 @@ fn match_else_arm_forms_are_parsed_and_recognized_alike() {
         );
     }
 }
+
+/// A statement that begins `name as` or `name.field as` is a conversion, as
+/// one that begins `name is` is a test; neither is a command. The parser and
+/// the productions agree, and a quoted `"as"` is still a command argument.
+#[test]
+fn statement_start_conversions_are_parsed_and_recognized_alike() {
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ArenaStmtKind};
+    let recognizer = Recognizer::new(grammar());
+    for (source, converts) in [
+        ("count as UInt\n", true),
+        ("row.cell as Int\n", true),
+        ("row.cell.text as Int\n", true),
+        ("count as UInt as Int\n", true),
+        ("count as Int + 1\n", false),
+        ("proc f(count: Str) {\n  count as Int\n}\n", false),
+        ("let kept = try { count as Int }\n", false),
+        ("count \"as\" UInt\n", false),
+        ("row.cell \"as\" Int\n", false),
+        ("print $as\n", false),
+        ("print $is\n", false),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "the parser rejects {source:?}: {:?}",
+            parsed.diagnostics
+        );
+        let first = parsed
+            .arena
+            .statement_ids()
+            .next()
+            .map(|stmt| parsed.arena.arena.stmt(stmt).kind);
+        let arena = &parsed.arena.arena;
+        let converted = matches!(
+            first,
+            Some(ArenaStmtKind::Expr(expr))
+                if matches!(arena.expr(expr).kind, ArenaExprKind::Convert { .. })
+        );
+        assert_eq!(converted, converts, "{source:?}: {first:?}");
+        assert!(
+            !source.contains(['"', '$']) || matches!(first, Some(ArenaStmtKind::Command(_))),
+            "{source:?}: {first:?}"
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_ok(),
+            "the grammar rejects {source:?}"
+        );
+    }
+    // The word after `as` is a type, never a second command argument.
+    for source in ["count as\n", "count as 4\n", "row.cell as \"Int\"\n"] {
+        assert!(
+            !Parser::parse_source_arena_only(SourceId::new(0), source)
+                .diagnostics
+                .is_empty(),
+            "the parser accepts {source:?}"
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_err(),
+            "the grammar accepts {source:?}"
+        );
+    }
+}

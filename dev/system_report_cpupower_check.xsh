@@ -233,7 +233,7 @@ proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) 
     return Err(cpupower_failure(f"cpupower {name} output is incomplete"))
   }
 
-  (raw.data as Str)
+  raw.data as Str
 }
 
 ## Runs only explicit utility subcommands around one product collection.

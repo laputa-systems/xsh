@@ -435,7 +435,7 @@ proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs
     return Err(lsusb_failure(f"lsusb {name} output is incomplete"))
   }
 
-  (raw.data as Str)
+  raw.data as Str
 }
 
 ## Selects one verbose device from the independent list and brackets identity and tree shape.

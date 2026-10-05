@@ -56,7 +56,7 @@ test test_as_fails_with_the_error_of_its_operation {
   assert try { b"\xff" as Str } is Err(_)
 
   let below = -1
-  assert try { (below as UInt) } is Err(_)
+  assert try { below as UInt } is Err(_)
 }
 
 test test_as_propagates_out_of_a_result_function {
@@ -191,28 +191,53 @@ print $width
   assert "invalid integer `wide`" in output.stderr, output.stderr
 }
 
-# A statement that begins with a name and a word is a command, and `as` is a
-# word; a conversion takes no suffix.
-test test_as_keeps_command_statements_and_takes_no_suffix { |ctx|
-  let command = check_errors(
+# A statement that begins `name as` or `name.field as` is a conversion, as one
+# that begins `name is` is a test: it is never the command `name`. A
+# conversion takes no suffix.
+test test_as_begins_a_conversion_statement_and_takes_no_suffix { |ctx|
+  let converted = test.expect(
     ctx,
-    r"""let field = "4"
-let width = try { field as Int }
-print ${width ?? 0}
-""",
-  )?
-  assert "err[check.unresolved-proc-command]" in command, command
-  assert "group the conversion: `(field as TYPE)`" in command, command
+    r"""type Row = {cell: Str}
 
-  let grouped = test.expect(
+pure width(field: Str) -> Result[Int] {
+  field as Int
+}
+
+pure cell(row: Row) -> Result[Int] {
+  row.cell as Int
+}
+
+let field = "4"
+let kept = try { field as Int }
+print ${kept ?? 0} ${width("5") ?? 0} ${cell({cell: "6"}) ?? 0} ${width("wide") ?? -1}
+""",
+    status: 0,
+  )?
+  assert converted.stdout == "4 5 6 -1\n"
+
+  # The grouping that the statement once needed is redundant now.
+  let grouped = check_errors(
     ctx,
     r"""let field = "4"
 let width = try { (field as Int) }
 print ${width ?? 0}
 """,
-    status: 0,
   )?
-  assert grouped.stdout == "4\n"
+  assert "err[check.redundant-parens]" in grouped, grouped
+
+  # A word that is not a type does not make the statement a command again.
+  let command = check_errors(
+    ctx,
+    r"""let field = "4"
+field as root
+""",
+  )?
+  assert "check.unresolved-proc-command" not in command, command
+  assert "err[check." in command, command
+
+  # A quoted word is an argument, so a command may still take the text `as`.
+  let quoted = test.expect(ctx, "run printf \"%s\\n\" \"as\" Int\n", status: 0)?
+  assert quoted.stdout == "as\nInt\n"
 
   let suffix = check_errors(
     ctx,
@@ -233,6 +258,10 @@ let d = (field as Int).float()
 let e = (field as Int) as UInt
 let f = try { (field as Int) }
 print $a $b $c $d $e ${f ?? 0}
+
+pure width(text: Str) -> Result[Int] {
+  (text as Int)
+}
 """
   let candidate = test.temp_file(ctx, name: "as.xsh", contents: bytes.from_text(source))?
   let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only check.redundant-parens $candidate
@@ -246,8 +275,12 @@ let b = -(field as Int)
 let c = field as Int * 2
 let d = (field as Int).float()
 let e = field as Int as UInt
-let f = try { (field as Int) }
+let f = try { field as Int }
 print $a $b $c $d $e ${f ?? 0}
+
+pure width(text: Str) -> Result[Int] {
+  text as Int
+}
 """, text
   let output = test.expect(ctx, text, status: 0)?
   assert output.stdout == "4 -4 8 4 4 4\n"
@@ -287,7 +320,7 @@ show("x:8080: 1.5 :4", b"etc", 2)?
   assert "  let name = raw as Str\n" in rewritten, rewritten
   assert "  let place = raw as Path\n" in rewritten, rewritten
   assert "  let fallback = fields[0].parse_int() ?? 7\n" in rewritten, rewritten
-  assert "  let captured = try { (spec as Int) }\n" in rewritten, rewritten
+  assert "  let captured = try { spec as Int }\n" in rewritten, rewritten
   assert " (fields[3] as Int)\n" in rewritten, rewritten
 
   let stable = run.capture --text "xsht" fmt --check $candidate

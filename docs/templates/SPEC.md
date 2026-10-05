@@ -1293,8 +1293,7 @@ one of these grouping rules (`check.redundant-parens`, whose fix removes
 them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
 `(x?).name` (otherwise `?.`), `(-x).abs()`, `-(text as Int)` and
 `(text as Int).float()` (a conversion is looser than a prefix and takes no
-suffix), a conversion of a name that begins a statement (`(count as UInt)`,
-which would otherwise be the command `count`), a command form followed by more of
+suffix), a command form followed by more of
 its expression (`(run cat file).len()`, or `(run cat file)?.lines()`, where the
 final word would start a typed argument `file?.lines()`), a statement that would otherwise start
 with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
@@ -1692,9 +1691,8 @@ because its type reads a following `.`, `[`, or `?` as part of itself: write
 `(text as Int).float()`. `text as Int?` names the optional type and is
 rejected.
 
-`as` is a contextual word. Three other forms use it, and one position reads
-it as a plain word; each is decided by position before a conversion is
-considered:
+`as` is a contextual word. Three other forms use it; each is decided by
+position before a conversion is considered:
 
 - `use M as N` renames a module (3.3). A `use` statement holds no
   expression.
@@ -1707,10 +1705,14 @@ considered:
   destination is the first one outside brackets that stands directly before
   a name and `{`. Every earlier `as` is part of the destination, so
   `atomically replace target as Path as tmp { ... }` converts `target`.
-- A statement that begins with a name or a `.name` chain followed by a word
-  is a command (10.1), and `as` is a word: `count as UInt` alone on a line
-  runs the command `count`. A conversion there is grouped, `(count as UInt)`;
-  in a binding, an argument, an operand, or a `return` it needs no grouping.
+
+A statement that begins with a name or a `.name` chain followed by a word is
+a command (10.1), except where the word continues an expression: an operator,
+`is`, or `as`. `count as UInt` alone on a line is therefore a conversion and
+never runs a command named `count`, and the grouping `(count as UInt)` is
+redundant there as it is anywhere else (`check.redundant-parens`). A command
+that takes the text `as` as its first argument quotes it or uses `run`:
+`run label "as" draft`.
 
 ## 7. Bindings And Assignment
 

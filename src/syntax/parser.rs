@@ -717,7 +717,7 @@ impl<'a> Parser<'a> {
                     && self
                         .token_table
                         .name_at(index + 1)
-                        .is_some_and(|name| name == "is"))
+                        .is_some_and(|name| name == "is" || name == "as"))
                 // A postfix guard follows an expression statement, as an
                 // operator would.
                 && !matches!(
@@ -743,9 +743,9 @@ impl<'a> Parser<'a> {
     }
 
     /// Whether the name at the start of a statement is followed by a binary
-    /// operator, so the statement is an expression rather than a command. A
-    /// `not` counts even without `in`, and `-` counts only when it is spaced
-    /// like an operator rather than written as a flag.
+    /// operator, `is`, or `as`, so the statement is an expression rather than
+    /// a command. A `not` counts even without `in`, and `-` counts only when
+    /// it is spaced like an operator rather than written as a flag.
     pub(in crate::syntax::parser) fn lookahead_is_expr_binary(&self) -> bool {
         self.peek_tag(1).is_some_and(|tag| {
             tag != TokenTag::Minus
@@ -755,7 +755,11 @@ impl<'a> Parser<'a> {
         }) || (self.peek_tag(1) == Some(TokenTag::Minus)
             && (self.peek_start(1) == Some(self.current_end())
                 || self.peek_start(2) != self.peek_end(1)))
-            || self.peek_name(1).is_some_and(|name| name == "is")
+            // A `$is` or `$as` word carries the same name and is an argument.
+            || (self.peek_tag(1) == Some(TokenTag::Ident)
+                && self
+                    .peek_name(1)
+                    .is_some_and(|name| name == "is" || name == "as"))
             || self.lookahead_past_newlines_is_pipe_gt()
     }
 

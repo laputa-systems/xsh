@@ -139,14 +139,15 @@ fn operators(family: OperatorFamily) -> Item {
         }))
 }
 
-/// Every token sequence that begins a binary operator, `is`, or `|>`: a
-/// statement whose name is followed by one of these is an expression.
+/// Every token sequence that begins a binary operator, `is`, `as`, or `|>`:
+/// a statement whose name is followed by one of these is an expression.
 fn operator_leads() -> Vec<Vec<Term>> {
     let mut leads: Vec<Vec<Term>> = BINARY_OPERATORS
         .iter()
         .map(|operator| vec![operator_term(operator.first)])
         .collect();
     leads.push(vec![word_term("is", false)]);
+    leads.push(vec![word_term("as", false)]);
     leads.push(vec![tag_term(TokenTag::PipeGt)]);
     leads
 }

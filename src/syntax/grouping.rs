@@ -845,13 +845,6 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
                 after_expression: true,
             }
         }
-        // A statement that starts with a name or a `.name` chain and goes on
-        // with `as` is a command whose first word is `as`, so a conversion of
-        // one is grouped there: `(count as UInt)`.
-        ArenaExprKind::Convert { value, .. } if statement => is_name_chain(arena, *value),
-        ArenaExprKind::Field { .. } if statement && context.slot == Slot::ConversionValue => {
-            is_name_chain_kind(arena, kind)
-        }
         // A name alone is a command; a `.name` chain followed by a word is a
         // dotted command (`Parser::lookahead_is_dotted_command`).
         ArenaExprKind::Ident(_) if statement => match context.slot {
@@ -859,23 +852,8 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
                 context.chain_follow.token,
                 FollowToken::Word | FollowToken::Brace
             ),
-            Slot::ConversionValue => true,
             _ => context.follow.token == FollowToken::End,
         },
-        _ => false,
-    }
-}
-
-/// Whether `expr` is a name or a `.name` chain on one, the shapes that begin
-/// a command statement.
-fn is_name_chain(arena: &AstArena, expr: ExprId) -> bool {
-    is_name_chain_kind(arena, &arena.expr(expr).kind)
-}
-
-fn is_name_chain_kind(arena: &AstArena, kind: &ArenaExprKind) -> bool {
-    match kind {
-        ArenaExprKind::Ident(_) => true,
-        ArenaExprKind::Field { base, .. } => is_name_chain(arena, *base),
         _ => false,
     }
 }
@@ -920,9 +898,12 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
             Slot::PatternTestValue,
             Follow::spaced(FollowToken::WordOperator),
         ),
-        // `as` is a word, not an operator, to whatever reads the operand's
-        // first tokens: a statement that starts `name as` is a command.
-        ArenaExprKind::Convert { .. } => left(Slot::ConversionValue, Follow::WORD),
+        // `as` continues an expression as `is` does: a statement that starts
+        // `name as` is a conversion, not a command.
+        ArenaExprKind::Convert { .. } => left(
+            Slot::ConversionValue,
+            Follow::spaced(FollowToken::WordOperator),
+        ),
         ArenaExprKind::Unary { .. } => inherit(Slot::Prefix, PREFIX_OPERAND),
         ArenaExprKind::Spawn(_) => inherit(
             Slot::CommandTarget {

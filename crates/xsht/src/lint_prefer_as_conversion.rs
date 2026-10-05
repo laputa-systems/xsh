@@ -238,8 +238,8 @@ mod tests {
     }
 
     /// The conversion is grouped exactly where the place it lands in needs
-    /// it: under a prefix, before a suffix, and where a statement begins
-    /// with a name.
+    /// it: under a prefix and before a suffix. A statement may begin with
+    /// one.
     #[test]
     fn the_conversion_keeps_only_the_grouping_its_place_needs() {
         let source = "proc probe(text: Str, parts: List[Str]) -> Result[Int] {\n  let a = -text.parse_int()?\n  let b = text.parse_int()? * 2 + parts[0].parse_int()?\n  let c = (text + \"0\").parse_int()?\n  let d = [text.parse_int()?, 1]\n  let e = parts[(text.parse_int()?)..]\n  let f = f\"{text.parse_int()?}\"\n  let g = try { text.parse_int()? }\n  let h = (text.parse_int()?).float()\n  print $a $b $c ${d.len()} ${e.len()} $f ${g ?? 0} $h (text.parse_int()?)\n  text.parse_int()?\n}\n";
@@ -248,7 +248,7 @@ mod tests {
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "proc probe(text: Str, parts: List[Str]) -> Result[Int] {\n  let a = -(text as Int)\n  let b = text as Int * 2 + parts[0] as Int\n  let c = (text + \"0\") as Int\n  let d = [text as Int, 1]\n  let e = parts[(text as Int)..]\n  let f = f\"{text as Int}\"\n  let g = try { (text as Int) }\n  let h = (text as Int).float()\n  print $a $b $c ${d.len()} ${e.len()} $f ${g ?? 0} $h (text as Int)\n  (text as Int)\n}\n"
+            "proc probe(text: Str, parts: List[Str]) -> Result[Int] {\n  let a = -(text as Int)\n  let b = text as Int * 2 + parts[0] as Int\n  let c = (text + \"0\") as Int\n  let d = [text as Int, 1]\n  let e = parts[(text as Int)..]\n  let f = f\"{text as Int}\"\n  let g = try { text as Int }\n  let h = (text as Int).float()\n  print $a $b $c ${d.len()} ${e.len()} $f ${g ?? 0} $h (text as Int)\n  text as Int\n}\n"
         );
         assert!(conversions(&fixed).is_empty());
     }

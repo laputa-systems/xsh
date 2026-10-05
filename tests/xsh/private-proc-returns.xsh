@@ -35,7 +35,7 @@ proc inferred_early(value: Int) {
 }
 
 proc inferred_parsed(text: Str) {
-  (text as Int) + 1
+  text as Int + 1
 }
 
 proc inferred_match(text: Str) {
