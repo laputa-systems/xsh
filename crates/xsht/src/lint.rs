@@ -103,6 +103,8 @@ mod lint_fs_method;
 mod lint_prefer_typed_callable;
 #[path = "lint_explicit_run_capture.rs"]
 mod lint_explicit_run_capture;
+#[path = "lint_argument_label.rs"]
+mod lint_argument_label;
 #[path = "lint_prefer_non_empty_argv.rs"]
 mod lint_prefer_non_empty_argv;
 #[path = "lint_prefer_rel_path.rs"]
@@ -11177,6 +11179,14 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(method);
+        let labels = lint_argument_label::unlabeled_arguments(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            fs_is_shadowed,
+            expr,
+        );
+        self.diagnostics.extend(labels);
         if self.prefer_rel_path {
             let rooted =
                 lint_prefer_rel_path::unvalidated_rooted_path(self.arena, &self.expr_types, expr);

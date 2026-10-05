@@ -88,6 +88,33 @@ pub fn expand_named_arguments(
     Ok(expanded)
 }
 
+/// A registered parameter keeps accepting the label it had before its name
+/// was chosen to be read at the call. Binding knows one name per parameter,
+/// so an argument written with the former label is given the current one.
+/// A name that is some parameter's current name is never rewritten.
+pub(crate) fn with_current_api_labels(
+    sig: &crate::modules::signature::ModuleFnSig,
+    mut args: Vec<ExpandedArgument>,
+) -> Vec<ExpandedArgument> {
+    for arg in &mut args {
+        let Some(label) = arg.name else {
+            continue;
+        };
+        let label = label.as_str();
+        if sig.params.iter().any(|param| param.name == label.as_str()) {
+            continue;
+        }
+        if let Some(param) = sig
+            .params
+            .iter()
+            .find(|param| param.former_label() == Some(label.as_str()))
+        {
+            arg.name = Some(Name::intern(param.name));
+        }
+    }
+    args
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StaticArgumentBinding {
     /// Each expanded value's destination parameter; rest entries share a slot.

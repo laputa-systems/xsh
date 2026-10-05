@@ -449,7 +449,7 @@ impl Checker {
     ) {
         let params = crate::sema::builtin_templates::callable_parameters(sig);
         let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
-            Ok(expanded) => expanded,
+            Ok(expanded) => crate::sema::arguments::with_current_api_labels(sig, expanded),
             Err(error) => {
                 self.error(error.span, &error.message, DiagnosticCode::CheckNamedSpread);
                 return;
@@ -734,7 +734,10 @@ pub(super) fn module_sig_accepts_arg_name_at_arena(
     match arg {
         ArenaCallArgKind::Positional(_) => sig.params.get(index).is_some(),
         ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => false,
-        ArenaCallArgKind::Named { name, .. } => sig.params.iter().any(|param| param.name == *name),
+        ArenaCallArgKind::Named { name, .. } => sig
+            .params
+            .iter()
+            .any(|param| param.accepts_label(name.as_str().as_str())),
     }
 }
 
@@ -756,7 +759,10 @@ pub(super) fn bind_module_args_arena(
                 *binding = Some(arg_index);
             }
             ArenaCallArgKind::Named { name, .. } => {
-                let param_index = sig.params.iter().position(|param| param.name == *name)?;
+                let param_index = sig
+                    .params
+                    .iter()
+                    .position(|param| param.accepts_label(name.as_str().as_str()))?;
                 if bindings[param_index].is_some() {
                     return None;
                 }

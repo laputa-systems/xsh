@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
-pub use registry::{ApiArgCheck, ApiDocs, ImplBinding, MethodReceiver, ScriptImpl, SemanticRule};
+pub use registry::{
+    ApiArgCheck, ApiDocs, ImplBinding, LabelRule, MethodReceiver, ScriptImpl, SemanticRule,
+};
 pub use xsh_registry::RuntimeOp;
 
 #[derive(Clone, Debug)]
@@ -280,6 +282,23 @@ pub struct ParamSig {
     pub name: &'static str,
     pub ty: Type,
     pub defaulted: bool,
+    pub label: LabelRule,
+}
+
+impl ParamSig {
+    /// Whether an argument labeled `label` is this parameter's.
+    pub fn accepts_label(&self, label: &str) -> bool {
+        self.name == label || self.former_label() == Some(label)
+    }
+
+    /// The name this parameter had before its label was chosen, still
+    /// accepted as its label.
+    pub fn former_label(&self) -> Option<&'static str> {
+        match self.label {
+            LabelRule::Free => None,
+            LabelRule::Written { formerly } => formerly,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -346,6 +365,7 @@ fn convert_param_sig(param: &registry::ParamSig) -> ParamSig {
         name: param.name,
         ty: convert_type(&param.ty),
         defaulted: param.defaulted,
+        label: param.label,
     }
 }
 

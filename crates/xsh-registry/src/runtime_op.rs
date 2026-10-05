@@ -218,6 +218,7 @@ pub enum RuntimeOp {
     FsIsFile,
     FsIsSymlink,
     FsTempSibling,
+    FsSymlinkAt,
     GroupCurrent,
     GroupLookup,
     GroupByGid,

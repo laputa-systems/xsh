@@ -3484,6 +3484,30 @@ Contracts worth knowing without consulting the reference:
   and free of an escaping `..`; a function that passes a path on to a root
   should declare it `RelPath`. The handle still resolves every path it is
   given, because only resolution sees a symlink.
+- Six methods take an argument whose label makes the call read as a
+  sentence, so that two operands of one type cannot be swapped unnoticed:
+
+  ```xsh
+  {{.spec.argument_label.source}}
+  ```
+
+  They are `Path.copy(to:)`, `Path.rename(to:)`, `Path.hardlink(at:)`,
+  `Path.symlink(to:)`, `Str.replace(from, with:)`, and
+  `Regex.replace(text, with:)`. The receiver of `symlink` is the link and
+  its argument is what the link names, stored as written; the receiver of
+  `hardlink` is the file that exists and its argument is the new name. The
+  label is a rule on the parameter in the registry (`xsht api` shows the
+  parameter under that name). The argument still checks when it is passed
+  by position or under the parameter's former name (`dest:`, `path:`, `to:`
+  of `replace`, `replacement:`), also as the field of a spread record, and
+  means the same. `lint.prefer-argument-label` writes the label at both and
+  rewrites `fs.symlink(target, link)` to `link.symlink(to: target)`. The
+  method evaluates the link before the target, so that rewrite is offered
+  only where the order cannot be observed: one operand is a literal, or
+  both only read (a name, a field path, text that interpolates those). A
+  function declared in XSH has no such rule: each of its parameters may be
+  passed by position or by name, and `with` is a keyword, so it can label
+  an argument of a standard method but cannot name a declared parameter.
 - `fs.mounts()` and `linux.disk_usage()` without a path list every mount
   whose statistics the host gives the process. A mount that refuses them
   with a permission error (`EACCES`, `EPERM`) is left out, as `df` leaves it

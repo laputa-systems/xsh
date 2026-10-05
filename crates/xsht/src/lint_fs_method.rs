@@ -158,7 +158,10 @@ pub(super) fn operations_with_a_path_method() -> &'static [&'static str] {
                                     .iter()
                                     .zip(&overload.params[1..])
                                     .all(|(method, function)| {
-                                        method.name == function.name
+                                        // A method parameter renamed to be
+                                        // read as a label still takes the
+                                        // function's name for it.
+                                        method.accepts_label(function.name)
                                             && method.ty == function.ty
                                             && method.defaulted == function.defaulted
                                     })

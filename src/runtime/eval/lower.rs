@@ -458,6 +458,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsIsFile
             | RuntimeOp::FsIsSymlink
             | RuntimeOp::FsTempSibling
+            | RuntimeOp::FsSymlinkAt
             | RuntimeOp::GroupCurrent
             | RuntimeOp::GroupLookup
             | RuntimeOp::GroupByGid

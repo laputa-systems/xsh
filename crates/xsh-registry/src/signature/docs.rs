@@ -1546,9 +1546,14 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["path", "filesystem", "permissions"],
         )),
         ("Path", "hardlink") => Some((
-            "Creates a hard link to a path.",
+            "Creates a hard link to the path at another path.",
             "The target must satisfy host filesystem link rules and remains a shared inode, not a copied file.",
             &["path", "filesystem", "link"],
+        )),
+        ("Path", "symlink") => Some((
+            "Creates a symbolic link at the path that names a target.",
+            "The target is stored as written and is not resolved or required to exist; an existing entry at the path is an error.",
+            &["path", "filesystem", "symlink"],
         )),
         ("Path", "unlink") => Some((
             "Removes one directory entry.",

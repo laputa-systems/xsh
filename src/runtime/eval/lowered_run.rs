@@ -5472,6 +5472,25 @@ impl Evaluator {
                 fs_module::sync_filesystems();
                 lowered_result_ok(LoweredValue::Unit)
             }
+            // The method's receiver is the link, so its operands arrive in
+            // the reverse of `fs.symlink(target, path)`.
+            RuntimeOp::FsSymlinkAt if values.len() == 2 => {
+                let target = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "Path.symlink",
+                    span,
+                )?;
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "Path.symlink",
+                    span,
+                )?;
+                lowered_unit_result(fs_module::symlink_path(
+                    pathbuf_from_path_value(&target),
+                    self.host_path(&path),
+                    span,
+                ))
+            }
             RuntimeOp::FsSymlink if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),

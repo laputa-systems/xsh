@@ -1873,6 +1873,7 @@ impl Checker {
                                 name: "root",
                                 ty: Type::FsRoot,
                                 defaulted: false,
+                                label: crate::modules::signature::LabelRule::Free,
                             },
                         );
                         sig
