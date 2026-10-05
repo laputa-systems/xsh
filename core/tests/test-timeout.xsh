@@ -39,6 +39,7 @@ test timeout_checks_intervals_and_launch_status { |ctx|
     assert invoke(ctx, ["--", value, "true"])?.status == 125
   }
   assert invoke(ctx, ["-k", "bad", "1", "true"])?.status == 125
+  assert invoke(ctx, ["-s", " TERM ", "1", "true"])?.status == 125
   assert invoke(ctx, ["1", "/nonexistent/xsh-command"])?.status == 127
   assert invoke(ctx, ["1", "/"])?.status == 126
 }

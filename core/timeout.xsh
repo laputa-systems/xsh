@@ -87,6 +87,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.command.len() < 2 { gnu.missing_operand_after(opts.command[0], 125) }
   let limit = duration(opts.command[0])
   let grace = if let given = opts.kill_after { duration(given) } else { 0ms }
+  if ! rx"^([0-9]+|[A-Za-z][A-Za-z0-9+-]*)$".matches(opts.signal) {
+    gnu.usage_error(f"{gnu.quote_value(opts.signal)}: invalid signal", 125)
+  }
   let chosen = process.signal(opts.signal)
   if let Err(_) = chosen {
     gnu.usage_error(f"{gnu.quote_value(opts.signal)}: invalid signal", 125)
