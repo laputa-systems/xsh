@@ -702,6 +702,7 @@ pub struct Linter<'a> {
     duration_conversion_module_unshadowed: bool,
     list_any_bindings: lint_list_any_union::ListAnyBindings,
     set_like_bindings: lint_prefer_set::SetLikeBindings,
+    empty_fallbacks: lint_empty_sentinel::EmptyFallbacks,
     /// `lint.prefer-item-shorthand` and `lint.prefer-match-else` reports,
     /// gathered while callbacks and matches are visited and reported after
     /// the walk in source order.
@@ -917,6 +918,7 @@ impl<'a> Linter<'a> {
             assertion_capture_depth: 0,
             list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
             set_like_bindings: lint_prefer_set::SetLikeBindings::default(),
+            empty_fallbacks: lint_empty_sentinel::EmptyFallbacks::default(),
             item_shorthands: Vec::new(),
             catch_all_arms: Vec::new(),
             fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
@@ -12726,6 +12728,11 @@ impl LintExprVisitor<'_, '_> {
                 expr,
                 &self.linter.expr_types,
             );
+        let tested_fallbacks =
+            self.linter
+                .empty_fallbacks
+                .visit_expr(self.linter.arena, self.linter.source, expr);
+        self.linter.diagnostics.extend(tested_fallbacks);
         if let Some(diagnostic) = lint_redundant_propagation::redundant_condition_propagation(
             self.linter.arena,
             self.linter.source,

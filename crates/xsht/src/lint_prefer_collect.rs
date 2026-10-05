@@ -8,6 +8,8 @@ use xsh::frontend::syntax::arena::{
 use xsh::frontend::syntax::node::AssignOp;
 use xsh::frontend::syntax::parser::Parser;
 
+use super::super::format::{DEFAULT_LINE_WIDTH, Formatter};
+
 /// A local list that is declared empty and then only appended to, up to its
 /// first read, is the list a `collect` block builds:
 ///
@@ -217,14 +219,16 @@ fn built_list(arena: &AstArena, source: &str, stmts: &[StmtId], index: usize) ->
     replacement.push('}');
 
     // The block's statements move two columns right. A line that no longer
-    // fits would be broken by the formatter, and this rewrite does not
-    // reproduce how.
-    if replacement
+    // fits is broken as the formatter breaks it, so a list is found whether
+    // or not its statements are already laid out to fit.
+    let replacement = if format!("{indent}{replacement}")
         .lines()
-        .any(|line| line.chars().count() > super::super::format::DEFAULT_LINE_WIDTH)
+        .any(|line| line.chars().count() > DEFAULT_LINE_WIDTH)
     {
-        return None;
-    }
+        laid_out(&replacement, indent)?
+    } else {
+        replacement
+    };
     let span = Span::new(declaration.span.source_id, start, end);
     // A fix is never applied across a comment, so a list with one among
     // these statements would be reported and never rewritten.
@@ -245,6 +249,47 @@ fn built_list(arena: &AstArena, source: &str, stmts: &[StmtId], index: usize) ->
         span,
         text: replacement,
     })
+}
+
+/// `statements`, which stand at `indent` in their file with the first after
+/// that indentation, laid out as the formatter lays them out there. They are
+/// formatted as the statements of a block, one level deep, in a line that is
+/// as much narrower as their own block is deeper.
+fn laid_out(statements: &str, indent: &str) -> Option<String> {
+    const OPEN: &str = "loop {\n";
+    const CLOSE: &str = "}\n";
+    const LEVEL: &str = "  ";
+    let mut block = String::from(OPEN);
+    for line in format!("{indent}{statements}").lines() {
+        let line = line.strip_prefix(indent).unwrap_or_else(|| line.trim_start());
+        if !line.is_empty() {
+            block.push_str(LEVEL);
+            block.push_str(line);
+        }
+        block.push('\n');
+    }
+    block.push_str(CLOSE);
+    let width = (DEFAULT_LINE_WIDTH + LEVEL.len()).checked_sub(indent.len())?;
+    let output = Formatter::new()
+        .with_line_width(width)
+        .format_source(SourceId::new(0), &block);
+    if !output.diagnostics.is_empty() {
+        return None;
+    }
+    let body = output.formatted.strip_prefix(OPEN)?.strip_suffix(CLOSE)?;
+    let mut laid_out = String::new();
+    for (number, line) in body.lines().enumerate() {
+        if number > 0 {
+            laid_out.push('\n');
+        }
+        if !line.is_empty() {
+            if number > 0 {
+                laid_out.push_str(indent);
+            }
+            laid_out.push_str(line.strip_prefix(LEVEL)?);
+        }
+    }
+    Some(laid_out)
 }
 
 impl Scan<'_> {
@@ -584,6 +629,54 @@ mod tests {
             rewritten(source),
             "let xs = collect {\n  for n in [1, 2] {\n    print $n\n    yield n\n  }\n  print \"between\"\n  yield 3\n}\nprint \"after\"\nprint f\"{xs.len()}\"\n"
         );
+    }
+
+    /// A statement that fills its line no longer fits two columns further
+    /// right. The list is found however that statement is laid out, and the
+    /// rewrite is laid out as the formatter lays it out.
+    #[test]
+    fn a_line_that_no_longer_fits_is_found_and_laid_out_by_the_formatter() {
+        use super::super::super::format::{DEFAULT_LINE_WIDTH, Formatter};
+        let condition = |filler: &str| {
+            format!("field.len() < 6 or field != \"Bus\" or field != \"Device\" or field != \"{filler}\"")
+        };
+        let source = |condition: &str| {
+            format!(
+                "proc gather(fields: List[Str]) -> List[Str] {{\n  var devices = []\n\n  for field in fields {{\n    if {condition} {{\n      print $field\n    }}\n\n    devices += [field]\n  }}\n\n  devices\n}}\n"
+            )
+        };
+        let line = |condition: &str| format!("    if {condition} {{");
+        let filler = "x".repeat(DEFAULT_LINE_WIDTH - line(&condition("")).len());
+        let condition = condition(&filler);
+        assert_eq!(line(&condition).len(), DEFAULT_LINE_WIDTH);
+        let formatted = |text: &str| {
+            let output = Formatter::new().format_source(SourceId::new(0), text);
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            output.formatted
+        };
+
+        let written = source(&condition);
+        assert_eq!(formatted(&written), written);
+        let fixed = rewritten(&written);
+        assert!(fixed.contains("  let devices = collect {\n    for field in fields {\n"), "{fixed}");
+        assert_eq!(formatted(&fixed), fixed);
+
+        // The same statements with the condition broken after each `or`, and
+        // with its operands grouped.
+        for layout in [
+            condition.replace(" or ", " or\n      "),
+            format!("({})", condition.replace(" or ", ") or (")),
+        ] {
+            let layout = source(&layout);
+            assert_ne!(layout, written);
+            // Formatting and rewriting give one text in either order.
+            let rewritten_first = formatted(&rewritten(&layout));
+            assert_eq!(rewritten_first, rewritten(&formatted(&layout)), "{layout}");
+            assert!(rewritten_first.contains("  let devices = collect {\n"), "{layout}");
+        }
+        let grouped = source(&format!("({})", condition.replace(" or ", ") or (")));
+        assert_eq!(formatted(&grouped), written);
+        assert_eq!(formatted(&rewritten(&grouped)), fixed);
     }
 
     #[test]
