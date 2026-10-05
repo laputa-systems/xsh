@@ -434,11 +434,10 @@ print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
   let root = test.temp_dir(ctx, name: "positional-constructor-lint")?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
-  let ignored = run.capture --text "xsht" lint $candidate
-  assert "lint.prefer-positional-constructor" not in ignored.stderr, "the rule is opt-in"
-  # Naming the rule asks for it as its setting does.
   let first = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate
   assert first.status.exited_with(1), first.stderr
+  let unselected = run.capture --text "xsht" lint $candidate
+  assert "lint.prefer-positional-constructor" in unselected.stderr, unselected.stderr
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-positional-constructor $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?

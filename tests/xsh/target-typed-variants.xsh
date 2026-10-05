@@ -231,7 +231,6 @@ let names = entries |> where .kind == .Binary |> map .name
 
 test test_prefer_inferred_variant_fix_preserves_behavior_and_converges { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-lint")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")
   fp"{root}/kinds.xsh".write_atomic("""##! Kinds.
 ## A file kind.
 export enum Kind { File, Binary }
@@ -277,7 +276,6 @@ for entry in entries {
 
 test test_prefer_inferred_variant_skips_stage_items_and_unknown_targets { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-skip")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")
   fp"{root}/kinds.xsh".write_atomic("""##! Kinds.
 ## A file kind.
 export enum Kind { File, Binary }
@@ -506,7 +504,6 @@ let text = "x"
 
 test test_prefer_inferred_variant_fix_reaches_patterns_but_not_arm_heads { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-pattern-lint")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")
   fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)
   let source = r"""use kinds as k
 

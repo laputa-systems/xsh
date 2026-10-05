@@ -265,7 +265,6 @@ true
 
 test test_prefer_implicit_message_fix_preserves_behavior_and_converges { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-lint")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-implicit-messages = true\n")
   let source = r"""error ProofError = Usage(message: Str) | Failed(kind: Str, message: Str) | Missing(message: Str) : NotFound
 
 error StageError {
@@ -316,7 +315,6 @@ print ${StageError.Broken("detail").message}
 
 test test_prefer_implicit_message_leaves_exported_declarations_to_the_author { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-exported")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-implicit-messages = true\n")
   let module_source = """##! Fetch failures.
 ## Why a fetch failed.
 export error FetchError = Usage(message: Str) | Rejected(url: Str, status: Int)
@@ -375,7 +373,7 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   assert count_of(stale.stderr, "err[") == 1, stale.stderr
 }
 
-test test_prefer_implicit_message_is_opt_in_and_named_by_only { |ctx|
+test test_prefer_implicit_message_is_on_without_being_named { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-default")?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(r"""error ProofError = Usage(message: Str) | Other(code: Int)
@@ -383,11 +381,8 @@ print ${ProofError.Usage(message: "named").message}
 print ${ProofError.Other(code: 2).message}
 """)
   let linted = run.capture --text "xsht" lint $candidate
-  assert "lint.prefer-implicit-message" not in linted.stderr, linted.stderr
-  # Naming the rule asks for it as its setting does.
-  let named = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate
-  assert named.status.exited_with(1), named.stderr
-  assert "`Usage` takes its message positionally" in named.stderr, named.stderr
+  assert linted.status.exited_with(1), linted.stderr
+  assert "warn[lint.prefer-implicit-message]: `Usage` takes its message positionally" in linted.stderr, linted.stderr
 }
 
 # A module reached through the linted root is counted from the check of the

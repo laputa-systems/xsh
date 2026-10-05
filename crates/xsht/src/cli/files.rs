@@ -210,9 +210,6 @@ pub struct LintConfig {
     pub prefer_item_shorthand: bool,
     /// On unless `prefer-tempdir-scope = false`.
     pub prefer_tempdir_scope: bool,
-    pub prefer_inferred_variants: bool,
-    pub prefer_positional_constructors: bool,
-    pub prefer_implicit_messages: bool,
     pub prefer_inferred_proc_returns: bool,
     /// On only when `prefer-set = true`.
     pub prefer_set: bool,
@@ -230,9 +227,6 @@ impl Default for LintConfig {
             prefer_env_string: true,
             prefer_item_shorthand: true,
             prefer_tempdir_scope: true,
-            prefer_inferred_variants: false,
-            prefer_positional_constructors: false,
-            prefer_implicit_messages: false,
             prefer_inferred_proc_returns: false,
             prefer_set: false,
             prefer_text_pattern: false,
@@ -379,12 +373,6 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
             .is_none_or(|value| value != "false"),
         prefer_tempdir_scope: ini_string(lint, "prefer-tempdir-scope")
             .is_none_or(|value| value != "false"),
-        prefer_inferred_variants: ini_string(lint, "prefer-inferred-variants")
-            .is_some_and(|value| value == "true"),
-        prefer_positional_constructors: ini_string(lint, "prefer-positional-constructors")
-            .is_some_and(|value| value == "true"),
-        prefer_implicit_messages: ini_string(lint, "prefer-implicit-messages")
-            .is_some_and(|value| value == "true"),
         prefer_inferred_proc_returns: ini_string(lint, "prefer-inferred-proc-returns")
             .is_some_and(|value| value == "true"),
         prefer_set: ini_string(lint, "prefer-set").is_some_and(|value| value == "true"),
@@ -694,23 +682,6 @@ mod tests {
     }
 
     #[test]
-    fn inferred_variant_and_positional_constructor_lints_are_explicit_opt_in() {
-        let root = temp_root("constructor-lints-config");
-        let path = root.join("xsht-config.ini");
-        fs::write(
-            &path,
-            "[lint]\nprefer-inferred-variants = true\nprefer-positional-constructors = true\n",
-        )
-        .unwrap();
-        let lint = load_config_from(&path).unwrap().lint;
-        assert!(lint.prefer_inferred_variants && lint.prefer_positional_constructors);
-        fs::write(&path, "[lint]\n").unwrap();
-        let lint = load_config_from(&path).unwrap().lint;
-        assert!(!lint.prefer_inferred_variants && !lint.prefer_positional_constructors);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
     fn prefer_text_pattern_lint_is_explicit_opt_in() {
         let root = temp_root("prefer-text-pattern-lint-config");
         let path = root.join("xsht-config.ini");
@@ -718,17 +689,6 @@ mod tests {
         assert!(load_config_from(&path).unwrap().lint.prefer_text_pattern);
         fs::write(&path, "[lint]\n").unwrap();
         assert!(!load_config_from(&path).unwrap().lint.prefer_text_pattern);
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn implicit_message_lint_is_explicit_opt_in() {
-        let root = temp_root("implicit-message-lint-config");
-        let path = root.join("xsht-config.ini");
-        fs::write(&path, "[lint]\nprefer-implicit-messages = true\n").unwrap();
-        assert!(load_config_from(&path).unwrap().lint.prefer_implicit_messages);
-        fs::write(&path, "[lint]\n").unwrap();
-        assert!(!load_config_from(&path).unwrap().lint.prefer_implicit_messages);
         let _ = fs::remove_dir_all(root);
     }
 

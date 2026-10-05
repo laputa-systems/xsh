@@ -478,14 +478,6 @@ pub struct LintOptions {
     pub prefer_env_string: bool,
     pub prefer_item_shorthand: bool,
     pub prefer_tempdir_scope: bool,
-    /// Opt in to `lint.prefer-inferred-variant`, which a corpus adopts once
-    /// it migrates its qualified variants.
-    pub prefer_inferred_variants: bool,
-    /// Opt in to `lint.prefer-positional-constructor`.
-    pub prefer_positional_constructors: bool,
-    /// Opt in to `lint.prefer-implicit-message`, which a corpus adopts once
-    /// it migrates its `Variant(message: Str)` declarations.
-    pub prefer_implicit_messages: bool,
     /// The checked constructor calls of this file's `Variant(message: Str)`
     /// variants, which `lint.prefer-implicit-message` reads. `None` when the
     /// caller has no check of the file or the check reported an error: the
@@ -569,9 +561,6 @@ impl Default for LintOptions {
             prefer_env_string: true,
             prefer_item_shorthand: true,
             prefer_tempdir_scope: true,
-            prefer_inferred_variants: false,
-            prefer_positional_constructors: false,
-            prefer_implicit_messages: false,
             message_payload_constructors: None,
             prefer_inferred_proc_returns: false,
             prefer_set: false,
@@ -632,8 +621,6 @@ pub struct Linter<'a> {
     prefer_env_string: bool,
     prefer_item_shorthand: bool,
     prefer_tempdir_scope: bool,
-    prefer_inferred_variants: bool,
-    prefer_positional_constructors: bool,
     prefer_inferred_proc_returns: bool,
     prefer_text_pattern: bool,
     prefer_rel_path: bool,
@@ -822,16 +809,7 @@ impl<'a> Linter<'a> {
                 .as_deref()
                 .is_some_and(|only| only.contains(&DiagnosticCode::LintPreferSet));
         let excluded_rules = options.excluded_rules;
-        // Naming a rule in `--only` asks for it as its setting does, so a
-        // corpus can count and migrate its sites without a configuration file.
-        let named = |code| only.as_deref().is_some_and(|only| only.contains(&code));
-        let prefer_implicit_messages =
-            options.prefer_implicit_messages || named(DiagnosticCode::LintPreferImplicitMessage);
         let message_payload_constructors = options.message_payload_constructors;
-        let prefer_inferred_variants =
-            options.prefer_inferred_variants || named(DiagnosticCode::LintPreferInferredVariant);
-        let prefer_positional_constructors = options.prefer_positional_constructors
-            || named(DiagnosticCode::LintPreferPositionalConstructor);
         let checked_effects =
             if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
                 check_effects().function_effect_facts
@@ -861,8 +839,6 @@ impl<'a> Linter<'a> {
             prefer_env_string: options.prefer_env_string,
             prefer_item_shorthand: options.prefer_item_shorthand,
             prefer_tempdir_scope: options.prefer_tempdir_scope,
-            prefer_inferred_variants,
-            prefer_positional_constructors,
             prefer_text_pattern: options.prefer_text_pattern
                 || only.as_deref().is_some_and(|only| {
                     only.contains(&DiagnosticCode::LintPreferTextPattern)
@@ -991,7 +967,7 @@ impl<'a> Linter<'a> {
             .diagnostics
             .extend(fail_candidates.finish(&program.arena, source));
         // After `lint.prefer-fail`, whose families this rule leaves alone.
-        if prefer_implicit_messages && let Some(constructors) = &message_payload_constructors {
+        if let Some(constructors) = &message_payload_constructors {
             let implicit_messages = lint_implicit_message::lint_implicit_messages(
                 program,
                 source,
@@ -5528,9 +5504,6 @@ impl<'a> Linter<'a> {
     /// `lint.prefer-inferred-variant` for a pattern: the checker found its
     /// qualifier redundant against the matched value's type.
     fn lint_inferred_variant_pattern(&mut self, pattern: Span) {
-        if !self.prefer_inferred_variants {
-            return;
-        }
         let Some(qualifier) = self.redundant_variant_qualifiers.get(&pattern).copied() else {
             return;
         };
@@ -8736,9 +8709,6 @@ impl<'a> Linter<'a> {
     /// checker publishes the qualifier only outside stream stage blocks,
     /// where `.Name` is not an item read.
     fn lint_inferred_variant(&mut self, expr: ExprId) {
-        if !self.prefer_inferred_variants {
-            return;
-        }
         let span = self.arena.expr(expr).span;
         let Some(qualifier) = self.redundant_variant_qualifiers.get(&span).copied() else {
             return;
@@ -8774,9 +8744,6 @@ impl<'a> Linter<'a> {
     /// them in the same order. A pun (`name:`) already names its field and
     /// value at once, so a call with one stays as written.
     fn lint_positional_constructor(&mut self, expr: ExprId) {
-        if !self.prefer_positional_constructors {
-            return;
-        }
         let call = self.arena.expr(expr);
         let ArenaExprKind::Call { callee, args } = call.kind else {
             return;
