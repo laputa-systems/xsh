@@ -81,3 +81,28 @@ test test_ln_interactive_respects_last_force_option { |ctx|
   assert dest.readlink()? == source
   assert err.read_text()? == ""
 }
+
+test test_ln_abbreviated_option_values_are_not_overwrite_controls { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("new")
+  let directory = fp"{root}/-i"
+  directory.mkdir()
+  let dest = fp"{directory}/source"
+  dest.write("old")
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "-s", "--for", "--target-d", "-i", source.display()],
+    root, {}, b"n\n", fp"{root}/out", fp"{root}/err")
+  assert process.run(command)?.exited_with(0)
+  assert dest.readlink()? == source
+}
+
+test test_ln_relative_resolves_dangling_source_link { |ctx|
+  let root = test.temp_dir(ctx)?
+  let dangling = fp"{root}/dangling"
+  dangling.symlink(to: p"missing")
+  let dest = fp"{root}/dest"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -sr $dangling $dest
+  assert dest.readlink()? == p"missing"
+}

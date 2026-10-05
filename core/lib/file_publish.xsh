@@ -20,17 +20,31 @@ export proc same(source: Path, dest: Path) -> Result[Bool, Error] {
   a.dev == b.dev and a.ino == b.ino
 }
 
+# Long abbreviations have already been checked by cli.applet. Include their
+# value-taking spellings so values that begin with '-' cannot become controls.
+pure value_flags() -> List[Str] {
+  var names = ["t", "S"]
+  for name in ["target-directory", "suffix"] {
+    for length in range(2, name.byte_len() + 1) { names += [name.byte_slice(0, length)] }
+  }
+  names
+}
+
 ## Select the last overwrite option after expanding short option clusters.
 export proc overwrite(argv: List[Str], fallback: Str) -> Result[Str, Error] {
   var selected = fallback
-  for token in cli.tokens(argv, ["t", "target-directory", "S", "suffix"])? {
-    if token.kind == "short" or token.kind == "long" {
+  for token in cli.tokens(argv, value_flags())? {
+    if token.kind == "short" {
       match token.name {
-        "f" | "force" => selected = "force"
-        "i" | "interactive" => selected = "interactive"
-        "n" | "no-clobber" => selected = "skip"
+        "f" => selected = "force"
+        "i" => selected = "interactive"
+        "n" => selected = "skip"
         else => {}
       }
+    } else if token.kind == "long" {
+      if "force".starts_with(token.name) { selected = "force" }
+      if "interactive".starts_with(token.name) { selected = "interactive" }
+      if "no-clobber".starts_with(token.name) { selected = "skip" }
     }
   }
   selected
@@ -86,6 +100,16 @@ export proc canonical(entry: Path) -> Result[Path, Error] {
     Ok(found) => found
     Err(failure) => {
       if gnu.errno(failure) != 2 or entry.parent() == entry { return Err(failure) }
+      match fs.stat(entry) {
+        Ok(meta) => {
+          if meta.kind == "symlink" {
+            let target = entry.readlink()?
+            let resolved = if target.display().starts_with("/") { target } else { fp"{entry.parent()}/{target}" }
+            return canonical(resolved)
+          }
+        }
+        Err(missing) => { if gnu.errno(missing) != 2 { return Err(missing) } }
+      }
       fp"{canonical(entry.parent())?}/{entry.name()}".normalize()
     }
   }
@@ -94,10 +118,10 @@ export proc canonical(entry: Path) -> Result[Path, Error] {
 ## Select physical or logical hard linking in argv order.
 export proc logical(argv: List[Str]) -> Result[Bool, Error] {
   var follow = false
-  for token in cli.tokens(argv, ["t", "target-directory", "S", "suffix"])? {
+  for token in cli.tokens(argv, value_flags())? {
     if token.kind != "operand" {
-      if token.name in ["L", "logical"] { follow = true }
-      if token.name in ["P", "physical"] { follow = false }
+      if token.name == "L" or (token.kind == "long" and "logical".starts_with(token.name)) { follow = true }
+      if token.name == "P" or (token.kind == "long" and "physical".starts_with(token.name)) { follow = false }
     }
   }
   follow
@@ -121,10 +145,10 @@ export proc validate_backup(control: Str, suffix: Str) -> Unit {
 ## Keep short and long update options in their original argv order.
 export proc update(argv: List[Str]) -> Result[Str, Error] {
   var selected = "all"
-  for token in cli.tokens(argv, ["t", "target-directory", "S", "suffix"])? {
+  for token in cli.tokens(argv, value_flags())? {
     if token.kind != "operand" {
       if token.name == "u" { selected = "older" }
-      if token.name == "update" { selected = if token.value == "" { "older" } else { token.value } }
+      if token.kind == "long" and "update".starts_with(token.name) { selected = if token.value == "" { "older" } else { token.value } }
     }
   }
   selected
