@@ -573,6 +573,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Repository discovery is filesystem state; a path outside a Git worktree returns an error.",
             &["filesystem", "git", "root"],
         )),
+        ("fs", "temp_sibling") => Some((
+            "Names a hidden temporary path beside a path, for producing a file that is then renamed over it.",
+            "The result is `.NAME.RANDOM.tmp` in the same directory, where NAME is the path's final component and RANDOM is drawn anew by every call, as `write_atomic` names its temporary file. Nothing exists at the result when the call returns, and the call creates nothing, so the name is not reserved: two calls get different names by chance, not by a lock. A path without a final component is an error.",
+            &["filesystem", "temporary", "rename"],
+        )),
         ("fs", "children") => Some((
             "Lists immediate filesystem children as structured entries.",
             "The operation is shallow; use walk or files when recursive traversal is intended.",

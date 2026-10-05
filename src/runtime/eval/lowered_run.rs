@@ -4543,6 +4543,24 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::FsTempSibling if values.len() == 1 => {
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    "fs.temp_sibling",
+                    span,
+                )?;
+                // The name is found against the host path, and given back on
+                // the path as the program spelled it.
+                let host = self.host_path(&path);
+                match crate::modules::fs::temp_sibling_name(&host, span)
+                    .map(|name| PathBuf::from(OsString::from_vec(path.bytes.clone())).with_file_name(name))
+                    .and_then(|sibling| {
+                        path_value_from_pathbuf(sibling).map_err(|error| error.with_span(span))
+                    }) {
+                    Ok(sibling) => lowered_result_ok(LoweredValue::Path(sibling)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::FsDirs if (1..=4).contains(&values.len()) => {
                 let hidden = lowered_bool_arg_or(values.get(3).cloned(), false, "fs.dirs", span)?;
                 let stat = lowered_bool_arg_or(values.get(2).cloned(), true, "fs.dirs", span)?;

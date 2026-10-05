@@ -24,7 +24,10 @@ test test_atomically_replaces_the_destination_after_the_body { |ctx|
   }
 
   assert during == "old"
-  assert partial_name == ".image.tar.tmp"
+  # A hidden sibling named after the destination, with a part drawn anew.
+  assert partial_name.starts_with(".image.tar.")
+  assert partial_name.ends_with(".tmp")
+  assert partial_name != ".image.tar..tmp"
   assert image.read_text()? == "new"
   assert names(root)? == ["image.tar"]
 }
@@ -51,20 +54,89 @@ test test_atomically_creates_a_destination_that_is_absent { |ctx|
   assert names(root)? == ["file", "source", "tree"]
 }
 
-test test_atomically_clears_what_an_earlier_run_left_at_the_temporary_path { |ctx|
+# A run that crashed leaves its temporary file behind. A later run draws a
+# name of its own, so the leftover is neither published nor removed.
+test test_atomically_never_publishes_what_an_earlier_run_left { |ctx|
   let root = test.temp_dir(ctx, name: "atomically-stale")?
   let dest = fp"{root}/out"
-  fp"{root}/.out.tmp/deep".mkdir()
-  fp"{root}/.out.tmp/deep/stale".write("stale")
-  var clear = false
+  let crashed = test.run_script(
+    ctx,
+    f"""atomically replace p"{dest}" as partial {{
+  partial.write("half written")
+  process.kill(process.current_pid()?, signal: "KILL")
+}}
+""",
+  )?
+  assert crashed.status != 0
+  let left = names(root)?
+  assert left.len() == 1, crashed.stderr
+  let leftover = fp"{root}/{left[0]}"
+  assert leftover.read_text()? == "half written"
+  assert ! dest.exists()?
+
+  var fresh = fp"{root}/unset"
   atomically replace dest as partial {
-    clear = ! partial.exists()?
+    fresh = partial
+    assert ! partial.exists()?
     partial.write("fresh")
   }
 
-  assert clear
+  assert fresh != leftover
   assert dest.read_text()? == "fresh"
-  assert names(root)? == ["out"]
+  assert leftover.read_text()? == "half written"
+  assert names(root)? == [leftover.name(), "out"]
+}
+
+# Two writers that are live at once, to two destinations in one directory
+# and to one destination, each have a temporary file of their own.
+test test_atomically_writers_never_share_a_temporary_file { |ctx|
+  let root = test.temp_dir(ctx, name: "atomically-writers")?
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  var live = []
+  atomically replace first as outer {
+    outer.write("first")
+    atomically replace second as inner {
+      inner.write("second")
+      atomically replace first as again {
+        again.write("first again")
+        live = names(root)?
+        assert outer != again
+        assert outer.read_text()? == "first"
+      }
+    }
+
+    # The inner writer to the same destination published first.
+    assert first.read_text()? == "first again"
+    assert second.read_text()? == "second"
+  }
+
+  assert live.len() == 3, live.join(" ")
+  assert first.read_text()? == "first"
+  assert names(root)? == ["first", "second"]
+}
+
+test test_fs_temp_sibling_names_an_unused_hidden_path_and_creates_nothing { |ctx|
+  let root = test.temp_dir(ctx, name: "atomically-sibling")?
+  let dest = fp"{root}/image.tar"
+  let one = fs.temp_sibling(dest)?
+  let two = fs.temp_sibling(dest)?
+  assert one != two
+  for sibling in [one, two] {
+    assert sibling.parent() == dest.parent()
+    assert sibling.name().starts_with(".image.tar.")
+    assert sibling.name().ends_with(".tmp")
+    assert ! sibling.exists()?
+  }
+
+  assert names(root)? == []
+
+  # The result is spelled like the path it stands beside, and a directory
+  # that does not exist is not an error here.
+  let relative = fs.temp_sibling(p"missing-directory/out")?
+  assert relative.parent() == p"missing-directory"
+  assert fs.temp_sibling(p"out")?.parent() == p"out".parent()
+  assert fs.temp_sibling(/) is Err(_)
 }
 
 proc publish(dest: Path, how: Str) [fs, error] -> Result[Str] {
@@ -112,6 +184,51 @@ test test_atomically_leaves_the_destination_alone_unless_the_body_finishes { |ct
 
   assert publish(dest, "new")? == "published"
   assert dest.read_text()? == "new"
+}
+
+test test_atomically_discards_the_temporary_file_on_exit { |ctx|
+  let root = test.temp_dir(ctx, name: "atomically-exit")?
+  let dest = fp"{root}/out"
+  dest.write("old")
+  let output = test.run_script(
+    ctx,
+    f"""atomically replace p"{dest}" as partial {{
+  partial.write("new")
+  exit 3
+}}
+""",
+  )?
+  assert output.status == 3
+  assert dest.read_text()? == "old"
+  assert names(root)? == ["out"]
+}
+
+# A body that leaves on every path only makes and discards a temporary file.
+test test_atomically_lint_reports_a_body_that_always_leaves { |ctx|
+  let source = """proc publish(dest: Path, ready: Bool) [fs, error] {
+  atomically replace dest as partial {
+    partial.write("x")
+    return unless ready
+  }
+
+  for _ in [1, 2] {
+    atomically replace dest as partial {
+      partial.write("x")
+      if ready {
+        break
+      } else {
+        continue
+      }
+    }
+  }
+}
+"""
+  let candidate = test.temp_file(ctx, name: "atomically-never.xsh", contents: bytes.from_text(source))?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.atomically-never-replaces $candidate ?
+  let report = linted.stdout + linted.stderr
+  assert report.split("lint.atomically-never-replaces").len() == 2, report
+  assert ":8:5" in report, report
+  assert "discards the temporary file and publishes nothing" in report, report
 }
 
 test test_atomically_evaluates_the_destination_once { |ctx|
@@ -232,7 +349,10 @@ print \${{p"{root}/out".read_text()?}}
 """,
   )?
   assert output.success, output.stderr
-  assert output.stdout == ".out.tmp\ntop\n"
+  let lines = output.stdout.lines()
+  assert lines.len() == 2, output.stdout
+  assert lines[0].starts_with(".out.") and lines[0].ends_with(".tmp"), output.stdout
+  assert lines[1] == "top"
 }
 
 test test_atomically_destination_must_be_a_path { |ctx|

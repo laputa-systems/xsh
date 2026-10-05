@@ -2122,6 +2122,53 @@ pub(crate) fn unlock_file(file: &std::fs::File, span: Span) -> Result<(), Runtim
         .map_err(|error| RuntimeError::host("fs-lock", &error).with_span(span))
 }
 
+/// The final component of a hidden temporary path beside `path`:
+/// `.NAME.RANDOM.tmp`, where `NAME` is the final component of `path`.
+///
+/// The random part comes from the generator that names the temporary file of
+/// `write_atomic`, which draws again when the name is taken. Nothing is
+/// created: a producer that must make the path itself, a directory or a file
+/// that may not exist yet, could not use a reserved one. The name is therefore
+/// unused when this returns and not reserved afterwards.
+pub(crate) fn temp_sibling_name(path: &Path, span: Span) -> Result<OsString, RuntimeError> {
+    let shown = path.display().to_string();
+    let failure = |error: &std::io::Error| {
+        let error = RuntimeError::host("fs-temp-sibling", error).with_span(span);
+        name_error_path(&shown, Err::<OsString, _>(error)).expect_err("an error stays an error")
+    };
+    let Some(name) = path.file_name() else {
+        return Err(RuntimeError::new(
+            "fs-temp-sibling",
+            format!("{shown}: path has no final component"),
+        )
+        .with_span(span));
+    };
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    let mut prefix = OsString::from(".");
+    prefix.push(name);
+    prefix.push(".");
+    let unused = tempfile::Builder::new()
+        .prefix(&prefix)
+        .suffix(".tmp")
+        // Nothing is created, so there is nothing to remove when this drops.
+        .disable_cleanup(true)
+        .make_in(parent, |candidate| match std::fs::symlink_metadata(candidate) {
+            Ok(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
+            // A missing directory is the rename's failure to report.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        })
+        .map_err(|error| failure(&error))?;
+    Ok(unused
+        .path()
+        .file_name()
+        .expect("a generated path has a final component")
+        .to_os_string())
+}
+
 pub(crate) fn write_atomic(path: PathBuf, data: &[u8], span: Span) -> Result<(), RuntimeError> {
     let shown = path.display().to_string();
     name_error_path(&shown, write_atomic_unnamed(path, data, span))

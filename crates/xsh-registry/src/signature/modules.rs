@@ -1682,6 +1682,15 @@ fn fs_module() -> ModuleSig {
             sig(Vec::new(), result(Type::Path), false, RuntimeOp::FsGitroot),
         ),
         (
+            "temp_sibling",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Path),
+                false,
+                RuntimeOp::FsTempSibling,
+            ),
+        ),
+        (
             "sync",
             sig(Vec::new(), result(Type::Unit), false, RuntimeOp::FsSync),
         ),

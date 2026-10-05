@@ -2934,6 +2934,15 @@ impl<'a> Writer<'a> {
         if !has_comment || self.holds_sugar(span) || self.arena.expr_is_synthetic(expr_id) {
             return false;
         }
+        // A block places the comments among its statements itself, at the
+        // indentation it is printed at. Its text as written would keep the
+        // indentation it had, which is wrong wherever the block has moved.
+        if matches!(
+            self.arena.expr(expr_id).kind,
+            ArenaExprKind::ValueBlock(_) | ArenaExprKind::Capture(_)
+        ) {
+            return false;
+        }
         if let Some(raw) = self.source.get(span.range()) {
             if raw.contains('(') {
                 // The raw text keeps its comments but not its redundant parentheses.
@@ -5120,6 +5129,17 @@ mod tests {
                 .format_source(SourceId::new(0), expected)
                 .formatted,
             expected
+        );
+    }
+
+    /// A block that is an expression (`defer { }`, a bare block, `try { }`)
+    /// and holds a comment is printed like any other block: at the
+    /// indentation of the statement that owns it, with its comments in place.
+    #[test]
+    fn a_block_expression_with_a_comment_is_indented_where_it_is_printed() {
+        assert_round_trip(
+            "proc tidy(ready: Bool) [error] {\n  if ready {\n        defer {\n      # last\n      print \"done\"\n        }\n    errdefer {\n    # only this\n    }\n      {\n   print \"bare\" # trailing\n   # closing\n      }\n   let outcome = try {\n # captured\n       error.fail(\"x\")?\n }\n    assert outcome is Err(_)\n  }\n}\n",
+            "proc tidy(ready: Bool) [error] {\n  if ready {\n    defer {\n      # last\n      print \"done\"\n    }\n    errdefer {\n      # only this\n    }\n    {\n      print \"bare\" # trailing\n      # closing\n    }\n    let outcome = try {\n      # captured\n      error.fail(\"x\")?\n    }\n    assert outcome is Err(_)\n  }\n}\n",
         );
     }
 

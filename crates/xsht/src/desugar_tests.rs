@@ -195,7 +195,7 @@ fn a_comment_inside_a_body_stays_in_the_expanded_block() {
     let source = "atomically replace p\"/tmp/out\" as partial {\n  print \"first\"\n  # produce\n  partial.write(\"x\")\n}\n";
     assert_eq!(
         desugar(source),
-        "{\n  let dest_1: Path = /tmp/out\n  let partial: Path = fp\"{dest_1.parent()}/.{dest_1.name()}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n  {\n    print \"first\"\n    # produce\n    partial.write(\"x\")\n  }\n  fs.rename(partial, dest_1, overwrite: true)?\n}\n"
+        "{\n  let dest_1: Path = /tmp/out\n  let partial: Path = fs.temp_sibling(dest_1)?\n  defer fs.remove(partial, missing_ok: true)\n  {\n    print \"first\"\n    # produce\n    partial.write(\"x\")\n  }\n  fs.rename(partial, dest_1, overwrite: true)?\n}\n"
     );
 }
 
@@ -208,7 +208,7 @@ fn an_atomically_replace_is_printed_as_its_block_under_a_fresh_name() {
     let desugared = desugar(source);
     assert_eq!(
         desugared,
-        "proc publish(dest_1: Path) [fs, error] {\n  # into place\n  {\n    let dest_2: Path = dest_1\n    let partial: Path = fp\"{dest_2.parent()}/.{dest_2.name()}.tmp\"\n    fs.remove(partial, missing_ok: true)\n    defer fs.remove(partial, missing_ok: true)\n    {\n      partial.write(\"x\")\n    }\n    fs.rename(partial, dest_2, overwrite: true)?\n  }\n}\n"
+        "proc publish(dest_1: Path) [fs, error] {\n  # into place\n  {\n    let dest_2: Path = dest_1\n    let partial: Path = fs.temp_sibling(dest_2)?\n    defer fs.remove(partial, missing_ok: true)\n    {\n      partial.write(\"x\")\n    }\n    fs.rename(partial, dest_2, overwrite: true)?\n  }\n}\n"
     );
     assert_eq!(check(source), Vec::<String>::new());
     assert_eq!(check(&desugared), Vec::<String>::new());

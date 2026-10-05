@@ -503,6 +503,7 @@ diagnostic_codes! {
         RuntimeTestSetup = "runtime.test-setup", error, "Report a native-test program that cannot be installed or driven for setup";
     }
     Lint {
+        LintAtomicallyNeverReplaces = "lint.atomically-never-replaces", warning, "Report an `atomically replace` whose body leaves on every path, so its destination is never replaced";
         LintBlockHeader = "lint.block-header", warning, "Move error-handler parameters inside the block of an `else` block";
         LintBooleanGuard = "lint.boolean-guard", warning, "Rewrite a leading failure branch on a Bool condition as `guard ... else`";
         LintBooleanPatternTest = "lint.boolean-pattern-test", warning, "Replace a match yielding `true`/`false` per arm with a pattern test";

@@ -1771,6 +1771,7 @@ impl<'a> Linter<'a> {
                     self.define_binding_target(name, stmt.span, false);
                     self.lint_block(body);
                     self.pop_scope();
+                    prefer_atomically::lint_body_that_never_finishes(self, stmt.span, body);
                 }
             }
             // Both names an indexed `for` binds are loop bindings, in scope

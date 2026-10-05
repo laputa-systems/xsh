@@ -1849,38 +1849,48 @@ means exactly
 {{.spec.atomically.desugared}}
 ```
 
-So the destination is a `Path` evaluated once, and `name` is the immutable
-`Path` `.NAME.tmp` in the destination's directory, where `NAME` is the
-destination's final component; it is in scope for the body only. The local
-that holds the destination has no spelling in source, and `xsht desugar`
-prints it under a fresh name. "Atomically" means visibility by rename within
-one directory: another process sees the old destination or the complete new
-one, never a partial file. It promises nothing about a crash; call `fs.fsync`
-in the body, as above, when the contents must be durable before they are
-visible. Two writers replacing the same destination at once share the
-temporary path and need a lock of their own.
+So the destination is a `Path` evaluated once, and `name` is an immutable
+`Path` in scope for the body only. `fs.temp_sibling` (15) names it:
+`.NAME.RANDOM.tmp` in the destination's directory, where `NAME` is the
+destination's final component and `RANDOM` is drawn anew each time the
+statement runs, the way `write_atomic` names its own temporary file. Nothing
+is at the path when the body starts, and nothing is created there for it, so
+the body may produce a file or a directory. The local that holds the
+destination has no spelling in source, and `xsht desugar` prints it under a
+fresh name. "Atomically" means visibility by rename within one directory:
+another process sees the old destination or the complete new one, never a
+partial file. It promises nothing about a crash; call `fs.fsync` in the body,
+as above, when the contents must be durable before they are visible.
 
-Whatever is at the temporary path is removed before the body runs, so a file
-an interrupted run left behind is not an error. The rename is the last step
-and runs only when the body ran to its end: it replaces an existing
-destination (`overwrite: true`) and fails, as `fs.rename` does, when the body
-produced nothing at the path or the destination's directory does not exist.
-The deferred removal runs however control leaves the statement, after the
-body's own defers, and follows the `defer` rules above. A body that fails, or
-leaves early by `return`, `break`, or `continue`, therefore leaves the
-destination untouched and nothing at the temporary path; after a rename there
-is nothing there to remove. The body's last statement is in statement
-position: a failed `Result[Unit]` there propagates before the rename, and any
-other value is rejected as ignored. The statement produces no value: a failed
-rename propagates like any other failure of the statement, so `try` around it
-captures one `Result[Unit]`. It needs the `fs` effect, and the `error` effect where a failure can
-leave a restricted proc. The temporary name ends in `.tmp`, so a producer
-that chooses a format by file extension must be told the format. A
-statement is an `atomically replace`
-statement when it begins with the words `atomically` and `replace` on one
-line; no word of the head is reserved, and the destination is a head
-expression like the source of a `for`. `Path.write_atomic` (15) is the same
-publication for bytes the program already holds.
+Two writers to one destination, or to two destinations in one directory, never
+share a temporary file: each runs with a name of its own, and of two that
+replace the same destination the one that renames last wins. The name is
+unused when it is drawn and is not reserved by a lock. A run that is killed
+leaves its temporary file behind; a later run neither publishes nor removes
+it, because it never uses that name.
+
+The rename is the last step and runs only when the body ran to its end: it
+replaces an existing destination (`overwrite: true`) and fails, as `fs.rename`
+does, when the body produced nothing at the path or the destination's
+directory does not exist. The deferred removal runs however control leaves the
+statement, after the body's own defers, and follows the `defer` rules above;
+after a rename there is nothing there to remove. Leaving the body early
+publishes nothing: a body that fails, or that leaves by `return`, `break`,
+`continue`, or `exit`, leaves the destination untouched and the temporary file
+removed, whether or not the early exit is an error. A body that leaves on
+every path can never replace its destination, and
+`lint.atomically-never-replaces` reports it. The body's last statement is in
+statement position: a failed `Result[Unit]` there propagates before the
+rename, and any other value is rejected as ignored. The statement produces no
+value: a failed rename propagates like any other failure of the statement, so
+`try` around it captures one `Result[Unit]`. It needs the `fs` effect, and the
+`error` effect where a failure can leave a restricted proc. The temporary name
+ends in `.tmp`, so a producer that chooses a format by file extension must be
+told the format. A statement is an `atomically replace` statement when it
+begins with the words `atomically` and `replace` on one line; no word of the
+head is reserved, and the destination is a head expression like the source of
+a `for`. `Path.write_atomic` (15) is the same publication for bytes the
+program already holds.
 
 ### 8.8 `try`, `retry`, and `ctx`
 

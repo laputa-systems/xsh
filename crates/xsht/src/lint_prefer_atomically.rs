@@ -79,11 +79,41 @@ pub(super) fn lint_published_files(
         {
             Ok(fix) => diagnostic.with_fix_hint(fix),
             Err(difference) => diagnostic.with_note(format!(
-                "no automatic rewrite: {difference}; `atomically replace` clears `.NAME.tmp` beside the destination, removes it however the block ends, and renames it with `overwrite: true` after the block"
+                "no automatic rewrite: {difference}; `atomically replace` names a fresh hidden path beside the destination, removes it however the block ends, and renames it with `overwrite: true` after the block"
             )),
         };
         linter.diagnostics.push(diagnostic);
     }
+}
+
+/// The rename of an `atomically replace` runs only when its body runs to its
+/// end. A body that leaves on every path, by `return`, `break`, `continue`,
+/// `exit`, or a statement that always fails, never replaces the destination:
+/// the statement only makes and discards a temporary file. `statement` is the
+/// whole statement and `body` its block.
+pub(super) fn lint_body_that_never_finishes(
+    linter: &mut super::Linter<'_>,
+    statement: Span,
+    body: BlockId,
+) {
+    let body_span = linter.arena.span(linter.arena.block(body).span);
+    if !linter.definitely_exiting_block_spans.contains(&body_span) {
+        return;
+    }
+    linter.diagnostics.push(
+        Diagnostic::new(
+            Severity::Warning,
+            "this `atomically replace` never replaces its destination",
+        )
+        .with_code(DiagnosticCode::LintAtomicallyNeverReplaces)
+        .with_label(Label::primary(
+            Span::new(statement.source_id, statement.start(), body_span.start()),
+            "the body leaves on every path, so the rename after it never runs",
+        ))
+        .with_note(
+            "leaving the body early discards the temporary file and publishes nothing; let the body run to its end on the path that should replace the destination",
+        ),
+    );
 }
 
 /// Where the statements of one publication sit in their statement list.
@@ -224,8 +254,8 @@ fn binds_a_path(linter: &super::Linter<'_>, stmt: StmtId, name: Name) -> bool {
 ///
 /// - `NAME` is bound to a path written beside `DEST` (`is_sibling_of`), and
 ///   the removal and a deferred removal are adjacent statements, so the
-///   temporary path is a sibling of the destination that is cleared first and
-///   removed however the block ends. Statements between the binding and the
+///   temporary path is a sibling of the destination that is removed however
+///   the block ends. The form draws a fresh name and so has nothing to clear. Statements between the binding and the
 ///   removal stay before the rewritten statement; they may not name `NAME`.
 /// - The rename passes `overwrite: true` and ends the block, so nothing after
 ///   it can see a binding the body would now enclose, and its failure
@@ -754,6 +784,49 @@ mod tests {
         // At the top level of a file the binding stays where it is.
         let top_level = "let dest = p\"/tmp/never/dest\"\nlet partial = fp\"{dest}.tmp\"\nfs.remove(partial, missing_ok: true)\ndefer fs.remove(partial, missing_ok: true)\npartial.write(\"x\")\nfs.rename(partial, dest, overwrite: true)\n";
         assert!(difference(top_level).contains("statements of a file"));
+    }
+
+    #[test]
+    fn a_body_that_always_leaves_is_reported() {
+        let never = |source: &str| {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, source);
+            assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+            Linter::lint(
+                &parsed.arena,
+                source,
+                LintOptions {
+                    expr_types: checked.expr_types,
+                    definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+                    ..LintOptions::default()
+                },
+            )
+            .diagnostics
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintAtomicallyNeverReplaces))
+            .collect::<Vec<_>>()
+        };
+        let publish = |body: &str| {
+            format!("proc publish(dest: Path, ready: Bool) [fs, error] {{\n  for _ in [1] {{\n    atomically replace dest as partial {{\n      partial.write(\"x\")\n{body}    }}\n  }}\n}}\n")
+        };
+        for body in [
+            "      return\n",
+            "      break\n",
+            "      continue\n",
+            "      if ready {\n        return\n      } else {\n        continue\n      }\n",
+        ] {
+            let source = publish(body);
+            let diagnostics = never(&source);
+            assert_eq!(diagnostics.len(), 1, "{source}\n{diagnostics:?}");
+            let label = diagnostics[0].labels[0].span;
+            assert_eq!(&source[label.range()], "atomically replace dest as partial ");
+            assert!(diagnostics[0].fix_hints.is_empty());
+        }
+        // A path that reaches the end of the body publishes.
+        for body in ["", "      return when ready\n", "      if ready {\n        break\n      }\n"] {
+            assert!(never(&publish(body)).is_empty(), "{body}");
+        }
     }
 
     #[test]
