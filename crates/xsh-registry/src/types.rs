@@ -56,8 +56,8 @@ builtin_type_names!(
     (ProcessHandle, "ProcessHandle"),
     (NetJob, "NetJob"),
     (FsRoot, "FsRoot"),
-    (Result, "Result"),
     (RelPath, "RelPath"),
+    (Result, "Result"),
 );
 
 /// Fixed relationships used only by builtin signature templates.
