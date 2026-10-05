@@ -36,6 +36,11 @@ pub mod load {
         parse_load_entry_source_shared_arena_only, parse_script, parse_script_with_module_roots,
         prepare_stdlib_catalog_module, resolve_user_module,
     };
+    pub use crate::project::{
+        PROJECT_CONFIG_FILE_NAME, configured_module_path, default_module_path, module_roots,
+        nearest_project_config_dir, project_module_roots, read_project_config,
+        resolve_project_path,
+    };
 }
 
 pub mod source {

@@ -13,7 +13,7 @@ use crate::source::SourceMap;
 use crate::syntax::parser::Parser;
 use crate::trace::{TraceEvent, TracebackRenderer};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -24,13 +24,19 @@ static COMPACT_RUNNER_SUCCESSES: AtomicUsize = AtomicUsize::new(0);
 
 enum RunAttempt {
     Output(ScriptOutput),
-    Diagnostics { entry_source: EntrySource },
+    Diagnostics {
+        entry_source: EntrySource,
+        // The roots the failed preparation loaded with, so rendering its
+        // diagnostics resolves the same modules.
+        module_roots: Vec<PathBuf>,
+    },
 }
 
 struct PreparedRun {
     evaluator: Evaluator,
     plan: crate::runtime::eval::CompactIndexedRunPlan,
     source_id: crate::source::SourceId,
+    module_roots: Vec<PathBuf>,
     coverage_trace_dir: Option<PathBuf>,
 }
 
@@ -49,7 +55,11 @@ impl PreparedRun {
         let output = match output {
             Ok(output) => output,
             Err(evaluator) => {
-                return diagnostic_attempt(evaluator.into_sources(), self.source_id);
+                return diagnostic_attempt(
+                    evaluator.into_sources(),
+                    self.source_id,
+                    self.module_roots,
+                );
             }
         };
         RunAttempt::Output(script_output_from_eval(output, self.coverage_trace_dir))
@@ -193,9 +203,13 @@ fn finish_run_attempt(options: &RunOptions, attempt: RunAttempt) -> ScriptOutput
             COMPACT_RUNNER_SUCCESSES.fetch_add(1, Ordering::Relaxed);
             output
         }
-        RunAttempt::Diagnostics { entry_source } => render_checked_diagnostics(
+        RunAttempt::Diagnostics {
+            entry_source,
+            module_roots,
+        } => render_checked_diagnostics(
             &options.script,
             entry_source,
+            module_roots,
             options.args.clone(),
             options.coverage_trace_dir.clone(),
         ),
@@ -233,13 +247,14 @@ pub(crate) fn try_run_compact_indexed_script(
 fn render_checked_diagnostics(
     script: &str,
     entry_source: EntrySource,
+    module_roots: Vec<PathBuf>,
     args: Vec<String>,
     _coverage_trace_dir: Option<PathBuf>,
 ) -> ScriptOutput {
     let checked_program = parse_load_check_entry_source_with_token_table(
         script,
         entry_source,
-        Vec::new(),
+        module_roots,
         CheckOptions::default(),
         None,
     );
@@ -297,13 +312,18 @@ fn try_prepare_program(
     Ok(prepare_entry_source(options, entry_source))
 }
 
-fn diagnostic_attempt(sources: SourceMap, source_id: crate::source::SourceId) -> RunAttempt {
+fn diagnostic_attempt(
+    sources: SourceMap,
+    source_id: crate::source::SourceId,
+    module_roots: Vec<PathBuf>,
+) -> RunAttempt {
     RunAttempt::Diagnostics {
         entry_source: EntrySource {
             sources,
             source_id,
             diagnostics: Vec::new(),
         },
+        module_roots,
     }
 }
 
@@ -322,10 +342,22 @@ fn prepare_entry_source(
             ),
         }));
     }
+    // A project config that cannot be read stops the run: skipping it would
+    // load a different set of modules than the project declares.
+    let module_roots = match crate::project::project_module_roots(Path::new(&options.script)) {
+        Ok(roots) => roots,
+        Err(message) => {
+            return Err(RunAttempt::Output(ScriptOutput {
+                status: 2,
+                stdout: Vec::new(),
+                stderr: text_bytes(format!("xsh: {message}\n")),
+            }));
+        }
+    };
     let (sources, parsed) =
-        parse_load_entry_source_arena_only(&options.script, entry_source, Vec::new());
+        parse_load_entry_source_arena_only(&options.script, entry_source, module_roots.clone());
     if !parsed.diagnostics.is_empty() {
-        return Err(diagnostic_attempt(sources, source_id));
+        return Err(diagnostic_attempt(sources, source_id, module_roots));
     }
     let crate::syntax::parser::ArenaParseOutput {
         arena,
@@ -365,7 +397,8 @@ fn prepare_entry_source(
         options.args.clone(),
         sources,
         script_command_name(&options.script),
-    );
+    )
+    .with_module_roots(module_roots.clone());
     let coverage_trace_dir = options
         .coverage_trace_dir
         .clone()
@@ -379,13 +412,18 @@ fn prepare_entry_source(
         let declarations = Checker::compact_declarations(&arena, check);
         evaluator.prepare_checked_compact_indexed_only(&arena, source_id, false, declarations)
     }) else {
-        return Err(diagnostic_attempt(evaluator.into_sources(), source_id));
+        return Err(diagnostic_attempt(
+            evaluator.into_sources(),
+            source_id,
+            module_roots,
+        ));
     };
     drop(arena);
     Ok(PreparedRun {
         evaluator,
         plan,
         source_id,
+        module_roots,
         coverage_trace_dir,
     })
 }
@@ -1064,7 +1102,7 @@ print $root
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt");
-        let RunAttempt::Diagnostics { entry_source } = attempt else {
+        let RunAttempt::Diagnostics { entry_source, .. } = attempt else {
             panic!("syntax diagnostics should preserve the already loaded source");
         };
         fs::remove_file(&path).expect("remove original script after diagnostics preparation");

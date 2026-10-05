@@ -48,7 +48,7 @@ command error.
 |---|---|
 | `include` | extra roots for no-argument discovery |
 | `exclude` | glob patterns removed from discovery for path-oriented commands; an explicit directory uses its nearest config's `exclude` |
-| `module_path` | module search roots (default `.`); `xsht test` also passes them to `module.load` and appends them to children's `XSH_MODULE_PATH` |
+| `module_path` | module search roots (default `.`), searched after file-relative lookup and `XSH_MODULE_PATH`; `xsh` and `xshi` read this one key for the entry script through the same `project_module_roots` (`src/project.rs`); `xsht test` also passes the roots to `module.load` and appends them to children's `XSH_MODULE_PATH` |
 | `test_roots` | directories `xsht test` searches |
 | `[format] line-width` | formatter width target (default 120) |
 | `[format] exclude` | glob patterns, matched from the discovery root, that `xsht fmt` skips during discovery; files named explicitly are still formatted |

@@ -23,7 +23,9 @@ use xsh::diagnostic::DiagnosticRenderer;
 use xsh::execution::evaluator::Evaluator;
 use xsh::execution::value::RunError;
 use xsh::frontend::check::Checker;
-use xsh::frontend::load::{entry_source_from_text, parse_load_entry_source_arena_only};
+use xsh::frontend::load::{
+    entry_source_from_text, parse_load_entry_source_arena_only, project_module_roots,
+};
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::arena::ArenaProgram;
 use xsh::frontend::syntax::node::RunKind;
@@ -772,10 +774,24 @@ fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOu
     // standard-library implementations it can reach. The preparation boundary
     // is this call: preparation happens before the input executes and never
     // during it.
+    // Input resolves `use` like a script in its directory would: through
+    // the project module roots of the nearest project config.
+    let module_roots = match project_module_roots(Path::new(source_name)) {
+        Ok(roots) => roots,
+        Err(message) => {
+            return CommandOutput {
+                status: 2,
+                stdout: Vec::new(),
+                stderr: text_bytes(format!("xshi: {message}\n")),
+                process_status: Some(ProcessStatus::exited(2)),
+                history_source: Some(text.to_string()),
+            };
+        }
+    };
     let entry_source = entry_source_from_text(source_name, text.to_string());
     let source_id = entry_source.source_id;
     let (sources, parsed) =
-        parse_load_entry_source_arena_only(source_name, entry_source, Vec::new());
+        parse_load_entry_source_arena_only(source_name, entry_source, module_roots.clone());
 
     if !parsed.diagnostics.is_empty() {
         return CommandOutput {
@@ -805,6 +821,7 @@ fn run_xsh_source(session: &Session, source_name: &str, text: &str) -> CommandOu
         session.env.clone(),
         session.last_process_status.clone(),
     )
+    .with_module_roots(module_roots)
     .eval(&parsed.arena, source_id);
     let mut stderr = output.stderr;
     if !output.diagnostics.is_empty() {

@@ -1,4 +1,4 @@
-use crate::xsht::cli::{XshConfig, nearest_config_for_file, resolve_config_path};
+use crate::xsht::cli::{XshConfig, nearest_config_for_file};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
@@ -13,12 +13,7 @@ impl FileToolConfig {
     }
 
     pub fn module_roots(&self) -> Vec<PathBuf> {
-        self.config
-            .module_path
-            .iter()
-            .cloned()
-            .map(|root| resolve_config_path(&self.config_dir, root))
-            .collect()
+        xsh::frontend::load::module_roots(&self.config_dir, &self.config.module_path)
     }
 }
 

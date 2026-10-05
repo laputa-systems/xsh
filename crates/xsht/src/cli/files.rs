@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use xsh::process::cancellation_requested_signal;
 
-pub const CONFIG_FILE_NAME: &str = "xsht-config.ini";
+pub const CONFIG_FILE_NAME: &str = xsh::frontend::load::PROJECT_CONFIG_FILE_NAME;
 
 pub fn collect_xsh_files(
     root: &Path,
@@ -225,16 +225,12 @@ pub struct XshConfig {
     pub coverage: CoverageConfig,
 }
 
-fn default_module_path() -> Vec<String> {
-    vec![".".to_string()]
-}
-
 impl Default for XshConfig {
     fn default() -> Self {
         Self {
             include: Vec::new(),
             exclude: Vec::new(),
-            module_path: default_module_path(),
+            module_path: xsh::frontend::load::default_module_path(),
             test_roots: Vec::new(),
             check: CheckConfig::default(),
             format: FormatConfig::default(),
@@ -250,63 +246,26 @@ pub fn load_config() -> Result<XshConfig, String> {
 }
 
 pub fn load_config_from(path: &Path) -> Result<XshConfig, String> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(XshConfig::default()),
-        Err(error) => {
-            return Err(format!(
-                "failed to read {} '{}': {error}",
-                CONFIG_FILE_NAME,
-                path.display()
-            ));
-        }
-    };
-    let span = xsh::frontend::source::Span::new(xsh::frontend::source::SourceId::new(0), 0, 0);
-    let value = xsh::host::ini::decode(&text, span).map_err(|error| {
-        format!(
-            "invalid {} '{}': {}",
-            CONFIG_FILE_NAME,
-            path.display(),
-            error.message
-        )
-    })?;
-    parse_config_ini(&value)
+    // The library locates and decodes the file and owns `module_path`, so
+    // the tools and the runner agree on a project's module roots.
+    match xsh::frontend::load::read_project_config(path)? {
+        Some(fields) => parse_config_ini(&fields),
+        None => Ok(XshConfig::default()),
+    }
 }
 
 pub(crate) fn nearest_config_for_file(file: &Path) -> Result<Option<(PathBuf, XshConfig)>, String> {
-    let parent = file.parent().unwrap_or_else(|| Path::new("."));
-    for ancestor in parent.ancestors() {
-        let dir = if ancestor.as_os_str().is_empty() {
-            PathBuf::from(".")
-        } else {
-            ancestor.to_path_buf()
-        };
-        let candidate = dir.join(CONFIG_FILE_NAME);
-        if candidate.is_file() {
-            return load_config_from(&candidate).map(|config| Some((dir, config)));
-        }
-    }
-    Ok(None)
-}
-
-pub(crate) fn resolve_config_path(config_dir: &Path, raw: String) -> PathBuf {
-    let path = PathBuf::from(raw);
-    if path.is_absolute() {
-        path
-    } else {
-        config_dir.join(path)
-    }
-}
-
-fn parse_config_ini(value: &xsh::execution::value::Value) -> Result<XshConfig, String> {
-    let fields = match value {
-        xsh::execution::value::Value::Record(fields) => fields,
-        _ => return Err(format!("{CONFIG_FILE_NAME} must decode to a record")),
+    let Some(dir) = xsh::frontend::load::nearest_project_config_dir(file) else {
+        return Ok(None);
     };
+    load_config_from(&dir.join(CONFIG_FILE_NAME)).map(|config| Some((dir, config)))
+}
+
+fn parse_config_ini(fields: &xsh::execution::value::RecordMap) -> Result<XshConfig, String> {
     Ok(XshConfig {
         include: ini_string_list(fields, "include").unwrap_or_default(),
         exclude: ini_string_list(fields, "exclude").unwrap_or_default(),
-        module_path: ini_string_list(fields, "module_path").unwrap_or_else(default_module_path),
+        module_path: xsh::frontend::load::configured_module_path(fields)?,
         test_roots: ini_string_list(fields, "test_roots").unwrap_or_default(),
         check: parse_check_ini(fields),
         format: parse_format_ini(fields)?,

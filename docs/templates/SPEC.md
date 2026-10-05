@@ -300,7 +300,20 @@ without `use` and cannot be aliased; they are namespaces, not values, so a
 member must be called rather than used as a value (`check.module-member`).
 User modules resolve relative to the
 importing file, then through each directory in `XSH_MODULE_PATH` (separated by
-the platform's path-list separator). Dotted paths name subdirectories.
+the platform's path-list separator), then through each project module root.
+Dotted paths name subdirectories.
+
+The project module roots are the `module_path` entries of the nearest
+`xsht-config.ini`: the one in the entry script's directory, or else in the
+closest directory above it on the script's path as given (a relative path is
+searched up to the current directory). Entries are relative to the config's
+directory, and a config without `module_path` names its own directory. Every
+module of a program resolves through the entry script's roots, including the
+imports of a module loaded with `module.load`. A program whose entry script
+has no config above it has no project roots. A config that cannot be read or
+decoded, or whose `module_path` is not text, is an error before anything runs.
+`xsh`, `xshi`, and `xsht` share this resolution, so a `use` that checks is a
+`use` that loads.
 
 A module's top level may contain only `use`, `const`, `let`, `proc`, `pure`,
 `stream`, `type`, `enum`, and `error` declarations, optionally exported. It may

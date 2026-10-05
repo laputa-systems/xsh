@@ -40,6 +40,7 @@ First-party consumers import the root library only through these modules:
 | Concern | Path | Owner |
 |---|---|---|
 | loading, syntax, checking | `xsh::frontend::{load, syntax, check, source}` | `src/frontend.rs` over `src/loader.rs`, `src/syntax`, `src/sema`, `src/source.rs` |
+| project module roots | `xsh::frontend::load::project_module_roots` and the config pieces beside it | `src/project.rs` |
 | diagnostics | `xsh::diagnostic` | `src/diagnostic.rs` |
 | script execution | `xsh::execution::script` | `src/execution.rs` over `src/runner.rs` |
 | evaluator and values | `xsh::execution::{evaluator, value}` | `src/runtime/eval.rs`, `src/runtime/value.rs` |
@@ -55,6 +56,13 @@ private. Trace data belongs to `libxsh`; trace presentation belongs to
 `xsht`. The library stays a static Rust library: no `cdylib`, and no split into
 a separate core crate without a concrete consumer. `tests/libxsh_api.rs` guards
 the façade.
+
+Module resolution has one owner. `loader::resolve_module_path_candidates`
+fixes the search order (beside the importing file, `XSH_MODULE_PATH`, project
+module roots), and `src/project.rs` finds a project's `xsht-config.ini` and
+reads its `module_path`. The runner, `xshi`, and `xsht` all get project roots
+there; `xsht` reads the rest of the file itself, and `xsh` never learns the
+tool configuration.
 
 ## Pipeline
 

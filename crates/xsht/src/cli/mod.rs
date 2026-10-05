@@ -125,7 +125,7 @@ pub use files::{
 };
 pub(crate) use files::{
     collect_configured_or_explicit_xsh_files, is_path_excluded, load_config_from,
-    nearest_config_for_file, resolve_config_path,
+    nearest_config_for_file,
 };
 pub use fmt::format_files;
 pub use grep::grep_scripts;
