@@ -54,21 +54,27 @@ commit.
    to three items, sized to finish in one session. A workstream with nothing
    ready sits the wave out; concurrency is a ceiling, not a target.
 2. **Brief.** Each brief names the item IDs, the SPEC sections to change, the
-   files the lane is expected to own, the files it must not touch, its narrow
-   gates, and anything earlier waves learned. The brief is the lane's only
-   context beyond the repository.
+   files the lane is expected to own, the files it must not touch, and
+   anything earlier waves learned. It names no gates: a lane runs only the
+   tests it wrote. The brief is the lane's only context beyond the
+   repository.
 3. **Launch.** Start the wave's lanes together, each with
    `isolation: "worktree"`. Start with four lanes in the first wave and widen
    to eight once build and test times under load are known: every lane builds
    Rust, a release rebuild takes about two minutes of all ten cores, and a
    loaded machine turns timing-sensitive tests into noise.
-4. **Review and merge**, one lane at a time as they report. Read the diff;
-   use `/code-review` for checker, lowering, verifier, and executor changes.
-   Rebase the lane onto the campaign branch, run its narrow gate again, and
-   fast-forward. One commit per item. A conflict in a registry (keyword
-   table, diagnostic codes, arena kinds, lint registration, SPEC section
-   list) is resolved by the integrator; a semantic conflict goes back to the
-   lane that merges second.
+4. **Review, merge, then gate**, one lane at a time as they report. Read the
+   diff; use `/code-review` for checker, lowering, verifier, and executor
+   changes. Rebase the lane onto the campaign branch and fast-forward, one
+   commit per item. Then the integrator runs the gates for the areas the
+   lane touched (`docs/TESTING.md` "Broader" column) on the merged tree.
+   Gates run here, once, on the code that will ship, not in every lane on
+   code that is about to be rebased. A failure goes back to the lane with
+   the command and its output; the lane's commits stay merged unless the
+   failure blocks other lanes, in which case they are reverted until fixed.
+   A conflict in a registry (keyword table, diagnostic codes, arena kinds,
+   lint registration, SPEC section list) is resolved by the integrator; a
+   semantic conflict goes back to the lane that merges second.
 5. **Close the wave** with every lane merged and none running:
    - `cargo build --release -p xsh --bins -p xsht --bin xsht`, then the full
      native suite, the `sema::`, `syntax::`, and filtered `runtime::`
@@ -113,10 +119,14 @@ commit.
 - **Shared files.** Add to registries at the end of the relevant group and
   nowhere else. Put a new lint in its own file. Do not reorganize, rename, or
   reformat a shared file.
-- **Machine load.** Build with `-j 3`. Use debug `cargo check` for compile
-  checks and release binaries for every test. Run only the narrow gates of
-  the brief. Set `XSH_LAPUTA_CORPUS` to the Laputa checkout's absolute path
-  for corpus tests, because `../laputa` does not resolve from a worktree.
+- **Tests a lane runs.** Only the ones it wrote or changed, by exact name:
+  `target/release/xsht test FILE` for its native test files and
+  `cargo test ... NAME` for a Rust test it added. Use debug `cargo check`
+  for compile checks and build with `-j 3`. A lane does not run a test
+  target or suite as a whole, the corpus tests (lint/format invariance,
+  lowering agreement), the soundness tests, `make docs-check`, `make fuzz`,
+  or the Linux container. The integrator runs those after the merge, and
+  the lane's report says which of its changes they should exercise.
 - **Scope.** Do not migrate the corpus, settle an open design point, add a
   dependency, or fix another workstream's defect. Report those instead.
 

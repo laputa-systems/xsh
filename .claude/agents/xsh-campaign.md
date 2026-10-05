@@ -22,14 +22,16 @@ is the workflow; its "Lane contract" section binds you.
 - Do not rewrite the corpus. Ship the lint and its autofix with focused
   tests; the integrator runs migrations between waves. Never run formatters
   or an unfiltered `xsht lint --fix`.
-- Build with `-j 3` and run only narrow gates: the test file or filtered
-  target for what you changed, on release binaries. The integrator runs the
-  full suites. Never run a full native suite, `make fuzz`, or the Linux
-  container from a lane. Give every ad-hoc probe a wall-clock limit and leave
-  nothing running.
+- Run only the tests you wrote or changed, by exact name
+  (`target/release/xsht test FILE`, `cargo test ... NAME`), on release
+  binaries built with `-j 3`; use debug `cargo check` for compile checks.
+  Do not run a whole test target or suite, the corpus tests, the soundness
+  tests, `make docs-check`, `make fuzz`, or the Linux container: the
+  integrator runs the gates after merging your work and sends failures back.
+  Give every ad-hoc probe a wall-clock limit and leave nothing running.
 - Do not add dependencies. Do not change another workstream's item, and do
   not fix an unrelated defect you find: record it in your report.
 - Report in under 300 words: per item, the contract that changed (syntax,
-  types, diagnostics codes, API signatures, defaults), the commit, the gates
-  run with results, the `xsht check` timing line before and after on this
-  repository, open decisions, and defects found.
+  types, diagnostics codes, API signatures, defaults), the commit, the tests
+  you ran with results, which areas the integrator's gates should exercise,
+  open decisions, and defects found.
