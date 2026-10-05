@@ -4566,7 +4566,7 @@ impl Evaluator {
             let diagnostics = vec![runtime_diagnostic(
                 span,
                 message,
-                DiagnosticCode::RuntimeCompactStatementCount,
+                DiagnosticCode::CompactStatementCount,
             )];
             let traceback = Some(self.traceback_for_value(
                 span,
@@ -4672,7 +4672,7 @@ impl Evaluator {
                     diagnostics.push(runtime_diagnostic(
                         span,
                         &error.message,
-                        DiagnosticCode::RuntimeIndexedDriver,
+                        DiagnosticCode::CompactIndexedDriver,
                     ));
                     traceback = Some(self.traceback_for_value(
                         span,

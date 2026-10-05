@@ -34,6 +34,28 @@ pub(crate) enum InterpolationEnd {
     Unclosed,
 }
 
+// The lexer validates a literal it decodes itself, and the parser decodes the
+// text of interpolating literals and command words. Both report the same
+// condition through these constructors, so one code names it.
+
+pub(crate) fn invalid_escape_diagnostic(span: Span) -> Diagnostic {
+    Diagnostic::error("invalid escape sequence")
+        .with_code(DiagnosticCode::LexInvalidEscape)
+        .with_label(Label::primary(span, "unsupported escape sequence"))
+}
+
+pub(crate) fn bytes_unicode_escape_diagnostic(span: Span) -> Diagnostic {
+    Diagnostic::error("unicode escapes are not valid in bytes literals")
+        .with_code(DiagnosticCode::LexInvalidBytesEscape)
+        .with_label(Label::primary(span, "bytes literals use byte escapes only"))
+}
+
+pub(crate) fn invalid_utf8_string_diagnostic(span: Span) -> Diagnostic {
+    Diagnostic::error("string literal is not valid UTF-8")
+        .with_code(DiagnosticCode::LexInvalidString)
+        .with_label(Label::primary(span, "invalid string literal"))
+}
+
 /// Finds the end of the f-string interpolation whose expression starts at
 /// `start`, just after its `{`, by lexing real tokens: the closing `}` is the
 /// first one outside every bracket, string, and nested f-string the lexer
@@ -657,14 +679,9 @@ impl<'a> Lexer<'a> {
                     }
                     StringLiteralKind::Bytes => unreachable!(),
                 },
-                Err(_) => self.diagnostics.push(
-                    Diagnostic::error("string literal is not valid UTF-8")
-                        .with_code(DiagnosticCode::LexInvalidString)
-                        .with_label(Label::primary(
-                            self.span(literal_start, self.offset),
-                            "invalid string literal",
-                        )),
-                ),
+                Err(_) => self.diagnostics.push(invalid_utf8_string_diagnostic(
+                    self.span(literal_start, self.offset),
+                )),
             }
         }
     }
@@ -714,27 +731,16 @@ impl<'a> Lexer<'a> {
                 }
                 self.invalid_escape(escape_start, self.offset);
             }
-            b'u' if bytes => self.diagnostics.push(
-                Diagnostic::error("unicode escapes are not valid in bytes literals")
-                    .with_code(DiagnosticCode::LexInvalidBytesEscape)
-                    .with_label(Label::primary(
-                        self.span(escape_start, self.offset),
-                        "bytes literals use byte escapes only",
-                    )),
-            ),
+            b'u' if bytes => self.diagnostics.push(bytes_unicode_escape_diagnostic(
+                self.span(escape_start, self.offset),
+            )),
             _ => self.invalid_escape(escape_start, self.offset),
         }
     }
 
     fn invalid_escape(&mut self, start: usize, end: usize) {
-        self.diagnostics.push(
-            Diagnostic::error("invalid escape sequence")
-                .with_code(DiagnosticCode::LexInvalidEscape)
-                .with_label(Label::primary(
-                    self.span(start, end.max(start + 1)),
-                    "unsupported escape sequence",
-                )),
-        );
+        self.diagnostics
+            .push(invalid_escape_diagnostic(self.span(start, end.max(start + 1))));
     }
 
     fn push(&mut self, kind: TokenKind, start: usize, _end: usize) {

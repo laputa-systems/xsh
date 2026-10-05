@@ -163,7 +163,7 @@ diagnostic_codes! {
     }
     Lex {
         LexInvalidBytesEscape = "lex.invalid-bytes-escape", error, "Reject a `\\u` unicode escape inside a bytes literal";
-        LexInvalidEscape = "lex.invalid-escape", error, "Reject an unsupported escape sequence in a string literal";
+        LexInvalidEscape = "lex.invalid-escape", error, "Reject an unsupported escape sequence in a string, bytes, or interpolated literal";
         LexInvalidFloat = "lex.invalid-float", error, "Reject a float literal whose exponent has no digits";
         LexInvalidOctal = "lex.invalid-octal", error, "Reject an octal literal with non-octal digits or no digits after `0o`";
         LexInvalidString = "lex.invalid-string", error, "Reject a string literal whose bytes are not valid UTF-8";
@@ -219,8 +219,6 @@ diagnostic_codes! {
         ParseForeignSyntax = "parse.foreign-syntax", error, "Reject syntax from other languages such as `++`, `catch`, `? :`, `elif`, or `[ ... ]` tests";
         ParseGenericErrorFamily = "parse.generic-error-family", error, "Reject generic parameters on an `error` family declaration";
         ParseIfExpressionElse = "parse.if-expression-else", error, "Reject an `if` expression without an `else` branch";
-        ParseInvalidString = "parse.invalid-string", error, "Reject a string literal whose bytes are not valid UTF-8";
-        ParseInvalidStringEscape = "parse.invalid-string-escape", error, "Reject an unsupported escape sequence in a string literal";
         ParseKeywordLabelBinding = "parse.keyword-label-binding", error, "Reject a field label that is a keyword used as an implicit binding name";
         ParseLegacyStderrRedirection = "parse.legacy-stderr-redirection", error, "Reject the legacy stderr redirection spelling in favor of `2>` or `2>>`";
         ParseListPatternRest = "parse.list-pattern-rest", error, "Reject a list pattern whose rest element is repeated or not last";
@@ -476,23 +474,21 @@ diagnostic_codes! {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";
         CompactCliDefault = "compact.cli-default", error, "Reject a `cli main` parameter default that cannot be lowered to a compact constant";
         CompactIndexedBuild = "compact.indexed-build", error, "Reject a construct that cannot be encoded when building the compact indexed IR";
-        CompactIndexedDriver = "compact.indexed-driver", error, "Reject a program whose compact indexed driver steps fail verification";
+        CompactIndexedDriver = "compact.indexed-driver", error, "Reject a program whose compact indexed driver steps fail verification, when it is prepared or when a step runs";
         CompactIndexedSource = "compact.indexed-source", error, "Reject a compact build whose source text is unavailable for indexed IR";
         CompactMainArgs = "compact.main-args", error, "Reject script arguments that cannot be converted for compact `proc main` dispatch";
         CompactMainMissingSpread = "compact.main-missing-spread", error, "Reject a `proc main` taking script arguments without the `(...argv: List[Str])` form";
-        CompactStatementCount = "compact.statement-count", error, "Reject an indexed driver whose statement count differs from the source program";
+        CompactStatementCount = "compact.statement-count", error, "Reject an indexed driver whose statement count differs from the source program, when it is prepared or run";
         CompactUnloweredMain = "compact.unlowered-main", error, "Reject a `proc main` that cannot be encoded in the compact indexed IR";
         CompactUnloweredStatement = "compact.unlowered-statement", error, "Reject a top-level statement that cannot be encoded in the compact indexed IR";
     }
     Runtime {
         RuntimeCliArgs = "runtime.cli-args", error, "Report a failure binding command-line arguments to the `cli main` signature";
-        RuntimeCompactStatementCount = "runtime.compact-statement-count", error, "Report a compact lowered statement count that differs from the source program";
         RuntimeCompactUnsupportedMain = "runtime.compact-unsupported-main", error, "Report a `proc main` that cannot run in the compact runtime";
         RuntimeCompactUnsupportedStatement = "runtime.compact-unsupported-statement", error, "Report a statement that cannot run in the compact runtime";
         RuntimeDeferControlFlow = "runtime.defer-control-flow", error, "Report `return`, `break`, or `continue` escaping a deferred cleanup";
         RuntimeError = "runtime.error", error, "Report an uncaught runtime error raised while running a script or test";
         RuntimeExitStatus = "runtime.exit-status", error, "Report a script exit status outside the integer range 0 to 255";
-        RuntimeIndexedDriver = "runtime.indexed-driver", error, "Report an indexed driver step that fails verification at run time";
         RuntimeLoopControl = "runtime.loop-control", error, "Report `break` or `continue` used outside a loop at run time";
         RuntimeReturnOutsideFunction = "runtime.return-outside-function", error, "Report `return` used outside a function at run time";
         RuntimeTestMissing = "runtime.test-missing", error, "Report a native test whose proc is not found";

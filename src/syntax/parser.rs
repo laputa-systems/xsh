@@ -74,6 +74,38 @@ fn binary_op_for_token(
     })
 }
 
+/// Drops a literal diagnostic that repeats an earlier one. The lexer validates
+/// a literal it decodes, and the parser decodes the same text again for its
+/// value; the lexer's diagnostics come first, so its report is the one kept.
+/// The two decoders can end an escape's span at different offsets, so a
+/// repeat is the same code starting at the same offset.
+fn without_repeated_literal_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Vec<Diagnostic> {
+    let literal_key = |diagnostic: &Diagnostic| {
+        let code = diagnostic.code.filter(|code| {
+            matches!(
+                code,
+                DiagnosticCode::LexInvalidEscape
+                    | DiagnosticCode::LexInvalidBytesEscape
+                    | DiagnosticCode::LexInvalidString
+            )
+        })?;
+        let label = diagnostic.labels.first()?;
+        Some((code, label.span.source_id, label.span.start()))
+    };
+    let mut seen = Vec::new();
+    diagnostics.retain(|diagnostic| {
+        let Some(key) = literal_key(diagnostic) else {
+            return true;
+        };
+        if seen.contains(&key) {
+            return false;
+        }
+        seen.push(key);
+        true
+    });
+    diagnostics
+}
+
 impl<'a> Parser<'a> {
     pub fn parse_source_arena_only(source_id: SourceId, source: &'a str) -> ArenaParseOutput {
         let symbols = crate::symbol::SymbolOwner::new();
@@ -99,7 +131,7 @@ impl<'a> Parser<'a> {
             ArenaParseOutput {
                 arena: program,
                 cst,
-                diagnostics: parser.diagnostics,
+                diagnostics: without_repeated_literal_diagnostics(parser.diagnostics),
             }
         })
     }
@@ -145,7 +177,7 @@ impl<'a> Parser<'a> {
         ArenaParseOutput {
             arena,
             cst,
-            diagnostics: self.diagnostics,
+            diagnostics: without_repeated_literal_diagnostics(self.diagnostics),
         }
     }
 
@@ -167,7 +199,7 @@ impl<'a> Parser<'a> {
         ArenaParseFragment {
             statements,
             cst,
-            diagnostics: self.diagnostics,
+            diagnostics: without_repeated_literal_diagnostics(self.diagnostics),
         }
     }
 
