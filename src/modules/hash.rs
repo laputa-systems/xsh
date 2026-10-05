@@ -182,7 +182,7 @@ pub(crate) fn checksum_file(
 pub(crate) fn checksum_reader(
     algorithm: &str, reader: &mut dyn Read, span: Span,
 ) -> Result<Value, RuntimeError> {
-    if !matches!(algorithm, "crc" | "bsd" | "sysv") {
+    if !matches!(algorithm, "crc" | "crc32b" | "bsd" | "sysv") {
         return Err(RuntimeError::new("hash-algorithm", "unsupported numeric checksum algorithm").with_span(span));
     }
     let (_, checksum, size) = hash_reader(algorithm, 512, reader, span)?;
@@ -204,7 +204,7 @@ fn hash_reader(
         "sha256" => Some(Box::new(sha2::Sha256::new())),
         "sha384" => Some(Box::new(sha2::Sha384::new())),
         "sha512" => Some(Box::new(sha2::Sha512::new())),
-        "blake2b" | "crc" | "bsd" | "sysv" => None,
+        "blake2b" | "crc" | "crc32b" | "bsd" | "sysv" => None,
         _ => return Err(RuntimeError::new("hash-algorithm", "unsupported checksum algorithm").with_span(span)),
     };
     if algorithm == "blake2b" && (!(8..=512).contains(&length) || length % 8 != 0) {
@@ -212,7 +212,7 @@ fn hash_reader(
     }
     let mut blake = Blake2b::new(if algorithm == "blake2b" { length as usize / 8 } else { 64 });
     let mut size = 0_i64;
-    let mut checksum = 0_u32;
+    let mut checksum = if algorithm == "crc32b" { u32::MAX } else { 0_u32 };
     let mut buffer = [0_u8; 64 * 1024];
     loop {
         let count = match reader.read(&mut buffer) {
@@ -227,6 +227,10 @@ fn hash_reader(
         match algorithm {
             "blake2b" => blake.update(chunk),
             "crc" => for byte in chunk { checksum = posix_crc_byte(checksum, *byte); },
+            "crc32b" => for byte in chunk {
+                checksum ^= u32::from(*byte);
+                for _ in 0..8 { checksum = (checksum >> 1) ^ (0xedb8_8320 & 0_u32.wrapping_sub(checksum & 1)); }
+            },
             "bsd" => for byte in chunk { checksum = ((checksum >> 1) | ((checksum & 1) << 15)).wrapping_add(u32::from(*byte)) & 0xffff; },
             "sysv" => for byte in chunk { checksum = checksum.wrapping_add(u32::from(*byte)); },
             _ => {},
@@ -235,6 +239,8 @@ fn hash_reader(
     if algorithm == "crc" {
         let mut count = size as u64;
         while count != 0 { checksum = posix_crc_byte(checksum, count as u8); count >>= 8; }
+        checksum = !checksum;
+    } else if algorithm == "crc32b" {
         checksum = !checksum;
     } else if algorithm == "sysv" {
         checksum = (checksum & 0xffff) + (checksum >> 16);

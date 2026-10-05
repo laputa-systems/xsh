@@ -378,7 +378,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("hash", "checksum" | "checksum_stdin") => Some((
             "Calculates a bounded streaming checksum and content byte count.",
-            "Algorithms are crc (POSIX length-inclusive CRC), bsd, and sysv. The returned record contains checksum and size in bytes. File and remaining stdin reads use at most 64 KiB of input buffering; errors and invalid algorithms are returned explicitly.",
+            "Algorithms are crc (POSIX length-inclusive CRC), crc32b (reflected IEEE CRC-32), bsd, and sysv. The returned record contains checksum and size in bytes. File and remaining stdin reads use at most 64 KiB of input buffering; errors and invalid algorithms are returned explicitly.",
             &["hash", "checksum", "streaming"],
         )),
         ("hash", "digest_file" | "digest_stdin") => Some((

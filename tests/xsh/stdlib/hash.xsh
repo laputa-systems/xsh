@@ -266,6 +266,7 @@ test test_hash_streaming_algorithm_vectors { |ctx|
   let crc = hash.checksum(data, "crc")?
   assert crc.checksum == 1219131554
   assert crc.size == 3
+  assert hash.checksum(data, "crc32b")?.checksum == 891568578
   assert hash.checksum(data, "bsd")?.checksum == 16556
   assert hash.checksum(data, "sysv")?.checksum == 294
   let foobar = test.temp_file(ctx, name: "blake-variable", contents: b"foobar\n")?
