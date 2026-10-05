@@ -17,44 +17,44 @@ unchecked host data.
 
 ## Decisions
 
-Closed. Each is written on its item below.
+Closed. Each is the rule its item is built to.
 
 | Item | Decision |
 |---|---|
+| `PROP-7` | A postfix `when`/`unless` is allowed on expression statements, assignments, and `print`/`eprint`, and nowhere else. No lint rewrites an existing `if c { stmt }`. |
 | `PROP-9` | One propagation rule: a failure leaves a function only through a form visible at the site. See `PROP`. |
-| `PATH-11` | The defaults flip only after a lint has made today's defaults explicit at every call that relies on them. |
+| `PATH-9` | Labels come from a label rule in the registry that one lint is driven from; the label becomes required once both corpora are migrated. `Regex.replace`, `Path.rename`, and `Path.hardlink` are included. The symlink fix, which swaps evaluation order, is offered only for effect-free operands. |
+| `PATH-11` | Only `remove` changes, to `missing_ok: true`; `mkdir` already defaults to `parents: true`. The flip follows the lint that writes today's default at every call that relies on it. |
+| `PATH-13` | `is_dir()`, `is_file()`, and `is_symlink()` fail on a missing path. |
+| `PATH-18` | A mount listing skips a mount that refuses `statvfs`, as `df` does. A mount the caller names still fails. |
+| `PATH-20` | `strip_prefix` returns `Result[RelPath]` and fails on an empty prefix and on a remainder that climbs out. `FsRoot` parameters stay `Path`. |
 | `ERR-4` | `Err(.Variant(...))` requires a declared family-typed return. There is no rule that guesses a family. |
+| `ERR-6` | Exported message-only variants lose their payload by hand in both corpora; `docs/snippets/` is exempt from the three rules; then the rules become defaults. |
+| `SCOPE-3` | `collect { }` is a core expression, not sugar. |
+| `SCOPE-5` | `with x = m { }` without an `else` is a managed resource, through a narrow protocol the checker knows, on built-in resource types only (`FsRoot`, tempdir handles, locks). |
+| `SCOPE-8` | `wait until COND within 30s every 100ms`; backoff is `backoff 100ms..5s`; no jitter by default. |
+| `SCOPE-10` | `errdefer` runs on a nonzero `exit` and on cancellation, not on `exit 0`. |
+| `SCOPE-12` | `tempdir NAME at PATH` becomes a second head of the core scope and follows the rule `cd` and `env` follow. |
+| `SCOPE-13` | A `par-map` item failure cancels the items still running. |
+| `MATCH-5` | Lints with no safe fix report at a note severity that does not fail the lint gate. |
+| `MATCH-13` | A statement that starts `name as T` is a conversion, not a command. There is no `Path as Str`. |
+| `TYPE-3` | Braces are a set only where `Set[T]` is expected or an element is not a bare name; the empty set is `set.empty()`. |
+| `TYPE-5` | `type Port = Int range 1..=65535`, the inclusive bound written `..=`, unless existing range syntax says otherwise. |
 | `TYPE-5`, `TYPE-6` | Instances of the one checker mechanism for validated types (`docs/ARCHITECTURE.md`, "Adding a validated type"); `.require(T)` is the conversion. |
 | `TYPE-6` | `nominal type`. Identity only; field privacy is not part of it. |
-| `SCOPE-9` | Last, and narrow: use after a consuming operation in straight-line code of one scope. |
+| `TYPE-9` | A function returning `Result[T, Family]` fits a callable type that returns `Result[T]`. |
+| `CMD-5` | Defaults may be computed and are shown unevaluated in help; no bare `cli main` beside subcommand entries; a path word is kebab-cased; entries live only in the entry script. |
+| `CMD-6` | `test.expect` returns the output record, and the registry marks it discardable so a bare `test.expect(...)?` checks. |
+| `ITER-8` | `cargo dev` sets the jemalloc preload on its build steps on a musl host. |
+| literal braces | Rejected: no new syntax; `{{` and `template.render` stay. |
 
-Still open; the item is not assigned until it is closed here:
+Out of this campaign; each needs a design of its own:
 
 | Item | Open point |
 |---|---|
-| `SCOPE-3` | `collect { }` needs an expression-level sugar form whose body's `yield`s are reinterpreted. The mechanism is statement-level. Decide whether to build that, or make `collect` a core expression. |
-| `SCOPE-5` | The context-manager protocol, and how `with x = m { }` differs from `with ... else`, which always has its `else`. |
-| `SCOPE-8` | Exact spelling; whether jitter is the default. |
-| `SCOPE-9` | How a parameter distinguishes borrowing a handle from taking it. |
-| `SCOPE-10` | Whether a deliberate `exit N` runs `errdefer` actions. |
-| `TYPE-5` | Range syntax and inclusive-bound spelling. |
-| `TYPE-7` | Spelling of the local dynamic-traversal escape hatch. |
-| `PROP-7` | Whether a command statement takes a postfix guard (`when` is an argv word in `print "x" when verbose` today); which `if c { stmt }` sites a lint rewrites; whether `assert`, `defer`, and bindings count as simple statements; `guard c else fail "m"` against `fail "m" unless c`, which expand alike. Proposed: expression statements, assignments, and `print`/`eprint` only, with no lint for an existing `if`. |
-| `PATH-9` | A parameter cannot say "label required later", so the rename needs either a label rule in the registry that one lint is driven from, or a plain rename now. Also: the eventual error code; whether `Regex.replace`, `Path.rename`, and `Path.hardlink` are included; whether the symlink fix, which swaps evaluation order, is limited to effect-free operands. Proposed: the label rule. |
-| `PATH-18` | A mount that refuses `statvfs`: skip it, as `df` does, or list it without statistics. |
-| `SCOPE-12` | Which rule both `tempdir` forms follow. A: `at` becomes a second head of the core scope, following `cd` and `env` (proposed; no corpus site is expected to change). B: setup failures propagate and the value is the body's tail, which splits `tempdir` from `cd` and `env` and needs the answer to `SCOPE-3`. `SCOPE-11`'s tail-block fix waits on it. |
-| `MATCH-5` | The lint has no behavior-preserving fix and `xsht lint` fails on any diagnostic: add a note severity that does not fail the gate (proposed), make the rule opt-in, or leave it on and fail Laputa's lint. |
-| `TYPE-3` | The set literal. `{a, b}` with bare names is already a record literal. A: braces are a set only where `Set[T]` is expected or an element is not a bare name, and the empty set is `set.empty()` (proposed). B: no literal, `set.of(a, b)`. |
-| `CMD-5` | Whether defaults may be computed (the item's example is, SPEC 3.2 requires constants; proposed: allow, evaluated after parsing and shown unevaluated in help); whether a module may declare `cli` entries; whether a bare `cli main(...)` may sit beside subcommand entries (proposed: no); how a path word is spelled (proposed: snake to kebab, as options). |
-| `CMD-6` | What `test.expect` returns: the output record, which makes a call that needs nothing more `let _ = test.expect(...)?` at 87 sites, or `Result[Unit]`, which the 384 sites that read the record cannot use. |
-| `ERR-6` | Exported message-only variants: delete the payloads by hand in both corpora (proposed), or let a variant without a payload accept `message:`, which changes SPEC 4.10. |
-| `PATH-11` | Confirm that only `remove` changes: `mkdir` already defaults to `parents: true`. |
-| `PATH-13` | `is_dir()`, `is_file()`, and `is_symlink()` fail on a missing path, as the kind comparison they replace did; returning `false` is friendlier and leaves 49 sites to migrate by hand. |
-| `PATH-20` | Whether `strip_prefix` returns `Result[RelPath]`, failing on an empty prefix and on a remainder that climbs out (proposed); whether `FsRoot` parameters become `RelPath`. |
-| `MATCH-13` | Whether a statement that starts `name as T` reads as a conversion, as `name is ...` does (proposed: yes; no command in either corpus starts with `as`); whether `Path as Str` is added. |
-| `SCOPE-13` | Whether an item failure or an early `return` cancels the `par-map` items already running. |
-| `TYPE-9` | Whether a function returning `Result[T, Family]` fits a callable type that returns `Result[T]`. It does not today; allowing it would be sound. |
-| literal braces | No accepted design (see "Open, without an accepted design"). |
+| `SCOPE-9` | Affine checking of runtime-owned handles, and how a parameter distinguishes borrowing a handle from taking it. |
+| `TYPE-7` | Opaque `Any`, and the spelling of the local dynamic-traversal escape hatch. |
+| `MOD-9` | Whether `lint.prefer-inferred-proc-return` becomes a default. |
 
 ## `PROP`: propagation and failure flow
 
