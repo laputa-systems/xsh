@@ -59,6 +59,9 @@ mod lint_exit;
 #[path = "lint_redundant_propagation.rs"]
 mod lint_redundant_propagation;
 
+#[path = "lint_redundant_scope_propagation.rs"]
+mod lint_redundant_scope_propagation;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -1438,6 +1441,12 @@ impl<'a> Linter<'a> {
         };
         let found = [
             lint_redundant_propagation::redundant_propagation(
+                self.arena,
+                self.source,
+                &facts,
+                statement,
+            ),
+            lint_redundant_scope_propagation::redundant_scope_propagation(
                 self.arena,
                 self.source,
                 &facts,

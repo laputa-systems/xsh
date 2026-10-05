@@ -1399,9 +1399,10 @@ argument, a separated `?` belongs to the whole command or run form: write
 
 A statement-position `Result[Unit]` propagates without `?` (8.1), so
 `fs.mkdir(tmp)?` as a statement says it twice. The statement form has no `?`:
-`lint.redundant-propagation` removes it from a call. It leaves a `?` whose
-operand would otherwise be the value of its body, such as the tail of a `try`
-block that is bound.
+`lint.redundant-propagation` removes it from a call, and
+`lint.redundant-scope-propagation` from a `cd`, `env`, `try`, or `retry` block.
+Both leave a `?` whose operand would otherwise be the value of its body, such
+as the tail of a `try` block that is bound.
 
 ### 8.4 Fallback with `??`
 
