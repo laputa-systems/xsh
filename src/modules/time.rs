@@ -146,6 +146,7 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
                 else { std::format!("{sign}{:02}", n / 3600) }
             }
             (_, 1..) => format[start..end + spec.len_utf8()].into(),
+            _ if !"aAbBcCdDeFgGhHIjklmMnprRStTuUVwWxXyYzZ%+".contains(spec) => format[start..end + spec.len_utf8()].into(),
             _ => strftime_piece(&tm, &format[start..end + spec.len_utf8()])?,
         };
         if flags.contains('^') { piece = piece.to_uppercase(); }
@@ -161,7 +162,9 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
 fn parse_epoch(text: &str) -> Result<i64, String> {
     let (negative, value) = if let Some(rest) = text.strip_prefix('-') { (true, rest) } else { (false, text.strip_prefix('+').unwrap_or(text)) };
     let mut parts = value.split('.');
-    let whole = parts.next().unwrap_or("").parse::<i128>().map_err(|_| "invalid epoch timestamp")?;
+    let digits = parts.next().unwrap_or("");
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return Err("invalid epoch timestamp".into()); }
+    let whole = digits.parse::<i128>().map_err(|_| "invalid epoch timestamp")?;
     let fraction = parts.next().unwrap_or("");
     if parts.next().is_some() || fraction.len() > 9 || !fraction.bytes().all(|b| b.is_ascii_digit()) { return Err("invalid epoch timestamp".into()); }
     let sub = if fraction.is_empty() { 0 } else { fraction.parse::<i128>().map_err(|_| "invalid epoch timestamp")? * 10i128.pow(9 - fraction.len() as u32) };
@@ -174,12 +177,13 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
     let text = text.trim();
     if let Some(value) = text.strip_prefix('@') { return parse_epoch(value); }
     let now = match base_ns { Some(value) => value, None => now_epoch_ms().checked_mul(1_000_000).ok_or("timestamp out of range")? };
-    match text.to_ascii_lowercase().as_str() {
+    let lower = text.to_ascii_lowercase();
+    match lower.as_str() {
         "now" => return Ok(now),
         "" | "today" | "yesterday" | "tomorrow" => {
             let tm = calendar(now / NANOS_PER_SECOND, utc)?;
             let midnight = from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, utc)?;
-            let delta = if text == "yesterday" { -86_400_000_000_000 } else if text == "tomorrow" { 86_400_000_000_000 } else { 0 };
+            let delta = if lower == "yesterday" { -86_400_000_000_000 } else if lower == "tomorrow" { 86_400_000_000_000 } else { 0 };
             return midnight.checked_add(delta).ok_or_else(|| "timestamp out of range".into());
         }
         _ => {}
@@ -260,7 +264,7 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
     }
     let text_c = std::ffi::CString::new(input.as_str()).map_err(|_| "date contains NUL")?;
     let current = calendar(now / NANOS_PER_SECOND, utc)?;
-    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
+    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
     for pattern in formats {
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         tm.tm_year = current.tm_year; tm.tm_mon = current.tm_mon; tm.tm_mday = current.tm_mday;
