@@ -1,9 +1,6 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{
-    ArenaArmSpelling, ArenaExprKind, ArenaPatternKind, ArenaProgram, ArenaStmtKind, ExprId,
-    PatternId, StmtId,
-};
+use xsh::frontend::syntax::arena::{ArenaArmSpelling, ArenaPatternKind, AstArena, ExprId, PatternId};
 
 /// A last arm written `_ =>` is the catch-all that `else =>` names. Both
 /// parse to the same unguarded wildcard arm, so replacing the `_` changes
@@ -12,65 +9,51 @@ use xsh::frontend::syntax::arena::{
 /// Only the last arm qualifies: `else` must be last, and a `_ =>` arm with
 /// arms after it already draws `check.unreachable-match-arm`. A guarded
 /// `_ if cond =>` is not a catch-all and has no `else` spelling.
-pub(super) fn lint_wildcard_catch_all_arms(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    let arena = &program.arena;
-    let mut last_arms = Vec::new();
-    for index in 0..arena.stmt_tags.len() {
-        if let ArenaStmtKind::Match { arms, .. } = arena.stmt(StmtId::from_index(index)).kind
-            && let Some(arm) = arena.match_arms(arms).last()
-        {
-            last_arms.push((arm.pattern, arm.guard, arm.spelling));
-        }
+///
+/// This is the report for the last arm of one `match` statement or
+/// expression the linter visits. A pattern test or condition also stores
+/// arms, with a synthetic wildcard; only a written `match` has an arm to
+/// respell.
+pub(super) fn catch_all_arm_report(
+    arena: &AstArena,
+    source: &str,
+    pattern: PatternId,
+    guard: Option<ExprId>,
+    spelling: ArenaArmSpelling,
+) -> Option<Diagnostic> {
+    if guard.is_some() || spelling != ArenaArmSpelling::Pattern {
+        return None;
     }
-    for index in 0..arena.expr_tags.len() {
-        // A pattern test or condition also stores arms, with a synthetic
-        // wildcard; only a written `match` has an arm to respell.
-        if let ArenaExprKind::Match { arms, .. } = arena.expr(ExprId::from_index(index)).kind
-            && let Some(arm) = arena.match_expr_arms(arms).last()
-        {
-            last_arms.push((arm.pattern, arm.guard, arm.spelling));
-        }
-    }
-    let mut diagnostics = Vec::new();
-    for (pattern, guard, spelling) in last_arms {
-        if guard.is_some() || spelling != ArenaArmSpelling::Pattern {
-            continue;
-        }
-        let Some(wildcard) = written_wildcard(program, source, pattern) else {
-            continue;
-        };
-        diagnostics.push(
-            Diagnostic::warning("write the catch-all match arm as `else =>`")
-                .with_code(DiagnosticCode::LintPreferMatchElse)
-                .with_label(Label::primary(
-                    wildcard,
-                    "a whole-arm `_` is the catch-all `else`",
-                ))
-                .with_fix_hint(FixHint::replacement(
-                    wildcard,
-                    "replace `_` with `else`",
-                    "else",
-                )),
-        );
-    }
-    diagnostics.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
-    diagnostics
+    let wildcard = written_wildcard(arena, source, pattern)?;
+    Some(
+        Diagnostic::warning("write the catch-all match arm as `else =>`")
+            .with_code(DiagnosticCode::LintPreferMatchElse)
+            .with_label(Label::primary(
+                wildcard,
+                "a whole-arm `_` is the catch-all `else`",
+            ))
+            .with_fix_hint(FixHint::replacement(
+                wildcard,
+                "replace `_` with `else`",
+                "else",
+            )),
+    )
 }
 
 /// The span of an arm pattern that is exactly the token `_`. A grouped
 /// `(_)`, an alias, or an arm an expansion synthesized is left alone.
-fn written_wildcard(program: &ArenaProgram, source: &str, pattern: PatternId) -> Option<Span> {
-    let pattern = program.arena.pattern(pattern);
+fn written_wildcard(arena: &AstArena, source: &str, pattern: PatternId) -> Option<Span> {
+    let pattern = arena.pattern(pattern);
     if !matches!(pattern.kind, ArenaPatternKind::Wildcard) {
         return None;
     }
-    let span = program.arena.span(pattern.span);
+    let span = arena.span(pattern.span);
     (source.get(span.range())? == "_").then_some(span)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::lint_wildcard_catch_all_arms;
+    use crate::xsht::lint::{LintOptions, Linter};
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
     use xsh::frontend::source::SourceId;
     use xsh::frontend::syntax::parser::Parser;
@@ -78,10 +61,11 @@ mod tests {
     fn lint(source: &str) -> Vec<Diagnostic> {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-        parsed
-            .arena
-            .symbol_owner()
-            .with_current(|| lint_wildcard_catch_all_arms(&parsed.arena, source))
+        Linter::lint(&parsed.arena, source, LintOptions::default())
+            .diagnostics
+            .into_iter()
+            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferMatchElse))
+            .collect()
     }
 
     fn apply(diagnostics: &[Diagnostic], source: &str) -> String {

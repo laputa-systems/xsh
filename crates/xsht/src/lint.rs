@@ -581,6 +581,11 @@ pub struct Linter<'a> {
     assertion_capture_depth: usize,
     duration_conversion_module_unshadowed: bool,
     list_any_bindings: lint_list_any_union::ListAnyBindings,
+    /// `lint.prefer-item-shorthand` and `lint.prefer-match-else` reports,
+    /// gathered while callbacks and matches are visited and reported after
+    /// the walk in source order.
+    item_shorthands: Vec<Diagnostic>,
+    catch_all_arms: Vec<Diagnostic>,
     fail_candidates: lint_prefer_fail::Candidates,
     callable_parameters: lint_prefer_typed_callable::CallableParameters,
 }
@@ -776,6 +781,8 @@ impl<'a> Linter<'a> {
             regex_recovery_context: false,
             assertion_capture_depth: 0,
             list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
+            item_shorthands: Vec::new(),
+            catch_all_arms: Vec::new(),
             fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
             callable_parameters: lint_prefer_typed_callable::CallableParameters::default(),
         };
@@ -790,11 +797,9 @@ impl<'a> Linter<'a> {
         }
         linter.lint_program(&statements);
         linter.lint_defer_block_helpers(&statements);
-        if linter.prefer_item_shorthand {
-            linter
-                .diagnostics
-                .extend(item_shorthand::lint_item_shorthand(program, source));
-        }
+        let mut item_shorthands = std::mem::take(&mut linter.item_shorthands);
+        item_shorthands.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
+        linter.diagnostics.extend(item_shorthands);
         if linter.prefer_tempdir_scope {
             tempdir_scope::lint_tempdir_scopes(&mut linter, program);
         }
@@ -842,11 +847,9 @@ impl<'a> Linter<'a> {
         ) {
             linter.lint_inferred_proc_returns();
         }
-        linter
-            .diagnostics
-            .extend(lint_prefer_match_else::lint_wildcard_catch_all_arms(
-                program, source,
-            ));
+        let mut catch_all_arms = std::mem::take(&mut linter.catch_all_arms);
+        catch_all_arms.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
+        linter.diagnostics.extend(catch_all_arms);
         let list_any_bindings = std::mem::take(&mut linter.list_any_bindings);
         linter.diagnostics.extend(list_any_bindings.finish());
         let fail_candidates = std::mem::take(&mut linter.fail_candidates);
@@ -1908,6 +1911,16 @@ impl<'a> Linter<'a> {
                         })
                         .collect(),
                 );
+                if let Some(arm) = self.arena.match_arms(arms).last() {
+                    let report = lint_prefer_match_else::catch_all_arm_report(
+                        self.arena,
+                        self.source,
+                        arm.pattern,
+                        arm.guard,
+                        arm.spelling,
+                    );
+                    self.catch_all_arms.extend(report);
+                }
                 let old_regex_context = self.regex_recovery_context;
                 self.regex_recovery_context = true;
                 self.lint_pattern_conditional_stmt(value, arms, stmt.span);
@@ -8018,6 +8031,10 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_stream_stage(&mut self, stage: &ArenaStreamStage) {
+        if self.prefer_item_shorthand {
+            self.item_shorthands
+                .extend(item_shorthand::stage_report(self.arena, self.source, stage));
+        }
         self.lint_stage_callable_wrapper(stage);
         for arg in self.arena.call_args(stage.args).to_vec() {
             self.lint_call_arg(&arg);
@@ -12394,6 +12411,18 @@ impl LintExprVisitor<'_, '_> {
         ) {
             self.linter.diagnostics.push(diagnostic);
         }
+        if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind
+            && let Some(arm) = self.linter.arena.match_expr_arms(arms).last()
+        {
+            let report = lint_prefer_match_else::catch_all_arm_report(
+                self.linter.arena,
+                self.linter.source,
+                arm.pattern,
+                arm.guard,
+                arm.spelling,
+            );
+            self.linter.catch_all_arms.extend(report);
+        }
         if !self.suppress_expr_autofixes {
             self.linter.lint_proven_nonnull_fallback(expr);
         }
@@ -12565,6 +12594,10 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::Binary { op, left, right } => {
+                if op == BinaryOp::ResultFallback && self.linter.prefer_item_shorthand {
+                    let report = item_shorthand::handler_report(arena, self.linter.source, right);
+                    self.linter.item_shorthands.extend(report);
+                }
                 let old = self.linter.regex_recovery_context;
                 self.linter.regex_recovery_context |= op == BinaryOp::ResultFallback;
                 self.visit_expr(left);

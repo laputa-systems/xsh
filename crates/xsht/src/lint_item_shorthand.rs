@@ -3,8 +3,7 @@ use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use super::super::format::Formatter;
 use xsh::frontend::syntax::arena::{
-    ArenaExprKind, ArenaExprTag, ArenaPipeStageKind, ArenaProgram, ArenaStreamStage, AstArena,
-    BlockId, ExprId,
+    ArenaExprKind, ArenaExprTag, ArenaPipeStageKind, ArenaStreamStage, AstArena, BlockId, ExprId,
 };
 use xsh::frontend::syntax::node::{BinaryOp, StreamStageKind};
 use xsh::frontend::syntax::parser::Parser;
@@ -13,21 +12,31 @@ use xsh::frontend::syntax::parser::Parser;
 /// accesses or method calls can leave it implicit: `{ |hit| hit.url }` is
 /// `{ .url }`. The fix is offered only when the rewritten block reparses to
 /// the original tree with every use of the parameter read as `.`.
-pub(super) fn lint_item_shorthand(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    let arena = &program.arena;
-    // A workspace lints each module against one arena holding every module.
-    let Some(source_id) = program
-        .statement_ids()
-        .next()
-        .map(|stmt| arena.stmt(stmt).span.source_id)
-    else {
-        return Vec::new();
+///
+/// This is the report for the callback of one stream stage the linter visits.
+pub(super) fn stage_report(
+    arena: &AstArena,
+    source: &str,
+    stage: &ArenaStreamStage,
+) -> Option<Diagnostic> {
+    if !passes_one_item(stage.kind) {
+        return None;
+    }
+    item_shorthand(arena, source, stage.block?, stage_callback(arena, stage))
+}
+
+/// The same report for the handler block on the right of a `??` the linter
+/// visits.
+pub(super) fn handler_report(arena: &AstArena, source: &str, handler: ExprId) -> Option<Diagnostic> {
+    let ArenaExprKind::ValueBlock(block) = arena.expr(handler).kind else {
+        return None;
     };
-    callback_blocks(arena)
-        .into_iter()
-        .filter(|&(block, _)| arena.span(arena.block(block).span).source_id == source_id)
-        .filter_map(|(block, callback)| item_shorthand(arena, source, block, callback))
-        .collect()
+    item_shorthand(arena, source, block, Callback::Handler)
+}
+
+/// `fold` and `reduce` callbacks take the accumulator beside the item.
+fn passes_one_item(kind: StreamStageKind) -> bool {
+    !matches!(kind, StreamStageKind::Fold | StreamStageKind::Reduce)
 }
 
 fn named_parameter(arena: &AstArena, block: BlockId) -> Option<Name> {
@@ -57,10 +66,11 @@ impl Callback {
     }
 }
 
+/// Every callback block in `arena`, which must be the parse of one callback's
+/// own text: the scan covers the whole expression table.
 fn callback_blocks(arena: &AstArena) -> Vec<(BlockId, Callback)> {
-    let one_item = |kind: StreamStageKind| !matches!(kind, StreamStageKind::Fold | StreamStageKind::Reduce);
+    let one_item = passes_one_item;
     let mut blocks = Vec::new();
-    // Tags are read first: a workspace arena holds every module's rows.
     for (index, tag) in arena.expr_tags.iter().enumerate() {
         if !matches!(
             tag,
