@@ -22,8 +22,8 @@ use xsh::execution::evaluator::{
 };
 use xsh::execution::script::XSH_COVERAGE_TRACE_DIR;
 use xsh::execution::value::{PathValue, RecordMap, ResultValue, RuntimeError, Value};
-use xsh::frontend::check::{CheckOptions, Checker};
 use xsh::frontend::check::Type;
+use xsh::frontend::check::{CheckOptions, Checker};
 use xsh::frontend::load::parse_script_with_module_roots;
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaStmtKind, FunctionDefId, StmtId};
 use xsh::process::{cancellation_escalated_signal, cancellation_requested_signal, path_bytes};
@@ -663,8 +663,7 @@ fn discover_native_tests(
                 Arc::clone(&arena),
                 source_id,
                 Checker::compact_declarations(&arena, checked),
-            )
-        {
+            ) {
             Ok(prepared) => Arc::new(prepared),
             Err(diagnostic) => {
                 let message = DiagnosticRenderer::new().render(&[diagnostic], &sources);

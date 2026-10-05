@@ -40,11 +40,15 @@ fn cases(form: SugarForm) -> &'static [Case] {
             },
             Case {
                 sugar: "var n = 0\nrepeat 2 times {\n  repeat (n + 1) * 2 times {\n    n += 1\n    continue when n == 3\n  }\n}\n",
-                core: Core::Written("var n = 0\nfor _ in range(2) {\n  for _ in range((n + 1) * 2) {\n    n += 1\n    if n == 3 {\n      continue\n    }\n  }\n}\n"),
+                core: Core::Written(
+                    "var n = 0\nfor _ in range(2) {\n  for _ in range((n + 1) * 2) {\n    n += 1\n    if n == 3 {\n      continue\n    }\n  }\n}\n",
+                ),
             },
             Case {
                 sugar: "proc poll(times: Int) {\n  match times {\n    0 => repeat 1 times { print \"once\" }\n    _ => {\n      repeat times times {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
-                core: Core::Written("proc poll(times: Int) {\n  match times {\n    0 => for _ in range(1) { print \"once\" }\n    _ => {\n      for _ in range(times) {\n        print \"tick\"\n      }\n    }\n  }\n}\n"),
+                core: Core::Written(
+                    "proc poll(times: Int) {\n  match times {\n    0 => for _ in range(1) { print \"once\" }\n    _ => {\n      for _ in range(times) {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
+                ),
             },
         ],
         SugarForm::When => &[
@@ -54,11 +58,15 @@ fn cases(form: SugarForm) -> &'static [Case] {
             },
             Case {
                 sugar: "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    break when row < 0\n    yield row when row > 0\n    yield @[row, row] when row == 0\n  }\n}\n",
-                core: Core::Written("stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    if row < 0 {\n      break\n    }\n    if row > 0 {\n      yield row\n    }\n    if row == 0 {\n      yield @[row, row]\n    }\n  }\n}\n"),
+                core: Core::Written(
+                    "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    if row < 0 {\n      break\n    }\n    if row > 0 {\n      yield row\n    }\n    if row == 0 {\n      yield @[row, row]\n    }\n  }\n}\n",
+                ),
             },
             Case {
                 sugar: "proc built(ready: Bool) [process] -> Status {\n  return (run.status make) when ready\n  return when (run.status true)\n  run.status false\n}\n",
-                core: Core::Written("proc built(ready: Bool) [process] -> Status {\n  if ready {\n    return (run.status make)\n  }\n  if (run.status true) {\n    return\n  }\n  run.status false\n}\n"),
+                core: Core::Written(
+                    "proc built(ready: Bool) [process] -> Status {\n  if ready {\n    return (run.status make)\n  }\n  if (run.status true) {\n    return\n  }\n  run.status false\n}\n",
+                ),
             },
             Case {
                 sugar: include_str!("../../../docs/snippets/spec/69-guarded-statements.xsh"),
@@ -68,7 +76,9 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // commands; a quoted `when` is a word to print.
             Case {
                 sugar: "proc tally(rows: List[Int], verbose: Bool) -> Result[Int] {\n  var total = 0\n  for row in rows {\n    total += row when row > 0\n    total = 0 unless row > -10\n    print \"when\" $row unless verbose\n    eprint row $row when verbose\n    print when verbose\n    rows.len() unless verbose\n    p\"/tmp/x\".remove() when verbose\n  }\n  Ok(total)\n}\n",
-                core: Core::Written("proc tally(rows: List[Int], verbose: Bool) -> Result[Int] {\n  var total = 0\n  for row in rows {\n    if row > 0 {\n      total += row\n    }\n    if row > -10 {\n    } else {\n      total = 0\n    }\n    if verbose {\n    } else {\n      print \"when\" $row\n    }\n    if verbose {\n      eprint row $row\n    }\n    if verbose {\n      print\n    }\n    if verbose {\n    } else {\n      rows.len()\n    }\n    if verbose {\n      p\"/tmp/x\".remove()\n    }\n  }\n  Ok(total)\n}\n"),
+                core: Core::Written(
+                    "proc tally(rows: List[Int], verbose: Bool) -> Result[Int] {\n  var total = 0\n  for row in rows {\n    if row > 0 {\n      total += row\n    }\n    if row > -10 {\n    } else {\n      total = 0\n    }\n    if verbose {\n    } else {\n      print \"when\" $row\n    }\n    if verbose {\n      eprint row $row\n    }\n    if verbose {\n      print\n    }\n    if verbose {\n    } else {\n      rows.len()\n    }\n    if verbose {\n      p\"/tmp/x\".remove()\n    }\n  }\n  Ok(total)\n}\n",
+                ),
             },
         ],
         SugarForm::Unless => &[
@@ -78,7 +88,9 @@ fn cases(form: SugarForm) -> &'static [Case] {
             },
             Case {
                 sugar: "pure read(raw: Str?) -> Str {\n  let present = raw != null\n  return \"missing\" unless present\n  raw.trim()\n}\n",
-                core: Core::Written("pure read(raw: Str?) -> Str {\n  let present = raw != null\n  if present {\n  } else {\n    return \"missing\"\n  }\n  raw.trim()\n}\n"),
+                core: Core::Written(
+                    "pure read(raw: Str?) -> Str {\n  let present = raw != null\n  if present {\n  } else {\n    return \"missing\"\n  }\n  raw.trim()\n}\n",
+                ),
             },
         ],
         SugarForm::Guard => &[
@@ -88,7 +100,9 @@ fn cases(form: SugarForm) -> &'static [Case] {
             },
             Case {
                 sugar: "for raw in [1, 2] {\n  guard raw > 0 else {\n    guard raw < 0 else { continue }\n    break unless raw == 0\n    continue\n  }\n  print $raw\n}\n",
-                core: Core::Written("for raw in [1, 2] {\n  if raw > 0 {\n  } else {\n    if raw < 0 {\n    } else {\n      continue\n    }\n    if raw == 0 {\n    } else {\n      break\n    }\n    continue\n  }\n  print $raw\n}\n"),
+                core: Core::Written(
+                    "for raw in [1, 2] {\n  if raw > 0 {\n  } else {\n    if raw < 0 {\n    } else {\n      continue\n    }\n    if raw == 0 {\n    } else {\n      break\n    }\n    continue\n  }\n  print $raw\n}\n",
+                ),
             },
         ],
         SugarForm::Fail => &[
@@ -103,13 +117,17 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // A cause on each form, under a guard, where `because` is a name.
             Case {
                 sugar: "error LoadError = Missing(path: Path) | Busy\n\nproc load(because: Error, target: Path) -> Result[Int, LoadError] {\n  fail .Busy() because because when target == p\"/\"\n  fail .Missing(path: target) because because\n}\n\nproc report(because: Error) -> Result[Int] {\n  fail because.message because because unless because.message == \"\"\n  Ok(1)\n}\n",
-                core: Core::Written("error LoadError = Missing(path: Path) | Busy\n\nproc load(because: Error, target: Path) -> Result[Int, LoadError] {\n  if target == p\"/\" {\n    return Err(.Busy(), cause: because)\n  }\n  return Err(.Missing(path: target), cause: because)\n}\n\nproc report(because: Error) -> Result[Int] {\n  if because.message == \"\" {\n  } else {\n    return Err(error.failure(because.message), cause: because)\n  }\n  Ok(1)\n}\n"),
+                core: Core::Written(
+                    "error LoadError = Missing(path: Path) | Busy\n\nproc load(because: Error, target: Path) -> Result[Int, LoadError] {\n  if target == p\"/\" {\n    return Err(.Busy(), cause: because)\n  }\n  return Err(.Missing(path: target), cause: because)\n}\n\nproc report(because: Error) -> Result[Int] {\n  if because.message == \"\" {\n  } else {\n    return Err(error.failure(because.message), cause: because)\n  }\n  Ok(1)\n}\n",
+                ),
             },
             // Under each postfix guard, as a match arm's statement, as the
             // block of a `guard`, and where `error` and `fail` are locals.
             Case {
                 sugar: "proc check(fail: Int, error: Str) -> Result[Int] {\n  fail \"negative\" when fail < 0\n  fail f\"odd: {error}\" unless fail % 2 == 0\n  guard fail < 100 else { fail error }\n  match fail {\n    0 => fail \"zero\"\n    _ => Ok(fail)\n  }\n}\n",
-                core: Core::Written("proc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 0 {\n    return Err(error.failure(\"negative\"))\n  }\n  if fail % 2 == 0 {\n  } else {\n    return Err(error.failure(f\"odd: {error}\"))\n  }\n  if fail < 100 {\n  } else { return Err(error.failure(error)) }\n  match fail {\n    0 => return Err(error.failure(\"zero\"))\n    _ => Ok(fail)\n  }\n}\n"),
+                core: Core::Written(
+                    "proc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 0 {\n    return Err(error.failure(\"negative\"))\n  }\n  if fail % 2 == 0 {\n  } else {\n    return Err(error.failure(f\"odd: {error}\"))\n  }\n  if fail < 100 {\n  } else { return Err(error.failure(error)) }\n  match fail {\n    0 => return Err(error.failure(\"zero\"))\n    _ => Ok(fail)\n  }\n}\n",
+                ),
             },
         ],
         SugarForm::Atomically => &[
@@ -123,13 +141,17 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // `xsht desugar` gives it.
             Case {
                 sugar: "let root = p\"/tmp\"\natomically replace fp\"{root}/out\" as partial {\n  defer { print \"outer\" }\n  repeat 2 times {\n    atomically replace { fp\"{partial}.d/inner\" } as inner {\n      break when inner.exists()?\n    }\n  }\n}\n",
-                core: Core::Written("let root = p\"/tmp\"\n{\n  let dest_1: Path = fp\"{root}/out\"\n  let partial: Path = fs.temp_sibling(dest_1)?\n  defer partial.remove(missing_ok: true)\n  {\n    defer { print \"outer\" }\n    for _ in range(2) {\n      {\n        let dest_1: Path = { fp\"{partial}.d/inner\" }\n        let inner: Path = fs.temp_sibling(dest_1)?\n        defer inner.remove(missing_ok: true)\n        {\n          if inner.exists()? {\n            break\n          }\n        }\n        inner.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n  partial.rename(to: dest_1, overwrite: true)?\n}\n"),
+                core: Core::Written(
+                    "let root = p\"/tmp\"\n{\n  let dest_1: Path = fp\"{root}/out\"\n  let partial: Path = fs.temp_sibling(dest_1)?\n  defer partial.remove(missing_ok: true)\n  {\n    defer { print \"outer\" }\n    for _ in range(2) {\n      {\n        let dest_1: Path = { fp\"{partial}.d/inner\" }\n        let inner: Path = fs.temp_sibling(dest_1)?\n        defer inner.remove(missing_ok: true)\n        {\n          if inner.exists()? {\n            break\n          }\n        }\n        inner.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n  partial.rename(to: dest_1, overwrite: true)?\n}\n",
+                ),
             },
             // The words stay names: `atomically`, `replace`, and `as` as the
             // destination, the bound name, and a match arm's statement.
             Case {
                 sugar: "proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => atomically replace atomically as as { print $as }\n    _ => {\n      atomically replace atomically as replace {\n        print $replace\n      }\n    }\n  }\n}\n",
-                core: Core::Written("proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => {\n      {\n        let dest_1: Path = atomically\n        let as: Path = fs.temp_sibling(dest_1)?\n        defer as.remove(missing_ok: true)\n        { print $as }\n        as.rename(to: dest_1, overwrite: true)?\n      }\n    }\n    _ => {\n      {\n        let dest_1: Path = atomically\n        let replace: Path = fs.temp_sibling(dest_1)?\n        defer replace.remove(missing_ok: true)\n        {\n          print $replace\n        }\n        replace.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n}\n"),
+                core: Core::Written(
+                    "proc publish(atomically: Path, replace: Int) {\n  match replace {\n    0 => {\n      {\n        let dest_1: Path = atomically\n        let as: Path = fs.temp_sibling(dest_1)?\n        defer as.remove(missing_ok: true)\n        { print $as }\n        as.rename(to: dest_1, overwrite: true)?\n      }\n    }\n    _ => {\n      {\n        let dest_1: Path = atomically\n        let replace: Path = fs.temp_sibling(dest_1)?\n        defer replace.remove(missing_ok: true)\n        {\n          print $replace\n        }\n        replace.rename(to: dest_1, overwrite: true)?\n      }\n    }\n  }\n}\n",
+                ),
             },
         ],
         SugarForm::ForIndex => &[
@@ -141,7 +163,9 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // index named `index`, and a body that leaves early.
             Case {
                 sugar: "type Entry = {name: Str, size: Int}\n\nstream sizes(entries: List[Entry]) -> Stream[Int] {\n  for row, {name, size} in entries {\n    continue when name == \"\"\n    for index, part in name.split(\"/\") |> where { . != \"\" } {\n      break when index > row\n      yield size + part.len()\n    }\n  }\n}\n",
-                core: Core::Written("type Entry = {name: Str, size: Int}\n\nstream sizes(entries: List[Entry]) -> Stream[Int] {\n  for {index: row, value: {name, size}} in entries |> enumerate() {\n    if name == \"\" {\n      continue\n    }\n    for {index, value: part} in (name.split(\"/\") |> where { . != \"\" }) |> enumerate() {\n      if index > row {\n        break\n      }\n      yield size + part.len()\n    }\n  }\n}\n"),
+                core: Core::Written(
+                    "type Entry = {name: Str, size: Int}\n\nstream sizes(entries: List[Entry]) -> Stream[Int] {\n  for {index: row, value: {name, size}} in entries |> enumerate() {\n    if name == \"\" {\n      continue\n    }\n    for {index, value: part} in (name.split(\"/\") |> where { . != \"\" }) |> enumerate() {\n      if index > row {\n        break\n      }\n      yield size + part.len()\n    }\n  }\n}\n",
+                ),
             },
         ],
         SugarForm::GuardFail => &[
@@ -153,7 +177,9 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // `fail` and `error` are locals.
             Case {
                 sugar: "error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  guard target != p\"/\" else fail .Busy() because cause\n  guard target.is_absolute() else fail .Missing(path: target)\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  guard fail < 100 else fail error\n  match fail {\n    0 => guard error == \"\" else fail \"zero\"\n    _ => {}\n  }\n  Ok(fail)\n}\n",
-                core: Core::Written("error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  if target != p\"/\" {\n  } else {\n    return Err(.Busy(), cause: cause)\n  }\n  if target.is_absolute() {\n  } else {\n    return Err(.Missing(path: target))\n  }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 100 {\n  } else {\n    return Err(error.failure(error))\n  }\n  match fail {\n    0 => {\n      if error == \"\" {\n      } else {\n        return Err(error.failure(\"zero\"))\n      }\n    }\n    _ => {}\n  }\n  Ok(fail)\n}\n"),
+                core: Core::Written(
+                    "error LoadError = Missing(path: Path) | Busy\n\nproc load(cause: Error, target: Path) -> Result[Int, LoadError] {\n  if target != p\"/\" {\n  } else {\n    return Err(.Busy(), cause: cause)\n  }\n  if target.is_absolute() {\n  } else {\n    return Err(.Missing(path: target))\n  }\n  Ok(1)\n}\n\nproc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 100 {\n  } else {\n    return Err(error.failure(error))\n  }\n  match fail {\n    0 => {\n      if error == \"\" {\n      } else {\n        return Err(error.failure(\"zero\"))\n      }\n    }\n    _ => {}\n  }\n  Ok(fail)\n}\n",
+                ),
             },
         ],
         SugarForm::WaitUntil => &[
@@ -166,12 +192,16 @@ fn cases(form: SugarForm) -> &'static [Case] {
             // locals are written under the names `xsht desugar` gives them.
             Case {
                 sugar: "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nrepeat 2 times {\n  wait until n > 3 within limits.patience\n  match n {\n    0 => wait until { n += 1\n    n > 1 } within 5s every limits.step\n    _ => {\n      wait until n is Int within limits.patience backoff limits.step..limits.patience\n    }\n  }\n}\n",
-                core: Core::Written("let limits = {patience: 5s, step: 10ms}\nvar n = 0\nfor _ in range(2) {\n  {\n    let delay_1: Duration = 100ms\n    (within limits.patience {\n      loop {\n        if n > 3 { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  match n {\n    0 => {\n      {\n        let delay_1: Duration = limits.step\n        (within 5s {\n          loop {\n            if { n += 1\n            n > 1 } { break }\n            time.sleep(delay_1)\n          }\n        })?\n      }\n    }\n    _ => {\n      {\n        var delay_1: Duration = limits.step\n        let cap_1: Duration = limits.patience\n        (within limits.patience {\n          loop {\n            if n is Int { break }\n            time.sleep(delay_1)\n            delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n          }\n        })?\n      }\n    }\n  }\n}\n"),
+                core: Core::Written(
+                    "let limits = {patience: 5s, step: 10ms}\nvar n = 0\nfor _ in range(2) {\n  {\n    let delay_1: Duration = 100ms\n    (within limits.patience {\n      loop {\n        if n > 3 { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  match n {\n    0 => {\n      {\n        let delay_1: Duration = limits.step\n        (within 5s {\n          loop {\n            if { n += 1\n            n > 1 } { break }\n            time.sleep(delay_1)\n          }\n        })?\n      }\n    }\n    _ => {\n      {\n        var delay_1: Duration = limits.step\n        let cap_1: Duration = limits.patience\n        (within limits.patience {\n          loop {\n            if n is Int { break }\n            time.sleep(delay_1)\n            delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n          }\n        })?\n      }\n    }\n  }\n}\n",
+                ),
             },
             // The words stay names.
             Case {
                 sugar: "proc settle(until: Bool, within: Duration, every: Duration, backoff: Duration) [time, error] {\n  wait until until within within every every\n  wait until until within within backoff every..backoff\n}\n",
-                core: Core::Written("proc settle(until: Bool, within: Duration, every: Duration, backoff: Duration) [time, error] {\n  {\n    let delay_1: Duration = every\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  {\n    var delay_1: Duration = every\n    let cap_1: Duration = backoff\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n        delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n      }\n    })?\n  }\n}\n"),
+                core: Core::Written(
+                    "proc settle(until: Bool, within: Duration, every: Duration, backoff: Duration) [time, error] {\n  {\n    let delay_1: Duration = every\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n      }\n    })?\n  }\n  {\n    var delay_1: Duration = every\n    let cap_1: Duration = backoff\n    (within within {\n      loop {\n        if until { break }\n        time.sleep(delay_1)\n        delay_1 = if delay_1 > cap_1 / 2 { (cap_1) } else { delay_1 * 2 }\n      }\n    })?\n  }\n}\n",
+                ),
             },
         ],
     }

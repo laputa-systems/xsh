@@ -4,8 +4,7 @@ use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{StatementPosition, Type};
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, RunFormId,
-    StmtId,
+    ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, RunFormId, StmtId,
 };
 use xsh::frontend::syntax::grouping::{
     Context, Follow, Lead, child_context, for_each_child, needs_parens,
@@ -264,9 +263,7 @@ impl ExprPositions {
         let mut parents = vec![None; arena.expr_tags.len()];
         for index in 0..arena.expr_tags.len() {
             let parent = ExprId::from_index(index);
-            for_each_child(arena, parent, |child| {
-                parents[child.index()] = Some(parent)
-            });
+            for_each_child(arena, parent, |child| parents[child.index()] = Some(parent));
         }
         let mut statement_values = FxHashMap::default();
         for index in 0..arena.stmt_tags.len() {
@@ -421,8 +418,7 @@ pub(super) fn redundant_capture_try<'a>(
     if group.start() > form.start() || !blank(source.get(group.end()..end - 1)?) {
         return None;
     }
-    let mut diagnostic =
-        redundant_capture_diagnostic(Span::new(form.source_id, group.end(), end));
+    let mut diagnostic = redundant_capture_diagnostic(Span::new(form.source_id, group.end(), end));
     diagnostic.fix_hints = vec![FixHint::replacement(
         Span::new(form.source_id, group.start(), end),
         "remove `?` and the parentheses",
@@ -468,7 +464,9 @@ pub(super) fn redundant_condition_propagation(
                 "a `Result[Bool]` condition propagates without `?`",
             ));
     let grouped = source[..propagation.span.start()].trim_end().ends_with('(')
-        && source[propagation.span.end()..].trim_start().starts_with(')');
+        && source[propagation.span.end()..]
+            .trim_start()
+            .starts_with(')');
     if !grouped
         && source
             .get(removal.range())
@@ -589,8 +587,7 @@ pub(super) mod tests {
         // The fixed program checks, reports nothing more, and every expression
         // other than the removed `step(..)?` keeps its type.
         assert!(lint(&after).is_empty(), "{after}");
-        let without_propagation =
-            |(text, ty): (String, String)| (text.replace([' ', '?'], ""), ty);
+        let without_propagation = |(text, ty): (String, String)| (text.replace([' ', '?'], ""), ty);
         let after_types = published_types(&after)
             .into_iter()
             .map(without_propagation)
@@ -616,7 +613,10 @@ pub(super) mod tests {
             "proc work() -> Result[Int, E] {\n  step(false)\n  step(true)\n  1\n}\n",
         );
         // Top-level statements other than the last are statements too.
-        fixed("step(false)?\nprint \"done\"\n", "step(false)\nprint \"done\"\n");
+        fixed(
+            "step(false)?\nprint \"done\"\n",
+            "step(false)\nprint \"done\"\n",
+        );
     }
 
     #[test]
@@ -704,7 +704,10 @@ pub(super) mod tests {
             "proc work() -> Result[Int, E] {\n  defer step(false)?\n  errdefer step(true) ?\n  defer {\n    step(false)?\n  }\n  1\n}\n",
             "proc work() -> Result[Int, E] {\n  defer step(false)\n  errdefer step(true)\n  defer {\n    step(false)\n  }\n  1\n}\n",
         );
-        fixed("defer step(false)?\nprint \"done\"\n", "defer step(false)\nprint \"done\"\n");
+        fixed(
+            "defer step(false)?\nprint \"done\"\n",
+            "defer step(false)\nprint \"done\"\n",
+        );
     }
 
     // A deferred value other than `Unit` is rejected without its `?`, and a
@@ -894,7 +897,8 @@ pub(super) mod tests {
     // Without the checker's facts nothing is known about position.
     #[test]
     fn unchecked_source_reports_nothing() {
-        let source = format!("{PRELUDE}proc work() -> Result[Int, E] {{\n  step(false)?\n  1\n}}\n");
+        let source =
+            format!("{PRELUDE}proc work() -> Result[Int, E] {{\n  step(false)?\n  1\n}}\n");
         let (program, mut checked) = checked(&source);
         checked.propagating_statements.clear();
         let diagnostics = lint_checked(

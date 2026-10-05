@@ -1178,8 +1178,8 @@ impl FullProgram {
     ) -> Result<(), IrVerifyError> {
         let step = self.store.driver_steps[step_index];
         let instruction_range = self.store.driver_instruction_range(step_index)?;
-        let owner = driver_owner(step_index)
-            .map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
+        let owner =
+            driver_owner(step_index).map_err(|_| IrVerifyError::new("driver owner is invalid"))?;
         let decoder = FullDecoder {
             store: &self.store,
             owner,
@@ -1650,7 +1650,11 @@ impl FullBuilder {
                     0,
                     builder.store.tags.len(),
                 )
-                .with_detail(unit.blocker_detail.as_ref().map(|(_, detail)| detail.clone()))
+                .with_detail(
+                    unit.blocker_detail
+                        .as_ref()
+                        .map(|(_, detail)| detail.clone()),
+                )
             })?;
             let checkpoint = builder.checkpoint();
             let function = builder.function_ids[&unit.key()];
@@ -1797,7 +1801,11 @@ impl FullBuilder {
                         0,
                         builder.store.tags.len(),
                     )
-                    .with_detail(unit.blocker_detail.as_ref().map(|(_, detail)| detail.clone()))
+                    .with_detail(
+                        unit.blocker_detail
+                            .as_ref()
+                            .map(|(_, detail)| detail.clone()),
+                    )
                 })?;
                 let checkpoint = builder.checkpoint();
                 let function = builder.function_ids[&unit.key()];
@@ -1870,7 +1878,11 @@ impl FullBuilder {
                     0,
                     self.store.tags.len(),
                 )
-                .with_detail(unit.blocker_detail.as_ref().map(|(_, detail)| detail.clone()))
+                .with_detail(
+                    unit.blocker_detail
+                        .as_ref()
+                        .map(|(_, detail)| detail.clone()),
+                )
             })?;
             let function_id = self
                 .function_ids
@@ -3907,7 +3919,12 @@ impl<'a> FullDecoder<'a> {
             .type_id;
         // A parameter declared as something wider, such as an optional
         // callable narrowed before the call, has no single type to compare.
-        if self.store.semantic.typed_callable_signature(declared).is_err() {
+        if self
+            .store
+            .semantic
+            .typed_callable_signature(declared)
+            .is_err()
+        {
             return Ok(());
         }
         let mut row = *payload;
@@ -3929,7 +3946,9 @@ impl<'a> FullDecoder<'a> {
         let delays = IrBlockId::from_raw(payload.raw()?)
             .and_then(|id| self.store.blocks.get(id.index()).copied())
             .ok_or_else(|| IrVerifyError::new("retry delay block is invalid"))?;
-        let delays = self.cursor(self.store.payload(delays.instructions)?).raw()?;
+        let delays = self
+            .cursor(self.store.payload(delays.instructions)?)
+            .raw()?;
         if bool::decode(self, &mut payload)?
             && !self
                 .pattern_capture_slots(payload.raw()? as usize)?
@@ -4107,8 +4126,7 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                     match indexed_condition_bool_literal(store, condition)? {
                         Some(false) => {}
                         Some(true) => {
-                            chain_can_return =
-                                indexed_block_can_return(store, block(body)?)?;
+                            chain_can_return = indexed_block_can_return(store, block(body)?)?;
                             chain_consumed = true;
                         }
                         None => {
@@ -4575,9 +4593,7 @@ impl FullVerifier {
                 .to_type(store.semantic.signature_return_type(function.signature)?)?;
             // A stream producer's body ending ends the stream, so the empty
             // body is the degenerate empty stream rather than a missing return.
-            if body_payload.first().copied() == Some(0)
-                && !matches!(return_type, Type::Stream(_))
-            {
+            if body_payload.first().copied() == Some(0) && !matches!(return_type, Type::Stream(_)) {
                 return Err(IrVerifyError::new(format!(
                     "function {index} has an empty body"
                 )));
@@ -6283,23 +6299,52 @@ fn verify_node_metadata(
     if tag == FullTag::ExprModuleCall {
         let mut metadata = payload;
         let op = RuntimeOp::decode(decoder, &mut metadata)?;
-        let plan = Option::<Arc<crate::modules::cli::CliDescriptorPlan>>::decode(decoder, &mut metadata)?;
-        if plan.as_ref().is_some_and(|plan| !plan.matches_operation(op)) {
-            return Err(IrVerifyError::new("prepared CLI plan operation policy does not match its instruction"));
+        let plan =
+            Option::<Arc<crate::modules::cli::CliDescriptorPlan>>::decode(decoder, &mut metadata)?;
+        if plan
+            .as_ref()
+            .is_some_and(|plan| !plan.matches_operation(op))
+        {
+            return Err(IrVerifyError::new(
+                "prepared CLI plan operation policy does not match its instruction",
+            ));
         }
     }
-    if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
-    if tag == FullTag::ExprTypedCall { decoder.verify_typed_call_shape(payload)?; }
+    if tag == FullTag::ExprComparisonChain {
+        decoder.verify_comparison_chain_shape(payload)?;
+    }
+    if tag == FullTag::ExprTypedCall {
+        decoder.verify_typed_call_shape(payload)?;
+    }
     if tag == FullTag::ExprTag {
         let mut metadata = payload;
         let type_name = Name::decode(decoder, &mut metadata)?;
         let name = Arc::<str>::decode(decoder, &mut metadata)?;
-        let fields_id = IrBlockId::from_raw(metadata.raw()?).ok_or_else(|| IrVerifyError::new("tag fields block id is invalid"))?;
-        let fields = decoder.store.blocks.get(fields_id.index()).ok_or_else(|| IrVerifyError::new("tag fields block is out of bounds"))?;
-        let field_count = decoder.store.payload(fields.instructions)?.first().copied().ok_or_else(|| IrVerifyError::new("tag fields length is missing"))?;
-        let wire = Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::decode(decoder, &mut metadata)?;
-        if wire.as_ref().is_some_and(|mapping| mapping.type_name != type_name || field_count != 0 || !mapping.variants.contains_key(&Name::intern(name.as_ref()))) {
-            return Err(IrVerifyError::new("wire enum constructor identity or payload is invalid"));
+        let fields_id = IrBlockId::from_raw(metadata.raw()?)
+            .ok_or_else(|| IrVerifyError::new("tag fields block id is invalid"))?;
+        let fields = decoder
+            .store
+            .blocks
+            .get(fields_id.index())
+            .ok_or_else(|| IrVerifyError::new("tag fields block is out of bounds"))?;
+        let field_count = decoder
+            .store
+            .payload(fields.instructions)?
+            .first()
+            .copied()
+            .ok_or_else(|| IrVerifyError::new("tag fields length is missing"))?;
+        let wire = Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::decode(
+            decoder,
+            &mut metadata,
+        )?;
+        if wire.as_ref().is_some_and(|mapping| {
+            mapping.type_name != type_name
+                || field_count != 0
+                || !mapping.variants.contains_key(&Name::intern(name.as_ref()))
+        }) {
+            return Err(IrVerifyError::new(
+                "wire enum constructor identity or payload is invalid",
+            ));
         }
     }
     Ok(())
@@ -11073,7 +11118,14 @@ pure selected() -> Str {
             let source = "pure width(field: Str) -> Result[Int] {\n  Ok(field as Int)\n}\npure size(count: Int) -> Result[UInt] {\n  Ok(count as UInt)\n}\npure place(name: Str) -> Result[Path] {\n  Ok(name as Path)\n}\n";
             let program = Arc::new(fixture("conversion.xsh", source));
             FullVerifier::verify(&program).unwrap();
-            let count = |tag| program.store.tags.iter().filter(|found| **found == tag).count();
+            let count = |tag| {
+                program
+                    .store
+                    .tags
+                    .iter()
+                    .filter(|found| **found == tag)
+                    .count()
+            };
             assert_eq!(count(FullTag::ExprTry), 3);
             assert_eq!(count(FullTag::ExprMethod), 1);
             assert_eq!(count(FullTag::ExprRequire), 1);
@@ -11241,10 +11293,8 @@ pure selected() -> Str {
 
             // A pattern cut short of its last segment does not decode.
             let mut truncated = (*program).clone();
-            truncated.store.pattern_data[row] = IrData::from_range(IrRange::new(
-                payload.start as u32,
-                payload.len() as u32 - 1,
-            ));
+            truncated.store.pattern_data[row] =
+                IrData::from_range(IrRange::new(payload.start as u32, payload.len() as u32 - 1));
             assert!(FullVerifier::verify(&truncated).is_err());
         });
     }
@@ -11945,9 +11995,7 @@ proc configured() [] -> Int {
                     PreparedSchema::List(schema)
                     | PreparedSchema::Map(_, schema)
                     | PreparedSchema::Optional(schema)
-                    | PreparedSchema::Validated(_, schema) => {
-                        change_mapping(Arc::make_mut(schema))
-                    }
+                    | PreparedSchema::Validated(_, schema) => change_mapping(Arc::make_mut(schema)),
                     PreparedSchema::Union(_, members) => members
                         .iter_mut()
                         .any(|schema| change_mapping(Arc::make_mut(schema))),
@@ -12295,7 +12343,10 @@ proc shifted(far: Bool, n: Int) [error] -> Result[Int] {
             // The row claims a kind its type does not have.
             let mut wrong_kind = (*program).clone();
             wrong_kind.store.extra[proc_call + 1] = 1;
-            rejected(&wrong_kind, "typed call kind does not match its callable type");
+            rejected(
+                &wrong_kind,
+                "typed call kind does not match its callable type",
+            );
 
             // The row names a type that is not a callable type: here `Int`,
             // the pure signature's return type.
@@ -12592,8 +12643,14 @@ pure union_task(source: Str) -> Result[Str] {
             FullVerifier::verify(&program).unwrap();
 
             for (raw, expected) in [
-                ("{\"tool\":\"make\",\"args\":[\"all\"],\"level\":3}", "make 3 1"),
-                ("{\"tool\":\"make\",\"args\":[],\"level\":\"fast\"}", "make mode 0"),
+                (
+                    "{\"tool\":\"make\",\"args\":[\"all\"],\"level\":3}",
+                    "make 3 1",
+                ),
+                (
+                    "{\"tool\":\"make\",\"args\":[],\"level\":\"fast\"}",
+                    "make mode 0",
+                ),
             ] {
                 let mut evaluator =
                     Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
@@ -12709,7 +12766,10 @@ pure union_task(source: Str) -> Result[Str] {
                     .expect("validated function exists")
                     .unwrap()
             };
-            assert_eq!(call("[\"ls\", \"-l\"]"), Value::ok(Value::Str(Arc::from("ls"))));
+            assert_eq!(
+                call("[\"ls\", \"-l\"]"),
+                Value::ok(Value::Str(Arc::from("ls")))
+            );
             // The empty list is refused by the validation, before `first()`.
             assert!(matches!(
                 call("[]"),
@@ -12725,7 +12785,8 @@ pure union_task(source: Str) -> Result[Str] {
 
             // The schema decodes the base and no longer tests the validation.
             let mut unvalidated = (*program).clone();
-            let PreparedSchema::Validated(_, base) = program.store.prepared_schemas[schema].as_ref()
+            let PreparedSchema::Validated(_, base) =
+                program.store.prepared_schemas[schema].as_ref()
             else {
                 panic!("the schema is the validated one");
             };
@@ -12753,7 +12814,12 @@ pure union_task(source: Str) -> Result[Str] {
             );
 
             let mut unknown = (*program).clone();
-            assert!(unknown.store.semantic.corrupt_first_validated_for_test(false));
+            assert!(
+                unknown
+                    .store
+                    .semantic
+                    .corrupt_first_validated_for_test(false)
+            );
             assert!(
                 FullVerifier::verify(&unknown)
                     .unwrap_err()
@@ -12762,7 +12828,12 @@ pure union_task(source: Str) -> Result[Str] {
             );
 
             let mut wrong_base = (*program).clone();
-            assert!(wrong_base.store.semantic.corrupt_first_validated_for_test(true));
+            assert!(
+                wrong_base
+                    .store
+                    .semantic
+                    .corrupt_first_validated_for_test(true)
+            );
             assert!(FullVerifier::verify(&wrong_base).is_err());
         });
     }
@@ -12824,7 +12895,8 @@ pure checked(number: Int) -> Result[Port] {
                 .position(|schema| matches!(schema.as_ref(), PreparedSchema::Validated(..)))
                 .expect("the bounded schema");
             let mut unbounded = (*program).clone();
-            let PreparedSchema::Validated(_, base) = program.store.prepared_schemas[schema].as_ref()
+            let PreparedSchema::Validated(_, base) =
+                program.store.prepared_schemas[schema].as_ref()
             else {
                 panic!("the schema is the bounded one");
             };
@@ -12846,7 +12918,12 @@ pure checked(number: Int) -> Result[Port] {
             );
 
             let mut wrong_base = (*program).clone();
-            assert!(wrong_base.store.semantic.corrupt_first_bounded_for_test(true));
+            assert!(
+                wrong_base
+                    .store
+                    .semantic
+                    .corrupt_first_bounded_for_test(true)
+            );
             assert!(FullVerifier::verify(&wrong_base).is_err());
         });
     }
@@ -13332,7 +13409,10 @@ proc local() [env, error] -> Int {
                 result
             };
             // The scope's `Result` is the function's value either way.
-            assert_eq!(format!("{:?}", call(60_000, 0).unwrap()), "Result(Ok(Int(7)))");
+            assert_eq!(
+                format!("{:?}", call(60_000, 0).unwrap()),
+                "Result(Ok(Int(7)))"
+            );
             let timeout = format!("{:?}", call(20, 60_000).unwrap());
             assert!(timeout.starts_with("Result(Err("), "{timeout}");
             assert!(timeout.contains("\"Timeout\""), "{timeout}");

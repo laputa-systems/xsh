@@ -1,6 +1,8 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{ArenaArmSpelling, ArenaPatternKind, AstArena, ExprId, PatternId};
+use xsh::frontend::syntax::arena::{
+    ArenaArmSpelling, ArenaPatternKind, AstArena, ExprId, PatternId,
+};
 
 /// A last arm written `_ =>` is the catch-all that `else =>` names. Both
 /// parse to the same unguarded wildcard arm, so replacing the `_` changes

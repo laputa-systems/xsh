@@ -50,9 +50,9 @@ impl ContractViolation {
             } => format!(
                 "mismatched export `{name}`: expected `{expected}`, found `{found}` ({reason})"
             ),
-            Self::Unexpected { found } => format!(
-                "unexpected export `{name}`: `{found}` is not in the exact contract"
-            ),
+            Self::Unexpected { found } => {
+                format!("unexpected export `{name}`: `{found}` is not in the exact contract")
+            }
         }
     }
 }
@@ -133,7 +133,10 @@ fn export_mismatch(
             let found_pure = captured.map_or(matches!(value, LoweredValue::Pure(_)), |captured| {
                 captured.pure
             });
-            match (matches!(expected, ModuleExportType::Pure { .. }), found_pure) {
+            match (
+                matches!(expected, ModuleExportType::Pure { .. }),
+                found_pure,
+            ) {
                 (false, true) => Some(
                     "the contract declares a proc, the module exports a pure function".to_string(),
                 ),

@@ -247,9 +247,8 @@ impl PreparedSchema {
                     decoded = schema.decode(evaluator, value.clone(), path, span).ok();
                     decoded.is_some()
                 });
-                decoded.ok_or_else(|| {
-                    failure(format!("expected {ty}, found {}", value.type_name()))
-                })
+                decoded
+                    .ok_or_else(|| failure(format!("expected {ty}, found {}", value.type_name())))
             }
             Self::Record(fields) => {
                 let mut value = value;
@@ -398,9 +397,11 @@ fn require_module_contract(
     span: Span,
 ) -> Option<Result<(), RuntimeError>> {
     match (value, ty) {
-        (LoweredValue::Module(module), Type::Module(contract)) => Some(
-            super::module_contract::require_module_contract(evaluator, module, contract, path, span),
-        ),
+        (LoweredValue::Module(module), Type::Module(contract)) => {
+            Some(super::module_contract::require_module_contract(
+                evaluator, module, contract, path, span,
+            ))
+        }
         _ => None,
     }
 }
@@ -413,8 +414,7 @@ pub(super) fn require_value(
 ) -> LoweredValue {
     let result = if let Some(schema) = &check.schema {
         schema.decode(evaluator, value, "$", span)
-    } else if let Some(checked) = require_module_contract(evaluator, &value, &check.ty, "$", span)
-    {
+    } else if let Some(checked) = require_module_contract(evaluator, &value, &check.ty, "$", span) {
         checked.map(|()| value)
     } else if super::lowered_value_matches_static_type(&value, &check.ty) {
         Ok(value)

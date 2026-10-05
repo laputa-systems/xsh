@@ -6,7 +6,8 @@ use xsh::api::{MethodReceiver, api_spec};
 use xsh::frontend::load::parse_script_with_module_roots;
 use xsh::frontend::source::{SourceId, SourceMap, Span};
 use xsh::frontend::syntax::arena::{
-    ArenaProgram, ArenaStmtKind, ArenaSugar, ArenaSugarOperand, BlockId, ExprId, FunctionDefId, StmtId,
+    ArenaProgram, ArenaStmtKind, ArenaSugar, ArenaSugarOperand, BlockId, ExprId, FunctionDefId,
+    StmtId,
 };
 use xsh::host::json::{
     parse_raw_json, pretty_raw_json, raw_json_array, raw_json_as_str, raw_json_as_u64,
@@ -87,8 +88,7 @@ impl CoverageCollector {
             // Each file loads with its own project module roots, as it
             // does when it runs. Metadata is best effort: a file that does
             // not load keeps the line-based fallback.
-            let module_roots =
-                xsh::frontend::load::project_module_roots(&file).unwrap_or_default();
+            let module_roots = xsh::frontend::load::project_module_roots(&file).unwrap_or_default();
             let metadata = parse_source_metadata(&file, &module_roots).unwrap_or_else(|| {
                 BTreeMap::from([(file.to_string_lossy().into_owned(), fallback)])
             });

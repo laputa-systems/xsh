@@ -1562,11 +1562,21 @@ fn fs_module() -> ModuleSig {
         ),
         (
             "dev_major",
-            sig(vec![param("dev", Type::Int)], Type::Int, true, RuntimeOp::FsDevMajor),
+            sig(
+                vec![param("dev", Type::Int)],
+                Type::Int,
+                true,
+                RuntimeOp::FsDevMajor,
+            ),
         ),
         (
             "dev_minor",
-            sig(vec![param("dev", Type::Int)], Type::Int, true, RuntimeOp::FsDevMinor),
+            sig(
+                vec![param("dev", Type::Int)],
+                Type::Int,
+                true,
+                RuntimeOp::FsDevMinor,
+            ),
         ),
         (
             "link",
@@ -3485,7 +3495,10 @@ fn process_module() -> ModuleSig {
         (
             "priority",
             sig(
-                vec![default_param("pid", Type::Int), default_param("which", Type::Str)],
+                vec![
+                    default_param("pid", Type::Int),
+                    default_param("which", Type::Str),
+                ],
                 result(Type::Int),
                 false,
                 RuntimeOp::ProcessPriority,

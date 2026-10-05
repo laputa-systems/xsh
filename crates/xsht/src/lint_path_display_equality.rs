@@ -34,10 +34,7 @@ pub(super) fn path_display_equality(
     let ArenaExprKind::Str(text) = arena.expr(literal).kind else {
         return None;
     };
-    if arena
-        .string_literal(text)
-        .contains(['\u{fffd}', '\0'])
-    {
+    if arena.string_literal(text).contains(['\u{fffd}', '\0']) {
         return None;
     }
     let display = arena.expr(display);
@@ -65,10 +62,8 @@ pub(super) fn path_display_equality(
     // written.
     let conversion = Span::new(path.source_id, path.end(), display.span.end());
     if source.get(conversion.range()) == Some(".display()") {
-        diagnostic = diagnostic.with_fix_hint(FixHint::deletion(
-            conversion,
-            "compare the Path itself",
-        ));
+        diagnostic =
+            diagnostic.with_fix_hint(FixHint::deletion(conversion, "compare the Path itself"));
     }
     Some(diagnostic)
 }

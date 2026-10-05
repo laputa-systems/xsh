@@ -112,10 +112,9 @@ impl TextHoleKind {
             Self::Octal => integer(8, "0o"),
             Self::Binary => integer(2, "0b"),
             Self::Float => {
-                let spelled = text
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.' | b'e' | b'E'))
-                    && text.bytes().any(|byte| byte.is_ascii_digit());
+                let spelled = text.bytes().all(|byte| {
+                    byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.' | b'e' | b'E')
+                }) && text.bytes().any(|byte| byte.is_ascii_digit());
                 if !spelled {
                     return None;
                 }
@@ -282,7 +281,10 @@ mod tests {
 
     #[test]
     fn each_hole_takes_the_shortest_text_and_the_last_takes_the_rest() {
-        assert_eq!(pattern(&["", "=", ""]).split("a=b=c"), Some(vec!["a", "b=c"]));
+        assert_eq!(
+            pattern(&["", "=", ""]).split("a=b=c"),
+            Some(vec!["a", "b=c"])
+        );
         assert_eq!(pattern(&["", "=", ""]).split("a="), Some(vec!["a", ""]));
         assert_eq!(pattern(&["", "=", ""]).split("abc"), None);
         assert_eq!(
@@ -290,14 +292,23 @@ mod tests {
             Some(vec!["MAX", "4 + 4"])
         );
         // The last literal is the end of the subject, not its first occurrence.
-        assert_eq!(pattern(&["", ".txt"]).split("a.txt.txt"), Some(vec!["a.txt"]));
-        assert_eq!(pattern(&["", ".", ".txt"]).split("a.b.txt"), Some(vec!["a", "b"]));
+        assert_eq!(
+            pattern(&["", ".txt"]).split("a.txt.txt"),
+            Some(vec!["a.txt"])
+        );
+        assert_eq!(
+            pattern(&["", ".", ".txt"]).split("a.b.txt"),
+            Some(vec!["a", "b"])
+        );
         assert_eq!(pattern(&["<", ">"]).split("<>"), Some(vec![""]));
         assert_eq!(pattern(&["<", ">"]).split("<"), None);
         assert_eq!(pattern(&["ab", "ba"]).split("aba"), None);
         assert_eq!(pattern(&["exact"]).split("exact"), Some(vec![]));
         assert_eq!(pattern(&["exact"]).split("exactly"), None);
-        assert_eq!(pattern(&["", "é", ""]).split("caféine"), Some(vec!["caf", "ine"]));
+        assert_eq!(
+            pattern(&["", "é", ""]).split("caféine"),
+            Some(vec!["caf", "ine"])
+        );
     }
 
     #[test]
@@ -308,9 +319,25 @@ mod tests {
         };
         assert_eq!(int(TextHoleKind::Decimal, "-007"), Some(-7));
         assert_eq!(int(TextHoleKind::Decimal, "+12"), Some(12));
-        assert_eq!(int(TextHoleKind::Decimal, "9223372036854775807"), Some(i64::MAX));
-        assert_eq!(int(TextHoleKind::Decimal, "-9223372036854775808"), Some(i64::MIN));
-        for refused in ["", "-", "1_000", " 1", "0x10", "9223372036854775808", "--1", "+-1", "1.0"] {
+        assert_eq!(
+            int(TextHoleKind::Decimal, "9223372036854775807"),
+            Some(i64::MAX)
+        );
+        assert_eq!(
+            int(TextHoleKind::Decimal, "-9223372036854775808"),
+            Some(i64::MIN)
+        );
+        for refused in [
+            "",
+            "-",
+            "1_000",
+            " 1",
+            "0x10",
+            "9223372036854775808",
+            "--1",
+            "+-1",
+            "1.0",
+        ] {
             assert_eq!(int(TextHoleKind::Decimal, refused), None, "{refused:?}");
         }
         assert_eq!(int(TextHoleKind::Hex, "ff"), Some(255));
@@ -326,11 +353,17 @@ mod tests {
             TextHoleKind::Float.convert("-1.5e3"),
             Some(TextHoleValue::Float(-1500.0))
         );
-        assert_eq!(TextHoleKind::Float.convert("7"), Some(TextHoleValue::Float(7.0)));
+        assert_eq!(
+            TextHoleKind::Float.convert("7"),
+            Some(TextHoleValue::Float(7.0))
+        );
         for refused in ["", "nan", "inf", "-inf", "1e999", ".", "e", "1.5 "] {
             assert_eq!(TextHoleKind::Float.convert(refused), None, "{refused:?}");
         }
-        assert_eq!(TextHoleKind::Text.convert(""), Some(TextHoleValue::Text("")));
+        assert_eq!(
+            TextHoleKind::Text.convert(""),
+            Some(TextHoleValue::Text(""))
+        );
         for (index, kind) in TextHoleKind::ALL.iter().enumerate() {
             assert_eq!(TextHoleKind::from_index(index), Some(*kind));
             assert_eq!(*kind as usize, index);

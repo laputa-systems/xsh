@@ -42,8 +42,6 @@ pub use record_require::RecordRequireMigration;
 #[path = "check/removed_fs.rs"]
 mod removed_fs;
 pub use removed_fs::call_receiver_text;
-#[path = "check/inferred_variant.rs"]
-mod inferred_variant;
 #[path = "check/effect_bounds.rs"]
 mod effect_bounds;
 #[path = "check/infer_effects.rs"]
@@ -52,11 +50,15 @@ mod infer_effects;
 mod infer_param;
 #[path = "check/infer_return.rs"]
 mod infer_return;
+#[path = "check/inferred_variant.rs"]
+mod inferred_variant;
 #[path = "check/local_inference.rs"]
 mod local_inference;
 #[path = "check/method.rs"]
 mod method;
 pub(crate) use method::nearest_name;
+#[path = "check/conversion.rs"]
+mod conversion;
 #[path = "check/path_literal.rs"]
 mod path_literal;
 #[path = "check/pattern.rs"]
@@ -64,20 +66,18 @@ mod pattern;
 #[path = "check/proof.rs"]
 mod proof;
 mod public_result;
+#[path = "check/set.rs"]
+mod set;
 #[path = "check/stmt.rs"]
 mod stmt;
 #[path = "check/stream.rs"]
 mod stream;
-#[path = "check/types.rs"]
-mod types;
 #[path = "check/typed_callable.rs"]
 mod typed_callable;
+#[path = "check/types.rs"]
+mod types;
 #[path = "check/validated.rs"]
 mod validated;
-#[path = "check/conversion.rs"]
-mod conversion;
-#[path = "check/set.rs"]
-mod set;
 pub use conversion::Conversion;
 #[path = "check/text_pattern.rs"]
 mod text_pattern;
@@ -545,10 +545,7 @@ pub struct ErrorVariantInfo {
 
 impl ErrorVariantInfo {
     /// The facts of a variant from the payload fields its declaration wrote.
-    pub fn declared(
-        payload: impl IntoIterator<Item = (Name, Type)>,
-        facets: Vec<Name>,
-    ) -> Self {
+    pub fn declared(payload: impl IntoIterator<Item = (Name, Type)>, facets: Vec<Name>) -> Self {
         let fields = ErrorPayloadFields::from_declared(payload);
         if fields.is_empty() {
             Self {
@@ -608,14 +605,17 @@ impl ErrorPayloadFields {
     /// of, so exchanging positional arguments between them could still check.
     pub fn positional_conflict(&self, count: usize) -> Option<(Name, Name)> {
         let filled = &self.0[..count.min(self.0.len())];
-        filled.iter().enumerate().find_map(|(index, (left, left_ty))| {
-            filled[index + 1..]
-                .iter()
-                .find(|(_, right_ty)| {
-                    crate::sema::constants::types_may_share_a_value(left_ty, right_ty)
-                })
-                .map(|(right, _)| (*left, *right))
-        })
+        filled
+            .iter()
+            .enumerate()
+            .find_map(|(index, (left, left_ty))| {
+                filled[index + 1..]
+                    .iter()
+                    .find(|(_, right_ty)| {
+                        crate::sema::constants::types_may_share_a_value(left_ty, right_ty)
+                    })
+                    .map(|(right, _)| (*left, *right))
+            })
     }
 
     pub fn len(&self) -> usize {

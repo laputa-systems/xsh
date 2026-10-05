@@ -126,11 +126,7 @@ fn pipeline_stage_blocks_observe_loop_body_mutations() {
     let config = GenConfig::default();
     for &seed in LAZY_PIPELINE_SEEDS {
         if let Err((_, failure)) = run_seed(seed, &config, Some(&sandbox)) {
-            panic!(
-                "seed {seed}: {}: {}",
-                failure.kind(),
-                failure.detail()
-            );
+            panic!("seed {seed}: {}: {}", failure.kind(), failure.detail());
         }
     }
 }

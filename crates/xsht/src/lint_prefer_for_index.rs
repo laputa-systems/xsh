@@ -122,8 +122,11 @@ impl CounterLoop {
         let binding_span = arena.stmt(self.binding).span;
         let while_span = arena.stmt(while_stmt).span;
         let line_start = |offset: usize| source[..offset].rfind('\n').map_or(0, |at| at + 1);
-        let line_end =
-            |offset: usize| source[offset..].find('\n').map_or(source.len(), |at| offset + at);
+        let line_end = |offset: usize| {
+            source[offset..]
+                .find('\n')
+                .map_or(source.len(), |at| offset + at)
+        };
         let blank = |start: usize, end: usize| {
             source
                 .get(start..end)
@@ -166,8 +169,8 @@ impl CounterLoop {
         }
         let mut between_start = binding_line_end + 1;
         let next_line_end = line_end(between_start);
-        let after_blank_line = binding_line >= 2
-            && blank(line_start(binding_line - 1), binding_line - 1);
+        let after_blank_line =
+            binding_line >= 2 && blank(line_start(binding_line - 1), binding_line - 1);
         if next_line_end < while_span.start()
             && blank(between_start, next_line_end)
             && (self.binding_opens_block || after_blank_line)
@@ -211,7 +214,11 @@ impl CounterLoop {
             ArenaStmtKind::For { block, .. } if !self.reads_counter => block,
             _ => return None,
         };
-        if rewritten.stmt_ids(rewritten.block(new_body).statements).count() != self.middle.len() {
+        if rewritten
+            .stmt_ids(rewritten.block(new_body).statements)
+            .count()
+            != self.middle.len()
+        {
             return None;
         }
         let old_key = super::super::format::canonical_subtree(arena, source, Ok(self.body));
@@ -267,15 +274,16 @@ fn may_assign(text: &str, name: &str) -> bool {
     let identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
     text.match_indices(name).any(|(start, _)| {
         let after = &text[start + name.len()..];
-        if text[..start].chars().next_back().is_some_and(identifier_char)
+        if text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(identifier_char)
             || after.chars().next().is_some_and(identifier_char)
         {
             return false;
         }
         let rest = after.trim_start_matches([' ', '\t']);
-        let operator = rest
-            .strip_prefix(['+', '-', '*', '/', '%'])
-            .unwrap_or(rest);
+        let operator = rest.strip_prefix(['+', '-', '*', '/', '%']).unwrap_or(rest);
         rest.starts_with("++")
             || rest.starts_with("--")
             || (operator.starts_with('=') && !operator.starts_with("=="))
@@ -341,8 +349,8 @@ fn counter_loop(
     {
         return None;
     }
-    let before = source
-        .get(arena.stmt(binding).span.end()..arena.stmt(stmts[index]).span.start())?;
+    let before =
+        source.get(arena.stmt(binding).span.end()..arena.stmt(stmts[index]).span.start())?;
     if super::mentions_identifier(before, counter_text) {
         return None;
     }
@@ -431,17 +439,14 @@ fn counter_loop(
         return None;
     }
 
-    let middle_text = source.get(
-        arena.stmt(*middle.first()?).span.start()..arena.stmt(*middle.last()?).span.end(),
-    )?;
-    if may_assign(middle_text, counter_text)
-        || super::mentions_identifier(middle_text, "continue")
+    let middle_text = source
+        .get(arena.stmt(*middle.first()?).span.start()..arena.stmt(*middle.last()?).span.end())?;
+    if may_assign(middle_text, counter_text) || super::mentions_identifier(middle_text, "continue")
     {
         return None;
     }
-    let after = source.get(
-        arena.stmt(stmts[index]).span.end()..arena.span(arena.block(block).span).end(),
-    )?;
+    let after = source
+        .get(arena.stmt(stmts[index]).span.end()..arena.span(arena.block(block).span).end())?;
     if super::mentions_identifier(after, counter_text) {
         return None;
     }

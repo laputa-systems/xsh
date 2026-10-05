@@ -53,10 +53,7 @@ pub(crate) fn run() -> Option<ExitCode> {
         match arg.into_string() {
             Ok(arg) => rest.push(arg),
             Err(_) => {
-                eprintln!(
-                    "xsht {command}: argument {} is not valid UTF-8",
-                    index + 2
-                );
+                eprintln!("xsht {command}: argument {} is not valid UTF-8", index + 2);
                 return Some(ExitCode::from(2));
             }
         }

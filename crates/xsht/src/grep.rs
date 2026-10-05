@@ -1122,7 +1122,8 @@ pub fn parse_pattern(pattern: &str) -> Result<Pattern, String> {
         ));
     }
     let program = parsed.arena;
-    let unexpected = || format!("failed to parse pattern '{pattern}': expected one `for` loop head");
+    let unexpected =
+        || format!("failed to parse pattern '{pattern}': expected one `for` loop head");
     let statements = program
         .arena
         .stmt_ids(program.statements)
@@ -1132,17 +1133,15 @@ pub fn parse_pattern(pattern: &str) -> Result<Pattern, String> {
     };
     let (index, item, iter) = match program.arena.stmt(statement).kind {
         ArenaStmtKind::For { target, iter, .. } => (None, target, iter),
-        ArenaStmtKind::Sugar { form, operands, .. } => {
-            match program.arena.sugar(form, operands) {
-                ArenaSugar::ForIndex {
-                    index,
-                    item,
-                    source,
-                    ..
-                } => (Some(index), item, source),
-                _ => return Err(unexpected()),
-            }
-        }
+        ArenaStmtKind::Sugar { form, operands, .. } => match program.arena.sugar(form, operands) {
+            ArenaSugar::ForIndex {
+                index,
+                item,
+                source,
+                ..
+            } => (Some(index), item, source),
+            _ => return Err(unexpected()),
+        },
         _ => return Err(unexpected()),
     };
     for target in index.into_iter().chain([item]) {

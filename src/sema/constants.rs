@@ -758,12 +758,15 @@ impl RecordConstructors {
     ) -> Option<(Name, Name)> {
         let fields = self.declared_fields(arena, definition);
         let filled = &fields[..count.min(fields.len())];
-        filled.iter().enumerate().find_map(|(index, (left, left_ty))| {
-            filled[index + 1..]
-                .iter()
-                .find(|(_, right_ty)| types_may_share_a_value(left_ty, right_ty))
-                .map(|(right, _)| (*left, *right))
-        })
+        filled
+            .iter()
+            .enumerate()
+            .find_map(|(index, (left, left_ty))| {
+                filled[index + 1..]
+                    .iter()
+                    .find(|(_, right_ty)| types_may_share_a_value(left_ty, right_ty))
+                    .map(|(right, _)| (*left, *right))
+            })
     }
 
     pub fn resolve_definition_checked(
@@ -878,7 +881,10 @@ impl RecordConstructors {
         let id = self.constructor_definition(arena, callee, namespace)?;
         // The fields a constructor takes are those of the record, whether
         // or not the type it returns is nominal.
-        let ty = self.instantiate_checked(arena, id, &[]).ok()?.into_unvalidated();
+        let ty = self
+            .instantiate_checked(arena, id, &[])
+            .ok()?
+            .into_unvalidated();
         matches!(ty, Type::Record(_)).then_some(ty)
     }
 
@@ -1338,7 +1344,9 @@ impl RecordConstructors {
                     Ok((entry.name, export))
                 })
                 .collect::<Result<BTreeMap<_, _>, SchemaTypeError>>()
-                .map(|exports| Type::Module(Arc::new(crate::sema::types::ModuleType { exports, exact }))),
+                .map(|exports| {
+                    Type::Module(Arc::new(crate::sema::types::ModuleType { exports, exact }))
+                }),
             _ => Err(SchemaTypeError::new(
                 DiagnosticCode::CheckTypeParameters,
                 "type parameters are supported only on record schemas and aliases",
@@ -1565,20 +1573,22 @@ impl RecordConstructors {
             ArenaTypeExprTag::Module => {
                 match self.resolve_instance_annotation(arena, inner, namespace, bindings, active)? {
                     Type::Module(exports) => Type::Module(exports),
-                    Type::Record(fields) => Type::Module(Arc::new(crate::sema::types::ModuleType::open(
-                        fields
-                            .into_iter()
-                            .map(|(name, ty)| {
-                                (
-                                    name,
-                                    ModuleExportType::Value {
-                                        ty,
-                                        optional: false,
-                                    },
-                                )
-                            })
-                            .collect::<BTreeMap<_, _>>(),
-                    ))),
+                    Type::Record(fields) => {
+                        Type::Module(Arc::new(crate::sema::types::ModuleType::open(
+                            fields
+                                .into_iter()
+                                .map(|(name, ty)| {
+                                    (
+                                        name,
+                                        ModuleExportType::Value {
+                                            ty,
+                                            optional: false,
+                                        },
+                                    )
+                                })
+                                .collect::<BTreeMap<_, _>>(),
+                        )))
+                    }
                     _ => Type::Invalid,
                 }
             }
@@ -1593,7 +1603,9 @@ impl RecordConstructors {
                 Type::Callable(Arc::new(crate::sema::types::TypedCallable::from_type_expr(
                     arena,
                     ty,
-                    |part| self.resolve_instance_annotation(arena, part, namespace, bindings, active),
+                    |part| {
+                        self.resolve_instance_annotation(arena, part, namespace, bindings, active)
+                    },
                 )?))
             }
         })
@@ -2895,7 +2907,11 @@ impl ConstantPreparation<'_> {
     /// prepared with, when it says more than the element's value does: a
     /// size literal is `UInt` although its value is an integer. A written
     /// type for the collection decides instead.
-    fn declared_literal_type(&self, element: Option<ExprId>, expected: Option<&Type>) -> Option<Type> {
+    fn declared_literal_type(
+        &self,
+        element: Option<ExprId>,
+        expected: Option<&Type>,
+    ) -> Option<Type> {
         if expected.is_some_and(|ty| !ty.contains_inference()) {
             return None;
         }
@@ -3165,7 +3181,9 @@ impl ConstantPreparation<'_> {
                     }
                 }
                 if let Some(item) = self.declared_literal_type(first_item, expected)
-                    && values.iter().all(|value| constant_matches_type(value, &item))
+                    && values
+                        .iter()
+                        .all(|value| constant_matches_type(value, &item))
                 {
                     self.prepared.types.insert(id, Type::List(Box::new(item)));
                 }
@@ -3193,10 +3211,9 @@ impl ConstantPreparation<'_> {
             ArenaExprKind::Record(fields)
                 if matches!(expected.map(Type::unvalidated), Some(Type::Set(_)))
                     && !arena.record_fields(fields).is_empty()
-                    && arena
-                        .record_fields(fields)
-                        .iter()
-                        .all(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { .. })) =>
+                    && arena.record_fields(fields).iter().all(|field| {
+                        matches!(field.kind, ArenaRecordFieldKind::Shorthand { .. })
+                    }) =>
             {
                 let mut elements = BTreeSet::new();
                 for field in arena.record_fields(fields) {
@@ -3486,9 +3503,9 @@ impl ConstantPreparation<'_> {
                         _ => return Err(failure()),
                     }
                 }
-                if let Some((left, right)) =
-                    self.constructors
-                        .positional_conflict(arena, definition, positional)
+                if let Some((left, right)) = self
+                    .constructors
+                    .positional_conflict(arena, definition, positional)
                 {
                     return Err((
                         expr.span,

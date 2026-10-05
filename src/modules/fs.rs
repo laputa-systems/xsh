@@ -1248,7 +1248,11 @@ pub(crate) enum PathKind {
 /// Whether the path itself is of the kind: the answer `metadata` gives in
 /// its `kind` field, from the same lookup and with the same failure, so a
 /// symlink is not followed and a missing path is an error.
-pub(crate) fn path_is_kind(path: PathBuf, kind: PathKind, span: Span) -> Result<bool, RuntimeError> {
+pub(crate) fn path_is_kind(
+    path: PathBuf,
+    kind: PathKind,
+    span: Span,
+) -> Result<bool, RuntimeError> {
     let shown = path.display().to_string();
     let found = std::fs::symlink_metadata(&path)
         .map(|metadata| {
@@ -1463,9 +1467,7 @@ fn parse_linux_mountinfo_line(line: &str) -> Option<MountSource> {
         fstype: right[0].to_string(),
         device: left[2]
             .split_once(':')
-            .and_then(|(major, minor)| {
-                Some(rfs::makedev(major.parse().ok()?, minor.parse().ok()?))
-            })
+            .and_then(|(major, minor)| Some(rfs::makedev(major.parse().ok()?, minor.parse().ok()?)))
             .unwrap_or_default(),
     })
 }
@@ -2205,11 +2207,13 @@ pub(crate) fn temp_sibling_name(path: &Path, span: Span) -> Result<OsString, Run
         .suffix(".tmp")
         // Nothing is created, so there is nothing to remove when this drops.
         .disable_cleanup(true)
-        .make_in(parent, |candidate| match std::fs::symlink_metadata(candidate) {
-            Ok(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
-            // A missing directory is the rename's failure to report.
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error),
+        .make_in(parent, |candidate| {
+            match std::fs::symlink_metadata(candidate) {
+                Ok(_) => Err(std::io::ErrorKind::AlreadyExists.into()),
+                // A missing directory is the rename's failure to report.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(error),
+            }
         })
         .map_err(|error| failure(&error))?;
     Ok(unused
@@ -2500,7 +2504,9 @@ fn id_value_opt(
         u32::try_from(id)
             .ok()
             .filter(|id| *id != u32::MAX)
-            .ok_or_else(|| RuntimeError::new(kind, format!("{what} is out of range")).with_span(span))
+            .ok_or_else(|| {
+                RuntimeError::new(kind, format!("{what} is out of range")).with_span(span)
+            })
     })
     .transpose()
 }

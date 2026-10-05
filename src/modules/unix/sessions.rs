@@ -57,11 +57,10 @@ fn read_utmp(args: &Args<'_>) -> Result<Value, RuntimeError> {
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 fn read_utmp(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let _ = (DEFAULT_UTMP, name_error, host_error);
-    Err(RuntimeError::new(
-        "unsupported",
-        "utmp records are only readable on Linux",
+    Err(
+        RuntimeError::new("unsupported", "utmp records are only readable on Linux")
+            .with_span(args.span()),
     )
-    .with_span(args.span()))
 }
 
 /// `struct utmp` as glibc and musl lay it out on 64-bit Linux, in native byte
@@ -82,7 +81,10 @@ fn utmp_record(raw: &[u8]) -> Value {
     };
     let text = |from: usize, to: usize| {
         let field = &raw[from..to];
-        let end = field.iter().position(|byte| *byte == 0).unwrap_or(field.len());
+        let end = field
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(field.len());
         Value::Str(String::from_utf8_lossy(&field[..end]).as_ref().into())
     };
     let kind = int16(0);

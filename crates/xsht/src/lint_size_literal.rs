@@ -35,7 +35,12 @@ impl SizeProducts {
 
     /// Visits `id` before its operands, and reports it when it is a whole
     /// product of literals that spells a byte count.
-    pub(super) fn visit(&mut self, arena: &AstArena, source: &str, id: ExprId) -> Option<Diagnostic> {
+    pub(super) fn visit(
+        &mut self,
+        arena: &AstArena,
+        source: &str,
+        id: ExprId,
+    ) -> Option<Diagnostic> {
         let expr = arena.expr(id);
         let ArenaExprKind::Binary { op, left, right } = expr.kind else {
             return None;

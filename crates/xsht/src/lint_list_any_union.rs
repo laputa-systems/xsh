@@ -106,7 +106,13 @@ impl ListAnyBindings {
         if whole_list {
             // `xs = [@xs, ...]` keeps the elements it already has.
             let is_binding = |name| definition_of(name) == Some(definition);
-            add_literal_elements(arena, value, expr_types, &is_binding, &mut candidate.members);
+            add_literal_elements(
+                arena,
+                value,
+                expr_types,
+                &is_binding,
+                &mut candidate.members,
+            );
         } else {
             candidate.members = None;
         }

@@ -412,7 +412,10 @@ fn expression_statement_stops() -> Vec<Vec<Term>> {
             tag_term(T::LBrace),
         ],
     ]);
-    leads.push(vec![word_term("nominal", false), keyword_term(Keyword::Type)]);
+    leads.push(vec![
+        word_term("nominal", false),
+        keyword_term(Keyword::Type),
+    ]);
     leads.extend(BUILDER_APIS.map(|(module, function)| {
         vec![
             word_term(module, false),
@@ -1327,9 +1330,10 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 not({
                     let mut stops = expression_statement_stops();
-                    stops.extend([Keyword::When, Keyword::Unless].map(|guard| {
-                        vec![term(Class::Name, false), keyword_term(guard)]
-                    }));
+                    stops.extend(
+                        [Keyword::When, Keyword::Unless]
+                            .map(|guard| vec![term(Class::Name, false), keyword_term(guard)]),
+                    );
                     // A scope statement is the whole statement.
                     stops.extend([
                         vec![word_term("within", false), tag_term(T::Duration)],
@@ -1442,10 +1446,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 w("without"),
                 line(seq([
                     alt(effect_names().into_iter().map(w)),
-                    star(seq([
-                        t(T::Comma),
-                        alt(effect_names().into_iter().map(w)),
-                    ])),
+                    star(seq([t(T::Comma), alt(effect_names().into_iter().map(w))])),
                 ])),
                 block(),
             ]),
@@ -1507,10 +1508,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "arm_body",
             alt([
-                seq([
-                    alt([block(), r("compound_statement")]),
-                    opt(t(T::Comma)),
-                ]),
+                seq([alt([block(), r("compound_statement")]), opt(t(T::Comma))]),
                 seq([r("arm_statement"), sep()]),
                 // `assert` and an error family read a following `,` as
                 // part of the statement.
@@ -2401,12 +2399,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Types,
             "callable_type",
             alt([
-                seq([
-                    kw(Keyword::Proc),
-                    signature(),
-                    opt(r("effects")),
-                    returns(),
-                ]),
+                seq([kw(Keyword::Proc), signature(), opt(r("effects")), returns()]),
                 seq([kw(Keyword::Pure), signature(), returns()]),
             ]),
         ),
@@ -2438,7 +2431,12 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     star(seq([t(T::Comma), r("type_expr")])),
                     t(T::RBracket),
                 ]),
-                seq([w("NonEmpty"), t(T::LBracket), r("type_expr"), t(T::RBracket)]),
+                seq([
+                    w("NonEmpty"),
+                    t(T::LBracket),
+                    r("type_expr"),
+                    t(T::RBracket),
+                ]),
                 seq([w("Set"), t(T::LBracket), r("type_expr"), t(T::RBracket)]),
             ]),
         ),
@@ -2446,8 +2444,10 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Types,
             "named_type",
             seq([
-                not(["List", "Map", "Stream", "Module", "Result", "Union", "NonEmpty", "Set"]
-                    .map(|word| vec![word_term(word, false)])),
+                not([
+                    "List", "Map", "Stream", "Module", "Result", "Union", "NonEmpty", "Set",
+                ]
+                .map(|word| vec![word_term(word, false)])),
                 ident(),
                 opt(seq([t(T::Dot), ident()])),
             ]),
@@ -2504,10 +2504,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                                 tag_term(T::Ident),
                                 word_term("at", false),
                             ],
-                            vec![
-                                word_term("atomically", false),
-                                word_term("replace", false),
-                            ],
+                            vec![word_term("atomically", false), word_term("replace", false)],
                             vec![word_term("exit", false)],
                             vec![word_term("fail", false)],
                         ])),
@@ -2655,16 +2652,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([
                 alt([
                     seq([
-                        not(
-                            [
-                                T::PathString,
-                                T::GlobString,
-                                T::EnvString,
-                                T::PathFmtString,
-                                T::FmtString,
-                            ]
-                            .map(|tag| vec![tag_term(tag)]),
-                        ),
+                        not([
+                            T::PathString,
+                            T::GlobString,
+                            T::EnvString,
+                            T::PathFmtString,
+                            T::FmtString,
+                        ]
+                        .map(|tag| vec![tag_term(tag)])),
                         class(Class::WordPart),
                     ]),
                     t(T::String),

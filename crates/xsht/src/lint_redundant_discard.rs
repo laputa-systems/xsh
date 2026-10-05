@@ -45,12 +45,12 @@ pub(super) fn lint_redundant_discard(linter: &mut super::Linter<'_>, statement: 
     };
     linter.diagnostics.push(
         Diagnostic::warning("`let _ =` discards a value that the statement may drop by itself")
-        .with_code(DiagnosticCode::LintRedundantDiscard)
-        .with_label(Label::secondary(
-            binding,
-            "the call's value is discardable once its failure is propagated",
-        ))
-        .with_fix_hint(fix),
+            .with_code(DiagnosticCode::LintRedundantDiscard)
+            .with_label(Label::secondary(
+                binding,
+                "the call's value is discardable once its failure is propagated",
+            ))
+            .with_fix_hint(fix),
     );
 }
 
@@ -83,7 +83,11 @@ mod tests {
         assert!(lint(&fixed).is_empty(), "{fixed}");
         let formatted =
             super::super::super::format::Formatter::new().format_source(SourceId::new(0), &fixed);
-        assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+        assert!(
+            formatted.diagnostics.is_empty(),
+            "{:?}",
+            formatted.diagnostics
+        );
         assert_eq!(formatted.formatted, fixed);
         fixed
     }

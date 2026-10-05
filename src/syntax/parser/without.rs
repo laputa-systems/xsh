@@ -126,7 +126,10 @@ mod tests {
                 "{source}: {}",
                 parsed.diagnostics[0].message
             );
-            assert!(parsed.arena.arena.block_effect_bounds.is_empty(), "{source}");
+            assert!(
+                parsed.arena.arena.block_effect_bounds.is_empty(),
+                "{source}"
+            );
         }
     }
 

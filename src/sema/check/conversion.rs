@@ -117,7 +117,8 @@ impl Checker {
         self.conversions.remove(&span);
         let from = self.check_expr_arena(arena, source, value, None);
         let to = self.type_from_arena(arena, target);
-        if matches!(from, Type::Unknown | Type::Invalid) || matches!(to, Type::Unknown | Type::Invalid)
+        if matches!(from, Type::Unknown | Type::Invalid)
+            || matches!(to, Type::Unknown | Type::Invalid)
         {
             return to;
         }

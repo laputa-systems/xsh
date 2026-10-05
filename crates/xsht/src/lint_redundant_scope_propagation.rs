@@ -94,7 +94,8 @@ mod tests {
         lint_rule(source, DiagnosticCode::LintRedundantScopePropagation)
     }
 
-    const PRELUDE: &str = "proc step() -> Result[Unit] {\n}\n\nproc count() -> Result[Int] {\n  1\n}\n\n";
+    const PRELUDE: &str =
+        "proc step() -> Result[Unit] {\n}\n\nproc count() -> Result[Int] {\n  1\n}\n\n";
 
     fn fixed(body: &str, expected: &str) {
         let source = format!("{PRELUDE}{body}");

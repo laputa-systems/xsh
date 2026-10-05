@@ -1,8 +1,8 @@
 use crate::xsht::api::{ApiDetails, ApiFormat, ApiOptions};
 use crate::xsht::cli::{
     AnnotationPolicy, AnnotationSelection, CliOutput, StageTimings, TraceFormat, TraceOptions,
-    api_command, ast_script, check_paths_timed, desugar_script, format_files, grep_scripts, highlight_script,
-    lint_files_timed, refactor_scripts, trace_script,
+    api_command, ast_script, check_paths_timed, desugar_script, format_files, grep_scripts,
+    highlight_script, lint_files_timed, refactor_scripts, trace_script,
 };
 use crate::xsht::commands::{self, ParsedArgs};
 use crate::xsht::help::{command_help as generated_command_help, root_help};
@@ -533,12 +533,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
         let format = parsed.value("--format");
 
         if parsed.flag("--list") {
-            if fix
-                || runless
-                || deny_notes
-                || only.is_some()
-                || !parsed.positionals.is_empty()
-            {
+            if fix || runless || deny_notes || only.is_some() || !parsed.positionals.is_empty() {
                 return Err("`xsht lint --list` accepts only --format".to_string());
             }
             return Ok(Command::Text(lint_code_list(format.unwrap_or("text"))?));

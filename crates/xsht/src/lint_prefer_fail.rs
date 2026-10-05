@@ -141,9 +141,9 @@ impl Candidates {
             let (value, cause) = match arena.call_args(args) {
                 [value] => (value, None),
                 [value, cause] => match cause.kind {
-                    ArenaCallArgKind::Named { name, value: cause, .. } if name == "cause" => {
-                        (value, Some(cause))
-                    }
+                    ArenaCallArgKind::Named {
+                        name, value: cause, ..
+                    } if name == "cause" => (value, Some(cause)),
                     _ => return,
                 },
                 _ => return,
@@ -313,7 +313,10 @@ impl Candidates {
         let text = written(source, failure)?;
         let mut kept_end = failure.end();
         let mut replacement = format!("fail {text}");
-        if source.get(statement.start()..failure.start())?.contains('#') {
+        if source
+            .get(statement.start()..failure.start())?
+            .contains('#')
+        {
             return None;
         }
         if let Some(cause) = err.cause {
@@ -332,7 +335,12 @@ impl Candidates {
     /// The edit that replaces one constructor: the whole `return Err(...)`
     /// that holds it by `fail MESSAGE`, or the constructor alone by
     /// `error.failure(MESSAGE)`.
-    fn rewrite(&self, arena: &AstArena, source: &str, constructor: &Constructor) -> Option<FixHint> {
+    fn rewrite(
+        &self,
+        arena: &AstArena,
+        source: &str,
+        constructor: &Constructor,
+    ) -> Option<FixHint> {
         let call = arena.expr(constructor.call).span;
         let message = arena.expr(constructor.message).span;
         let text = written(source, message)?;
@@ -397,31 +405,28 @@ fn written(source: &str, value: Span) -> Option<&str> {
 /// Text that reads differently after the word `fail` than it did as an
 /// argument keeps its `Err(...)`.
 fn is_fail_statement(statement: &str) -> bool {
-    [
-        format!("{statement}\n"),
-        format!("{statement} when true\n"),
-    ]
-    .iter()
-    .all(|candidate| {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), candidate);
-        if !parsed.diagnostics.is_empty() {
-            return false;
-        }
-        let mut statements = parsed.arena.statement_ids();
-        let (Some(statement), None) = (statements.next(), statements.next()) else {
-            return false;
-        };
-        let arena = &parsed.arena.arena;
-        let fails = |id: StmtId| {
-            matches!(
-                arena.stmt(id).kind,
-                ArenaStmtKind::Sugar {
-                    form: SugarForm::Fail,
-                    ..
-                }
-            )
-        };
-        match arena.stmt(statement).kind {
+    [format!("{statement}\n"), format!("{statement} when true\n")]
+        .iter()
+        .all(|candidate| {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), candidate);
+            if !parsed.diagnostics.is_empty() {
+                return false;
+            }
+            let mut statements = parsed.arena.statement_ids();
+            let (Some(statement), None) = (statements.next(), statements.next()) else {
+                return false;
+            };
+            let arena = &parsed.arena.arena;
+            let fails = |id: StmtId| {
+                matches!(
+                    arena.stmt(id).kind,
+                    ArenaStmtKind::Sugar {
+                        form: SugarForm::Fail,
+                        ..
+                    }
+                )
+            };
+            match arena.stmt(statement).kind {
             ArenaStmtKind::Sugar {
                 form: SugarForm::When,
                 operands,
@@ -434,7 +439,7 @@ fn is_fail_statement(statement: &str) -> bool {
             }),
             _ => fails(statement),
         }
-    })
+        })
 }
 
 fn is_word_byte(byte: u8) -> bool {
@@ -455,7 +460,8 @@ fn words<'a>(source: &'a str, word: &'a str) -> impl Iterator<Item = usize> + 'a
 /// Where `.word` stands in the source, qualified or in its leading-dot form.
 fn dotted_words<'a>(source: &'a str, word: &'a str) -> impl Iterator<Item = usize> + 'a {
     let bytes = source.as_bytes();
-    words(source, word).filter(move |start| start.checked_sub(1).map(|index| bytes[index]) == Some(b'.'))
+    words(source, word)
+        .filter(move |start| start.checked_sub(1).map(|index| bytes[index]) == Some(b'.'))
 }
 
 /// The lines of a declaration that stands alone on them, with the blank line
@@ -469,7 +475,9 @@ fn declaration_lines(source: &str, declaration: Span) -> Result<Span, KeptDeclar
         .get(declaration.range())
         .ok_or(KeptDeclaration::SharedLine)?
         .trim_end();
-    let line_start = source[..declaration.start()].rfind('\n').map_or(0, |at| at + 1);
+    let line_start = source[..declaration.start()]
+        .rfind('\n')
+        .map_or(0, |at| at + 1);
     let text_end = declaration.start() + text.len();
     let line_end = source[text_end..]
         .find('\n')
@@ -486,7 +494,14 @@ fn declaration_lines(source: &str, declaration: Span) -> Result<Span, KeptDeclar
     }
     let blank_before = source[..line_start]
         .strip_suffix('\n')
-        .is_none_or(|before| before.rsplit('\n').next().unwrap_or(before).trim().is_empty());
+        .is_none_or(|before| {
+            before
+                .rsplit('\n')
+                .next()
+                .unwrap_or(before)
+                .trim()
+                .is_empty()
+        });
     let end = if source[line_end..].starts_with('\n') && blank_before {
         line_end + 1
     } else {
@@ -591,7 +606,11 @@ mod tests {
         // One report and one edit for each constructor, and none that
         // touches the declaration while a constructor names it.
         assert_eq!(first.len(), 3, "{first:?}");
-        assert!(first.iter().all(|diagnostic| diagnostic.fix_hints.len() == 1));
+        assert!(
+            first
+                .iter()
+                .all(|diagnostic| diagnostic.fix_hints.len() == 1)
+        );
         let rewritten = apply(&first, source);
         assert_eq!(
             rewritten,
@@ -620,9 +639,17 @@ mod tests {
         let mut current = source.to_owned();
         for _ in 0..6 {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &current);
-            assert!(parsed.diagnostics.is_empty(), "{current}\n{:?}", parsed.diagnostics);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "{current}\n{:?}",
+                parsed.diagnostics
+            );
             let checked = Checker::check_arena(&parsed.arena, &current);
-            assert!(checked.diagnostics.is_empty(), "{current}\n{:?}", checked.diagnostics);
+            assert!(
+                checked.diagnostics.is_empty(),
+                "{current}\n{:?}",
+                checked.diagnostics
+            );
             let diagnostics =
                 Linter::lint(&parsed.arena, &current, LintOptions::default()).diagnostics;
             let mut edits = diagnostics
@@ -654,7 +681,10 @@ mod tests {
     #[test]
     fn a_family_at_the_start_or_beside_another_declaration_leaves_formatted_text() {
         let first = "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n";
-        assert_eq!(converged(first), "proc load() -> Result[Int] {\n  fail \"no\"\n}\n");
+        assert_eq!(
+            converged(first),
+            "proc load() -> Result[Int] {\n  fail \"no\"\n}\n"
+        );
         let grouped = "error LoadError = Failed(message: Str)\nerror Kept = Missing(path: Path) | Busy\n\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nprint ${Kept.Busy().message}\n";
         let fixed = converged(grouped);
         assert!(
@@ -689,7 +719,12 @@ mod tests {
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].fix_hints.is_empty());
-        assert!(diagnostics[0].notes.iter().any(|note| note.contains("is exported")));
+        assert!(
+            diagnostics[0]
+                .notes
+                .iter()
+                .any(|note| note.contains("is exported"))
+        );
     }
 
     #[test]
@@ -699,8 +734,14 @@ mod tests {
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         // The declaration stays while a constructor still names it.
-        assert!(fixed.starts_with("error LoadError = Failed(message: Str)\n"), "{fixed}");
-        assert!(fixed.contains("  fail \"not ready\" unless ready\n"), "{fixed}");
+        assert!(
+            fixed.starts_with("error LoadError = Failed(message: Str)\n"),
+            "{fixed}"
+        );
+        assert!(
+            fixed.contains("  fail \"not ready\" unless ready\n"),
+            "{fixed}"
+        );
         assert!(fixed.contains("LoadError.Failed( # why"), "{fixed}");
 
         // A comment beside the declaration is one no edit may remove.
@@ -714,13 +755,19 @@ mod tests {
         assert_eq!(unused.len(), 1, "{unused:?}");
         assert!(unused[0].fix_hints.is_empty());
         // The report says why, and what to do by hand.
-        assert_eq!(unused[0].notes, [KeptDeclaration::CommentBeside.hand_edit()]);
+        assert_eq!(
+            unused[0].notes,
+            [KeptDeclaration::CommentBeside.hand_edit()]
+        );
 
         let inside = "error LoadError {\n  # legacy\n  Failed(message: Str)\n}\n\nproc load() -> Result[Int] {\n  fail \"no\"\n}\n";
         let unused = lint(inside);
         assert_eq!(unused.len(), 1, "{unused:?}");
         assert!(unused[0].fix_hints.is_empty());
-        assert_eq!(unused[0].notes, [KeptDeclaration::CommentInside.hand_edit()]);
+        assert_eq!(
+            unused[0].notes,
+            [KeptDeclaration::CommentInside.hand_edit()]
+        );
 
         let shared = "error LoadError = Failed(message: Str); const limit = 3\n\nproc load() -> Result[Int] {\n  fail f\"over {limit}\"\n}\n";
         let unused = lint(shared);

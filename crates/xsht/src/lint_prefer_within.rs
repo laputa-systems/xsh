@@ -1,8 +1,7 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, Label, Severity};
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, RunFormId,
-    StmtId,
+    ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, RunFormId, StmtId,
 };
 
 /// A statement list whose `run` forms all carry the same `--timeout` repeats
@@ -139,7 +138,13 @@ mod tests {
         );
         let label = diagnostics[0].labels[0].span;
         assert!(source[label.range()].starts_with("run --timeout=30s git fetch"));
-        assert!(diagnostics[0].labels[0].message.as_deref().unwrap().contains("3 commands"));
+        assert!(
+            diagnostics[0].labels[0]
+                .message
+                .as_deref()
+                .unwrap()
+                .contains("3 commands")
+        );
         assert!(diagnostics[0].notes[0].contains("within 30s { ... }"));
         assert!(diagnostics[0].fix_hints.is_empty());
     }

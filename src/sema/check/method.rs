@@ -79,8 +79,9 @@ impl Checker {
                 );
             }
             let base_ty = validated.base().clone();
-            return self
-                .check_method_dispatch_arena(arena, source, base, base_ty, name, args, span, expected);
+            return self.check_method_dispatch_arena(
+                arena, source, base, base_ty, name, args, span, expected,
+            );
         }
         if base_ty == Type::Any {
             // A dynamic method has no checked signature to bind names
@@ -647,10 +648,8 @@ impl Checker {
                 && api_spec()
                     .method_overloads(validated_receiver, name)
                     .is_some()
-                && let Ok(validated) = crate::sema::validated::ValidatedType::new(
-                    validation,
-                    receiver_ty.clone(),
-                )
+                && let Ok(validated) =
+                    crate::sema::validated::ValidatedType::new(validation, receiver_ty.clone())
             {
                 let validated = Type::Validated(Box::new(validated));
                 diagnostic = diagnostic.with_note(format!(

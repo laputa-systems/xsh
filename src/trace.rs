@@ -503,9 +503,11 @@ impl TracebackRenderer {
             traceback.error.kind.as_str(),
             "nonzero-exit" | "unexpected-exit" | "pipeline-failure"
         ) {
-            output.push_str(
-                &traceback.error.message.replacen(" exited with status ", " exited ", 1),
-            );
+            output.push_str(&traceback.error.message.replacen(
+                " exited with status ",
+                " exited ",
+                1,
+            ));
         } else {
             output.push_str(&traceback.error.kind);
             if !traceback.error.message.is_empty()

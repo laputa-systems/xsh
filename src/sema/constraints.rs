@@ -442,9 +442,10 @@ impl TypeConstraints {
                     }
                     variables.insert(*id);
                 }
-                Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) | Type::Set(inner) => {
-                    pending.push((inner, depth + 1))
-                }
+                Type::List(inner)
+                | Type::Optional(inner)
+                | Type::Stream(inner)
+                | Type::Set(inner) => pending.push((inner, depth + 1)),
                 Type::Map(key, value) => {
                     pending.push((key, depth + 1));
                     pending.push((value, depth + 1));

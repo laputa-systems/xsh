@@ -505,7 +505,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::Map,
             methods: method_map(vec![
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::MapLen),
-                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::MapIsEmpty),
+                method(
+                    "is_empty",
+                    Vec::new(),
+                    Type::Bool,
+                    true,
+                    RuntimeOp::MapIsEmpty,
+                ),
                 method(
                     "get",
                     vec![param(
@@ -586,7 +592,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::StreamCollect,
                 ),
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::ListLen),
-                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::ListIsEmpty),
+                method(
+                    "is_empty",
+                    Vec::new(),
+                    Type::Bool,
+                    true,
+                    RuntimeOp::ListIsEmpty,
+                ),
                 method(
                     "to_set",
                     Vec::new(),
@@ -720,7 +732,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     true,
                     RuntimeOp::TextTranslate,
                 ),
-                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::TextIsEmpty),
+                method(
+                    "is_empty",
+                    Vec::new(),
+                    Type::Bool,
+                    true,
+                    RuntimeOp::TextIsEmpty,
+                ),
                 method("lower", Vec::new(), Type::Str, true, RuntimeOp::TextLower),
                 method("upper", Vec::new(), Type::Str, true, RuntimeOp::TextUpper),
                 method(
@@ -854,7 +872,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::Bytes,
             methods: method_map(vec![
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::BytesLen),
-                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::BytesIsEmpty),
+                method(
+                    "is_empty",
+                    Vec::new(),
+                    Type::Bool,
+                    true,
+                    RuntimeOp::BytesIsEmpty,
+                ),
                 method(
                     "slice",
                     vec![
@@ -1337,25 +1361,43 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::Set,
             methods: method_map(vec![
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::SetLen),
-                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::SetIsEmpty),
+                method(
+                    "is_empty",
+                    Vec::new(),
+                    Type::Bool,
+                    true,
+                    RuntimeOp::SetIsEmpty,
+                ),
                 method(
                     "add",
-                    vec![param("item", Type::BuiltinParameter(BuiltinTypeParameter::Element))],
-                    Type::Set(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
+                    vec![param(
+                        "item",
+                        Type::BuiltinParameter(BuiltinTypeParameter::Element),
+                    )],
+                    Type::Set(Box::new(Type::BuiltinParameter(
+                        BuiltinTypeParameter::Element,
+                    ))),
                     true,
                     RuntimeOp::SetInsert,
                 ),
                 method(
                     "remove",
-                    vec![param("item", Type::BuiltinParameter(BuiltinTypeParameter::Element))],
-                    Type::Set(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
+                    vec![param(
+                        "item",
+                        Type::BuiltinParameter(BuiltinTypeParameter::Element),
+                    )],
+                    Type::Set(Box::new(Type::BuiltinParameter(
+                        BuiltinTypeParameter::Element,
+                    ))),
                     true,
                     RuntimeOp::SetDiscard,
                 ),
                 method(
                     "to_list",
                     Vec::new(),
-                    Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
+                    Type::List(Box::new(Type::BuiltinParameter(
+                        BuiltinTypeParameter::Element,
+                    ))),
                     true,
                     RuntimeOp::SetToList,
                 ),
@@ -1389,7 +1431,9 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                         BuiltinTypeParameter::Element,
                     )))),
                     MethodReceiver::RelPath => Some(Type::RelPath),
-                    MethodReceiver::Set => Some(Type::Set(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element)))),
+                    MethodReceiver::Set => Some(Type::Set(Box::new(Type::BuiltinParameter(
+                        BuiltinTypeParameter::Element,
+                    )))),
                     MethodReceiver::Result => Some(Type::Result(
                         Box::new(variable(BuiltinTypeParameter::Element)),
                         Box::new(variable(BuiltinTypeParameter::Error)),

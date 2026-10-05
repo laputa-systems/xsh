@@ -1,3 +1,4 @@
+use std::fmt::Write as _;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::check::Type;
 use xsh::frontend::source::{SourceId, Span};
@@ -6,7 +7,6 @@ use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaStmtKind, ArenaSugar, AstArena, BlockId, DeferTrigger, ExprId, StmtId,
 };
-use std::fmt::Write as _;
 use xsh::frontend::syntax::parser::Parser;
 
 use super::prefer_tempdir::{binds, expr_owns_nothing, text_end_of, tokens_spanning_lines};
@@ -278,16 +278,18 @@ fn atomically_rewrite(
     rename: &Rename,
 ) -> Result<FixHint, &'static str> {
     const NOT_ADJACENT: &str = "the temporary path is not cleared and then given a deferred removal by two adjacent statements";
-    const USED_EARLY: &str = "a statement between the binding and the removal names the temporary path";
-    const LAYOUT: &str = "the statements do not each start a line of their own, or a comment sits among them";
-    const NOT_THE_SAME: &str = "the rewritten statement does not parse to the same destination and body";
+    const USED_EARLY: &str =
+        "a statement between the binding and the removal names the temporary path";
+    const LAYOUT: &str =
+        "the statements do not each start a line of their own, or a comment sits among them";
+    const NOT_THE_SAME: &str =
+        "the rewritten statement does not parse to the same destination and body";
 
     let arena = linter.arena;
     let source = linter.source;
     let name = rename.temporary;
     let defer_index = sequence.clear + 1;
-    if defer_index >= sequence.rename || deferred_removal(arena, stmts[defer_index]) != Some(name)
-    {
+    if defer_index >= sequence.rename || deferred_removal(arena, stmts[defer_index]) != Some(name) {
         return Err(NOT_ADJACENT);
     }
     if !rename.overwrite {
@@ -302,7 +304,9 @@ fn atomically_rewrite(
         ArenaStmtKind::Expr(expr) if matches!(arena.expr(expr).kind, ArenaExprKind::Try(_))
     ) || linter.propagating_statements.contains(&rename_stmt.span);
     if !propagates {
-        return Err("the result of the rename is the value of its block, not a failure that propagates");
+        return Err(
+            "the result of the rename is the value of its block, not a failure that propagates",
+        );
     }
     let dest = local(arena, rename.dest)
         .filter(|dest| is_sibling_of(arena, source, stmts[sequence.binding], *dest))
@@ -334,15 +338,23 @@ fn atomically_rewrite(
             .iter()
             .any(|stmt| binds(arena, *stmt, |bound| bound == dest || bound == name))
     {
-        return Err("the destination is not an immutable local, or a statement in between rebinds it");
+        return Err(
+            "the destination is not an immutable local, or a statement in between rebinds it",
+        );
     }
     if !body.iter().all(|stmt| leaves_nothing_behind(linter, *stmt)) {
-        return Err("a statement in between registers a defer or may own a handle, which a block would release before the rename");
+        return Err(
+            "a statement in between registers a defer or may own a handle, which a block would release before the rename",
+        );
     }
 
     let text_end = |stmt: StmtId| text_end_of(source, arena.stmt(stmt).span).ok_or(LAYOUT);
     let line_start = |offset: usize| source[..offset].rfind('\n').map_or(0, |at| at + 1);
-    let line_end = |offset: usize| source[offset..].find('\n').map_or(source.len(), |at| offset + at);
+    let line_end = |offset: usize| {
+        source[offset..]
+            .find('\n')
+            .map_or(source.len(), |at| offset + at)
+    };
     let binding_span = arena.stmt(stmts[sequence.binding]).span;
     let indent = source
         .get(line_start(binding_span.start())..binding_span.start())
@@ -382,7 +394,11 @@ fn atomically_rewrite(
     let rename_span = arena.stmt(stmts[sequence.rename]).span;
     let end = text_end(stmts[sequence.rename])?;
     let body_end = line_end(text_end(body[body.len() - 1])?);
-    let blank = |from: usize, to: usize| source.get(from..to).is_some_and(|text| text.trim().is_empty());
+    let blank = |from: usize, to: usize| {
+        source
+            .get(from..to)
+            .is_some_and(|text| text.trim().is_empty())
+    };
     let replaced = Span::new(binding_span.source_id, binding_span.start(), line_end(end));
     if super::span_may_contain_comment(source, replaced)
         || !blank(head.end(), head_end)
@@ -400,7 +416,11 @@ fn atomically_rewrite(
         replacement.push_str(indent);
     }
     let statement_start = replacement.len();
-    let _ = write!(replacement, "atomically replace {dest_text} as {} {{", name.as_str());
+    let _ = write!(
+        replacement,
+        "atomically replace {dest_text} as {} {{",
+        name.as_str()
+    );
     let mut line_start = head_end;
     let mut leading = true;
     for line in body_text.split('\n').skip(1) {
@@ -450,10 +470,9 @@ fn atomically_rewrite(
     };
     let key = |root| super::super::format::canonical_subtree(arena, source, root);
     let new_key = |root| {
-        parsed
-            .arena
-            .symbol_owner()
-            .with_current(|| super::super::format::canonical_subtree(rewritten, statement_text, root))
+        parsed.arena.symbol_owner().with_current(|| {
+            super::super::format::canonical_subtree(rewritten, statement_text, root)
+        })
     };
     // A block's key is its statements' keys in order between an opening and a
     // closing, so the body holds the statements in between exactly when it
@@ -700,18 +719,28 @@ mod tests {
     #[test]
     fn a_sequence_that_differs_from_the_form_is_reported_without_a_rewrite() {
         let publish = |opening: &str, body: &str, closing: &str| {
-            format!("proc publish(source: Path, dest: Path) [fs, process, error] {{\n{opening}{body}{closing}}}\n")
+            format!(
+                "proc publish(source: Path, dest: Path) [fs, process, error] {{\n{opening}{body}{closing}}}\n"
+            )
         };
         let opening = "  let partial = fp\"{dest}.tmp\"\n  partial.remove(missing_ok: true)\n  defer partial.remove(missing_ok: true)\n";
         let body = "  source.copy(to: partial)\n";
         let closing = "  partial.rename(to: dest, overwrite: true)\n";
         assert_eq!(published_files(&publish(opening, body, closing)).len(), 1);
-        assert!(!published_files(&publish(opening, body, closing))[0].fix_hints.is_empty());
+        assert!(
+            !published_files(&publish(opening, body, closing))[0]
+                .fix_hints
+                .is_empty()
+        );
 
         for (source, reason) in [
             // No deferred removal: a failure used to leave the file behind.
             (
-                publish("  let partial = fp\"{dest}.tmp\"\n  partial.remove(missing_ok: true)\n", body, closing),
+                publish(
+                    "  let partial = fp\"{dest}.tmp\"\n  partial.remove(missing_ok: true)\n",
+                    body,
+                    closing,
+                ),
                 "two adjacent statements",
             ),
             // The rename fails when the destination exists.
@@ -720,48 +749,88 @@ mod tests {
                 "does not pass `overwrite: true`",
             ),
             (
-                publish(opening, body, "  partial.rename(to: dest, overwrite: true)\n  print \"published\"\n"),
+                publish(
+                    opening,
+                    body,
+                    "  partial.rename(to: dest, overwrite: true)\n  print \"published\"\n",
+                ),
                 "statements follow the rename",
             ),
             // The temporary path is in another directory.
             (
-                publish(&opening.replace("{dest}.tmp", "{dest}/../partial"), body, closing),
+                publish(
+                    &opening.replace("{dest}.tmp", "{dest}/../partial"),
+                    body,
+                    closing,
+                ),
                 "fp\"{DEST}SUFFIX\"",
             ),
             (
-                publish(&opening.replace("fp\"{dest}.tmp\"", "fp\"{dest.parent()}/sub/partial\""), body, closing),
+                publish(
+                    &opening.replace("fp\"{dest}.tmp\"", "fp\"{dest.parent()}/sub/partial\""),
+                    body,
+                    closing,
+                ),
                 "fp\"{DEST}SUFFIX\"",
             ),
             (publish(opening, "", closing), "nothing is produced"),
             // A statement between the binding and the removal shadows the
             // destination the rename reads.
             (
-                publish(&opening.replace(".tmp\"\n", ".tmp\"\n  let dest = source\n"), body, closing),
+                publish(
+                    &opening.replace(".tmp\"\n", ".tmp\"\n  let dest = source\n"),
+                    body,
+                    closing,
+                ),
                 "rebinds it",
             ),
             // The body's defer used to run after the rename.
             (
-                publish(opening, "  defer { print \"done\" }\n  source.copy(to: partial)\n", closing),
+                publish(
+                    opening,
+                    "  defer { print \"done\" }\n  source.copy(to: partial)\n",
+                    closing,
+                ),
                 "registers a defer or may own a handle",
             ),
             (
-                publish(opening, "  let child = spawn run sleep 1 ?\n  print $child.pid\n  source.copy(to: partial)\n", closing),
+                publish(
+                    opening,
+                    "  let child = spawn run sleep 1 ?\n  print $child.pid\n  source.copy(to: partial)\n",
+                    closing,
+                ),
                 "registers a defer or may own a handle",
             ),
             (
-                publish(opening, "  let dest = source\n  source.copy(to: partial)\n", closing),
+                publish(
+                    opening,
+                    "  let dest = source\n  source.copy(to: partial)\n",
+                    closing,
+                ),
                 "rebinds it",
             ),
             (
-                publish(opening, "  # copy first\n  source.copy(to: partial)\n", closing),
+                publish(
+                    opening,
+                    "  # copy first\n  source.copy(to: partial)\n",
+                    closing,
+                ),
                 "a comment sits among them",
             ),
             (
-                publish(opening, body, "  # publish\n  partial.rename(to: dest, overwrite: true)\n"),
+                publish(
+                    opening,
+                    body,
+                    "  # publish\n  partial.rename(to: dest, overwrite: true)\n",
+                ),
                 "a comment sits among them",
             ),
             (
-                publish(&opening.replace("true)\n  defer", "true) # stale\n  defer"), body, closing),
+                publish(
+                    &opening.replace("true)\n  defer", "true) # stale\n  defer"),
+                    body,
+                    closing,
+                ),
                 "a comment sits among them",
             ),
         ] {
@@ -801,11 +870,15 @@ mod tests {
             )
             .diagnostics
             .into_iter()
-            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintAtomicallyNeverReplaces))
+            .filter(|diagnostic| {
+                diagnostic.code == Some(DiagnosticCode::LintAtomicallyNeverReplaces)
+            })
             .collect::<Vec<_>>()
         };
         let publish = |body: &str| {
-            format!("proc publish(dest: Path, ready: Bool) [fs, error] {{\n  for _ in [1] {{\n    atomically replace dest as partial {{\n      partial.write(\"x\")\n{body}    }}\n  }}\n}}\n")
+            format!(
+                "proc publish(dest: Path, ready: Bool) [fs, error] {{\n  for _ in [1] {{\n    atomically replace dest as partial {{\n      partial.write(\"x\")\n{body}    }}\n  }}\n}}\n"
+            )
         };
         for body in [
             "      return\n",
@@ -817,11 +890,18 @@ mod tests {
             let diagnostics = never(&source);
             assert_eq!(diagnostics.len(), 1, "{source}\n{diagnostics:?}");
             let label = diagnostics[0].labels[0].span;
-            assert_eq!(&source[label.range()], "atomically replace dest as partial ");
+            assert_eq!(
+                &source[label.range()],
+                "atomically replace dest as partial "
+            );
             assert!(diagnostics[0].fix_hints.is_empty());
         }
         // A path that reaches the end of the body publishes.
-        for body in ["", "      return when ready\n", "      if ready {\n        break\n      }\n"] {
+        for body in [
+            "",
+            "      return when ready\n",
+            "      if ready {\n        break\n      }\n",
+        ] {
             assert!(never(&publish(body)).is_empty(), "{body}");
         }
     }

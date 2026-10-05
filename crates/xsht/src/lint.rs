@@ -20,18 +20,18 @@ mod tempdir_scope;
 #[path = "lint_prefer_repeat.rs"]
 mod prefer_repeat;
 
-#[path = "lint_prefer_tempdir.rs"]
-mod prefer_tempdir;
 #[path = "lint_prefer_atomically.rs"]
 mod prefer_atomically;
-#[path = "lint_prefer_within.rs"]
-mod prefer_within;
-#[path = "lint_prefer_wait_until.rs"]
-mod prefer_wait_until;
 #[path = "lint_prefer_collect.rs"]
 mod prefer_collect;
+#[path = "lint_prefer_tempdir.rs"]
+mod prefer_tempdir;
+#[path = "lint_prefer_wait_until.rs"]
+mod prefer_wait_until;
 #[path = "lint_prefer_with_scope.rs"]
 mod prefer_with_scope;
+#[path = "lint_prefer_within.rs"]
+mod prefer_within;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
 
@@ -59,12 +59,12 @@ mod lint_path_display_sink;
 #[path = "lint_write_lines.rs"]
 mod lint_write_lines;
 
+#[path = "lint_list_any_union.rs"]
+mod lint_list_any_union;
 #[path = "lint_read_lines.rs"]
 mod lint_read_lines;
 #[path = "lint_size_literal.rs"]
 mod lint_size_literal;
-#[path = "lint_list_any_union.rs"]
-mod lint_list_any_union;
 
 #[path = "lint_prefer_match_else.rs"]
 mod lint_prefer_match_else;
@@ -80,53 +80,53 @@ mod lint_redundant_propagation;
 #[path = "lint_redundant_scope_propagation.rs"]
 mod lint_redundant_scope_propagation;
 
-#[path = "lint_prefer_propagation.rs"]
-mod lint_prefer_propagation;
 #[path = "lint_prefer_for_index.rs"]
 mod lint_prefer_for_index;
+#[path = "lint_prefer_propagation.rs"]
+mod lint_prefer_propagation;
 
 #[path = "lint_env_path_list.rs"]
 mod lint_env_path_list;
 
-#[path = "lint_write_mode.rs"]
-mod lint_write_mode;
 #[path = "lint_prefer_fail.rs"]
 mod lint_prefer_fail;
 #[path = "lint_prefer_test_expect.rs"]
 mod lint_prefer_test_expect;
 #[path = "lint_redundant_discard.rs"]
 mod lint_redundant_discard;
+#[path = "lint_write_mode.rs"]
+mod lint_write_mode;
 
 #[path = "lint_path_kind.rs"]
 mod lint_path_kind;
+#[path = "lint_prefer_as_conversion.rs"]
+mod lint_prefer_as_conversion;
 #[path = "lint_prefer_is_empty.rs"]
 mod lint_prefer_is_empty;
 #[path = "lint_prefer_negative_index.rs"]
 mod lint_prefer_negative_index;
-#[path = "lint_prefer_as_conversion.rs"]
-mod lint_prefer_as_conversion;
 #[path = "lint_prefer_text_pattern.rs"]
 mod lint_prefer_text_pattern;
 
-#[path = "lint_prefer_typed_callable.rs"]
-mod lint_prefer_typed_callable;
 #[path = "lint_argument_label.rs"]
 mod lint_argument_label;
-#[path = "lint_prefer_non_empty_argv.rs"]
-mod lint_prefer_non_empty_argv;
-#[path = "lint_prefer_set.rs"]
-mod lint_prefer_set;
-#[path = "lint_prefer_rel_path.rs"]
-mod lint_prefer_rel_path;
 #[path = "lint_empty_sentinel.rs"]
 mod lint_empty_sentinel;
+#[path = "lint_prefer_non_empty_argv.rs"]
+mod lint_prefer_non_empty_argv;
+#[path = "lint_prefer_rel_path.rs"]
+mod lint_prefer_rel_path;
+#[path = "lint_prefer_set.rs"]
+mod lint_prefer_set;
+#[path = "lint_prefer_typed_callable.rs"]
+mod lint_prefer_typed_callable;
 
-#[cfg(test)]
-#[path = "lint_literal_migration_tests.rs"]
-mod literal_migration_tests;
 #[cfg(test)]
 #[path = "lint_fix_grouping_tests.rs"]
 mod fix_grouping_tests;
+#[cfg(test)]
+#[path = "lint_literal_migration_tests.rs"]
+mod literal_migration_tests;
 #[cfg(test)]
 #[path = "lint_redundant_default_remove_tests.rs"]
 mod redundant_default_remove_tests;
@@ -148,9 +148,10 @@ use xsh::frontend::syntax::arena::{
     ArenaFmtPart, ArenaFunctionDef, ArenaMatchExprArm, ArenaModuleContractEntryKind,
     ArenaPatternKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgram, ArenaRange,
     ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprTag, SugarForm,
-    ArenaWordPart, AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId,
-    CommandStmtId, DeferTrigger, ExprId, FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaSugarOperand,
+    ArenaTypeDefBody, ArenaTypeExprTag, ArenaWordPart, AssignTargetId, AstArena, BindingTargetId,
+    BlockId, BuilderBlockId, CommandStmtId, DeferTrigger, ExprId, FunctionDefId, PatternId,
+    RunFormId, StmtId, SugarForm, TypeExprId,
 };
 use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, RunKind, StreamStageKind, UnaryOp,
@@ -204,7 +205,10 @@ fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
 fn mentions_identifier(text: &str, name: &str) -> bool {
     let identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
     text.match_indices(name).any(|(start, _)| {
-        !text[..start].chars().next_back().is_some_and(identifier_char)
+        !text[..start]
+            .chars()
+            .next_back()
+            .is_some_and(identifier_char)
             && !text[start + name.len()..]
                 .chars()
                 .next()
@@ -1584,7 +1588,8 @@ impl<'a> Linter<'a> {
     }
 
     fn collect_type_expr_refs(&mut self, ty: TypeExprId) {
-        self.set_like_bindings.visit_type(self.arena, self.source, ty);
+        self.set_like_bindings
+            .visit_type(self.arena, self.source, ty);
         if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied {
             let base = TypeExprId::from_index(self.arena.type_expr_data[ty.index()].lhs as usize);
             self.collect_type_expr_refs(base);
@@ -2023,7 +2028,11 @@ impl<'a> Linter<'a> {
             // The name `atomically replace` binds is in scope for its body
             // only, and the form itself renames it, so it is never an unused
             // binding.
-            ArenaStmtKind::Sugar { form: SugarForm::Atomically, operands, .. } => {
+            ArenaStmtKind::Sugar {
+                form: SugarForm::Atomically,
+                operands,
+                ..
+            } => {
                 if let ArenaSugar::Atomically { dest, name, body } =
                     self.arena.sugar(SugarForm::Atomically, operands)
                 {
@@ -2037,9 +2046,17 @@ impl<'a> Linter<'a> {
             }
             // Both names an indexed `for` binds are loop bindings, in scope
             // for its body only.
-            ArenaStmtKind::Sugar { form: SugarForm::ForIndex, operands, .. } => {
-                if let ArenaSugar::ForIndex { index, item, source, body } =
-                    self.arena.sugar(SugarForm::ForIndex, operands)
+            ArenaStmtKind::Sugar {
+                form: SugarForm::ForIndex,
+                operands,
+                ..
+            } => {
+                if let ArenaSugar::ForIndex {
+                    index,
+                    item,
+                    source,
+                    body,
+                } = self.arena.sugar(SugarForm::ForIndex, operands)
                 {
                     self.lint_expr(source);
                     self.push_scope();
@@ -2354,9 +2371,7 @@ impl<'a> Linter<'a> {
                 | ArenaTypeExprTag::Module
                 | ArenaTypeExprTag::Optional
                 | ArenaTypeExprTag::NonEmpty
-                | ArenaTypeExprTag::Set => {
-                    types.push(TypeExprId::from_index(data.lhs as usize))
-                }
+                | ArenaTypeExprTag::Set => types.push(TypeExprId::from_index(data.lhs as usize)),
             }
         }
         let start = scan_before_arrow(self.source, ty_span.start());
@@ -7449,16 +7464,16 @@ impl<'a> Linter<'a> {
         let ArenaAssignTargetKind::Name(target_name) = self.arena.assign_target(target).kind else {
             return;
         };
-        let Some((scope_depth, binding)) = self
-            .scopes
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(depth, scope)| {
-                scope
-                    .get(target_name.as_str().as_str())
-                    .map(|binding| (depth, binding))
-            })
+        let Some((scope_depth, binding)) =
+            self.scopes
+                .iter()
+                .enumerate()
+                .rev()
+                .find_map(|(depth, scope)| {
+                    scope
+                        .get(target_name.as_str().as_str())
+                        .map(|binding| (depth, binding))
+                })
         else {
             return;
         };
@@ -7520,21 +7535,23 @@ impl<'a> Linter<'a> {
         // assignment's read of the current value. Any proc may assign a
         // module-level variable, so only a call-free argument is known to
         // leave it alone.
-        let arguments_preserve_target = updates.iter().zip(&argument_sources).all(
-            |(update, argument_source)| {
-                if module_level {
-                    list_update_argument_stable(self.arena, update.argument)
-                } else {
-                    !expr_may_assign_local(
-                        self.arena,
-                        self.source,
-                        update.argument,
-                        target_name.as_str().as_str(),
-                        argument_source,
-                    )
-                }
-            },
-        );
+        let arguments_preserve_target =
+            updates
+                .iter()
+                .zip(&argument_sources)
+                .all(|(update, argument_source)| {
+                    if module_level {
+                        list_update_argument_stable(self.arena, update.argument)
+                    } else {
+                        !expr_may_assign_local(
+                            self.arena,
+                            self.source,
+                            update.argument,
+                            target_name.as_str().as_str(),
+                            argument_source,
+                        )
+                    }
+                });
         if !arguments_preserve_target {
             return;
         }
@@ -7546,8 +7563,7 @@ impl<'a> Linter<'a> {
             let line_start = self.source[..span.start()].rfind('\n').map_or(0, |i| i + 1);
             let prefix = &self.source[line_start..span.start()];
             let indent: String = prefix.chars().take_while(|ch| ch.is_whitespace()).collect();
-            if prefix.chars().count() + one_line.chars().count()
-                > super::format::DEFAULT_LINE_WIDTH
+            if prefix.chars().count() + one_line.chars().count() > super::format::DEFAULT_LINE_WIDTH
                 && !multiline_argument
             {
                 let elements: String = argument_sources
@@ -7577,7 +7593,8 @@ impl<'a> Linter<'a> {
         // copied as written, so its continuation lines keep their
         // indentation and the formatter owns their final layout.
         if span_may_contain_comment(self.source, edit_span) {
-            diagnostic = diagnostic.with_note("comments inside the update require a manual rewrite");
+            diagnostic =
+                diagnostic.with_note("comments inside the update require a manual rewrite");
         } else {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                 edit_span,
@@ -8339,8 +8356,11 @@ impl<'a> Linter<'a> {
 
     fn lint_stream_stage(&mut self, stage: &ArenaStreamStage) {
         if self.prefer_item_shorthand {
-            self.item_shorthands
-                .extend(item_shorthand::stage_report(self.arena, self.source, stage));
+            self.item_shorthands.extend(item_shorthand::stage_report(
+                self.arena,
+                self.source,
+                stage,
+            ));
         }
         self.lint_stage_callable_wrapper(stage);
         for arg in self.arena.call_args(stage.args).to_vec() {
@@ -9453,7 +9473,10 @@ impl<'a> Linter<'a> {
                 "read an environment variable with a literal name as an e-string",
             )
             .with_code(DiagnosticCode::LintPreferEnvString)
-            .with_label(Label::secondary(outer.span, "this reads one named variable"))
+            .with_label(Label::secondary(
+                outer.span,
+                "this reads one named variable",
+            ))
             .with_fix_hint(FixHint::replacement(
                 outer.span,
                 format!("write `{replacement}`"),
@@ -11215,12 +11238,8 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(sinks);
-        let search_paths = lint_env_path_list::env_path_lists(
-            self.arena,
-            self.source,
-            &self.expr_types,
-            expr,
-        );
+        let search_paths =
+            lint_env_path_list::env_path_lists(self.arena, self.source, &self.expr_types, expr);
         self.diagnostics.extend(search_paths);
         let kind =
             lint_path_kind::path_kind_comparison(self.arena, self.source, &self.expr_types, expr);
@@ -11807,9 +11826,11 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                 }
             }
         }
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => out.extend(arena.list_element_exprs(items)),
+        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
+            out.extend(arena.list_element_exprs(items))
+        }
         ArenaExprKind::ListComp { expr, qualifiers }
-            | ArenaExprKind::SetComp { expr, qualifiers } => {
+        | ArenaExprKind::SetComp { expr, qualifiers } => {
             out.extend(arena.comp_qualifiers(qualifiers).iter().map(|q| q.expr()));
             out.push(expr);
         }
@@ -12129,14 +12150,16 @@ fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_pushes_to(arena, block, name),
-        ArenaStmtKind::Sugar { operands, .. } => arena
-            .sugar_operands(operands)
-            .iter()
-            .any(|operand| match *operand {
-                ArenaSugarOperand::Block(block) => block_pushes_to(arena, block, name),
-                ArenaSugarOperand::Stmt(stmt) => stmt_pushes_to(arena, stmt, name),
-                _ => false,
-            }),
+        ArenaStmtKind::Sugar { operands, .. } => {
+            arena
+                .sugar_operands(operands)
+                .iter()
+                .any(|operand| match *operand {
+                    ArenaSugarOperand::Block(block) => block_pushes_to(arena, block, name),
+                    ArenaSugarOperand::Stmt(stmt) => stmt_pushes_to(arena, stmt, name),
+                    _ => false,
+                })
+        }
         ArenaStmtKind::Guard { else_block, .. } => block_pushes_to(arena, else_block, name),
         ArenaStmtKind::Export(stmt) => stmt_pushes_to(arena, stmt, name),
         ArenaStmtKind::With {
@@ -12180,14 +12203,18 @@ fn stmt_assigns_non_push_to(
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_assigns_non_push_to(arena, block, name),
-        ArenaStmtKind::Sugar { operands, .. } => arena
-            .sugar_operands(operands)
-            .iter()
-            .any(|operand| match *operand {
-                ArenaSugarOperand::Block(block) => block_assigns_non_push_to(arena, block, name),
-                ArenaSugarOperand::Stmt(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
-                _ => false,
-            }),
+        ArenaStmtKind::Sugar { operands, .. } => {
+            arena
+                .sugar_operands(operands)
+                .iter()
+                .any(|operand| match *operand {
+                    ArenaSugarOperand::Block(block) => {
+                        block_assigns_non_push_to(arena, block, name)
+                    }
+                    ArenaSugarOperand::Stmt(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
+                    _ => false,
+                })
+        }
         ArenaStmtKind::Guard { else_block, .. } => {
             block_assigns_non_push_to(arena, else_block, name)
         }
@@ -12323,9 +12350,11 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         ArenaExprKind::ValuePipelineCall { input, call, .. } => refs(input) || refs(call),
 
         ArenaExprKind::Ident(candidate) => candidate == name,
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena.list_element_exprs(items).any(refs),
+        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
+            arena.list_element_exprs(items).any(refs)
+        }
         ArenaExprKind::ListComp { expr, qualifiers }
-            | ArenaExprKind::SetComp { expr, qualifiers } => {
+        | ArenaExprKind::SetComp { expr, qualifiers } => {
             refs(expr)
                 || arena
                     .comp_qualifiers(qualifiers)
@@ -15151,10 +15180,7 @@ impl FlowSummary {
     }
 }
 
-fn block_flow(
-    arena: &AstArena,
-    block: BlockId,
-) -> FlowSummary {
+fn block_flow(arena: &AstArena, block: BlockId) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for stmt in arena.stmt_ids(arena.block(block).statements) {
         if !flow.fallthrough {
@@ -15165,10 +15191,7 @@ fn block_flow(
     flow
 }
 
-fn stmt_flow(
-    arena: &AstArena,
-    stmt: StmtId,
-) -> FlowSummary {
+fn stmt_flow(arena: &AstArena, stmt: StmtId) -> FlowSummary {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Export(inner) => stmt_flow(arena, inner),
         // Control flow is the form's meaning, which only its expansion states.
@@ -15192,14 +15215,10 @@ fn stmt_flow(
         },
         ArenaStmtKind::Let { initializer, .. }
         | ArenaStmtKind::Const { initializer, .. }
-        | ArenaStmtKind::Var { initializer, .. } => {
-            expr_or_run_flow(arena, &initializer)
+        | ArenaStmtKind::Var { initializer, .. } => expr_or_run_flow(arena, &initializer),
+        ArenaStmtKind::Assign { target, value, .. } => {
+            assign_target_flow(arena, target).then(expr_or_run_flow(arena, &value))
         }
-        ArenaStmtKind::Assign { target, value, .. } => assign_target_flow(
-            arena,
-            target,
-        )
-        .then(expr_or_run_flow(arena, &value)),
         ArenaStmtKind::Return(value) => value
             .as_ref()
             .map(|value| expr_or_run_flow(arena, value))
@@ -15255,13 +15274,10 @@ fn stmt_flow(
             initializer.then(FlowSummary::fallthrough().union(else_flow))
         }
         ArenaStmtKind::Assert { condition, message } => {
-            expr_flow(arena, condition).then(
-                FlowSummary::fallthrough().union(match message {
-                    Some(message) => expr_flow(arena, message)
-                        .then(FlowSummary::terminating()),
-                    None => FlowSummary::terminating(),
-                }),
-            )
+            expr_flow(arena, condition).then(FlowSummary::fallthrough().union(match message {
+                Some(message) => expr_flow(arena, message).then(FlowSummary::terminating()),
+                None => FlowSummary::terminating(),
+            }))
         }
         ArenaStmtKind::Break { value } => value
             .map(|value| expr_flow(arena, value))
@@ -15283,13 +15299,9 @@ fn stmt_flow(
         }
         ArenaStmtKind::Command(command) => command_flow(arena, command),
         ArenaStmtKind::TailBareIdent(_) => FlowSummary::fallthrough(),
-        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
-            expr_flow(arena, expr)
-        }
+        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => expr_flow(arena, expr),
         // The status is evaluated, and then nothing after the statement runs.
-        ArenaStmtKind::Exit(status) => {
-            expr_flow(arena, status).then(FlowSummary::terminating())
-        }
+        ArenaStmtKind::Exit(status) => expr_flow(arena, status).then(FlowSummary::terminating()),
         ArenaStmtKind::Use(_)
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
@@ -15342,23 +15354,12 @@ fn with_stmt_flow(
 ) -> FlowSummary {
     let mut bindings_flow = FlowSummary::fallthrough();
     for binding in arena.with_bindings(bindings) {
-        bindings_flow = bindings_flow.then(expr_flow(
-            arena,
-            binding.initializer,
-        ));
+        bindings_flow = bindings_flow.then(expr_flow(arena, binding.initializer));
     }
-    bindings_flow.then(
-        block_flow(arena, body).union(block_flow(
-            arena,
-            else_block,
-        )),
-    )
+    bindings_flow.then(block_flow(arena, body).union(block_flow(arena, else_block)))
 }
 
-fn loop_flow(
-    arena: &AstArena,
-    block: BlockId,
-) -> FlowSummary {
+fn loop_flow(arena: &AstArena, block: BlockId) -> FlowSummary {
     let body = block_flow(arena, block);
     FlowSummary {
         fallthrough: body.breaks,
@@ -15369,34 +15370,24 @@ fn loop_flow(
     }
 }
 
-fn expr_or_run_flow(
-    arena: &AstArena,
-    value: &ArenaExprOrRun,
-) -> FlowSummary {
+fn expr_or_run_flow(arena: &AstArena, value: &ArenaExprOrRun) -> FlowSummary {
     match value {
         ArenaExprOrRun::Expr(expr) => expr_flow(arena, *expr),
         ArenaExprOrRun::Run(run) => run_flow(arena, *run),
     }
 }
 
-fn expr_flow(
-    arena: &AstArena,
-    expr: ExprId,
-) -> FlowSummary {
+fn expr_flow(arena: &AstArena, expr: ExprId) -> FlowSummary {
     let arena_expr = arena.expr(expr);
     match arena_expr.kind {
-        ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_flow(
-            arena,
-            input,
-        )
-        .then(expr_flow(arena, call)),
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+            expr_flow(arena, input).then(expr_flow(arena, call))
+        }
 
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
             .fmt_parts(parts)
             .fold(FlowSummary::fallthrough(), |flow, part| match part {
-                ArenaFmtPart::Expr(expr, _) => {
-                    flow.then(expr_flow(arena, expr))
-                }
+                ArenaFmtPart::Expr(expr, _) => flow.then(expr_flow(arena, expr)),
                 ArenaFmtPart::Text(_) => flow,
             }),
         ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena
@@ -15405,7 +15396,8 @@ fn expr_flow(
                 flow.then(expr_flow(arena, item))
             }),
         ArenaExprKind::ListComp { qualifiers, .. }
-        | ArenaExprKind::SetComp { qualifiers, .. } | ArenaExprKind::MapComp { qualifiers, .. } => {
+        | ArenaExprKind::SetComp { qualifiers, .. }
+        | ArenaExprKind::MapComp { qualifiers, .. } => {
             let first = arena
                 .comp_qualifiers(qualifiers)
                 .first()
@@ -15424,9 +15416,7 @@ fn expr_flow(
                     | ArenaRecordFieldKind::Path { value, .. } => {
                         flow.then(expr_flow(arena, value))
                     }
-                    ArenaRecordFieldKind::Spread { expr, .. } => {
-                        flow.then(expr_flow(arena, expr))
-                    }
+                    ArenaRecordFieldKind::Spread { expr, .. } => flow.then(expr_flow(arena, expr)),
                     ArenaRecordFieldKind::Shorthand { .. } => flow,
                 })
         }
@@ -15452,9 +15442,7 @@ fn expr_flow(
             }
             value.then(arms_flow)
         }
-        ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
-            expr_flow(arena, expr)
-        }
+        ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => expr_flow(arena, expr),
         ArenaExprKind::ComparisonChain(pairs) => {
             let mut operands = arena.comparison_chain_operands(pairs);
             let first = operands
@@ -15467,10 +15455,7 @@ fn expr_flow(
                 .unwrap_or_else(FlowSummary::fallthrough);
             let mut flow = first.then(second);
             for operand in operands {
-                flow = flow.then(FlowSummary::fallthrough().union(expr_flow(
-                    arena,
-                    operand,
-                )));
+                flow = flow.then(FlowSummary::fallthrough().union(expr_flow(arena, operand)));
             }
             flow
         }
@@ -15478,11 +15463,10 @@ fn expr_flow(
             op: BinaryOp::ResultFallback,
             left,
             right,
-        } => expr_flow(arena, left).then(
-            expr_flow(arena, right).union(FlowSummary::fallthrough()),
-        ),
-        ArenaExprKind::Binary { left, right, .. } => expr_flow(arena, left)
-            .then(expr_flow(arena, right)),
+        } => expr_flow(arena, left).then(expr_flow(arena, right).union(FlowSummary::fallthrough())),
+        ArenaExprKind::Binary { left, right, .. } => {
+            expr_flow(arena, left).then(expr_flow(arena, right))
+        }
         ArenaExprKind::Call { callee, args } => {
             let receiver_flow = expr_flow(arena, callee);
             let guarded = matches!(arena.expr(callee).kind, ArenaExprKind::NullSafeField { .. });
@@ -15551,16 +15535,13 @@ fn expr_flow(
         },
         ArenaExprKind::Wait(form) => expr_flow(arena, form.target),
         ArenaExprKind::BuilderCall { call, block } => {
-            expr_flow(arena, call).then(builder_block_setup_flow(
-                arena,
-                block,
-            ))
+            expr_flow(arena, call).then(builder_block_setup_flow(arena, block))
         }
-        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => expr_flow(arena, value),
+        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => {
+            expr_flow(arena, value)
+        }
         ArenaExprKind::ContextScope { input, block, .. } => {
-            expr_flow(arena, input).then(
-                FlowSummary::fallthrough().union(block_flow(arena, block)),
-            )
+            expr_flow(arena, input).then(FlowSummary::fallthrough().union(block_flow(arena, block)))
         }
         // Creating the directory may fail before the body runs.
         ArenaExprKind::TempDirScope { path, block, .. } => {
@@ -15580,11 +15561,9 @@ fn expr_flow(
                 flow.then(expr_flow(arena, binding.initializer))
             })
             .then(block_flow(arena, block)),
-        ArenaExprKind::ErrorContext { message, block } => expr_flow(
-            arena,
-            message,
-        )
-        .then(block_flow(arena, block)),
+        ArenaExprKind::ErrorContext { message, block } => {
+            expr_flow(arena, message).then(block_flow(arena, block))
+        }
         ArenaExprKind::Capture(block)
         | ArenaExprKind::ValueBlock(block)
         | ArenaExprKind::Collect { block } => block_flow(arena, block),
@@ -15615,11 +15594,7 @@ fn expr_flow(
     }
 }
 
-fn if_expr_flow(
-    arena: &AstArena,
-    branches: ArenaRange,
-    else_value: ExprId,
-) -> FlowSummary {
+fn if_expr_flow(arena: &AstArena, branches: ArenaRange, else_value: ExprId) -> FlowSummary {
     let mut flow = FlowSummary::default();
     let mut next_condition_reachable = true;
     for branch in arena.if_expr_branches(branches) {
@@ -15645,36 +15620,23 @@ fn if_expr_flow(
     flow
 }
 
-fn call_arg_flow(
-    arena: &AstArena,
-    arg: &ArenaCallArg,
-) -> FlowSummary {
+fn call_arg_flow(arena: &AstArena, arg: &ArenaCallArg) -> FlowSummary {
     match arg.kind {
         ArenaCallArgKind::Positional(expr)
         | ArenaCallArgKind::Named { value: expr, .. }
         | ArenaCallArgKind::Splice { value: expr, .. }
-        | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
-            expr_flow(arena, expr)
-        }
+        | ArenaCallArgKind::NamedSpread { value: expr, .. } => expr_flow(arena, expr),
     }
 }
 
-fn pipe_stage_flow(
-    arena: &AstArena,
-    stage: &ArenaPipeStage,
-) -> FlowSummary {
+fn pipe_stage_flow(arena: &AstArena, stage: &ArenaPipeStage) -> FlowSummary {
     match &stage.kind {
         ArenaPipeStageKind::Expr(expr) => expr_flow(arena, *expr),
-        ArenaPipeStageKind::Stream(stage) => {
-            stream_stage_flow(arena, stage)
-        }
+        ArenaPipeStageKind::Stream(stage) => stream_stage_flow(arena, stage),
     }
 }
 
-fn stream_stage_flow(
-    arena: &AstArena,
-    stage: &ArenaStreamStage,
-) -> FlowSummary {
+fn stream_stage_flow(arena: &AstArena, stage: &ArenaStreamStage) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for arg in arena.call_args(stage.args) {
         flow = flow.then(call_arg_flow(arena, arg));
@@ -15684,10 +15646,7 @@ fn stream_stage_flow(
     flow
 }
 
-fn builder_block_setup_flow(
-    arena: &AstArena,
-    block: BuilderBlockId,
-) -> FlowSummary {
+fn builder_block_setup_flow(arena: &AstArena, block: BuilderBlockId) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for entry in arena.builder_entries(arena.builder_block(block).entries) {
         match &entry.kind {
@@ -15699,10 +15658,7 @@ fn builder_block_setup_flow(
                     flow = flow.then(command_arg_flow(arena, arg));
                 }
                 if let Some(block) = block {
-                    flow = flow.then(builder_block_setup_flow(
-                        arena,
-                        *block,
-                    ));
+                    flow = flow.then(builder_block_setup_flow(arena, *block));
                 }
             }
             // Task blocks are independent regions. They are analyzed for their
@@ -15713,29 +15669,19 @@ fn builder_block_setup_flow(
     flow
 }
 
-fn assign_target_flow(
-    arena: &AstArena,
-    target: AssignTargetId,
-) -> FlowSummary {
+fn assign_target_flow(arena: &AstArena, target: AssignTargetId) -> FlowSummary {
     match arena.assign_target(target).kind {
         ArenaAssignTargetKind::Name(_) | ArenaAssignTargetKind::Env(_) => {
             FlowSummary::fallthrough()
         }
-        ArenaAssignTargetKind::Field { base, .. } => {
-            assign_target_flow(arena, base)
+        ArenaAssignTargetKind::Field { base, .. } => assign_target_flow(arena, base),
+        ArenaAssignTargetKind::Index { base, index } => {
+            assign_target_flow(arena, base).then(expr_flow(arena, index))
         }
-        ArenaAssignTargetKind::Index { base, index } => assign_target_flow(
-            arena,
-            base,
-        )
-        .then(expr_flow(arena, index)),
     }
 }
 
-fn command_flow(
-    arena: &AstArena,
-    command: CommandStmtId,
-) -> FlowSummary {
+fn command_flow(arena: &AstArena, command: CommandStmtId) -> FlowSummary {
     match arena.command_stmt(command).command.clone() {
         ArenaCommand::Proc { args, .. } => arena
             .command_args(args)
@@ -15752,12 +15698,8 @@ fn command_flow(
             }
             for assignment in arena.env_assignments(env) {
                 let assignment_flow = match &assignment.value {
-                    ArenaEnvAssignmentValue::CommandArg(arg) => {
-                        command_arg_flow(arena, arg)
-                    }
-                    ArenaEnvAssignmentValue::Expr(expr) => {
-                        expr_flow(arena, *expr)
-                    }
+                    ArenaEnvAssignmentValue::CommandArg(arg) => command_arg_flow(arena, arg),
+                    ArenaEnvAssignmentValue::Expr(expr) => expr_flow(arena, *expr),
                 };
                 flow = flow.then(assignment_flow);
             }
@@ -15771,10 +15713,7 @@ fn command_flow(
     }
 }
 
-fn run_flow(
-    arena: &AstArena,
-    run: RunFormId,
-) -> FlowSummary {
+fn run_flow(arena: &AstArena, run: RunFormId) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
     for segment in arena.run_segments(arena.run_form(run).segments) {
         if let Some(timeout) = segment.timeout {
@@ -15788,19 +15727,12 @@ fn run_flow(
         }
         for assignment in arena.env_assignments(segment.env) {
             let assignment_flow = match &assignment.value {
-                ArenaEnvAssignmentValue::CommandArg(arg) => {
-                    command_arg_flow(arena, arg)
-                }
-                ArenaEnvAssignmentValue::Expr(expr) => {
-                    expr_flow(arena, *expr)
-                }
+                ArenaEnvAssignmentValue::CommandArg(arg) => command_arg_flow(arena, arg),
+                ArenaEnvAssignmentValue::Expr(expr) => expr_flow(arena, *expr),
             };
             flow = flow.then(assignment_flow);
         }
-        flow = flow.then(command_arg_flow(
-            arena,
-            &segment.target,
-        ));
+        flow = flow.then(command_arg_flow(arena, &segment.target));
         for arg in arena.command_args(segment.args) {
             flow = flow.then(command_arg_flow(arena, arg));
         }
@@ -15814,10 +15746,7 @@ fn run_flow(
     flow
 }
 
-fn command_arg_flow(
-    arena: &AstArena,
-    arg: &ArenaCommandArg,
-) -> FlowSummary {
+fn command_arg_flow(arena: &AstArena, arg: &ArenaCommandArg) -> FlowSummary {
     match &arg.kind {
         ArenaCommandArgKind::Word(parts) => {
             arena
@@ -16164,9 +16093,11 @@ fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::Bytes(_)
         | ArenaExprKind::Regex(_) => true,
-        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => arena.list_elements(items).all(|item| {
-            item.splice_span.is_none() && inert_constant_initializer(arena, item.value)
-        }),
+        ArenaExprKind::List(items) | ArenaExprKind::Set(items) => {
+            arena.list_elements(items).all(|item| {
+                item.splice_span.is_none() && inert_constant_initializer(arena, item.value)
+            })
+        }
         ArenaExprKind::Record(fields) => {
             arena
                 .record_fields(fields)
@@ -16181,7 +16112,6 @@ fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
         _ => false,
     }
 }
-
 
 /// The span of a named call argument, `name: value` or `name:`.
 fn named_arg_span(arg: &ArenaCallArg) -> xsh::frontend::syntax::arena::SpanId {
@@ -16311,9 +16241,7 @@ mod annotation_probe_tests {
             )
             .diagnostics
             .iter()
-            .any(|diagnostic| {
-                diagnostic.code == Some(DiagnosticCode::LintPreferInferredPureReturn)
-            })
+            .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferInferredPureReturn))
         };
         // The file's first type expression names a user type.
         assert!(reported(

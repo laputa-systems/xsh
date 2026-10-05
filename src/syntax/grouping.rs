@@ -9,8 +9,8 @@
 use crate::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use crate::source::Span;
 use crate::syntax::arena::{
-    ArenaExprKind, ArenaFmtPart, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind,
-    AstArena, ExprId,
+    ArenaExprKind, ArenaFmtPart, ArenaProgram, ArenaRecordFieldKind, ArenaSpawnTarget,
+    ArenaStmtKind, AstArena, ExprId,
 };
 use crate::syntax::grammar::{
     self, CONVERSION, OperatorFamily, PATTERN_TEST, PREFIX, PREFIX_OPERAND, binary_precedence,
@@ -819,7 +819,10 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
     // After `{` or an entry's `,`, the brace-literal parser reads `[` as a
     // computed key, so a list that begins an element is grouped.
     if lead == Lead::SetElement {
-        return matches!(kind, ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. });
+        return matches!(
+            kind,
+            ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. }
+        );
     }
     let statement = matches!(lead, Lead::Statement { .. } | Lead::ArmStatement);
     match kind {
@@ -1052,14 +1055,12 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         }
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::MapComp { value, .. } if value == child => open(Follow::WORD),
-        ArenaExprKind::SetComp { expr, .. } if expr == child => {
-            Context::set_element(Follow::WORD)
-        }
+        ArenaExprKind::SetComp { expr, .. } if expr == child => Context::set_element(Follow::WORD),
         ArenaExprKind::Set(_) => Context::set_element(Follow::CLOSE),
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-            let has_spec = arena.fmt_parts(parts).any(|part| {
-                matches!(part, ArenaFmtPart::Expr(expr, Some(_)) if expr == child)
-            });
+            let has_spec = arena
+                .fmt_parts(parts)
+                .any(|part| matches!(part, ArenaFmtPart::Expr(expr, Some(_)) if expr == child));
             open(if has_spec {
                 Follow::adjacent(FollowToken::Colon)
             } else {
@@ -1137,9 +1138,7 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
             visit(base)
         }
-        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => {
-            visit(value)
-        }
+        ArenaExprKind::Require { value, .. } | ArenaExprKind::Convert { value, .. } => visit(value),
         ArenaExprKind::Index { base, index, .. } => {
             visit(base);
             visit(index);
@@ -1181,7 +1180,8 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
         ArenaExprKind::Set(items) => arena
             .list_elements(items)
             .for_each(|item| visit(item.value)),
-        ArenaExprKind::ListComp { expr, qualifiers } | ArenaExprKind::SetComp { expr, qualifiers } => {
+        ArenaExprKind::ListComp { expr, qualifiers }
+        | ArenaExprKind::SetComp { expr, qualifiers } => {
             visit(expr);
             arena
                 .comp_qualifiers(qualifiers)

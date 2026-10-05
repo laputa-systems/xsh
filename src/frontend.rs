@@ -15,8 +15,8 @@ pub mod check {
         CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
         CompactTypeDefInfo, Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
         FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RecordRequireMigration,
-        RequirementTarget, call_receiver_text,
-        StatementPosition, StaticCallableAlias, TagVariantInfo,
+        RequirementTarget, StatementPosition, StaticCallableAlias, TagVariantInfo,
+        call_receiver_text,
     };
     pub use crate::sema::constants::{
         CheckedRecordConstructor, LiteralConstant, PreparedConstants, RecordConstructors,

@@ -4,8 +4,7 @@ use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, ArenaSugar,
-    ArenaTypeExprTag,
-    AstArena, ExprId, StmtId,
+    ArenaTypeExprTag, AstArena, ExprId, StmtId,
 };
 use xsh::frontend::syntax::node::BinaryOp;
 
@@ -153,10 +152,7 @@ fn null_test_then_binding(
         Failure::Statement(statement) => {
             let indent = line_indent(source, span.start());
             let exit = source.get(statement.range())?.trim();
-            vec![(
-                span,
-                format!("{head}{{\n{indent}  {exit}\n{indent}}}"),
-            )]
+            vec![(span, format!("{head}{{\n{indent}  {exit}\n{indent}}}"))]
         }
     };
     let mut diagnostic = Diagnostic::warning(format!(
@@ -171,9 +167,11 @@ fn null_test_then_binding(
         .iter()
         .any(|(edit, _)| super::span_may_contain_comment(source, *edit))
     {
-        return Some(diagnostic.with_note(
-            "a comment between the null test and the binding needs a manual rewrite",
-        ));
+        return Some(
+            diagnostic.with_note(
+                "a comment between the null test and the binding needs a manual rewrite",
+            ),
+        );
     }
     for (edit, replacement) in edits {
         diagnostic = diagnostic.with_fix_hint(FixHint::replacement(

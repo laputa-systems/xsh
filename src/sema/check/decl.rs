@@ -820,7 +820,9 @@ fn module_type_from_user_signature(module: &UserModuleSig) -> Type {
     }
     // The checker has every export of a statically imported module, so its
     // type is the module's whole surface.
-    Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(exports)))
+    Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::exact(
+        exports,
+    )))
 }
 
 #[allow(dead_code)]
@@ -1229,7 +1231,14 @@ impl Checker {
                     || standard_record_type(&parameter.as_str()).is_some()
                     || matches!(
                         parameter.as_str().as_str(),
-                        "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown" | "Union"
+                        "List"
+                            | "Map"
+                            | "Stream"
+                            | "Result"
+                            | "Module"
+                            | "Optional"
+                            | "Unknown"
+                            | "Union"
                             | "NonEmpty"
                             | "Set"
                     )

@@ -3,13 +3,13 @@
 //! Every failure is a host error that carries its errno.
 
 use super::{signal_info, signal_record, signal_table};
+use crate::modules::RuntimeOp;
 use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use rustix::process::{self as rprocess, Pid, Resource, Rlimit, getrlimit, setrlimit};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
-use crate::modules::RuntimeOp;
 
 /// The arguments of one native call. A slot is `None` when the caller omitted
 /// the parameter, which is distinct from a supplied `null`.
@@ -53,11 +53,8 @@ impl<'a> Args<'a> {
     }
 
     fn missing(&self) -> RuntimeError {
-        RuntimeError::new(
-            "arity",
-            format!("{} expected an argument", self.operation),
-        )
-        .with_span(self.span)
+        RuntimeError::new("arity", format!("{} expected an argument", self.operation))
+            .with_span(self.span)
     }
 
     fn get(&self, index: usize) -> Option<&Value> {
@@ -243,15 +240,22 @@ fn pid_arg(pid: i64, operation: &str, span: Span) -> Result<Option<Pid>, Runtime
     if pid == 0 {
         return Ok(None);
     }
-    positive_pid(pid)
-        .map(Some)
-        .ok_or_else(|| invalid("pid-range", format!("{operation}: pid is out of range"), span))
+    positive_pid(pid).map(Some).ok_or_else(|| {
+        invalid(
+            "pid-range",
+            format!("{operation}: pid is out of range"),
+            span,
+        )
+    })
 }
 
 /// A process ID that names one process: `Pid::from_raw` also accepts
 /// negative numbers, which the kernel reads as groups.
 pub(crate) fn positive_pid(pid: i64) -> Option<Pid> {
-    i32::try_from(pid).ok().filter(|pid| *pid > 0).and_then(Pid::from_raw)
+    i32::try_from(pid)
+        .ok()
+        .filter(|pid| *pid > 0)
+        .and_then(Pid::from_raw)
 }
 
 fn pid_value(pid: Pid) -> Value {

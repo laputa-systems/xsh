@@ -159,7 +159,12 @@ pub fn check_paths_timed(
             };
         }
     };
-    let mut files = match discover_scripts(paths, &config, &ConfigCache::default(), DiscoveryFor::Scripts) {
+    let mut files = match discover_scripts(
+        paths,
+        &config,
+        &ConfigCache::default(),
+        DiscoveryFor::Scripts,
+    ) {
         Ok(files) => files,
         Err(message) => {
             if let Some(output) = cancellation_output() {
@@ -392,7 +397,11 @@ fn check_entry(
 
     // This one check renders the diagnostics and supplies the lowering facts.
     let arena = Arc::new(parsed.arena);
-    let entry_text = report.sources.get(source_id).map(|s| s.text()).unwrap_or("");
+    let entry_text = report
+        .sources
+        .get(source_id)
+        .map(|s| s.text())
+        .unwrap_or("");
     let mut checked = timings.time(Stage::Check, || {
         Checker::check_arena_with_options_and_type_program(
             &arena,

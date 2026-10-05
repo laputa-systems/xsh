@@ -29,7 +29,9 @@ impl ManagedResource {
 
     /// The kind that manages a value of `ty`, if the type is a resource.
     pub fn for_type(ty: &Type) -> Option<Self> {
-        Self::ALL.into_iter().find(|kind| kind.resource_type() == *ty)
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.resource_type() == *ty)
     }
 
     /// The name diagnostics and documentation use for the type.
@@ -57,9 +59,20 @@ mod tests {
 
     #[test]
     fn each_kind_is_found_from_its_own_type_only() {
-        assert_eq!(ManagedResource::for_type(&Type::FsRoot), Some(ManagedResource::FsRoot));
-        assert_eq!(ManagedResource::for_type(&fs_lock_type()), Some(ManagedResource::FsLock));
-        for ty in [Type::Path, Type::Unknown, Type::Any, Type::Record(Default::default())] {
+        assert_eq!(
+            ManagedResource::for_type(&Type::FsRoot),
+            Some(ManagedResource::FsRoot)
+        );
+        assert_eq!(
+            ManagedResource::for_type(&fs_lock_type()),
+            Some(ManagedResource::FsLock)
+        );
+        for ty in [
+            Type::Path,
+            Type::Unknown,
+            Type::Any,
+            Type::Record(Default::default()),
+        ] {
             assert_eq!(ManagedResource::for_type(&ty), None, "{ty:?}");
         }
         for kind in ManagedResource::ALL {

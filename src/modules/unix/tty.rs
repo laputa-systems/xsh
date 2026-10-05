@@ -143,9 +143,7 @@ fn open_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let shown = path.display().to_string();
     match rustix::fs::open(&path, flags, Mode::empty()) {
         Ok(fd) => ok(Value::Int(i64::from(fd.into_raw_fd()))),
-        Err(error) => {
-            Err(name_error(&shown, host_error("unix-open-fd", error, span)))
-        }
+        Err(error) => Err(name_error(&shown, host_error("unix-open-fd", error, span))),
     }
 }
 
@@ -328,19 +326,73 @@ const FLAGS: &[Flag] = &[
     group("nl0", "oflag", libc::NLDLY, libc::NL0, true),
     group("nl1", "oflag", libc::NLDLY, libc::NL1, false),
     group("cr0", "oflag", libc::CRDLY, libc::CR0, true),
-    group("cr1", "oflag", libc::CRDLY, libc::CR1 as libc::tcflag_t, false),
-    group("cr2", "oflag", libc::CRDLY, libc::CR2 as libc::tcflag_t, false),
-    group("cr3", "oflag", libc::CRDLY, libc::CR3 as libc::tcflag_t, false),
+    group(
+        "cr1",
+        "oflag",
+        libc::CRDLY,
+        libc::CR1 as libc::tcflag_t,
+        false,
+    ),
+    group(
+        "cr2",
+        "oflag",
+        libc::CRDLY,
+        libc::CR2 as libc::tcflag_t,
+        false,
+    ),
+    group(
+        "cr3",
+        "oflag",
+        libc::CRDLY,
+        libc::CR3 as libc::tcflag_t,
+        false,
+    ),
     group("tab0", "oflag", libc::TABDLY, libc::TAB0, true),
-    group("tab1", "oflag", libc::TABDLY, libc::TAB1 as libc::tcflag_t, false),
-    group("tab2", "oflag", libc::TABDLY, libc::TAB2 as libc::tcflag_t, false),
-    group("tab3", "oflag", libc::TABDLY, libc::TAB3 as libc::tcflag_t, false),
+    group(
+        "tab1",
+        "oflag",
+        libc::TABDLY,
+        libc::TAB1 as libc::tcflag_t,
+        false,
+    ),
+    group(
+        "tab2",
+        "oflag",
+        libc::TABDLY,
+        libc::TAB2 as libc::tcflag_t,
+        false,
+    ),
+    group(
+        "tab3",
+        "oflag",
+        libc::TABDLY,
+        libc::TAB3 as libc::tcflag_t,
+        false,
+    ),
     group("bs0", "oflag", libc::BSDLY, libc::BS0, true),
-    group("bs1", "oflag", libc::BSDLY, libc::BS1 as libc::tcflag_t, false),
+    group(
+        "bs1",
+        "oflag",
+        libc::BSDLY,
+        libc::BS1 as libc::tcflag_t,
+        false,
+    ),
     group("vt0", "oflag", libc::VTDLY, libc::VT0, true),
-    group("vt1", "oflag", libc::VTDLY, libc::VT1 as libc::tcflag_t, false),
+    group(
+        "vt1",
+        "oflag",
+        libc::VTDLY,
+        libc::VT1 as libc::tcflag_t,
+        false,
+    ),
     group("ff0", "oflag", libc::FFDLY, libc::FF0, true),
-    group("ff1", "oflag", libc::FFDLY, libc::FF1 as libc::tcflag_t, false),
+    group(
+        "ff1",
+        "oflag",
+        libc::FFDLY,
+        libc::FF1 as libc::tcflag_t,
+        false,
+    ),
     bit("parenb", "cflag", libc::PARENB, false),
     bit("parodd", "cflag", libc::PARODD, false),
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -379,24 +431,92 @@ struct Char {
 }
 
 const CHARS: &[Char] = &[
-    Char { name: "intr", index: libc::VINTR, sane: 3 },
-    Char { name: "quit", index: libc::VQUIT, sane: 28 },
-    Char { name: "erase", index: libc::VERASE, sane: 127 },
-    Char { name: "kill", index: libc::VKILL, sane: 21 },
-    Char { name: "eof", index: libc::VEOF, sane: 4 },
-    Char { name: "eol", index: libc::VEOL, sane: 0 },
-    Char { name: "eol2", index: libc::VEOL2, sane: 0 },
+    Char {
+        name: "intr",
+        index: libc::VINTR,
+        sane: 3,
+    },
+    Char {
+        name: "quit",
+        index: libc::VQUIT,
+        sane: 28,
+    },
+    Char {
+        name: "erase",
+        index: libc::VERASE,
+        sane: 127,
+    },
+    Char {
+        name: "kill",
+        index: libc::VKILL,
+        sane: 21,
+    },
+    Char {
+        name: "eof",
+        index: libc::VEOF,
+        sane: 4,
+    },
+    Char {
+        name: "eol",
+        index: libc::VEOL,
+        sane: 0,
+    },
+    Char {
+        name: "eol2",
+        index: libc::VEOL2,
+        sane: 0,
+    },
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    Char { name: "swtch", index: libc::VSWTC, sane: 0 },
-    Char { name: "start", index: libc::VSTART, sane: 17 },
-    Char { name: "stop", index: libc::VSTOP, sane: 19 },
-    Char { name: "susp", index: libc::VSUSP, sane: 26 },
-    Char { name: "rprnt", index: libc::VREPRINT, sane: 18 },
-    Char { name: "werase", index: libc::VWERASE, sane: 23 },
-    Char { name: "lnext", index: libc::VLNEXT, sane: 22 },
-    Char { name: "discard", index: libc::VDISCARD, sane: 15 },
-    Char { name: "min", index: libc::VMIN, sane: 1 },
-    Char { name: "time", index: libc::VTIME, sane: 0 },
+    Char {
+        name: "swtch",
+        index: libc::VSWTC,
+        sane: 0,
+    },
+    Char {
+        name: "start",
+        index: libc::VSTART,
+        sane: 17,
+    },
+    Char {
+        name: "stop",
+        index: libc::VSTOP,
+        sane: 19,
+    },
+    Char {
+        name: "susp",
+        index: libc::VSUSP,
+        sane: 26,
+    },
+    Char {
+        name: "rprnt",
+        index: libc::VREPRINT,
+        sane: 18,
+    },
+    Char {
+        name: "werase",
+        index: libc::VWERASE,
+        sane: 23,
+    },
+    Char {
+        name: "lnext",
+        index: libc::VLNEXT,
+        sane: 22,
+    },
+    Char {
+        name: "discard",
+        index: libc::VDISCARD,
+        sane: 15,
+    },
+    Char {
+        name: "min",
+        index: libc::VMIN,
+        sane: 1,
+    },
+    Char {
+        name: "time",
+        index: libc::VTIME,
+        sane: 0,
+    },
 ];
 
 /// The baud rates `stty` accepts by name; any of them can be a terminal speed.
@@ -432,7 +552,10 @@ fn tty_table() -> Value {
     Value::Record(RecordMap::from([
         (key("flags"), Value::List(flags)),
         (key("chars"), Value::List(chars)),
-        (key("speeds"), Value::List(SPEEDS.iter().map(|s| Value::Int(*s)).collect())),
+        (
+            key("speeds"),
+            Value::List(SPEEDS.iter().map(|s| Value::Int(*s)).collect()),
+        ),
     ]))
 }
 
@@ -458,7 +581,9 @@ impl Modes {
 
     /// `-name` clears a flag (or restores a group to 0), `name` sets it.
     fn flag(&mut self, spec: &str) {
-        let (name, on) = spec.strip_prefix('-').map_or((spec, true), |name| (name, false));
+        let (name, on) = spec
+            .strip_prefix('-')
+            .map_or((spec, true), |name| (name, false));
         let Some(flag) = FLAGS.iter().find(|flag| flag.name == name) else {
             return;
         };
@@ -499,7 +624,9 @@ const COMBINATIONS: &[(&str, &[&str], &[(&str, i64)])] = &[
     ),
     (
         "cooked",
-        &["brkint", "ignpar", "istrip", "icrnl", "ixon", "opost", "isig", "icanon"],
+        &[
+            "brkint", "ignpar", "istrip", "icrnl", "ixon", "opost", "isig", "icanon",
+        ],
         &[("eof", 4), ("eol", 0)],
     ),
     ("cbreak", &["-icanon"], &[]),

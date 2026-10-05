@@ -82,7 +82,9 @@ impl Checker {
             Type::Inference(_) => self
                 .type_constraints
                 .resolve(expected)
-                .is_ok_and(|resolved| !resolved.contains_inference() && self.expects_path(&resolved)),
+                .is_ok_and(|resolved| {
+                    !resolved.contains_inference() && self.expects_path(&resolved)
+                }),
             _ => false,
         }
     }

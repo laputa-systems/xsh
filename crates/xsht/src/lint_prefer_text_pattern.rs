@@ -108,8 +108,12 @@ fn split_read_by_position(
     for later in &stmts[index + 1..] {
         let later = tokens(linter.source, arena.stmt(*later).span);
         for window in later.windows(4) {
-            if let [(TokenTag::Ident, word, _), (TokenTag::LBracket, ..), (TokenTag::Int, position, _), (TokenTag::RBracket, ..)] =
-                window
+            if let [
+                (TokenTag::Ident, word, _),
+                (TokenTag::LBracket, ..),
+                (TokenTag::Int, position, _),
+                (TokenTag::RBracket, ..),
+            ] = window
                 && *word == name.as_str()
                 && let Ok(position) = position.parse::<usize>()
                 && !positions.contains(&position)
@@ -157,8 +161,14 @@ fn prefix_test_with_slice(source: &str, span: Span) -> Vec<Diagnostic> {
         if depth != 0 {
             continue;
         }
-        let [(TokenTag::Ident, subject, start), (TokenTag::Dot, ..), (TokenTag::Ident, "starts_with", _), (TokenTag::LParen, ..), literal, (TokenTag::RParen, _, end)] =
-            window
+        let [
+            (TokenTag::Ident, subject, start),
+            (TokenTag::Dot, ..),
+            (TokenTag::Ident, "starts_with", _),
+            (TokenTag::LParen, ..),
+            literal,
+            (TokenTag::RParen, _, end),
+        ] = window
         else {
             continue;
         };
@@ -241,7 +251,10 @@ mod tests {
             .iter()
             .filter_map(|diagnostic| diagnostic.labels[0].message.clone())
             .collect();
-        assert!(labels.iter().any(|label| label.contains("f\"{a}={b}\"")), "{labels:?}");
+        assert!(
+            labels.iter().any(|label| label.contains("f\"{a}={b}\"")),
+            "{labels:?}"
+        );
         assert!(
             labels
                 .iter()

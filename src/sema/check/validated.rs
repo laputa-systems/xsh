@@ -202,15 +202,20 @@ impl Checker {
                             problem = Some((
                                 value_span,
                                 format!("this path interpolates {found}, so it is not a {ty}"),
-                                format!("only an unformatted {ty} keeps an interpolating path a {ty}"),
+                                format!(
+                                    "only an unformatted {ty} keeps an interpolating path a {ty}"
+                                ),
                             ));
                         } else if !(written.last().is_none_or(|byte| *byte == b'/')
                             && next_starts_component)
                         {
                             problem = Some((
                                 value_span,
-                                format!("this interpolation is not set off by `/`, so the path is not a {ty}"),
-                                "write `/` between an interpolated path and its neighbours".to_string(),
+                                format!(
+                                    "this interpolation is not set off by `/`, so the path is not a {ty}"
+                                ),
+                                "write `/` between an interpolated path and its neighbours"
+                                    .to_string(),
                             ));
                         }
                     }

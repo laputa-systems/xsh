@@ -16,8 +16,8 @@ use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind,
-    ArenaExprOrRun, ArenaStmtKind, ArenaTypeExprTag, AstArena, ExprId, StmtId, TypeExprId,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun,
+    ArenaStmtKind, ArenaTypeExprTag, AstArena, ExprId, StmtId, TypeExprId,
 };
 use xsh::frontend::syntax::node::{AssignOp, BinaryOp};
 
@@ -171,12 +171,7 @@ impl SetLikeBindings {
     }
 
     /// A statement the traversal is about to descend into.
-    pub(super) fn visit_stmt(
-        &mut self,
-        arena: &AstArena,
-        source: &str,
-        stmt_id: StmtId,
-    ) {
+    pub(super) fn visit_stmt(&mut self, arena: &AstArena, source: &str, stmt_id: StmtId) {
         let stmt = arena.stmt(stmt_id);
         if self
             .region
@@ -248,7 +243,10 @@ impl SetLikeBindings {
         ];
         // A second binding of the name in the region cannot be told from
         // the first by its text.
-        let duplicate = self.candidate(name).map(|earlier| earlier.fixable = false).is_some();
+        let duplicate = self
+            .candidate(name)
+            .map(|earlier| earlier.fixable = false)
+            .is_some();
         self.candidates.push(Candidate {
             name,
             region,
@@ -284,7 +282,10 @@ impl SetLikeBindings {
             // `seen[key] = true`
             ArenaAssignTargetKind::Index { base, index }
                 if op == AssignOp::Set
-                    && matches!(arena.assign_target(base).kind, ArenaAssignTargetKind::Name(_))
+                    && matches!(
+                        arena.assign_target(base).kind,
+                        ArenaAssignTargetKind::Name(_)
+                    )
                     && matches!(arena.expr(value).kind, ArenaExprKind::Bool(true)) =>
             {
                 text(index).map(|key| {
@@ -316,7 +317,10 @@ impl SetLikeBindings {
                             && arguments.len() == 1 =>
                     {
                         accepted = Some(receiver);
-                        Some((Span::new(value_span.source_id, value_span.end(), value_span.end()), String::new()))
+                        Some((
+                            Span::new(value_span.source_id, value_span.end(), value_span.end()),
+                            String::new(),
+                        ))
                     }
                     _ => None,
                 }
@@ -328,9 +332,7 @@ impl SetLikeBindings {
         }
         let candidate = self.candidate(root).expect("the candidate was found above");
         match edit {
-            Some((span, replacement))
-                if !super::span_may_contain_comment(source, span) =>
-            {
+            Some((span, replacement)) if !super::span_may_contain_comment(source, span) => {
                 // The target, and the receiver or argument inside the value.
                 candidate.uses += 1 + usize::from(accepted.is_some());
                 if !span.is_empty() {
@@ -532,7 +534,10 @@ mod tests {
             .first()
             .and_then(|diagnostic| diagnostic.fix_hints.first().cloned())
         {
-            fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap());
+            fixed.replace_range(
+                fix.span.unwrap().range(),
+                fix.replacement.as_deref().unwrap(),
+            );
         }
         fixed
     }
@@ -542,7 +547,11 @@ mod tests {
         let source = "pure distinct(words: List[Str]) -> List[Str] {\n  var seen: Map[Bool] = {}\n  var ids: Map[Int, Bool] = map.empty()\n  for word in words {\n    if word not in seen {\n      seen[word] = true\n      ids[word.byte_len()] = true\n    }\n  }\n\n  if seen.is_empty() or ids.len() > 3 {\n    return []\n  }\n\n  seen.keys()\n}\n";
         let diagnostics = lint(source, false);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.len() == 1));
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix_hints.len() == 1)
+        );
         let fixed = fix_all(source);
         assert_eq!(
             fixed,
@@ -562,7 +571,11 @@ mod tests {
         let advice = lint(source, true);
         // Two in the signature and one for each of the four bindings.
         assert_eq!(advice.len(), 6, "{advice:?}");
-        assert!(advice.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        assert!(
+            advice
+                .iter()
+                .all(|diagnostic| diagnostic.fix_hints.is_empty())
+        );
     }
 
     /// The name as a method, in a comment, and in a string without an

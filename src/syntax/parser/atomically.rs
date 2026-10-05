@@ -318,9 +318,15 @@ mod tests {
             ("atomically replace x is Thing as y as b { }\n", true),
             ("atomically replace y or x is Thing as b { }\n", true),
             ("atomically replace (x is Thing as y) as b { }\n", true),
-            ("atomically replace { if v is Thing as t { print \"x\" }\nv } as b { }\n", true),
+            (
+                "atomically replace { if v is Thing as t { print \"x\" }\nv } as b { }\n",
+                true,
+            ),
             ("atomically replace x +\n\ny is Thing as b { }\n", true),
-            ("atomically replace x |> sort-by .size or\ny <= c as b { }\n", true),
+            (
+                "atomically replace x |> sort-by .size or\ny <= c as b { }\n",
+                true,
+            ),
             ("atomically replace as as as { }\n", true),
             ("if x is Thing as b { }\n", true),
             // The head breaks its line before the word that would end it.
@@ -343,8 +349,14 @@ mod tests {
             ("tempdir a at b\n", false),
             // A head that ends its line on an operator goes on, so the block
             // of the stage is not the body.
-            ("tempdir a at b -\nc |> d |> any ( ) {\n\n| Thing | }\n", false),
-            ("atomically replace b -\nc |> d |> any ( ) {\n\n| Thing | }\n", false),
+            (
+                "tempdir a at b -\nc |> d |> any ( ) {\n\n| Thing | }\n",
+                false,
+            ),
+            (
+                "atomically replace b -\nc |> d |> any ( ) {\n\n| Thing | }\n",
+                false,
+            ),
             // Any other words are a command.
             ("atomically x\n", true),
             ("tempdir a b\n", true),

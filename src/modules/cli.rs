@@ -275,7 +275,11 @@ impl PreparedSignatureCommands {
             .filter(|entry| entry.path.starts_with(prefix))
             .map(|entry| (entry.path[prefix.len()..].join(" "), entry.summary.as_str()))
             .collect::<Vec<_>>();
-        let width = entries.iter().map(|(words, _)| words.len()).max().unwrap_or(0);
+        let width = entries
+            .iter()
+            .map(|(words, _)| words.len())
+            .max()
+            .unwrap_or(0);
         let mut usage = String::new();
         if prefix.is_empty() && !self.description.is_empty() {
             usage.push_str(&self.description);

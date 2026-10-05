@@ -44,8 +44,7 @@ pub(super) fn write_lines(
             "for an empty list this writes one newline and `write_lines` writes an empty file",
         );
     }
-    if let Some(replacement) = replacement(source, call.span, path.kind, path.span, data.span)
-    {
+    if let Some(replacement) = replacement(source, call.span, path.kind, path.span, data.span) {
         let hint = if nonempty {
             FixHint::replacement(call.span, "write the lines with `write_lines`", replacement)
         } else {
@@ -195,8 +194,8 @@ fn unwrapped(text: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::unwrapped;
     use super::super::{LintOptions, Linter};
+    use super::unwrapped;
     use xsh::diagnostic::{Diagnostic, DiagnosticCode};
     use xsh::frontend::check::Checker;
     use xsh::frontend::source::SourceId;
@@ -240,12 +239,9 @@ mod tests {
         let source = "proc save(out: Path, name: Str) [fs, error] {\n  out.write([\"a\", name].join(\"\\n\") + \"\\n\")?\n  fp\"{out}.bak\".write([name].join(\"\\n\") + \"\\n\")?\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        assert!(
-            diagnostics
-                .iter()
-                .all(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferWriteLines)
-                    && diagnostic.notes.is_empty())
-        );
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.code
+            == Some(DiagnosticCode::LintPreferWriteLines)
+            && diagnostic.notes.is_empty()));
         let fixed = apply(&diagnostics, source, false);
         assert_eq!(
             fixed,
@@ -284,8 +280,7 @@ mod tests {
     // The rewrite copies the receiver verbatim and adds no parentheses.
     #[test]
     fn a_path_that_cannot_stand_as_a_receiver_gets_no_rewrite() {
-        let source =
-            "proc save(out: Path, other: Path, first: Bool, name: Str) [fs, error] {\n  (if first { out } else { other }).write([name].join(\"\\n\") + \"\\n\")?\n}\n";
+        let source = "proc save(out: Path, other: Path, first: Bool, name: Str) [fs, error] {\n  (if first { out } else { other }).write([name].join(\"\\n\") + \"\\n\")?\n}\n";
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].fix_hints.is_empty());

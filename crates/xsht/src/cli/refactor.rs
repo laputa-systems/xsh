@@ -59,7 +59,12 @@ pub fn refactor_scripts(
             };
         }
     };
-    let files = match discover_scripts(paths, &config, &ConfigCache::default(), DiscoveryFor::Scripts) {
+    let files = match discover_scripts(
+        paths,
+        &config,
+        &ConfigCache::default(),
+        DiscoveryFor::Scripts,
+    ) {
         Ok(files) => files,
         Err(message) => {
             return CliOutput {

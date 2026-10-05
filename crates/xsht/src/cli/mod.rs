@@ -122,12 +122,11 @@ pub use check::{
 pub use coverage::CoverageCollector;
 pub use desugar::desugar_script;
 pub use files::{
-    CONFIG_FILE_NAME, CoverageConfig, DeadCodeConfig, FormatConfig, XshConfig,
-    load_config,
+    CONFIG_FILE_NAME, CoverageConfig, DeadCodeConfig, FormatConfig, XshConfig, load_config,
 };
 pub(crate) use files::{
-    ConfigCache, DiscoveryFor, collect_xsh_files, discover_scripts, is_path_excluded, load_config_from,
-    nearest_config_for_file,
+    ConfigCache, DiscoveryFor, collect_xsh_files, discover_scripts, is_path_excluded,
+    load_config_from, nearest_config_for_file,
 };
 pub use fmt::format_files;
 pub use grep::grep_scripts;

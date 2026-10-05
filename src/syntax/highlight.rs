@@ -514,7 +514,8 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
 
 fn is_binding_name(before: &[Token], source: &str) -> bool {
     before.last().is_some_and(|last| {
-        last.tag == TokenTag::Keyword && matches!(&source[last.start..last.end], "let" | "var" | "const")
+        last.tag == TokenTag::Keyword
+            && matches!(&source[last.start..last.end], "let" | "var" | "const")
     })
 }
 
@@ -985,13 +986,19 @@ mod tests {
         let source = "## doc\n# note\nlet n = 5s ?? null\nproc f(a: Path) {\n  run.text --accept=[0, 1] grep -c x ${a} $?\n  print f\"{n:>4}\" @xs\n}\nconst r = rx\"a\"\nconst p = /etc/hosts\nconst t = p\"x\"\nlet o = Ok(1).field\n";
         let seen: Vec<Kind> = highlight(source).iter().map(|run| run.kind).collect();
         for kind in Kind::ALL {
-            assert!(seen.contains(&kind), "{} missing from {:?}", kind.name(), runs(source));
+            assert!(
+                seen.contains(&kind),
+                "{} missing from {:?}",
+                kind.name(),
+                runs(source)
+            );
         }
     }
 
     #[test]
     fn continued_command_lines_keep_command_kinds() {
-        let source = "run.text --timeout=5s \\\n  grep -c \\\n  $pattern \\\n  | run sort ?\nprint done\n";
+        let source =
+            "run.text --timeout=5s \\\n  grep -c \\\n  $pattern \\\n  | run sort ?\nprint done\n";
         assert_eq!(kind_of(source, "\\"), Kind::Punctuation);
         assert_eq!(kind_of(source, "grep"), Kind::Function);
         // A word on a continued line is an argument, not the start of a
@@ -1067,7 +1074,8 @@ mod tests {
 
     #[test]
     fn without_is_a_keyword_only_in_a_without_statement_head() {
-        let source = "without net, fs {\n}\nlet without = [net]\nwithout = []\nprint ${without.len()}\n";
+        let source =
+            "without net, fs {\n}\nlet without = [net]\nwithout = []\nprint ${without.len()}\n";
         assert_eq!(kind_of(source, "without net"), Kind::Keyword);
         assert_eq!(kind_of(source, "without = [net]"), Kind::Plain);
         assert_eq!(kind_of(source, "without = []"), Kind::Plain);
@@ -1076,7 +1084,8 @@ mod tests {
 
     #[test]
     fn repeat_head_words_are_keywords_only_in_a_repeat_statement() {
-        let source = "repeat n times {\n}\nlet times = xs |> repeat(count: 2)\nlet repeat = times\n";
+        let source =
+            "repeat n times {\n}\nlet times = xs |> repeat(count: 2)\nlet repeat = times\n";
         assert_eq!(kind_of(source, "repeat n"), Kind::Keyword);
         assert_eq!(kind_of(source, "times {"), Kind::Keyword);
         assert_eq!(kind_of(source, "times ="), Kind::Plain);
@@ -1183,7 +1192,8 @@ mod tests {
 
     #[test]
     fn within_is_a_keyword_only_before_a_duration_and_block() {
-        let source = "let r = within 5s { 1 }\nwithin cfg.limit { }\nlet within = 2\nif within (x) { }\n";
+        let source =
+            "let r = within 5s { 1 }\nwithin cfg.limit { }\nlet within = 2\nif within (x) { }\n";
         assert_eq!(kind_of(source, "within 5s"), Kind::Keyword);
         assert_eq!(kind_of(source, "within cfg"), Kind::Keyword);
         assert_eq!(kind_of(source, "within = 2"), Kind::Plain);
@@ -1219,7 +1229,13 @@ mod tests {
         assert_eq!(kind_of(source, "/etc/hosts"), Kind::Path);
         assert_eq!(kind_of(source, "./x/../y"), Kind::Path);
         assert_eq!(kind_of(source, "/var/log"), Kind::Path);
-        assert!(runs(source).iter().filter(|(kind, _)| *kind == Kind::Path).count() == 3);
+        assert!(
+            runs(source)
+                .iter()
+                .filter(|(kind, _)| *kind == Kind::Path)
+                .count()
+                == 3
+        );
     }
 
     #[test]

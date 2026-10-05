@@ -26,10 +26,8 @@ pub(super) fn lint_redundant_use_aliases(program: &ArenaProgram, source: &str) -
         .with_code(DiagnosticCode::LintRedundantUseAlias)
         .with_label(Label::primary(span, "the last path segment is the binding"));
         if let Some(alias_clause) = alias_clause_span(source, span, &alias.as_str()) {
-            diagnostic = diagnostic.with_fix_hint(FixHint::deletion(
-                alias_clause,
-                "drop the redundant alias",
-            ));
+            diagnostic = diagnostic
+                .with_fix_hint(FixHint::deletion(alias_clause, "drop the redundant alias"));
         }
         diagnostics.push(diagnostic);
     }
@@ -111,7 +109,8 @@ mod tests {
 
     #[test]
     fn a_renaming_alias_and_a_bare_use_are_left_alone() {
-        let source = "use checks.disk as usage\nuse checks.disk\nuse disk as checks\nuse a.disk as a\n";
+        let source =
+            "use checks.disk as usage\nuse checks.disk\nuse disk as checks\nuse a.disk as a\n";
         assert!(lint(source).is_empty());
     }
 
@@ -121,7 +120,10 @@ mod tests {
             let span = Span::new(SourceId::new(0), 0, text.len());
             alias_clause_span(text, span, "disk").map(|span| text[span.range()].to_string())
         };
-        assert_eq!(clause("use checks.disk as disk").as_deref(), Some(" as disk"));
+        assert_eq!(
+            clause("use checks.disk as disk").as_deref(),
+            Some(" as disk")
+        );
         assert_eq!(
             clause("use checks.disk\tas\tdisk").as_deref(),
             Some("\tas\tdisk")

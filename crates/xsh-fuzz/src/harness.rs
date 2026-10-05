@@ -526,8 +526,7 @@ mod tests {
     fn unresolved_unreachable_is_an_ordinary_program_error() {
         let report = CheckReport {
             check: vec![
-                "error[check.unresolved-call]: unresolved pure function call `unreachable`"
-                    .into(),
+                "error[check.unresolved-call]: unresolved pure function call `unreachable`".into(),
             ],
             ..CheckReport::default()
         };

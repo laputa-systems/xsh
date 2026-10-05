@@ -97,7 +97,12 @@ impl Checker {
     /// Tests a host operation's own effect requirement against the enclosing
     /// `without` bounds. `subject` names the operation, as in the clause
     /// report it parallels.
-    pub(super) fn check_effect_not_excluded(&mut self, required: &Effect, span: Span, subject: &str) {
+    pub(super) fn check_effect_not_excluded(
+        &mut self,
+        required: &Effect,
+        span: Span,
+        subject: &str,
+    ) {
         if self.collecting_effects || self.in_pure || self.clause_rejects(required) {
             return;
         }
@@ -106,7 +111,9 @@ impl Checker {
         };
         let denied = excluded.effect.as_str();
         let message = if excluded.effect == *required {
-            format!("{subject} requires the `{denied}` effect, which `without {denied}` excludes here")
+            format!(
+                "{subject} requires the `{denied}` effect, which `without {denied}` excludes here"
+            )
         } else {
             format!(
                 "{subject} requires the `{}` effect, which implies `{denied}`; `without {denied}` excludes it here",
@@ -161,7 +168,9 @@ impl Checker {
             };
             let denied = excluded.effect.as_str();
             let message = if excluded.effect == *required {
-                format!("effect `{denied}` required by `{callee_name}` is excluded by `without {denied}`")
+                format!(
+                    "effect `{denied}` required by `{callee_name}` is excluded by `without {denied}`"
+                )
             } else {
                 format!(
                     "effect `{}` required by `{callee_name}` implies `{denied}`, which `without {denied}` excludes",

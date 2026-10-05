@@ -420,8 +420,7 @@ impl Checker {
         actual: Type,
     ) -> Type {
         let expr = arena.arena.expr(id);
-        let result_bool =
-            |ty: &Type| matches!(ty, Type::Result(ok, _) if **ok == Type::Bool);
+        let result_bool = |ty: &Type| matches!(ty, Type::Result(ok, _) if **ok == Type::Bool);
         if control && result_bool(&actual) {
             self.propagating_conditions.insert(expr.span);
             self.record_condition_error(&actual, expr.span);
@@ -627,9 +626,10 @@ impl Checker {
             ArenaExprKind::Set(items) => {
                 self.check_set_literal_arena(arena, source, *items, expected)
             }
-            ArenaExprKind::SetComp { expr: body, qualifiers } => {
-                self.check_set_comp_arena(arena, source, *body, *qualifiers, expected)
-            }
+            ArenaExprKind::SetComp {
+                expr: body,
+                qualifiers,
+            } => self.check_set_comp_arena(arena, source, *body, *qualifiers, expected),
             ArenaExprKind::ErrorContext { message, block } => {
                 let ty = self.check_expr_with_schema_arena(
                     arena,
@@ -679,10 +679,7 @@ impl Checker {
                 );
                 match kind {
                     ContextScopeKind::Within => {
-                        if !matches!(
-                            input_type,
-                            Type::Duration | Type::Unknown | Type::Invalid
-                        ) {
+                        if !matches!(input_type, Type::Duration | Type::Unknown | Type::Invalid) {
                             self.error(
                                 arena.arena.expr(*input).span,
                                 "`within` requires a Duration",
@@ -782,7 +779,10 @@ impl Checker {
                     self.expect_type(&Type::Path, &ty, arena.arena.expr(*path).span);
                 }
                 self.push_scope();
-                if let Some(param) = arena.arena.block_params(arena.arena.block(*block).params).first()
+                if let Some(param) = arena
+                    .arena
+                    .block_params(arena.arena.block(*block).params)
+                    .first()
                     && param.name != "_"
                 {
                     self.define(
@@ -870,7 +870,9 @@ impl Checker {
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
             ArenaExprKind::ValueBlock(block)
-                if self.block_written_for_set(arena, *block, expected).is_some() =>
+                if self
+                    .block_written_for_set(arena, *block, expected)
+                    .is_some() =>
             {
                 self.check_block_written_for_set_arena(arena, source, *block, expected, expr.span)
             }
@@ -2059,9 +2061,9 @@ impl Checker {
                 .filter(|validation| validation.survives_mapping()),
             _ => None,
         };
-        match mapped.map(|validation| {
-            crate::sema::validated::ValidatedType::new(validation, list.clone())
-        }) {
+        match mapped
+            .map(|validation| crate::sema::validated::ValidatedType::new(validation, list.clone()))
+        {
             Some(Ok(validated)) => Type::Validated(Box::new(validated)),
             _ => list,
         }
@@ -2774,9 +2776,10 @@ impl Checker {
                 } else {
                     let left_ty = self.check_expr_arena(arena, source, left, None);
                     let literal = self.path_literal_expectation(arena, right, &left_ty);
-                    let expected = literal
-                        .as_ref()
-                        .or_else(|| self.is_inferred_variant_expr(arena, right).then_some(&left_ty));
+                    let expected = literal.as_ref().or_else(|| {
+                        self.is_inferred_variant_expr(arena, right)
+                            .then_some(&left_ty)
+                    });
                     let right_ty = self.check_expr_arena(arena, source, right, expected);
                     (left_ty, right_ty)
                 };
@@ -2855,8 +2858,9 @@ impl Checker {
                 // literal as text: that membership is text containment.
                 let (left_ty, right_ty) =
                     if matches!(arena.arena.expr(left).kind, ArenaExprKind::Str(_)) {
-                        let right_ty =
-                            self.check_expr_arena(arena, source, right, None).into_unvalidated();
+                        let right_ty = self
+                            .check_expr_arena(arena, source, right, None)
+                            .into_unvalidated();
                         let expected = match &right_ty {
                             Type::Map(member, _) | Type::List(member) | Type::Set(member) => {
                                 self.path_literal_expectation(arena, left, member)
@@ -2869,8 +2873,9 @@ impl Checker {
                         (left_ty, right_ty)
                     } else {
                         let left_ty = self.check_expr_arena(arena, source, left, None);
-                        let right_ty =
-                            self.check_expr_arena(arena, source, right, None).into_unvalidated();
+                        let right_ty = self
+                            .check_expr_arena(arena, source, right, None)
+                            .into_unvalidated();
                         (left_ty, right_ty)
                     };
                 if left_ty == Type::Any && matches!(right_ty, Type::Path | Type::Any) {
@@ -2948,7 +2953,8 @@ impl Checker {
                 // operands carried decides only the type of a concatenation.
                 let expected = expected.map(Type::unvalidated);
                 let left_expected = expected.filter(|ty| {
-                    matches!(ty, Type::List(_)) || (op == BinaryOp::Sub && matches!(ty, Type::Set(_)))
+                    matches!(ty, Type::List(_))
+                        || (op == BinaryOp::Sub && matches!(ty, Type::Set(_)))
                 });
                 let left_ty = self.check_expr_arena(arena, source, left, left_expected);
                 let left_validation = left_ty.validated().map(|validated| validated.validation());
@@ -2960,8 +2966,7 @@ impl Checker {
                     _ => Some(&left_ty),
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
-                let right_validation =
-                    right_ty.validated().map(|validated| validated.validation());
+                let right_validation = right_ty.validated().map(|validated| validated.validation());
                 let right_ty = right_ty.into_unvalidated();
                 if left_ty == Type::Any || right_ty == Type::Any {
                     return self
@@ -3302,9 +3307,7 @@ impl Checker {
         }
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
-            Type::Result(_, _) => {
-                (self.check_propagation(&base_ty, span), false)
-            }
+            Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
             Type::Any => return Type::Any,
             Type::Unknown => return Type::Unknown,
             _ => {
@@ -3471,8 +3474,7 @@ impl Checker {
         if self.reject_unnarrowed_union(&base_ty, "indexing", span) {
             return Type::Unknown;
         }
-        if guarded && base_ty.is_result() {
-        }
+        if guarded && base_ty.is_result() {}
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
             Type::Map(key, item) => {
@@ -3572,8 +3574,7 @@ impl Checker {
         if self.reject_unnarrowed_union(&base_ty, "slicing", span) {
             return Type::Unknown;
         }
-        if guarded && base_ty.is_result() {
-        }
+        if guarded && base_ty.is_result() {}
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {
             let ty = self.check_expr_with_schema_arena(

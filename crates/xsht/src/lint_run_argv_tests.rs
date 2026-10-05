@@ -35,7 +35,8 @@ fn fixed(source: &str) -> String {
     text
 }
 
-const HEAD: &str = "proc launch(argv: List[Str]) [process, error] -> Result[Status, ProcessError] {\n";
+const HEAD: &str =
+    "proc launch(argv: List[Str]) [process, error] -> Result[Status, ProcessError] {\n";
 
 #[test]
 fn a_rebuilt_vector_that_is_a_whole_value_is_rewritten() {

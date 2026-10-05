@@ -66,7 +66,13 @@ struct Signature {
 
 impl CallableParameters {
     /// A top-level function definition the traversal reached.
-    pub(super) fn define(&mut self, name: Name, definition: FunctionDefId, pure: bool, enumerable: bool) {
+    pub(super) fn define(
+        &mut self,
+        name: Name,
+        definition: FunctionDefId,
+        pure: bool,
+        enumerable: bool,
+    ) {
         self.functions.push(Function {
             name,
             definition,
@@ -187,12 +193,8 @@ impl CallableParameters {
                 );
             }
         }
-        diagnostics.sort_by_key(|diagnostic| {
-            diagnostic
-                .labels
-                .first()
-                .map(|label| label.span.start())
-        });
+        diagnostics
+            .sort_by_key(|diagnostic| diagnostic.labels.first().map(|label| label.span.start()));
         diagnostics
     }
 

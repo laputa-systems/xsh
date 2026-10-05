@@ -972,8 +972,14 @@ pub fn unix_tty_char_type() -> Type {
 
 pub fn unix_tty_table_type() -> Type {
     Type::Record(name_type_map(vec![
-        ("flags".to_string(), Type::List(Box::new(unix_tty_flag_type()))),
-        ("chars".to_string(), Type::List(Box::new(unix_tty_char_type()))),
+        (
+            "flags".to_string(),
+            Type::List(Box::new(unix_tty_flag_type())),
+        ),
+        (
+            "chars".to_string(),
+            Type::List(Box::new(unix_tty_char_type())),
+        ),
         ("speeds".to_string(), Type::List(Box::new(Type::Int))),
     ]))
 }

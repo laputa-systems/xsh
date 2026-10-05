@@ -289,7 +289,6 @@ pub struct ParamSig {
     pub label: LabelRule,
 }
 
-
 #[derive(Clone, Debug)]
 pub struct MethodReceiverSig {
     pub receiver: MethodReceiver,
@@ -695,7 +694,10 @@ mod tests {
             }
         }
         assert!(probed > 40, "only {probed} effectful methods were probed");
-        assert!(unenforced.is_empty(), "effects not enforced: {unenforced:?}");
+        assert!(
+            unenforced.is_empty(),
+            "effects not enforced: {unenforced:?}"
+        );
         assert!(
             undeclared.is_empty(),
             "impure methods without an effect: {undeclared:?}"
@@ -727,7 +729,11 @@ mod tests {
         let mut required = 0;
         for (receiver, methods) in api_spec().method_entries() {
             for method in methods {
-                if !method.overloads.iter().any(|overload| requires(&overload.sig)) {
+                if !method
+                    .overloads
+                    .iter()
+                    .any(|overload| requires(&overload.sig))
+                {
                     continue;
                 }
                 required += 1;

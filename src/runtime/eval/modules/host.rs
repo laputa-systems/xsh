@@ -168,7 +168,12 @@ pub fn tty_attrs(fd: i32) -> HostResult<TtyAttrs> {
 
 pub fn set_tty_attrs(fd: i32, attrs: &TtyAttrs) -> HostResult<()> {
     let record = tty_attrs_record(attrs);
-    let value = unwrap_result_value(unix::set_tty_attrs(&record, i64::from(fd), "now", host_span())?)?;
+    let value = unwrap_result_value(unix::set_tty_attrs(
+        &record,
+        i64::from(fd),
+        "now",
+        host_span(),
+    )?)?;
     unit_value(value)
 }
 

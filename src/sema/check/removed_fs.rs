@@ -10,10 +10,10 @@ use super::{
     call_arg_span_arena,
 };
 use crate::diagnostic::DiagnosticCode;
-use xsh_registry::signature::{LabelRule, REMOVED_FS_PATH_FUNCTIONS};
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, AstArena, ExprId,
 };
+use xsh_registry::signature::{LabelRule, REMOVED_FS_PATH_FUNCTIONS};
 
 /// An operand of static type `Path`, spelled so that `.method(...)` can
 /// follow it and the whole still evaluates the operand exactly as written:
@@ -120,9 +120,7 @@ impl Checker {
         // A parameter whose label is part of the method's spelling had no
         // label as the function's second operand.
         let label = match (rest.first().map(|arg| &arg.kind), sig.params.first()) {
-            (Some(ArenaCallArgKind::Positional(_)), Some(param)) if labeled => {
-                Some(param.name)
-            }
+            (Some(ArenaCallArgKind::Positional(_)), Some(param)) if labeled => Some(param.name),
             _ => None,
         };
         self.report_removed_fs_function(arena, source, name, Some((path, &path_ty)), label, span);
@@ -291,7 +289,10 @@ mod tests {
     }
 
     fn codes(diagnostics: &[Diagnostic]) -> Vec<Option<DiagnosticCode>> {
-        diagnostics.iter().map(|diagnostic| diagnostic.code).collect()
+        diagnostics
+            .iter()
+            .map(|diagnostic| diagnostic.code)
+            .collect()
     }
 
     fn apply(diagnostics: &[Diagnostic], source: &str) -> String {
@@ -340,7 +341,11 @@ mod tests {
             [Some(DiagnosticCode::CheckRemovedFsFunction); 3],
             "{diagnostics:?}"
         );
-        assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        assert!(
+            diagnostics
+                .iter()
+                .all(|diagnostic| diagnostic.fix_hints.is_empty())
+        );
     }
 
     // The arguments after the path are checked as the method's, so a mistake
@@ -363,8 +368,7 @@ mod tests {
     // neither a mode nor a path is a mismatch with the `Int` it takes.
     #[test]
     fn executable_still_takes_a_mode() {
-        let source =
-            "pure runnable(mode: Int) -> Bool {\n  fs.executable(mode) and fs.executable(0o755)\n}\n";
+        let source = "pure runnable(mode: Int) -> Bool {\n  fs.executable(mode) and fs.executable(0o755)\n}\n";
         assert!(check(source).is_empty(), "{:?}", check(source));
         let diagnostics = check("let wrong = fs.executable(true)\n");
         assert_eq!(

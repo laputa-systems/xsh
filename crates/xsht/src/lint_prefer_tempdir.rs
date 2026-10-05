@@ -1,4 +1,5 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
+use xsh::frontend::check::{StatementPosition, Type};
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
@@ -7,7 +8,6 @@ use xsh::frontend::syntax::arena::{
 };
 use xsh::frontend::syntax::parser::Parser;
 use xsh::frontend::syntax::token::TokenTag;
-use xsh::frontend::check::{StatementPosition, Type};
 
 /// Three adjacent statements that clear a path, create a directory there, and
 /// defer its removal are what `tempdir NAME at PATH { ... }` is defined to
@@ -246,7 +246,11 @@ fn tempdir_rewrite(
     let text_end = |stmt: StmtId| text_end_of(source, arena.stmt(stmt).span);
 
     let line_start = |offset: usize| source[..offset].rfind('\n').map_or(0, |at| at + 1);
-    let line_end = |offset: usize| source[offset..].find('\n').map_or(source.len(), |at| offset + at);
+    let line_end = |offset: usize| {
+        source[offset..]
+            .find('\n')
+            .map_or(source.len(), |at| offset + at)
+    };
     let indent = source.get(line_start(binding_span.start())..binding_span.start())?;
     if !indent.chars().all(|ch| ch == ' ') {
         return None;
@@ -427,9 +431,10 @@ fn tail_may_be_a_result(linter: &super::Linter<'_>, stmt: StmtId) -> bool {
                 .any(|branch| block_tail(branch.block))
                 || else_block.is_some_and(block_tail)
         }
-        ArenaStmtKind::Match { arms, .. } => {
-            arena.match_arms(arms).iter().any(|arm| block_tail(arm.block))
-        }
+        ArenaStmtKind::Match { arms, .. } => arena
+            .match_arms(arms)
+            .iter()
+            .any(|arm| block_tail(arm.block)),
         // A bare name's type is not recorded where the linter can read it.
         ArenaStmtKind::TailBareIdent(_) => true,
         ArenaStmtKind::Sugar { expansion, .. } => tail_may_be_a_result(linter, expansion),
@@ -575,9 +580,9 @@ mod tests {
             },
         )
         .diagnostics
-            .into_iter()
-            .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTempdir))
-            .collect()
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTempdir))
+        .collect()
     }
 
     fn apply(diagnostics: &[Diagnostic], source: &str) -> String {

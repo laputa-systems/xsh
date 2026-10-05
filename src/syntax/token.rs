@@ -497,9 +497,7 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
             let offset = start.saturating_add(2);
             scan_until(source, offset, is_ident_continue)
         }
-        TokenTag::Int | TokenTag::Float | TokenTag::Duration => {
-            scan_number_end(source, start, tag)
-        }
+        TokenTag::Int | TokenTag::Float | TokenTag::Duration => scan_number_end(source, start, tag),
         TokenTag::String
         | TokenTag::PathString
         | TokenTag::GlobString

@@ -81,14 +81,15 @@ impl EmptyFallbacks {
             return Vec::new();
         };
         let test = arena.expr(expr).span;
-        let (tested, waiting) = std::mem::take(&mut self.waiting)
-            .into_iter()
-            .partition(|fallback| {
-                fallback.name == name
-                    && fallback.literal.source_id == test.source_id
-                    && fallback.later.start <= test.start()
-                    && test.end() <= fallback.later.end
-            });
+        let (tested, waiting) =
+            std::mem::take(&mut self.waiting)
+                .into_iter()
+                .partition(|fallback| {
+                    fallback.name == name
+                        && fallback.literal.source_id == test.source_id
+                        && fallback.later.start <= test.start()
+                        && test.end() <= fallback.later.end
+                });
         self.waiting = waiting;
         let tested: Vec<Fallback> = tested;
         tested
@@ -254,10 +255,9 @@ mod tests {
             let tested = &source[diagnostic.labels[1].span.range()];
             assert!(test.ends_with(tested), "{test}: {tested}");
             assert!(
-                diagnostic.labels[1]
-                    .message
-                    .as_deref()
-                    .is_some_and(|label| label.contains("`if let Ok(name) = names.get(key) { ... }`")),
+                diagnostic.labels[1].message.as_deref().is_some_and(
+                    |label| label.contains("`if let Ok(name) = names.get(key) { ... }`")
+                ),
                 "{diagnostic:?}"
             );
         }

@@ -915,7 +915,10 @@ fail()
         assert_eq!(output.status, 3);
         assert!(output.stdout.is_empty());
         let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.starts_with("err: `false` exited 1\n"), "stderr: {stderr}");
+        assert!(
+            stderr.starts_with("err: `false` exited 1\n"),
+            "stderr: {stderr}"
+        );
         let _ = fs::remove_file(&path);
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir(parent);
@@ -1605,10 +1608,8 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
     #[test]
     fn nesting_far_past_the_limit_is_the_same_diagnostic() {
         for family in ["list", "call", "if", "sum", "method", "interpolation"] {
-            let output = run_on_fixed_stack(
-                &format!("far-{family}"),
-                &nested_source(family, 50_000),
-            );
+            let output =
+                run_on_fixed_stack(&format!("far-{family}"), &nested_source(family, 50_000));
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert_eq!(output.status, 2, "{family}: {stderr}");
             assert!(

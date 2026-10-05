@@ -1501,7 +1501,9 @@ impl<'a> Parser<'a> {
                 // `try run...` is the run form with its `Result` as the value.
                 if self.at_keyword(Keyword::Run) {
                     let (run_id, _run_span) = self.parse_run_form_arena_only(arena)?;
-                    if arena.run_form_propagation_written(run_id) || self.at(TokenKindMatch::Question) {
+                    if arena.run_form_propagation_written(run_id)
+                        || self.at(TokenKindMatch::Question)
+                    {
                         self.diagnostic_here(
                             "`try` keeps the run form's failure as a value, and `?` would propagate it; write one of them",
                             DiagnosticCode::ParseExpectedToken,
@@ -2091,14 +2093,14 @@ impl<'a> Parser<'a> {
                 }
                 if dotted_key {
                     written_field = true;
-                entries.push(BraceEntry::Field(ArenaRecordFieldInput::Path {
+                    entries.push(BraceEntry::Field(ArenaRecordFieldInput::Path {
                         path,
                         value: value.id,
                         span: self.span(field_start, value.span.end()),
                     }));
                 } else {
                     written_field = true;
-                entries.push(BraceEntry::Field(ArenaRecordFieldInput::Named {
+                    entries.push(BraceEntry::Field(ArenaRecordFieldInput::Named {
                         name,
                         value: value.id,
                         span: self.span(field_start, value.span.end()),
@@ -2250,7 +2252,6 @@ impl<'a> Parser<'a> {
             bare_ident: None,
         })
     }
-
 
     /// A map comprehension is the only entry of its braces. Entries before
     /// it are an error rather than silently dropped; the comprehension still

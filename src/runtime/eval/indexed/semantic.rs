@@ -224,9 +224,14 @@ impl SemanticPools {
     }
 
     /// The signature of a typed callable type.
-    pub(super) fn typed_callable_signature(&self, id: TypeId) -> Result<SignatureId, IrVerifyError> {
+    pub(super) fn typed_callable_signature(
+        &self,
+        id: TypeId,
+    ) -> Result<SignatureId, IrVerifyError> {
         if !matches!(self.type_tag(id)?, TypeTag::TypedProc | TypeTag::TypedPure) {
-            return Err(IrVerifyError::new("type id does not denote a typed callable"));
+            return Err(IrVerifyError::new(
+                "type id does not denote a typed callable",
+            ));
         }
         let signature = SignatureId::from_raw(self.type_data[id.index()].lhs)
             .ok_or_else(|| IrVerifyError::new("typed callable signature id is invalid"))?;
@@ -277,7 +282,11 @@ impl SemanticPools {
     /// instead of an integer type. Reports whether the pool has one.
     #[cfg(test)]
     pub(super) fn corrupt_first_bounded_for_test(&mut self, rebase: bool) -> bool {
-        let Some(index) = self.type_tags.iter().position(|tag| *tag == TypeTag::Bounded) else {
+        let Some(index) = self
+            .type_tags
+            .iter()
+            .position(|tag| *tag == TypeTag::Bounded)
+        else {
             return false;
         };
         if rebase {
@@ -656,7 +665,9 @@ impl SemanticPools {
                 }
                 Ok(format!("Union[{}]", members.join(", ")))
             }
-            TypeTag::TypedProc | TypeTag::TypedPure => Ok(self.to_type_inner(id, depth)?.to_string()),
+            TypeTag::TypedProc | TypeTag::TypedPure => {
+                Ok(self.to_type_inner(id, depth)?.to_string())
+            }
             _ => Err(IrVerifyError::new("type tag has no display schema")),
         }
     }
@@ -814,9 +825,7 @@ impl SemanticPools {
                 TypeTag::Nominal => {
                     let base = verify_type_raw(self, data.lhs, Some(index))?;
                     if self.type_tags[base.index()] != TypeTag::Record {
-                        return Err(IrVerifyError::new(
-                            "nominal type is not over a record type",
-                        ));
+                        return Err(IrVerifyError::new("nominal type is not over a record type"));
                     }
                 }
                 // A bounded type is stored as its base, so the base is the
@@ -1225,8 +1234,7 @@ impl SemanticPoolBuilder {
                         Vec::new(),
                     ),
                     Validation::Range(range) => {
-                        let start =
-                            checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
+                        let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
                         let words = [range.low(), range.high()]
                             .into_iter()
                             .flat_map(|bound| [bound as u32, (bound >> 32) as u32])
@@ -1594,10 +1602,7 @@ mod tests {
             .intern_type(&mut pools, &Type::DynamicModule)
             .unwrap();
         let empty_module = builder
-            .intern_type(
-                &mut pools,
-                &Type::Module(module_type(BTreeMap::new())),
-            )
+            .intern_type(&mut pools, &Type::Module(module_type(BTreeMap::new())))
             .unwrap();
         assert_ne!(erased_record, empty_record);
         assert_ne!(dynamic_module, empty_module);
@@ -1726,7 +1731,10 @@ mod tests {
         pools.verify().unwrap();
         assert_eq!(pools.to_type(rel_id).unwrap(), rel);
         assert_eq!(pools.display_type(rel_id).unwrap(), "RelPath");
-        assert_ne!(rel_id, builder.intern_type(&mut pools, &Type::Path).unwrap());
+        assert_ne!(
+            rel_id,
+            builder.intern_type(&mut pools, &Type::Path).unwrap()
+        );
         let mut swapped = pools.clone();
         swapped.type_data[rel_id.index()].rhs = Validation::NonEmpty.code().unwrap();
         assert!(swapped.verify().is_err());
@@ -1741,9 +1749,12 @@ mod tests {
             let mut pools = SemanticPools::default();
             let mut builder = SemanticPoolBuilder::default();
             let record = Type::Record(
-                [(Name::intern("id"), Type::Str), (Name::intern("version"), Type::Str)]
-                    .into_iter()
-                    .collect(),
+                [
+                    (Name::intern("id"), Type::Str),
+                    (Name::intern("version"), Type::Str),
+                ]
+                .into_iter()
+                .collect(),
             );
             let package = Type::nominal(Name::intern("Package"), record.clone()).unwrap();
             let release = Type::nominal(Name::intern("Release"), record.clone()).unwrap();
@@ -1756,7 +1767,10 @@ mod tests {
             let release_id = builder.intern_type(&mut pools, &release).unwrap();
             assert_ne!(package_id, record_id);
             assert_ne!(package_id, release_id);
-            assert_eq!(builder.intern_type(&mut pools, &package).unwrap(), package_id);
+            assert_eq!(
+                builder.intern_type(&mut pools, &package).unwrap(),
+                package_id
+            );
             assert_eq!(pools.to_type(package_id).unwrap(), package);
             assert_eq!(pools.to_type(release_id).unwrap(), release);
             assert_eq!(pools.display_type(package_id).unwrap(), "Package");
@@ -1773,7 +1787,9 @@ mod tests {
                 wrong_base.type_data[package_id.index()].lhs = base.raw();
                 let error = wrong_base.verify().unwrap_err();
                 assert!(
-                    error.message.contains("nominal type is not over a record type"),
+                    error
+                        .message
+                        .contains("nominal type is not over a record type"),
                     "{}",
                     error.message
                 );
@@ -1820,7 +1836,9 @@ mod tests {
         // An element type a set cannot order: a collection, a float, a
         // record.
         let float = builder.intern_type(&mut pools, &Type::Float).unwrap();
-        let record = builder.intern_type(&mut pools, &Type::ErasedRecord).unwrap();
+        let record = builder
+            .intern_type(&mut pools, &Type::ErasedRecord)
+            .unwrap();
         let other = builder
             .intern_type(&mut pools, &Type::Set(Box::new(Type::Int)))
             .unwrap();
@@ -1908,7 +1926,14 @@ mod tests {
 
         // A base that is not an integer type, including another bounded
         // type, that does not precede the type, or that is no type at all.
-        for base in [text.raw(), port_id.raw(), offset_id.raw(), byte_id.raw(), 0, u32::MAX] {
+        for base in [
+            text.raw(),
+            port_id.raw(),
+            offset_id.raw(),
+            byte_id.raw(),
+            0,
+            u32::MAX,
+        ] {
             let mut wrong_base = pools.clone();
             wrong_base.type_data[offset_id.index()].lhs = base;
             assert!(wrong_base.verify().is_err(), "base {base}");

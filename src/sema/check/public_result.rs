@@ -29,7 +29,9 @@ impl Checker {
                 _ => (outer.clone(), false),
             };
             match inner.kind {
-                ArenaStmtKind::ProcDef(id) | ArenaStmtKind::PureDef(id) | ArenaStmtKind::StreamDef(id)
+                ArenaStmtKind::ProcDef(id)
+                | ArenaStmtKind::PureDef(id)
+                | ArenaStmtKind::StreamDef(id)
                     if exported =>
                 {
                     let definition = arena.function_def(id);
@@ -49,7 +51,8 @@ impl Checker {
                         public.push(inner.span.range());
                     }
                 }
-                ArenaStmtKind::Let { ty: Some(ty), .. } | ArenaStmtKind::Const { ty: Some(ty), .. }
+                ArenaStmtKind::Let { ty: Some(ty), .. }
+                | ArenaStmtKind::Const { ty: Some(ty), .. }
                     if exported =>
                 {
                     public.push(arena.type_expr_span(ty).range());
@@ -90,16 +93,16 @@ impl Checker {
                 .end();
             self.diagnostics.push(
                 Diagnostic::error("a public signature must spell the error type of its Result")
-                .with_code(DiagnosticCode::CheckPublicResultError)
-                .with_label(Label::primary(
-                    span,
-                    "write `Result[T, Error]`, or name the error family callers can rely on",
-                ))
-                .with_fix_hint(FixHint::replacement(
-                    Span::new(source_id, ok_end, ok_end),
-                    "spell the broad error type this signature already has",
-                    ", Error",
-                )),
+                    .with_code(DiagnosticCode::CheckPublicResultError)
+                    .with_label(Label::primary(
+                        span,
+                        "write `Result[T, Error]`, or name the error family callers can rely on",
+                    ))
+                    .with_fix_hint(FixHint::replacement(
+                        Span::new(source_id, ok_end, ok_end),
+                        "spell the broad error type this signature already has",
+                        ", Error",
+                    )),
             );
         }
     }

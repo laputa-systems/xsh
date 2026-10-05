@@ -344,7 +344,8 @@ impl<'a> Parser<'a> {
                         && !literal.is_empty()
                     {
                         let literal_span = Span::new(source_id, start, end);
-                        let expr = arena.push_str_expr(&std::sync::Arc::from(literal), literal_span);
+                        let expr =
+                            arena.push_str_expr(&std::sync::Arc::from(literal), literal_span);
                         parts.push(arena.push_pattern_literal(expr, literal_span));
                     }
                     let hole_span = Span::new(source_id, offset, offset + source.len());
@@ -352,11 +353,13 @@ impl<'a> Parser<'a> {
                         Some((name, spec)) => (name.trim(), Some(spec)),
                         None => (source.trim(), None),
                     };
-                    let is_name = name.chars().next().is_some_and(|first| {
-                        first == '_' || first.is_ascii_alphabetic()
-                    }) && name
+                    let is_name = name
                         .chars()
-                        .all(|part| part == '_' || part.is_ascii_alphanumeric())
+                        .next()
+                        .is_some_and(|first| first == '_' || first.is_ascii_alphabetic())
+                        && name
+                            .chars()
+                            .all(|part| part == '_' || part.is_ascii_alphanumeric())
                         && crate::syntax::token::Keyword::from_ident(name).is_none();
                     if !is_name || spec.is_some_and(|spec| spec.trim().is_empty()) {
                         diagnostics.push(

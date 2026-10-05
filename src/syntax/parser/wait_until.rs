@@ -287,7 +287,11 @@ fn expand_wait_until(
     let (first_interval, pace_span, backoff_cap) = match pace {
         Pace::Default => {
             let literal = DurationLiteral::from_text(DEFAULT_INTERVAL);
-            (arena.push_duration_expr(&literal, wait_prefix(1)), wait, None)
+            (
+                arena.push_duration_expr(&literal, wait_prefix(1)),
+                wait,
+                None,
+            )
         }
         Pace::Every { every, interval } => (
             interval.expr,
@@ -376,8 +380,13 @@ fn expand_wait_until(
     arena.push_loop(iteration, wait_suffix(2));
     let scope_span = part(wait.start(), limit.span.end());
     let waited = arena.finish_block(&[], scope_span);
-    let scope =
-        arena.push_context_scope_expr(ContextScopeKind::Within, limit.expr, waited, true, scope_span);
+    let scope = arena.push_context_scope_expr(
+        ContextScopeKind::Within,
+        limit.expr,
+        waited,
+        true,
+        scope_span,
+    );
     let propagate_span = part(within.start(), limit.span.end());
     let propagate = arena.push_try_expr(scope, propagate_span);
     arena.push_expr_statement(propagate, propagate_span);

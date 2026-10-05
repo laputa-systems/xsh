@@ -1,8 +1,8 @@
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind,
-    ArenaExprOrRun, ArenaStmtKind, ArenaSugar, AstArena, BlockId, ExprId, StmtId, SugarForm,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun,
+    ArenaStmtKind, ArenaSugar, AstArena, BlockId, ExprId, StmtId, SugarForm,
 };
 use xsh::frontend::syntax::node::{AssignOp, BinaryOp, UnaryOp};
 
@@ -52,7 +52,10 @@ pub(super) fn lint_polling_loops(linter: &mut super::Linter<'_>, stmts: &[StmtId
             .get(index + 1)
             .is_some_and(|next| statement_fails(arena, *next));
         let fails_inside = body.iter().any(|stmt| match arena.stmt(*stmt).kind {
-            ArenaStmtKind::If { branches, else_block: None } => arena
+            ArenaStmtKind::If {
+                branches,
+                else_block: None,
+            } => arena
                 .if_branches(branches)
                 .iter()
                 .any(|branch| block_fails(arena, branch.block)),
@@ -154,7 +157,8 @@ fn sleep_interval(arena: &AstArena, expr: ExprId) -> Option<ExprId> {
     let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
         return None;
     };
-    if name != "sleep" || !matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "time")
+    if name != "sleep"
+        || !matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "time")
     {
         return None;
     }
@@ -292,7 +296,9 @@ fn rewrite(
         if !is_name(arena, left, poll.counter) {
             return None;
         }
-        let gave_up: Vec<StmtId> = arena.stmt_ids(arena.block(branch.block).statements).collect();
+        let gave_up: Vec<StmtId> = arena
+            .stmt_ids(arena.block(branch.block).statements)
+            .collect();
         let [only] = gave_up[..] else {
             return None;
         };
@@ -332,13 +338,19 @@ fn rewrite(
 
 /// The whitespace that begins the line of `offset`.
 fn line_indent(source: &str, offset: usize) -> &str {
-    let line = source[..offset].rfind('\n').map_or(0, |newline| newline + 1);
+    let line = source[..offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
     let text = &source[line..offset];
     &text[..text.len() - text.trim_start().len()]
 }
 
 /// The integer `var NAME = INT` declares.
-fn declared_count(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::Name) -> Option<i64> {
+fn declared_count(
+    arena: &AstArena,
+    stmt: StmtId,
+    name: xsh::frontend::symbols::Name,
+) -> Option<i64> {
     let ArenaStmtKind::Var {
         target,
         initializer: ArenaExprOrRun::Expr(value),
@@ -411,7 +423,11 @@ mod tests {
         let mut text = source.to_string();
         text.replace_range(span.range(), hint.replacement.as_deref().unwrap());
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), &text);
-        assert!(parsed.diagnostics.is_empty(), "{text}\n{:?}", parsed.diagnostics);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "{text}\n{:?}",
+            parsed.diagnostics
+        );
         text
     }
 
@@ -470,7 +486,10 @@ mod tests {
             let diagnostics = polling_loops(source);
             assert_eq!(diagnostics.len(), 1, "{source}\n{diagnostics:?}");
             assert!(diagnostics[0].fix_hints.is_empty(), "{source}");
-            assert!(diagnostics[0].notes[0].contains("not the plain test"), "{source}");
+            assert!(
+                diagnostics[0].notes[0].contains("not the plain test"),
+                "{source}"
+            );
         }
     }
 

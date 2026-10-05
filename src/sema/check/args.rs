@@ -394,7 +394,10 @@ impl Checker {
             {
                 let splice_span = arena.arena.span(*span);
                 let actual = self.check_expr_arena(arena, source, *value, None);
-                if !matches!(actual.unvalidated(), Type::List(_) | Type::Any | Type::Unknown) {
+                if !matches!(
+                    actual.unvalidated(),
+                    Type::List(_) | Type::Any | Type::Unknown
+                ) {
                     self.error(
                         splice_span,
                         "`@` splices require List values",
@@ -735,10 +738,9 @@ pub(super) fn module_overload_matches_arena(
         .iter()
         .enumerate()
         .all(|(param_index, arg_index)| match arg_index {
-            Some(arg_index) => module_arg_matches_param_arena(
-                &actuals[*arg_index],
-                &sig.params[param_index].ty,
-            ),
+            Some(arg_index) => {
+                module_arg_matches_param_arena(&actuals[*arg_index], &sig.params[param_index].ty)
+            }
             None => sig.params[param_index].defaulted,
         })
 }

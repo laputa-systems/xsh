@@ -86,7 +86,9 @@ fn replacement_keeps_comments(
     let kept = (0..lexed.token_table.len())
         .filter(|index| lexed.token_table.tag_at(*index) == Some(TokenTag::Comment))
         .map(|index| {
-            let token = lexed.token_table.span_at(index, span.source_id, replacement)?;
+            let token = lexed
+                .token_table
+                .span_at(index, span.source_id, replacement)?;
             replacement.get(token.range())
         })
         .collect::<Option<Vec<_>>>();

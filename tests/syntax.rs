@@ -4,9 +4,8 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPatternKind,
-    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaStmtKind, ArenaSugar,
-    ArenaTypeDefBody, SugarForm,
-    ArenaWordPart, ExprId, StmtId,
+    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaStmtKind, ArenaSugar, ArenaTypeDefBody,
+    ArenaWordPart, ExprId, StmtId, SugarForm,
 };
 use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
 use xsh::frontend::syntax::node::{

@@ -371,7 +371,12 @@ impl Checker {
     /// union value supports only what needs no knowledge of its member, so
     /// every operation that reads the value calls this with the receiver or
     /// operand type before it looks for a concrete one.
-    pub(super) fn reject_unnarrowed_union(&mut self, ty: &Type, use_site: &str, span: Span) -> bool {
+    pub(super) fn reject_unnarrowed_union(
+        &mut self,
+        ty: &Type,
+        use_site: &str,
+        span: Span,
+    ) -> bool {
         let Type::Union(members) = ty else {
             return false;
         };
@@ -589,11 +594,13 @@ impl Checker {
                                 )
                             })
                             .collect::<BTreeMap<_, _>>();
-                        Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(exports)))
+                        Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(
+                            exports,
+                        )))
                     }
-                    Type::Unknown | Type::Invalid => {
-                        Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType::open(BTreeMap::new())))
-                    }
+                    Type::Unknown | Type::Invalid => Type::Module(std::sync::Arc::new(
+                        crate::sema::types::ModuleType::open(BTreeMap::new()),
+                    )),
                     other => {
                         self.error(
                             program.arena.type_expr_span(inner),
@@ -768,7 +775,10 @@ impl Checker {
                     };
                     exports.insert(entry.name, export_ty);
                 }
-                Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType { exports, exact }))
+                Type::Module(std::sync::Arc::new(crate::sema::types::ModuleType {
+                    exports,
+                    exact,
+                }))
             }
             TypeDefBody::TagUnion(variants) => {
                 Type::Tag(variants.first().map_or(key, |variant| variant.type_name))

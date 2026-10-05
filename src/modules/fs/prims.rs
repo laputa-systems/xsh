@@ -63,7 +63,10 @@ fn stat_unnamed(path: PathBuf, follow: bool, span: Span) -> Result<Value, Runtim
             time_ns(since.as_secs() as i64, i64::from(since.subsec_nanos()))
         });
     Ok(Value::Record(RecordMap::from([
-        (key("kind"), Value::Str(kind_name(metadata.file_type()).into())),
+        (
+            key("kind"),
+            Value::Str(kind_name(metadata.file_type()).into()),
+        ),
         (key("mode"), Value::Int(i64::from(metadata.mode()))),
         (key("size"), Value::Int(metadata.len() as i64)),
         (key("blocks_512"), Value::Int(metadata.blocks() as i64)),
@@ -74,9 +77,18 @@ fn stat_unnamed(path: PathBuf, follow: bool, span: Span) -> Result<Value, Runtim
         (key("dev"), Value::Int(metadata.dev() as i64)),
         (key("ino"), Value::Int(metadata.ino() as i64)),
         (key("rdev"), Value::Int(metadata.rdev() as i64)),
-        (key("atime_ns"), time_ns(metadata.atime(), metadata.atime_nsec())),
-        (key("mtime_ns"), time_ns(metadata.mtime(), metadata.mtime_nsec())),
-        (key("ctime_ns"), time_ns(metadata.ctime(), metadata.ctime_nsec())),
+        (
+            key("atime_ns"),
+            time_ns(metadata.atime(), metadata.atime_nsec()),
+        ),
+        (
+            key("mtime_ns"),
+            time_ns(metadata.mtime(), metadata.mtime_nsec()),
+        ),
+        (
+            key("ctime_ns"),
+            time_ns(metadata.ctime(), metadata.ctime_nsec()),
+        ),
         (key("birth_ns"), birth),
     ])))
 }
@@ -116,8 +128,11 @@ pub(crate) fn chmod(
     }
     let shown = path.display().to_string();
     let result = if follow_symlinks {
-        std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(mode as u32))
-            .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))
+        std::fs::set_permissions(
+            &path,
+            std::os::unix::fs::PermissionsExt::from_mode(mode as u32),
+        )
+        .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))
     } else {
         chmod_nofollow(&path, Mode::from_raw_mode(mode as _))
             .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))
@@ -149,12 +164,7 @@ fn chmod_nofollow(path: &std::path::Path, mode: Mode) -> rustix::io::Result<()> 
     rfs::chmodat(CWD, path, mode, AtFlags::SYMLINK_NOFOLLOW)
 }
 
-fn timespec(
-    ns: Option<i64>,
-    now: bool,
-    field: &str,
-    span: Span,
-) -> Result<Timespec, RuntimeError> {
+fn timespec(ns: Option<i64>, now: bool, field: &str, span: Span) -> Result<Timespec, RuntimeError> {
     match (ns, now) {
         (Some(_), true) => Err(RuntimeError::new(
             "fs-set-times",

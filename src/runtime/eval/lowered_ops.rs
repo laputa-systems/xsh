@@ -80,10 +80,11 @@ pub(super) fn lowered_map_key_ref(
             MapKeyRef::Bytes(lowered_bytes_value(value).unwrap())
         }
         _ => {
-            return Err(
-                RuntimeError::new("type-error", "Map keys require an ordered scalar value")
-                    .with_span(span),
-            );
+            return Err(RuntimeError::new(
+                "type-error",
+                "Map keys require an ordered scalar value",
+            )
+            .with_span(span));
         }
     };
     Ok(key)

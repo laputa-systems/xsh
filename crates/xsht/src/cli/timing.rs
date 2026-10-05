@@ -93,11 +93,7 @@ impl StageTimings {
             .filter(|stage| self.entered[**stage as usize].load(Ordering::Relaxed) > 0)
             .map(|stage| {
                 let nanos = self.nanos[*stage as usize].load(Ordering::Relaxed);
-                format!(
-                    "{} {}",
-                    stage.label(),
-                    seconds(Duration::from_nanos(nanos))
-                )
+                format!("{} {}", stage.label(), seconds(Duration::from_nanos(nanos)))
             })
             .collect::<Vec<_>>();
         let noun = if files == 1 { "file" } else { "files" };

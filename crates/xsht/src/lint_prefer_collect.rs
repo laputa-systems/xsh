@@ -2,8 +2,8 @@ use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
 use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::Name;
 use xsh::frontend::syntax::arena::{
-    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind,
-    ArenaExprOrRun, ArenaStmtKind, ArenaSugar, AstArena, BlockId, StmtId,
+    ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaCallArgKind, ArenaExprKind, ArenaExprOrRun,
+    ArenaStmtKind, ArenaSugar, AstArena, BlockId, StmtId,
 };
 use xsh::frontend::syntax::node::AssignOp;
 use xsh::frontend::syntax::parser::Parser;
@@ -65,8 +65,9 @@ pub(super) fn lint_built_lists(linter: &mut super::Linter<'_>, stmts: &[StmtId])
                 diagnostic.code,
                 Some(DiagnosticCode::LintPreferListComp | DiagnosticCode::LintPreferMapComp)
             ) && diagnostic.fix_hints.iter().any(|hint| {
-                hint.span
-                    .is_some_and(|span| span.start() < found.span.end() && found.span.start() < span.end())
+                hint.span.is_some_and(|span| {
+                    span.start() < found.span.end() && found.span.start() < span.end()
+                })
             })
         }) {
             continue;
@@ -261,7 +262,9 @@ fn laid_out(statements: &str, indent: &str) -> Option<String> {
     const LEVEL: &str = "  ";
     let mut block = String::from(OPEN);
     for line in format!("{indent}{statements}").lines() {
-        let line = line.strip_prefix(indent).unwrap_or_else(|| line.trim_start());
+        let line = line
+            .strip_prefix(indent)
+            .unwrap_or_else(|| line.trim_start());
         if !line.is_empty() {
             block.push_str(LEVEL);
             block.push_str(line);
@@ -513,7 +516,9 @@ impl Scan<'_> {
 /// The whitespace that begins the line of `offset`, when nothing else
 /// stands before `offset` on that line.
 fn line_indent(source: &str, offset: usize) -> Option<&str> {
-    let line = source[..offset].rfind('\n').map_or(0, |newline| newline + 1);
+    let line = source[..offset]
+        .rfind('\n')
+        .map_or(0, |newline| newline + 1);
     let text = &source[line..offset];
     text.trim().is_empty().then_some(text)
 }
@@ -581,7 +586,10 @@ mod tests {
         };
         assert!(!hint.dangerous);
         let mut text = source.to_string();
-        text.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+        text.replace_range(
+            hint.span.unwrap().range(),
+            hint.replacement.as_deref().unwrap(),
+        );
         assert!(built_lists(&text).is_empty(), "{text}");
         text
     }
@@ -638,7 +646,9 @@ mod tests {
     fn a_line_that_no_longer_fits_is_found_and_laid_out_by_the_formatter() {
         use super::super::super::format::{DEFAULT_LINE_WIDTH, Formatter};
         let condition = |filler: &str| {
-            format!("field.len() < 6 or field != \"Bus\" or field != \"Device\" or field != \"{filler}\"")
+            format!(
+                "field.len() < 6 or field != \"Bus\" or field != \"Device\" or field != \"{filler}\""
+            )
         };
         let source = |condition: &str| {
             format!(
@@ -658,7 +668,10 @@ mod tests {
         let written = source(&condition);
         assert_eq!(formatted(&written), written);
         let fixed = rewritten(&written);
-        assert!(fixed.contains("  let devices = collect {\n    for field in fields {\n"), "{fixed}");
+        assert!(
+            fixed.contains("  let devices = collect {\n    for field in fields {\n"),
+            "{fixed}"
+        );
         assert_eq!(formatted(&fixed), fixed);
 
         // The same statements with the condition broken after each `or`, and
@@ -672,7 +685,10 @@ mod tests {
             // Formatting and rewriting give one text in either order.
             let rewritten_first = formatted(&rewritten(&layout));
             assert_eq!(rewritten_first, rewritten(&formatted(&layout)), "{layout}");
-            assert!(rewritten_first.contains("  let devices = collect {\n"), "{layout}");
+            assert!(
+                rewritten_first.contains("  let devices = collect {\n"),
+                "{layout}"
+            );
         }
         let grouped = source(&format!("({})", condition.replace(" or ", ") or (")));
         assert_eq!(formatted(&grouped), written);

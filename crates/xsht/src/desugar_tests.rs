@@ -92,7 +92,11 @@ fn desugared_output_is_formatted_and_desugars_to_itself() {
         let desugared = desugar(source);
         assert_eq!(desugar(&desugared), desugared, "{source}");
         let formatted = Formatter::new().format_source(SourceId::new(0), &desugared);
-        assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+        assert!(
+            formatted.diagnostics.is_empty(),
+            "{:?}",
+            formatted.diagnostics
+        );
         assert_eq!(formatted.formatted, desugared, "{source}");
     }
 }
@@ -134,8 +138,14 @@ fn sugar_inside_text_the_formatter_would_copy_is_expanded() {
     let source = "proc pick(rows: List[Int]) -> Int {\n  # fmt: skip\n  return   0   when rows.len()   ==   0\n  let kept = rows |> map { |row|\n    # negative rows count as one\n    return 1 when row < 0\n    row\n  }\n  kept.len()\n}\n";
     let desugared = desugar(source);
     assert_eq!(sugar_count(&desugared), 0, "{desugared}");
-    assert!(desugared.contains("# fmt: skip\n  if rows.len() == 0 { return 0 }"), "{desugared}");
-    assert!(desugared.contains("# negative rows count as one\n"), "{desugared}");
+    assert!(
+        desugared.contains("# fmt: skip\n  if rows.len() == 0 { return 0 }"),
+        "{desugared}"
+    );
+    assert!(
+        desugared.contains("# negative rows count as one\n"),
+        "{desugared}"
+    );
     assert_eq!(check(source), check(&desugared));
 }
 
@@ -208,6 +218,10 @@ fn an_atomically_replace_is_printed_as_its_block_under_a_fresh_name() {
 fn written_names_are_never_renamed() {
     for source in PROGRAMS {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert_eq!(hidden_names(&parsed.arena.arena, source), Vec::new(), "{source}");
+        assert_eq!(
+            hidden_names(&parsed.arena.arena, source),
+            Vec::new(),
+            "{source}"
+        );
     }
 }

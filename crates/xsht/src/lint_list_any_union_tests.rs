@@ -67,10 +67,7 @@ fn mutable_list_filled_only_from_typed_literals_names_its_union() {
         diagnostics[0].labels[0].message.as_deref(),
         Some("the closed type is `List[Union[Str, Path, Int]]`")
     );
-    assert_eq!(
-        &source[diagnostics[0].labels[0].span.range()],
-        "List[Any]"
-    );
+    assert_eq!(&source[diagnostics[0].labels[0].span.range()], "List[Any]");
 }
 
 // One write that is not a typed list literal leaves the element types

@@ -18,9 +18,8 @@ use super::{
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
     lowered_count_key, lowered_duration_arg, lowered_encode_json, lowered_env_record_arg,
     lowered_error_message, lowered_freeze_large_slot_list, lowered_index_from_end_value,
-    lowered_index_value,
-    lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec, lowered_int_arg,
-    lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
+    lowered_index_value, lowered_inline_stats_field_value, lowered_inline_stats_to_record_vec,
+    lowered_int_arg, lowered_map_literal_key, lowered_match_no_arm, lowered_nonnegative_count,
     lowered_parse_command_values, lowered_path_arg, lowered_path_from_value, lowered_path_like_arg,
     lowered_path_list_arg, lowered_path_method_value, lowered_pipeline_input,
     lowered_pipeline_item_count, lowered_pipeline_record_list, lowered_process_run_error,
@@ -81,7 +80,8 @@ fn run_target_and_leading_argv(
                 "spliced command is empty: its first element names the program to run",
             )
             .with_span(target.span);
-            let mut failure = runtime_error_from_value(Value::RunError(Box::new(error)), target.span);
+            let mut failure =
+                runtime_error_from_value(Value::RunError(Box::new(error)), target.span);
             failure.propagated = true;
             return Err(failure);
         }
@@ -1016,7 +1016,9 @@ enum ContextScopeRestore {
     },
     Env(super::super::RuntimeEnv),
     /// The identity of the deadline the scope opened.
-    Within { id: u64 },
+    Within {
+        id: u64,
+    },
 }
 
 #[derive(Clone)]
@@ -1483,11 +1485,8 @@ impl Evaluator {
                         // The stage waits for every worker, so the receiver
                         // is there. Were it gone, there would be no one to
                         // report to and nothing to do about it.
-                        let _ = sender.send((
-                            chunk_index,
-                            results,
-                            std::mem::take(&mut worker.stderr),
-                        ));
+                        let _ =
+                            sender.send((chunk_index, results, std::mem::take(&mut worker.stderr)));
                     })
                     .expect("failed to spawn lowered par-map worker");
                 workers.push((chunk_index, worker));
@@ -3442,8 +3441,7 @@ impl Evaluator {
             Ok(header) => header,
             Err(error) => return Some(Err(indexed_error(error, call_span))),
         };
-        if let Err(error) =
-            super::validate_unsigned_runtime_args(&header, args, omitted, call_span)
+        if let Err(error) = super::validate_unsigned_runtime_args(&header, args, omitted, call_span)
         {
             return Some(Err(error));
         }
@@ -6640,18 +6638,18 @@ impl Evaluator {
             }
             FullTag::ExprIndexFromEnd => {
                 let base = indexed_raw(&mut payload, call_span)?;
-                let distance = indexed_decode::<crate::runtime::eval::EndDistance>(&mut payload, execution, call_span)?;
+                let distance = indexed_decode::<crate::runtime::eval::EndDistance>(
+                    &mut payload,
+                    execution,
+                    call_span,
+                )?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let base = match self.eval_indexed_expr(execution, base, slots, span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(lowered_index_from_end_value(
-                    base,
-                    distance.get(),
-                    span,
-                )?)
+                ControlFlow::Continue(lowered_index_from_end_value(base, distance.get(), span)?)
             }
             FullTag::ExprSlice => {
                 let base = indexed_raw(&mut payload, call_span)?;

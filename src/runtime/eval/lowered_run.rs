@@ -66,9 +66,8 @@ use super::lower::{
 use super::lowered_ops::{
     append_lowered_list_element, append_lowered_map_literal, checked_int_binary,
     compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value, lowered_bytes_arg,
-    lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
-    lowered_index_from_end_value, lowered_index_value,
-    lowered_map_key_value, lowered_map_literal_key, lowered_method_value,
+    lowered_bytes_parts, lowered_bytes_value, lowered_contains_value, lowered_index_from_end_value,
+    lowered_index_value, lowered_map_key_value, lowered_map_literal_key, lowered_method_value,
     lowered_nonnegative_count, lowered_path_method_value, lowered_return_value,
     lowered_slice_value, lowered_sort_key_orderable, lowered_str_byte_at_value,
     lowered_str_byte_len_value, lowered_str_count_lines_value, lowered_str_parts,
@@ -248,7 +247,8 @@ fn script_expectation_failure(
     if mismatches.is_empty() {
         return None;
     }
-    let actual_status = actual_status.map_or_else(|| "unknown".to_string(), |status| status.to_string());
+    let actual_status =
+        actual_status.map_or_else(|| "unknown".to_string(), |status| status.to_string());
     Some(format!(
         "test.expect: the script did not behave as expected\n{}\nstatus: {actual_status}\nstdout:\n{}\nstderr:\n{}",
         mismatches.join("\n"),
@@ -741,7 +741,9 @@ impl LoweredRetryDelays {
                 started,
             } => {
                 let delay = *next;
-                let ends = started.elapsed().checked_add(Duration::from_millis(delay))?;
+                let ends = started
+                    .elapsed()
+                    .checked_add(Duration::from_millis(delay))?;
                 if ends > *limit {
                     return None;
                 }
@@ -1953,7 +1955,10 @@ fn lowered_optional_int_arg(
         Some(LoweredValue::Int(value)) => Ok(Some(*value)),
         Some(other) => Err(RuntimeError::new(
             "type-error",
-            format!("{operation} expected Int or null, found {}", other.type_name()),
+            format!(
+                "{operation} expected Int or null, found {}",
+                other.type_name()
+            ),
         )
         .with_span(span)),
     }
@@ -2421,10 +2426,7 @@ fn lowered_env_value_bytes(value: &LoweredValue, span: Span) -> Result<Vec<u8>, 
     if let LoweredValue::Path(path) = value {
         return Ok(path.bytes.clone());
     }
-    if matches!(
-        value,
-        LoweredValue::List(_) | LoweredValue::SharedList(_)
-    ) {
+    if matches!(value, LoweredValue::List(_) | LoweredValue::SharedList(_)) {
         return value_to_env_bytes(value.clone().into_value(), span);
     }
     let mut text = String::new();
@@ -4027,9 +4029,11 @@ impl NativeArgumentValues {
         self.0
             .into_iter()
             .map(|value| match value {
-                Some(LoweredValue::Path(path)) => path_value_from_pathbuf(evaluator.host_path(&path))
-                    .map(|path| Some(Value::Path(path)))
-                    .map_err(|error| error.with_span(span)),
+                Some(LoweredValue::Path(path)) => {
+                    path_value_from_pathbuf(evaluator.host_path(&path))
+                        .map(|path| Some(Value::Path(path)))
+                        .map_err(|error| error.with_span(span))
+                }
                 other => Ok(other.map(LoweredValue::into_value)),
             })
             .collect()
@@ -4784,7 +4788,9 @@ impl Evaluator {
                 // the path as the program spelled it.
                 let host = self.host_path(&path);
                 match crate::modules::fs::temp_sibling_name(&host, span)
-                    .map(|name| PathBuf::from(OsString::from_vec(path.bytes.clone())).with_file_name(name))
+                    .map(|name| {
+                        PathBuf::from(OsString::from_vec(path.bytes.clone())).with_file_name(name)
+                    })
                     .and_then(|sibling| {
                         path_value_from_pathbuf(sibling).map_err(|error| error.with_span(span))
                     }) {
@@ -4964,11 +4970,8 @@ impl Evaluator {
                     RuntimeOp::FsIsFile => ("Path.is_file", fs_module::PathKind::File),
                     _ => ("Path.is_symlink", fs_module::PathKind::Symlink),
                 };
-                let path = lowered_path_arg(
-                    values.pop().expect("checked value length"),
-                    operation,
-                    span,
-                )?;
+                let path =
+                    lowered_path_arg(values.pop().expect("checked value length"), operation, span)?;
                 match fs_module::path_is_kind(self.host_path(&path), kind, span) {
                     Ok(found) => lowered_result_ok(LoweredValue::Bool(found)),
                     Err(error) => lowered_result_err_value(error),
@@ -5725,7 +5728,10 @@ impl Evaluator {
             }
             RuntimeOp::FsStatvfs if values.len() == 1 => {
                 let path = lowered_path_arg(values.remove(0), "fs.statvfs", span)?;
-                lowered_runtime_result(fs_module::statvfs_record(self.host_path(&path), span), span)?
+                lowered_runtime_result(
+                    fs_module::statvfs_record(self.host_path(&path), span),
+                    span,
+                )?
             }
             RuntimeOp::FsRenameNoreplace if values.len() == 2 => {
                 let dest = lowered_path_arg(values.remove(1), "fs.rename_noreplace", span)?;
@@ -5744,14 +5750,17 @@ impl Evaluator {
                 let operation = "fs.copy_file";
                 let mode = lowered_optional_int_arg(values.get(5), operation, span)?;
                 let overwrite = lowered_bool_arg_or(values.get(4).cloned(), true, operation, span)?;
-                let reflink = lowered_str_arg_owned(values.get(3).cloned(), "never", operation, span)?;
-                let sparse = lowered_str_arg_owned(values.get(2).cloned(), "auto", operation, span)?;
+                let reflink =
+                    lowered_str_arg_owned(values.get(3).cloned(), "never", operation, span)?;
+                let sparse =
+                    lowered_str_arg_owned(values.get(2).cloned(), "auto", operation, span)?;
                 let dest = lowered_path_arg(values.remove(1), operation, span)?;
                 let source = lowered_path_arg(values.remove(0), operation, span)?;
-                let policies = fs_module::Policy::parse(&sparse, "sparse", span).and_then(|sparse| {
-                    fs_module::Policy::parse(&reflink, "reflink", span)
-                        .map(|reflink| (sparse, reflink))
-                });
+                let policies =
+                    fs_module::Policy::parse(&sparse, "sparse", span).and_then(|sparse| {
+                        fs_module::Policy::parse(&reflink, "reflink", span)
+                            .map(|reflink| (sparse, reflink))
+                    });
                 match policies {
                     Err(error) => lowered_result_err_value(error),
                     Ok((sparse, reflink)) => lowered_runtime_result(
@@ -8314,8 +8323,11 @@ impl Evaluator {
                     lowered_str_arg_owned(values.get(1).cloned(), "", "test.run_xsht_trace", span)?;
                 let trace_args =
                     lowered_optional_str_list(values.get(2).cloned(), "test.run_xsht_trace", span)?;
-                let script_args =
-                    lowered_optional_argv_words(values.get(3).cloned(), "test.run_xsht_trace", span)?;
+                let script_args = lowered_optional_argv_words(
+                    values.get(3).cloned(),
+                    "test.run_xsht_trace",
+                    span,
+                )?;
                 let env = lowered_optional_env_record(
                     values.get(4).cloned(),
                     "test.run_xsht_trace",
@@ -8358,8 +8370,7 @@ impl Evaluator {
                     lowered_optional_str_list(values.get(4).cloned(), "test.expect", span)?;
                 let args =
                     lowered_optional_argv_words(values.get(5).cloned(), "test.expect", span)?;
-                let env =
-                    lowered_optional_env_record(values.get(6).cloned(), "test.expect", span)?;
+                let env = lowered_optional_env_record(values.get(6).cloned(), "test.expect", span)?;
                 let stdin =
                     lowered_bytes_arg_or_empty(values.get(7).cloned(), "test.expect", span)?;
                 let name = lowered_str_arg_owned(
@@ -8370,11 +8381,12 @@ impl Evaluator {
                 )?;
                 match self.lowered_test_run_script(&ctx, &source, &args, &env, &stdin, &name, span)
                 {
-                    Ok(record) => match script_expectation_failure(&record, status, &stderr, &stdout)
-                    {
-                        Some(message) => lowered_runtime_value(test_failure(message), span)?,
-                        None => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
-                    },
+                    Ok(record) => {
+                        match script_expectation_failure(&record, status, &stderr, &stdout) {
+                            Some(message) => lowered_runtime_value(test_failure(message), span)?,
+                            None => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
+                        }
+                    }
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -8965,8 +8977,12 @@ impl Evaluator {
                 let attrs =
                     lowered_record_arg(values.first().cloned(), "unix.set_tty_attrs", span)?;
                 let fd = lowered_int_arg_or(values.get(1).cloned(), 0, "unix.set_tty_attrs", span)?;
-                let when =
-                    lowered_str_arg_owned(values.get(2).cloned(), "now", "unix.set_tty_attrs", span)?;
+                let when = lowered_str_arg_owned(
+                    values.get(2).cloned(),
+                    "now",
+                    "unix.set_tty_attrs",
+                    span,
+                )?;
                 unix_module::set_tty_attrs(&attrs, fd, &when, span)
             }
             _ => unreachable!("unix operation expected"),
@@ -11486,9 +11502,7 @@ impl Evaluator {
                 .as_ref()
                 .expect("indexed module program remains installed")
                 .driver_step_defers_on_error(index)
-                .map_err(|error| {
-                    RuntimeError::new("module-load", error.message).with_span(span)
-                })?;
+                .map_err(|error| RuntimeError::new("module-load", error.message).with_span(span))?;
             if on_error {
                 continue;
             }

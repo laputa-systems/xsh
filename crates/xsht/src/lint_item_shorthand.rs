@@ -1,7 +1,7 @@
+use super::super::format::Formatter;
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::source::Span;
 use xsh::frontend::symbols::Name;
-use super::super::format::Formatter;
 use xsh::frontend::syntax::arena::{
     ArenaExprKind, ArenaExprTag, ArenaPipeStageKind, ArenaStreamStage, AstArena, BlockId, ExprId,
 };
@@ -27,7 +27,11 @@ pub(super) fn stage_report(
 
 /// The same report for the handler block on the right of a `??` the linter
 /// visits.
-pub(super) fn handler_report(arena: &AstArena, source: &str, handler: ExprId) -> Option<Diagnostic> {
+pub(super) fn handler_report(
+    arena: &AstArena,
+    source: &str,
+    handler: ExprId,
+) -> Option<Diagnostic> {
     let ArenaExprKind::ValueBlock(block) = arena.expr(handler).kind else {
         return None;
     };
@@ -49,7 +53,9 @@ fn named_parameter(arena: &AstArena, block: BlockId) -> Option<Name> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Callback {
     /// A stage block; `stage_start` is where the stage's name begins.
-    Stage { stage_start: usize },
+    Stage {
+        stage_start: usize,
+    },
     Handler,
 }
 
@@ -74,7 +80,9 @@ fn callback_blocks(arena: &AstArena) -> Vec<(BlockId, Callback)> {
     for (index, tag) in arena.expr_tags.iter().enumerate() {
         if !matches!(
             tag,
-            ArenaExprTag::StructuredPipeline | ArenaExprTag::Pipeline | ArenaExprTag::BinaryResultFallback
+            ArenaExprTag::StructuredPipeline
+                | ArenaExprTag::Pipeline
+                | ArenaExprTag::BinaryResultFallback
         ) {
             continue;
         }
@@ -87,14 +95,14 @@ fn callback_blocks(arena: &AstArena) -> Vec<(BlockId, Callback)> {
                     .filter_map(|stage| Some((stage.block?, stage_callback(arena, stage)))),
             ),
             ArenaExprKind::Pipeline { stages, .. } => {
-                blocks.extend(arena.pipe_stages(stages).iter().filter_map(|stage| {
-                    match &stage.kind {
+                blocks.extend(arena.pipe_stages(stages).iter().filter_map(
+                    |stage| match &stage.kind {
                         ArenaPipeStageKind::Stream(stage) if one_item(stage.kind) => {
                             Some((stage.block?, stage_callback(arena, stage)))
                         }
                         _ => None,
-                    }
-                }));
+                    },
+                ));
             }
             ArenaExprKind::Binary {
                 op: BinaryOp::ResultFallback,
@@ -139,7 +147,8 @@ fn item_shorthand(
     }
     let snippet = CallbackSnippet::parse(callback, text)?;
     let local = &snippet.parsed.arena.arena;
-    let inside = |span: Span, outer: Span| outer.start() <= span.start() && span.end() <= outer.end();
+    let inside =
+        |span: Span, outer: Span| outer.start() <= span.start() && span.end() <= outer.end();
     let root_span = local.span(local.block(snippet.block).span);
     let uses = (0..local.expr_tags.len())
         .map(ExprId::from_index)
@@ -217,7 +226,10 @@ fn item_shorthand(
         "`{name}` is only read through its fields; leave the parameter implicit and write `.`"
     ))
     .with_code(DiagnosticCode::LintPreferItemShorthand)
-    .with_label(Label::primary(param_span, "this parameter can be the item `.`"))
+    .with_label(Label::primary(
+        param_span,
+        "this parameter can be the item `.`",
+    ))
     // Header removal and every item read form one rewrite. Keeping them in a
     // single edit prevents an overlapping fix from leaving an unbound name.
     .with_fix_hint(FixHint::replacement(
@@ -378,7 +390,10 @@ mod tests {
             .collect::<Vec<_>>();
         fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
         for fix in fixes {
-            fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap());
+            fixed.replace_range(
+                fix.span.unwrap().range(),
+                fix.replacement.as_deref().unwrap(),
+            );
         }
         fixed
     }
@@ -388,7 +403,10 @@ mod tests {
     #[test]
     fn field_and_method_receivers_become_the_item() {
         for (body, expected) in [
-            ("let urls = hits |> count { |hit| hit.url }\n", "let urls = hits |> count { .url }\n"),
+            (
+                "let urls = hits |> count { |hit| hit.url }\n",
+                "let urls = hits |> count { .url }\n",
+            ),
             (
                 "let sizes = hits |> map { |hit| hit.url.byte_len() + hit.size }\n",
                 "let sizes = hits |> map .url.byte_len() + .size\n",
@@ -413,7 +431,11 @@ mod tests {
                 &Parser::parse_source_arena_only(SourceId::new(0), &output).arena,
                 &output,
             );
-            assert!(checked.diagnostics.is_empty(), "{output}: {:?}", checked.diagnostics);
+            assert!(
+                checked.diagnostics.is_empty(),
+                "{output}: {:?}",
+                checked.diagnostics
+            );
             assert!(diagnostics(&output).is_empty(), "{output}");
         }
     }
@@ -448,17 +470,27 @@ mod tests {
             let source = format!("{HITS}{body}");
             let output = fixed(&source);
             assert_eq!(output, format!("{HITS}{expected}"), "{body}");
-            let formatted = crate::xsht::format::Formatter::new()
-                .format_source(SourceId::new(0), &output);
-            assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
-            assert!(formatted.formatted.ends_with(expected), "{}", formatted.formatted);
+            let formatted =
+                crate::xsht::format::Formatter::new().format_source(SourceId::new(0), &output);
+            assert!(
+                formatted.diagnostics.is_empty(),
+                "{:?}",
+                formatted.diagnostics
+            );
+            assert!(
+                formatted.formatted.ends_with(expected),
+                "{}",
+                formatted.formatted
+            );
             assert!(diagnostics(&output).is_empty(), "{output}");
         }
     }
 
     #[test]
     fn a_header_before_a_line_break_leaves_the_brace_alone() {
-        let source = format!("{HITS}let labels = hits\n  |> map {{ |hit|\n    f\"{{hit.url}}:{{hit.size}}\"\n  }}\n");
+        let source = format!(
+            "{HITS}let labels = hits\n  |> map {{ |hit|\n    f\"{{hit.url}}:{{hit.size}}\"\n  }}\n"
+        );
         assert!(
             fixed(&source).ends_with("  |> map {\n    f\"{.url}:{.size}\"\n  }\n"),
             "{}",
@@ -468,7 +500,9 @@ mod tests {
 
     #[test]
     fn whole_parameter_uses_become_the_item_beside_field_reads() {
-        let source = format!("{HITS}pure weight(hit: Hit) -> Int {{ hit.size }}\nlet total = hits |> map {{ |hit| hit.size + weight(hit) }}\n");
+        let source = format!(
+            "{HITS}pure weight(hit: Hit) -> Int {{ hit.size }}\nlet total = hits |> map {{ |hit| hit.size + weight(hit) }}\n"
+        );
         assert!(
             fixed(&source).ends_with("let total = hits |> map .size + weight(.)\n"),
             "{}",

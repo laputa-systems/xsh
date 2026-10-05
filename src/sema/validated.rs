@@ -147,8 +147,9 @@ impl Validation {
                 .then(|| format!("nominal type `{name}` is a record, not {base}")),
             Self::Range(range) => match base {
                 Type::Int => None,
-                Type::UInt => (range.low() < 0)
-                    .then(|| format!("a UInt is never negative, so `{range}` is not a range of UInt")),
+                Type::UInt => (range.low() < 0).then(|| {
+                    format!("a UInt is never negative, so `{range}` is not a range of UInt")
+                }),
                 _ => Some(format!("a range bounds an Int or a UInt, not {base}")),
             },
         }
@@ -400,9 +401,7 @@ impl Type {
                 Validation::Nominal(_) => Some(self),
                 _ => validated.base().held_nominal(),
             },
-            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
-                inner.held_nominal()
-            }
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => inner.held_nominal(),
             Self::Map(key, value) | Self::Result(key, value) => {
                 key.held_nominal().or_else(|| value.held_nominal())
             }
@@ -556,7 +555,9 @@ mod tests {
                         .is_some(),
                     "{other}"
                 );
-                assert!(crate::sema::types::union_member_error(&[other, package.clone()]).is_some());
+                assert!(
+                    crate::sema::types::union_member_error(&[other, package.clone()]).is_some()
+                );
             }
             assert_eq!(
                 crate::sema::types::union_member_error(&[package.clone(), Type::Int]),
@@ -616,8 +617,20 @@ mod tests {
     #[test]
     fn a_rel_path_is_relative_and_never_climbs_above_its_start() {
         for accepted in [
-            ".", "a", "a/b", "a/", "a//b", "./a", "a/./b", "a/..", "a/../b", "a/b/../..",
-            "...", "..a", "a..", ".hidden",
+            ".",
+            "a",
+            "a/b",
+            "a/",
+            "a//b",
+            "./a",
+            "a/./b",
+            "a/..",
+            "a/../b",
+            "a/b/../..",
+            "...",
+            "..a",
+            "a..",
+            ".hidden",
         ] {
             assert!(is_rel_path(accepted.as_bytes()), "{accepted}");
             assert_eq!(rel_path_failure(accepted.as_bytes()), None);
@@ -635,7 +648,11 @@ mod tests {
             ("a//../..", "climbs above where it starts"),
         ] {
             assert!(!is_rel_path(rejected.as_bytes()), "{rejected}");
-            assert_eq!(rel_path_failure(rejected.as_bytes()), Some(why), "{rejected}");
+            assert_eq!(
+                rel_path_failure(rejected.as_bytes()),
+                Some(why),
+                "{rejected}"
+            );
         }
         // The rule reads bytes: a name that is not UTF-8 is a name.
         assert!(is_rel_path(b"a/\xff/b"));

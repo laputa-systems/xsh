@@ -217,16 +217,19 @@ impl CompactBodyFacts {
                         .inferred_variant_patterns
                         .get(&arena.span(pattern.span))
                 {
-                    facts
-                        .inferred_variant_patterns
-                        .insert(crate::syntax::arena::PatternId::from_index(index), resolved.clone());
+                    facts.inferred_variant_patterns.insert(
+                        crate::syntax::arena::PatternId::from_index(index),
+                        resolved.clone(),
+                    );
                 }
             }
         }
         if !checked.text_patterns.is_empty() {
             for (index, pattern) in arena.patterns.iter().enumerate() {
-                if matches!(pattern.kind, crate::syntax::arena::ArenaPatternKind::Text(_))
-                    && let Some(compiled) = checked.text_patterns.get(&arena.span(pattern.span))
+                if matches!(
+                    pattern.kind,
+                    crate::syntax::arena::ArenaPatternKind::Text(_)
+                ) && let Some(compiled) = checked.text_patterns.get(&arena.span(pattern.span))
                 {
                     facts.text_patterns.insert(
                         crate::syntax::arena::PatternId::from_index(index),
@@ -556,7 +559,10 @@ impl CompactDeclCollector {
                         }
                     }
                 }
-                CompactTypeDefInfo::Module(std::sync::Arc::new(crate::sema::types::ModuleType { exports, exact }))
+                CompactTypeDefInfo::Module(std::sync::Arc::new(crate::sema::types::ModuleType {
+                    exports,
+                    exact,
+                }))
             }
             ArenaTypeDefBody::TagUnion(variants) => {
                 let variants = program.arena.tag_variants(variants);

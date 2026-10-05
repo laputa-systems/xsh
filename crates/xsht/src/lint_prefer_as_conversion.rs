@@ -52,13 +52,14 @@ pub(super) fn propagated_conversion(
     .with_code(DiagnosticCode::LintPreferAsConversion)
     .with_label(Label::secondary(
         node.span,
-        format!("this converts {from} to {target} and propagates a failure; write `... as {target}`"),
+        format!(
+            "this converts {from} to {target} and propagates a failure; write `... as {target}`"
+        ),
     ));
     let text = source.get(node.span.range())?;
     // The operand is spelled with whatever groups it; a pipeline stage that
     // names a method has no operand in its own text.
-    let inside =
-        node.span.start() <= operand.span.start() && operand.span.end() <= node.span.end();
+    let inside = node.span.start() <= operand.span.start() && operand.span.end() <= node.span.end();
     let spelled = inside
         && match operation.conversion {
             Conversion::BytesToPath | Conversion::TextToPath => true,
@@ -122,9 +123,7 @@ fn operation(arena: &AstArena, bytes_is_shadowed: bool, call: ExprId) -> Option<
                     return None;
                 }
                 // `Path.parse_bytes(bytes.from_text(text))` reads the text.
-                if !bytes_is_shadowed
-                    && let Some(text) = text_as_bytes(arena, bytes)
-                {
+                if !bytes_is_shadowed && let Some(text) = text_as_bytes(arena, bytes) {
                     return Some(Operation {
                         operand: text,
                         target: "Path",

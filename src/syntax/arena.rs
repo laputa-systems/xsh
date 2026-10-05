@@ -2,9 +2,9 @@ use crate::source::{SourceId, Span};
 use crate::symbol::{Name, Symbol};
 use crate::syntax::lexer::Lexer;
 use crate::syntax::node::{
-    AssignOp, BinaryOp, BlockParam, CoreCommand, DurationLiteral, Effect, FloatLiteral,
-    FormatSpec, FormatSpecKind, IntLiteral, RedirectionKind, RunKind, SignalHookOptions,
-    StreamStageKind, UnaryOp,
+    AssignOp, BinaryOp, BlockParam, CoreCommand, DurationLiteral, Effect, FloatLiteral, FormatSpec,
+    FormatSpecKind, IntLiteral, RedirectionKind, RunKind, SignalHookOptions, StreamStageKind,
+    UnaryOp,
 };
 use crate::syntax::token::{TokenTable, TokenTag};
 use std::mem::size_of;
@@ -767,7 +767,10 @@ fn attached_export_doc_comment(
 fn doc_gap_attaches(gap: &str) -> bool {
     let mut lines = gap.split('\n').collect::<Vec<_>>();
     let indentation = lines.pop().unwrap_or("");
-    let blank = |text: &str| text.bytes().all(|byte| matches!(byte, b' ' | b'\t' | b'\r'));
+    let blank = |text: &str| {
+        text.bytes()
+            .all(|byte| matches!(byte, b' ' | b'\t' | b'\r'))
+    };
     blank(indentation)
         && lines.iter().all(|line| {
             let text = line.trim_start_matches([' ', '\t']);
@@ -4593,18 +4596,14 @@ impl AstArena {
             ArenaStmtTag::YieldRun => {
                 ArenaStmtKind::Yield(ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize)))
             }
-            ArenaStmtTag::DeferExpr => {
-                ArenaStmtKind::Defer(
-                    ArenaExprOrRun::Expr(ExprId::new(data.lhs as usize)),
-                    DeferTrigger::from_raw(data.rhs),
-                )
-            }
-            ArenaStmtTag::DeferRun => {
-                ArenaStmtKind::Defer(
-                    ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize)),
-                    DeferTrigger::from_raw(data.rhs),
-                )
-            }
+            ArenaStmtTag::DeferExpr => ArenaStmtKind::Defer(
+                ArenaExprOrRun::Expr(ExprId::new(data.lhs as usize)),
+                DeferTrigger::from_raw(data.rhs),
+            ),
+            ArenaStmtTag::DeferRun => ArenaStmtKind::Defer(
+                ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize)),
+                DeferTrigger::from_raw(data.rhs),
+            ),
             ArenaStmtTag::IfNoElse => ArenaStmtKind::If {
                 branches: range_from_stmt_data(data),
                 else_block: None,
@@ -5274,7 +5273,9 @@ impl AstArena {
                 condition,
             },
             (SugarForm::When | SugarForm::Unless, operands) => {
-                unreachable!("a guarded statement has a condition and a statement, found {operands:?}")
+                unreachable!(
+                    "a guarded statement has a condition and a statement, found {operands:?}"
+                )
             }
             (
                 SugarForm::Guard,
@@ -6120,14 +6121,20 @@ pub enum ArenaSugarOperand {
 /// match one particular form. Everything else walks `sugar_operands`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArenaSugar {
-    Repeat { count: ExprId, body: BlockId },
+    Repeat {
+        count: ExprId,
+        body: BlockId,
+    },
     /// `stmt when condition`, or `stmt unless condition` when `negate`.
     Guarded {
         stmt: StmtId,
         negate: bool,
         condition: ExprId,
     },
-    Guard { condition: ExprId, else_block: BlockId },
+    Guard {
+        condition: ExprId,
+        else_block: BlockId,
+    },
     /// `failure` is a message, or an error written `.Variant(...)`.
     Fail {
         failure: ExprId,
@@ -6145,7 +6152,10 @@ pub enum ArenaSugar {
         body: BlockId,
     },
     /// `guard condition else fail ...`, where `fail` is the `fail` statement.
-    GuardFail { condition: ExprId, fail: StmtId },
+    GuardFail {
+        condition: ExprId,
+        fail: StmtId,
+    },
     WaitUntil {
         condition: ExprId,
         limit: ExprId,
@@ -6432,8 +6442,14 @@ pub struct ArenaAssignTarget {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaAssignTargetKind {
     Name(Name),
-    Field { base: AssignTargetId, name: Name },
-    Index { base: AssignTargetId, index: ExprId },
+    Field {
+        base: AssignTargetId,
+        name: Name,
+    },
+    Index {
+        base: AssignTargetId,
+        index: ExprId,
+    },
     /// `e"NAME" = value` sets an environment variable; it has no base, field,
     /// or index and only takes plain `=`.
     Env(Name),

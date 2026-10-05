@@ -191,7 +191,11 @@ fn lint_fix_cancellation_writes_no_file() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-        let name = if signal == libc::SIGINT { "SIGINT" } else { "SIGTERM" };
+        let name = if signal == libc::SIGINT {
+            "SIGINT"
+        } else {
+            "SIGTERM"
+        };
         assert!(
             String::from_utf8_lossy(&output.stderr).contains(&format!("interrupted by {name}")),
             "{}",
@@ -261,7 +265,11 @@ fn fmt_cancellation_during_one_large_file_is_prompt_and_writes_no_file() {
             String::from_utf8_lossy(&output.stderr)
         );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "");
-        let name = if signal == libc::SIGINT { "SIGINT" } else { "SIGTERM" };
+        let name = if signal == libc::SIGINT {
+            "SIGINT"
+        } else {
+            "SIGTERM"
+        };
         assert!(
             String::from_utf8_lossy(&output.stderr).contains(&format!("interrupted by {name}")),
             "{}",
@@ -390,4 +398,3 @@ test passes {{ |ctx|
     assert_eq!(invalid.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&invalid.stderr).contains("`--timeout` expects a duration"));
 }
-

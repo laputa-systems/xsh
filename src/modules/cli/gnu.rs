@@ -395,9 +395,8 @@ impl Scan<'_> {
                 )));
             }
             (Arity::Switch, None) | (Arity::SwitchValue | Arity::Optional, None) => None,
-            (Arity::SwitchValue | Arity::Optional, Some(value)) | (Arity::Required, Some(value)) => {
-                Some(value)
-            }
+            (Arity::SwitchValue | Arity::Optional, Some(value))
+            | (Arity::Required, Some(value)) => Some(value),
             (Arity::Required, None) => {
                 let Some(value) = self.argv.get(next) else {
                     return Err(self
@@ -424,7 +423,10 @@ impl Scan<'_> {
         let mut pos = 0;
         let mut stop = false;
         while pos < cluster.len() {
-            let ch = cluster[pos..].chars().next().expect("cluster offset is valid");
+            let ch = cluster[pos..]
+                .chars()
+                .next()
+                .expect("cluster offset is valid");
             let rest = &cluster[pos + ch.len_utf8()..];
             if let Some(name) = self.shorts.get(ch.to_string().as_str()) {
                 let spec = &self.specs[name];
@@ -456,10 +458,9 @@ impl Scan<'_> {
                 .iter()
                 .find(|entry| !entry.long && entry.name == ch.to_string())
             {
-                return Err(self.diag.error(format!(
-                    "option '-{ch}' is not supported: {}",
-                    entry.reason
-                )));
+                return Err(self
+                    .diag
+                    .error(format!("option '-{ch}' is not supported: {}", entry.reason)));
             } else if let (true, Some(name)) = (ch.is_ascii_digit(), self.numeric) {
                 let digits = cluster[pos..]
                     .find(|ch: char| !ch.is_ascii_digit())
@@ -495,14 +496,13 @@ impl Scan<'_> {
         let value = match raw {
             Some(raw) => convert_arg_value(name, raw, &spec.value_ty, index, self.span)
                 .map_err(|_| invalid(raw))?,
-            None if arity(spec) == Arity::Optional => {
-                optional_value_default(name, spec, self.span).map_err(|_| {
+            None if arity(spec) == Arity::Optional => optional_value_default(name, spec, self.span)
+                .map_err(|_| {
                     self.diag.error(format!(
                         "option '{}' requires an argument",
                         option_label(name, spec)
                     ))
-                })?
-            }
+                })?,
             None => Value::Bool(true),
         };
         let shown = raw.unwrap_or_default();

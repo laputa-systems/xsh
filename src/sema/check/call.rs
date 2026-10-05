@@ -614,9 +614,7 @@ impl Checker {
                 Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => {
                     (*inner, true)
                 }
-                Type::Result(_, _) => {
-                    (self.check_propagation(&base_ty, span), false)
-                }
+                Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
                 _ => {
                     self.error(
                         span,
@@ -1504,7 +1502,9 @@ impl Checker {
                 diagnostic = Diagnostic::error("`abort` was removed")
                     .with_code(DiagnosticCode::CheckRemovedAbort)
                     .with_label(Label::primary(span, "`abort` is no longer a function"))
-                    .with_note("`abort` was removed; a deliberate exit is the statement `exit STATUS`");
+                    .with_note(
+                        "`abort` was removed; a deliberate exit is the statement `exit STATUS`",
+                    );
                 match argument {
                     // `exit` is a statement, so the call is rewritten only
                     // where it is one; as an operand it has no spelling that
@@ -1909,8 +1909,7 @@ impl Checker {
             if let [arg] = args
                 && matches!(arg.kind, ArenaCallArgKind::Positional(_))
             {
-                if let Some(removed) = self.check_fs_executable_argument(arena, source, arg, span)
-                {
+                if let Some(removed) = self.check_fs_executable_argument(arena, source, arg, span) {
                     return removed;
                 }
                 executable_mode_checked = true;

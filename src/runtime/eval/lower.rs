@@ -18,8 +18,8 @@ use crate::syntax::arena::{
     BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
 };
 use crate::syntax::node::{
-    AssignOp, BinaryOp, CommandWordRefSegment, CoreCommand, RunKind, StreamStageKind,
-    UnaryOp, parse_command_word_reference,
+    AssignOp, BinaryOp, CommandWordRefSegment, CoreCommand, RunKind, StreamStageKind, UnaryOp,
+    parse_command_word_reference,
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::cell::RefCell;
@@ -1685,9 +1685,10 @@ fn compact_collect_stmt_call_edges(
     edges: &mut Vec<usize>,
 ) {
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
-            compact_collect_stmt_call_edges(program, inner, namespace, index_of, edges)
-        }
+        ArenaStmtKind::Export(inner)
+        | ArenaStmtKind::Sugar {
+            expansion: inner, ..
+        } => compact_collect_stmt_call_edges(program, inner, namespace, index_of, edges),
         ArenaStmtKind::Let { initializer, .. }
         | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. }
@@ -1915,7 +1916,8 @@ fn compact_collect_expr_call_edges(
                 compact_collect_expr_call_edges(program, item, namespace, index_of, edges);
             }
         }
-        ArenaExprKind::ListComp { expr, qualifiers } | ArenaExprKind::SetComp { expr, qualifiers } => {
+        ArenaExprKind::ListComp { expr, qualifiers }
+        | ArenaExprKind::SetComp { expr, qualifiers } => {
             for qualifier in program.arena.comp_qualifiers(qualifiers) {
                 compact_collect_expr_call_edges(
                     program,
@@ -3515,11 +3517,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     name: Arc::from(expected.to_string()),
                 })
             } else if param.ty_defaulted {
-                (lowered_type_needs_static_check(kind) || expected.validated().is_some()).then(|| LoweredTypeCheck {
-                    schema: None,
-                    ty: expected.clone(),
-                    name: Arc::from(expected.to_string()),
-                })
+                (lowered_type_needs_static_check(kind) || expected.validated().is_some()).then(
+                    || LoweredTypeCheck {
+                        schema: None,
+                        ty: expected.clone(),
+                        name: Arc::from(expected.to_string()),
+                    },
+                )
             } else {
                 compact_type_check(
                     kind,
@@ -3696,7 +3700,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     }
 
     fn record_top_level_blocker_detail(&mut self, id: StmtId, blocker: CompactTopLevelBlocker) {
-        if let ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar {
+        if let ArenaStmtKind::Export(inner)
+        | ArenaStmtKind::Sugar {
             expansion: inner, ..
         } = self.program.arena.stmt(id).kind
         {
@@ -3792,9 +3797,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
 
     fn top_level_blocker_kind(&self, id: StmtId) -> CompactTopLevelBlocker {
         match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
-                self.top_level_blocker_kind(inner)
-            }
+            ArenaStmtKind::Export(inner)
+            | ArenaStmtKind::Sugar {
+                expansion: inner, ..
+            } => self.top_level_blocker_kind(inner),
             ArenaStmtKind::Use(_) => CompactTopLevelBlocker::Use,
             ArenaStmtKind::Let { target, ty, .. }
             | ArenaStmtKind::Const { target, ty, .. }
@@ -3842,9 +3848,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<BuildTopStmtId> {
         match self.program.arena.stmt(id).kind {
-            ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
-                self.lower_top_level_stmt(inner, known)
-            }
+            ArenaStmtKind::Export(inner)
+            | ArenaStmtKind::Sugar {
+                expansion: inner, ..
+            } => self.lower_top_level_stmt(inner, known),
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = self.program.arena.use_stmt(use_id);
                 let key = use_stmt.resolved.clone()?;
@@ -4641,7 +4648,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             schema: None,
         };
         let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
-        push_build_row!(self, expr, BuildExprRow::Try { value: checked, span })
+        push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Try {
+                value: checked,
+                span
+            }
+        )
     }
 
     fn lower_binding_expr_value(
@@ -4684,15 +4698,18 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             Some(push_build_row!(
                 self,
                 expr,
-                BuildExprRow::Try { value: push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Require {
-                        value: lowered,
-                        check,
-                        span,
-                    }
-                ), span }
+                BuildExprRow::Try {
+                    value: push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::Require {
+                            value: lowered,
+                            check,
+                            span,
+                        }
+                    ),
+                    span
+                }
             ))
         } else {
             Some(lowered)
@@ -4857,7 +4874,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
         if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
         {
-            Some(push_build_row!(self, expr, BuildExprRow::Try { value: lowered, span: self.program.arena.expr(iter).span }))
+            Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Try {
+                    value: lowered,
+                    span: self.program.arena.expr(iter).span
+                }
+            ))
         } else {
             Some(lowered)
         }
@@ -6095,9 +6119,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             )),
             // The checker decided that this yield appends to a `collect`
             // expression: it adds to that expression's local.
-            ArenaStmtKind::YieldDelegate(value)
-                if self.bodies.collect_yields.contains_key(&id) =>
-            {
+            ArenaStmtKind::YieldDelegate(value) if self.bodies.collect_yields.contains_key(&id) => {
                 let items = self.lower_expr(value, slots, current_function, item_slot)?;
                 self.lower_collect_yield(id, items, slots)
             }
@@ -6196,7 +6218,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             }
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value), trigger) => {
                 let value = self.lower_deferred_expr(value, slots, current_function, item_slot)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Defer {
+                Some(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Defer {
                         value,
                         on_error: trigger == DeferTrigger::Error,
                     }
@@ -6205,7 +6230,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Defer(ArenaExprOrRun::Run(run), trigger) => {
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Defer {
+                Some(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Defer {
                         value,
                         on_error: trigger == DeferTrigger::Error,
                     }
@@ -6771,7 +6799,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             };
             let capture = push_build_row!(self, expr, BuildExprRow::RunCapture(Box::new(capture)));
             if run.propagate && capture_kind {
-                Some(push_build_row!(self, expr, BuildExprRow::Try { value: capture, span: self.program.arena.span(run.span) }))
+                Some(push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::Try {
+                        value: capture,
+                        span: self.program.arena.span(run.span)
+                    }
+                ))
             } else {
                 Some(capture)
             }
@@ -6854,7 +6889,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             );
             if run.propagate && (capture_kind || !assert_success) {
-                Some(push_build_row!(self, expr, BuildExprRow::Try { value: pipeline, span: self.program.arena.span(run.span) }))
+                Some(push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::Try {
+                        value: pipeline,
+                        span: self.program.arena.span(run.span)
+                    }
+                ))
             } else {
                 Some(pipeline)
             }
@@ -7043,7 +7085,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             return Some(*receiver);
         }
         let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
-        Some(push_build_row!(self, expr, BuildExprRow::Try { value: receiver, span: self.program.arena.expr(base).span }))
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Try {
+                value: receiver,
+                span: self.program.arena.expr(base).span
+            }
+        ))
     }
 
     fn lower_optional_postfix(
@@ -7153,7 +7202,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             let outer = slots.propagated_condition.replace(id);
             let operand = self.lower_expr(id, slots, current_function, item_slot);
             slots.propagated_condition = outer;
-            return Some(push_build_row!(self, expr, BuildExprRow::Try { value: operand?, span: self.program.arena.expr(id).span }));
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Try {
+                    value: operand?,
+                    span: self.program.arena.expr(id).span
+                }
+            ));
         }
         if let Some(value) = self.declarations.prepared_constants.values.get(&id) {
             let origin = self
@@ -7361,7 +7417,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let items = self.program.arena.list_elements(items).collect::<Vec<_>>();
                 let mut lowered = Vec::with_capacity(items.len());
                 for item in items {
-                    lowered.push(self.lower_expr(item.value, slots, current_function, item_slot)?);
+                    lowered.push(self.lower_expr(
+                        item.value,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?);
                 }
                 Some(self.list_as_set(lowered, span))
             }
@@ -7603,7 +7664,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                 };
                 let operation = push_build_row!(self, expr, operation);
-                Some(push_build_row!(self, expr, BuildExprRow::Try { value: operation, span }))
+                Some(push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::Try {
+                        value: operation,
+                        span
+                    }
+                ))
             }
             ArenaExprKind::Require { value, schema } => {
                 let (ty, name) = if let Some(schema) = schema {
@@ -8107,7 +8175,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     })
                 {
                     let value = self.lower_expr(expr, slots, current_function, item_slot)?;
-                    return Some(push_build_row!(self, expr, BuildExprRow::Try { value, span: self.propagation_span(id, expr, slots) }));
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::Try {
+                            value,
+                            span: self.propagation_span(id, expr, slots)
+                        }
+                    ));
                 }
                 let expr_span = self.program.arena.expr(expr).span;
                 if let ArenaExprKind::Call { callee, args } = self.program.arena.expr(expr).kind {
@@ -8122,47 +8197,50 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             return Some(push_build_row!(
                                 self,
                                 expr,
-                                BuildExprRow::Try { value: push_build_row!(
-                                    self,
-                                    expr,
-                                    BuildExprRow::FsFiles {
-                                        root: self.lower_expr(
-                                            options.root,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        gitignore: self.lower_optional_expr(
-                                            options.gitignore,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        stat: self.lower_optional_expr(
-                                            options.stat,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        hidden: self.lower_optional_expr(
-                                            options.hidden,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        exts: match options.exts {
-                                            Some(exts) => Some(self.lower_expr(
-                                                exts,
+                                BuildExprRow::Try {
+                                    value: push_build_row!(
+                                        self,
+                                        expr,
+                                        BuildExprRow::FsFiles {
+                                            root: self.lower_expr(
+                                                options.root,
                                                 slots,
                                                 current_function,
                                                 item_slot,
-                                            )?),
-                                            None => None,
-                                        },
-                                        result_wrapped: true,
-                                        span: expr_span,
-                                    }
-                                ), span: self.propagation_span(id, expr, slots) }
+                                            )?,
+                                            gitignore: self.lower_optional_expr(
+                                                options.gitignore,
+                                                slots,
+                                                current_function,
+                                                item_slot,
+                                            )?,
+                                            stat: self.lower_optional_expr(
+                                                options.stat,
+                                                slots,
+                                                current_function,
+                                                item_slot,
+                                            )?,
+                                            hidden: self.lower_optional_expr(
+                                                options.hidden,
+                                                slots,
+                                                current_function,
+                                                item_slot,
+                                            )?,
+                                            exts: match options.exts {
+                                                Some(exts) => Some(self.lower_expr(
+                                                    exts,
+                                                    slots,
+                                                    current_function,
+                                                    item_slot,
+                                                )?),
+                                                None => None,
+                                            },
+                                            result_wrapped: true,
+                                            span: expr_span,
+                                        }
+                                    ),
+                                    span: self.propagation_span(id, expr, slots)
+                                }
                             ));
                         }
                         if module == "fs" && name == "walk" {
@@ -8171,47 +8249,50 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             return Some(push_build_row!(
                                 self,
                                 expr,
-                                BuildExprRow::Try { value: push_build_row!(
-                                    self,
-                                    expr,
-                                    BuildExprRow::FsWalk {
-                                        root: self.lower_expr(
-                                            options.root,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        gitignore: self.lower_optional_expr(
-                                            options.gitignore,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        stat: self.lower_optional_expr(
-                                            options.stat,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        hidden: self.lower_optional_expr(
-                                            options.hidden,
-                                            slots,
-                                            current_function,
-                                            item_slot,
-                                        )?,
-                                        exts: match options.exts {
-                                            Some(exts) => Some(self.lower_expr(
-                                                exts,
+                                BuildExprRow::Try {
+                                    value: push_build_row!(
+                                        self,
+                                        expr,
+                                        BuildExprRow::FsWalk {
+                                            root: self.lower_expr(
+                                                options.root,
                                                 slots,
                                                 current_function,
                                                 item_slot,
-                                            )?),
-                                            None => None,
-                                        },
-                                        result_wrapped: true,
-                                        span: expr_span,
-                                    }
-                                ), span: self.propagation_span(id, expr, slots) }
+                                            )?,
+                                            gitignore: self.lower_optional_expr(
+                                                options.gitignore,
+                                                slots,
+                                                current_function,
+                                                item_slot,
+                                            )?,
+                                            stat: self.lower_optional_expr(
+                                                options.stat,
+                                                slots,
+                                                current_function,
+                                                item_slot,
+                                            )?,
+                                            hidden: self.lower_optional_expr(
+                                                options.hidden,
+                                                slots,
+                                                current_function,
+                                                item_slot,
+                                            )?,
+                                            exts: match options.exts {
+                                                Some(exts) => Some(self.lower_expr(
+                                                    exts,
+                                                    slots,
+                                                    current_function,
+                                                    item_slot,
+                                                )?),
+                                                None => None,
+                                            },
+                                            result_wrapped: true,
+                                            span: expr_span,
+                                        }
+                                    ),
+                                    span: self.propagation_span(id, expr, slots)
+                                }
                             ));
                         }
                     }
@@ -8219,7 +8300,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 Some(push_build_row!(
                     self,
                     expr,
-                    BuildExprRow::Try { value: self.lower_expr(expr, slots, current_function, item_slot)?, span: self.propagation_span(id, expr, slots) }
+                    BuildExprRow::Try {
+                        value: self.lower_expr(expr, slots, current_function, item_slot)?,
+                        span: self.propagation_span(id, expr, slots)
+                    }
                 ))
             }
             ArenaExprKind::Call { callee, args } => {
@@ -8342,11 +8426,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let slot = slots.declare(collect_local(id));
                 let lowered = (|| {
                     let empty = push_build_row!(self, expr, BuildExprRow::List(Vec::new()));
-                    let bind = push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::Let { slot, value: empty }
-                    );
+                    let bind =
+                        push_build_row!(self, stmt, BuildStmtRow::Let { slot, value: empty });
                     let body = self.lower_block(block, slots, current_function, item_slot)?;
                     let body = push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span });
                     let run = push_build_row!(self, stmt, BuildStmtRow::Expr { value: body, span });
@@ -9500,7 +9581,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     /// a mode is a separate overload and lowers as an ordinary operation
     /// call with the receiver first; only the two-operand write has its own
     /// instruction.
-    fn path_write_mode_args(&self, call: ExprId, args: &[ArenaCallArg]) -> Option<(ExprId, ExprId)> {
+    fn path_write_mode_args(
+        &self,
+        call: ExprId,
+        args: &[ArenaCallArg],
+    ) -> Option<(ExprId, ExprId)> {
         let checked = self.checked_path_method_arguments(call, args)?;
         Some((checked.get("data")?, checked.get("mode")?))
     }
@@ -9921,7 +10006,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 .into(),
             };
             let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
-            return Some(push_build_row!(self, expr, BuildExprRow::Try { value: checked, span }));
+            return Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Try {
+                    value: checked,
+                    span
+                }
+            ));
         }
         if let Some((error, bindings)) =
             self.lower_compact_error_expr(id, callee, &args_vec, slots, current_function, item_slot)
@@ -10519,13 +10611,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if name == "chmod"
                     && let Some(operands) = self.path_chmod_operands(id, &args_vec)
                 {
-                    let mut args =
-                        vec![Some(self.lower_expr(base, slots, current_function, item_slot)?)];
+                    let mut args = vec![Some(self.lower_expr(
+                        base,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)];
                     for operand in operands {
                         args.push(match operand {
-                            Some(operand) => {
-                                Some(self.lower_expr(operand, slots, current_function, item_slot)?)
-                            }
+                            Some(operand) => Some(self.lower_expr(
+                                operand,
+                                slots,
+                                current_function,
+                                item_slot,
+                            )?),
                             None => None,
                         });
                     }
@@ -10902,14 +11001,23 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             }
                         ));
                     }
-                    if let Some((op, operands)) = self.path_method_module_operands(id, name, &args_vec)
+                    if let Some((op, operands)) =
+                        self.path_method_module_operands(id, name, &args_vec)
                     {
-                        let mut args = vec![Some(self.lower_expr(base, slots, current_function, item_slot)?)];
+                        let mut args = vec![Some(self.lower_expr(
+                            base,
+                            slots,
+                            current_function,
+                            item_slot,
+                        )?)];
                         for operand in operands {
                             args.push(match operand {
-                                Some(operand) => {
-                                    Some(self.lower_expr(operand, slots, current_function, item_slot)?)
-                                }
+                                Some(operand) => Some(self.lower_expr(
+                                    operand,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?),
                                 None => None,
                             });
                         }
@@ -11201,13 +11309,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 if name == "chmod"
                     && let Some(operands) = self.path_chmod_operands(id, &args_vec)
                 {
-                    let mut args =
-                        vec![Some(self.lower_postfix_receiver(base, slots, current_function, item_slot)?)];
+                    let mut args = vec![Some(self.lower_postfix_receiver(
+                        base,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)];
                     for operand in operands {
                         args.push(match operand {
-                            Some(operand) => {
-                                Some(self.lower_expr(operand, slots, current_function, item_slot)?)
-                            }
+                            Some(operand) => Some(self.lower_expr(
+                                operand,
+                                slots,
+                                current_function,
+                                item_slot,
+                            )?),
                             None => None,
                         });
                     }
@@ -11334,9 +11449,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     )?)];
                     for operand in operands {
                         args.push(match operand {
-                            Some(operand) => {
-                                Some(self.lower_expr(operand, slots, current_function, item_slot)?)
-                            }
+                            Some(operand) => Some(self.lower_expr(
+                                operand,
+                                slots,
+                                current_function,
+                                item_slot,
+                            )?),
                             None => None,
                         });
                     }
@@ -11884,7 +12002,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     expr,
                     BuildExprRow::Tag {
                         type_name,
-                        wire: self.declarations.wire_enums.mappings.get(&type_name).cloned(),
+                        wire: self
+                            .declarations
+                            .wire_enums
+                            .mappings
+                            .get(&type_name)
+                            .cloned(),
                         name: Arc::<str>::from(variant.as_str().as_str()),
                         fields,
                     }
@@ -13540,7 +13663,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if !kind.is_inferred_variant() {
             return Some(kind.clone());
         }
-        Some(self.bodies.inferred_variant_patterns.get(&id)?.qualify(kind))
+        Some(
+            self.bodies
+                .inferred_variant_patterns
+                .get(&id)?
+                .qualify(kind),
+        )
     }
 
     fn pattern_tag_name(&mut self, pattern: PatternId) -> Option<Option<Arc<str>>> {
@@ -13643,7 +13771,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 return Some(push_build_row!(
                     self,
                     expr,
-                    BuildExprRow::Try { value: lowered, span }
+                    BuildExprRow::Try {
+                        value: lowered,
+                        span
+                    }
                 ));
             }
             Some(lowered)
@@ -13678,9 +13809,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let saved = slots.enter();
         let result = (|| {
             let at_slot = slots.reserve("tempdir.at");
-            let at = |lowerer: &mut Self| {
-                push_build_row!(lowerer, expr, BuildExprRow::Param(at_slot))
-            };
+            let at =
+                |lowerer: &mut Self| push_build_row!(lowerer, expr, BuildExprRow::Param(at_slot));
             let remove = |lowerer: &mut Self| {
                 let path = at(lowerer);
                 let missing_ok = push_build_row!(lowerer, expr, BuildExprRow::Bool(true));
@@ -13720,7 +13850,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 let inner = slots.enter();
                 let scope = (|| {
                     let removal = remove(self);
-                    let removal = push_build_row!(self, expr, BuildExprRow::Try { value: removal, span });
+                    let removal = push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::Try {
+                            value: removal,
+                            span
+                        }
+                    );
                     let mut body = vec![push_build_row!(
                         self,
                         stmt,
@@ -13802,7 +13939,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ),
                 push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }),
             ];
-            Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+            Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::ValueBlock { body, span }
+            ))
         })();
         slots.exit(saved);
         result
@@ -13853,7 +13994,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span,
                     }
                 );
-                let mut release = push_build_row!(lowerer, expr, BuildExprRow::Try { value: call, span });
+                let mut release =
+                    push_build_row!(lowerer, expr, BuildExprRow::Try { value: call, span });
                 if unless_closing {
                     let closing = push_build_row!(lowerer, expr, BuildExprRow::Param(closing_slot));
                     let nothing = push_build_row!(lowerer, expr, BuildExprRow::Unit);
@@ -13896,7 +14038,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 } else {
                     slots.declare_with_type(binding.name, ty)
                 };
-                body.push(push_build_row!(self, stmt, BuildStmtRow::Let { slot, value }));
+                body.push(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Let { slot, value }
+                ));
                 body.push(release(self, slot, kind, true));
                 held.push((slot, kind));
             }
@@ -13936,7 +14082,14 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             ));
             let finished = push_build_row!(self, expr, BuildExprRow::Param(finished_slot));
-            let value = push_build_row!(self, expr, BuildExprRow::Try { value: finished, span });
+            let value = push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Try {
+                    value: finished,
+                    span
+                }
+            );
             closing.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
             let outcome = push_build_row!(
                 self,
@@ -13946,8 +14099,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span
                 }
             );
-            body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }));
-            Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+            body.push(push_build_row!(
+                self,
+                stmt,
+                BuildStmtRow::Value { value: outcome }
+            ));
+            Some(push_build_row!(
+                self,
+                expr,
+                BuildExprRow::ValueBlock { body, span }
+            ))
         })();
         slots.exit(saved);
         result
@@ -13996,7 +14157,11 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let tail = tail.unwrap_or_else(|| push_build_row!(self, expr, BuildExprRow::Unit));
         let value = push_build_row!(self, expr, BuildExprRow::Ok(tail));
         body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
-        Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::ValueBlock { body, span }
+        ))
     }
 
     fn lower_fresh_tempdir_scope(
@@ -14009,11 +14174,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildExprId> {
         let created = push_build_row!(self, expr, BuildExprRow::FsTempDir { span });
         let failed_slot = slots.reserve("tempdir.failed");
-        let failed = push_build_row!(
-            self,
-            pattern,
-            BuildPatternRow::Bind { slot: failed_slot }
-        );
+        let failed = push_build_row!(self, pattern, BuildPatternRow::Bind { slot: failed_slot });
         let failure = push_build_row!(self, expr, BuildExprRow::Param(failed_slot));
         let saved = slots.enter();
         let result = (|| {
@@ -15108,7 +15269,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 }
             }
             ArenaAssignTargetKind::Index { base, .. } => {
-                match self.assign_target_checked_type(base, slots)?.into_unvalidated() {
+                match self
+                    .assign_target_checked_type(base, slots)?
+                    .into_unvalidated()
+                {
                     Type::List(item) | Type::Map(_, item) => Some(*item),
                     _ => None,
                 }
@@ -15159,7 +15323,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
     ) -> Option<BuildStmtId> {
         let span = self.program.arena.stmt(id).span;
         let value = match value {
-            ArenaExprOrRun::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot)?,
+            ArenaExprOrRun::Expr(expr) => {
+                self.lower_expr(expr, slots, current_function, item_slot)?
+            }
             ArenaExprOrRun::Run(run) => {
                 self.lower_run_binding_value(run, slots, current_function, item_slot)?
             }
@@ -15342,9 +15508,10 @@ fn construct_top_level_stmt_is_skippable(program: &ArenaProgram, id: StmtId) -> 
         return true;
     }
     match program.arena.stmt(id).kind {
-        ArenaStmtKind::Export(inner) | ArenaStmtKind::Sugar { expansion: inner, .. } => {
-            construct_top_level_stmt_is_skippable(program, inner)
-        }
+        ArenaStmtKind::Export(inner)
+        | ArenaStmtKind::Sugar {
+            expansion: inner, ..
+        } => construct_top_level_stmt_is_skippable(program, inner),
         ArenaStmtKind::Use(use_id) => construct_use_stmt_is_skippable(program, use_id),
         ArenaStmtKind::Expr(expr) if construct_expr_is_reveal_type_call(program, expr) => true,
         ArenaStmtKind::TypeDef(_)
@@ -15641,12 +15808,10 @@ fn compact_type_check(
     (lowered_type_needs_static_check(kind)
         || checked.has_unsigned_constraint()
         || checked.validated().is_some())
-    .then(|| {
-        LoweredTypeCheck {
-            schema: None,
-            ty: checked,
-            name: compact_type_expr_name(arena, ty),
-        }
+    .then(|| LoweredTypeCheck {
+        schema: None,
+        ty: checked,
+        name: compact_type_expr_name(arena, ty),
     })
 }
 
@@ -15964,8 +16129,8 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             | "read_lines" | "components" | "bytes" => arg_count == 0,
             "ext_or" => arg_count == 1,
             "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate"
-            | "hardlink" | "write" | "write_atomic" | "starts_with" | "ends_with" | "write_lines" | "glob"
-            | "rglob" => arg_count == 1,
+            | "hardlink" | "write" | "write_atomic" | "starts_with" | "ends_with"
+            | "write_lines" | "glob" | "rglob" => arg_count == 1,
             "copy" | "rename" | "mkdir" | "remove" => arg_count == 1 || arg_count == 2,
             "touch" => arg_count <= 1,
             _ => false,
@@ -17490,7 +17655,10 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             } => lowered_branch_chain_can_return(
                 scratch,
                 branches.iter().map(|(condition, body)| {
-                    (lowered_expr_bool_literal(scratch, condition), body.as_slice())
+                    (
+                        lowered_expr_bool_literal(scratch, condition),
+                        body.as_slice(),
+                    )
                 }),
                 else_body.as_deref(),
             ),
@@ -17501,7 +17669,10 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             } => lowered_branch_chain_can_return(
                 scratch,
                 branches.iter().map(|(condition, body, _)| {
-                    (lowered_expr_bool_literal(scratch, condition), body.as_slice())
+                    (
+                        lowered_expr_bool_literal(scratch, condition),
+                        body.as_slice(),
+                    )
                 }),
                 else_body.as_deref(),
             ),
@@ -17511,7 +17682,10 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             } => lowered_branch_chain_can_return(
                 scratch,
                 branches.iter().map(|(condition, body)| {
-                    (lowered_bool_row_literal(scratch, condition), body.as_slice())
+                    (
+                        lowered_bool_row_literal(scratch, condition),
+                        body.as_slice(),
+                    )
                 }),
                 else_body.as_deref(),
             ),
@@ -17927,7 +18101,9 @@ mod named_spread_tests {
         }
         source.push_str("let origin: Point = {x: 1, y: 2}\n");
         for index in 0..CALLS {
-            source.push_str(&format!("print f\"{{sum(...origin) + call{index}(origin)}}\"\n"));
+            source.push_str(&format!(
+                "print f\"{{sum(...origin) + call{index}(origin)}}\"\n"
+            ));
         }
         let copies = std::thread::Builder::new()
             .stack_size(64 * 1024 * 1024)

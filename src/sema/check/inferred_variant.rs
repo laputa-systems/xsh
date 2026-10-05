@@ -221,7 +221,8 @@ impl Checker {
             ArenaPatternKind::ErrorVariant {
                 family, variant, ..
             } => (family.to_string(), *variant),
-            ArenaPatternKind::Constructor { name, .. } | ArenaPatternKind::TestName { name, .. } => {
+            ArenaPatternKind::Constructor { name, .. }
+            | ArenaPatternKind::TestName { name, .. } => {
                 let spelled = name.as_str();
                 let Some((qualifier, variant)) = spelled.rsplit_once('.') else {
                     return;
@@ -310,7 +311,9 @@ impl Checker {
                 if fields.is_some_and(|fields| fields.len != 0) {
                     self.error(
                         span,
-                        &format!("`.{name}` is an enum variant; its payload is matched as `.{name}(...)`"),
+                        &format!(
+                            "`.{name}` is an enum variant; its payload is matched as `.{name}(...)`"
+                        ),
                         DiagnosticCode::CheckPatternConstructor,
                     );
                     return None;
@@ -462,11 +465,10 @@ impl Checker {
                 args,
                 span,
             ),
-            InferredVariant::Error { family, variant } => {
-                self.check_error_variant_constructor_arena(
+            InferredVariant::Error { family, variant } => self
+                .check_error_variant_constructor_arena(
                     arena, source, *family, *variant, args, span,
-                )
-            }
+                ),
         };
         self.inferred_variants.insert(span, variant);
         ty

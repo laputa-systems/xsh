@@ -808,8 +808,9 @@ impl<'a> Lexer<'a> {
     }
 
     fn invalid_escape(&mut self, start: usize, end: usize) {
-        self.diagnostics
-            .push(invalid_escape_diagnostic(self.span(start, end.max(start + 1))));
+        self.diagnostics.push(invalid_escape_diagnostic(
+            self.span(start, end.max(start + 1)),
+        ));
     }
 
     fn push(&mut self, kind: TokenKind, start: usize, _end: usize) {
@@ -1025,9 +1026,18 @@ mod tests {
         // Token ends are recomputed from the source. A float takes no unit,
         // so the letters after one belong to the next token.
         for (source, expected) in [
-            ("1.5s", vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "s")]),
-            ("2e3ms", vec![(TokenTag::Float, "2e3"), (TokenTag::Ident, "ms")]),
-            ("1.5MiB", vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "MiB")]),
+            (
+                "1.5s",
+                vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "s")],
+            ),
+            (
+                "2e3ms",
+                vec![(TokenTag::Float, "2e3"), (TokenTag::Ident, "ms")],
+            ),
+            (
+                "1.5MiB",
+                vec![(TokenTag::Float, "1.5"), (TokenTag::Ident, "MiB")],
+            ),
             ("90s", vec![(TokenTag::Duration, "90s")]),
             ("64MiB", vec![(TokenTag::Int, "64MiB")]),
             ("64", vec![(TokenTag::Int, "64")]),

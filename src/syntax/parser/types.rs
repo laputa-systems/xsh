@@ -12,10 +12,7 @@ impl<'a> Parser<'a> {
         self.nested(arena, Self::parse_type_expr_form)
     }
 
-    fn parse_type_expr_form(
-        &mut self,
-        arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<TypeExprId> {
+    fn parse_type_expr_form(&mut self, arena: &mut ArenaProgramBuilder<'_>) -> Option<TypeExprId> {
         let start = self.current_start();
         if self.at_keyword(Keyword::Proc) || self.at_keyword(Keyword::Pure) {
             return self.parse_callable_type_expr(arena);

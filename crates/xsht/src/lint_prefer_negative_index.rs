@@ -63,10 +63,7 @@ pub(super) fn length_minus_literal_index(
     if name != "len"
         || !is_name_path(arena, base)
         || !same_name_path(arena, base, measured)
-        || !matches!(
-            expr_types.get(&arena.expr(base).span),
-            Some(Type::List(_))
-        )
+        || !matches!(expr_types.get(&arena.expr(base).span), Some(Type::List(_)))
     {
         return None;
     }

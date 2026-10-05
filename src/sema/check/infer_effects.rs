@@ -174,7 +174,10 @@ impl EffectGraph {
                 for edge in &node.edges {
                     let target = if edge.contract && unclaused != Some(edge.target) {
                         EffectSummary {
-                            known: self.nodes[&edge.target].declared.clone().unwrap_or_default(),
+                            known: self.nodes[&edge.target]
+                                .declared
+                                .clone()
+                                .unwrap_or_default(),
                             unknown_chain: Vec::new(),
                         }
                     } else {

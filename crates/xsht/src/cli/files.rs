@@ -1,7 +1,7 @@
 use crate::xsht::format::DEFAULT_LINE_WIDTH;
+use rustc_hash::FxHashMap;
 use std::fs;
 use std::io;
-use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::thread;
@@ -673,7 +673,11 @@ mod tests {
             }]
         );
 
-        fs::write(&path, "[lint.prefer-inferred-variants]\nexclude = docs/**\n").unwrap();
+        fs::write(
+            &path,
+            "[lint.prefer-inferred-variants]\nexclude = docs/**\n",
+        )
+        .unwrap();
         assert_eq!(
             load_config_from(&path).unwrap_err(),
             "xsht-config.ini [lint.prefer-inferred-variants] does not name a lint rule"
@@ -704,8 +708,11 @@ mod tests {
         let root = temp_root("nearest-excludes");
         let inner = root.join("vendor").join("inner");
         fs::create_dir_all(inner.join("generated")).expect("create inner project");
-        fs::write(root.join(CONFIG_FILE_NAME), "exclude = vendor/**\n  skip.xsh\n")
-            .expect("write outer config");
+        fs::write(
+            root.join(CONFIG_FILE_NAME),
+            "exclude = vendor/**\n  skip.xsh\n",
+        )
+        .expect("write outer config");
         fs::write(inner.join(CONFIG_FILE_NAME), "exclude = generated/**\n")
             .expect("write inner config");
         for file in [
@@ -842,15 +849,11 @@ mod tests {
         .unwrap();
         let lint = load_config_from(&path).unwrap().lint;
         assert!(
-            !lint.prefer_env_string
-                && !lint.prefer_item_shorthand
-                && !lint.prefer_tempdir_scope
+            !lint.prefer_env_string && !lint.prefer_item_shorthand && !lint.prefer_tempdir_scope
         );
         fs::write(&path, "[lint]\n").unwrap();
         let lint = load_config_from(&path).unwrap().lint;
-        assert!(
-            lint.prefer_env_string && lint.prefer_item_shorthand && lint.prefer_tempdir_scope
-        );
+        assert!(lint.prefer_env_string && lint.prefer_item_shorthand && lint.prefer_tempdir_scope);
         fs::remove_dir_all(root).unwrap();
     }
 

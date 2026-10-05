@@ -10,10 +10,9 @@ use super::{
 use super::{Binding, TypeDefBody, tail_type_matches_expected};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{
-    ArenaSugar,
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaExprKind, ArenaExprOrRun, ArenaFunctionDef,
-    ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, AssignTargetId, BindingTargetId,
-    BlockId, ExprId, StmtId, TypeExprId,
+    ArenaProgram, ArenaRange, ArenaSignalHook, ArenaStmtKind, ArenaSugar, AssignTargetId,
+    BindingTargetId, BlockId, ExprId, StmtId, TypeExprId,
 };
 use crate::syntax::node::AssignOp;
 use rustc_hash::FxHashMap;
@@ -919,8 +918,9 @@ impl Checker {
             diagnostic =
                 diagnostic.with_note("unwrap the Result with `?` or `??`, then compare its value");
         } else if matches!(ty, Type::Union(_)) {
-            diagnostic = diagnostic
-                .with_note("narrow the union with `value is Member` before using it as a condition");
+            diagnostic = diagnostic.with_note(
+                "narrow the union with `value is Member` before using it as a condition",
+            );
         }
         self.diagnostics.push(diagnostic);
     }
@@ -955,8 +955,7 @@ impl Checker {
                 operands,
                 expansion,
             } => {
-                if let ArenaSugar::Guarded { stmt: guarded, .. } =
-                    arena.arena.sugar(form, operands)
+                if let ArenaSugar::Guarded { stmt: guarded, .. } = arena.arena.sugar(form, operands)
                 {
                     self.guarded_statements
                         .insert(arena.arena.stmt(guarded).span);
@@ -1041,7 +1040,8 @@ impl Checker {
                 if explained {
                     self.diagnostics.retain(|diagnostic| {
                         !(diagnostic.code == Some(DiagnosticCode::CheckConst)
-                            && diagnostic.message == crate::sema::constants::CONSTANT_TYPE_FIT_FAILURE
+                            && diagnostic.message
+                                == crate::sema::constants::CONSTANT_TYPE_FIT_FAILURE
                             && diagnostic.labels.first().is_some_and(|label| {
                                 label.span.source_id == stmt.span.source_id
                                     && stmt.span.start() <= label.span.start()
@@ -1373,7 +1373,10 @@ impl Checker {
             let subject = match arena.arena.expr(expr).kind {
                 ArenaExprKind::Ident(name) => Some(name),
                 ArenaExprKind::Item
-                    if matches!(self.item_frames.last(), Some(super::ItemFrame::Implicit { .. })) =>
+                    if matches!(
+                        self.item_frames.last(),
+                        Some(super::ItemFrame::Implicit { .. })
+                    ) =>
                 {
                     Some(super::item_binding())
                 }
@@ -1482,9 +1485,10 @@ impl Checker {
                     let Some(tested) = self.pattern_test_member_types(arena, pattern) else {
                         return ConditionNarrowings::default();
                     };
-                    let (accepted, rest): (Vec<_>, Vec<_>) = members.iter().cloned().partition(
-                        |member| tested.iter().any(|tested| member.matches_expected(tested)),
-                    );
+                    let (accepted, rest): (Vec<_>, Vec<_>) =
+                        members.iter().cloned().partition(|member| {
+                            tested.iter().any(|tested| member.matches_expected(tested))
+                        });
                     let fact = |mut side: Vec<Type>| {
                         let ty = match side.len() {
                             0 => return Vec::new(),
@@ -2921,8 +2925,7 @@ impl Checker {
         }
         // The operand is read as the base type: what is appended to a
         // validated list need not pass the validation itself.
-        let rhs =
-            self.check_expr_or_run_arena(arena, source, value, Some(target_ty.unvalidated()));
+        let rhs = self.check_expr_or_run_arena(arena, source, value, Some(target_ty.unvalidated()));
         let value_span = expr_or_run_span_arena(arena, value);
         let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
         self.expect_type(&target_ty, &result, span);
@@ -2940,7 +2943,11 @@ impl Checker {
         value: ArenaExprOrRun,
         span: Span,
     ) {
-        self.require_effect(crate::syntax::node::Effect::Env, span, "environment assignment");
+        self.require_effect(
+            crate::syntax::node::Effect::Env,
+            span,
+            "environment assignment",
+        );
         if self.in_pure {
             self.error(
                 span,
@@ -4162,14 +4169,11 @@ impl Checker {
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
-        let all_arms_return = match_is_exhaustive_arena(
-            arena,
-            &value_ty,
-            arm_list,
-            &self.exhaustiveness_facts(),
-        ) && arm_list
-            .iter()
-            .all(|arm| block_always_returns_arena(arena, arm.block));
+        let all_arms_return =
+            match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts())
+                && arm_list
+                    .iter()
+                    .all(|arm| block_always_returns_arena(arena, arm.block));
         let infer_branches = self.inferred_returns.is_some() && expected.is_none();
         let mut inferred: Option<Type> = None;
         for arm in arm_list {
@@ -4227,12 +4231,8 @@ impl Checker {
                 .map(|arm| (arm.pattern, arena.arena.span(arm.span), arm.guard.is_some())),
             value_span,
         );
-        if !match_is_exhaustive_arena(
-            arena,
-            &value_ty,
-            arm_list,
-            &self.exhaustiveness_facts(),
-        ) && !self.match_scrutinee_definitely_exits_arena(arena, value)
+        if !match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.exhaustiveness_facts())
+            && !self.match_scrutinee_definitely_exits_arena(arena, value)
         {
             let unguarded = arm_list
                 .iter()

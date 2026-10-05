@@ -85,9 +85,10 @@ impl BuiltinInstantiation {
                     }
                     pending.push(value);
                 }
-                Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
-                    pending.push(inner)
-                }
+                Type::List(inner)
+                | Type::Stream(inner)
+                | Type::Optional(inner)
+                | Type::Set(inner) => pending.push(inner),
                 Type::Result(ok, error) => {
                     pending.push(ok);
                     pending.push(error);
@@ -160,9 +161,9 @@ fn instantiate_type(
                 .map(|(name, ty)| (*name, instantiate_type(ty, parameters, constraints, span)))
                 .collect(),
         ),
-        Type::Validated(validated) => Type::Validated(Box::new(validated.map_base(|base| {
-            instantiate_type(base, parameters, constraints, span)
-        }))),
+        Type::Validated(validated) => Type::Validated(Box::new(
+            validated.map_base(|base| instantiate_type(base, parameters, constraints, span)),
+        )),
         ty => ty.clone(),
     }
 }

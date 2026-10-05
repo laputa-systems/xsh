@@ -136,10 +136,7 @@ fn formatted_search_path(
             FixHint::replacement(
                 literal.span,
                 "write the search path as a list (apply manually: see the note for what changes)",
-                format!(
-                    "[{}, @env.PathList.{variable} ?? []]",
-                    rendered.join(", ")
-                ),
+                format!("[{}, @env.PathList.{variable} ?? []]", rendered.join(", ")),
             )
             .dangerous(),
         );
@@ -288,7 +285,10 @@ mod tests {
         let mut fixed = source.to_owned();
         for diagnostic in diagnostics.iter().rev() {
             let fix = &diagnostic.fix_hints[0];
-            fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap());
+            fixed.replace_range(
+                fix.span.unwrap().range(),
+                fix.replacement.as_deref().unwrap(),
+            );
         }
         assert!(lint(&fixed).is_empty());
     }

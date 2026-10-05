@@ -42,11 +42,17 @@ pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, program: &Aren
             .get(&body)
             .is_some_and(Type::is_result_unit)
         {
-            lists.push((arena.stmt_ids(arena.block(def.body).statements).collect(), false));
+            lists.push((
+                arena.stmt_ids(arena.block(def.body).statements).collect(),
+                false,
+            ));
         }
     }
     for (index, tag) in arena.stmt_tags.iter().enumerate() {
-        if !matches!(tag, ArenaStmtTag::For | ArenaStmtTag::While | ArenaStmtTag::Loop) {
+        if !matches!(
+            tag,
+            ArenaStmtTag::For | ArenaStmtTag::While | ArenaStmtTag::Loop
+        ) {
             continue;
         }
         let statement = arena.stmt(StmtId::from_index(index));
@@ -57,7 +63,10 @@ pub(super) fn lint_tempdir_scopes(linter: &mut super::Linter<'_>, program: &Aren
         | ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::Loop { block } = statement.kind
         {
-            lists.push((arena.stmt_ids(arena.block(block).statements).collect(), false));
+            lists.push((
+                arena.stmt_ids(arena.block(block).statements).collect(),
+                false,
+            ));
         }
     }
     // Both sides are checked as standalone files: the workspace arena holds
@@ -198,17 +207,18 @@ fn site(
     for &stmt in &rest {
         if (script && matches!(arena.stmt(stmt).kind, ArenaStmtKind::Const { .. }))
             || matches!(
-            arena.stmt(stmt).kind,
-            ArenaStmtKind::Use(_)
-                | ArenaStmtKind::Export(_)
-                | ArenaStmtKind::TypeDef(_)
-                | ArenaStmtKind::ErrorDef(_)
-                | ArenaStmtKind::ProcDef(_)
-                | ArenaStmtKind::CliMain(_)
-                | ArenaStmtKind::PureDef(_)
-                | ArenaStmtKind::StreamDef(_)
-                | ArenaStmtKind::SignalHook(_)
-        ) {
+                arena.stmt(stmt).kind,
+                ArenaStmtKind::Use(_)
+                    | ArenaStmtKind::Export(_)
+                    | ArenaStmtKind::TypeDef(_)
+                    | ArenaStmtKind::ErrorDef(_)
+                    | ArenaStmtKind::ProcDef(_)
+                    | ArenaStmtKind::CliMain(_)
+                    | ArenaStmtKind::PureDef(_)
+                    | ArenaStmtKind::StreamDef(_)
+                    | ArenaStmtKind::SignalHook(_)
+            )
+        {
             return None;
         }
     }
@@ -251,11 +261,12 @@ fn site(
             .filter(|(_, tag)| matches!(tag, ArenaExprTag::Ident))
             .map(|(index, _)| ExprId::from_index(index))
             .any(|expr| {
-            let span = arena.expr(expr).span;
-            matches!(arena.expr(expr).kind, ArenaExprKind::Ident(name) if moved.contains(&name))
-                && span.source_id == body.source_id
-                && !inside(span)
-        }) {
+                let span = arena.expr(expr).span;
+                matches!(arena.expr(expr).kind, ArenaExprKind::Ident(name) if moved.contains(&name))
+                    && span.source_id == body.source_id
+                    && !inside(span)
+            })
+        {
             return None;
         }
     }
@@ -299,7 +310,8 @@ fn rewrite(linter: &super::Linter<'_>, site: &Site) -> Option<(Span, String)> {
     let mut line = body_start;
     for text in source.get(body_start..end)?.split('\n') {
         if !text.trim().is_empty() {
-            if !text.starts_with(indent) || site.path_reads.iter().any(|span| span.start() == line) {
+            if !text.starts_with(indent) || site.path_reads.iter().any(|span| span.start() == line)
+            {
                 return None;
             }
             edits.push((at(line, line), "  ".to_string()));
@@ -345,7 +357,9 @@ fn is_call(
     };
     args.is_empty()
         && name.as_str() == method
-        && root.is_none_or(|root| matches!(arena.expr(base).kind, ArenaExprKind::Ident(found) if found == root))
+        && root.is_none_or(
+            |root| matches!(arena.expr(base).kind, ArenaExprKind::Ident(found) if found == root),
+        )
 }
 
 /// `root.host_path()?`.
@@ -413,7 +427,10 @@ mod tests {
         let mut hints = output[0].fix_hints.iter().collect::<Vec<_>>();
         hints.sort_by_key(|hint| (hint.span.unwrap().start(), hint.span.unwrap().end()));
         for hint in hints.into_iter().rev() {
-            fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+            fixed.replace_range(
+                hint.span.unwrap().range(),
+                hint.replacement.as_deref().unwrap(),
+            );
         }
         fixed
     }
@@ -506,7 +523,8 @@ mod tests {
                 "{case}"
             );
             assert!(
-                String::from_utf8_lossy(&before.stdout).contains("inner cleanup sees true\nouter cleanup\n"),
+                String::from_utf8_lossy(&before.stdout)
+                    .contains("inner cleanup sees true\nouter cleanup\n"),
                 "{case}: {}",
                 String::from_utf8_lossy(&before.stdout)
             );

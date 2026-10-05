@@ -13,10 +13,10 @@ use xsh::frontend::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaCommandArgKind, ArenaCompQualifier,
     ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStageKind, ArenaProgram, ArenaRange,
-    ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind, ArenaSugarOperand,
-    ArenaStreamStage, ArenaText, ArenaTypeDefBody, ArenaWordPart, AssignTargetId, AstArena,
-    BindingTargetId, BlockId, BuilderBlockId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId,
-    TypeExprId,
+    ArenaRecordFieldKind, ArenaRedirectionTarget, ArenaSpawnTarget, ArenaStmtKind,
+    ArenaStreamStage, ArenaSugarOperand, ArenaText, ArenaTypeDefBody, ArenaWordPart,
+    AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId, ExprId, FunctionDefId,
+    PatternId, RunFormId, StmtId, TypeExprId,
 };
 
 /// Canonical text plus the original-source offset at which each statement or
@@ -252,7 +252,11 @@ impl CanonicalWriter<'_> {
             }
             ArenaStmtKind::TypeDef(id) => {
                 let def = self.arena.type_def(*id);
-                self.put(if def.nominal { "nominal type;" } else { "type;" });
+                self.put(if def.nominal {
+                    "nominal type;"
+                } else {
+                    "type;"
+                });
                 self.debug(&def.name);
                 for name in self.arena.names(def.type_parameters) {
                     self.debug(&name);

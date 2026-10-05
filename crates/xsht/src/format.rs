@@ -12,8 +12,9 @@ use xsh::frontend::syntax::arena::{
     ArenaCommandArgKind, ArenaCompQualifier, ArenaEnvAssignment, ArenaEnvAssignmentValue,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
     ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaText, SugarForm, ArenaTypeExprTag, ArenaWordPart,
-    AstArena, BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaText, ArenaTypeExprTag,
+    ArenaWordPart, AstArena, BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId,
+    SugarForm, TypeExprId,
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
 use xsh::frontend::syntax::grammar;
@@ -22,8 +23,7 @@ use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::lexer::{join_tokens, lex_spellings, tokens_stay_separate};
 use xsh::frontend::syntax::literal;
 use xsh::frontend::syntax::node::{
-    AssignOp, BinaryOp, CoreCommand, Effect, FormatSpecKind, RedirectionKind, RunKind,
-    UnaryOp,
+    AssignOp, BinaryOp, CoreCommand, Effect, FormatSpecKind, RedirectionKind, RunKind, UnaryOp,
 };
 use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 use xsh::frontend::syntax::token::TokenTag;
@@ -32,11 +32,11 @@ use xsh::frontend::syntax::token::TokenTag;
 mod format_equivalence;
 pub(crate) use format_equivalence::{canonical_block_with_implicit_item, canonical_subtree};
 #[cfg(test)]
-#[path = "format_proofs.rs"]
-mod format_proofs;
-#[cfg(test)]
 #[path = "desugar_tests.rs"]
 mod desugar_tests;
+#[cfg(test)]
+#[path = "format_proofs.rs"]
+mod format_proofs;
 
 pub const DEFAULT_LINE_WIDTH: usize = 120;
 /// Inside delimiters, before `,`, `)`, `]`, `:`, or `=>`.
@@ -387,9 +387,7 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::Optional => {
             ArenaTypeExprKind::Optional(TypeExprId::from_index(data.lhs as usize))
         }
-        ArenaTypeExprTag::Union => {
-            ArenaTypeExprKind::Union(arena.union_type_members(id).collect())
-        }
+        ArenaTypeExprTag::Union => ArenaTypeExprKind::Union(arena.union_type_members(id).collect()),
         ArenaTypeExprTag::Callable => ArenaTypeExprKind::Callable(arena.callable_type_expr(id)),
         ArenaTypeExprTag::NonEmpty => {
             ArenaTypeExprKind::NonEmpty(TypeExprId::from_index(data.lhs as usize))
@@ -497,10 +495,12 @@ impl Formatter {
         let refuse = |message: String| FormatOutput {
             formatted: String::new(),
             diagnostics: vec![
-                Diagnostic::error(format!("cannot print the expansion of this file: {message}"))
-                    .with_code(DiagnosticCode::FormatEquivalence)
-                    .with_span(Span::new(source_id, 0, 0))
-                    .with_note("this is an `xsht desugar` bug"),
+                Diagnostic::error(format!(
+                    "cannot print the expansion of this file: {message}"
+                ))
+                .with_code(DiagnosticCode::FormatEquivalence)
+                .with_span(Span::new(source_id, 0, 0))
+                .with_note("this is an `xsht desugar` bug"),
             ],
         };
         let reparsed = Parser::parse_source_arena_only(source_id, &expanded);
@@ -747,7 +747,10 @@ impl<'a> Writer<'a> {
         self.hidden_names
             .iter()
             .find(|(hidden, _)| *hidden == name)
-            .map_or_else(|| name.as_str().as_str().to_string(), |(_, fresh)| fresh.clone())
+            .map_or_else(
+                || name.as_str().as_str().to_string(),
+                |(_, fresh)| fresh.clone(),
+            )
     }
 
     fn write_stmt(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
@@ -1280,9 +1283,10 @@ impl<'a> Writer<'a> {
         } else {
             variants_end
         };
-        if self.comments[self.next_comment..].iter().any(|comment| {
-            comment.span.start() >= span.start() && comment.span.start() < body_end
-        }) {
+        if self.comments[self.next_comment..]
+            .iter()
+            .any(|comment| comment.span.start() >= span.start() && comment.span.start() < body_end)
+        {
             // Keep variant comments at their authored positions.
             output.push_str(
                 raw.strip_prefix("export")
@@ -1867,7 +1871,11 @@ impl<'a> Writer<'a> {
             ArenaPatternKind::Text(_) => output.push_str(&self.source[span.range()]),
             ArenaPatternKind::TextHole { binding, spec } => {
                 output.push('{');
-                output.push_str(binding.map_or("_".to_owned(), |name| name.to_string()).as_str());
+                output.push_str(
+                    binding
+                        .map_or("_".to_owned(), |name| name.to_string())
+                        .as_str(),
+                );
                 if let Some(spec) = spec {
                     output.push(':');
                     output.push_str(spec.as_str().as_str());
@@ -2410,12 +2418,18 @@ impl<'a> Writer<'a> {
         let first_tail = if parts.is_empty() { tail } else { 2 };
         if piped {
             let begins_line = self.piped_segment_begins_line(segment);
-            self.write_continued_command_part(begins_line, indent + 1, first_tail, output, |writer, output| {
-                output.push_str("| ");
-                output.push_str(head);
-                output.push(' ');
-                writer.write_command_part_text(&first, output);
-            });
+            self.write_continued_command_part(
+                begins_line,
+                indent + 1,
+                first_tail,
+                output,
+                |writer, output| {
+                    output.push_str("| ");
+                    output.push_str(head);
+                    output.push(' ');
+                    writer.write_command_part_text(&first, output);
+                },
+            );
         } else {
             output.push_str(head);
             output.push(' ');
@@ -2449,9 +2463,13 @@ impl<'a> Writer<'a> {
             // follow it.
             let tail = if index + 1 == parts.len() { tail } else { 2 };
             let begins_line = self.command_part_begins_line(part);
-            self.write_continued_command_part(begins_line, indent, tail, output, |writer, output| {
-                writer.write_command_part_text(part, output)
-            });
+            self.write_continued_command_part(
+                begins_line,
+                indent,
+                tail,
+                output,
+                |writer, output| writer.write_command_part_text(part, output),
+            );
         }
     }
 
@@ -3220,7 +3238,9 @@ impl<'a> Writer<'a> {
             } => {
                 output.push_str("retry ");
                 match schedule {
-                    xsh::frontend::syntax::arena::RetrySchedule::Delays => self.write_list_inline(*delays, output),
+                    xsh::frontend::syntax::arena::RetrySchedule::Delays => {
+                        self.write_list_inline(*delays, output)
+                    }
                     xsh::frontend::syntax::arena::RetrySchedule::Backoff => {
                         let durations: Vec<_> = self.arena.expr_ids(*delays).collect();
                         let [first, cap, limit] = durations[..] else {
@@ -4686,12 +4706,7 @@ impl<'a> Writer<'a> {
         );
     }
 
-    fn write_breakable_expr_now(
-        &mut self,
-        expr_id: ExprId,
-        context: Context,
-        output: &mut String,
-    ) {
+    fn write_breakable_expr_now(&mut self, expr_id: ExprId, context: Context, output: &mut String) {
         #[cfg(test)]
         NODES_RENDERED.with(|count| count.set(count.get() + 1));
         let kind = self.arena.expr(expr_id).kind;
@@ -5675,7 +5690,11 @@ mod tests {
     /// accepts for that construct.
     fn nested_source(family: &str) -> String {
         let nest = |levels: usize, open: &str, core: &str, close: &str| {
-            format!("let x = {}{core}{}\n", open.repeat(levels), close.repeat(levels))
+            format!(
+                "let x = {}{core}{}\n",
+                open.repeat(levels),
+                close.repeat(levels)
+            )
         };
         match family {
             "call" => nest(126, "f(", "1", ")"),
@@ -5734,7 +5753,11 @@ mod tests {
             );
             let before = Parser::parse_source_arena_only(SourceId::new(0), &source);
             let after = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
-            assert!(after.diagnostics.is_empty(), "{family}: {:?}", after.diagnostics);
+            assert!(
+                after.diagnostics.is_empty(),
+                "{family}: {:?}",
+                after.diagnostics
+            );
             assert_eq!(
                 format_equivalence::canonical(&before.arena, &source).text,
                 format_equivalence::canonical(&after.arena, &formatted.formatted).text,
@@ -5797,9 +5820,14 @@ mod tests {
             // parenthesized one takes the `?` as any operand does.
             (
                 "let job = spawn run sh -c f\"sleep {n}\" ?\nlet other = spawn run sleep 1 ?\n",
-                Some("let job = (spawn run sh -c f\"sleep {n}\")?\nlet other = spawn run sleep 1 ?\n"),
+                Some(
+                    "let job = (spawn run sh -c f\"sleep {n}\")?\nlet other = spawn run sleep 1 ?\n",
+                ),
             ),
-            ("let job = (spawn run sh -c f\"sleep {n}\") ?\n", Some("let job = (spawn run sh -c f\"sleep {n}\")?\n")),
+            (
+                "let job = (spawn run sh -c f\"sleep {n}\") ?\n",
+                Some("let job = (spawn run sh -c f\"sleep {n}\")?\n"),
+            ),
             (
                 "match r {\n  Err(X.Timeout {..}) => {a: 1}\n  _ => ({b})\n}\n",
                 None,

@@ -374,9 +374,7 @@ impl Name {
         if preloaded_symbol(text).is_some() {
             return false;
         }
-        with_dynamic_spellings(&[self.0], |spellings| {
-            spellings.text(self.0) == text
-        })
+        with_dynamic_spellings(&[self.0], |spellings| spellings.text(self.0) == text)
     }
 
     pub const fn is_builtin(self) -> bool {
@@ -457,12 +455,12 @@ impl Ord for Name {
             return own.cmp(theirs);
         }
         match (self.preloaded_text(), other.preloaded_text()) {
-            (Some(own), None) => with_dynamic_spellings(&[other.0], |spellings| {
-                own.cmp(spellings.text(other.0))
-            }),
-            (None, Some(theirs)) => with_dynamic_spellings(&[self.0], |spellings| {
-                spellings.text(self.0).cmp(theirs)
-            }),
+            (Some(own), None) => {
+                with_dynamic_spellings(&[other.0], |spellings| own.cmp(spellings.text(other.0)))
+            }
+            (None, Some(theirs)) => {
+                with_dynamic_spellings(&[self.0], |spellings| spellings.text(self.0).cmp(theirs))
+            }
             _ => with_dynamic_spellings(&[self.0, other.0], |spellings| {
                 spellings.text(self.0).cmp(spellings.text(other.0))
             }),
@@ -659,7 +657,6 @@ impl Interner {
             .as_ref()?
             .sole_owner
     }
-
 }
 
 fn symbol_is_preloaded(symbol: Symbol) -> bool {

@@ -75,8 +75,7 @@ fn formatted_replacement(source: &str, call: Span, replacement: String) -> (Span
         return in_place;
     }
     let format = |text: &str| {
-        let output =
-            super::super::format::Formatter::new().format_source(call.source_id, text);
+        let output = super::super::format::Formatter::new().format_source(call.source_id, text);
         output.diagnostics.is_empty().then_some(output.formatted)
     };
     let mut rewritten = source.to_owned();
@@ -157,9 +156,10 @@ fn symlink_function(
         ));
     }
     let Some(receiver) = xsh::frontend::check::call_receiver_text(arena, source, link) else {
-        return Some(diagnostic.with_note(
-            "the link has no spelling a method can follow; bind it to a name first",
-        ));
+        return Some(
+            diagnostic
+                .with_note("the link has no spelling a method can follow; bind it to a name first"),
+        );
     };
     let target = arena.expr(target);
     let argument = if matches!(target.kind, ArenaExprKind::Ident(name) if name == "to") {
@@ -297,9 +297,20 @@ mod tests {
             assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
             assert_eq!(diagnostics[0].fix_hints.len(), 1, "{diagnostics:?}");
             let fixed = fixed(&source);
-            assert_eq!(format(&fixed), fixed, "the fix prints what the formatter prints");
-            assert_eq!(fixed.contains(".symlink(\n    to: root.parent(),\n  )\n"), broken, "{fixed}");
-            assert!(fixed.contains("\n  p\"l") && fixed.contains("l\".symlink("), "{fixed}");
+            assert_eq!(
+                format(&fixed),
+                fixed,
+                "the fix prints what the formatter prints"
+            );
+            assert_eq!(
+                fixed.contains(".symlink(\n    to: root.parent(),\n  )\n"),
+                broken,
+                "{fixed}"
+            );
+            assert!(
+                fixed.contains("\n  p\"l") && fixed.contains("l\".symlink("),
+                "{fixed}"
+            );
         }
     }
 
@@ -309,9 +320,16 @@ mod tests {
     #[test]
     fn a_call_in_an_unformatted_file_is_rewritten_in_place() {
         let width = super::super::super::format::DEFAULT_LINE_WIDTH;
-        let source = literal_link_statement(width).replace("proc stage(root: Path)", "proc stage( root: Path )");
+        let source = literal_link_statement(width)
+            .replace("proc stage(root: Path)", "proc stage( root: Path )");
         let fixed = fixed(&source);
-        assert!(fixed.starts_with("proc stage( root: Path ) [fs, error] {\n  p\""), "{fixed}");
-        assert!(fixed.ends_with("\".symlink(to: root.parent())\n}\n"), "{fixed}");
+        assert!(
+            fixed.starts_with("proc stage( root: Path ) [fs, error] {\n  p\""),
+            "{fixed}"
+        );
+        assert!(
+            fixed.ends_with("\".symlink(to: root.parent())\n}\n"),
+            "{fixed}"
+        );
     }
 }

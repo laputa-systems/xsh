@@ -156,9 +156,7 @@ impl TypedCallable {
                 ));
             }
             if params[..index].iter().any(|earlier| earlier.name == name) {
-                return Some(format!(
-                    "a callable type names parameter `{name}` twice"
-                ));
+                return Some(format!("a callable type names parameter `{name}` twice"));
             }
         }
         None
@@ -418,7 +416,9 @@ impl ModuleType {
                         .keys()
                         .filter(|name| !self.contains_key(name))
                         .map(|name| {
-                            format!("unexpected export `{name}`: the exact contract does not list it")
+                            format!(
+                                "unexpected export `{name}`: the exact contract does not list it"
+                            )
                         }),
                 );
             } else {
@@ -812,7 +812,11 @@ impl Type {
             Self::Union(members) => members.iter().any(Self::contains_recovery),
             Self::Validated(validated) => validated.base().contains_recovery(),
             Self::Callable(callable) => {
-                callable.sig.params.iter().any(|param| param.ty.contains_recovery())
+                callable
+                    .sig
+                    .params
+                    .iter()
+                    .any(|param| param.ty.contains_recovery())
                     || callable.sig.return_ty.contains_recovery()
             }
             _ => false,
@@ -830,9 +834,10 @@ impl Type {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Inference(_) => return true,
-                Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => {
-                    pending.push(inner)
-                }
+                Self::List(inner)
+                | Self::Stream(inner)
+                | Self::Optional(inner)
+                | Self::Set(inner) => pending.push(inner),
                 Self::Map(key, value) => {
                     pending.push(key);
                     pending.push(value);
@@ -886,14 +891,20 @@ impl Type {
     pub fn contains_any(&self) -> bool {
         match self {
             Self::Any => true,
-            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => inner.contains_any(),
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => {
+                inner.contains_any()
+            }
             Self::Map(key, value) => key.contains_any() || value.contains_any(),
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
             Self::Union(members) => members.iter().any(Self::contains_any),
             Self::Validated(validated) => validated.base().contains_any(),
             Self::Callable(callable) => {
-                callable.sig.params.iter().any(|param| param.ty.contains_any())
+                callable
+                    .sig
+                    .params
+                    .iter()
+                    .any(|param| param.ty.contains_any())
                     || callable.sig.return_ty.contains_any()
             }
             Self::Module(exports) => exports.values().any(|export| match export {
@@ -992,9 +1003,9 @@ impl Type {
             }
             // A union fits another when each of its members does; it never
             // fits a single member, which needs a narrowing type test.
-            (Self::Union(actual), Self::Union(_)) => {
-                actual.iter().all(|member| member.matches_expected(expected))
-            }
+            (Self::Union(actual), Self::Union(_)) => actual
+                .iter()
+                .all(|member| member.matches_expected(expected)),
             (actual, Self::Union(members)) => {
                 first_accepting_union_member(members, |member| actual.matches_expected(member))
                     .is_some()
@@ -1021,9 +1032,7 @@ impl Type {
                         .is_some_and(|actual| actual.matches_expected(expected))
                 })
             }
-            (Self::Module(_), Self::Module(expected))
-                if expected.is_empty() && !expected.exact =>
-            {
+            (Self::Module(_), Self::Module(expected)) if expected.is_empty() && !expected.exact => {
                 true
             }
             (Self::Module(actual), Self::Module(expected)) => {
@@ -1043,9 +1052,9 @@ impl Type {
             // A typed callable fits another typed callable under the narrow
             // rule, and either dynamic handle of its own kind. A dynamic
             // handle never fits a typed callable: its signature is unknown.
-            (Self::Callable(actual), Self::Callable(expected)) => expected
-                .mismatch(actual.pure, &actual.sig, true)
-                .is_none(),
+            (Self::Callable(actual), Self::Callable(expected)) => {
+                expected.mismatch(actual.pure, &actual.sig, true).is_none()
+            }
             (Self::Callable(actual), Self::Proc) => !actual.pure,
             (Self::Callable(actual), Self::Pure) => actual.pure,
             (Self::Tag(a), Self::Tag(b)) => a == b,
@@ -1336,7 +1345,9 @@ impl Type {
                     .sig
                     .effects
                     .as_ref()
-                    .map_or(String::new(), |effects| format!(" [{}]", effect_list(effects)));
+                    .map_or(String::new(), |effects| {
+                        format!(" [{}]", effect_list(effects))
+                    });
                 Some(format!(
                     "{}({params}){effects} -> {}",
                     if callable.pure { "pure" } else { "proc" },
@@ -1511,9 +1522,7 @@ mod tests {
     use crate::syntax::node::Effect;
     use std::collections::BTreeMap;
 
-    fn module_type(
-        exports: BTreeMap<Name, ModuleExportType>,
-    ) -> std::sync::Arc<super::ModuleType> {
+    fn module_type(exports: BTreeMap<Name, ModuleExportType>) -> std::sync::Arc<super::ModuleType> {
         std::sync::Arc::new(super::ModuleType::open(exports))
     }
 
@@ -1625,7 +1634,10 @@ mod tests {
             None
         );
         // A recovery member already has its own diagnostic.
-        assert_eq!(super::union_member_error(&[Type::Invalid, Type::Invalid]), None);
+        assert_eq!(
+            super::union_member_error(&[Type::Invalid, Type::Invalid]),
+            None
+        );
 
         let members = [Type::Int, Type::Str, Type::Path];
         let mut asked = Vec::new();
@@ -1697,25 +1709,25 @@ mod tests {
 
     #[test]
     fn unrestricted_contract_entry_accepts_any_export_effects() {
-        let expected = Type::Module(std::sync::Arc::new(super::ModuleType::open(BTreeMap::from([(
-            Name::intern("run"),
-            proc(None),
-        )]))));
-        for effects in [None, Some(Vec::new()), Some(vec![Effect::Fs, Effect::Error])] {
-            let actual = Type::Module(std::sync::Arc::new(super::ModuleType::open(BTreeMap::from([(
-                Name::intern("run"),
-                proc(effects.clone()),
-            )]))));
+        let expected = Type::Module(std::sync::Arc::new(super::ModuleType::open(
+            BTreeMap::from([(Name::intern("run"), proc(None))]),
+        )));
+        for effects in [
+            None,
+            Some(Vec::new()),
+            Some(vec![Effect::Fs, Effect::Error]),
+        ] {
+            let actual = Type::Module(std::sync::Arc::new(super::ModuleType::open(
+                BTreeMap::from([(Name::intern("run"), proc(effects.clone()))]),
+            )));
             assert!(actual.matches_expected(&expected), "{effects:?}");
         }
-        let restricted = Type::Module(std::sync::Arc::new(super::ModuleType::open(BTreeMap::from([(
-            Name::intern("run"),
-            proc(Some(vec![Effect::Error])),
-        )]))));
-        let unrestricted = Type::Module(std::sync::Arc::new(super::ModuleType::open(BTreeMap::from([(
-            Name::intern("run"),
-            proc(None),
-        )]))));
+        let restricted = Type::Module(std::sync::Arc::new(super::ModuleType::open(
+            BTreeMap::from([(Name::intern("run"), proc(Some(vec![Effect::Error])))]),
+        )));
+        let unrestricted = Type::Module(std::sync::Arc::new(super::ModuleType::open(
+            BTreeMap::from([(Name::intern("run"), proc(None))]),
+        )));
         assert!(!unrestricted.matches_expected(&restricted));
     }
 
@@ -1785,11 +1797,8 @@ mod tests {
             optional: false,
         };
         assert!(
-            !Type::Module(module_type(BTreeMap::from([(
-                name,
-                wrong_parameter
-            )])))
-            .matches_expected(&expected)
+            !Type::Module(module_type(BTreeMap::from([(name, wrong_parameter)])))
+                .matches_expected(&expected)
         );
 
         let wrong_return = ModuleExportType::Proc {

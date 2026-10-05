@@ -1,5 +1,5 @@
-use super::{Diagnostic, Label};
 use super::{Binding, Checker, FxHashSet, Name, Span, Type, result_types};
+use super::{Diagnostic, Label};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaPatternKind, ArenaProgram, PatternId};
 
@@ -280,8 +280,11 @@ impl Checker {
         // time: the test then tells the checker exactly which members remain
         // when it fails.
         if let Type::Union(members) = value_ty {
-            let listed =
-                |tested: &Type| members.iter().any(|member| member.matches_invariant(tested));
+            let listed = |tested: &Type| {
+                members
+                    .iter()
+                    .any(|member| member.matches_invariant(tested))
+            };
             let names_members = match tested {
                 Type::Union(tested) => tested.iter().all(listed),
                 tested => listed(tested),
@@ -732,10 +735,9 @@ impl Checker {
                     let args: Vec<PatternId> = match arg {
                         None => Vec::new(),
                         Some(arg) => match &arena.arena.pattern(*arg).kind {
-                            ArenaPatternKind::Tuple(sub_patterns) => arena
-                                .arena
-                                .pattern_ids(*sub_patterns)
-                                .collect(),
+                            ArenaPatternKind::Tuple(sub_patterns) => {
+                                arena.arena.pattern_ids(*sub_patterns).collect()
+                            }
                             _ => vec![*arg],
                         },
                     };
@@ -1020,10 +1022,7 @@ impl Checker {
             match self.missing_tag_variants_arena(arena, value_ty, &arm_patterns) {
                 Some(missing) => (missing, "not every variant of this enum is handled"),
                 None => match self.missing_error_variants_arena(arena, value_ty, &arm_patterns) {
-                    Some(missing) => (
-                        missing,
-                        "not every variant of this error family is handled",
-                    ),
+                    Some(missing) => (missing, "not every variant of this error family is handled"),
                     None => return,
                 },
             };

@@ -122,8 +122,8 @@ pub(super) fn path_display_sinks(
                 "this sink takes the Path itself and passes its native bytes",
             );
             if let Some(conversion) = conversion {
-                diagnostic = diagnostic
-                    .with_fix_hint(FixHint::deletion(conversion, "pass the Path itself"));
+                diagnostic =
+                    diagnostic.with_fix_hint(FixHint::deletion(conversion, "pass the Path itself"));
             }
             Some(diagnostic)
         })

@@ -31,12 +31,11 @@
 use super::{Keyword, Name, Parser, TokenTag};
 use crate::diagnostic::{Diagnostic, DiagnosticCode, Label, Severity};
 use crate::source::Span;
-use crate::syntax::node::StreamStageKind;
 use crate::syntax::arena::{
     ArenaCallArgInput, ArenaExprKind, ArenaExprOrRun, ArenaProgramBuilder, ArenaSugarOperand,
-    BindingTargetId,
-    BlockId, ExprId, StmtId, SugarForm,
+    BindingTargetId, BlockId, ExprId, StmtId, SugarForm,
 };
+use crate::syntax::node::StreamStageKind;
 
 /// The word that begins a `repeat` statement. It stays an ordinary identifier
 /// everywhere else (`repeat` is also a stream stage).
@@ -182,7 +181,10 @@ impl Parser<'_> {
         // The guarded statement belongs to the expansion's block, not to the
         // enclosing statement list.
         let registered = arena.pop_last_statement();
-        assert_eq!(registered, inner, "the guarded statement is registered last");
+        assert_eq!(
+            registered, inner,
+            "the guarded statement is registered last"
+        );
         let operands = GuardedOperands {
             keyword,
             condition,
@@ -329,11 +331,7 @@ fn expand_unless(
 ) -> StmtId {
     let then_block = arena.push_block_of(&[], operands.keyword);
     let else_block = arena.push_block_of(&[operands.stmt], arena.stmt_span(operands.stmt));
-    arena.push_if(
-        &[(operands.condition, then_block)],
-        Some(else_block),
-        span,
-    )
+    arena.push_if(&[(operands.condition, then_block)], Some(else_block), span)
 }
 
 /// `guard CONDITION else { BLOCK }` is `if CONDITION {} else { BLOCK }`,
@@ -465,7 +463,9 @@ impl Parser<'_> {
     /// space on the same line.
     pub(super) fn lookahead_is_fail(&self) -> bool {
         self.current_name().is_some_and(|name| name == FAIL_WORD)
-            && self.peek_start(1).is_some_and(|next| next > self.current_end())
+            && self
+                .peek_start(1)
+                .is_some_and(|next| next > self.current_end())
             && !matches!(
                 self.peek_tag(1),
                 None | Some(
@@ -601,8 +601,7 @@ fn expand_fail(arena: &mut ArenaProgramBuilder<'_>, operands: FailOperands, span
         failure
     } else {
         let module = arena.push_ident_expr(Name::intern("error"), keyword_prefix(1));
-        let constructor =
-            arena.push_field_expr(module, Name::intern("failure"), keyword_prefix(2));
+        let constructor = arena.push_field_expr(module, Name::intern("failure"), keyword_prefix(2));
         arena.begin_call_args();
         arena.push_call_arg_input(ArenaCallArgInput::Positional(failure));
         let args = arena.finish_call_args();
@@ -680,7 +679,10 @@ mod tests {
             ("for x in xs |> sort-by { |c| c }\n", false),
             ("for x in xs |> sort-by { |c| c } { print $x }\n", true),
             ("for x in xs |> fold(0) { |a, c| c }\n", false),
-            ("for x in xs |> fold(0) { |a, c| a + c } { print $x }\n", true),
+            (
+                "for x in xs |> fold(0) { |a, c| a + c } { print $x }\n",
+                true,
+            ),
             ("for x in xs |> count() { |c| c }\n", false),
             ("while xs |> count() { |c| c }\n", false),
             ("tempdir d at xs |> reduce-by(1) { |c| c }\n", false),
@@ -689,7 +691,11 @@ mod tests {
             ("for x in xs |> sort { print $x }\n", true),
         ] {
             let tokens = lex_grammar_tokens(source).expect("lexes");
-            assert_eq!(recognizer.recognize(&tokens).is_ok(), sentence, "grammar: {source}");
+            assert_eq!(
+                recognizer.recognize(&tokens).is_ok(),
+                sentence,
+                "grammar: {source}"
+            );
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert_eq!(parsed.diagnostics.is_empty(), sentence, "parser: {source}");
         }
@@ -804,7 +810,10 @@ mod tests {
                     ArenaExprKind::ContextScope { kind: ContextScopeKind::Within, .. }
                 )
             );
-            assert!(is_scope, "depth {depth} seed {seed} is not a within scope:\n{source}");
+            assert!(
+                is_scope,
+                "depth {depth} seed {seed} is not a within scope:\n{source}"
+            );
         }
         assert!(sentences > 100, "only {sentences} sentences");
     }
@@ -850,7 +859,10 @@ mod tests {
             let ArenaStmtKind::Expr(expr) = arena.stmt(first).kind else {
                 panic!("depth {depth} seed {seed} is not an expression:\n{source}");
             };
-            let ArenaExprKind::Retry { schedule, delays, .. } = arena.expr(expr).kind else {
+            let ArenaExprKind::Retry {
+                schedule, delays, ..
+            } = arena.expr(expr).kind
+            else {
                 panic!("depth {depth} seed {seed} is not a retry:\n{source}");
             };
             if schedule == RetrySchedule::Backoff {
@@ -914,7 +926,10 @@ mod tests {
             ("collect { yield 1 }\n", true),
             ("let n = collect { yield 1 }.len() + 1\n", true),
             ("let both = collect { yield 1 } |> collect()\n", true),
-            ("let either = set.from(collect { yield 1 }) | {2, 3}\n", true),
+            (
+                "let either = set.from(collect { yield 1 }) | {2, 3}\n",
+                true,
+            ),
             ("if collect { yield 1 } == [] { print \"x\" }\n", true),
             ("for x in collect { yield 1 } { print $x }\n", true),
             ("let ys = xs |> collect()\n", true),
@@ -928,7 +943,11 @@ mod tests {
         ];
         for (source, sentence) in cases {
             let tokens = lex_grammar_tokens(source).expect("lexes");
-            assert_eq!(recognizer.recognize(&tokens).is_ok(), sentence, "grammar: {source}");
+            assert_eq!(
+                recognizer.recognize(&tokens).is_ok(),
+                sentence,
+                "grammar: {source}"
+            );
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert_eq!(parsed.diagnostics.is_empty(), sentence, "parser: {source}");
         }
@@ -942,13 +961,22 @@ mod tests {
         let cases = [
             ("wait until ready() within 5s\n", true),
             ("wait until a or\nb within limits.short every 1ms\n", true),
-            ("wait until x is Thing as t within t.limit backoff a.b..c.d\n", true),
+            (
+                "wait until x is Thing as t within t.limit backoff a.b..c.d\n",
+                true,
+            ),
             ("wait until until within within every every\n", true),
             // A set union in the condition ends at the word like any other.
             ("wait until key in a | b within 5s backoff 1ms..5ms\n", true),
             ("wait until (a | b).is_empty() within limit\n", true),
-            ("wait until until within within backoff backoff .. backoff\n", true),
-            ("let r = retry backoff 1ms..limit within limit on (is Timeout) { 1 }\n", true),
+            (
+                "wait until until within within backoff backoff .. backoff\n",
+                true,
+            ),
+            (
+                "let r = retry backoff 1ms..limit within limit on (is Timeout) { 1 }\n",
+                true,
+            ),
             ("let r = retry backoff a.b .. 5s within 5s { 1 }\n", true),
             ("wait (until)\n", true),
             ("wait until.done\n", false),
@@ -957,15 +985,25 @@ mod tests {
             ("wait until ready() within (5s)\n", false),
             ("wait until ready() within 5s every 1ms when x\n", false),
             ("wait until ready() within 5s backoff 1ms. .5ms\n", false),
-            ("wait until ready() within 5s backoff 1ms.. 5ms every 1ms\n", false),
+            (
+                "wait until ready() within 5s backoff 1ms.. 5ms every 1ms\n",
+                false,
+            ),
             ("let x = wait until ready() within 5s\n", false),
             ("let r = retry backoff 1ms..5ms { 1 }\n", false),
-            ("let r = retry backoff 1ms..5ms within 5s every 1ms { 1 }\n", false),
+            (
+                "let r = retry backoff 1ms..5ms within 5s every 1ms { 1 }\n",
+                false,
+            ),
             ("let r = retry backoff [1ms] { 1 }\n", false),
         ];
         for (source, sentence) in cases {
             let tokens = lex_grammar_tokens(source).expect("lexes");
-            assert_eq!(recognizer.recognize(&tokens).is_ok(), sentence, "grammar: {source}");
+            assert_eq!(
+                recognizer.recognize(&tokens).is_ok(),
+                sentence,
+                "grammar: {source}"
+            );
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert_eq!(parsed.diagnostics.is_empty(), sentence, "parser: {source}");
         }
@@ -1041,12 +1079,13 @@ mod tests {
                         form: SugarForm::When | SugarForm::Unless,
                         operands,
                         ..
-                    } => arena.sugar_operands(operands).iter().find_map(|operand| {
-                        match operand {
+                    } => arena
+                        .sugar_operands(operands)
+                        .iter()
+                        .find_map(|operand| match operand {
                             crate::syntax::arena::ArenaSugarOperand::Stmt(inner) => Some(*inner),
                             _ => None,
-                        }
-                    }),
+                        }),
                     _ => None,
                 };
                 exits += usize::from(matches!(
@@ -1056,7 +1095,10 @@ mod tests {
             }
         }
         assert!(sentences > 300, "only {sentences} sentences");
-        assert!(exits * 2 > sentences, "only {exits} of {sentences} are exit statements");
+        assert!(
+            exits * 2 > sentences,
+            "only {exits} of {sentences} are exit statements"
+        );
     }
 
     /// `fail` is recognized where a command named `fail` would be read, so a
@@ -1100,7 +1142,10 @@ mod tests {
             ));
         }
         assert!(sentences > 300, "only {sentences} sentences");
-        assert!(fails * 2 > sentences, "only {fails} of {sentences} are fail statements");
+        assert!(
+            fails * 2 > sentences,
+            "only {fails} of {sentences} are fail statements"
+        );
     }
 
     /// The statement a postfix guard holds, or `None` when the first
@@ -1161,7 +1206,10 @@ mod tests {
             }
         }
         assert!(sentences > 300, "only {sentences} sentences");
-        assert!(guarded * 2 > sentences, "only {guarded} of {sentences} are guarded");
+        assert!(
+            guarded * 2 > sentences,
+            "only {guarded} of {sentences} are guarded"
+        );
     }
 
     /// In a `print` or `eprint` statement the word `when` or `unless` always
@@ -1198,7 +1246,10 @@ mod tests {
             }
         }
         assert!(sentences > 300, "only {sentences} sentences");
-        assert!(guarded * 4 > sentences, "only {guarded} of {sentences} are guarded");
+        assert!(
+            guarded * 4 > sentences,
+            "only {guarded} of {sentences} are guarded"
+        );
     }
 
     #[test]
@@ -1242,7 +1293,11 @@ mod tests {
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
             assert_eq!(parsed.diagnostics.is_empty(), accepted, "parser: {source}");
             let tokens = lex_grammar_tokens(source).expect("lexes");
-            assert_eq!(recognizer.recognize(&tokens).is_ok(), accepted, "grammar: {source}");
+            assert_eq!(
+                recognizer.recognize(&tokens).is_ok(),
+                accepted,
+                "grammar: {source}"
+            );
         }
         // The first two are commands whose arguments are the words.
         for source in ["deploy when ready\n", "run make when ready\n"] {

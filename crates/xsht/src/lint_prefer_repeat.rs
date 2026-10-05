@@ -42,7 +42,11 @@ pub(super) fn lint_counted_loop(
     )
     .with_code(DiagnosticCode::LintPreferRepeat)
     .with_label(Label::secondary(
-        Span::new(statement.source_id, statement.start(), arena.expr(iter).span.end()),
+        Span::new(
+            statement.source_id,
+            statement.start(),
+            arena.expr(iter).span.end(),
+        ),
         "this loop ignores its index; write `repeat N times { ... }`",
     ));
     if let Some(replacement) = repeat_head(linter, head, count) {

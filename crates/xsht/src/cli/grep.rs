@@ -2,9 +2,7 @@ use crate::xsht::cli::{
     CliOutput, ConfigCache, DiscoveryFor, cancellation_output, discover_scripts, load_config,
     text_bytes,
 };
-use crate::xsht::grep::{
-    find_pattern_matches, line_at_offset, offset_to_line, parse_pattern,
-};
+use crate::xsht::grep::{find_pattern_matches, line_at_offset, offset_to_line, parse_pattern};
 use std::fs;
 use std::path::Path;
 use xsh::frontend::source::SourceMap;
@@ -40,7 +38,12 @@ pub fn grep_scripts(pattern_str: &str, paths: &[String]) -> CliOutput {
             };
         }
     };
-    let files = match discover_scripts(paths, &config, &ConfigCache::default(), DiscoveryFor::Scripts) {
+    let files = match discover_scripts(
+        paths,
+        &config,
+        &ConfigCache::default(),
+        DiscoveryFor::Scripts,
+    ) {
         Ok(files) => files,
         Err(message) => {
             return CliOutput {

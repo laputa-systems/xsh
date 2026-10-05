@@ -87,7 +87,11 @@ fn script_run(linter: &super::Linter<'_>, stmts: &[StmtId], index: usize) -> Opt
     let ArenaExprKind::Call { callee, args } = arena.expr(call).kind else {
         return None;
     };
-    let ArenaExprKind::Field { base, name: function } = arena.expr(callee).kind else {
+    let ArenaExprKind::Field {
+        base,
+        name: function,
+    } = arena.expr(callee).kind
+    else {
         return None;
     };
     if function != "run_script"
@@ -114,9 +118,16 @@ fn script_run(linter: &super::Linter<'_>, stmts: &[StmtId], index: usize) -> Opt
     }
 
     let binding = arena.stmt(stmts[index]).span;
-    let line_end = |offset: usize| source[offset..].find('\n').map_or(source.len(), |at| offset + at);
-    let ends_its_line =
-        |end: usize| source.get(end..line_end(end)).is_some_and(|rest| rest.trim().is_empty());
+    let line_end = |offset: usize| {
+        source[offset..]
+            .find('\n')
+            .map_or(source.len(), |at| offset + at)
+    };
+    let ends_its_line = |end: usize| {
+        source
+            .get(end..line_end(end))
+            .is_some_and(|rest| rest.trim().is_empty())
+    };
     let mut end = text_end_of(source, binding)?;
     if !ends_its_line(end) || super::span_may_contain_comment(source, binding) {
         return None;
@@ -135,7 +146,11 @@ fn script_run(linter: &super::Linter<'_>, stmts: &[StmtId], index: usize) -> Opt
         }
         match requirement {
             Requirement::Status(status) => {
-                if expectation.status.as_ref().is_some_and(|known| *known != status) {
+                if expectation
+                    .status
+                    .as_ref()
+                    .is_some_and(|known| *known != status)
+                {
                     break;
                 }
                 expectation.status = Some(status);
@@ -173,7 +188,10 @@ fn script_run(linter: &super::Linter<'_>, stmts: &[StmtId], index: usize) -> Opt
         "{binding}test.expect({}, {}, status: {status}",
         arguments[0], arguments[1],
     );
-    for (stream, fragments) in [("stderr", &expectation.stderr), ("stdout", &expectation.stdout)] {
+    for (stream, fragments) in [
+        ("stderr", &expectation.stderr),
+        ("stdout", &expectation.stdout),
+    ] {
         if !fragments.is_empty() {
             call.push_str(&format!(", {stream}: [{}]", fragments.join(", ")));
         }
@@ -206,9 +224,7 @@ fn requirement(arena: &AstArena, source: &str, stmt: StmtId, output: &str) -> Op
         return None;
     };
     let field = |expr: ExprId| match arena.expr(expr).kind {
-        ArenaExprKind::Field { base, name }
-            if matches!(arena.expr(base).kind, ArenaExprKind::Ident(local) if local == output) =>
-        {
+        ArenaExprKind::Field { base, name } if matches!(arena.expr(base).kind, ArenaExprKind::Ident(local) if local == output) => {
             Some(name)
         }
         _ => None,
@@ -307,7 +323,9 @@ fn may_read(text: &str, name: &str) -> bool {
 /// statement is nested, so the statement is formatted inside as many blocks
 /// as its indentation says it has around it.
 pub(super) fn formatted_in_place(source: &str, replaced: Span, statement: &str) -> Option<String> {
-    let line_start = source[..replaced.start()].rfind('\n').map_or(0, |at| at + 1);
+    let line_start = source[..replaced.start()]
+        .rfind('\n')
+        .map_or(0, |at| at + 1);
     let indent = source.get(line_start..replaced.start())?;
     if !indent.chars().all(|ch| ch == ' ') || indent.len() % 2 != 0 {
         return None;
@@ -379,7 +397,11 @@ mod tests {
         assert!(lint(&fixed).is_empty(), "{fixed}");
         let formatted =
             super::super::super::format::Formatter::new().format_source(SourceId::new(0), &fixed);
-        assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+        assert!(
+            formatted.diagnostics.is_empty(),
+            "{:?}",
+            formatted.diagnostics
+        );
         assert_eq!(formatted.formatted, fixed);
         fixed
     }

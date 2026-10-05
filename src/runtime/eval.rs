@@ -3783,7 +3783,9 @@ impl Evaluator {
         self.within_deadlines.push(WithinDeadline {
             id,
             // A limit too long for the clock never expires.
-            at: now.checked_add(limit).unwrap_or(now + Duration::from_secs(u32::MAX as u64)),
+            at: now
+                .checked_add(limit)
+                .unwrap_or(now + Duration::from_secs(u32::MAX as u64)),
             limit,
             span,
             delivered: false,
@@ -3833,7 +3835,10 @@ impl Evaluator {
         deadline.delivered = true;
         let mut error = RuntimeError::new(
             "within-deadline",
-            format!("the block did not finish within {}", within_limit_text(deadline.limit)),
+            format!(
+                "the block did not finish within {}",
+                within_limit_text(deadline.limit)
+            ),
         )
         .with_span(span);
         error.within = Some(deadline.id);
@@ -3866,7 +3871,10 @@ impl Evaluator {
             "timeout",
             &std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                format!("the block did not finish within {}", within_limit_text(limit)),
+                format!(
+                    "the block did not finish within {}",
+                    within_limit_text(limit)
+                ),
             ),
         )
         .with_span(span)
@@ -4705,7 +4713,8 @@ impl Evaluator {
             .map_or_else(|| vec![Name::intern("main")], |cli| cli.functions.clone());
         if auto_main_required
             && !entry_functions.iter().all(|name| {
-                indexed.contains_function(LoweredFunctionKey::Name(*name), LoweredFunctionKind::Proc)
+                indexed
+                    .contains_function(LoweredFunctionKey::Name(*name), LoweredFunctionKind::Proc)
             })
         {
             let span = root
@@ -5266,68 +5275,68 @@ impl Evaluator {
             }
         }
 
-        let cleanup_result =
-            if abort.is_some_and(|signal: AbortSignal| signal.force)
-                || self.signal_state.shutdown_force
-            {
-                Ok(Flow::Continue(Value::Unit))
-            } else {
-                let mut cleanup = self.cleanup_scope_process_handles(
-                    self.current_scope_id(),
-                    Ok(Flow::Continue(Value::Unit)),
-                );
-                // The script leaves its top level with an error when a
-                // statement failed, it exited with a nonzero status, or a
-                // signal is shutting it down; a failed cleanup action makes
-                // that true for the actions registered before it. `exit 0`
-                // ends the script in success.
-                let script_failed = traceback.is_some()
-                    || abort.is_some_and(|signal: AbortSignal| signal.status != 0)
-                    || self.signal_state.shutdown_status.is_some();
-                for index in compact_indexed_defers.into_iter().rev() {
-                    let on_error = self
-                        .indexed_program
-                        .as_ref()
-                        .expect("verified indexed program remains installed")
-                        .driver_step_defers_on_error(index)
-                        .expect("a verified deferred step carries its trigger");
-                    let cleanup_failed =
-                        cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_)));
-                    if on_error && !script_failed && !cleanup_failed {
-                        continue;
-                    }
-                    let action = self
-                        .eval_indexed_driver_step(index, script_span)
-                        .unwrap_or_else(|| {
-                            Err(RuntimeError::new(
-                                "indexed-driver",
-                                "verified indexed defer has no direct executor",
-                            )
-                            .with_span(script_span))
-                        })
-                        .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
-                    if action.as_ref().err().is_some_and(|error| {
-                        error.abort.as_ref().is_some_and(|signal| signal.force)
-                    }) {
-                        cleanup = action;
-                        break;
-                    }
-                    if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
-                        if let Err(error) = action {
-                            self.report_cleanup_error(&error, script_span);
-                        }
-                    } else {
-                        cleanup = action;
-                    }
+        let cleanup_result = if abort.is_some_and(|signal: AbortSignal| signal.force)
+            || self.signal_state.shutdown_force
+        {
+            Ok(Flow::Continue(Value::Unit))
+        } else {
+            let mut cleanup = self.cleanup_scope_process_handles(
+                self.current_scope_id(),
+                Ok(Flow::Continue(Value::Unit)),
+            );
+            // The script leaves its top level with an error when a
+            // statement failed, it exited with a nonzero status, or a
+            // signal is shutting it down; a failed cleanup action makes
+            // that true for the actions registered before it. `exit 0`
+            // ends the script in success.
+            let script_failed = traceback.is_some()
+                || abort.is_some_and(|signal: AbortSignal| signal.status != 0)
+                || self.signal_state.shutdown_status.is_some();
+            for index in compact_indexed_defers.into_iter().rev() {
+                let on_error = self
+                    .indexed_program
+                    .as_ref()
+                    .expect("verified indexed program remains installed")
+                    .driver_step_defers_on_error(index)
+                    .expect("a verified deferred step carries its trigger");
+                let cleanup_failed = cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_)));
+                if on_error && !script_failed && !cleanup_failed {
+                    continue;
                 }
-                if (traceback.is_some() || abort.is_some())
-                    && let Err(error) = &cleanup
-                    && !error.abort.as_ref().is_some_and(|signal| signal.force)
+                let action = self
+                    .eval_indexed_driver_step(index, script_span)
+                    .unwrap_or_else(|| {
+                        Err(RuntimeError::new(
+                            "indexed-driver",
+                            "verified indexed defer has no direct executor",
+                        )
+                        .with_span(script_span))
+                    })
+                    .map(|flow| flow.unwrap_or(Flow::Continue(Value::Unit)));
+                if action
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force))
                 {
-                    self.report_cleanup_error(error, script_span);
+                    cleanup = action;
+                    break;
                 }
-                cleanup
-            };
+                if cleanup.is_err() || matches!(cleanup, Ok(Flow::Propagate(_))) {
+                    if let Err(error) = action {
+                        self.report_cleanup_error(&error, script_span);
+                    }
+                } else {
+                    cleanup = action;
+                }
+            }
+            if (traceback.is_some() || abort.is_some())
+                && let Err(error) = &cleanup
+                && !error.abort.as_ref().is_some_and(|signal| signal.force)
+            {
+                self.report_cleanup_error(error, script_span);
+            }
+            cleanup
+        };
         if let Err(error) = &cleanup_result
             && let Some(signal) = &error.abort
             && signal.force
@@ -7580,15 +7589,15 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::Module(contract) => match value {
             Value::Module(_) if contract.is_empty() && !contract.exact => true,
             Value::Module(module) => {
-                contract.iter().all(|(field, export)| {
-                    match module.get(field.as_str().as_ref()) {
+                contract.iter().all(
+                    |(field, export)| match module.get(field.as_str().as_ref()) {
                         Some(value) => value_matches_static_type(value, &export.field_type()),
                         None => export.optional(),
-                    }
-                }) && (!contract.exact
-                    || module
-                        .iter()
-                        .all(|(exported, _)| contract.contains_key(&Name::intern(exported.to_string()))))
+                    },
+                ) && (!contract.exact
+                    || module.iter().all(|(exported, _)| {
+                        contract.contains_key(&Name::intern(exported.to_string()))
+                    }))
             }
             _ => false,
         },

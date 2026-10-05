@@ -72,8 +72,7 @@ fn every_registry_path_method_lowers() {
                 overload.sig.params[..arity]
                     .iter()
                     .map(|param| {
-                        if param.label == LabelRule::Required
-                            || (name_defaults && param.defaulted)
+                        if param.label == LabelRule::Required || (name_defaults && param.defaulted)
                         {
                             format!("{}: {}", param.name, argument(&param.ty))
                         } else {
@@ -178,12 +177,18 @@ fn set_methods_lower_for_every_method_the_registry_declares() {
     }
     assert_eq!(calls, 10);
     for access in [".", "?."] {
-        let parameter = if access == "." { "List[Int]" } else { "List[Int]?" };
-        let source = format!(
-            "proc probe(target: {parameter}) {{\n  let _ = target{access}to_set()\n}}\n"
-        );
+        let parameter = if access == "." {
+            "List[Int]"
+        } else {
+            "List[Int]?"
+        };
+        let source =
+            format!("proc probe(target: {parameter}) {{\n  let _ = target{access}to_set()\n}}\n");
         let diagnostics = check_and_lower(&source);
-        assert!(diagnostics.is_empty(), "`List.to_set` does not lower:\n{source}{diagnostics:#?}");
+        assert!(
+            diagnostics.is_empty(),
+            "`List.to_set` does not lower:\n{source}{diagnostics:#?}"
+        );
     }
 }
 

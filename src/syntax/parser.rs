@@ -14,6 +14,7 @@ pub(in crate::syntax::parser) use crate::syntax::node::{
     RedirectionKind, RunKind, SignalHookOptions, StreamStageKind, UnaryOp,
 };
 pub(in crate::syntax::parser) use crate::syntax::token::{Keyword, TokenTable, TokenTag};
+mod atomically;
 mod command;
 pub(crate) mod expr;
 mod literals;
@@ -21,9 +22,8 @@ mod pattern;
 mod stmt;
 mod sugar;
 mod types;
-mod without;
-mod atomically;
 mod wait_until;
+mod without;
 
 pub(in crate::syntax::parser) use self::literals::{
     decode_bytes_literal_for, decode_interpolation_text_for,

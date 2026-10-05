@@ -6,18 +6,17 @@ use super::{
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     IndexedAssignStep, IndexedCompQualifier, IndexedFmt, IndexedFmtPart, IndexedOperands,
     IndexedRecordEntry, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
-    RegisteredDefer,
-    LoweredTypeCheck, LoweredValue, Name, ResolvedAssignStep, RuntimeError, Span, StmtFlow,
-    StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, append_call_argument,
-    append_lowered_list_element, append_lowered_map_literal, apply_indexed_assignment,
-    apply_indexed_path_assignment, assign_lowered_bytes_view, assign_lowered_str_view,
-    bind_lowered_comp_target, capture_checked_error, checked_indexed_assignment,
-    comparison_link_holds, decode_assign_path, decode_comp_qualifiers, decode_comparison_chain,
-    decode_match_expr, decode_module_call, decode_record_updates, finish_record_entries,
-    fmt_operands, indexed_assignment_operand, indexed_callable_identity, indexed_decode,
-    indexed_error, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string,
-    indexed_value, lowered_binary_value, lowered_bytes_parts, lowered_comp_iterable,
-    lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
+    LoweredTypeCheck, LoweredValue, Name, RegisteredDefer, ResolvedAssignStep, RuntimeError, Span,
+    StmtFlow, StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
+    append_call_argument, append_lowered_list_element, append_lowered_map_literal,
+    apply_indexed_assignment, apply_indexed_path_assignment, assign_lowered_bytes_view,
+    assign_lowered_str_view, bind_lowered_comp_target, capture_checked_error,
+    checked_indexed_assignment, comparison_link_holds, decode_assign_path, decode_comp_qualifiers,
+    decode_comparison_chain, decode_match_expr, decode_module_call, decode_record_updates,
+    finish_record_entries, fmt_operands, indexed_assignment_operand, indexed_callable_identity,
+    indexed_decode, indexed_error, indexed_finish, indexed_optional_raw, indexed_raw,
+    indexed_string, indexed_value, lowered_binary_value, lowered_bytes_parts,
+    lowered_comp_iterable, lowered_condition_bool, lowered_err_with_cause, lowered_fallback_value,
     lowered_freeze_large_slot_list, lowered_map_literal_key, lowered_match_no_arm,
     lowered_result_err_value, lowered_result_ok, lowered_str_parts, lowered_value_from_runtime_any,
     resolve_assign_index,
@@ -1472,8 +1471,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .report_cleanup_error(&error, self.calls[index].call_span);
         }
         if boundary.is_some() {
-            let Some(FrameWork::ExpressionBoundary { policy, next }) =
-                self.calls[index].work.pop()
+            let Some(FrameWork::ExpressionBoundary { policy, next }) = self.calls[index].work.pop()
             else {
                 unreachable!()
             };
@@ -2034,7 +2032,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.complete_call(index, StmtFlow::None)
             } else {
                 if let Some(scope_id) = scope_id {
-                    self.exit_block_scope(index, scope_id, false, true, CleanupFailureResources::Retain)?;
+                    self.exit_block_scope(
+                        index,
+                        scope_id,
+                        false,
+                        true,
+                        CleanupFailureResources::Retain,
+                    )?;
                 }
                 Ok(())
             };
@@ -3151,11 +3155,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FullTag::ExprDynamicCall | FullTag::ExprTypedCall => {
                 let callee = indexed_raw(&mut payload, span)?;
                 let typed_pure = if tag == FullTag::ExprTypedCall {
-                    let pure = indexed_decode::<bool>(
-                        &mut payload,
-                        &self.calls[index].execution,
-                        span,
-                    )?;
+                    let pure =
+                        indexed_decode::<bool>(&mut payload, &self.calls[index].execution, span)?;
                     // The signature is for the verifier; execution binds the
                     // verified arguments by position.
                     indexed_raw(&mut payload, span)?;
@@ -4978,11 +4979,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
         // Lexical exits and checked failures retain resources from every
         // discarded block before cleanup runs in the registering scopes.
-        let cleanup = self.discard_work_from_with_primary(
-            index,
-            0,
-            flow_leaves_with_error(&flow),
-        );
+        let cleanup = self.discard_work_from_with_primary(index, 0, flow_leaves_with_error(&flow));
         if cleanup
             .as_ref()
             .err()
@@ -5319,11 +5316,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             && self.calls[index].block_scopes.is_empty()
         {
             let parent = self.evaluator.parent_owned_host_scope();
-            self.evaluator.transfer_owned_host_resources_in_runtime_error(
-                error,
-                self.calls[index].scope_id,
-                parent,
-            );
+            self.evaluator
+                .transfer_owned_host_resources_in_runtime_error(
+                    error,
+                    self.calls[index].scope_id,
+                    parent,
+                );
         }
         let released = self.release_call_host_resources(index, None);
         let call = &mut self.calls[index];
@@ -5615,9 +5613,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.calls.truncate(index);
         self.result = Some(match cleanup {
             Err(error) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),
-            Err(error)
-                if flow_leaves_with_error(&flow) =>
-            {
+            Err(error) if flow_leaves_with_error(&flow) => {
                 self.evaluator.report_cleanup_error(&error, call_span);
                 Ok(LoweredValue::Unit)
             }
@@ -6105,7 +6101,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             unreachable!("pattern condition owns its scope");
         };
         self.evaluator.frame_scratch.recycle_statements(statements);
-        self.exit_block_scope(index, scope_id, false, true, CleanupFailureResources::Retain)
+        self.exit_block_scope(
+            index,
+            scope_id,
+            false,
+            true,
+            CleanupFailureResources::Retain,
+        )
     }
 
     fn start_pattern_branch(

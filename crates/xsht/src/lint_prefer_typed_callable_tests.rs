@@ -46,7 +46,11 @@ fn proc_parameter_passed_one_signature_names_its_callable_type() {
         label.message.as_deref(),
         Some("the callable type is `proc(root: Path) [fs, process, error] -> Result[Unit]`")
     );
-    assert!(diagnostic.fix_hints.is_empty(), "{:?}", diagnostic.fix_hints);
+    assert!(
+        diagnostic.fix_hints.is_empty(),
+        "{:?}",
+        diagnostic.fix_hints
+    );
     assert_eq!(diagnostic.severity, xsh::diagnostic::Severity::Note);
 }
 

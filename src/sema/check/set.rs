@@ -11,8 +11,8 @@ use crate::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use crate::sema::types::Type;
 use crate::source::Span;
 use crate::syntax::arena::{
-    ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaListElementRange, ArenaProgram,
-    ArenaRange, ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId,
+    ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaListElementRange, ArenaProgram, ArenaRange,
+    ArenaRecordFieldKind, ArenaStmtKind, BlockId, ExprId,
 };
 use crate::syntax::node::BinaryOp;
 
@@ -98,13 +98,17 @@ impl Checker {
                         span,
                         format!("expected Set[{expected_element}]; the empty set is `set.empty()`"),
                     ))
-                    .with_fix_hint(FixHint::replacement(span, "use `set.empty()`", "set.empty()")),
+                    .with_fix_hint(FixHint::replacement(
+                        span,
+                        "use `set.empty()`",
+                        "set.empty()",
+                    )),
             );
             return Some(Type::Set(Box::new(expected_element.clone())));
         }
         if !fields
-                .iter()
-                .all(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { .. }))
+            .iter()
+            .all(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { .. }))
         {
             return None;
         }
@@ -180,7 +184,9 @@ impl Checker {
                 .with_code(DiagnosticCode::CheckTypeMismatch)
                 .with_label(Label::primary(
                     span,
-                    format!("expected Set[{element}]; a one-element set has a comma after its element"),
+                    format!(
+                        "expected Set[{element}]; a one-element set has a comma after its element"
+                    ),
                 ))
                 .with_fix_hint(FixHint::replacement(end, "add the comma", ",")),
         );

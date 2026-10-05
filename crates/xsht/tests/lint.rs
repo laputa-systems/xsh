@@ -594,10 +594,7 @@ fn private_effects_removal_retains_bounds_entry_points_exports_and_recursion() {
         "proc spin(count: Int) [time] -> Int {\n  if count == 0 { return 0 }\n  spin(count - 1)\n}\n",
         "proc ping(count: Int) [time] -> Int {\n  if count == 0 { return 0 }\n  pong(count - 1)\n}\nproc pong(count: Int) -> Int { ping(count) }\n",
     ] {
-        assert!(
-            private_effects_lints(source, true).is_empty(),
-            "{source}"
-        );
+        assert!(private_effects_lints(source, true).is_empty(), "{source}");
     }
 }
 

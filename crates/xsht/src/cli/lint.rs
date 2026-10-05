@@ -88,13 +88,7 @@ pub fn lint_files_timed(
 
     discovered.only = only;
     let config_cache = ConfigCache::default();
-    let mut results = lint_workspace(
-        &discovered,
-        fix,
-        runless,
-        &config_cache,
-        timings,
-    );
+    let mut results = lint_workspace(&discovered, fix, runless, &config_cache, timings);
     if let Some(output) = cancellation_output() {
         return output;
     }
@@ -522,14 +516,7 @@ fn lint_workspace(
     let available = thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(1);
-    lint_workspace_with_parallelism(
-        discovery,
-        fix,
-        runless,
-        config_cache,
-        available,
-        timings,
-    )
+    lint_workspace_with_parallelism(discovery, fix, runless, config_cache, available, timings)
 }
 
 fn lint_workspace_with_parallelism(
@@ -575,11 +562,9 @@ fn lint_workspace_with_parallelism(
 
     let (sources, mut program, mut modules) = loader.finish();
     for module in modules.values_mut() {
-        if let Ok(config) = lint_config_for_file(
-            &module.path.to_string_lossy(),
-            runless,
-            config_cache,
-        ) {
+        if let Ok(config) =
+            lint_config_for_file(&module.path.to_string_lossy(), runless, config_cache)
+        {
             module.config = config;
             module.config.lint_options.only.clone_from(&discovery.only);
         }
@@ -1957,8 +1942,7 @@ fn apply_cst_fixes(
         options.statement_expression_spans = checked.statement_expression_spans.clone();
         options.propagating_statements = checked.propagating_statements.clone();
         options.discardable_bindings = checked.discardable_bindings.clone();
-        options.redundant_condition_propagations =
-            checked.redundant_condition_propagations.clone();
+        options.redundant_condition_propagations = checked.redundant_condition_propagations.clone();
         options.unvalidated_command_vectors = checked.unvalidated_command_vectors.clone();
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
@@ -2150,8 +2134,7 @@ mod tests {
     use crate::xsht::cli::lint::{
         ConfigCache, LintResultKind, LintWorkspace, ResolvedLintConfig, WorkspaceLoader,
         apply_cst_fixes, collect_fix_spans, discover_lint_files, lint_config_for_file,
-        unapplied_fixes_reason,
-        lint_one_file_with_fixes, lint_workspace,
+        lint_one_file_with_fixes, lint_workspace, unapplied_fixes_reason,
     };
     use crate::xsht::cli::timing::StageTimings;
     use crate::xsht::format::DEFAULT_LINE_WIDTH;
@@ -2476,7 +2459,9 @@ print $value # and this
         assert_eq!(apply(&fixed.replace("keep this", "keep it")), None);
         assert_eq!(apply(&fixed.replace(" # and this", "")), None);
         assert_eq!(
-            apply("const value = 1\n# and this\nprint $value # keep this attached to the next statement\n"),
+            apply(
+                "const value = 1\n# and this\nprint $value # keep this attached to the next statement\n"
+            ),
             None
         );
         assert!(unapplied_fixes_reason("fixture.xsh").contains("holding a comment"));
@@ -2581,12 +2566,12 @@ print ${name}
             let discovery = discover_lint_files(&[entry.to_string_lossy().into_owned()], &config)
                 .expect("discover entry");
             let results = lint_workspace(
-            &discovery,
-            true,
-            false,
-            &ConfigCache::default(),
-            &StageTimings::start(),
-        );
+                &discovery,
+                true,
+                false,
+                &ConfigCache::default(),
+                &StageTimings::start(),
+            );
             if let Some(expected_error) = expected_error {
                 assert!(
                     results
@@ -2786,12 +2771,12 @@ print ${name}
             let discovery =
                 discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
             let results = lint_workspace(
-            &discovery,
-            false,
-            false,
-            &ConfigCache::default(),
-            &StageTimings::start(),
-        );
+                &discovery,
+                false,
+                false,
+                &ConfigCache::default(),
+                &StageTimings::start(),
+            );
             let errors = results
                 .iter()
                 .filter_map(|result| match &result.kind {

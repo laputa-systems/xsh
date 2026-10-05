@@ -169,7 +169,10 @@ mod tests {
             diagnostics[0].message,
             "`root` is opened and its release deferred on the next line"
         );
-        assert_eq!(&source[diagnostics[0].labels[0].span.range()], "fs.open_root(dir)?");
+        assert_eq!(
+            &source[diagnostics[0].labels[0].span.range()],
+            "fs.open_root(dir)?"
+        );
         assert!(diagnostics[0].notes[0].contains("with root = ... { ... }"));
         assert!(diagnostics[0].fix_hints.is_empty());
     }
@@ -202,7 +205,8 @@ mod tests {
     #[test]
     fn the_finding_does_not_depend_on_layout() {
         let flat = "let root = fs.open_root(p\".\")?\ndefer root.close()\nuse_root(1, root)?\n";
-        let broken = "let root = fs.open_root(p\".\")?\ndefer root.close()\nuse_root(\n  1,\n  root\n)?\n";
+        let broken =
+            "let root = fs.open_root(p\".\")?\ndefer root.close()\nuse_root(\n  1,\n  root\n)?\n";
         assert_eq!(deferred_releases(flat).len(), 1);
         assert_eq!(deferred_releases(broken).len(), 1);
     }

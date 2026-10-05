@@ -940,7 +940,13 @@ impl<'a> Evaluator<'a> {
     /// A materializing stage (the spec's sort/repeat/collect set and every
     /// terminal) drains its upstream exactly when it runs; everything before
     /// it stays pull-based.
-    fn for_pipeline(&mut self, var: &str, source: &Expr, stages: &[Stage], body: &Block) -> Res<()> {
+    fn for_pipeline(
+        &mut self,
+        var: &str,
+        source: &Expr,
+        stages: &[Stage],
+        body: &Block,
+    ) -> Res<()> {
         let source = iterate(self.expr(source)?);
         let mut cursors = vec![PullCursor::Source(source.into_iter())];
         for stage in stages {

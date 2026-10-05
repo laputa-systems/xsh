@@ -195,7 +195,11 @@ fn propagation_fix(
         Kept::Assigned(target) => format!("{target} = {scrutinee_text}?"),
     };
     Some(FixHint::replacement(
-        Span::new(statement.source_id, statement.start(), statement.start() + text.len()),
+        Span::new(
+            statement.source_id,
+            statement.start(),
+            statement.start() + text.len(),
+        ),
         "propagate with `?`",
         replacement,
     ))
