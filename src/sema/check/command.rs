@@ -793,18 +793,21 @@ impl Checker {
             );
             self.check_static_accepted_exit_codes(arena, accept);
         }
-        if matches!(
-            segment.target.kind,
-            ArenaCommandArgKind::SpliceName(_) | ArenaCommandArgKind::SpliceExpr(_)
-        ) {
-            let target_span = arena.arena.span(segment.target.span);
+        // A spliced target is the whole command vector, and its first
+        // element is the program. An empty list literal can never name one;
+        // a computed list is checked when the command runs.
+        if let ArenaCommandArgKind::SpliceExpr(list) = segment.target.kind
+            && let ArenaExprKind::List(items) = arena.arena.expr(list).kind
+            && items.is_empty()
+        {
             self.error(
-                target_span,
-                "run target must be one argv item",
+                arena.arena.span(segment.target.span),
+                "spliced command is empty: its first element names the program to run",
                 DiagnosticCode::CheckRunTarget,
             );
+        } else {
+            self.check_external_arg_arena(arena, source, &segment.target);
         }
-        self.check_external_arg_arena(arena, source, &segment.target);
         for assignment in arena.arena.env_assignments(segment.env) {
             self.check_env_assignment_arena(arena, source, assignment);
         }

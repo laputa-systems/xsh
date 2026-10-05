@@ -64,6 +64,39 @@ use serial_pipeline::IndexedPipelineItems;
 
 use xsh_registry::stream_parameters::DEFAULT_PAR_MAP_WORKERS;
 
+/// The executable of a run form and the arguments its target contributes
+/// after it. A spliced target, `run @argv`, is a whole command vector: its
+/// first element is the executable and the rest lead the arguments. An empty
+/// vector names no program, which fails as `ProcessError.InvalidTarget`
+/// before anything starts. Any other target is one argv item.
+fn run_target_and_leading_argv(
+    target: &RunArg,
+    mut items: Vec<Vec<u8>>,
+) -> Result<(Vec<u8>, Vec<Vec<u8>>), RuntimeError> {
+    if target.mode == RUN_ARG_SPLICE {
+        if items.is_empty() {
+            let error = RunError::new(
+                "empty-command",
+                "spliced command is empty: its first element names the program to run",
+            )
+            .with_span(target.span);
+            let mut failure = runtime_error_from_value(Value::RunError(Box::new(error)), target.span);
+            failure.propagated = true;
+            return Err(failure);
+        }
+        let executable = items.remove(0);
+        return Ok((executable, items));
+    }
+    let [executable]: [Vec<u8>; 1] = items.try_into().map_err(|_| {
+        RuntimeError::new("argv-conversion", "run target must produce one argv item")
+            .with_span(target.span)
+    })?;
+    Ok((executable, Vec::new()))
+}
+
+/// The `RunArg::mode` of an explicit `@` splice.
+const RUN_ARG_SPLICE: u32 = 2;
+
 #[derive(Clone)]
 struct RunArg {
     mode: u32,
@@ -1865,7 +1898,7 @@ impl Evaluator {
                     value, arg.span,
                 )?])),
             },
-            2 => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
+            RUN_ARG_SPLICE => splice_to_argv(value, arg.span).map(ControlFlow::Continue),
             _ => unreachable!("indexed run argument tag was checked"),
         }
     }
@@ -2003,11 +2036,7 @@ impl Evaluator {
             ControlFlow::Continue(items) => items,
             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
         };
-        let [target_value]: [Vec<u8>; 1] = target_items.try_into().map_err(|_| {
-            RuntimeError::new("argv-conversion", "run target must produce one argv item")
-                .with_span(target.span)
-        })?;
-        let mut argv = Vec::new();
+        let (target_value, mut argv) = run_target_and_leading_argv(target, target_items)?;
         for arg in args {
             match self.eval_indexed_run_arg(execution, arg, slots, span)? {
                 ControlFlow::Continue(items) => argv.extend(items),
@@ -7296,15 +7325,8 @@ impl Evaluator {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
-                            let [target_value]: [Vec<u8>; 1] =
-                                target_items.try_into().map_err(|_| {
-                                    RuntimeError::new(
-                                        "argv-conversion",
-                                        "run target must produce one argv item",
-                                    )
-                                    .with_span(target.span)
-                                })?;
-                            let mut argv = Vec::new();
+                            let (target_value, mut argv) =
+                                run_target_and_leading_argv(&target, target_items)?;
                             for arg in &args {
                                 match self.eval_indexed_run_arg(execution, arg, slots, span)? {
                                     ControlFlow::Continue(items) => argv.extend(items),

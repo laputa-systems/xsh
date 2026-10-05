@@ -1847,6 +1847,22 @@ The target is resolved as follows: a bare word with no `/` is looked up in
 uses its native bytes; a `Str` value is UTF-8 and may not contain NUL. Failure
 to find, access, or execute the target is a distinct `ProcessError` variant.
 
+A spliced target, `run @argv` or `run @(expr)`, is a whole command vector: its
+first element is the target, resolved by the rules above exactly as a target
+written in its place; the remaining elements lead the arguments, ahead of any
+written after the splice. Every run form accepts it, as do the segments of a byte
+pipeline, `spawn run`, and the `run` entry of `process.command`.
+
+```xsh
+{{.spec.run_argv.source}}
+```
+
+An empty vector names no program. The run form fails with
+`ProcessError.InvalidTarget` before anything starts, in value position too,
+and an empty list literal in target position is a check error
+(`check.run-target`). A standalone interpolation in target position
+(`run $program`) is still exactly one argv item.
+
 A grouped body may span lines when `(` is followed by a newline:
 
 ```xsh
@@ -2022,7 +2038,9 @@ block. `process.command` accepts `cwd`, `env`, `stdin` (`Path` or `Bytes`),
 `accept`, `detach`, `new_session`, `ignore_hup`, and exactly one `run` or
 `run.status` entry. Missing or multiple run entries are rejected with
 `check.builder-check`. `process.command_argv(target, argv)` builds the same plan from data; its
-`argv` includes `argv[0]`. `process.run(plan)` returns `Ok(Status)` for any
+`argv` includes `argv[0]`. When the executable is `argv[0]`, the vector alone is
+the command (`run @argv`, 11.1); `command_argv` is for an executable that
+intentionally differs from it. `process.run(plan)` returns `Ok(Status)` for any
 completed process and `Err` for setup, timeout, or cancellation failures.
 Pipelines, captures, propagation, and redirection syntax are not plan inputs;
 use the builder fields for redirections.

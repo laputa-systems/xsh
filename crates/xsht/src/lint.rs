@@ -39,6 +39,8 @@ mod lint_prefer_match_else;
 
 #[path = "lint_optional_binding.rs"]
 mod lint_optional_binding;
+#[path = "lint_run_argv.rs"]
+mod lint_run_argv;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -11766,6 +11768,14 @@ impl LintExprVisitor<'_, '_> {
                 .size_products
                 .visit(self.linter.arena, self.linter.source, expr)
         {
+            self.linter.diagnostics.push(diagnostic);
+        }
+        if let Some(diagnostic) = lint_run_argv::run_argv_diagnostic(
+            self.linter.arena,
+            self.linter.source,
+            &self.linter.standard_call_spans,
+            expr,
+        ) {
             self.linter.diagnostics.push(diagnostic);
         }
         if !self.suppress_expr_autofixes {

@@ -1681,7 +1681,7 @@ impl RunError {
             "spawn" => "Spawn",
             "io" => "Io",
             "redirection" => "Redirection",
-            "nul-target" => "InvalidTarget",
+            "nul-target" | "empty-command" => "InvalidTarget",
             _ => "Unknown",
         }
     }

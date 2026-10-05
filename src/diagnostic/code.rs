@@ -414,7 +414,7 @@ diagnostic_codes! {
         CheckRetryPattern = "check.retry-pattern", error, "Reject a `retry` selection that is not a nominal error, facet, type, or wildcard pattern";
         CheckReturnOutsideCallable = "check.return-outside-callable", error, "Reject `return` outside a callable body";
         CheckRevealType = "check.reveal-type", mixed, "Report the type of an expression via `reveal_type`; reject it outside `xsht check`";
-        CheckRunTarget = "check.run-target", error, "Reject a `run` target that splices into more than one argv item";
+        CheckRunTarget = "check.run-target", error, "Reject a `run` target that splices an empty list literal, which names no program";
         CheckSchema = "check.schema", error, "Reject a record schema declared with no fields";
         CheckSchemaField = "check.schema-field", error, "Reject an unknown or missing field in a schema-checked record";
         CheckSignalHook = "check.signal-hook", error, "Reject an invalid signal hook declaration, placement, option, or body";
@@ -572,6 +572,7 @@ diagnostic_codes! {
         LintPreferRegexLiteral = "lint.prefer-regex-literal", warning, "Prepare a static regex pattern with an `rx` literal instead of a call";
         LintPreferRepeat = "lint.prefer-repeat", warning, "Use `repeat N times` instead of `for _ in range(N)`";
         LintPreferScalarIteration = "lint.prefer-scalar-iteration", warning, "Iterate a Str by scalars or bytes without a split List or unused offsets";
+        LintPreferRunArgv = "lint.prefer-run-argv", warning, "Run a command vector with `run.status @argv ?` instead of rebuilding it with `process.command_argv(argv[0], argv)`";
         LintPreferSignatureCli = "lint.prefer-signature-cli", warning, "Declare a literal CLI schema as a `cli main(...)` entry signature";
         LintPreferSizeLiteral = "lint.prefer-size-literal", warning, "Write a byte count that is a product of literals and powers of 1024 as a size literal";
         LintPreferSlice = "lint.prefer-slice", warning, "Use half-open slicing where offset/count method bounds are equivalent";
