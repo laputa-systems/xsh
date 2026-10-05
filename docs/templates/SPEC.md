@@ -434,6 +434,25 @@ literal is accepted where a `Path` is statically expected (a typed parameter,
 binding, or redirection target); a runtime `Str` always needs explicit
 conversion.
 
+Questions about a path's spelling are `Path` methods, so they need no
+`.display()` and lose no bytes. `p.starts_with(prefix)` and
+`p.ends_with(suffix)` compare whole components, not bytes: the argument's
+components must be a leading or trailing run of the receiver's. `/usr/lib`
+starts with `/usr` and not with `/us`; `a/b.txt` ends with `b.txt` and not
+with `txt`; an absolute suffix matches only an equal path;
+`p.starts_with(p"/")` holds exactly for absolute paths. Both are lexical and never touch the
+filesystem. Components are read as `strip_prefix` reads them (repeated
+separators, a trailing separator, and a `.` after the first component do not
+count; `..` is compared as written), and `p.starts_with(q)` is true exactly
+when `p.strip_prefix(q)` succeeds. `name()`, `ext()`, and `parent()` answer
+the remaining component questions. A text test on `.display()` is a different
+question, one about bytes: `p.display().starts_with("/us")` is true for
+`/usr/lib`.
+
+```xsh
+{{.spec.path_queries.source}}
+```
+
 ### 4.5 Lists, maps, and records
 
 `List[T]` is an ordered, homogeneous sequence. `+` concatenates two lists;

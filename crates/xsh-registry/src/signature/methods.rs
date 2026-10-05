@@ -133,6 +133,20 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::PathWithExt,
                 ),
                 method(
+                    "starts_with",
+                    vec![param("prefix", Type::Path)],
+                    Type::Bool,
+                    true,
+                    RuntimeOp::PathStartsWith,
+                ),
+                method(
+                    "ends_with",
+                    vec![param("suffix", Type::Path)],
+                    Type::Bool,
+                    true,
+                    RuntimeOp::PathEndsWith,
+                ),
+                method(
                     "exists",
                     Vec::new(),
                     result(Type::Bool),

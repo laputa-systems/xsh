@@ -457,6 +457,8 @@ pub enum RuntimeOp {
     PathStripPrefix,
     PathRelativeTo,
     PathWithExt,
+    PathStartsWith,
+    PathEndsWith,
     StatusExited,
     StatusSignaled,
     StatusExitedWith,

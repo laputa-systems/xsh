@@ -17,6 +17,8 @@ mod prefer_repeat;
 mod redundant_use_alias;
 #[path = "lint_implicit_message.rs"]
 mod lint_implicit_message;
+#[path = "lint_path_text_query.rs"]
+mod lint_path_text_query;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -588,6 +590,9 @@ impl<'a> Linter<'a> {
             .extend(redundant_use_alias::lint_redundant_use_aliases(
                 program, source,
             ));
+        let path_text_queries =
+            lint_path_text_query::lint_path_text_queries(program, source, &linter.expr_types);
+        linter.diagnostics.extend(path_text_queries);
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));

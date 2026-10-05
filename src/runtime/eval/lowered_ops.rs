@@ -721,6 +721,15 @@ pub(super) fn lowered_str_predicate_value(
     needle: &LoweredValue,
     span: Span,
 ) -> Result<bool, RuntimeError> {
+    // A receiver typed only at run time can hold a Path, whose predicates
+    // compare components rather than bytes.
+    if let LoweredValue::Path(path) = value {
+        let name = match predicate {
+            LoweredStrPredicate::StartsWith => "starts_with",
+            LoweredStrPredicate::EndsWith => "ends_with",
+        };
+        return path_component_predicate(path, name, needle, span);
+    }
     if let Some(bytes) = lowered_bytes_value(value) {
         let needle = lowered_bytes_arg(needle, "string predicate", span)?;
         return Ok(match predicate {
@@ -2069,6 +2078,32 @@ pub(super) fn lowered_status_method_value(
     }
 }
 
+/// `Path.starts_with` and `Path.ends_with`: the other path's components must
+/// be a leading or trailing run of the receiver's. Components are split the
+/// way `strip_prefix` splits them, so `starts_with` holds exactly when
+/// `strip_prefix` succeeds.
+fn path_component_predicate(
+    path: &PathValue,
+    name: &str,
+    other: &LoweredValue,
+    span: Span,
+) -> Result<bool, RuntimeError> {
+    let LoweredValue::Path(other) = other else {
+        return Err(RuntimeError::new(
+            "type-error",
+            format!("{name} expected Path, found {}", other.type_name()),
+        )
+        .with_span(span));
+    };
+    let path = pathbuf_from_path_value(path);
+    let other = pathbuf_from_path_value(other);
+    Ok(if name == "starts_with" {
+        path.starts_with(other)
+    } else {
+        path.ends_with(other)
+    })
+}
+
 pub(super) fn lowered_path_method_value(
     path: PathValue,
     name: &str,
@@ -2076,6 +2111,9 @@ pub(super) fn lowered_path_method_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
+        "starts_with" | "ends_with" if args.len() == 1 => {
+            path_component_predicate(&path, name, &args[0], span).map(LoweredValue::Bool)
+        }
         "display" if args.is_empty() => Ok(LoweredValue::Str(path.display().into())),
         "name" if args.is_empty() => path_text_field(&path, "name")
             .map(|value| LoweredValue::Str(value.into()))

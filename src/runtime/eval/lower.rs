@@ -10409,7 +10409,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 // Recognize `<text>.starts_with(n)` / `.ends_with(n)` and lower to the
                 // direct StrPredicate node (the bool-condition path then specializes it
                 // into StrPredicateSlot/TrimStrPredicateSlot for slot/trim receivers).
+                // A Path receiver compares whole components, so it takes the method
+                // call below instead of the byte predicate.
                 let str_predicate = match name.as_str().as_str() {
+                    _ if matches!(self.checked_expr_type(base), Some(Type::Path)) => None,
                     "starts_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::StartsWith),
                     "ends_with" if args_vec.len() == 1 => Some(LoweredStrPredicate::EndsWith),
                     _ => None,
@@ -14690,7 +14693,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             }
             "ext_or" => arg_count == 1,
             "with_ext" | "strip_prefix" | "relative_to" | "touch_from" | "truncate" | "chmod"
-            | "hardlink" | "write" | "write_atomic" => arg_count == 1,
+            | "hardlink" | "write" | "write_atomic" | "starts_with" | "ends_with" => arg_count == 1,
             "copy" | "rename" | "mkdir" | "remove" => arg_count == 1 || arg_count == 2,
             "touch" => arg_count <= 1,
             _ => false,

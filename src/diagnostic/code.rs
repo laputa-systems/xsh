@@ -526,6 +526,7 @@ diagnostic_codes! {
         LintNeedlessAnnotation = "lint.needless-annotation", warning, "Remove a type annotation that the initializer or checked constraints already fix";
         LintOrganizeTopLevelConsts = "lint.organize-top-level-consts", warning, "Group safe immutable top-level constants after imports and before functions";
         LintPathConstructor = "lint.path-constructor", warning, "Prefer a `p` string literal or path interpolation over `Path(...)`";
+        LintPathTextQuery = "lint.path-text-query", warning, "Test a Path for a root component instead of testing its display text for a leading `/`";
         LintPatternConditional = "lint.pattern-conditional", warning, "Use `if let` for a two-arm match with a complementary pattern";
         LintPreferBareFieldLabel = "lint.prefer-bare-field-label", warning, "Write identifier-shaped record field labels without quotes";
         LintPreferBlockString = "lint.prefer-block-string", warning, "Use a block string for a constant multiline string concatenation";

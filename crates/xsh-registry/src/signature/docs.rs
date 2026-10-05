@@ -1398,6 +1398,16 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The prefix must match the path boundary; unrelated paths return an error.",
             &["path", "relative"],
         )),
+        ("Path", "starts_with") => Some((
+            "Tests whether a path begins with the components of another path.",
+            "Whole components are compared, never bytes: `/usr/lib` starts with `/usr` and not with `/us`, and `starts_with(p\"/\")` holds exactly for absolute paths. True exactly when strip_prefix succeeds; lexical, with no filesystem access.",
+            &["path", "component", "prefix"],
+        )),
+        ("Path", "ends_with") => Some((
+            "Tests whether a path ends with the components of another path.",
+            "Whole components are compared, never bytes: `a/b.txt` ends with `b.txt` and not with `txt`, and an absolute suffix matches only an equal path. Use ext for an extension test; lexical, with no filesystem access.",
+            &["path", "component", "suffix"],
+        )),
         ("Path", "with_ext") => Some((
             "Replaces a path extension.",
             "The operation changes spelling only and does not rename or touch the filesystem path.",
