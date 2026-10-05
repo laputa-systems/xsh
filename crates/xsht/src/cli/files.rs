@@ -202,6 +202,7 @@ pub struct LintConfig {
     pub prefer_inferred_variants: bool,
     pub prefer_positional_constructors: bool,
     pub prefer_implicit_messages: bool,
+    pub prefer_inferred_proc_returns: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -326,6 +327,8 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_positional_constructors: ini_string(lint, "prefer-positional-constructors")
             .is_some_and(|value| value == "true"),
         prefer_implicit_messages: ini_string(lint, "prefer-implicit-messages")
+            .is_some_and(|value| value == "true"),
+        prefer_inferred_proc_returns: ini_string(lint, "prefer-inferred-proc-returns")
             .is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }

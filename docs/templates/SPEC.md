@@ -1772,6 +1772,13 @@ A proc with no return type and a statement body returns `Result[Unit]`. A
 caller that ignores an inferred `Result[T]` must handle it like any other
 value-producing result.
 
+An annotation on a private function is never required where inference
+succeeds. The opt-in `lint.prefer-inferred-proc-return` removes a private
+proc's annotation only when the file checks clean without it and no checked
+type in the file changes; `lint.redundant-result-unit` removes a broad
+`Result[Unit]` that a statement body already means, and leaves
+`Result[Unit, Family]` alone.
+
 ### 9.4 Callable aliases
 
 An unannotated `let` that names a checked function or a module export keeps

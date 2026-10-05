@@ -1477,6 +1477,14 @@ fn lint_config_for_file(
         prefer_inferred_variants: tool_config.config.lint.prefer_inferred_variants,
         prefer_positional_constructors: tool_config.config.lint.prefer_positional_constructors,
         prefer_implicit_messages: tool_config.config.lint.prefer_implicit_messages,
+        // A project that asks `xsht check --annotate` to write returns does
+        // not also want them removed.
+        prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns
+            && !configured_return_annotations,
+        return_proof: Some(crate::xsht::lint::ReturnProofContext {
+            file: file.to_string(),
+            module_roots: module_roots.clone(),
+        }),
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,

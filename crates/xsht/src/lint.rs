@@ -18,6 +18,10 @@ mod prefer_repeat;
 mod prefer_tempdir;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
+
+#[path = "lint_prefer_inferred_proc_return.rs"]
+mod inferred_proc_return;
+pub use inferred_proc_return::ReturnProofContext;
 #[path = "lint_implicit_message.rs"]
 mod lint_implicit_message;
 #[path = "lint_path_text_query.rs"]
@@ -333,6 +337,11 @@ pub struct LintOptions {
     /// Opt in to `lint.prefer-implicit-message`, which a corpus adopts once
     /// it migrates its `Variant(message: Str)` declarations.
     pub prefer_implicit_messages: bool,
+    /// Opt in to `lint.prefer-inferred-proc-return`.
+    pub prefer_inferred_proc_returns: bool,
+    /// The file and module roots a return-annotation proof loads imports
+    /// with. Without them only a file with no user imports is provable.
+    pub return_proof: Option<ReturnProofContext>,
     pub runless: bool,
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
@@ -384,6 +393,8 @@ impl Default for LintOptions {
             prefer_inferred_variants: false,
             prefer_positional_constructors: false,
             prefer_implicit_messages: false,
+            prefer_inferred_proc_returns: false,
+            return_proof: None,
             runless: false,
             runless_except: Vec::new(),
             interactive_command_replacement: None,
@@ -430,6 +441,9 @@ pub struct Linter<'a> {
     prefer_inferred_private_effects: bool,
     prefer_inferred_variants: bool,
     prefer_positional_constructors: bool,
+    prefer_inferred_proc_returns: bool,
+    return_proof: Option<ReturnProofContext>,
+    proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
     local_annotation_before: Option<Option<CheckedLocalAnnotationFacts>>,
     source: &'a str,
@@ -605,6 +619,9 @@ impl<'a> Linter<'a> {
             prefer_inferred_private_effects: options.prefer_inferred_private_effects,
             prefer_inferred_variants: options.prefer_inferred_variants,
             prefer_positional_constructors: options.prefer_positional_constructors,
+            prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
+            return_proof: options.return_proof,
+            proc_return_candidates: Vec::new(),
             return_removal_before: None,
             local_annotation_before: None,
             source,
@@ -690,6 +707,14 @@ impl<'a> Linter<'a> {
             .extend(redundant_use_alias::lint_redundant_use_aliases(
                 program, source,
             ));
+        // The proof checks the file again, so it runs only when its result
+        // can be reported.
+        if lint_code_selected(
+            only.as_deref(),
+            Some(DiagnosticCode::LintPreferInferredProcReturn),
+        ) {
+            linter.lint_inferred_proc_returns();
+        }
         linter
             .diagnostics
             .extend(lint_prefer_match_else::lint_wildcard_catch_all_arms(
@@ -2031,6 +2056,7 @@ impl<'a> Linter<'a> {
 
     fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool, statement_span: Span) {
         self.lint_inferred_proc_effects(def_id, exported, statement_span);
+        self.note_proc_return_candidate(def_id, exported);
         let def = self.arena.function_def(def_id).clone();
         // Without the annotation, a complete `if`/`match` tail may infer a value.
         let branching_tail = self
@@ -2050,7 +2076,9 @@ impl<'a> Linter<'a> {
         if !def.return_ty_defaulted
             && !exported
             && !branching_tail
-            && result_unit_type_expr(self.arena, def.return_ty)
+            // An error family in the annotation is a contract the body may
+            // rely on (`Err(.Variant(...))`); only the broad form is implied.
+            && inferred_proc_return::broad_result_unit(self.arena, def.return_ty)
         {
             let ty_span = self.arena.type_expr_span(def.return_ty);
             let deletion_start = scan_before_arrow(self.source, ty_span.start());

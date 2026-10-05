@@ -619,6 +619,7 @@ diagnostic_codes! {
         LintUnusedCallable = "lint.unused-callable", warning, "Flag an unexported callable not reachable from a bundle entry point";
         LintUnusedLocal = "lint.unused-local", warning, "Flag a local variable that is never read";
         LintUnusedType = "lint.unused-type", warning, "Flag a type declaration that is never referenced";
+        LintPreferInferredProcReturn = "lint.prefer-inferred-proc-return", warning, "Drop a private proc return type when it is inferred exactly";
         LintRedundantUseAlias = "lint.redundant-use-alias", warning, "Drop a `use` alias that repeats the last path segment, as in `use a.b as b`";
         LintListAnyUnion = "lint.list-any-union", warning, "Name the closed `List[Union[...]]` type of an immutable `List[Any]` whose literal elements have a few concrete types";
     }
