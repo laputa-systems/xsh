@@ -53,8 +53,18 @@ fn civil_from_epoch_days(days: i64) -> (i64, i64, i64) {
 const NANOS_PER_SECOND: i64 = 1_000_000_000;
 const FORMAT_LIMIT: usize = 65_536;
 
+pub(crate) fn clock_resolution() -> Result<i64, String> {
+    let mut resolution: libc::timespec = unsafe { std::mem::zeroed() };
+    if unsafe { libc::clock_getres(libc::CLOCK_REALTIME, &mut resolution) } != 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    (resolution.tv_sec as i64).checked_mul(NANOS_PER_SECOND)
+        .and_then(|seconds| seconds.checked_add(resolution.tv_nsec as i64))
+        .ok_or_else(|| "clock resolution out of range".into())
+}
+
 fn calendar(seconds: i64, utc: bool) -> Result<libc::tm, String> {
-    let seconds: libc::time_t = seconds.try_into().map_err(|_| "timestamp out of range")?;
+    let seconds = seconds.try_into().map_err(|_| "timestamp out of range")?;
     let mut tm = unsafe { std::mem::zeroed() };
     let result = unsafe {
         if utc { libc::gmtime_r(&seconds, &mut tm) }
@@ -241,6 +251,23 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
         if let Some(rest) = input.strip_suffix(suffix) { input = rest.trim_end().into(); explicit_offset = Some(offset); break; }
     }
     if explicit_offset.is_none() {
+        let last = input.split_whitespace().last().unwrap_or("");
+        if last.len() == 1 {
+            let code = last.as_bytes()[0].to_ascii_uppercase();
+            let hours = match code {
+                b'A'..=b'I' => Some((code - b'A' + 1) as i64),
+                b'K'..=b'M' => Some((code - b'K' + 10) as i64),
+                b'N'..=b'Y' => Some(-((code - b'N' + 1) as i64)),
+                b'Z' => Some(0), _ => None,
+            };
+            if let Some(hours) = hours {
+                explicit_offset = Some(hours * 3600);
+                input.truncate(input.len() - last.len());
+                input = input.trim_end().into();
+            }
+        }
+    }
+    if explicit_offset.is_none() {
         if let Some(pos) = input.char_indices().rev().find_map(|(i,c)| ((c == '+' || c == '-') && i > 9).then_some(i)) {
             let tail = &input[pos + 1..];
             let digits = tail.replace(':', "");
@@ -253,6 +280,11 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
                 input.truncate(pos); input = input.trim_end().into();
             }
         }
+    }
+    if input.is_empty() && explicit_offset.is_some() {
+        let tm = calendar(now.div_euclid(NANOS_PER_SECOND), true)?;
+        return from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, true)?
+            .checked_sub(explicit_offset.unwrap() * NANOS_PER_SECOND).ok_or_else(|| "timestamp out of range".into());
     }
     let mut nanos = 0;
     if let Some(dot) = input.rfind('.') {

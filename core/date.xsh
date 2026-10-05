@@ -36,7 +36,10 @@ proc main(...argv: List[Str]) [time, process, env, io, fs, error] {
     if ! operands and arg == "--version" { gnu.version("date"); return }
     if ! operands and (arg == "-u" or arg == "--utc" or arg == "--universal" or arg == "--uct" or arg == "--uni" or arg == "--u") { utc = true; continue }
     if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822") { format = "%a, %d %b %Y %H:%M:%S %z"; continue }
-    if ! operands and arg == "--resolution" { gnu.error("clock resolution reporting is not supported"); exit 1 }
+    if ! operands and arg == "--resolution" { let resolution = time.clock_resolution()?
+      let whole = resolution / 1000000000
+      let fraction = time.format(resolution % 1000000000, "%N", utc: true)?
+      gnu.write_text(f"{whole}.{fraction}\n"); return }
     if ! operands and (arg.starts_with("-I") or arg.starts_with("--iso-8601") or arg == "--i" or arg.starts_with("--i=") or arg.starts_with("--rfc-3339")) {
       var spec = "date"
       var rfc = arg.starts_with("--rfc-3339")
