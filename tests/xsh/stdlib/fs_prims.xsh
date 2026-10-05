@@ -691,3 +691,50 @@ test test_copy_file_streams_every_byte_to_a_fifo_destination { |ctx|
   assert fs.stat(fifo)?.kind == "fifo"
   assert fs.copy_file(source, fifo, reflink: "always") is Err(_)
 }
+
+test test_copy_file_force_preserves_destinations_for_missing_and_invalid_sources { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-force-source-errors")?
+  let dest = fp"{root}/dest"
+  dest.write("keep")
+  let ino = fs.stat(dest)?.ino
+  assert fs.copy_file(fp"{root}/missing", dest, force: true) is Err(is NotFound)
+  assert dest.read_text()? == "keep"
+  assert fs.stat(dest)?.ino == ino
+  assert fs.copy_file(root, dest, force: true) is Err(_)
+  assert dest.read_text()? == "keep"
+  assert fs.copy_file(dest, dest, force: true) is Err(_)
+  assert dest.read_text()? == "keep"
+}
+
+test test_copy_file_force_replaces_only_an_unopenable_destination { |ctx|
+  if applet.current_euid() == 0 {
+    test.skip("requires unprivileged ownership to exercise open permission failures")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "fs-copy-force-permissions")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  let retained = fp"{root}/retained"
+  source.write("copied")
+  dest.write("keep", mode: 0o400)
+  fs.link(dest, retained)
+  let old_ino = fs.stat(dest)?.ino
+  assert fs.copy_file(source, dest) is Err(_)
+  assert dest.read_text()? == "keep"
+  assert fs.copy_file(source, dest, force: true, overwrite: false) is Err(_)
+  assert fs.stat(dest)?.ino == old_ino
+  source.chmod(0o000)
+  let refused_source = fs.copy_file(source, dest, force: true)
+  assert refused_source is Err(_)
+  if let Err(failure) = refused_source {
+    assert failure.errno == 13
+  }
+  assert dest.read_text()? == "keep"
+  assert fs.stat(dest)?.ino == old_ino
+  source.chmod(0o600)
+  let report = fs.copy_file(source, dest, force: true)?
+  assert report.bytes == 6
+  assert dest.read_text()? == "copied"
+  assert fs.stat(dest)?.ino != old_ino
+  assert retained.read_text()? == "keep"
+}

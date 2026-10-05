@@ -446,6 +446,7 @@ pub(crate) struct CopyFile {
     pub(crate) reflink: Policy,
     pub(crate) overwrite: bool,
     pub(crate) mode: Option<i64>,
+    pub(crate) force: bool,
 }
 
 /// How bytes reached the destination, strongest first.
@@ -483,7 +484,7 @@ fn copy_file_unnamed(
     if !(kind.is_file() || kind.is_fifo() || kind.is_char_device() || kind.is_block_device()) {
         return Err(fail("source is not a regular file, FIFO, or device"));
     }
-    let existed = match std::fs::metadata(&dest) {
+    let mut existed = match std::fs::metadata(&dest) {
         Ok(existing) => {
             if existing.dev() == source_metadata.dev() && existing.ino() == source_metadata.ino() {
                 return Err(fail("source and destination are the same file"));
@@ -513,14 +514,36 @@ fn copy_file_unnamed(
     let mode = options
         .mode
         .map_or(metadata.mode() & 0o777, |mode| mode as u32);
-    let output = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .create_new(!options.overwrite)
-        .truncate(false)
-        .mode(mode)
-        .open(&dest)
-        .map_err(host)?;
+    let open_destination = || {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .create_new(!options.overwrite)
+            .truncate(false)
+            .mode(mode)
+            .open(&dest)
+    };
+    let output = match open_destination() {
+        Ok(output) => output,
+        Err(_) if options.force && options.overwrite && existed => {
+            // The source is already open, so its read failure cannot delete a
+            // destination. Recheck identity against that pinned source before
+            // replacing a destination whose open failed; never retry transfer
+            // failures or override exclusive creation.
+            match std::fs::metadata(&dest) {
+                Ok(existing) if existing.dev() == metadata.dev() && existing.ino() == metadata.ino() => {
+                    return Err(fail("source and destination are the same file"));
+                }
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(host(error)),
+            }
+            std::fs::remove_file(&dest).map_err(host)?;
+            existed = false;
+            open_destination().map_err(host)?
+        }
+        Err(error) => return Err(host(error)),
+    };
     let destination_metadata = output.metadata().map_err(host)?;
     if destination_metadata.dev() == metadata.dev() && destination_metadata.ino() == metadata.ino() {
         return Err(fail("source and destination are the same file"));

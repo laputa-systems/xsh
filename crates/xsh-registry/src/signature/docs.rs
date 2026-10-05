@@ -811,7 +811,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "copy_file") => Some((
             "Copies file, FIFO, or device bytes with sparse and reflink control.",
-            "Virtual files, FIFOs, and devices stream until EOF using bounded memory. FIFO and device destinations receive every byte without truncation or sparse seeks, report hole_bytes zero for every sparse policy, and reject reflink always with ENOTSUP. bytes reports the logical length copied, including holes. sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; creation mode is the only metadata copied. Source identity is checked before destination truncation.",
+            "Virtual files, FIFOs, and devices stream until EOF using bounded memory. FIFO and device destinations receive every byte without truncation or sparse seeks, report hole_bytes zero for every sparse policy, and reject reflink always with ENOTSUP. bytes reports the logical length copied, including holes. sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; creation mode is the only metadata copied. Source identity is checked before destination truncation. force defaults to false; when true and overwrite is true, only a destination-open failure may unlink and reopen an existing destination after the source is pinned. Source failures and transfer failures never trigger replacement.",
             &["filesystem", "copy", "sparse"],
         )),
         ("fs", "fsync" | "sync") => Some((

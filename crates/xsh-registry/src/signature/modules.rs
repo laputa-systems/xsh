@@ -1732,6 +1732,7 @@ fn fs_module() -> ModuleSig {
                     default_param("reflink", Type::Str),
                     default_param("overwrite", Type::Bool),
                     default_param("mode", Type::Optional(Box::new(Type::Int))),
+                    default_param("force", Type::Bool),
                 ],
                 result(crate::records::fs_copy_file_result_type()),
                 false,
