@@ -791,3 +791,12 @@ test test_check_and_lint_nested_schema_constructors_without_stack_environment { 
     assert p"nested.xsh".read_text()? == source
   }
 }
+
+# A script that is not UTF-8 is a diagnostic naming the problem, not a crash
+# in the loader.
+test test_check_reports_invalid_utf8_source_as_a_diagnostic { |ctx|
+  let script = test.temp_file(ctx, name: "invalid-utf8.xsh", contents: b"let \xff")?
+  let checked = run.capture --text "xsht" check $script
+  assert checked.status.exited_with(2), checked.stderr
+  assert "source.invalid-utf8" in checked.stderr, checked.stderr
+}

@@ -895,23 +895,6 @@ print ${{first.status}} ${{first.body.utf8()?}} ${{downloaded.status}} ${{downlo
 }
 
 #[test]
-fn source_loading_reports_invalid_utf8_as_diagnostic() {
-    let path = temp_xsh_path("invalid-utf8");
-    std::fs::write(&path, vec![b'l', b'e', b't', b' ', 0xff]).expect("write temp script");
-
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .args(["check", path.to_str().unwrap()])
-        .output()
-        .expect("run xsht");
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("source.invalid-utf8"));
-
-    std::fs::remove_file(path).expect("remove temp script");
-}
-
-#[test]
 fn helper_binaries_cover_raw_argv_env_path_and_glob_boundaries() {
     let root = temp_path("raw-boundary-root");
     std::fs::create_dir_all(&root).unwrap();
