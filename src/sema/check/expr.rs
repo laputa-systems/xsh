@@ -2675,6 +2675,8 @@ impl Checker {
                             Type::Map(member, _) | Type::List(member) => {
                                 self.path_literal_expectation(arena, left, member)
                             }
+                            // The entries of `env.PATH` are paths.
+                            Type::EnvPathList => Some(Type::Path),
                             _ => None,
                         };
                         let left_ty = self.check_expr_arena(arena, source, left, expected.as_ref());
@@ -2716,9 +2718,9 @@ impl Checker {
                             );
                         }
                     }
-                    // env.PATH entries are exact Path values; a Str literal is
-                    // not promoted here, so `"/bin" in env.PATH` is rejected
-                    // instead of silently comparing Str against Path.
+                    // env.PATH entries are exact Path values. A string
+                    // literal was checked as a Path above; any other text is
+                    // rejected instead of being compared against paths.
                     Type::EnvPathList => {
                         if left_ty == Type::Any {
                             self.expect_type(&Type::Path, &left_ty, left_span);

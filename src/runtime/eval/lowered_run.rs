@@ -110,7 +110,7 @@ impl Evaluator {
         &mut self,
         ctx: &RecordMap,
         source: &str,
-        args: &[String],
+        args: &[std::ffi::OsString],
         env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
@@ -124,7 +124,7 @@ impl Evaluator {
         ctx: &RecordMap,
         source: &str,
         xsh_args: &[String],
-        script_args: &[String],
+        script_args: &[std::ffi::OsString],
         env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
@@ -149,7 +149,7 @@ impl Evaluator {
         ctx: &RecordMap,
         source: &str,
         trace_args: &[String],
-        script_args: &[String],
+        script_args: &[std::ffi::OsString],
         env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
@@ -176,7 +176,7 @@ impl Evaluator {
         ctx: &RecordMap,
         source: &str,
         tool_args: &[String],
-        script_args: &[String],
+        script_args: &[std::ffi::OsString],
         env: &BTreeMap<String, Vec<u8>>,
         stdin: &[u8],
         name: &str,
@@ -2008,6 +2008,23 @@ fn lowered_optional_str_list(
 ) -> Result<Vec<String>, RuntimeError> {
     match value {
         Some(value) => lowered_str_list_arg(Some(value), operation, span),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// An optional list of argv words, each as the bytes a child receives: text
+/// as UTF-8 and a Path as its native bytes.
+#[cfg(feature = "native-tests")]
+fn lowered_optional_argv_words(
+    value: Option<LoweredValue>,
+    operation: &str,
+    span: Span,
+) -> Result<Vec<std::ffi::OsString>, RuntimeError> {
+    match value {
+        Some(value) => Ok(lowered_argv_list(Some(value), operation, span)?
+            .into_iter()
+            .map(std::ffi::OsString::from_vec)
+            .collect()),
         None => Ok(Vec::new()),
     }
 }
@@ -7229,8 +7246,13 @@ impl Evaluator {
                 lowered_runtime_result(process_module::process_stats(pid, span), span)?
             }
             RuntimeOp::ProcessWhich if values.len() == 1 => {
-                let name = lowered_str_arg_owned(values.pop(), "", "process.which", span)?;
-                if name.is_empty() || name.contains('\0') {
+                // A Path names the program by its native bytes; text is
+                // UTF-8.
+                let name = match values.pop() {
+                    Some(LoweredValue::Path(path)) => path.bytes,
+                    value => lowered_str_arg_owned(value, "", "process.which", span)?.into_bytes(),
+                };
+                if name.is_empty() || name.contains(&0) {
                     lowered_result_err_value(
                         RuntimeError::new(
                             "process-which",
@@ -7240,7 +7262,7 @@ impl Evaluator {
                     )
                 } else {
                     let invocation = ProcessInvocation {
-                        target: name.into_bytes(),
+                        target: name,
                         argv: Vec::new(),
                         cwd: self.cwd.clone(),
                         env: self.env.snapshot_clone(),
@@ -7884,7 +7906,7 @@ impl Evaluator {
                 let source =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "test.run_script", span)?;
                 let args =
-                    lowered_optional_str_list(values.get(2).cloned(), "test.run_script", span)?;
+                    lowered_optional_argv_words(values.get(2).cloned(), "test.run_script", span)?;
                 let env =
                     lowered_optional_env_record(values.get(3).cloned(), "test.run_script", span)?;
                 let stdin =
@@ -7909,7 +7931,7 @@ impl Evaluator {
                 let xsh_args =
                     lowered_optional_str_list(values.get(2).cloned(), "test.run_xsh", span)?;
                 let script_args =
-                    lowered_optional_str_list(values.get(3).cloned(), "test.run_xsh", span)?;
+                    lowered_optional_argv_words(values.get(3).cloned(), "test.run_xsh", span)?;
                 let env =
                     lowered_optional_env_record(values.get(4).cloned(), "test.run_xsh", span)?;
                 let stdin =
@@ -7942,7 +7964,7 @@ impl Evaluator {
                 let trace_args =
                     lowered_optional_str_list(values.get(2).cloned(), "test.run_xsht_trace", span)?;
                 let script_args =
-                    lowered_optional_str_list(values.get(3).cloned(), "test.run_xsht_trace", span)?;
+                    lowered_optional_argv_words(values.get(3).cloned(), "test.run_xsht_trace", span)?;
                 let env = lowered_optional_env_record(
                     values.get(4).cloned(),
                     "test.run_xsht_trace",
@@ -7983,7 +8005,8 @@ impl Evaluator {
                     lowered_optional_str_list(values.get(3).cloned(), "test.expect", span)?;
                 let stdout =
                     lowered_optional_str_list(values.get(4).cloned(), "test.expect", span)?;
-                let args = lowered_optional_str_list(values.get(5).cloned(), "test.expect", span)?;
+                let args =
+                    lowered_optional_argv_words(values.get(5).cloned(), "test.expect", span)?;
                 let env =
                     lowered_optional_env_record(values.get(6).cloned(), "test.expect", span)?;
                 let stdin =

@@ -158,7 +158,9 @@ pub struct NativeTestRunRequest {
     pub script_path: PathValue,
     pub source: String,
     pub tool_args: Vec<String>,
-    pub script_args: Vec<String>,
+    /// The script's argv words as the bytes it receives: text as UTF-8 and
+    /// a Path as its native bytes.
+    pub script_args: Vec<std::ffi::OsString>,
     /// Overrides by name; a value is the bytes the script receives.
     pub env: BTreeMap<String, Vec<u8>>,
     pub stdin: Vec<u8>,

@@ -358,20 +358,23 @@ test test_env_path_membership_matches_exact_entries {
   }
 }
 
-test test_env_path_rejects_str_literal_entries { |ctx|
+# A string literal is a path here; `path_sinks_argv.xsh` covers that. Text
+# that is not a literal never converts.
+test test_env_path_rejects_text_that_is_not_a_literal { |ctx|
   for statement in [
-    "let found = \"/opt/xsh-literal\" in env.PATH",
-    "env.PATH.append(\"/opt/xsh-literal\")?",
-    "env.PATH.prepend(\"/opt/xsh-literal\")?",
+    "let found = dir in env.PATH",
+    "env.PATH.append(dir)",
+    "env.PATH.prepend(dir)",
   ] {
     let rejected = test.run_script(
       ctx,
-      """env PATH=/opt/xsh-literal {
+      """let dir = "/opt/xsh-literal"
+env PATH=/opt/xsh-literal {
   """ + statement + """\n}
 """,
     )?
     assert rejected.status == 2, statement
-    assert "requires Path" in rejected.stderr, rejected.stderr
+    assert "Path" in rejected.stderr, rejected.stderr
   }
 }
 

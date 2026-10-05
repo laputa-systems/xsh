@@ -13,7 +13,12 @@ use crate::syntax::arena::{
 use crate::syntax::node::Effect;
 
 fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
-    matches!(ty, Type::Str | Type::Path | Type::Any | Type::Unknown)
+    match ty {
+        // A list built before the call has one element type; text and paths
+        // together make it a union, and each member is still an argv word.
+        Type::Union(members) => members.iter().all(process_command_argv_item_type_is_valid),
+        _ => matches!(ty, Type::Str | Type::Path | Type::Any | Type::Unknown),
+    }
 }
 
 #[allow(dead_code)]

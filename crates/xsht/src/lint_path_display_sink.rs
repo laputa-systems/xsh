@@ -13,9 +13,12 @@ use xsh::frontend::syntax::arena::{
 /// - `bytes.from_text(P.display())`, which is `P.bytes()`;
 /// - the target of `process.command_argv`, and the items of an argv list
 ///   written in the call;
+/// - the name given to `process.which`;
+/// - the items of an `args` list written in a call to `test.run_script` or
+///   `test.expect`;
 /// - the values of an `env` record written in a call to
-///   `process.command_argv`, `test.run_script`, `test.run_xsh`, or
-///   `test.run_xsht_trace`.
+///   `process.command_argv`, `test.run_script`, `test.expect`,
+///   `test.run_xsh`, or `test.run_xsht_trace`.
 ///
 /// For every path that is valid UTF-8 the sink receives the same bytes with
 /// and without the conversion. For any other path the conversion substitutes
@@ -69,13 +72,25 @@ pub(super) fn path_display_sinks(
         }
         return vec![diagnostic];
     }
-    // Positions of the operands that are byte sinks, by function. `env` may
-    // also be passed by name.
-    let (target, argv, env) = match (module.as_str().as_str(), name.as_str().as_str()) {
-        ("process", "command_argv") => (Some(0), Some(1), 3),
-        ("test", "run_script") => (None, None, 3),
-        ("test", "run_xsh" | "run_xsht_trace") => (None, None, 4),
+    // Positions of the operands that are byte sinks, by function, and the
+    // name the word list may be passed by. `env` may also be passed by name.
+    let (target, argv, argv_name, env) = match (module.as_str().as_str(), name.as_str().as_str()) {
+        ("process", "command_argv") => (Some(0), Some(1), "argv", Some(3)),
+        ("process", "which") => (Some(0), None, "", None),
+        ("test", "run_script") => (None, Some(2), "args", Some(3)),
+        ("test", "expect") => (None, Some(5), "args", Some(6)),
+        ("test", "run_xsh" | "run_xsht_trace") => (None, None, "", Some(4)),
         _ => return Vec::new(),
+    };
+    let words = |list: ExprId| -> Vec<ExprId> {
+        match arena.expr(list).kind {
+            ArenaExprKind::List(items) => arena
+                .list_elements(items)
+                .filter(|item| item.splice_span.is_none())
+                .map(|item| item.value)
+                .collect(),
+            _ => Vec::new(),
+        }
     };
     let mut operands = Vec::new();
     for (position, argument) in args.iter().enumerate() {
@@ -84,19 +99,15 @@ pub(super) fn path_display_sinks(
                 operands.push(value);
             }
             ArenaCallArgKind::Positional(value) if Some(position) == argv => {
-                if let ArenaExprKind::List(items) = arena.expr(value).kind {
-                    operands.extend(
-                        arena
-                            .list_elements(items)
-                            .filter(|item| item.splice_span.is_none())
-                            .map(|item| item.value),
-                    );
-                }
+                operands.extend(words(value));
             }
-            ArenaCallArgKind::Positional(value) if position == env => {
+            ArenaCallArgKind::Named { name, value, .. } if argv.is_some() && name == argv_name => {
+                operands.extend(words(value));
+            }
+            ArenaCallArgKind::Positional(value) if Some(position) == env => {
                 operands.extend(record_values(arena, value));
             }
-            ArenaCallArgKind::Named { name, value, .. } if name == "env" => {
+            ArenaCallArgKind::Named { name, value, .. } if env.is_some() && name == "env" => {
                 operands.extend(record_values(arena, value));
             }
             _ => {}
@@ -218,6 +229,19 @@ mod tests {
         assert_eq!(
             fixed,
             "proc launch(exe: Path, root: Path, flags: List[Str]) [process, error] -> Result[Bytes] {\n  let plan = process.command_argv(exe, [exe, \"--root\", root, @flags], env: {ROOT: root, MODE: \"fast\"})\n  let _ = process.run(plan)?\n  root.bytes()\n}\n"
+        );
+        assert!(lint(&fixed).is_empty());
+    }
+
+    #[test]
+    fn display_before_a_program_name_or_a_script_argument_is_dropped() {
+        let source = "test sinks { |ctx|\n  let tool = process.which(\"sh\")?\n  let same = process.which(tool.display())?\n  let ran = test.run_script(ctx, \"print (args.len())\\n\", [tool.display(), \"text\"], {TOOL: same.display()})?\n  let _ = test.expect(ctx, \"print (args.len())\\n\", status: 0, args: [tool.display()])?\n  assert ran.stdout == \"2\\n\"\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        assert_eq!(
+            fixed,
+            "test sinks { |ctx|\n  let tool = process.which(\"sh\")?\n  let same = process.which(tool)?\n  let ran = test.run_script(ctx, \"print (args.len())\\n\", [tool, \"text\"], {TOOL: same})?\n  let _ = test.expect(ctx, \"print (args.len())\\n\", status: 0, args: [tool])?\n  assert ran.stdout == \"2\\n\"\n}\n"
         );
         assert!(lint(&fixed).is_empty());
     }

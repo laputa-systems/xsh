@@ -109,7 +109,7 @@ test test_only_a_literal_becomes_a_path { |ctx|
     "let member = text in [target]",
     "let nul: Path = \"a\\0b\"",
     "let digest = hash.sha256(\"image.bin\")",
-    "let found = \"/opt/bin\" in env.PATH",
+    "let found = text in env.PATH",
   ] {
     let rejected = test.run_script(
       ctx,

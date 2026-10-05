@@ -2980,6 +2980,15 @@ fn process_module() -> ModuleSig {
             ),
         ),
         (
+            "which",
+            sig(
+                vec![param("name", Type::Path)],
+                result(Type::Path),
+                false,
+                RuntimeOp::ProcessWhich,
+            ),
+        ),
+        (
             "port",
             sig(
                 vec![param("port", Type::Int)],
@@ -3523,7 +3532,12 @@ fn test_module() -> ModuleSig {
                 vec![
                     param("ctx", test_context_type()),
                     param("source", Type::Str),
-                    default_param("args", Type::List(Box::new(Type::Str))),
+                    // Argv words: text and paths, as their bytes. The checker also
+                    // takes a `List[Str]` or a `List[Path]` here.
+                    default_param(
+                        "args",
+                        Type::List(Box::new(Type::Union(vec![Type::Str, Type::Path]))),
+                    ),
                     default_param("env", Type::Record(BTreeMap::new())),
                     default_param("stdin", Type::Bytes),
                     default_param("name", Type::Str),
@@ -3576,7 +3590,12 @@ fn test_module() -> ModuleSig {
                     param("status", Type::Int),
                     default_param("stderr", Type::List(Box::new(Type::Str))),
                     default_param("stdout", Type::List(Box::new(Type::Str))),
-                    default_param("args", Type::List(Box::new(Type::Str))),
+                    // Argv words: text and paths, as their bytes. The checker also
+                    // takes a `List[Str]` or a `List[Path]` here.
+                    default_param(
+                        "args",
+                        Type::List(Box::new(Type::Union(vec![Type::Str, Type::Path]))),
+                    ),
                     default_param("env", Type::Record(BTreeMap::new())),
                     default_param("stdin", Type::Bytes),
                     default_param("name", Type::Str),

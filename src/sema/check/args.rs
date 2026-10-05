@@ -494,6 +494,12 @@ impl Checker {
             if expected == Type::Path && is_path_like_type(&actual) {
                 continue;
             }
+            // A parameter that takes argv words reads its list and never
+            // writes to it, so a list of text or a list of paths is such a
+            // list as well, although neither is a `List[Union[Str, Path]]`.
+            if is_argv_word_list(&expected) && is_argv_word_list_argument(&actual) {
+                continue;
+            }
             self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
     }
@@ -772,4 +778,25 @@ pub(super) fn bind_module_args_arena(
 #[allow(dead_code)]
 pub(super) fn module_arg_matches_param_arena(actual: &Type, expected: &Type) -> bool {
     actual.matches_expected(expected) || (expected == &Type::Path && is_path_like_type(actual))
+}
+
+/// Whether a parameter type is a list of argv words, `List[Union[Str, Path]]`.
+fn is_argv_word_list(expected: &Type) -> bool {
+    matches!(expected, Type::List(item)
+        if matches!(&**item, Type::Union(members)
+            if members.len() == 2
+                && members.contains(&Type::Str)
+                && members.contains(&Type::Path)))
+}
+
+/// Whether an argument is a list whose elements are all text or paths. An
+/// empty list literal has no element type yet and is one too.
+fn is_argv_word_list_argument(actual: &Type) -> bool {
+    fn word(ty: &Type) -> bool {
+        match ty {
+            Type::Union(members) => members.iter().all(word),
+            _ => matches!(ty, Type::Str | Type::Path | Type::Unknown),
+        }
+    }
+    matches!(actual, Type::List(item) if word(item))
 }
