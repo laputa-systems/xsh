@@ -585,6 +585,15 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method("len", Vec::new(), Type::Int, true, RuntimeOp::ListLen),
                 method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::ListIsEmpty),
                 method(
+                    "to_set",
+                    Vec::new(),
+                    Type::Set(Box::new(Type::BuiltinParameter(
+                        BuiltinTypeParameter::Element,
+                    ))),
+                    true,
+                    RuntimeOp::ListToSet,
+                ),
+                method(
                     "get",
                     vec![param("index", Type::Int)],
                     result(Type::BuiltinParameter(BuiltinTypeParameter::Element)),
@@ -1318,6 +1327,36 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
             ]),
         },
+        // `in`, `|`, `&`, and `-` are operators; a set has no method that
+        // changes it in place.
+        MethodReceiverSig {
+            receiver: MethodReceiver::Set,
+            methods: method_map(vec![
+                method("len", Vec::new(), Type::Int, true, RuntimeOp::SetLen),
+                method("is_empty", Vec::new(), Type::Bool, true, RuntimeOp::SetIsEmpty),
+                method(
+                    "add",
+                    vec![param("item", Type::BuiltinParameter(BuiltinTypeParameter::Element))],
+                    Type::Set(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
+                    true,
+                    RuntimeOp::SetInsert,
+                ),
+                method(
+                    "remove",
+                    vec![param("item", Type::BuiltinParameter(BuiltinTypeParameter::Element))],
+                    Type::Set(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
+                    true,
+                    RuntimeOp::SetDiscard,
+                ),
+                method(
+                    "to_list",
+                    Vec::new(),
+                    Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
+                    true,
+                    RuntimeOp::SetToList,
+                ),
+            ]),
+        },
     ];
     for receiver in &mut receivers {
         for method in &mut receiver.methods {
@@ -1346,6 +1385,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                         BuiltinTypeParameter::Element,
                     )))),
                     MethodReceiver::RelPath => Some(Type::RelPath),
+                    MethodReceiver::Set => Some(Type::Set(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element)))),
                     MethodReceiver::Result => Some(Type::Result(
                         Box::new(variable(BuiltinTypeParameter::Element)),
                         Box::new(variable(BuiltinTypeParameter::Error)),

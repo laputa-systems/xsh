@@ -479,6 +479,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         }
         xsh_registry::types::Type::NonEmpty(item) => Type::non_empty(convert_type(item)),
         xsh_registry::types::Type::RelPath => Type::rel_path(),
+        xsh_registry::types::Type::Set(item) => Type::Set(Box::new(convert_type(item))),
     }
 }
 

@@ -261,7 +261,7 @@ impl Checker {
         self.diagnostics.push(diagnostic);
     }
 
-    fn lookup_record_shorthand(&mut self, name: Name, span: Span) -> Type {
+    pub(super) fn lookup_record_shorthand(&mut self, name: Name, span: Span) -> Type {
         let ty = self.lookup_expr_ident(name, span);
         if name == "ARGV"
             && let Some(diagnostic) = self.diagnostics.last_mut()
@@ -611,6 +611,12 @@ impl Checker {
             ArenaExprKind::Record(fields) => {
                 self.check_record_arena(arena, source, *fields, expected, expr.span)
             }
+            ArenaExprKind::Set(items) => {
+                self.check_set_literal_arena(arena, source, *items, expected)
+            }
+            ArenaExprKind::SetComp { expr: body, qualifiers } => {
+                self.check_set_comp_arena(arena, source, *body, *qualifiers, expected)
+            }
             ArenaExprKind::ErrorContext { message, block } => {
                 let ty = self.check_expr_with_schema_arena(
                     arena,
@@ -788,6 +794,11 @@ impl Checker {
                 self.pop_scope();
                 self.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
+            }
+            ArenaExprKind::ValueBlock(block)
+                if self.block_written_for_set(arena, *block, expected).is_some() =>
+            {
+                self.check_block_written_for_set_arena(arena, source, *block, expected, expr.span)
             }
             ArenaExprKind::ValueBlock(block) => {
                 if let Some(param) = arena
@@ -1599,6 +1610,9 @@ impl Checker {
         {
             return self.check_record_update_arena(arena, source, range, span);
         }
+        if let Some(set) = self.check_set_of_names_arena(arena, range, expected, span) {
+            return set;
+        }
         if matches!(expected, Some(Type::Map(_, _)))
             || fields
                 .iter()
@@ -1856,7 +1870,7 @@ impl Checker {
         }
     }
 
-    fn check_comp_qualifiers_arena(
+    pub(super) fn check_comp_qualifiers_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -1874,7 +1888,7 @@ impl Checker {
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
                         if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else if self.reject_unnarrowed_union(&iter_ty, "iteration", arena.arena.expr(iter).span) { Type::Unknown } else {
-                            self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
+                            self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, Set, Map, Str, or Bytes values", if map { DiagnosticCode::CheckMapcompIterator } else { DiagnosticCode::CheckListcompIterator });
                             Type::Unknown
                         }
                     });
@@ -2729,7 +2743,7 @@ impl Checker {
                         let right_ty =
                             self.check_expr_arena(arena, source, right, None).into_unvalidated();
                         let expected = match &right_ty {
-                            Type::Map(member, _) | Type::List(member) => {
+                            Type::Map(member, _) | Type::List(member) | Type::Set(member) => {
                                 self.path_literal_expectation(arena, left, member)
                             }
                             // The entries of `env.PATH` are paths.
@@ -2748,7 +2762,7 @@ impl Checker {
                     self.reject_dynamic_use("a membership operand", None, left_span);
                 }
                 match &right_ty {
-                    Type::Map(key, _) => {
+                    Type::Map(key, _) | Type::Set(key) => {
                         self.expect_type(key, &left_ty, left_span);
                     }
                     // List membership is equality with each element, which
@@ -2801,11 +2815,14 @@ impl Checker {
                     Type::Unknown => {}
                     _ => self.error(
                         right_span,
-                        "membership requires List, Map, Record, Str, Bytes, Path, or env.PATH",
+                        "membership requires List, Set, Map, Record, Str, Bytes, Path, or env.PATH",
                         DiagnosticCode::CheckMembershipType,
                     ),
                 }
                 Type::Bool
+            }
+            BinaryOp::Union | BinaryOp::Intersect => {
+                self.check_set_operator_arena(arena, source, op, left, right, expected)
             }
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 // The result type is an operand type only for List
@@ -2815,7 +2832,9 @@ impl Checker {
                 // An operand is read as its base type. Which validations the
                 // operands carried decides only the type of a concatenation.
                 let expected = expected.map(Type::unvalidated);
-                let left_expected = expected.filter(|ty| matches!(ty, Type::List(_)));
+                let left_expected = expected.filter(|ty| {
+                    matches!(ty, Type::List(_)) || (op == BinaryOp::Sub && matches!(ty, Type::Set(_)))
+                });
                 let left_ty = self.check_expr_arena(arena, source, left, left_expected);
                 let left_validation = left_ty.validated().map(|validated| validated.validation());
                 let left_ty = left_ty.into_unvalidated();
@@ -2859,6 +2878,11 @@ impl Checker {
                         self.expect_type(&Type::Str, &right_ty, right_span);
                         Type::Str
                     }
+                    // Set difference.
+                    Type::Set(_) if matches!(op, BinaryOp::Sub) => {
+                        self.expect_type(&left_ty, &right_ty, right_span);
+                        left_ty
+                    }
                     Type::List(ref item) if matches!(op, BinaryOp::Add) => {
                         self.expect_type(&left_ty, &right_ty, right_span);
                         Self::concatenation_type(
@@ -2875,6 +2899,7 @@ impl Checker {
                     | Type::Bytes
                     | Type::Str
                     | Type::List(_)
+                    | Type::Set(_)
                     | Type::Map(_, _)
                     | Type::Record(_)
                     | Type::Optional(_)

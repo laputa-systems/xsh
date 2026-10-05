@@ -757,6 +757,10 @@ impl CanonicalWriter<'_> {
                 self.put("non-empty;");
                 self.ty(inner);
             }
+            ArenaTypeExprKind::Set(inner) => {
+                self.put("set-type;");
+                self.ty(inner);
+            }
             ArenaTypeExprKind::Map(key, value) => {
                 self.put("map;");
                 self.opt_type(key);
@@ -838,6 +842,17 @@ impl CanonicalWriter<'_> {
             }
             ArenaExprKind::ListComp { expr, qualifiers } => {
                 self.put("list-comp;");
+                self.expr(*expr);
+                self.comp_qualifiers(*qualifiers);
+            }
+            ArenaExprKind::Set(items) => {
+                self.put("set;");
+                for element in self.arena.list_elements(*items).collect::<Vec<_>>() {
+                    self.expr(element.value);
+                }
+            }
+            ArenaExprKind::SetComp { expr, qualifiers } => {
+                self.put("set-comp;");
                 self.expr(*expr);
                 self.comp_qualifiers(*qualifiers);
             }

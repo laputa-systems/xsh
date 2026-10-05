@@ -140,7 +140,7 @@ pub(super) fn parameter_type_is_concrete(ty: &Type) -> bool {
         | Type::Invalid
         | Type::Null
         | Type::DynamicModule => false,
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
             parameter_type_is_concrete(inner)
         }
         Type::Map(key, value) => {

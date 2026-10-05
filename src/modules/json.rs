@@ -438,6 +438,13 @@ fn xsh_to_json(value: &Value, span: Span) -> Result<JsonValue, RuntimeError> {
             }
             Ok(raw_json_array(values))
         }
+        Value::Set(elements) => {
+            let mut values = Vec::with_capacity(elements.len());
+            for element in elements {
+                values.push(xsh_to_json(&element.clone().into_value(), span)?);
+            }
+            Ok(raw_json_array(values))
+        }
         Value::Map(fields) => {
             let mut values = Object::new();
             for (key, item) in fields {

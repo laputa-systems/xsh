@@ -125,6 +125,8 @@ pub enum Type {
     NonEmpty(Box<Type>),
     /// A path that is not absolute and never climbs above where it starts.
     RelPath,
+    /// A collection of distinct elements of one map-key type, in key order.
+    Set(Box<Type>),
 }
 
 /// The full CLI outcome always contains this envelope, independently of the

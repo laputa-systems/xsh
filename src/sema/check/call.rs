@@ -1819,6 +1819,12 @@ impl Checker {
             self.error(span, "unknown module", DiagnosticCode::CheckUnknownModule);
             return Type::Unknown;
         };
+        if module == "set"
+            && let Some(set) =
+                self.check_set_constructor_arena(arena, source, name, args, expected_context)
+        {
+            return set;
+        }
         if module == "env" && name == "get_path" {
             self.error(
                 span,

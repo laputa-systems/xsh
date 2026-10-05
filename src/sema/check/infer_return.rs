@@ -697,7 +697,7 @@ fn return_type_is_concrete(ty: &Type) -> bool {
         | Type::Pure
         | Type::Proc
         | Type::DynamicModule => false,
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
             return_type_is_concrete(inner)
         }
         Type::Map(key, value) => return_type_is_concrete(key) && return_type_is_concrete(value),

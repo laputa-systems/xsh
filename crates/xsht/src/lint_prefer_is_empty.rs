@@ -10,7 +10,7 @@ use xsh::frontend::syntax::node::BinaryOp;
 /// `items.len() != 0` are `! items.is_empty()`, as are the mirrored
 /// `0 == items.len()`, `0 != items.len()`, and `0 < items.len()`.
 ///
-/// The length is `len()` of a `Bytes`, `List`, or `Map`, or `byte_len()` or
+/// The length is `len()` of a `Bytes`, `List`, `Map`, or `Set`, or `byte_len()` or
 /// `count_chars()` of a `Str`, each of which is zero exactly when the value
 /// is empty. The receiver is evaluated once either way, and a negation binds
 /// tighter than any operator the comparison could have been an operand of, so
@@ -53,7 +53,7 @@ pub(super) fn length_compared_with_zero(
     let name = name.as_str();
     let name = name.as_str();
     let counts_elements = match expr_types.get(&arena.expr(base).span)? {
-        Type::Bytes | Type::List(_) | Type::Map(_, _) => name == "len",
+        Type::Bytes | Type::List(_) | Type::Map(_, _) | Type::Set(_) => name == "len",
         Type::Str => matches!(name, "byte_len" | "count_chars"),
         _ => false,
     };
@@ -169,6 +169,19 @@ mod tests {
             "pure probe(text: Str, raw: Bytes, items: List[Int], table: Map[Str, Int]) -> Bool {\n  let a = items.is_empty()\n  let b = raw.is_empty()\n  let c = ! table.is_empty() and ! items.is_empty()\n  let d = ! text.is_empty() or ! text.is_empty()\n  let e = text.trim().split(\",\").is_empty()\n  a and b and c and d and e\n}\n"
         );
         // The fixed program checks and is not reported again.
+        assert!(length_tests(&fixed).is_empty());
+    }
+
+    #[test]
+    fn a_set_length_compared_with_zero_becomes_an_emptiness_test() {
+        let source = "pure probe(tags: Set[Str]) -> Bool {\n  let a = tags.len() == 0\n  let b = 0 < (tags | {\"x\",}).len()\n  a and b\n}\n";
+        let diagnostics = length_tests(source);
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        assert_eq!(
+            fixed,
+            "pure probe(tags: Set[Str]) -> Bool {\n  let a = tags.is_empty()\n  let b = ! (tags | {\"x\",}).is_empty()\n  a and b\n}\n"
+        );
         assert!(length_tests(&fixed).is_empty());
     }
 

@@ -420,6 +420,7 @@ literal configuration data (`lint.prefer-const`).
 | `Regex`, `Digest` | compiled regex; typed hash digest |
 | `List[T]`, `Map[K, V]`, `Stream[T]` | collections |
 | `NonEmpty[T]` | a `List[T]` that holds at least one element (4.13) |
+| `Set[T]` | distinct elements of one key type, in key order (4.5) |
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
@@ -575,11 +576,33 @@ byte order. Keys are never converted between domains. `.set`, `.remove`, and
 `.push` return a new map. JSON objects and environment names require `Str`
 keys.
 
+`Set[T]` holds distinct elements of one type. `T` is a type a map key can
+have (`Str`, `Int`, `UInt`, `Bool`, `Bytes`, `Path`, or `Duration`); any other
+element type is an error (`check.set-element-type`). A set has no insertion
+order: iteration, `.to_list()`, a comprehension or `for` over it, and a
+pipeline from it all visit the elements in the order a map visits its keys,
+whatever order built the set. Two sets are equal when they hold the same
+elements. `.add(x)` and `.remove(x)` return a new set, and adding an element
+the set holds or removing one it does not returns an equal set. `.len()` and
+`.is_empty()` count elements, and `list.to_set()` drops a list's repeated
+elements. The operators are `in`, `not in`, `|`, `&`, and `-` (6.2); the
+literal is in 6.4. A set is not indexed, and a constant cannot be one.
+
+```xsh
+{{.spec.sets.source}}
+```
+
+Each of these is rejected where it is written:
+
+```xsh
+{{.spec.set_rejected.source}}
+```
+
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits
 a schema that names fewer. The builtin `Record` type erases field knowledge.
 
-Lists, maps, and records have value semantics: assigning, passing, or storing
+Lists, maps, sets, and records have value semantics: assigning, passing, or storing
 one behaves as a copy, so mutating a `var` never changes another binding
 (copies share storage until written).
 
@@ -1098,9 +1121,11 @@ is expected. Incompatible contributions are errors; inference never widens to
 ### 5.2 Assignability
 
 - Identical types match. Every concrete value fits `Any`.
-- `List`, `Map`, and `Stream` are invariant in their parameters: `List[Str]` is
-  not `List[Any]`, and `Stream[Int]` is not `Stream[UInt]`. A validated type
-  in a parameter is the exception (below).
+- `List`, `Map`, `Stream`, and `Set` are invariant in their parameters:
+  `List[Str]` is not `List[Any]`, `Stream[Int]` is not `Stream[UInt]`, and
+  `Set[Int]` is not `Set[UInt]`. A validated type in a parameter is the
+  exception (below). A set is never a list or a map of the same elements;
+  `.to_list()` and `list.to_set()` convert.
 - `null` and `T` both fit `T?`.
 - A value fits `Union[A, B, ...]` when it fits a member. A union fits another
   union when each of its members fits one of the other's, whatever the order.
@@ -1324,7 +1349,9 @@ The [precedence table](reference/grammar.md#operator-precedence) lists every
 operator from tightest to loosest: postfix forms, then prefix `!` and `-`,
 the conversion `as` (6.11), multiplicative, additive, ordering and membership, equality and `is`, `and`,
 and loosest `or` and the right-associative `??`. A `|>` pipeline is looser
-than every operator.
+than every operator. The set operators share the arithmetic levels: `&` binds
+like `*` and `|` like `+`, so `a | b & c` is `a | (b & c)` and
+`x in a | b` tests membership in the union.
 
 Some combinations must be grouped explicitly, because a reader cannot tell the
 intended meaning at a glance:
@@ -1358,7 +1385,8 @@ them). Required parentheses include `(a + b) * c`, `(a < b) < c`, `(x?)?`,
 `(x?).name` (otherwise `?.`), `(-x).abs()`, `-(text as Int)` and
 `(text as Int).float()` (a conversion is looser than a prefix and takes no
 suffix), a command form followed by more of
-its expression (`(run cat file).len()`, or `(run cat file)?.lines()`, where the
+its expression (`(run cat file).len()`, `(run list-names) | extra`, where `|`
+would add a pipeline segment, or `(run cat file)?.lines()`, where the
 final word would start a typed argument `file?.lines()`), a statement that would otherwise start
 with a statement keyword, a bare name, or a block (`{ (x) }`), a `let` or
 assignment value that starts with `run`, a pipeline before an operator or
@@ -1380,7 +1408,9 @@ pair. `(a < b) < c` compares a `Bool` instead.
 | Operator | Operands | Result |
 |---|---|---|
 | `+` | `Int`, `UInt`, `Float`, `Duration`, `Str`, `List[T]` (same type on both sides) | same type |
-| `-` | `Int`, `UInt`, `Float`, `Duration` | same type |
+| `-` | `Int`, `UInt`, `Float`, `Duration`; two `Set[T]` (difference) | same type |
+| `\|` | two `Set[T]` (union) | `Set[T]` |
+| `&` | two `Set[T]` (intersection) | `Set[T]` |
 | `*` | `Int`, `UInt`, `Float`; `Duration` with `Int` | see 4.2–4.3 |
 | `/` | `Int`, `UInt`, `Float`; `Duration` by `Int` or `Duration` | see 4.2–4.3 |
 | `%` | `Int`, `UInt` | same type |
@@ -1391,7 +1421,12 @@ pair. `(a < b) < c` compares a `Bool` instead.
 | `in`, `not in` | see below | `Bool` |
 | `??` | `Result[T, E]` or `T?` on the left, `T` on the right | `T` |
 
-`in` tests element membership in a `List`, key presence in a `Map`, field
+`|` and `&` are defined only on two sets of one element type
+(`check.set-operator`); the Boolean operators are the words `or` and `and`,
+and a doubled `||` or `&&` is `parse.unsupported-boolean-operator`. A line
+never begins with `|` or `&`.
+
+`in` tests element membership in a `List` or a `Set`, key presence in a `Map`, field
 presence in a `Record` (with a `Str` key), substring containment in `Str`,
 byte containment in `Bytes`, display-text containment in a `Path` (not
 filesystem ancestry), and entry membership in `env.PATH`. A present key or
@@ -1419,7 +1454,7 @@ parameter's default). Unknown names and parameters supplied twice are errors.
 The receiver evaluates first, then each argument once in written order. Return
 types never select an overload.
 
-### 6.4 List, record, and map literals
+### 6.4 List, record, map, and set literals
 
 ```xsh
 {{.spec.collection_literals.source}}
@@ -1435,6 +1470,34 @@ types never select an overload.
   a non-empty literal in a context expecting `Map`. Computed keys share one key
   domain; constant labels are `Str` keys. Later entries and spreads replace
   earlier ones, though every entry still evaluates, key before value.
+- **Sets.** Braces are a set literal in two cases, and only these:
+  1. *An entry is not a bare name.* `{"a", "b"}`, `{1, 2}`, and
+     `{f(x), y.z}` are sets. One such entry is enough: in `{a, "b"}` the name
+     `a` is an element too, so the literal is a set of the value of `a` and
+     `"b"`. This is decided by how the braces are written, so it holds
+     everywhere, including where `Any` is expected: there `{"a", "b"}` is a
+     `Set[Str]` and `{a, b}` is a record.
+  2. *A `Set[T]` is expected* (an annotated binding, a `Set[T]` parameter,
+     field, or return, or the other operand of a set operator) and every
+     entry is a bare name: `let s: Set[Str] = {a, b}`. Anywhere else `{a, b}`
+     is the record `{a: a, b: b}`.
+
+  `{}` is always the empty record or map; the empty set is `set.empty()`,
+  written where a `Set[T]` is expected. Braces around one expression are a
+  block (6.9), so a one-element set has a comma after its element: `{"a",}`.
+  Writing `{}` or `{"a"}` where a set is expected is `check.type-mismatch`,
+  with a fix. The first entry of a set literal is not a bare name followed by
+  a command word (that is a block whose first statement is a command) and
+  does not begin with `[`, which starts a computed map key; parenthesize such
+  an element. Elements share one type, from context when present, evaluate
+  once in order, and a repeated element is held once. A literal that writes
+  both `key: value` entries and set elements is an error
+  (`parse.brace-literal-mixed`):
+
+  ```xsh
+  {{.spec.brace_literal_mixed.source}}
+  ```
+
 - **Functional update.** `{...config, build.jobs: 8, build.flags.debug: true}`
   copies `config` and replaces existing nested fields. It requires exactly one
   leading spread of a known record, and every path must name an existing field
@@ -1449,12 +1512,16 @@ types never select an overload.
 
 Clauses run like nested `for` loops with `if` filters: each inner iterable is
 evaluated anew per outer binding, a false filter skips the rest, and the
-projection runs once per surviving combination. Sources may be lists, streams
-(pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), or
+projection runs once per surviving combination. Sources may be lists, sets,
+streams (pulled lazily), maps (yielding `{key, value}` items), `Str` (scalars), or
 `Bytes` (byte values); a `Result`-wrapped source propagates its failure. Filters
 are `Bool` values, never assertions. A failed comprehension exposes no partial
 result. A map comprehension is the only entry in its braces; an entry or
 spread before it is an error (`parse.map-comprehension-entries`).
+
+Braces around a projection without a `key:` are a set comprehension:
+`{word.lower() for word in words}` is the `Set[Str]` of the projected values,
+each held once. A set is also a source: its elements arrive in key order.
 
 ### 6.6 Indexing and slicing
 
@@ -1575,7 +1642,8 @@ An arm whose whole unguarded pattern is `_` means exactly what `else` means;
 
 A bare `{ ... }` is a block when its first entry is a statement and a record or
 map literal when its first entry looks like a field (`{}`, `{name}`,
-`{name: v}`, `{[k]: v}`, `{...r}`). Write `{ (value) }` for a block whose only
+`{name: v}`, `{[k]: v}`, `{...r}`). It is a set literal or set comprehension
+when its first entry is an expression followed by `,` or `for` (6.4, 6.5). Write `{ (value) }` for a block whose only
 content is a single name. A block introduces a lexical and cleanup scope but
 no function, error, or loop boundary. In statement position it runs as
 statements; in value position its tail is its value.
@@ -3554,7 +3622,7 @@ the text was JSON. `.require(Package)?` is the trust boundary (5.3). Integers
 that fit decode as `Int` and other finite numbers as `Float`.
 
 JSON-compatible values are `Null`, `Bool`, representable `Int`, finite
-`Float`, `Str`, lists, `Str`-keyed maps and records of compatible values,
+`Float`, `Str`, lists and sets, `Str`-keyed maps and records of compatible values,
 optional values (absent as `null`), unions of compatible members, and
 Str-backed enums (as their wire strings). Everything else needs explicit conversion: `Path` (`.display()`),
 `Bytes` (`.base64()`), `Digest` (`.hex()`), `Duration`, `Status`, `Result`,
@@ -3562,7 +3630,11 @@ errors, handles, command plans, ordinary enums, non-`Str`-keyed maps, and
 non-finite floats.
 
 `json.encode` and `json.write` emit ordinary JSON with record keys in sorted
-order (`pretty: true` indents deterministically). `json.encode_lines` and
+order (`pretty: true` indents deterministically). A set is written as an array
+of its elements in key order, so a `Set[Str]` is a sorted array.
+`.require(Set[T])` accepts a set, or an array whose elements are distinct
+values of `T`; an array that repeats an element fails with `schema`, because
+a validation boundary does not drop data. `json.encode_lines` and
 `json.write_lines` emit one compact value per line, each followed by a newline.
 
 Not every temporary value needs a schema. A record literal is already typed:
@@ -3613,7 +3685,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 | `cli` | argument parsing beyond `cli main` |
 | `module` | runtime module loading |
 | `error` | `error.fail` validation failures |
-| `map`, `set` | empty-map factory; `Str` sets as `Map[Bool]` |
+| `map`, `set` | empty-map factory; `set.empty()` and `set.from(items)`, which build a `Set[T]` where one is expected and otherwise the legacy `Map[Bool]` string set that `set.add` and `set.remove` update |
 | `system`, `cpu`, `user`, `group` | host identity and resources |
 | `unix`, `linux`, `elf` | privileged and platform-specific host operations, ELF inspection |
 | `mime`, `shlex`, `tui`, `utils` | MIME lookup, shell quoting for display, terminal styling, process-scoped cache |

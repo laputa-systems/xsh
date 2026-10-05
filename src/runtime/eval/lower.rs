@@ -1216,6 +1216,7 @@ fn lowered_arena_type_inner(
         ArenaTypeExprTag::List | ArenaTypeExprTag::NonEmpty => Some(LoweredType::List),
         ArenaTypeExprTag::Map => Some(LoweredType::Map),
         ArenaTypeExprTag::Stream => Some(LoweredType::Stream),
+        ArenaTypeExprTag::Set => Some(LoweredType::Set),
         ArenaTypeExprTag::Module => Some(LoweredType::Module),
         ArenaTypeExprTag::Result => Some(LoweredType::Result),
         // A union has no single runtime representation; its members keep
@@ -1905,7 +1906,12 @@ fn compact_collect_expr_call_edges(
                 }
             }
         }
-        ArenaExprKind::ListComp { expr, qualifiers } => {
+        ArenaExprKind::Set(items) => {
+            for item in program.arena.list_element_exprs(items) {
+                compact_collect_expr_call_edges(program, item, namespace, index_of, edges);
+            }
+        }
+        ArenaExprKind::ListComp { expr, qualifiers } | ArenaExprKind::SetComp { expr, qualifiers } => {
             for qualifier in program.arena.comp_qualifiers(qualifiers) {
                 compact_collect_expr_call_edges(
                     program,
@@ -2233,6 +2239,7 @@ fn compact_type_expr_tag_index(tag: ArenaTypeExprTag) -> usize {
         ArenaTypeExprTag::Union => 9,
         ArenaTypeExprTag::Callable => 10,
         ArenaTypeExprTag::NonEmpty => 11,
+        ArenaTypeExprTag::Set => 12,
     }
 }
 
@@ -2377,6 +2384,8 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::ContextScope { .. } => 45,
         ArenaExprKind::TempDirScope { .. } => 46,
         ArenaExprKind::Convert { .. } => 47,
+        ArenaExprKind::Set(_) => 48,
+        ArenaExprKind::SetComp { .. } => 49,
     }
 }
 
@@ -2399,6 +2408,8 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::List(_) => "list",
         ArenaExprKind::ListComp { .. } => "list_comp",
         ArenaExprKind::MapComp { .. } => "map_comp",
+        ArenaExprKind::Set(_) => "set",
+        ArenaExprKind::SetComp { .. } => "set_comp",
         ArenaExprKind::Record(_) => "record",
         ArenaExprKind::If { .. } => "if",
         ArenaExprKind::Match { .. } => "match",
@@ -3015,9 +3026,9 @@ fn compact_body_tail_command_blocker(
     }
 }
 
-const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 12];
+const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 13];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 48];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 50];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -4739,6 +4750,40 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .and_then(|ty| ty.iteration_item_type())
     }
 
+    /// A set where a loop, a comprehension, or a pipeline reads items: its
+    /// elements in key order.
+    fn set_as_list(&mut self, set: BuildExprId, span: Span) -> BuildExprId {
+        push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Method {
+                receiver: set,
+                name: Name::intern("to_list").as_str(),
+                args: Vec::new(),
+                span,
+            }
+        )
+    }
+
+    /// The set of a lowered list's elements.
+    fn list_as_set(&mut self, elements: Vec<BuildExprId>, span: Span) -> BuildExprId {
+        let list = push_build_row!(self, expr, BuildExprRow::List(elements));
+        self.set_of_list(list, span)
+    }
+
+    fn set_of_list(&mut self, list: BuildExprId, span: Span) -> BuildExprId {
+        push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Method {
+                receiver: list,
+                name: Name::intern("to_set").as_str(),
+                args: Vec::new(),
+                span,
+            }
+        )
+    }
+
     fn lower_direct_iterable(
         &mut self,
         iter: ExprId,
@@ -4751,6 +4796,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             .or_else(|| self.concrete_checked_type(iter))
             .or_else(|| self.bodies.expr_types.get(&iter).cloned());
         let lowered = self.lower_expr(iter, slots, current_function, item_slot)?;
+        if matches!(checked, Some(Type::Set(_))) {
+            let span = self.program.arena.expr(iter).span;
+            return Some(self.set_as_list(lowered, span));
+        }
         if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes))
         {
             Some(push_build_row!(self, expr, BuildExprRow::Try(lowered)))
@@ -7209,6 +7258,47 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     span,
                 }
             )),
+            ArenaExprKind::Set(items) => {
+                let items = self.program.arena.list_elements(items).collect::<Vec<_>>();
+                let mut lowered = Vec::with_capacity(items.len());
+                for item in items {
+                    lowered.push(self.lower_expr(item.value, slots, current_function, item_slot)?);
+                }
+                Some(self.list_as_set(lowered, span))
+            }
+            ArenaExprKind::SetComp {
+                expr: body,
+                qualifiers,
+            } => {
+                let saved = slots.enter();
+                let qualifiers =
+                    self.lower_comp_qualifiers(qualifiers, slots, current_function, item_slot)?;
+                let value = self.lower_expr(body, slots, current_function, item_slot)?;
+                slots.exit(saved);
+                let list = push_build_row!(
+                    self,
+                    expr,
+                    BuildExprRow::ListComp {
+                        value,
+                        qualifiers,
+                        span
+                    }
+                );
+                Some(self.set_of_list(list, span))
+            }
+            // Braces of bare names that the checker read as a set.
+            ArenaExprKind::Record(fields)
+                if matches!(self.bodies.expr_types.get(&id), Some(Type::Set(_))) =>
+            {
+                let mut lowered = Vec::new();
+                for field in self.program.arena.record_fields(fields).to_vec() {
+                    let ArenaRecordFieldKind::Shorthand { name, .. } = field.kind else {
+                        return None;
+                    };
+                    lowered.push(self.lower_bare_ident(name, slots)?);
+                }
+                Some(self.list_as_set(lowered, span))
+            }
             ArenaExprKind::Record(fields) => {
                 if self
                     .program
@@ -7334,11 +7424,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     )?);
                 }
                 self.fuse_par_map_flat_map_reduce_by(&mut lowered_stages);
+                let lowered_input = self.lower_expr(input, slots, current_function, item_slot)?;
+                let lowered_input =
+                    if matches!(self.bodies.expr_types.get(&input), Some(Type::Set(_))) {
+                        let input_span = self.program.arena.expr(input).span;
+                        self.set_as_list(lowered_input, input_span)
+                    } else {
+                        lowered_input
+                    };
                 Some(push_build_row!(
                     self,
                     expr,
                     BuildExprRow::ListPipeline {
-                        input: self.lower_expr(input, slots, current_function, item_slot)?,
+                        input: lowered_input,
                         stages: lowered_stages,
                         span,
                     }
@@ -10462,6 +10560,20 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     }
                     if module == "map" && name == "empty" && positional.is_empty() {
                         return Some(push_build_row!(self, expr, BuildExprRow::EmptyMap));
+                    }
+                    // `set.empty()` and `set.from(items)` that the checker
+                    // typed as a set build one.
+                    if module == "set"
+                        && matches!(self.bodies.expr_types.get(&id), Some(Type::Set(_)))
+                    {
+                        if name == "empty" && positional.is_empty() {
+                            return Some(self.list_as_set(Vec::new(), span));
+                        }
+                        if name == "from" && positional.len() == 1 {
+                            let items =
+                                self.lower_expr(positional[0], slots, current_function, item_slot)?;
+                            return Some(self.set_of_list(items, span));
+                        }
                     }
                     if module == "bytes" && name == "concat" && positional.len() == 1 {
                         return Some(push_build_row!(
@@ -15080,6 +15192,12 @@ fn compact_runtime_type_inner(
             declarations,
             depth,
         )),
+        ArenaTypeExprTag::Set => Type::Set(Box::new(compact_runtime_type_inner(
+            arena,
+            TypeExprId::from_index(data.lhs as usize),
+            declarations,
+            depth,
+        ))),
         ArenaTypeExprTag::Map => Type::Map(
             Box::new(
                 TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| {
@@ -15194,6 +15312,7 @@ fn lowered_type_needs_static_check(kind: LoweredType) -> bool {
             | LoweredType::List
             | LoweredType::Stream
             | LoweredType::Map
+            | LoweredType::Set
             | LoweredType::Tag
             | LoweredType::Result
             | LoweredType::Any
@@ -15230,6 +15349,10 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
         ),
         ArenaTypeExprTag::NonEmpty => format!(
             "NonEmpty[{}]",
+            compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
+        ),
+        ArenaTypeExprTag::Set => format!(
+            "Set[{}]",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
         ),
         ArenaTypeExprTag::Map => {
@@ -15385,6 +15508,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Module(_) | Type::DynamicModule => Some(LoweredType::Module),
         Type::List(_) => Some(LoweredType::List),
         Type::Stream(_) => Some(LoweredType::Stream),
+        Type::Set(_) => Some(LoweredType::Set),
         Type::Map(_, _) => Some(LoweredType::Map),
         Type::Tag(_) => Some(LoweredType::Tag),
         Type::Result(_, _) => Some(LoweredType::Result),
@@ -15503,8 +15627,13 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             name == "get" && arg_count == 1
                 || matches!(name.as_str().as_str(), "keys" | "len") && arg_count == 0
         }
+        Type::Set(_) => match name.as_str().as_str() {
+            "len" | "is_empty" | "to_list" => arg_count == 0,
+            "add" | "remove" => arg_count == 1,
+            _ => false,
+        },
         Type::List(_) => match name.as_str().as_str() {
-            "collect" | "len" | "is_empty" => arg_count == 0,
+            "collect" | "len" | "is_empty" | "to_set" => arg_count == 0,
             "push" | "extend" => arg_count == 1,
             "get" => arg_count == 1,
             "join" => arg_count <= 1,
@@ -15542,7 +15671,7 @@ fn checked_fact_is_resolved(ty: &Type) -> bool {
     !ty.contains_inference()
         && match ty {
             Type::Unknown | Type::Invalid => false,
-            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
                 checked_fact_is_resolved(inner)
             }
             Type::Map(key, value) | Type::Result(key, value) => {
@@ -15641,6 +15770,8 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
         LoweredType::List => Some(Type::List(Box::new(Type::Any))),
         LoweredType::Stream => Some(Type::Stream(Box::new(Type::Any))),
         LoweredType::Map => Some(Type::Map(Box::new(Type::Str), Box::new(Type::Any))),
+        // The element type is not part of the kind.
+        LoweredType::Set => None,
         LoweredType::Tag => None,
         LoweredType::Result => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
         LoweredType::Any => Some(Type::Any),

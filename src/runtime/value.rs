@@ -10,7 +10,7 @@ use crate::source::Span;
 use crate::symbol::{Name, NameText, QualifiedName, SymbolOwner};
 use rustc_hash::FxHashMap;
 use std::any::Any;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
@@ -894,6 +894,8 @@ pub enum Value {
     Path(PathValue),
     List(Vec<Value>),
     Map(BTreeMap<MapKey, Value>),
+    /// Distinct elements in key order.
+    Set(BTreeSet<MapKey>),
     Stream(Box<StreamValue>),
     Record(RecordMap),
     FsEntry(FsEntryValue),
@@ -952,6 +954,7 @@ impl Value {
             Self::Path(_) => "Path",
             Self::List(_) => "List",
             Self::Map(_) => "Map",
+            Self::Set(_) => "Set",
             Self::Stream(_) => "Stream",
             Self::Record(_) | Self::FsEntry(_) => "Record",
             Self::Module(_) => "Module",

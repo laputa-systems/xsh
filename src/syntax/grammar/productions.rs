@@ -152,6 +152,59 @@ fn operator_leads() -> Vec<Vec<Term>> {
     leads
 }
 
+/// Every token sequence that begins the first entry of a set literal or
+/// set comprehension (`Parser::brace_starts_set`).
+fn set_leads() -> Vec<Vec<Term>> {
+    let mut leads: Vec<Vec<Term>> = [
+        TokenTag::String,
+        TokenTag::PathString,
+        TokenTag::FmtString,
+        TokenTag::PathFmtString,
+        TokenTag::EnvString,
+        TokenTag::Int,
+        TokenTag::Float,
+        TokenTag::Duration,
+        TokenTag::Bytes,
+        TokenTag::LParen,
+        TokenTag::Minus,
+        TokenTag::Bang,
+    ]
+    .map(|tag| vec![tag_term(tag)])
+    .to_vec();
+    leads.extend(
+        [
+            Keyword::True,
+            Keyword::False,
+            Keyword::Null,
+            Keyword::Not,
+            Keyword::If,
+            Keyword::Match,
+        ]
+        .map(|keyword| vec![keyword_term(keyword)]),
+    );
+    let name = || term(Class::Name, false);
+    leads.extend(
+        [
+            TokenTag::LParen,
+            TokenTag::Dot,
+            TokenTag::LBracket,
+            TokenTag::Question,
+        ]
+        .map(|tag| vec![name(), glued_tag_term(tag)]),
+    );
+    leads.extend(operator_leads().into_iter().map(|lead| {
+        let mut sequence = vec![name()];
+        sequence.extend(lead);
+        sequence
+    }));
+    leads.extend([
+        vec![name(), word_term("as", false)],
+        vec![name(), tag_term(TokenTag::Comma)],
+        vec![name(), keyword_term(Keyword::For)],
+    ]);
+    leads
+}
+
 fn stage_name(stage: &StreamStage) -> Item {
     match stage.name.split_once('.') {
         Some((namespace, member)) => seq([w(namespace), g(TokenTag::Dot), gw(member)]),
@@ -1631,6 +1684,8 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("list_literal"),
                 r("record_literal"),
                 r("map_comprehension"),
+                r("set_literal"),
+                r("set_comprehension"),
                 block(),
                 seq([t(T::LParen), nl(), r("expression_item"), nl(), t(T::RParen)]),
                 seq([
@@ -1774,6 +1829,46 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ident(),
             ]),
         ),
+        // Braces whose first entry is an expression with a `,` after it.
+        // `set_lead` says which expressions the parser reads there instead
+        // of a block's first statement; braces of bare names alone are also
+        // a record, and both parse.
+        rule(
+            Expressions,
+            "set_literal",
+            seq([
+                t(T::LBrace),
+                nl(),
+                r("set_lead"),
+                r("expression_item"),
+                nl(),
+                t(T::Comma),
+                list(seq([
+                    // `[` begins a computed map key.
+                    not([vec![tag_term(T::LBracket)]]),
+                    r("expression_item"),
+                ])),
+                t(T::RBrace),
+            ]),
+        ),
+        // The first tokens of a set's first entry: a literal, a prefix
+        // operator, a parenthesis, `if`, `match`, or a name that a call, a
+        // member, an index, an operator, a `,`, or a comprehension follows.
+        // A name followed by anything else begins a command.
+        rule(Expressions, "set_lead", Item::Peek(set_leads())),
+        rule(
+            Expressions,
+            "set_comprehension",
+            seq([
+                t(T::LBrace),
+                nl(),
+                r("set_lead"),
+                r("expression"),
+                nl(),
+                r("comprehension"),
+                t(T::RBrace),
+            ]),
+        ),
         rule(
             Expressions,
             "map_comprehension",
@@ -1847,6 +1942,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 block(),
                 seq([not([vec![tag_term(T::LBrace)]]), r("expression_item")]),
                 seq([r("record_expression"), opt(t(T::Question))]),
+                seq([r("set_expression"), opt(t(T::Question))]),
             ]),
         ),
         // An arm value that starts with a record, which the parser tells
@@ -1856,6 +1952,18 @@ pub(super) fn rules() -> Vec<super::Rule> {
             "record_expression",
             seq([
                 alt([r("record_literal"), r("map_comprehension")]),
+                star(r("postfix")),
+                r("logical_tail"),
+                star(seq([t(T::PipeGt), r("pipe_stage")])),
+            ]),
+        ),
+        // An arm value that starts with a set, which the parser tells from
+        // the arm's block as it does anywhere else.
+        rule(
+            Expressions,
+            "set_expression",
+            seq([
+                alt([r("set_literal"), r("set_comprehension")]),
                 star(r("postfix")),
                 r("logical_tail"),
                 star(seq([t(T::PipeGt), r("pipe_stage")])),
@@ -2213,13 +2321,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     t(T::RBracket),
                 ]),
                 seq([w("NonEmpty"), t(T::LBracket), r("type_expr"), t(T::RBracket)]),
+                seq([w("Set"), t(T::LBracket), r("type_expr"), t(T::RBracket)]),
             ]),
         ),
         rule(
             Types,
             "named_type",
             seq([
-                not(["List", "Map", "Stream", "Module", "Result", "Union", "NonEmpty"]
+                not(["List", "Map", "Stream", "Module", "Result", "Union", "NonEmpty", "Set"]
                     .map(|word| vec![word_term(word, false)])),
                 ident(),
                 opt(seq([t(T::Dot), ident()])),

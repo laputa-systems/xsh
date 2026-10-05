@@ -36,6 +36,8 @@ pub enum Type {
     /// Ordered scalar key type followed by homogeneous value type.
     Map(Box<Type>, Box<Type>),
     Stream(Box<Type>),
+    /// Distinct elements of one map-key type, held in key order.
+    Set(Box<Type>),
     /// A record value whose fields were deliberately erased.
     ErasedRecord,
     Record(BTreeMap<Name, Type>),
@@ -511,7 +513,7 @@ impl Type {
     pub(crate) fn has_unsigned_constraint(&self) -> bool {
         match self {
             Self::UInt => true,
-            Self::List(item) | Self::Stream(item) | Self::Optional(item) => {
+            Self::List(item) | Self::Stream(item) | Self::Optional(item) | Self::Set(item) => {
                 item.has_unsigned_constraint()
             }
             Self::Map(key, value) | Self::Result(key, value) => {
@@ -556,7 +558,7 @@ impl Type {
     /// Checked item facts for direct loops and comprehension clauses.
     pub(crate) fn iteration_item_type(&self) -> Option<Type> {
         match self {
-            Self::List(item) | Self::Stream(item) => Some((**item).clone()),
+            Self::List(item) | Self::Stream(item) | Self::Set(item) => Some((**item).clone()),
             Self::Str => Some(Self::Str),
             Self::Bytes => Some(Self::Int),
             Self::Map(key, item) => Some(Self::Record(BTreeMap::from([
@@ -567,7 +569,12 @@ impl Type {
             Self::Result(ok, _)
                 if matches!(
                     ok.unvalidated(),
-                    Self::List(_) | Self::Stream(_) | Self::Map(_, _) | Self::Str | Self::Bytes
+                    Self::List(_)
+                        | Self::Stream(_)
+                        | Self::Set(_)
+                        | Self::Map(_, _)
+                        | Self::Str
+                        | Self::Bytes
                 ) =>
             {
                 ok.iteration_item_type()
@@ -581,7 +588,7 @@ impl Type {
         use std::mem::size_of;
         let mut total = size_of::<Self>();
         match self {
-            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => {
                 total = total.saturating_add(size_of::<Type>() + inner.retained_bytes());
             }
             Self::Map(key, value) => {
@@ -646,6 +653,10 @@ impl Type {
                     TypeExprId::from_index(data.lhs as usize),
                 )),
             ),
+            ArenaTypeExprTag::Set => Self::Set(Box::new(Self::from_arena(
+                arena,
+                TypeExprId::from_index(data.lhs as usize),
+            ))),
             ArenaTypeExprTag::Stream => Self::Stream(Box::new(Self::from_arena(
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
@@ -770,6 +781,7 @@ impl Type {
             | Self::Invalid
             | Self::List(_)
             | Self::Stream(_)
+            | Self::Set(_)
             | Self::ErrorFamily(_)
             | Self::ErrorVariant { .. }
             | Self::ErrorFacet(_)
@@ -818,7 +830,7 @@ impl Type {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Inference(_) => return true,
-                Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+                Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => {
                     pending.push(inner)
                 }
                 Self::Map(key, value) => {
@@ -858,7 +870,7 @@ impl Type {
     pub fn contains_typed_callable(&self) -> bool {
         match self {
             Self::Callable(_) => true,
-            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => {
                 inner.contains_typed_callable()
             }
             Self::Map(key, value) | Self::Result(key, value) => {
@@ -874,7 +886,7 @@ impl Type {
     pub fn contains_any(&self) -> bool {
         match self {
             Self::Any => true,
-            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => inner.contains_any(),
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) | Self::Set(inner) => inner.contains_any(),
             Self::Map(key, value) => key.contains_any() || value.contains_any(),
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
@@ -905,6 +917,7 @@ impl Type {
             (Self::DynamicModule, Self::Module(_)) => true,
             (Self::List(actual), Self::List(expected))
             | (Self::Stream(actual), Self::Stream(expected))
+            | (Self::Set(actual), Self::Set(expected))
             | (Self::Optional(actual), Self::Optional(expected)) => {
                 actual.any_flows_to_concrete(expected)
             }
@@ -987,7 +1000,8 @@ impl Type {
                     .is_some()
             }
             (Self::List(actual), Self::List(expected))
-            | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_stored(expected),
+            | (Self::Stream(actual), Self::Stream(expected))
+            | (Self::Set(actual), Self::Set(expected)) => actual.matches_stored(expected),
             (Self::Map(ak, actual), Self::Map(ek, expected)) => {
                 ak.matches_invariant(ek) && actual.matches_stored(expected)
             }
@@ -1067,6 +1081,7 @@ impl Type {
             (Self::Int, Self::UInt) | (Self::UInt, Self::Int) => false,
             (Self::List(actual), Self::List(expected))
             | (Self::Stream(actual), Self::Stream(expected))
+            | (Self::Set(actual), Self::Set(expected))
             | (Self::Optional(actual), Self::Optional(expected)) => {
                 actual.matches_invariant(expected)
             }
@@ -1224,7 +1239,7 @@ impl Type {
             | Self::UInt
             | Self::Float
             | Self::Str => true,
-            Self::List(item) | Self::Stream(item) | Self::Optional(item) => {
+            Self::List(item) | Self::Stream(item) | Self::Optional(item) | Self::Set(item) => {
                 item.is_json_compatible_with(wire_enum)
             }
             Self::ErasedRecord => true,
@@ -1278,6 +1293,7 @@ impl Type {
                 )
             }),
             Self::Stream(inner) => Some(format!("Stream[{}]", inner.annotation_source()?)),
+            Self::Set(inner) => Some(format!("Set[{}]", inner.annotation_source()?)),
             Self::Result(ok, err) => {
                 let ok = ok.annotation_source()?;
                 if matches!(err.as_ref(), Self::Error) {
@@ -1360,6 +1376,7 @@ impl fmt::Display for Type {
                 }
             }
             Self::Stream(inner) => write!(f, "Stream[{inner}]"),
+            Self::Set(inner) => write!(f, "Set[{inner}]"),
             Self::ErasedRecord | Self::Record(_) => write!(f, "Record"),
             Self::Module(_) => write!(f, "Module"),
             Self::DynamicModule => write!(f, "Module"),

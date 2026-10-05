@@ -254,13 +254,14 @@ diagnostic_codes! {
         ParseUnknownEffect = "parse.unknown-effect", error, "Reject an unknown effect name in an effect list";
         ParseUnknownRunForm = "parse.unknown-run-form", error, "Reject an unknown `run.NAME` form";
         ParseUnknownStreamStage = "parse.unknown-stream-stage", error, "Reject an unknown stream stage name";
-        ParseUnsupportedBooleanOperator = "parse.unsupported-boolean-operator", error, "Reject `&&`, `||`, `|`, or `&` in favor of the `and` and `or` word forms";
+        ParseUnsupportedBooleanOperator = "parse.unsupported-boolean-operator", error, "Reject `&&` and `||` in favor of the `and` and `or` word forms";
         ParseUnsupportedIntegerDivision = "parse.unsupported-integer-division", error, "Reject a `//` or `div` integer-division operator; use `/` on Int operands";
         ParseUnsupportedThen = "parse.unsupported-then", error, "Reject the `then` keyword after an `if`, `while`, or `for` head";
         ParseUnterminatedInterpolation = "parse.unterminated-interpolation", error, "Reject a string interpolation or f-string `{` with no closing delimiter";
         ParseForIndex = "parse.for-index", error, "Reject a destructured index in `for INDEX, ITEM in SOURCE`";
         ParseNestingDepth = "parse.nesting-depth", error, "Reject a construct nested more deeply than the limit every later pass is sized for";
         ParseTextPatternHole = "parse.text-pattern-hole", error, "Reject a hole of an f-string pattern that is not a name, `_`, or a name with a spec";
+        ParseBraceLiteralMixed = "parse.brace-literal-mixed", error, "Reject a brace literal that writes both `key: value` fields and set elements";
     }
     Check {
         CheckAcceptPolicy = "check.accept-policy", error, "Reject an invalid `accept` exit-code list: empty, outside 0..255, or with duplicates";
@@ -491,6 +492,8 @@ diagnostic_codes! {
         CheckValidatedLiteral = "check.validated-literal", error, "Reject a literal that fails the validation of the type expected of it, such as a list literal that may be empty where a `NonEmpty[T]` is expected";
         CheckConversion = "check.conversion", error, "Reject `value as TYPE` for a pair of types the conversion table does not list";
         CheckTextPattern = "check.text-pattern", error, "Reject an f-string pattern with an unsupported spec, two adjacent holes, a repeated name, or a subject that is not text";
+        CheckSetElementType = "check.set-element-type", error, "Reject a `Set` element type that is not an ordered scalar a map key can be, such as `Str`, `Int`, or `Path`";
+        CheckSetOperator = "check.set-operator", error, "Reject `|` or `&` on operands that are not two sets of one element type; the boolean operators are `or` and `and`";
     }
     Compact {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";

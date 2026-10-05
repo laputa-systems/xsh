@@ -974,7 +974,7 @@ impl Checker {
 fn stream_type_from_input(ty: Type) -> Option<Type> {
     match ty.into_unvalidated() {
         ty @ Type::Stream(_) => Some(ty),
-        Type::List(item) => Some(Type::Stream(item)),
+        Type::List(item) | Type::Set(item) => Some(Type::Stream(item)),
         Type::Result(ok, _) => stream_type_from_input(*ok),
         Type::Any => Some(Type::Stream(Box::new(Type::Any))),
         Type::Unknown => Some(Type::Stream(Box::new(Type::Unknown))),

@@ -48,6 +48,7 @@ pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::FsRoot => "FsRoot",
         MethodReceiver::NonEmpty => "NonEmpty",
         MethodReceiver::RelPath => "RelPath",
+        MethodReceiver::Set => "Set",
     }
 }
 
@@ -1615,10 +1616,35 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The returned names describe the record value and are ordered by the record map contract.",
             &["record", "collection"],
         )),
-        ("Str" | "Bytes" | "List" | "Map", "is_empty") => Some((
+        ("Str" | "Bytes" | "List" | "Map" | "Set", "is_empty") => Some((
             "Tests whether a value has no elements.",
-            "True for the empty string, empty bytes, a list with no items, and a map with no entries; it is `len() == 0` (for `Str`, `byte_len() == 0`) said directly.",
+            "True for the empty string, empty bytes, a list with no items, a map with no entries, and a set with no elements; it is `len() == 0` (for `Str`, `byte_len() == 0`) said directly.",
             &["collection", "text"],
+        )),
+        ("List", "to_set") => Some((
+            "Returns the set of a list's elements.",
+            "A repeated element is held once, and the set iterates in key order whatever order the list had. The element type must be one a set can hold.",
+            &["list", "set", "conversion"],
+        )),
+        ("Set", "len") => Some((
+            "Returns the number of elements in a set.",
+            "A set holds each element once, so this counts distinct elements.",
+            &["set", "collection"],
+        )),
+        ("Set", "add") => Some((
+            "Returns the set with one more element.",
+            "Adding an element the set already holds returns an equal set. The receiver is not changed; assign the result back to a mutable binding to update it.",
+            &["set", "collection", "update"],
+        )),
+        ("Set", "remove") => Some((
+            "Returns the set without one element.",
+            "Removing an element the set does not hold returns an equal set and is not a failure.",
+            &["set", "collection", "update"],
+        )),
+        ("Set", "to_list") => Some((
+            "Lists the elements of a set in its iteration order.",
+            "The order is key order: numbers numerically, `false` before `true`, strings in ordinary string order, and bytes and paths by native byte order.",
+            &["set", "collection", "conversion"],
         )),
         ("Map", "len") => Some((
             "Returns the number of entries in a map.",

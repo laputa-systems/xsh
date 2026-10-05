@@ -189,11 +189,31 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
         }
+        // The element type of the list becomes the element type of the set.
+        if name == "to_set"
+            && let Type::List(item) = &base_ty
+        {
+            self.require_set_element_type(item, span);
+        }
         if matches!(base_ty, Type::List(_)) {
             return self.check_registered_method_arena(
                 arena,
                 source,
                 MethodReceiver::List,
+                name,
+                args,
+                span,
+                &base_ty,
+                DiagnosticCode::CheckUnknownMethod,
+                expected,
+                self.schema_expectation_for_expr(arena, base),
+            );
+        }
+        if matches!(base_ty, Type::Set(_)) {
+            return self.check_registered_method_arena(
+                arena,
+                source,
+                MethodReceiver::Set,
                 name,
                 args,
                 span,

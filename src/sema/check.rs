@@ -72,6 +72,8 @@ mod typed_callable;
 mod validated;
 #[path = "check/conversion.rs"]
 mod conversion;
+#[path = "check/set.rs"]
+mod set;
 pub use conversion::Conversion;
 #[path = "check/text_pattern.rs"]
 mod text_pattern;

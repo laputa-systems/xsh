@@ -469,12 +469,13 @@ fn parser_reports_unsupported_c_style_boolean_operators_constructively() {
             "proc main() { if a && b { } }\n",
             "parse.unsupported-boolean-operator",
         ),
+        // A doubled operator is reported whether or not its halves touch.
         (
-            "proc main() { if a | b { } }\n",
+            "proc main() { if a | | b { } }\n",
             "parse.unsupported-boolean-operator",
         ),
         (
-            "proc main() { if a & b { } }\n",
+            "proc main() { if a & & b { } }\n",
             "parse.unsupported-boolean-operator",
         ),
         ("proc main() { if a then { } }\n", "parse.unsupported-then"),

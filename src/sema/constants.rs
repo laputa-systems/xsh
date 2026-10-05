@@ -1126,7 +1126,10 @@ impl RecordConstructors {
                     .collect::<Result<Vec<_>, _>>()?;
                 return self.expectation_definition(arena, id, &arguments, &contexts, active);
             }
-            ArenaTypeExprTag::List | ArenaTypeExprTag::Stream | ArenaTypeExprTag::NonEmpty => {
+            ArenaTypeExprTag::List
+            | ArenaTypeExprTag::Stream
+            | ArenaTypeExprTag::NonEmpty
+            | ArenaTypeExprTag::Set => {
                 result.children.insert(
                     SchemaComponent::Item,
                     self.expectation_annotation(
@@ -1187,7 +1190,7 @@ impl RecordConstructors {
         match ty {
             Type::Inference(_) => true,
             Type::Tag(name) => name.as_str().starts_with("type parameter "),
-            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
                 Self::contains_template_parameter(inner)
             }
             Type::Map(key, value) => {
@@ -1506,6 +1509,9 @@ impl RecordConstructors {
             ArenaTypeExprTag::NonEmpty => Type::non_empty(
                 self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
             ),
+            ArenaTypeExprTag::Set => Type::Set(Box::new(
+                self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?,
+            )),
             ArenaTypeExprTag::Map => {
                 let key = TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Str), |key| {
                     self.resolve_instance_annotation(arena, key, namespace, bindings, active)
@@ -3888,6 +3894,7 @@ enum ValueClass {
     List,
     Fields,
     Stream,
+    Set,
     Result,
     Status,
     Error,
@@ -3937,6 +3944,7 @@ fn value_classes(ty: &Type) -> Option<Vec<ValueClass>> {
         Type::List(_) => ValueClass::List,
         Type::Map(_, _) | Type::Record(_) | Type::ErasedRecord => ValueClass::Fields,
         Type::Stream(_) => ValueClass::Stream,
+        Type::Set(_) => ValueClass::Set,
         Type::Result(_, _) => ValueClass::Result,
         Type::Status => ValueClass::Status,
         Type::Error

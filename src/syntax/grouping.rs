@@ -430,6 +430,8 @@ fn reads_inline(arena: &AstArena, expr: ExprId) -> bool {
         current = match arena.expr(current).kind {
             ArenaExprKind::Record(_)
             | ArenaExprKind::MapComp { .. }
+            | ArenaExprKind::Set(_)
+            | ArenaExprKind::SetComp { .. }
             | ArenaExprKind::ValueBlock(_)
             | ArenaExprKind::Pipeline { .. }
             | ArenaExprKind::StructuredPipeline { .. }
@@ -488,7 +490,9 @@ fn is_command_form(kind: &ArenaExprKind) -> bool {
     command_run(kind).is_some()
 }
 
-/// Command forms take words up to a terminator, `?`, `{`, `|`, or `|>`.
+/// Command forms take words up to a terminator, `?`, `{`, or `|>`. A `|`
+/// after one adds a pipeline segment, so a command before the set operator
+/// stays grouped.
 /// Inside parentheses a `)` also ends one, but a command is always grouped
 /// before a `)` so that removing an enclosing pair cannot extend it.
 fn command_ends_before(follow: Follow) -> bool {
@@ -499,7 +503,6 @@ fn command_ends_before(follow: Follow) -> bool {
             | FollowToken::QuestionDot
             | FollowToken::QuestionDotCall
             | FollowToken::Brace
-            | FollowToken::Pipe
             | FollowToken::PipeGt
     )
 }
@@ -818,6 +821,9 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
                     | ArenaRecordFieldKind::Spread { .. }
             )
         ),
+        // An arm statement that starts with `{` is the arm's block unless
+        // its first entry is a written field.
+        ArenaExprKind::Set(_) | ArenaExprKind::SetComp { .. } if lead == Lead::ArmStatement => true,
         ArenaExprKind::Record(_) | ArenaExprKind::MapComp { .. } if lead != Lead::Initializer => {
             !brace_reads_as_record(arena, kind)
         }
@@ -1019,6 +1025,7 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         | ArenaExprKind::TempDirScope { .. } => open(Follow::BRACE),
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::MapComp { value, .. } if value == child => open(Follow::WORD),
+        ArenaExprKind::SetComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
             let has_spec = arena.fmt_parts(parts).any(|part| {
                 matches!(part, ArenaFmtPart::Expr(expr, Some(_)) if expr == child)
@@ -1141,7 +1148,10 @@ fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId
         ArenaExprKind::List(items) => arena
             .list_elements(items)
             .for_each(|item| visit(item.value)),
-        ArenaExprKind::ListComp { expr, qualifiers } => {
+        ArenaExprKind::Set(items) => arena
+            .list_elements(items)
+            .for_each(|item| visit(item.value)),
+        ArenaExprKind::ListComp { expr, qualifiers } | ArenaExprKind::SetComp { expr, qualifiers } => {
             visit(expr);
             arena
                 .comp_qualifiers(qualifiers)
@@ -1298,6 +1308,8 @@ pub fn grouping_diagnostics(program: &ArenaProgram, source: &str) -> Vec<Diagnos
                 | Tag::List
                 | Tag::ListComp
                 | Tag::MapComp
+                | Tag::Set
+                | Tag::SetComp
                 | Tag::Record
                 | Tag::If
                 | Tag::Run

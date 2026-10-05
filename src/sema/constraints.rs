@@ -228,7 +228,8 @@ impl TypeConstraints {
                 (Type::Optional(_), Type::Null) => {}
                 (Type::Optional(left), Type::Optional(right))
                 | (Type::List(left), Type::List(right))
-                | (Type::Stream(left), Type::Stream(right)) => {
+                | (Type::Stream(left), Type::Stream(right))
+                | (Type::Set(left), Type::Set(right)) => {
                     pending.push(((**left).clone(), (**right).clone()))
                 }
                 (Type::Map(left_key, left_value), Type::Map(right_key, right_value)) => {
@@ -356,7 +357,7 @@ impl TypeConstraints {
                     }
                 }
             }
-            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
                 self.resolve_depth(inner, depth + 1)?
             }
             Type::Map(first, second) | Type::Result(first, second) => {
@@ -441,7 +442,7 @@ impl TypeConstraints {
                     }
                     variables.insert(*id);
                 }
-                Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) => {
+                Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) | Type::Set(inner) => {
                     pending.push((inner, depth + 1))
                 }
                 Type::Map(key, value) => {
@@ -524,7 +525,7 @@ fn has_anchor(ty: &Type, annotation: bool) -> bool {
             Type::Unknown | Type::Invalid => return false,
             Type::Inference(_) if annotation => return false,
             Type::Any | Type::ErasedRecord | Type::Null if !annotation => return false,
-            Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) => {
+            Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) | Type::Set(inner) => {
                 pending.push((inner, depth + 1))
             }
             Type::Map(key, value) => {
@@ -572,7 +573,7 @@ fn has_inference(ty: &Type, depth: usize) -> Result<bool, ConstraintResolutionEr
     }
     Ok(match ty {
         Type::Inference(_) => true,
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
             has_inference(inner, depth + 1)?
         }
         Type::Map(first, second) | Type::Result(first, second) => {

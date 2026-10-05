@@ -435,7 +435,8 @@ fn match_expr_structural(
             *bindings = local;
             true
         }
-        (ArenaExprKind::List(pi), ArenaExprKind::List(ti)) => {
+        (ArenaExprKind::List(pi), ArenaExprKind::List(ti))
+        | (ArenaExprKind::Set(pi), ArenaExprKind::Set(ti)) => {
             let pitems: Vec<_> = p.list_elements(*pi).collect();
             let titems: Vec<_> = t.list_elements(*ti).collect();
             if pitems.len() != titems.len() {

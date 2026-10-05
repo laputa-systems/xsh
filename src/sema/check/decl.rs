@@ -770,7 +770,7 @@ fn qualify_error_type(ty: &mut Type, namespace: Name, families: &FxHashSet<Name>
         {
             *family = Name::intern(format!("{namespace}.{family}"));
         }
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
             qualify_error_type(inner, namespace, families)
         }
         Type::Map(left, right) | Type::Result(left, right) => {
@@ -1218,6 +1218,7 @@ impl Checker {
                         parameter.as_str().as_str(),
                         "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown" | "Union"
                             | "NonEmpty"
+                            | "Set"
                     )
                 {
                     self.error(

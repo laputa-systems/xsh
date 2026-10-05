@@ -926,6 +926,9 @@ fn lowered_compact_json_capacity(value: &LoweredValue) -> usize {
         LoweredValue::Tag(value) => value.wire_string().map_or(4, |text| text.len() + 2),
         LoweredValue::List(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::SharedList(items) => lowered_compact_json_seq_capacity(items.iter()),
+        LoweredValue::Set(elements) => {
+            lowered_compact_json_seq_capacity(super::set::lowered_set_items(elements).iter())
+        }
         LoweredValue::Map(fields) => {
             let fields = fields
                 .iter()
@@ -1072,6 +1075,10 @@ fn lowered_write_compact_json(
         }
         LoweredValue::List(items) => lowered_write_json_seq(items.iter(), output, span)?,
         LoweredValue::SharedList(items) => lowered_write_json_seq(items.iter(), output, span)?,
+        // A set is an array of its elements in key order.
+        LoweredValue::Set(elements) => {
+            lowered_write_json_seq(super::set::lowered_set_items(elements).iter(), output, span)?
+        }
         LoweredValue::Map(fields) => {
             if fields.keys().any(|key| key.as_str().is_none()) {
                 return Err(RuntimeError::new(
@@ -1301,6 +1308,13 @@ fn lowered_to_json(
             let mut values = Vec::with_capacity(items.len());
             for item in items.iter() {
                 values.push(lowered_to_json(item, span)?);
+            }
+            Ok(json_module::raw_json_array(values))
+        }
+        LoweredValue::Set(elements) => {
+            let mut values = Vec::with_capacity(elements.len());
+            for item in super::set::lowered_set_items(elements) {
+                values.push(lowered_to_json(&item, span)?);
             }
             Ok(json_module::raw_json_array(values))
         }
@@ -3975,6 +3989,8 @@ impl Evaluator {
                 Err(items) => Ok(items.as_ref().clone()),
             },
             LoweredValue::Stream(stream) => self.collect_lowered_stream_values(*stream, span),
+            // A set is iterated as its elements in key order.
+            LoweredValue::Set(elements) => Ok(super::set::lowered_set_items(&elements)),
             LoweredValue::ResultOk(value) => self.lowered_list_items(*value, span, message),
             LoweredValue::ResultErr(value) => Err(runtime_error_from_value(*value, span)),
             _ => Err(RuntimeError::new("type-error", message).with_span(span)),

@@ -66,6 +66,8 @@ pub(super) enum TypeTag {
     // A nominal record type. `lhs` is the id of the record type it is the
     // identity of and `rhs` the symbol of the declaration's name.
     Nominal,
+    // A set. `lhs` is the element type id, an ordered scalar domain.
+    Set,
 }
 
 impl TypeTag {
@@ -101,7 +103,7 @@ impl TypeTag {
     }
 
     fn has_one_type(self) -> bool {
-        matches!(self, Self::List | Self::Stream | Self::Optional)
+        matches!(self, Self::List | Self::Stream | Self::Optional | Self::Set)
     }
 
     fn has_one_name(self) -> bool {
@@ -351,6 +353,7 @@ impl SemanticPools {
             TypeTag::List => Type::List(Box::new(child(data.lhs)?)),
             TypeTag::Map => Type::Map(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
             TypeTag::Stream => Type::Stream(Box::new(child(data.lhs)?)),
+            TypeTag::Set => Type::Set(Box::new(child(data.lhs)?)),
             TypeTag::Record => {
                 let (names, raw_types) = self.record_fields(id)?;
                 let mut fields = BTreeMap::new();
@@ -558,6 +561,7 @@ impl SemanticPools {
             return Ok(match tag {
                 TypeTag::List => format!("List[{inner}]"),
                 TypeTag::Stream => format!("Stream[{inner}]"),
+                TypeTag::Set => format!("Set[{inner}]"),
                 TypeTag::Optional => format!("{inner}?"),
                 _ => unreachable!("one-type tags are exhaustive"),
             });
@@ -693,9 +697,30 @@ impl SemanticPools {
                 continue;
             }
             if tag.has_one_type() {
-                verify_type_raw(self, data.lhs, Some(index))?;
+                let inner = verify_type_raw(self, data.lhs, Some(index))?;
                 if data.rhs != 0 {
                     return Err(IrVerifyError::new("unary type has invalid data"));
+                }
+                // A set orders and compares its elements as map keys, so its
+                // element type is one of the domains a key has. `Any` is the
+                // element of a set known only by its kind, as it is the key
+                // of such a map.
+                if tag == TypeTag::Set
+                    && !matches!(
+                        self.type_tags[inner.index()],
+                        TypeTag::Any
+                            | TypeTag::Str
+                            | TypeTag::Int
+                            | TypeTag::UInt
+                            | TypeTag::Bool
+                            | TypeTag::Bytes
+                            | TypeTag::Path
+                            | TypeTag::Duration
+                    )
+                {
+                    return Err(IrVerifyError::new(
+                        "Set element type is not an ordered scalar domain",
+                    ));
                 }
                 continue;
             }
@@ -1044,6 +1069,7 @@ impl SemanticPoolBuilder {
                 )
             }
             Type::Stream(inner) => self.unary(pools, TypeTag::Stream, inner)?,
+            Type::Set(inner) => self.unary(pools, TypeTag::Set, inner)?,
             Type::Record(fields) => {
                 let names = fields.keys().copied().collect::<Vec<_>>();
                 let shape = self.intern_shape(pools, &names)?;
@@ -1698,6 +1724,47 @@ mod tests {
             as_nominal.type_tags[names.index()] = TypeTag::Nominal;
             assert!(as_nominal.verify().is_err());
         });
+    }
+
+    #[test]
+    fn set_types_round_trip_and_reject_corruption() {
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let names = Type::Set(Box::new(Type::Str));
+        let id = builder.intern_type(&mut pools, &names).unwrap();
+        let list = builder
+            .intern_type(&mut pools, &Type::List(Box::new(Type::Str)))
+            .unwrap();
+        assert_ne!(id, list);
+        assert_eq!(builder.intern_type(&mut pools, &names).unwrap(), id);
+        assert_eq!(pools.to_type(id).unwrap(), names);
+        assert_eq!(pools.display_type(id).unwrap(), "Set[Str]");
+        pools.verify().unwrap();
+
+        // An element type a set cannot order: a collection, a float, a
+        // record.
+        let float = builder.intern_type(&mut pools, &Type::Float).unwrap();
+        let record = builder.intern_type(&mut pools, &Type::ErasedRecord).unwrap();
+        let other = builder
+            .intern_type(&mut pools, &Type::Set(Box::new(Type::Int)))
+            .unwrap();
+        pools.verify().unwrap();
+        for element in [list.raw(), float.raw(), record.raw()] {
+            let mut bad_element = pools.clone();
+            bad_element.type_data[other.index()].lhs = element;
+            assert!(bad_element.verify().is_err());
+        }
+
+        // An element that does not precede the set, or is no type at all,
+        // and a second data word the row does not have.
+        for element in [id.raw(), 0, u32::MAX] {
+            let mut bad_element = pools.clone();
+            bad_element.type_data[id.index()].lhs = element;
+            assert!(bad_element.verify().is_err());
+        }
+        let mut extra_word = pools.clone();
+        extra_word.type_data[id.index()].rhs = 1;
+        assert!(extra_word.verify().is_err());
     }
 
     #[test]

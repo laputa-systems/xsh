@@ -22,6 +22,22 @@ pub(super) struct ArenaOnlyExpr {
     bare_ident: Option<Name>,
 }
 
+/// One entry of a brace literal, before its entries say whether it is a
+/// record or a set.
+enum BraceEntry {
+    Field(ArenaRecordFieldInput),
+    /// A bare name: a punned field in a record, an element in a set.
+    Shorthand {
+        name: Name,
+        value: ExprId,
+        span: Span,
+    },
+    Element {
+        value: ExprId,
+        span: Span,
+    },
+}
+
 /// Accumulates `a |> b |> c` stages across loop iterations of
 /// `parse_precedence_arena_only`, deferring the arena commit until the chain
 /// ends (no more `|>` follows). This is cheaper than the old with_arena
@@ -258,7 +274,10 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         let start = self.current_start();
         let (pattern, guard, spelling) = self.parse_match_arm_head_arena_only(arena, else_arm)?;
-        let value = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_record_value() {
+        let value = if self.at(TokenKindMatch::LBrace)
+            && !self.brace_starts_record_value()
+            && !self.brace_starts_set()
+        {
             self.parse_braced_value_expr_arena_only("match arm", arena)?
                 .0
                 .id
@@ -352,6 +371,136 @@ impl<'a> Parser<'a> {
                     self.peek_tag(offset),
                     Some(TokenTag::Comma | TokenTag::RBrace)
                 ))
+    }
+
+    /// Whether `{` opens a set literal or set comprehension that
+    /// `brace_starts_record` does not already send to the brace-literal
+    /// parser: the first entry is an expression, not a bare name, and a `,`
+    /// or a comprehension's `for` follows it before the entry's line ends.
+    /// A block's first statement never has a `,` outside brackets unless it
+    /// starts with a statement keyword or is a command, and a command starts
+    /// with a name that an operand, not a call, an index, a member, or an
+    /// operator, follows.
+    pub(super) fn brace_starts_set(&mut self) -> bool {
+        let mut offset = 1;
+        while matches!(
+            self.peek_tag(offset),
+            Some(TokenTag::Newline | TokenTag::Comment)
+        ) {
+            offset += 1;
+        }
+        let first = offset;
+        match self.peek_tag(first) {
+            Some(TokenTag::Ident | TokenTag::ProcIdent) => {
+                // A comprehension's projection may be a dotted name, which
+                // before any other word would be a command.
+                let mut after_name = first + 1;
+                while self.peek_tag(after_name) == Some(TokenTag::Dot)
+                    && self.peek_start(after_name) == self.peek_end(after_name - 1)
+                    && matches!(
+                        self.peek_tag(after_name + 1),
+                        Some(TokenTag::Ident | TokenTag::ProcIdent)
+                    )
+                {
+                    after_name += 2;
+                }
+                while matches!(
+                    self.peek_tag(after_name),
+                    Some(TokenTag::Newline | TokenTag::Comment)
+                ) {
+                    after_name += 1;
+                }
+                let comprehension = self.peek_tag(after_name) == Some(TokenTag::Keyword)
+                    && self.peek_keyword(after_name) == Some(Keyword::For);
+                let conversion = self.peek_name(first + 1).is_some_and(|name| name == "as");
+                // The statement parser's own test of the name, read from
+                // where the name is.
+                let brace = self.index;
+                self.index += first;
+                let expression = !self.lookahead_is_assignment()
+                    && !self.lookahead_is_dotted_command()
+                    && (self.lookahead_is_expr_call_or_postfix()
+                        || self.lookahead_is_expr_binary());
+                self.index = brace;
+                if !(expression || comprehension || conversion) {
+                    return false;
+                }
+            }
+            Some(TokenTag::Keyword) => {
+                if !matches!(
+                    self.peek_keyword(first),
+                    Some(
+                        Keyword::True
+                            | Keyword::False
+                            | Keyword::Null
+                            | Keyword::Not
+                            | Keyword::If
+                            | Keyword::Match
+                    )
+                ) {
+                    return false;
+                }
+            }
+            Some(
+                TokenTag::String
+                | TokenTag::PathString
+                | TokenTag::FmtString
+                | TokenTag::PathFmtString
+                | TokenTag::EnvString
+                | TokenTag::Int
+                | TokenTag::Float
+                | TokenTag::Duration
+                | TokenTag::Bytes
+                | TokenTag::LParen
+                | TokenTag::Minus
+                | TokenTag::Bang,
+            ) => {}
+            _ => return false,
+        }
+        let mut depth = 0usize;
+        loop {
+            match self.peek_tag(offset) {
+                Some(
+                    TokenTag::LParen
+                    | TokenTag::LBracket
+                    | TokenTag::LBrace
+                    | TokenTag::DollarLBrace,
+                ) => depth += 1,
+                Some(TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace) => {
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                }
+                Some(TokenTag::Comma) if depth == 0 => return true,
+                Some(TokenTag::Keyword)
+                    if depth == 0 && self.peek_keyword(offset) == Some(Keyword::For) =>
+                {
+                    return offset > first;
+                }
+                // An entry may end its line before the `,` or `for`.
+                Some(TokenTag::Newline | TokenTag::Comment) if depth == 0 => {
+                    return match self.peek_tag_skip_newlines(offset) {
+                        Some(TokenTag::Comma) => true,
+                        Some(TokenTag::Keyword) => {
+                            let mut next = offset;
+                            while matches!(
+                                self.peek_tag(next),
+                                Some(TokenTag::Newline | TokenTag::Comment)
+                            ) {
+                                next += 1;
+                            }
+                            self.peek_keyword(next) == Some(Keyword::For)
+                        }
+                        _ => false,
+                    };
+                }
+                Some(TokenTag::Semicolon | TokenTag::Equals) if depth == 0 => return false,
+                Some(TokenTag::Eof) | None => return false,
+                _ => {}
+            }
+            offset += 1;
+        }
     }
 
     /// Shell `[ -f x ]`, `[[ -n $x ]]`, and `[ $x -lt 3 ]` conditions. A list
@@ -503,8 +652,19 @@ impl<'a> Parser<'a> {
             .map(|expr| expr.id)
     }
 
+    /// Whether the next two tokens spell `||` or `&&`, with or without a
+    /// gap. A single `|` or `&` is a set operator; a doubled one is the
+    /// C-style boolean operator and is reported before it can be read as two
+    /// set operators.
+    fn at_doubled_boolean_operator(&self) -> bool {
+        matches!(
+            (self.current_tag(), self.peek_tag(1)),
+            (TokenTag::Pipe, Some(TokenTag::Pipe)) | (TokenTag::Amp, Some(TokenTag::Amp))
+        )
+    }
+
     /// When the precedence loop stops on a token that looks like a C-style
-    /// boolean operator (`||`, `&&`, `|`, `&`) or a `then` keyword, emit a
+    /// boolean operator (`||`, `&&`) or a `then` keyword, emit a
     /// constructive diagnostic that names the offending token and points the
     /// agent at the word-form `or`/`and` operators instead of the block brace
     /// that follows. This turns a ~10-turn operator-spelling discovery into a
@@ -525,8 +685,6 @@ impl<'a> Parser<'a> {
                 let span = self.span(self.current_start(), self.peek_end(1).unwrap());
                 ("&&", "and", span, adjacent.then_some(BinaryOp::And))
             }
-            (TokenTag::Pipe, _) => ("|", "or", self.current_span(), None),
-            (TokenTag::Amp, _) => ("&", "and", self.current_span(), None),
             (TokenTag::Ident, _) if self.at_ident("then") => {
                 let span = self.current_span();
                 self.diagnostics.push(
@@ -965,6 +1123,11 @@ impl<'a> Parser<'a> {
                         grammar::binary_precedence(BinaryOp::Div),
                         tokens,
                     )
+                } else if self.at_doubled_boolean_operator() {
+                    let Some((op, tokens)) = self.report_unsupported_boolean_operator() else {
+                        break;
+                    };
+                    (op, grammar::binary_precedence(op), tokens)
                 } else if let Some((op, prec, tokens)) = self.current_binary_op() {
                     (op, prec, tokens)
                 } else if let Some((op, tokens)) = self.report_unsupported_boolean_operator() {
@@ -1558,7 +1721,9 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 })
             }
-            (TokenTag::LBrace, _) if self.brace_starts_record_value() => {
+            (TokenTag::LBrace, _)
+                if self.brace_starts_record_value() || self.brace_starts_set() =>
+            {
                 self.parse_record_arena_only(arena)
             }
             (TokenTag::LBrace, _) => self
@@ -1749,7 +1914,10 @@ impl<'a> Parser<'a> {
         let start = self.current_start();
         self.bump();
         self.skip_comp_layout();
-        arena.begin_record_fields();
+        let mut entries: Vec<BraceEntry> = Vec::new();
+        // Whether an entry so far is written as a field: `name: v`,
+        // `[key]: v`, or a spread.
+        let mut written_field = false;
         // The start of the first entry, once an entry has been read: a
         // comprehension after it would otherwise replace those entries.
         let mut first_entry: Option<usize> = None;
@@ -1771,13 +1939,13 @@ impl<'a> Parser<'a> {
                 self.bump();
                 self.bump();
                 let Some(expr) = self.parse_precedence_arena_only(0, arena) else {
-                    arena.discard_record_fields();
                     return None;
                 };
-                arena.push_record_field_input(ArenaRecordFieldInput::Spread {
+                written_field = true;
+                entries.push(BraceEntry::Field(ArenaRecordFieldInput::Spread {
                     expr: expr.id,
                     span: self.span(field_start, expr.span.end()),
-                });
+                }));
                 self.skip_comp_layout();
                 if self.consume(TokenKindMatch::Comma).is_none() {
                     break;
@@ -1788,7 +1956,6 @@ impl<'a> Parser<'a> {
             if self.consume(TokenKindMatch::LBracket).is_some() {
                 self.skip_comp_layout();
                 let Some(key) = self.parse_precedence_arena_only(0, arena) else {
-                    arena.discard_record_fields();
                     return None;
                 };
                 self.skip_comp_layout();
@@ -1798,21 +1965,36 @@ impl<'a> Parser<'a> {
                 );
                 self.expect(TokenKindMatch::Colon, "expected `:` after computed map key");
                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
-                    arena.discard_record_fields();
                     return None;
                 };
                 self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
-                    arena.discard_record_fields();
                     self.report_map_comprehension_entries(leading_entries);
                     return self.parse_map_comp_tail_arena_only(arena, start, key.id, value.id);
                 }
-                arena.push_record_field_input(ArenaRecordFieldInput::Computed {
+                written_field = true;
+                entries.push(BraceEntry::Field(ArenaRecordFieldInput::Computed {
                     key: key.id,
                     value: value.id,
                     span: self.span(field_start, value.span.end()),
-                });
+                }));
                 self.skip_comp_layout();
+                if self.consume(TokenKindMatch::Comma).is_none() {
+                    break;
+                }
+                self.skip_comp_layout();
+                continue;
+            }
+            if self.brace_entry_is_element(written_field) {
+                let element = self.parse_precedence_arena_only(0, arena)?;
+                self.skip_comp_layout();
+                if entries.is_empty() && self.at_keyword(Keyword::For) {
+                    return self.parse_set_comp_tail_arena_only(arena, start, element.id);
+                }
+                entries.push(BraceEntry::Element {
+                    value: element.id,
+                    span: element.span,
+                });
                 if self.consume(TokenKindMatch::Comma).is_none() {
                     break;
                 }
@@ -1831,7 +2013,6 @@ impl<'a> Parser<'a> {
                 name
             } else {
                 let Some(name) = self.expect_label_name("expected record field label") else {
-                    arena.discard_record_fields();
                     return None;
                 };
                 name
@@ -1851,27 +2032,27 @@ impl<'a> Parser<'a> {
             }
             if self.consume(TokenKindMatch::Colon).is_some() {
                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
-                    arena.discard_record_fields();
                     return None;
                 };
                 self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
-                    arena.discard_record_fields();
                     self.report_map_comprehension_entries(leading_entries);
                     return self.parse_map_comp_tail_arena_only(arena, start, key_id, value.id);
                 }
                 if dotted_key {
-                    arena.push_record_field_input(ArenaRecordFieldInput::Path {
+                    written_field = true;
+                entries.push(BraceEntry::Field(ArenaRecordFieldInput::Path {
                         path,
                         value: value.id,
                         span: self.span(field_start, value.span.end()),
-                    });
+                    }));
                 } else {
-                    arena.push_record_field_input(ArenaRecordFieldInput::Named {
+                    written_field = true;
+                entries.push(BraceEntry::Field(ArenaRecordFieldInput::Named {
                         name,
                         value: value.id,
                         span: self.span(field_start, value.span.end()),
-                    });
+                    }));
                 }
             } else {
                 if dotted_key {
@@ -1882,11 +2063,11 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 if !self.require_label_binding_name(label_tag, label_span) {
-                    arena.discard_record_fields();
                     return None;
                 }
-                arena.push_record_field_input(ArenaRecordFieldInput::Shorthand {
+                entries.push(BraceEntry::Shorthand {
                     name,
+                    value: key_id,
                     span: self.span(field_start, self.previous_end()),
                 });
             }
@@ -1901,14 +2082,116 @@ impl<'a> Parser<'a> {
             .expect(TokenKindMatch::RBrace, "expected `}` after record")
             .map(|span| span.end())
             .unwrap_or_else(|| self.previous_end());
-        let fields = arena.finish_record_fields();
         let span = self.span(start, end);
+        let first_element = entries.iter().find_map(|entry| match entry {
+            BraceEntry::Element { span, .. } => Some(*span),
+            _ => None,
+        });
+        let Some(first_element) = first_element else {
+            arena.begin_record_fields();
+            for entry in entries {
+                arena.push_record_field_input(match entry {
+                    BraceEntry::Field(field) => field,
+                    BraceEntry::Shorthand { name, span, .. } => {
+                        ArenaRecordFieldInput::Shorthand { name, span }
+                    }
+                    BraceEntry::Element { .. } => unreachable!("no entry is an element"),
+                });
+            }
+            let fields = arena.finish_record_fields();
+            return Some(ArenaOnlyExpr {
+                id: arena.push_record_expr(fields, span),
+                span,
+                bare_ident: None,
+            });
+        };
+        // One element that is not a bare name makes the braces a set, and
+        // the bare names beside it are then elements too.
+        arena.begin_list_elements();
+        for entry in entries {
+            match entry {
+                BraceEntry::Shorthand { value, .. } | BraceEntry::Element { value, .. } => {
+                    arena.push_list_element_input(ArenaListElementInput {
+                        value,
+                        splice_span: None,
+                    });
+                }
+                BraceEntry::Field(field) => {
+                    let field_span = match field {
+                        ArenaRecordFieldInput::Spread { span, .. }
+                        | ArenaRecordFieldInput::Computed { span, .. }
+                        | ArenaRecordFieldInput::Path { span, .. }
+                        | ArenaRecordFieldInput::Named { span, .. }
+                        | ArenaRecordFieldInput::Shorthand { span, .. } => span,
+                    };
+                    self.diagnostics.push(
+                        Diagnostic::error("a brace literal holds either fields or set elements, not both")
+                            .with_code(DiagnosticCode::ParseBraceLiteralMixed)
+                            .with_label(Label::primary(field_span, "this entry is a field"))
+                            .with_label(Label::secondary(first_element, "this entry is a set element"))
+                            .with_note("write every entry as `key: value` for a record or map, or every entry as a value for a set"),
+                    );
+                }
+            }
+        }
+        let items = arena.finish_list_elements();
         Some(ArenaOnlyExpr {
-            id: arena.push_record_expr(fields, span),
+            id: arena.push_set_elements(items, span),
             span,
             bare_ident: None,
         })
     }
+
+    /// Whether the entry at the cursor of a brace literal is a set element:
+    /// an expression rather than a field (`name: v`, `"key": v`,
+    /// `a.b: v`) or a bare name. After a written field, an entry that starts
+    /// with a name is still read as a field so that its own error is
+    /// reported.
+    fn brace_entry_is_element(&self, written_field: bool) -> bool {
+        let literal_word = self.current_tag() == TokenTag::Keyword
+            && matches!(
+                self.peek_keyword(0),
+                Some(Keyword::True | Keyword::False | Keyword::Null)
+            );
+        let label = !literal_word && self.peek_label_name(0).is_some();
+        if !label && self.current_tag() != TokenTag::String {
+            return true;
+        }
+        let mut offset = 1;
+        while self.peek_tag(offset) == Some(TokenTag::Dot)
+            && self.peek_label_name(offset + 1).is_some()
+        {
+            offset += 2;
+        }
+        match self.peek_tag_skip_newlines(offset) {
+            Some(TokenTag::Colon) => false,
+            Some(TokenTag::Comma | TokenTag::RBrace) if label && offset == 1 => false,
+            _ => !(label && written_field),
+        }
+    }
+
+    fn parse_set_comp_tail_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        start: usize,
+        expr: ExprId,
+    ) -> Option<ArenaOnlyExpr> {
+        let qualifiers = self.parse_comp_qualifiers_arena_only(arena)?;
+        let end = self
+            .expect(
+                TokenKindMatch::RBrace,
+                "expected `}` after set comprehension",
+            )
+            .map(|span| span.end())
+            .unwrap_or_else(|| self.previous_end());
+        let span = self.span(start, end);
+        Some(ArenaOnlyExpr {
+            id: arena.push_set_comp_expr(expr, qualifiers, span),
+            span,
+            bare_ident: None,
+        })
+    }
+
 
     /// A map comprehension is the only entry of its braces. Entries before
     /// it are an error rather than silently dropped; the comprehension still

@@ -530,6 +530,12 @@ impl Checker {
             ArenaTypeExprTag::NonEmpty => Type::non_empty(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             ),
+            ArenaTypeExprTag::Set => {
+                let element =
+                    self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize));
+                self.require_set_element_type(&element, span);
+                Type::Set(Box::new(element))
+            }
             ArenaTypeExprTag::Map => {
                 let key = TypeExprId::from_optional_raw(data.rhs)
                     .map_or(Type::Str, |id| self.type_from_arena(program, id));

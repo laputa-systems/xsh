@@ -2,7 +2,7 @@
 
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Runtime key domains preserve scalar identity. UInt shares the existing Int
@@ -129,6 +129,16 @@ impl<'a> MapKeyRef<'a> {
 
     pub fn remove<V>(self, entries: &mut BTreeMap<MapKey, V>) -> Option<V> {
         entries.remove::<dyn KeyQuery>(&self)
+    }
+
+    /// Whether a set holds this element.
+    pub fn is_in(self, elements: &BTreeSet<MapKey>) -> bool {
+        elements.contains::<dyn KeyQuery>(&self)
+    }
+
+    /// Removes this element from a set and says whether it was there.
+    pub fn take_from(self, elements: &mut BTreeSet<MapKey>) -> bool {
+        elements.remove::<dyn KeyQuery>(&self)
     }
 }
 

@@ -478,6 +478,8 @@ pub enum ArenaTypeExprTag {
     Callable,
     /// `NonEmpty[T]`: `lhs` is the element type.
     NonEmpty,
+    /// `Set[T]`: `lhs` is the element type.
+    Set,
 }
 
 /// A callable type expression, `proc(PARAMS) [EFFECTS] -> T` or
@@ -2561,6 +2563,15 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
+    /// `Set[T]`: distinct elements of `T`.
+    pub fn push_set_type_expr(&mut self, inner: TypeExprId, span: Span) -> TypeExprId {
+        self.push_type_expr_row(
+            ArenaTypeExprTag::Set,
+            ArenaTypeExprData::new(raw_type_expr_id(inner), 0),
+            span,
+        )
+    }
+
     pub fn push_map_type_expr(&mut self, inner: TypeExprId, span: Span) -> TypeExprId {
         self.push_typed_map_type_expr(None, inner, span)
     }
@@ -3458,6 +3469,22 @@ impl<'a> ArenaProgramBuilder<'a> {
     pub fn push_list_elements(&mut self, items: ArenaListElementRange, span: Span) -> ExprId {
         self.lowerer
             .push_expr_kind(ArenaExprKind::List(items), span)
+    }
+
+    /// A set literal `{a, b}`. Its elements are stored as list elements and
+    /// none is a splice.
+    pub fn push_set_elements(&mut self, items: ArenaListElementRange, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::Set(items), span)
+    }
+
+    pub fn push_set_comp_expr(
+        &mut self,
+        expr: ExprId,
+        qualifiers: ArenaRange,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer
+            .push_expr_kind(ArenaExprKind::SetComp { expr, qualifiers }, span)
     }
 
     pub fn push_comp_qualifiers(&mut self, qualifiers: Vec<ArenaCompQualifier>) -> ArenaRange {
@@ -4665,6 +4692,14 @@ impl AstArena {
                     qualifiers: ArenaRange::new(raw[2] as usize, raw[3] as usize),
                 }
             }
+            ArenaExprTag::Set => ArenaExprKind::Set(ArenaListElementRange(range_from_data(data))),
+            ArenaExprTag::SetComp => {
+                let raw = range_slice(&self.extra, range_from_data(data));
+                ArenaExprKind::SetComp {
+                    expr: ExprId::new(raw[0] as usize),
+                    qualifiers: ArenaRange::new(raw[1] as usize, raw[2] as usize),
+                }
+            }
             ArenaExprTag::Record => ArenaExprKind::Record(range_from_data(data)),
             ArenaExprTag::If => {
                 let raw = range_slice(&self.extra, range_from_data(data));
@@ -4718,7 +4753,9 @@ impl AstArena {
             | ArenaExprTag::BinarySub
             | ArenaExprTag::BinaryMul
             | ArenaExprTag::BinaryDiv
-            | ArenaExprTag::BinaryRem => ArenaExprKind::Binary {
+            | ArenaExprTag::BinaryRem
+            | ArenaExprTag::BinaryUnion
+            | ArenaExprTag::BinaryIntersect => ArenaExprKind::Binary {
                 op: binary_op_from_expr_tag(tag),
                 left: ExprId::new(data.lhs as usize),
                 right: ExprId::new(data.rhs as usize),
@@ -5600,6 +5637,8 @@ fn binary_expr_tag(op: BinaryOp) -> ArenaExprTag {
         BinaryOp::Mul => ArenaExprTag::BinaryMul,
         BinaryOp::Div => ArenaExprTag::BinaryDiv,
         BinaryOp::Rem => ArenaExprTag::BinaryRem,
+        BinaryOp::Union => ArenaExprTag::BinaryUnion,
+        BinaryOp::Intersect => ArenaExprTag::BinaryIntersect,
     }
 }
 
@@ -5621,6 +5660,8 @@ fn binary_op_from_expr_tag(tag: ArenaExprTag) -> BinaryOp {
         ArenaExprTag::BinaryMul => BinaryOp::Mul,
         ArenaExprTag::BinaryDiv => BinaryOp::Div,
         ArenaExprTag::BinaryRem => BinaryOp::Rem,
+        ArenaExprTag::BinaryUnion => BinaryOp::Union,
+        ArenaExprTag::BinaryIntersect => BinaryOp::Intersect,
         _ => panic!("arena expression tag is not binary"),
     }
 }
@@ -6366,6 +6407,10 @@ pub enum ArenaExprTag {
     WithinScope,
     WithinStatementScope,
     Convert,
+    Set,
+    SetComp,
+    BinaryUnion,
+    BinaryIntersect,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -6449,6 +6494,13 @@ pub enum ArenaExprKind {
     MapComp {
         key: ExprId,
         value: ExprId,
+        qualifiers: ArenaRange,
+    },
+    /// A set literal. The elements are stored as list elements, none of
+    /// them a splice.
+    Set(ArenaListElementRange),
+    SetComp {
+        expr: ExprId,
         qualifiers: ArenaRange,
     },
     Record(ArenaRange),
@@ -7655,6 +7707,12 @@ impl ArenaLowerer<'_> {
                     qualifiers.len,
                 ]);
                 (ArenaExprTag::MapComp, data)
+            }
+            ArenaExprKind::Set(range) => (ArenaExprTag::Set, range_data(range.0)),
+            ArenaExprKind::SetComp { expr, qualifiers } => {
+                let data =
+                    self.push_expr_extra(&[raw_expr_id(expr), qualifiers.start, qualifiers.len]);
+                (ArenaExprTag::SetComp, data)
             }
             ArenaExprKind::Record(range) => (ArenaExprTag::Record, range_data(range)),
             ArenaExprKind::If {

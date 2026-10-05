@@ -1049,7 +1049,7 @@ mod tests {
                     assert_record_type_fields_preloaded(ty);
                 }
             }
-            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
                 assert_record_type_fields_preloaded(inner)
             }
             Type::Map(key, value) => {

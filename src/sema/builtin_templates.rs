@@ -85,7 +85,7 @@ impl BuiltinInstantiation {
                     }
                     pending.push(value);
                 }
-                Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+                Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
                     pending.push(inner)
                 }
                 Type::Result(ok, error) => {
@@ -138,6 +138,12 @@ fn instantiate_type(
             constraints,
             span,
         ))),
+        Type::Set(inner) => Type::Set(Box::new(instantiate_type(
+            inner,
+            parameters,
+            constraints,
+            span,
+        ))),
         Type::Optional(inner) => Type::Optional(Box::new(instantiate_type(
             inner,
             parameters,
@@ -177,6 +183,7 @@ fn seed_receiver_domains(
         }
         (Type::List(left), Type::List(right))
         | (Type::Stream(left), Type::Stream(right))
+        | (Type::Set(left), Type::Set(right))
         | (Type::Optional(left), Type::Optional(right)) => {
             seed_receiver_domains(left, right, parameters)
         }
@@ -204,7 +211,7 @@ fn seed_fixed_parameters(
         Type::BuiltinParameter(parameter) => {
             parameters.insert(*parameter, domain.clone());
         }
-        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) | Type::Set(inner) => {
             seed_fixed_parameters(inner, domain, parameters)
         }
         Type::Map(key, value) | Type::Result(key, value) => {
@@ -262,7 +269,9 @@ pub(crate) fn parameter_schema_contexts(
     use super::constants::{SchemaComponent, SchemaExpectation};
     fn children(ty: &Type) -> Vec<(SchemaComponent, &Type)> {
         match ty.unvalidated() {
-            Type::List(inner) | Type::Stream(inner) => vec![(SchemaComponent::Item, inner)],
+            Type::List(inner) | Type::Stream(inner) | Type::Set(inner) => {
+                vec![(SchemaComponent::Item, inner)]
+            }
             Type::Optional(inner) => vec![(SchemaComponent::Optional, inner)],
             Type::Map(key, value) => {
                 vec![(SchemaComponent::Key, key), (SchemaComponent::Value, value)]

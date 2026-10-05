@@ -21,6 +21,10 @@ pub(super) enum PreparedSchema {
     /// first, so a failure inside the value is reported at its own path, and
     /// then tests the validation once on the decoded value.
     Validated(Type, Arc<PreparedSchema>),
+    /// A set of the element type. Decoding accepts a set, or a list (a JSON
+    /// array) whose elements are distinct; a repeated element is a failure,
+    /// since a validation boundary does not drop data.
+    Set(Type),
 }
 
 impl PreparedSchema {
@@ -34,6 +38,7 @@ impl PreparedSchema {
             ),
             Type::List(item) => Self::List(Self::compile(item, enums)),
             Type::Map(key, item) => Self::Map((**key).clone(), Self::compile(item, enums)),
+            Type::Set(element) => Self::Set((**element).clone()),
             Type::Optional(item) => Self::Optional(Self::compile(item, enums)),
             Type::Union(members) => {
                 let schemas = members
@@ -58,7 +63,8 @@ impl PreparedSchema {
 
     fn converts_wire(&self) -> bool {
         match self {
-            Self::WireEnum(_) => true,
+            // A list is rebuilt as a set.
+            Self::WireEnum(_) | Self::Set(_) => true,
             Self::Record(fields) => fields.iter().any(|(_, schema)| schema.converts_wire()),
             Self::List(schema)
             | Self::Map(_, schema)
@@ -82,6 +88,7 @@ impl PreparedSchema {
             }
             Self::Record(fields) => fields.iter().all(|(_, schema)| schema.valid()),
             Self::Map(key, schema) => key.is_map_key() && schema.valid(),
+            Self::Set(element) => element.is_map_key(),
             Self::List(schema) | Self::Optional(schema) | Self::Validated(_, schema) => {
                 schema.valid()
             }
@@ -106,7 +113,7 @@ impl PreparedSchema {
             Self::Union(_, members) => members
                 .iter()
                 .all(|schema| schema.visit_wire_mappings(visit)),
-            Self::Validate(_) => true,
+            Self::Validate(_) | Self::Set(_) => true,
         }
     }
 
@@ -141,6 +148,7 @@ impl PreparedSchema {
             (Self::Map(key, schema), Type::Map(expected_key, ty)) => {
                 key == expected_key.as_ref() && schema.matches_type(ty)
             }
+            (Self::Set(element), Type::Set(expected)) => element == expected.as_ref(),
             (Self::List(schema), Type::List(ty)) | (Self::Optional(schema), Type::Optional(ty)) => {
                 schema.matches_type(ty)
             }
@@ -283,6 +291,55 @@ impl PreparedSchema {
                     )?);
                 }
                 Ok(LoweredValue::List(converted))
+            }
+            Self::Set(element_type) => {
+                let items = match value {
+                    LoweredValue::Set(elements) => {
+                        return if elements
+                            .iter()
+                            .all(|element| super::map_key_matches_type(element, element_type))
+                        {
+                            Ok(LoweredValue::Set(elements))
+                        } else {
+                            Err(failure(format!("expected Set[{element_type}]")))
+                        };
+                    }
+                    LoweredValue::List(items) => items,
+                    LoweredValue::SharedList(items) => super::lower::take_shared(items),
+                    value => {
+                        return Err(failure(format!(
+                            "expected Set, found {}",
+                            value.type_name()
+                        )));
+                    }
+                };
+                let mut elements = std::collections::BTreeSet::new();
+                for (index, item) in items.iter().enumerate() {
+                    let element = super::lowered_ops::lowered_map_key_ref(item, span)
+                        .ok()
+                        .map(|element| element.to_owned())
+                        .filter(|element| super::map_key_matches_type(element, element_type))
+                        .ok_or_else(|| {
+                            RuntimeError::new(
+                                "schema",
+                                format!(
+                                    "schema check failed at {path}[{index}]: expected {element_type}, found {}",
+                                    item.type_name()
+                                ),
+                            )
+                            .with_span(span)
+                        })?;
+                    if !elements.insert(element) {
+                        return Err(RuntimeError::new(
+                            "schema",
+                            format!(
+                                "schema check failed at {path}[{index}]: a set holds each element once, and this one repeats an earlier element"
+                            ),
+                        )
+                        .with_span(span));
+                    }
+                }
+                Ok(LoweredValue::Set(Arc::new(elements)))
             }
             Self::Map(key_type, schema) => {
                 let items = match value {

@@ -913,6 +913,7 @@ fn coverage_receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::NetJob => "NetJob",
         MethodReceiver::FsRoot => "FsRoot",
         MethodReceiver::NonEmpty => "NonEmpty",
+        MethodReceiver::Set => "Set",
         MethodReceiver::RelPath => "RelPath",
     }
 }

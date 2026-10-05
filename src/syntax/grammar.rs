@@ -121,7 +121,7 @@ const fn operator(
 }
 
 /// Every binary operator, loosest first.
-pub const BINARY_OPERATORS: [BinaryOperator; 16] = [
+pub const BINARY_OPERATORS: [BinaryOperator; 18] = [
     BinaryOperator {
         associativity: Associativity::Right,
         ..operator(
@@ -246,6 +246,29 @@ pub const BINARY_OPERATORS: [BinaryOperator; 16] = [
         6,
         OperatorFamily::Multiplicative,
     ),
+    // The set operators sit with the arithmetic they resemble: union with
+    // `+`, intersection with `*`. A line never starts with one, since `|`
+    // also opens a block's parameters.
+    BinaryOperator {
+        continues_line: false,
+        ..operator(
+            BinaryOp::Union,
+            "|",
+            OperatorToken::Tag(TokenTag::Pipe),
+            5,
+            OperatorFamily::Additive,
+        )
+    },
+    BinaryOperator {
+        continues_line: false,
+        ..operator(
+            BinaryOp::Intersect,
+            "&",
+            OperatorToken::Tag(TokenTag::Amp),
+            6,
+            OperatorFamily::Multiplicative,
+        )
+    },
 ];
 
 pub const fn binary_operator(op: BinaryOp) -> &'static BinaryOperator {

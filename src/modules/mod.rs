@@ -121,6 +121,7 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
             }
         }
         Type::Stream(inner) => format!("Stream[{}]", render_type(inner)),
+        Type::Set(inner) => format!("Set[{}]", render_type(inner)),
         Type::ErasedRecord => "Record".to_string(),
         Type::Record(fields) if fields.is_empty() => "{}".to_string(),
         Type::Record(fields) => {

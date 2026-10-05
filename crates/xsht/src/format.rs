@@ -252,6 +252,7 @@ enum ArenaTypeExprKind {
     Union(Vec<TypeExprId>),
     Callable(xsh::frontend::syntax::arena::ArenaCallableTypeExpr),
     NonEmpty(TypeExprId),
+    Set(TypeExprId),
 }
 
 fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
@@ -297,6 +298,7 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::NonEmpty => {
             ArenaTypeExprKind::NonEmpty(TypeExprId::from_index(data.lhs as usize))
         }
+        ArenaTypeExprTag::Set => ArenaTypeExprKind::Set(TypeExprId::from_index(data.lhs as usize)),
     }
 }
 
@@ -2645,12 +2647,19 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Ident(name) => output.push_str(&self.name_text(*name)),
             ArenaExprKind::Item => output.push('.'),
             ArenaExprKind::LastStatus => output.push_str("$?"),
-            ArenaExprKind::List(items) => self.write_list(expr_id, *items, output),
+            ArenaExprKind::List(items) => self.write_list(expr_id, *items, ['[', ']'], output),
+            ArenaExprKind::Set(items) => self.write_list(expr_id, *items, ['{', '}'], output),
             ArenaExprKind::ListComp { expr, qualifiers } => {
                 output.push('[');
                 self.write_expr(*expr, child(*expr), output);
                 self.write_comp_qualifiers(*qualifiers, None, output);
                 output.push(']');
+            }
+            ArenaExprKind::SetComp { expr, qualifiers } => {
+                output.push('{');
+                self.write_expr(*expr, child(*expr), output);
+                self.write_comp_qualifiers(*qualifiers, None, output);
+                output.push('}');
             }
             ArenaExprKind::MapComp {
                 key,
@@ -3131,15 +3140,18 @@ impl<'a> Writer<'a> {
             })
     }
 
+    /// A list literal, or with braces a set literal.
     fn write_list(
         &mut self,
         expr_id: ExprId,
         items: xsh::frontend::syntax::arena::ArenaListElementRange,
+        [open, close]: [char; 2],
         output: &mut String,
     ) {
         let elements: Vec<_> = self.arena.list_elements(items).collect();
-        let inline =
-            self.render_inline(|writer, inline| writer.write_list_literal_inline(items, inline));
+        let inline = self.render_inline(|writer, inline| {
+            writer.write_list_literal_inline(items, [open, close], inline)
+        });
         let item_spans: Vec<Span> = elements
             .iter()
             .map(|item| {
@@ -3173,7 +3185,8 @@ impl<'a> Writer<'a> {
                 }
                 writer.write_expr_safe(elements[index].value, line);
             });
-        output.push_str("[\n");
+        output.push(open);
+        output.push('\n');
         for item in elements {
             self.write_indent(indent + 1, output);
             let previous_force = self.force_collection_expanded;
@@ -3186,7 +3199,7 @@ impl<'a> Writer<'a> {
             output.push_str(",\n");
         }
         self.write_indent(indent, output);
-        output.push(']');
+        output.push(close);
     }
 
     /// Whether the author broke a collection between its elements or inside
@@ -3228,16 +3241,13 @@ impl<'a> Writer<'a> {
     fn write_list_literal_inline(
         &mut self,
         items: xsh::frontend::syntax::arena::ArenaListElementRange,
+        [open, close]: [char; 2],
         output: &mut String,
     ) {
-        output.push('[');
-        for (index, item) in self
-            .arena
-            .list_elements(items)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .enumerate()
-        {
+        output.push(open);
+        let elements = self.arena.list_elements(items).collect::<Vec<_>>();
+        let count = elements.len();
+        for (index, item) in elements.into_iter().enumerate() {
             if index > 0 {
                 output.push_str(", ");
             }
@@ -3246,7 +3256,12 @@ impl<'a> Writer<'a> {
             }
             self.write_expr_safe(item.value, output);
         }
-        output.push(']');
+        // Braces around one expression are a block; the comma makes them a
+        // one-element set.
+        if open == '{' && count == 1 {
+            output.push(',');
+        }
+        output.push(close);
     }
 
     fn write_list_inline(
@@ -3853,6 +3868,11 @@ impl<'a> Writer<'a> {
                 self.write_type(inner, output);
                 output.push(']');
             }
+            ArenaTypeExprKind::Set(inner) => {
+                output.push_str("Set[");
+                self.write_type(inner, output);
+                output.push(']');
+            }
             ArenaTypeExprKind::Map(key, inner) => {
                 output.push_str("Map[");
                 if let Some(key) = key {
@@ -4340,6 +4360,7 @@ impl<'a> Writer<'a> {
             ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
                 | ArenaExprKind::ListComp { .. }
+                | ArenaExprKind::SetComp { .. }
                 | ArenaExprKind::MapComp { .. }
         ) {
             return self.write_expr(expr_id, context, output);
@@ -4369,6 +4390,7 @@ impl<'a> Writer<'a> {
                 self.write_match_expr_multiline(value, arms, close, output)
             }
             ArenaExprKind::ListComp { qualifiers, .. }
+            | ArenaExprKind::SetComp { qualifiers, .. }
             | ArenaExprKind::MapComp { qualifiers, .. }
                 if !fits
                     || self
@@ -4380,7 +4402,10 @@ impl<'a> Writer<'a> {
                         != 1
                     || self.arena.comp_qualifiers(qualifiers).len() > 2 =>
             {
-                if matches!(kind, ArenaExprKind::ListComp { .. }) {
+                if matches!(
+                    kind,
+                    ArenaExprKind::ListComp { .. } | ArenaExprKind::SetComp { .. }
+                ) {
                     self.write_list_comp_multiline(expr_id, output);
                 } else {
                     self.write_map_comp_multiline(expr_id, output);
@@ -4404,7 +4429,9 @@ impl<'a> Writer<'a> {
                 let close = self.arena.expr(expr_id).span.end().saturating_sub(1);
                 self.write_match_expr_multiline(*value, *arms, close, output)
             }
-            ArenaExprKind::ListComp { .. } => self.write_list_comp_multiline(expr_id, output),
+            ArenaExprKind::ListComp { .. } | ArenaExprKind::SetComp { .. } => {
+                self.write_list_comp_multiline(expr_id, output)
+            }
             ArenaExprKind::MapComp { .. } => self.write_map_comp_multiline(expr_id, output),
             _ => self.write_expr_safe(expr_id, output),
         }
@@ -4440,11 +4467,14 @@ impl<'a> Writer<'a> {
     }
 
     fn write_list_comp_multiline(&mut self, expr_id: ExprId, output: &mut String) {
-        let ArenaExprKind::ListComp { expr, qualifiers } = self.arena.expr(expr_id).kind else {
-            return self.write_expr(expr_id, CLOSE, output);
+        let (expr, qualifiers, [open, close]) = match self.arena.expr(expr_id).kind {
+            ArenaExprKind::ListComp { expr, qualifiers } => (expr, qualifiers, ['[', ']']),
+            ArenaExprKind::SetComp { expr, qualifiers } => (expr, qualifiers, ['{', '}']),
+            _ => return self.write_expr(expr_id, CLOSE, output),
         };
         let indent = indent_for_expr(output);
-        output.push_str("[\n");
+        output.push(open);
+        output.push('\n');
         self.write_comments_before(self.arena.expr(expr).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
         self.write_expr_safe_in(expr, END, output);
@@ -4452,7 +4482,7 @@ impl<'a> Writer<'a> {
         output.push('\n');
         self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);
         self.write_indent(indent, output);
-        output.push(']');
+        output.push(close);
     }
 
     fn write_map_comp_key(&mut self, key: ExprId, output: &mut String) {
@@ -5009,6 +5039,8 @@ fn binary_op_text(op: BinaryOp) -> &'static str {
         BinaryOp::Mul => "*",
         BinaryOp::Div => "/",
         BinaryOp::Rem => "%",
+        BinaryOp::Union => "|",
+        BinaryOp::Intersect => "&",
     }
 }
 

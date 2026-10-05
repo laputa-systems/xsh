@@ -105,6 +105,7 @@ fn is_empty_lowers_for_every_receiver_that_declares_it() {
             MethodReceiver::Bytes => "Bytes",
             MethodReceiver::List => "List[Int]",
             MethodReceiver::Map => "Map[Str, Int]",
+            MethodReceiver::Set => "Set[Int]",
             other => panic!("no parameter type for an `is_empty` receiver {other:?}"),
         };
         for (parameter, access) in [(ty.to_owned(), "."), (format!("{ty}?"), "?.")] {
@@ -119,7 +120,52 @@ fn is_empty_lowers_for_every_receiver_that_declares_it() {
         }
         receivers += 1;
     }
-    assert_eq!(receivers, 4);
+    assert_eq!(receivers, 5);
+}
+
+/// A set's methods are routed by name in lowering, as is the list method
+/// that builds one, so each needs its own route, plain and null-safe.
+#[test]
+fn set_methods_lower_for_every_method_the_registry_declares() {
+    let receiver = api_spec()
+        .methods
+        .iter()
+        .find(|entry| entry.receiver == MethodReceiver::Set)
+        .expect("the registry has Set methods");
+    let mut calls = 0;
+    for method in &receiver.methods {
+        for overload in &method.overloads {
+            let arguments = overload
+                .sig
+                .params
+                .iter()
+                .map(|_| "1")
+                .collect::<Vec<_>>()
+                .join(", ");
+            for (parameter, access) in [("Set[Int]", "."), ("Set[Int]?", "?.")] {
+                let source = format!(
+                    "proc probe(target: {parameter}) {{\n  let _ = target{access}{}({arguments})\n}}\n",
+                    method.name
+                );
+                let diagnostics = check_and_lower(&source);
+                assert!(
+                    diagnostics.is_empty(),
+                    "`Set.{}` does not lower:\n{source}{diagnostics:#?}",
+                    method.name
+                );
+                calls += 1;
+            }
+        }
+    }
+    assert_eq!(calls, 10);
+    for access in [".", "?."] {
+        let parameter = if access == "." { "List[Int]" } else { "List[Int]?" };
+        let source = format!(
+            "proc probe(target: {parameter}) {{\n  let _ = target{access}to_set()\n}}\n"
+        );
+        let diagnostics = check_and_lower(&source);
+        assert!(diagnostics.is_empty(), "`List.to_set` does not lower:\n{source}{diagnostics:#?}");
+    }
 }
 
 // The check above is only as good as its probe: a method the registry does

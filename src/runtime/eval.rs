@@ -34,7 +34,7 @@ use crate::trace::{
 };
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::PathBuf;
@@ -54,6 +54,7 @@ mod lowered_run;
 mod module_contract;
 mod modules;
 mod require;
+mod set;
 mod validated;
 #[cfg(feature = "native-tests")]
 pub use modules::{LinuxFake, UnixFake};
@@ -367,9 +368,9 @@ impl Default for CompactLowerConstructProbeOutput {
 
 pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
-pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 12;
+pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 13;
 pub const COMPACT_STMT_KIND_COUNT: usize = 30;
-pub const COMPACT_EXPR_KIND_COUNT: usize = 48;
+pub const COMPACT_EXPR_KIND_COUNT: usize = 50;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
 
@@ -1049,6 +1050,7 @@ enum LoweredType {
     Map,
     Tag,
     Result,
+    Set,
 }
 
 type LoweredParamNames = SmallVec<[Name; 4]>;
@@ -2430,6 +2432,7 @@ enum LoweredValue {
     List(Vec<LoweredValue>),
     SharedList(Arc<Vec<LoweredValue>>),
     Map(Arc<BTreeMap<MapKey, LoweredValue>>),
+    Set(Arc<BTreeSet<MapKey>>),
     Tag(Box<LoweredTagValue>),
     ResultOk(Box<LoweredValue>),
     ResultErr(Box<Value>),
@@ -2763,6 +2766,7 @@ impl PartialEq for LoweredValue {
             (Self::SharedList(left), Self::List(right)) => left.as_ref() == right,
             (Self::SharedList(left), Self::SharedList(right)) => left == right,
             (Self::Map(left), Self::Map(right)) => left == right,
+            (Self::Set(left), Self::Set(right)) => left == right,
             (Self::Tag(left), Self::Tag(right)) => left == right,
             (Self::ResultOk(left), Self::ResultOk(right)) => left == right,
             (Self::ResultErr(left), Self::ResultErr(right)) => left == right,
@@ -2839,6 +2843,7 @@ impl LoweredValue {
                 }
                 Value::Map(map)
             }
+            Self::Set(value) => Value::Set(crate::runtime::eval::lower::take_shared(value)),
             Self::Tag(value) => Value::Tag {
                 type_name: value.type_name,
                 wire: value.wire,
@@ -2884,6 +2889,7 @@ impl LoweredValue {
             Self::Module(_) => "Module",
             Self::List(_) | Self::SharedList(_) => "List",
             Self::Map(_) => "Map",
+            Self::Set(_) => "Set",
             Self::Tag(_) => "Tag",
             Self::ResultOk(_) | Self::ResultErr(_) => "Result",
         }
@@ -3006,6 +3012,9 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "remove",
     "first",
     "last",
+    "to_set",
+    "to_list",
+    "add",
 ];
 
 fn lowered_method_name(name: &str) -> bool {
@@ -7446,6 +7455,10 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             }),
             _ => false,
         },
+        Type::Set(item_ty) => match value {
+            Value::Set(items) => items.iter().all(|item| map_key_matches_type(item, item_ty)),
+            _ => false,
+        },
         Type::Stream(item_ty) => match value {
             Value::Stream(stream) => stream
                 .items
@@ -7575,6 +7588,12 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
                     .filter_map(lowered_value_from_runtime_any)
                     .all(|item| lowered_value_matches_static_type(&item, item_ty))
             }),
+            _ => false,
+        },
+        Type::Set(item_ty) => match value {
+            LoweredValue::Set(items) => {
+                items.iter().all(|item| map_key_matches_type(item, item_ty))
+            }
             _ => false,
         },
         Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),

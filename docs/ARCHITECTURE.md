@@ -273,6 +273,15 @@ annotated ones, and `xsht test` in the project.
    skip a sugar node; `the_desugared_corpus_checks_and_tests_like_the_corpus`
    (`crates/xsht/tests/desugar.rs`) catches that by requiring the native test
    corpus to check and run the same once desugared.
+10. **A set is not an instruction.** `Set[T]` is a value kind and a type-pool
+    row, but a set literal, a set comprehension, and `set.empty()` lower to
+    the list instruction they resemble under the `to_set` method, and a set
+    read as a source lowers under `to_list`, so the executor has no set form
+    of its own. Braces of bare names are a `Record` node in the arena; the
+    checker's type for that expression (`Set[T]` where one was expected) is
+    the fact lowering reads, as it reads `Map` for a brace literal that is a
+    map. A set's elements are `MapKey`s, so its order, equality, and JSON
+    array are the ones a map's keys have (`src/runtime/eval/set.rs`).
 
 ## Adding a language feature
 

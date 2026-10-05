@@ -2908,6 +2908,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Map => Type::Map(Box::new(Type::Str), Box::new(Type::Any)),
         LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
         LoweredType::Tag => Type::Tag(Name::intern("<tag>")),
+        LoweredType::Set => Type::Set(Box::new(Type::Any)),
     })
 }
 
@@ -3007,6 +3008,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::NetJob => LoweredType::NetJob,
         Type::FsRoot => LoweredType::FsRoot,
         Type::Stream(_) => LoweredType::Stream,
+        Type::Set(_) => LoweredType::Set,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
         Type::Callable(callable) if callable.pure => LoweredType::Pure,
@@ -6040,6 +6042,10 @@ impl FullCodec for LoweredValue {
             Self::Map(value) => {
                 value.encode(builder, &mut payload)?;
                 FullValueTag::Map
+            }
+            // No constant is a set, so no instruction carries one.
+            Self::Set(_) => {
+                return Err(IrBuildError::format("set_literal_value", None, 0, 0));
             }
             Self::Tag(value) => {
                 value.type_name.encode(builder, &mut payload)?;
@@ -11702,7 +11708,7 @@ proc configured() [] -> Int {
                     PreparedSchema::Union(_, members) => members
                         .iter_mut()
                         .any(|schema| change_mapping(Arc::make_mut(schema))),
-                    PreparedSchema::Validate(_) => false,
+                    PreparedSchema::Validate(_) | PreparedSchema::Set(_) => false,
                 }
             }
             let mut contradictory = (*program).clone();

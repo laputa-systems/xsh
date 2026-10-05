@@ -300,6 +300,7 @@ pub enum MethodReceiver {
     /// A `RelPath` value: the operations that keep a path confined. Every
     /// other method of the value is a `Path` method.
     RelPath,
+    Set,
 }
 
 #[derive(Clone, Debug)]

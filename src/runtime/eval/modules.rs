@@ -260,6 +260,12 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
             }),
             _ => false,
         },
+        Type::Set(item_ty) => match value {
+            Value::Set(items) => items
+                .iter()
+                .all(|item| super::map_key_matches_type(item, item_ty)),
+            _ => false,
+        },
         Type::Stream(item_ty) => match value {
             Value::Stream(stream) => stream
                 .items
@@ -620,6 +626,14 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
                     v_enc.len(),
                     v_enc
                 ));
+            }
+            out
+        }
+        Value::Set(items) => {
+            let mut out = format!("E{}", items.len());
+            for item in items {
+                let enc = encode_cache_key_value(&item.clone().into_value())?;
+                out.push_str(&format!(":{}:{}", enc.len(), enc));
             }
             out
         }

@@ -170,6 +170,8 @@ pub(super) fn lowered_binary_op(op: BinaryOp) -> bool {
             | BinaryOp::Rem
             | BinaryOp::In
             | BinaryOp::NotIn
+            | BinaryOp::Union
+            | BinaryOp::Intersect
     )
 }
 
@@ -192,6 +194,9 @@ pub(super) fn lowered_binary_value(
     }
     if op == BinaryOp::Ne {
         return Ok(LoweredValue::Bool(left != right));
+    }
+    if let LoweredValue::Set(elements) = left {
+        return super::set::lowered_set_binary_value(op, elements, &right, span);
     }
     if op == BinaryOp::Add && matches!(left, LoweredValue::List(_) | LoweredValue::SharedList(_)) {
         return lowered_method_value(left, "extend", vec![right], span);
@@ -327,6 +332,7 @@ pub(super) fn lowered_membership_value(
             require_lowered_map_key_domain(fields, key, span)?;
             Ok(key.contains_key(fields))
         }
+        LoweredValue::Set(elements) => super::set::lowered_set_contains(elements, needle, span),
         LoweredValue::Record(fields) => {
             Ok(fields.contains_key(lowered_str_arg(needle, "in", span)?))
         }
@@ -1037,6 +1043,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::List, LoweredValue::List(_))
             | (LoweredType::List, LoweredValue::SharedList(_))
             | (LoweredType::Map, LoweredValue::Map(_))
+            | (LoweredType::Set, LoweredValue::Set(_))
             | (LoweredType::Tag, LoweredValue::Tag(_))
             | (LoweredType::Result, LoweredValue::ResultOk(_))
             | (LoweredType::Result, LoweredValue::ResultErr(_))
@@ -1069,6 +1076,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
         LoweredType::Module => "Module",
         LoweredType::List => "List",
         LoweredType::Map => "Map",
+        LoweredType::Set => "Set",
         LoweredType::Tag => "Tag",
         LoweredType::Result => "Result",
     }
@@ -1117,6 +1125,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
         (LoweredType::List, Value::List(value)) => lowered_list_from_runtime(value),
         (LoweredType::Map, Value::Map(value)) => lowered_map_from_runtime(value),
+        (LoweredType::Set, Value::Set(value)) => Some(LoweredValue::Set(Arc::new(value.clone()))),
         (
             LoweredType::Tag,
             Value::Tag {
@@ -1166,6 +1175,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Module(value) => lowered_module_from_runtime(value),
         Value::List(value) => lowered_list_from_runtime(value),
         Value::Map(value) => lowered_map_from_runtime(value),
+        Value::Set(value) => Some(LoweredValue::Set(Arc::new(value.clone()))),
         Value::Tag {
             type_name,
             name,
@@ -1348,6 +1358,9 @@ pub(super) fn lowered_method_value(
                 lowered_map_method_value(take_shared(map), name, args, span)
             }
         }
+        LoweredValue::Set(elements) => {
+            super::set::lowered_set_method_value(elements, name, args, span)
+        }
         LoweredValue::ResultOk(value) => {
             lowered_result_method_value(LoweredValue::ResultOk(value), name, args, span)
         }
@@ -1376,6 +1389,7 @@ fn improve_unsupported_method_error(
         "Path" => crate::modules::MethodReceiver::Path,
         "List" => crate::modules::MethodReceiver::List,
         "Map" => crate::modules::MethodReceiver::Map,
+        "Set" => crate::modules::MethodReceiver::Set,
         "Record" => crate::modules::MethodReceiver::Record,
         "Result" => crate::modules::MethodReceiver::Result,
         _ => return error,
@@ -2569,6 +2583,7 @@ pub(super) fn lowered_list_method_value(
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
         "collect" if args.is_empty() => Ok(LoweredValue::List(items)),
+        "to_set" if args.is_empty() => super::set::lowered_set_from_items(&items, span),
         "len" if args.is_empty() => Ok(LoweredValue::Int(items.len() as i64)),
         "is_empty" if args.is_empty() => Ok(LoweredValue::Bool(items.is_empty())),
         "first" | "last" if args.is_empty() => lowered_list_end(&items, name, span),
@@ -2648,6 +2663,7 @@ pub(super) fn lowered_list_method_ref(
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(items.len() as i64))),
+        "to_set" if args.is_empty() => super::set::lowered_set_from_items(items, span).map(Some),
         "is_empty" if args.is_empty() => Ok(Some(LoweredValue::Bool(items.is_empty()))),
         "first" | "last" if args.is_empty() => lowered_list_end(items, name, span).map(Some),
         "get" if args.len() == 1 => {

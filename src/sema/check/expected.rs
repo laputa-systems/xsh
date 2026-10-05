@@ -105,7 +105,7 @@ fn concrete_validation_type(ty: &Type, depth: usize) -> bool {
     }
     match ty {
         Type::Unknown | Type::Invalid | Type::Inference(_) => false,
-        Type::List(item) | Type::Stream(item) | Type::Optional(item) => {
+        Type::List(item) | Type::Stream(item) | Type::Optional(item) | Type::Set(item) => {
             concrete_validation_type(item, depth + 1)
         }
         Type::Map(key, value) | Type::Result(key, value) => {
