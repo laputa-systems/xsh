@@ -7153,7 +7153,22 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
             }),
             _ => false,
         },
-        Type::Module(exports) => matches!(value, Value::Module(_)) && exports.is_empty(),
+        // The same shape rule as the lowered form of this test below.
+        Type::Module(contract) => match value {
+            Value::Module(_) if contract.is_empty() && !contract.exact => true,
+            Value::Module(module) => {
+                contract.iter().all(|(field, export)| {
+                    match module.get(field.as_str().as_ref()) {
+                        Some(value) => value_matches_static_type(value, &export.field_type()),
+                        None => export.optional(),
+                    }
+                }) && (!contract.exact
+                    || module
+                        .iter()
+                        .all(|(exported, _)| contract.contains_key(&Name::intern(exported.to_string()))))
+            }
+            _ => false,
+        },
         Type::DynamicModule => matches!(value, Value::Module(_)),
         Type::Result(ok_ty, err_ty) => match value {
             Value::Result(ResultValue::Ok(value)) => value_matches_static_type(value, ok_ty),
@@ -7275,14 +7290,25 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             }),
             _ => false,
         },
-        Type::Module(exports) => match value {
-            LoweredValue::Module(_) if exports.is_empty() => true,
-            LoweredValue::Module(module) => exports.iter().all(|(field, export)| {
-                let field_text = field.as_str();
-                module.get::<str>(field_text.as_str()).is_some_and(|value| {
-                    lowered_value_matches_static_type(value, &export.field_type())
-                })
-            }),
+        // The shape a contract promises: each entry present with its kind and
+        // value type, an optional entry possibly absent, and nothing else when
+        // the contract is exact. Callable signatures are the business of
+        // `.require(Contract)` and of the checker.
+        Type::Module(contract) => match value {
+            LoweredValue::Module(_) if contract.is_empty() && !contract.exact => true,
+            LoweredValue::Module(module) => {
+                contract.iter().all(|(field, export)| {
+                    match module.get::<str>(field.as_str().as_str()) {
+                        Some(value) => {
+                            lowered_value_matches_static_type(value, &export.field_type())
+                        }
+                        None => export.optional(),
+                    }
+                }) && (!contract.exact
+                    || module
+                        .keys()
+                        .all(|exported| contract.contains_key(&Name::intern(exported.as_ref()))))
+            }
             _ => false,
         },
         Type::DynamicModule => matches!(value, LoweredValue::Module(_)),

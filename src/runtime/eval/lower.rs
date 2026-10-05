@@ -3906,9 +3906,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(ty) => {
                         let lowered =
                             lowered_arena_type(&self.program.arena, ty, self.declarations)?;
-                        if !lowerable_top_level_annotation(lowered) {
-                            return None;
-                        }
                         (
                             Some(lowered),
                             compact_type_check(
@@ -3997,9 +3994,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     Some(ty) => {
                         let lowered =
                             lowered_arena_type(&self.program.arena, ty, self.declarations)?;
-                        if !lowerable_top_level_annotation(lowered) {
-                            return None;
-                        }
                         (
                             Some(lowered),
                             compact_type_check(
@@ -14913,37 +14907,6 @@ pub(super) fn lowered_top_level(
         slots,
         slot_count,
     })
-}
-
-fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
-    matches!(
-        ty,
-        LoweredType::Unit
-            | LoweredType::Int
-            | LoweredType::Float
-            | LoweredType::Duration
-            | LoweredType::Bool
-            | LoweredType::Str
-            | LoweredType::Bytes
-            | LoweredType::Digest
-            | LoweredType::Regex
-            | LoweredType::Status
-            | LoweredType::Path
-            | LoweredType::Command
-            | LoweredType::ProcessHandle
-            | LoweredType::NetJob
-            | LoweredType::FsRoot
-            | LoweredType::Stream
-            | LoweredType::Pure
-            | LoweredType::Proc
-            | LoweredType::Error
-            | LoweredType::Record
-            | LoweredType::List
-            | LoweredType::Map
-            | LoweredType::Tag
-            | LoweredType::Result
-            | LoweredType::Any
-    )
 }
 
 impl CompactLowerConstructProbe<'_, '_> {

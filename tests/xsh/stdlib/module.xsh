@@ -1451,3 +1451,54 @@ print ${disk.threshold()} ${usage.threshold()}
   assert after.stdout == before.stdout
   assert after.stdout == "90 90\n", after.stdout
 }
+
+# A top-level binding annotated with a module contract lowers like the same
+# binding in a proc, for a static namespace and for a loaded module, and procs
+# can read it.
+test test_top_level_binding_takes_a_module_contract_annotation { |ctx|
+  let root = test.temp_dir(ctx, name: "top-level-contract")?
+  fp"{root}/service.xsh".write("""##! Service fixture.
+
+## The service name.
+export let name: Str = "cache"
+
+## Labels a value with the service name.
+export pure label(value: Str) -> Str {
+  f"{name}-{value}"
+}
+""")?
+
+  let output = test.run_script(
+    ctx,
+    f"""type Service = module {{
+  export let name: Str
+  export optional let description: Str
+  export pure label(value: Str) -> Str
+}}
+
+type ExactService = exact module {{
+  export let name: Str
+  export pure label(value: Str) -> Str
+}}
+
+use service
+
+let open: Service = service
+let exact: ExactService = service
+let loaded: Service = module.load(p"{root}/service.xsh")?.require(Service)?
+var current: Service = open
+current = loaded
+
+proc describe() [io] {{
+  print ${{open.label("proc")}}
+}}
+
+print ${{open.name}} ${{exact.label("exact")}} ${{loaded.label("loaded")}} ${{current.name}}
+describe()
+""",
+    [],
+    {XSH_MODULE_PATH: root.display()},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "cache cache-exact cache-loaded cache\ncache-proc\n", output.stdout
+}
