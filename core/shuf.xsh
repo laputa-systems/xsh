@@ -255,6 +255,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var items: List[Bytes] = []
   var total = 0
+  var later: List[Bytes] = []
+  var reservoir = false
 
   if opts.range.len() > 0 {
     total = hi - lo + 1
@@ -271,6 +273,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     items = split_records(data, sep)
     total = items.len()
+
+    # With a line limit GNU reads anything but a regular file through a
+    # reservoir of that many lines: each later line draws a slot and replaces
+    # its line when the slot is inside the reservoir (and a last draw is spent
+    # at the end), then the survivors are permuted as usual.
+    let place = if name == "-" { p"/dev/stdin" } else { fp"{name}" }
+    let regular = if let Ok(found) = fs.stat(place, follow_symlinks: true) { found.kind == "file" } else { false }
+
+    if ! opts.repeat and ! regular and head < tio.MAX_COUNT and total >= head {
+      reservoir = true
+      later = items[head..]
+      items = items[..head]
+      total = head
+    }
   }
 
   if total > DRAW_LIMIT {
@@ -312,8 +328,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var offset = 0
   var index = 0
 
-  while index < amount and ! failed and ! limited {
-    let at_most = if opts.repeat { total - 1 } else { total - index - 1 }
+  var sampled = 0
+
+  while (sampled < later.len() + (if reservoir { 1 } else { 0 }) or index < amount) and ! failed and ! limited {
+    let sampling = reservoir and sampled < later.len() + 1
+    let at_most = if sampling { head + sampled } else if opts.repeat { total - 1 } else { total - index - 1 }
     var value = 0
     var settled = false
 
@@ -347,6 +366,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     if failed {
       break
+    }
+
+    if sampling {
+      if sampled < later.len() and value < head {
+        items[value] = later[sampled]
+      }
+
+      sampled += 1
+      continue
     }
 
     if opts.repeat {
@@ -389,6 +417,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     index += 1
   }
 
+  # A permutation is written only once complete; repeated output goes out as
+  # it is drawn.
+  if failed and ! opts.repeat {
+    gnu.error(f"{gnu.quote(opts.source ?? "")}: end of file")
+    exit 1
+  }
+
   if output == "-" {
     gnu.write_bytes(bytes.concat(out))
   } else if let Err(failure) = fp"{output}".write(bytes.concat(out)) {
@@ -402,7 +437,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if failed {
-    gnu.error("end of random source")
+    gnu.error(f"{gnu.quote(opts.source ?? "")}: end of file")
     exit 1
   }
 

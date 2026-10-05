@@ -41,13 +41,15 @@ test test_shuf_random_source_matches_gnu { |ctx|
   assert shuf_run(ctx, root, ["--random-source=bytes", "-e", "1", "2", "3", "4", "5", "6", "7"])?.stdout == b"7\n1\n2\n5\n3\n4\n6\n"
   assert shuf_run(ctx, root, ["--random-source=bytes", "seven"])?.stdout == b"7\n1\n2\n5\n3\n4\n6\n"
   assert shuf_run(ctx, root, ["--random-source=bytes", "-n", "5", "seven"])?.stdout == b"7\n1\n2\n5\n3\n"
+  assert shuf_run(ctx, root, ["--random-source=bytes", "-n", "5"], b"1\n2\n3\n4\n5\n6\n7\n")?.stdout == b"5\n1\n4\n2\n3\n", "a pipe with -n goes through a reservoir"
+  assert shuf_run(ctx, root, ["--random-source=bytes", "-n", "7"], b"1\n2\n3\n4\n5\n6\n7\n")?.stdout == b"6\n5\n1\n3\n2\n7\n4\n"
   assert shuf_run(ctx, root, ["--random-source=bytes", "-i", "1-10"])?.stdout == b"10\n2\n8\n7\n3\n9\n6\n5\n1\n4\n"
 
   fp"{root}/short".write(b"\xfb\x83\x8f\x21\x9b\x3c\x2d\xc5\x73\xa5\x58\x6c\x54\x2f\x59\xf8")
   let exhausted = shuf_run(ctx, root, ["--random-source=short", "-r", "-i", "1-99"])?
   assert exhausted.status == 1
   assert exhausted.stdout == b"38\n30\n10\n26\n23\n61\n46\n99\n75\n43\n10\n89\n10\n44\n24\n59\n22\n51\n"
-  assert exhausted.stderr == "shuf: end of random source\n", exhausted.stderr
+  assert exhausted.stderr == "shuf: 'short': end of file\n", exhausted.stderr
 }
 
 test test_shuf_output_file_and_errors { |ctx|
