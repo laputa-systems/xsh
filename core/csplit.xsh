@@ -348,7 +348,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let spec = parse_format(opts.suffix_format ?? f"%0{width}d")
   let input_name = opts.operands[0]
-  let patterns = parse_patterns(opts.operands[1..])
 
   guard let data = gnu.read_operand(input_name) else { |failure|
     if gnu.errno(failure) == 21 {
@@ -364,6 +363,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 1
   }
 
+  let patterns = parse_patterns(opts.operands[1..])
   let ends = tio.line_ends(data, false)
   var spans = ends
 
