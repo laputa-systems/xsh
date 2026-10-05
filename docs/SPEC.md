@@ -64,6 +64,16 @@ Every diagnostic from loading, parsing, checking, linting, or evaluation
 carries a source span when one exists, and human and machine output render the
 same diagnostic value.
 
+A source file may nest constructs at most 128 levels deep, counting every
+expression, statement, block, pattern, and type that encloses a piece of
+source, each operand of a prefix or binary operator, and each `.name`, call,
+or index applied to a value; interpolations count on from the string they are
+written in, and the stages of one pipeline share a level. The construct that
+would be level 129 is reported as `parse.nesting-depth` and nothing after it
+is parsed. Checking, lowering, and evaluation are sized for this bound, so
+deeply nested source is a diagnostic instead of a stack overflow; bind an
+inner part with `let` or move it into a function.
+
 ### 2.2 Comments and documentation
 
 `#` starts a comment that runs to the end of the line, outside strings. A
@@ -2561,6 +2571,12 @@ begins with the word `exit` followed, on the same line, by its status, in the
 position where a command named `exit` would otherwise be read (10.1);
 `exit = 1`, `exit + 1`, and `exit(1)` are an assignment, an expression, and a
 call of a binding named `exit`.
+
+The function `abort(status)` that `exit` replaced is gone, and a call of it is
+`check.removed-abort`. Where the call is a statement the diagnostic carries
+the rewrite to `exit status`, which `xsht lint --fix` applies; a call used as
+an operand has to be moved into a statement by hand, and the `force` argument,
+which skipped deferred cleanup, has no replacement.
 
 ## 9. Functions
 

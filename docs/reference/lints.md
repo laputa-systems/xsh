@@ -154,3 +154,4 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `check.ignored-result` | Discard a value a statement would otherwise drop silently with `let _ =` |
 | `check.mixed-logical` | Group `and` mixed with `or`, or `??` mixed with either, around the tighter operand |
 | `check.redundant-parens` | Remove parentheses that do not change the parse |
+| `check.removed-abort` | Rewrite a call of the removed `abort(STATUS)` as the statement `exit STATUS` |
