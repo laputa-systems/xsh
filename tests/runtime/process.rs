@@ -5,6 +5,39 @@ fn test_helper() -> &'static str {
     cargo_env!("CARGO_BIN_EXE_xsh-test-helper")
 }
 
+// The command runs under an argv[0] (`show`) that differs from its path, and
+// the helper prints each argument's exact bytes in hex. A standard tool cannot
+// stand in: a multi-call `sh` selects its applet by argv[0].
+#[test]
+fn process_argv_words_command_argv_and_run_execute() {
+    let output = run_temp_script(
+        "process-argv-command-run",
+        &format!(
+            "\
+let show_argv = Path({})
+let words = process.argv_words(\"show show-argv ignored 'two words' escaped\\\\ space\")?
+let command = process.command_argv(show_argv, words)
+let status = process.run(command)?
+let env_command = process.command_argv(\"printenv\", [\"printenv\", \"XSH_PLAN\"], Path(\".\"), {{XSH_PLAN: \"ready\"}})
+let env_status = process.run(env_command)?
+let false_status = process.run(process.command_argv(\"false\", [\"false\"]))?
+print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
+",
+            xsh_string_literal(test_helper()),
+        ),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "69676e6f726564\n74776f20776f726473\n65736361706564207370616365\nready\ntrue true true\n"
+    );
+}
+
 #[test]
 fn dropped_non_detached_process_is_canceled_before_defer_runs() {
     let marker = temp_path("spawn-scope-cleanup-marker");
