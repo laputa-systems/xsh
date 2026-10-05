@@ -659,6 +659,7 @@ diagnostic_codes! {
         LintPreferTextPattern = "lint.prefer-text-pattern", note, "Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in)";
         LintPreferRelPath = "lint.prefer-rel-path", note, "Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot";
         LintPreferArgumentLabel = "lint.prefer-argument-label", warning, "Write the label of an argument whose parameter is registered with one (`src.copy(to: dest)`, `text.replace(\"a\", with: \"b\")`), and call `link.symlink(to: target)` instead of `fs.symlink(target, link)`";
+        LintEmptySentinel = "lint.empty-sentinel", note, "Note an optional bound through `?? \"\"` whose binding is then tested for emptiness, which an optional binding keeps apart from an empty value";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

@@ -106,6 +106,7 @@ key or `--only`). The notes that are always on:
 | `lint.prefer-typed-callable` | a `Proc` or `Pure` parameter of a private top-level function, with its callable type, when every call in the module passes a top-level function and those functions have one signature. A function whose name is also used as a value, or that is called with a splice or spread, is skipped. The body's `.call(...)` becomes a direct call |
 | `lint.prefer-within` | a block whose `run` forms all carry the same `--timeout`; one `within` scope states the limit once but bounds the commands together |
 | `lint.prefer-env-path-list` | a search-path environment value formatted as a `:`-separated string; the `List[Path]` rewrite is shown and never applied |
+| `lint.empty-sentinel` | a `let` or `var` whose initializer is `SOURCE ?? ""`, with `SOURCE` a `Str?` or a `Result[Str]`, when a later statement of the same block tests the binding with `== ""`, `!= ""`, or `.is_empty()`. The label names `if let NAME = SOURCE` (`if let Ok(NAME) = SOURCE` for a `Result`). A test in another block, and a fallback that is not bound, are not seen |
 A fix round is accepted when the rewritten file has no check diagnostic the
 file did not have before, whether or not `--only` selects its code. SIGINT or
 SIGTERM is observed between files and between fix rounds; fixed files are

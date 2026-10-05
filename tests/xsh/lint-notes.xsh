@@ -52,3 +52,32 @@ test test_check_is_unaffected_by_lint_notes { |ctx|
   assert checked.status.exited_with(0), checked.stderr
   assert "lint.prefer-non-empty-argv" not in checked.stderr, checked.stderr
 }
+
+# `?? ""` makes a missing value and an empty one the same text, and a test of
+# the binding for emptiness then asks about both.
+test test_empty_sentinel_is_noted_and_left_as_written { |ctx|
+  let source = r"""pure describe(titles: Map[Str], key: Str) -> Str {
+  let title = titles.get(key) ?? ""
+  return "untitled" when title.is_empty()
+  title
+}
+
+print describe({draft: ""}, "draft")
+"""
+  let file = test.temp_file(ctx, name: "sentinel.xsh", contents: bytes.from_text(source))?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint $file ?
+  assert linted.status.exited_with(0), linted.stderr
+  assert "note[lint.empty-sentinel]" in linted.stderr, linted.stderr
+  assert "`if let Ok(title) = titles.get(key) { ... }`" in linted.stderr, linted.stderr
+
+  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.empty-sentinel $file ?
+  assert fixed.status.exited_with(0), fixed.stderr
+  assert file.read_text()? == source
+
+  # A binding that is used without the test is an ordinary default.
+  let plain = source.replace("  return \"untitled\" when title.is_empty()\n", with: "")
+  let quiet_file = test.temp_file(ctx, name: "default.xsh", contents: bytes.from_text(plain))?
+  let quiet = run.capture --text --accept=[0, 1] "xsht" lint $quiet_file ?
+  assert quiet.status.exited_with(0), quiet.stderr
+  assert "lint.empty-sentinel" not in quiet.stderr, quiet.stderr
+}

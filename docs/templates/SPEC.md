@@ -1900,6 +1900,20 @@ is a value. The handler creates no boundary: `return`, `break`, `continue`,
 and `?` inside it target the enclosing function, loop, or capture. Optional
 values have no error and cannot use a handler parameter.
 
+A fallback gives the missing case a value, so it suits a value that needs no
+second look. `let title = titles.get(key) ?? ""` followed by a test of
+`title` against `""` asks about the missing case after merging it with an
+empty title; a conditional binding (8.6) keeps the two apart:
+
+```xsh
+{{.spec.empty_sentinel.source}}
+```
+
+`lint.empty-sentinel` notes (16.1) a `Str?` or `Result[Str]` bound through
+`?? ""` whose binding a later statement of the same block compares with `""`
+or asks `.is_empty()`. It offers no rewrite, because the two programs differ
+when the value is present and empty.
+
 ### 8.5 Results as values
 
 `Ok(value)` and `Err(error)` construct results; `Ok()` is `Ok(Unit)`. A

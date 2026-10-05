@@ -107,6 +107,8 @@ mod lint_argument_label;
 mod lint_prefer_non_empty_argv;
 #[path = "lint_prefer_rel_path.rs"]
 mod lint_prefer_rel_path;
+#[path = "lint_empty_sentinel.rs"]
+mod lint_empty_sentinel;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -5989,6 +5991,7 @@ impl<'a> Linter<'a> {
         lint_optional_binding::lint_null_test_then_binding(self, stmts);
         lint_write_mode::lint_write_then_chmod(self, stmts);
         lint_prefer_test_expect::lint_script_runs(self, stmts);
+        lint_empty_sentinel::lint_empty_fallback_then_test(self, stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for (index, &stmt) in stmts.iter().enumerate() {
