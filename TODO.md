@@ -562,6 +562,27 @@ tooling. The items are independent of each other.
   - `lex.invalid-escape` and `parse.invalid-string-escape`
   - `compact.statement-count` and `runtime.compact-statement-count`
   - `compact.indexed-driver` and `runtime.indexed-driver`
+- `CMD-11` **`xsht desugar FILE`** prints a program with every sugar form
+  replaced by its expansion into core forms: the formatter printing a sugar
+  node's expansion instead of its operands. The output is valid XSH that
+  checks: a hidden local is printed under a fresh legal name. Three uses
+  ship with it. A reader, or an agent writing XSH, can ask what a form
+  means. The docs generator shows each sugar form's expansion in the SPEC by
+  running the command on the snippet, so the documented expansion is the
+  implemented one. And a differential test over the native test corpus and
+  the fuzzer requires a program and its desugared form to check identically
+  and print the same output. It does not show where a control-position
+  `Result` propagates; that is a typing rule, not sugar.
+  Needs the sugar expansion mechanism, and `CMD-12` so the output is not
+  partial.
+- `CMD-12` **Move postfix `when`/`unless` and `guard ... else` onto the sugar
+  expansion mechanism.** They are sugar by `docs/DESIGN.md` but are still
+  first-class statements that the checker and lowering handle by hand
+  (`GuardedStmt`, `BooleanGuard`, `Guard`). Each becomes a sugar form whose
+  expansion is the `if` it stands for, with the same narrowing and the same
+  diagnostics, and the hand-written checker and lowering paths are deleted
+  in the same change. Until then `xsht desugar` names the forms it leaves
+  as written.
 
 ## `LINT`: lint accuracy and migrations
 

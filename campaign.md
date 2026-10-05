@@ -41,7 +41,8 @@ commit.
    fact, gives sugar the core forms' verifier and fuzz coverage, and keeps
    ergonomics items out of `src/sema/check/stmt.rs` and
    `src/runtime/eval/lower.rs`. `docs/ARCHITECTURE.md` owns the mechanism;
-   `SCOPE-2` is its first form.
+   `SCOPE-2` is its first form. `CMD-12` and `CMD-11` follow as soon as it
+   merges: the existing sugar moves onto it, and `xsht desugar` prints it.
 4. Lint placement. A new rule lives in its own `crates/xsht/src/lint_NAME.rs`
    (as `lint_try_capture.rs` does) and adds only its registration to
    `lint.rs`, so eight lanes do not edit one 15,000-line file.
