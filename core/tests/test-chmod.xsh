@@ -1,3 +1,14 @@
+type PermRan = {status: Int, stdout: Str, stderr: Str}
+
+proc perm_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[PermRan] {
+  let root = test.temp_dir(ctx, name: "capture")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let words = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/chmod.xsh".display(), "--"].extend(args)
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err))?
+  {status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?}
+}
+
 test test_chmod_recursive { |ctx|
   let root = test.temp_dir(ctx, name: "chmod")?
   let dir = fp"{root}/dir"
@@ -9,4 +20,107 @@ test test_chmod_recursive { |ctx|
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/chmod.xsh" -- 600 $child
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/chmod.xsh" -- u+x,g+r $child
   assert child.metadata()?.mode % 512 == 480
+}
+
+test test_chmod_symbolic_copy_chained_and_conditional_execute { |ctx|
+  let file = test.temp_file(ctx, name: "mode", contents: b"x")?
+  file.chmod(0o640)
+  assert perm_run(ctx, ["g=u,o=g", file.display()])?.status == 0
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o666
+  assert perm_run(ctx, ["u=rw+x-w,g=X,o=", file.display()])?.status == 0
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o510
+}
+
+test test_chmod_reference_changes_and_failure_continuation { |ctx|
+  let file = test.temp_file(ctx, name: "mode", contents: b"x")?
+  let reference = test.temp_file(ctx, name: "reference", contents: b"x")?
+  reference.chmod(0o651)
+  let changed = perm_run(ctx, ["-c", f"--reference={reference}", file.display()])?
+  assert changed.status == 0
+  assert changed.stdout.find("changed from") != null
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o651
+  assert perm_run(ctx, ["-c", f"--reference={reference}", file.display()])?.stdout == ""
+  let failure = perm_run(ctx, ["-f", "600", f"{file}/absent", file.display()])?
+  assert failure.status == 1
+  assert failure.stderr == ""
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o600
+}
+
+test test_chmod_invalid_modes_fail_before_mutation { |ctx|
+  let file = test.temp_file(ctx, name: "mode", contents: b"x")?
+  file.chmod(0o640)
+  for invalid in ["u+z", "u+r,", "888", "10000", "u+ug"] {
+    assert perm_run(ctx, [invalid, file.display()])?.status == 1
+    assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
+  }
+}
+
+test test_chmod_recursive_skips_inner_symlink_and_keeps_directory_setgid { |ctx|
+  let root = test.temp_dir(ctx, name: "mode-tree")?
+  let outside = test.temp_file(ctx, name: "outside", contents: b"x")?
+  outside.chmod(0o600)
+  fp"{root}/link".symlink(to: outside)
+  root.chmod(0o2770)
+  assert perm_run(ctx, ["-R", "755", root.display()])?.status == 0
+  assert fs.stat(root)?.mode.bit_and(0o7777) == 0o2755
+  assert fs.stat(outside)?.mode.bit_and(0o7777) == 0o600
+}
+
+test test_chmod_umask_assignment_and_numeric_operators { |ctx|
+  let file = test.temp_file(ctx, name: "numeric-mode", contents: b"x")?
+  file.chmod(0o777)
+  assert perm_run(ctx, ["=rw", file.display()])?.status == 0
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o666.clear_bits(fs.umask()?)
+  assert perm_run(ctx, ["+100", file.display()])?.status == 0
+  assert fs.stat(file)?.mode.bit_and(0o100) == 0o100
+  assert perm_run(ctx, ["-100", file.display()])?.status == 0
+  assert fs.stat(file)?.mode.bit_and(0o100) == 0
+  assert perm_run(ctx, ["=600", file.display()])?.status == 0
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o600
+}
+
+test test_chmod_option_like_mode_permutation_and_umask_diagnostic { |ctx|
+  let file = test.temp_file(ctx, name: "option-mode", contents: b"x")?
+  file.chmod(0o666)
+  let result = perm_run(ctx, [file.display(), "-w", "-w"]) ?
+  let expected = 0o666.clear_bits(0o222.clear_bits(fs.umask()?))
+  assert fs.stat(file)?.mode.bit_and(0o7777) == expected
+  assert result.status == (if expected != 0o444 { 1 } else { 0 })
+  if expected != 0o444 { assert result.stderr.find("new permissions are") != null }
+  file.chmod(0o666)
+  let explicit = perm_run(ctx, ["--", "-w", file.display()])?
+  assert explicit.status == 0
+  assert explicit.stderr == ""
+  assert fs.stat(file)?.mode.bit_and(0o7777) == expected
+}
+
+test test_chmod_root_guard_and_long_abbreviation { |ctx|
+  let guarded = perm_run(ctx, ["--preserve-root", "-R", "000", "/"])?
+  assert guarded.status == 1
+  assert guarded.stderr.find("dangerous") != null
+  let file = test.temp_file(ctx, name: "abbreviated", contents: b"x")?
+  assert perm_run(ctx, ["--verb", "600", file.display()])?.stdout.find("mode of") != null
+}
+
+test test_chmod_recursive_grants_access_before_descent { |ctx|
+  let root = test.temp_dir(ctx, name: "inaccessible")?
+  let child = fp"{root}/child"
+  child.write("x")
+  child.chmod(0o000)
+  root.chmod(0o000)
+  let result = perm_run(ctx, ["-R", "u+rwX", root.display()])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(root)?.mode.bit_and(0o700) == 0o700
+  assert fs.stat(child)?.mode.bit_and(0o700) == 0o600
+}
+
+test test_chmod_no_dereference_skips_symlink { |ctx|
+  let root = test.temp_dir(ctx, name: "links")?
+  let file = fp"{root}/file"
+  let link = fp"{root}/link"
+  file.write("x")
+  file.chmod(0o640)
+  link.symlink(to: file)
+  assert perm_run(ctx, ["--no-dereference", "000", link.display()])?.status == 0
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
 }
