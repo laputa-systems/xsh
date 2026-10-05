@@ -143,17 +143,16 @@ pure coverage_row(name: Str, all: List[Str], supported: List[Str]) -> CoverageRo
 
 pure quoted_tokens(line: Str) -> List[Str] {
   let parts = line.split("\"")
-  var values = []
   var index = 1
 
-  while index < parts.len() {
-    let token = parts.get(index) ?? ""
+  let values = collect {
+    while index < parts.len() {
+      let token = parts.get(index) ?? ""
 
-    if token != "" {
-      values += [token]
+      yield token when token != ""
+
+      index += 2
     }
-
-    index += 2
   }
 
   values
@@ -324,13 +323,11 @@ pure tag_union_names(source: Str) -> List[Str] {
 }
 
 pure qualified_names(namespace: Str, names: List[Str]) -> List[Str] {
-  var values = []
+  let values = collect {
+    for name in names {
+      yield name
 
-  for name in names {
-    values += [name]
-
-    if namespace != "" {
-      values += [f"{namespace}.{name}"]
+      yield f"{namespace}.{name}" when namespace != ""
     }
   }
 
@@ -821,7 +818,6 @@ proc scan_procs_in_file(
     qualified_names(namespace, pure_function_names(text)),
   )
 
-  var scans = []
   var in_proc = false
   var seen_body = false
   var depth = 0
@@ -832,27 +828,27 @@ proc scan_procs_in_file(
   var in_triple_string = false
   let newline = "\n"
 
-  for raw in text.lines() {
-    line_no += 1
-    let line = raw.trim()
-    let was_in_triple_string = in_triple_string
-    let line_scan = code_delimiter_scan(line, in_triple_string)
-    in_triple_string = line_scan.in_triple_string
+  let scans = collect {
+    for raw in text.lines() {
+      line_no += 1
+      let line = raw.trim()
+      let was_in_triple_string = in_triple_string
+      let line_scan = code_delimiter_scan(line, in_triple_string)
+      in_triple_string = line_scan.in_triple_string
 
-    if ! in_proc {
-      continue when was_in_triple_string or "\"\"\"" in line
+      if ! in_proc {
+        continue when was_in_triple_string or "\"\"\"" in line
 
-      if starts_proc(line) {
-        in_proc = true
-        seen_body = "{" in line
-        depth = line_scan.brace_delta
-        start_line = line_no
-        signature = line
-        body = if seen_body { line } else { "" }
+        if starts_proc(line) {
+          in_proc = true
+          seen_body = "{" in line
+          depth = line_scan.brace_delta
+          start_line = line_no
+          signature = line
+          body = if seen_body { line } else { "" }
 
-        if seen_body and depth <= 0 {
-          scans += [
-            proc_scan(
+          if seen_body and depth <= 0 {
+            yield proc_scan(
               path_text,
               start_line,
               signature,
@@ -861,37 +857,35 @@ proc scan_procs_in_file(
               record_types,
               error_variants,
               lowerable_functions,
-            ),
-          ]
+            )
 
-          in_proc = false
+            in_proc = false
+          }
         }
-      }
 
-      continue
-    }
-
-    if ! seen_body {
-      if line.starts_with("}") {
-        in_proc = false
         continue
       }
 
-      signature = f"{signature} {line}"
-      seen_body = "{" in line
+      if ! seen_body {
+        if line.starts_with("}") {
+          in_proc = false
+          continue
+        }
 
-      if seen_body {
-        body = line
+        signature = f"{signature} {line}"
+        seen_body = "{" in line
+
+        if seen_body {
+          body = line
+        }
+      } else {
+        body = f"{body}{newline}{line}"
       }
-    } else {
-      body = f"{body}{newline}{line}"
-    }
 
-    depth += line_scan.brace_delta
+      depth += line_scan.brace_delta
 
-    if seen_body and depth <= 0 {
-      scans += [
-        proc_scan(
+      if seen_body and depth <= 0 {
+        yield proc_scan(
           path_text,
           start_line,
           signature,
@@ -900,10 +894,10 @@ proc scan_procs_in_file(
           record_types,
           error_variants,
           lowerable_functions,
-        ),
-      ]
+        )
 
-      in_proc = false
+        in_proc = false
+      }
     }
   }
 
@@ -952,12 +946,12 @@ pure reason_groups(rows: List[ReasonCount]) -> List[ReasonGroup] {
 
   for bucket in order {
     var total = 0
-    var reasons = []
-
-    for row in rows {
-      if reason_group(row.reason) == bucket {
-        total += row.count
-        reasons += [row]
+    let reasons = collect {
+      for row in rows {
+        if reason_group(row.reason) == bucket {
+          total += row.count
+          yield row
+        }
       }
     }
 
@@ -1180,8 +1174,6 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
   var corpus_record_types = standard_records
   var corpus_error_variants = []
   var corpus_pure_functions = []
-  var scans = []
-
   for corpus_root in default_corpus_roots(root) {
     continue unless corpus_root.exists()
     roots += [corpus_root.strip_prefix(display_root)?.display()]
@@ -1208,15 +1200,17 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
     }
   }
 
-  for file in files {
-    scans += scan_pures_in_file(
-      display_root,
-      file,
-      lowered_methods,
-      corpus_record_types,
-      corpus_error_variants,
-      corpus_pure_functions,
-    )?
+  let scans = collect {
+    for file in files {
+      yield @scan_pures_in_file(
+        display_root,
+        file,
+        lowered_methods,
+        corpus_record_types,
+        corpus_error_variants,
+        corpus_pure_functions,
+      )?
+    }
   }
 
   corpus_report(roots, scans)
@@ -1231,8 +1225,6 @@ proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Res
   var corpus_record_types = standard_records
   var corpus_error_variants = []
   var corpus_lowerable_functions = []
-  var scans = []
-
   for corpus_root in default_corpus_roots(root) {
     continue unless corpus_root.exists()
     roots += [corpus_root.strip_prefix(display_root)?.display()]
@@ -1264,15 +1256,17 @@ proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Res
     }
   }
 
-  for file in files {
-    scans += scan_procs_in_file(
-      display_root,
-      file,
-      lowered_methods,
-      corpus_record_types,
-      corpus_error_variants,
-      corpus_lowerable_functions,
-    )?
+  let scans = collect {
+    for file in files {
+      yield @scan_procs_in_file(
+        display_root,
+        file,
+        lowered_methods,
+        corpus_record_types,
+        corpus_error_variants,
+        corpus_lowerable_functions,
+      )?
+    }
   }
 
   proc_report(roots, scans)
@@ -1419,8 +1413,6 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
   var files = []
   var corpus_error_variants = []
   var corpus_pure_functions = []
-  var scans = []
-
   for corpus_root in default_corpus_roots(root) {
     continue unless corpus_root.exists()
     roots += [corpus_root.strip_prefix(display_root)?.display()]
@@ -1441,14 +1433,16 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
     }
   }
 
-  for file in files {
-    scans += scan_script_statements_in_file(
-      display_root,
-      file,
-      lowered_methods,
-      corpus_error_variants,
-      corpus_pure_functions,
-    )?
+  let scans = collect {
+    for file in files {
+      yield @scan_script_statements_in_file(
+        display_root,
+        file,
+        lowered_methods,
+        corpus_error_variants,
+        corpus_pure_functions,
+      )?
+    }
   }
 
   script_report(roots, scans)

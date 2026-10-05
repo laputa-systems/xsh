@@ -275,10 +275,11 @@ proc main(...argv: List[Str]) [error] {
   let root = project(ctx, {"entry.xsh": source})?
   let fixture = fp"{root}/entry.xsh"
   let cases: List[List[Str]] = [[], ["--jobs=8", "--verbose"], ["--help"], ["--jobs=invalid"], ["--jobs=2", "--jobs=3"]]
-  var before = []
-  for arguments in cases {
-    let output = xsht(root, ["trace", "entry.xsh", "--", @arguments])?
-    before += [{status: output.status.exit_code()?, stdout: output.stdout}]
+  let before = collect {
+    for arguments in cases {
+      let output = xsht(root, ["trace", "entry.xsh", "--", @arguments])?
+      yield {status: output.status.exit_code()?, stdout: output.stdout}
+    }
   }
 
   let _ = xsht_ok(root, ["lint", "--fix", "entry.xsh"])?

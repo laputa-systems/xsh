@@ -29,38 +29,42 @@ test test_for_index_counts_items_from_zero {
   assert weighted([5, 6, 7]) == 20
   assert weighted([]) == 0
 
-  var seen = []
-  for i, {name, size} in entries {
-    seen += [f"{i}:{name}:{size}"]
+  let seen = collect {
+    for i, {name, size} in entries {
+      yield f"{i}:{name}:{size}"
+    }
   }
 
   assert seen == ["0:a:1", "1:b:2"]
 }
 
 test test_for_index_numbers_the_items_a_stream_yields {
-  var seen = []
-  for index, n in range(9) |> where . % 2 == 0 |> where . > 0 {
-    continue when index == 0
-    break when index == 3
-    seen += [f"{index}:{n}"]
+  let seen = collect {
+    for index, n in range(9) |> where . % 2 == 0 |> where . > 0 {
+      continue when index == 0
+      break when index == 3
+      yield f"{index}:{n}"
+    }
   }
 
   assert seen == ["1:4", "2:6"]
 }
 
 test test_for_index_nests_and_keeps_each_loop_its_own_index {
-  var cells = []
-  for i, row in [[1, 2], [3]] {
-    for j, cell in row {
-      cells += [f"{i}.{j}={cell}"]
+  let cells = collect {
+    for i, row in [[1, 2], [3]] {
+      for j, cell in row {
+        yield f"{i}.{j}={cell}"
+      }
     }
   }
 
   assert cells == ["0.0=1", "0.1=2", "1.0=3"]
 
-  var positions = []
-  for i, _ in ["x", "y"] {
-    positions += [i]
+  let positions = collect {
+    for i, _ in ["x", "y"] {
+      yield i
+    }
   }
 
   assert positions == [0, 1]

@@ -516,21 +516,22 @@ pure slug(markup: Str) -> Str {
 
 # Prose markup with code spans and links turned into elements.
 pure inline(text: Str) -> Str {
-  var parts = []
   var cursor = 0
-  for found in inline_token.find(text) {
-    parts += [esc(between(text, cursor, found.start))]
-    if found.text.starts_with("`") {
-      parts += [f"<code>{esc(between(found.text, 1, found.text.byte_len() - 1))}</code>"]
-    } else {
-      let link = link_parts.captures(found.text)
-      parts += [f"<a href=\"{attr(link[2])}\">{inline(link[1])}</a>"]
+  let parts = collect {
+    for found in inline_token.find(text) {
+      yield esc(between(text, cursor, found.start))
+      if found.text.starts_with("`") {
+        yield f"<code>{esc(between(found.text, 1, found.text.byte_len() - 1))}</code>"
+      } else {
+        let link = link_parts.captures(found.text)
+        yield f"<a href=\"{attr(link[2])}\">{inline(link[1])}</a>"
+      }
+
+      cursor = found.end
     }
 
-    cursor = found.end
+    yield esc(text.byte_slice(cursor))
   }
-
-  parts += [esc(text.byte_slice(cursor))]
   parts.join("")
 }
 
@@ -539,11 +540,12 @@ pure starts_block(line: Str) -> Bool {
 }
 
 pure take_fence(lines: List[Str], start: Int) -> Result[FenceText] {
-  var body = []
   var index = start + 1
-  while index < lines.len() and lines[index] != fence_close {
-    body += [lines[index]]
-    index += 1
+  let body = collect {
+    while index < lines.len() and lines[index] != fence_close {
+      yield lines[index]
+      index += 1
+    }
   }
 
   guard index < lines.len() else {
@@ -658,16 +660,17 @@ pure parse_blocks(lines: List[Str]) -> Result[List[Block]] {
     } else if line.starts_with("|") {
       let table = take_table(lines, index)?
       let header = table_cells(table.lines[0])
-      var rows = []
-      for row in table.lines[2..] {
-        let cells = table_cells(row)
-        guard cells.len() == header.len() else {
-          return Err(
-            TourHtmlError.Unsupported(f"table row has {cells.len()} cells, header has {header.len()}: {row}"),
-          )
-        }
+      let rows = collect {
+        for row in table.lines[2..] {
+          let cells = table_cells(row)
+          guard cells.len() == header.len() else {
+            return Err(
+              TourHtmlError.Unsupported(f"table row has {cells.len()} cells, header has {header.len()}: {row}"),
+            )
+          }
 
-        rows += [cells]
+          yield cells
+        }
       }
 
       blocks += [Grid(TableBlock(header:, rows:))]
@@ -754,10 +757,11 @@ proc xsh_html(hl: Highlighter, source: Str) [fs, process, error] -> Result[Str] 
   let file = fp"{hl.scratch}/block.xsh"
   file.write(source)
   let lines = run.text $hl.xsht highlight $file
-  var parts = []
-  for line in lines.lines() {
-    let found = json.decode(line)?.require(HighlightRun)?
-    parts += [span(found.kind, found.text)]
+  let parts = collect {
+    for line in lines.lines() {
+      let found = json.decode(line)?.require(HighlightRun)?
+      yield span(found.kind, found.text)
+    }
   }
 
   parts.join("")

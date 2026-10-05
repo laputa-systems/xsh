@@ -284,10 +284,11 @@ test test_optional_runtime_record_fields_preserve_result_layers {
 
 test test_optional_method_retains_validated_local_receiver_type {
   let rows = json.decode("""[{"sched":"  noop  "},{"sched":null}]""")?
-  var labels = []
-  for row in rows.require(List[Record])? {
-    let scheduler = json.get(row, ["sched"])?.require(Str?)?
-    labels += [scheduler?.trim() ?? "absent"]
+  let labels = collect {
+    for row in rows.require(List[Record])? {
+      let scheduler = json.get(row, ["sched"])?.require(Str?)?
+      yield scheduler?.trim() ?? "absent"
+    }
   }
 
   assert labels == ["noop", "absent"]

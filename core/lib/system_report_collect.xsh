@@ -628,16 +628,17 @@ export pure valid_os_release_id(value: Str) -> Bool {
 
 ## Decodes a device-tree string list only when every element has its NUL terminator.
 export pure decode_device_tree_strings(raw: Str) -> List[Str]? {
-  var values: List[Str] = []
   var current = ""
-  for character in raw {
-    if character == "\0" {
-      return null when current == ""
+  let values: List[Str] = collect {
+    for character in raw {
+      if character == "\0" {
+        return null when current == ""
 
-      values += [current]
-      current = ""
-    } else {
-      current = current + character
+        yield current
+        current = ""
+      } else {
+        current = current + character
+      }
     }
   }
 
@@ -1114,24 +1115,23 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     }
   }
 
-  var linked_functions: List[report.PciFunction] = []
   var function_index = 0
-  while function_index < functions.len() {
-    let parent_address = parent_addresses[function_index]
-    var parent_index: Int? = null
-    if parent_address != null {
-      if parent_address in function_index_by_address {
-        parent_index = function_index_by_address.get(parent_address)?
+  let linked_functions: List[report.PciFunction] = collect {
+    while function_index < functions.len() {
+      let parent_address = parent_addresses[function_index]
+      var parent_index: Int? = null
+      if parent_address != null {
+        if parent_address in function_index_by_address {
+          parent_index = function_index_by_address.get(parent_address)?
+        }
       }
-    }
 
-    linked_functions += [
-      {
+      yield {
         ...functions[function_index],
         parent_function_index: parent_index,
-      },
-    ]
-    function_index += 1
+      }
+      function_index += 1
+    }
   }
 
   {

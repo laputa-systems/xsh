@@ -67,14 +67,15 @@ test test_guard_let_optional_destructures_and_accepts_an_annotation {
 
 test test_guard_let_optional_in_a_loop_may_continue_or_break {
   let names = ["a", "b", "c"]
-  var found = []
-  for wanted in ["c", "x", "a", "stop", "b"] {
-    break when wanted == "stop"
-    guard let name = find(names, wanted) else {
-      continue
-    }
+  let found = collect {
+    for wanted in ["c", "x", "a", "stop", "b"] {
+      break when wanted == "stop"
+      guard let name = find(names, wanted) else {
+        continue
+      }
 
-    found += [name]
+      yield name
+    }
   }
 
   assert found == ["c", "a"]
@@ -193,12 +194,13 @@ test test_if_let_and_while_let_bind_a_present_optional {
 test test_refutable_patterns_over_an_optional_are_unchanged {
   let maybe: Int? = 3
   let none: Int? = null
-  var seen = []
-  for value in [maybe, none] {
-    if let 3 = value {
-      seen += ["three"]
-    } else {
-      seen += ["other"]
+  let seen = collect {
+    for value in [maybe, none] {
+      if let 3 = value {
+        yield "three"
+      } else {
+        yield "other"
+      }
     }
   }
 

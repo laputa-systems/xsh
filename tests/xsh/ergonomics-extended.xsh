@@ -57,10 +57,11 @@ test test_extended_error_fallback_binds_nominal_error {
 
 test test_extended_while_pattern_updates_spliced_list_values {
   var commands = [["build", "app"], ["skip"], ["build", "tool", "fast"]]
-  var selected = []
-  while let [command, ..remaining] = commands {
-    commands = remaining
-    selected += extended_command(command)
+  let selected = collect {
+    while let [command, ..remaining] = commands {
+      commands = remaining
+      yield @extended_command(command)
+    }
   }
 
   assert selected == ["app", "ignored", "tool", "fast"]

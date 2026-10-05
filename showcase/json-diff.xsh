@@ -23,17 +23,18 @@ proc main(...argv: List[Str]) [fs, error] {
     |> where { |key|
       key in json_b
     }
-  var changed = []
   var same = 0
 
-  for key in common {
-    let va = json.encode(json_a.get(key)?)?
-    let vb = json.encode(json_b.get(key)?)?
+  let changed = collect {
+    for key in common {
+      let va = json.encode(json_a.get(key)?)?
+      let vb = json.encode(json_b.get(key)?)?
 
-    if va != vb {
-      changed += [key]
-    } else {
-      same += 1
+      if va != vb {
+        yield key
+      } else {
+        same += 1
+      }
     }
   }
 

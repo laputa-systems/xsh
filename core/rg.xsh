@@ -242,20 +242,20 @@ proc main(...argv: List[Str]) [fs, error, io] {
     paths = [p"."]
   }
 
-  var files = []
+  let files = collect {
+    for target in paths {
+      let meta = target.metadata()?
 
-  for target in paths {
-    let meta = target.metadata()?
-
-    if meta.kind == "dir" {
-      for entry in fs.walk(target, gitignore: ignore)? |> sort-by .path {
-        continue when entry.kind != "file"
-        continue when ! hidden and entry.path.name().starts_with(".")
-        continue when ! selected_by_glob(globs, entry.path)
-        files += [entry.path]
+      if meta.kind == "dir" {
+        for entry in fs.walk(target, gitignore: ignore)? |> sort-by .path {
+          continue when entry.kind != "file"
+          continue when ! hidden and entry.path.name().starts_with(".")
+          continue when ! selected_by_glob(globs, entry.path)
+          yield entry.path
+        }
+      } else if meta.kind == "file" {
+        yield target
       }
-    } else if meta.kind == "file" {
-      files += [target]
     }
   }
 

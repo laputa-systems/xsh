@@ -3433,13 +3433,14 @@ pure allowed_mount_value(key: Str, value: Str) -> Bool {
 
 ## Keeps only known configuration options; unknown values can carry credentials.
 export pure sanitize_mount_options(options: List[Str]) -> List[Str] {
-  var sanitized = []
-  for option in options {
-    let parts = option.split("=")
-    if allowed_mount_flag(option) or (parts.len() == 2 and allowed_mount_value(parts[0], parts[1])) {
-      sanitized += [option]
-    } else {
-      sanitized += ["redacted"]
+  let sanitized = collect {
+    for option in options {
+      let parts = option.split("=")
+      if allowed_mount_flag(option) or (parts.len() == 2 and allowed_mount_value(parts[0], parts[1])) {
+        yield option
+      } else {
+        yield "redacted"
+      }
     }
   }
 

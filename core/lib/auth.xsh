@@ -56,17 +56,15 @@ export pure split_fields(line: Str) -> List[Str] {
 
 ## Public authentication helper for shipped core applets.
 export pure parse_passwd(text: Str) -> Result[List[PasswdEntry], Error] {
-  var entries: List[PasswdEntry] = []
+  let entries: List[PasswdEntry] = collect {
+    for line in text.lines() {
+      let fields = split_fields(line)
+      continue when fields.len() < 7
+      let uid = fields[2].parse_int() ?? -1
+      let gid = fields[3].parse_int() ?? -1
+      continue when uid < 0 or gid < 0
 
-  for line in text.lines() {
-    let fields = split_fields(line)
-    continue when fields.len() < 7
-    let uid = fields[2].parse_int() ?? -1
-    let gid = fields[3].parse_int() ?? -1
-    continue when uid < 0 or gid < 0
-
-    entries += [
-      {
+      yield {
         name: fields[0],
         password: fields[1],
         uid: uid,
@@ -74,8 +72,8 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry], Error] {
         gecos: fields[4],
         home: fp"{fields[5]}",
         shell: fields[6],
-      },
-    ]
+      }
+    }
   }
 
   entries
@@ -83,17 +81,17 @@ export pure parse_passwd(text: Str) -> Result[List[PasswdEntry], Error] {
 
 ## Public authentication helper for shipped core applets.
 export pure parse_shadow(text: Str) -> List[ShadowRecord] {
-  var records: List[ShadowRecord] = []
+  let records: List[ShadowRecord] = collect {
+    for line in text.lines() {
+      let fields = split_fields(line)
 
-  for line in text.lines() {
-    let fields = split_fields(line)
+      if fields.len() < 2 {
+        yield {raw: true, username: "", password: "", rest: [], line: line}
+        continue
+      }
 
-    if fields.len() < 2 {
-      records += [{raw: true, username: "", password: "", rest: [], line: line}]
-      continue
+      yield {raw: false, username: fields[0], password: fields[1], rest: fields |> drop(2), line: ""}
     }
-
-    records += [{raw: false, username: fields[0], password: fields[1], rest: fields |> drop(2), line: ""}]
   }
 
   records
@@ -101,15 +99,15 @@ export pure parse_shadow(text: Str) -> List[ShadowRecord] {
 
 ## Public authentication helper for shipped core applets.
 export pure render_shadow(records: List[ShadowRecord]) -> Str {
-  var lines = []
-
-  for item in records {
-    if item.raw {
-      lines += [item.line]
-    } else if item.rest.is_empty() {
-      lines += [f"{item.username}:{item.password}"]
-    } else {
-      lines += [f"{item.username}:{item.password}:{item.rest.join(":")}"]
+  let lines = collect {
+    for item in records {
+      if item.raw {
+        yield item.line
+      } else if item.rest.is_empty() {
+        yield f"{item.username}:{item.password}"
+      } else {
+        yield f"{item.username}:{item.password}:{item.rest.join(":")}"
+      }
     }
   }
 
@@ -320,30 +318,27 @@ export pure upsert_shadow(
   password: Str,
   last_change: Str,
 ) -> List[ShadowRecord] {
-  var out: List[ShadowRecord] = []
   var found = false
 
-  for item in records {
-    if ! item.raw and item.username == username {
-      out += [
-        {
+  let out: List[ShadowRecord] = collect {
+    for item in records {
+      if ! item.raw and item.username == username {
+        yield {
           raw: false,
           username: username,
           password: password,
           rest: shadow_rest_with_defaults(item.rest, last_change),
           line: "",
-        },
-      ]
+        }
 
-      found = true
-    } else {
-      out += [item]
+        found = true
+      } else {
+        yield item
+      }
     }
-  }
 
-  if ! found {
-    out += [
-      {
+    if ! found {
+      yield {
         raw: false,
         username: username,
         password: password,
@@ -357,8 +352,8 @@ export pure upsert_shadow(
           "",
         ],
         line: "",
-      },
-    ]
+      }
+    }
   }
 
   out

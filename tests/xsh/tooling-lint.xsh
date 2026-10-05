@@ -39,11 +39,10 @@ pure diagnostics(stderr: Str) -> Str {
 
 # The codes of the warnings in `stderr`, in the order they were reported.
 pure warning_codes(stderr: Str) -> List[Str] {
-  var codes = []
-  for line in stderr.lines() {
-    let found = rx"^warn\[([^\]]+)\]".captures(line)
-    if found.len() == 2 {
-      codes += [found[1]]
+  let codes = collect {
+    for line in stderr.lines() {
+      let found = rx"^warn\[([^\]]+)\]".captures(line)
+      yield found[1] when found.len() == 2
     }
   }
 

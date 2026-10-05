@@ -172,70 +172,70 @@ export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow], Error] {
   }
 
   var bus = 0
-  var rows = []
-  for line in output.lines() {
-    continue when line.trim() == ""
-    let fields = words(line.trim().replace(",", with: "").replace(":", with: " "))
-    let bus_token = field_after(fields, "Bus")
-    var root_port = null
-    if bus_token != null {
-      let parts = bus_token.split(".Port")
-      return Err(lsusb_failure("lsusb tree root bus is malformed")) when parts.len() != 2
+  let rows = collect {
+    for line in output.lines() {
+      continue when line.trim() == ""
+      let fields = words(line.trim().replace(",", with: "").replace(":", with: " "))
+      let bus_token = field_after(fields, "Bus")
+      var root_port = null
+      if bus_token != null {
+        let parts = bus_token.split(".Port")
+        return Err(lsusb_failure("lsusb tree root bus is malformed")) when parts.len() != 2
 
-      bus = decimal(parts[0])?
-      root_port = field_after(fields, bus_token)
-    }
-
-    let dev_token = field_after(fields, "Dev")
-    let port_token = if root_port == null { field_after(fields, "Port") } else { root_port }
-    if bus <= 0 or dev_token == null or port_token == null {
-      return Err(lsusb_failure("lsusb tree row lacks bus, port, or device"))
-    }
-
-    let interface_token = field_after(fields, "If")
-    var interface_number = null
-    if interface_token != null {
-      interface_number = decimal(interface_token)?
-    }
-
-    var driver = null
-    for token in fields {
-      if token.starts_with("Driver=") {
-        driver = token.byte_slice(7).split("/")[0]
+        bus = decimal(parts[0])?
+        root_port = field_after(fields, bus_token)
       }
-    }
 
-    rows += [
-      {
+      let dev_token = field_after(fields, "Dev")
+      let port_token = if root_port == null { field_after(fields, "Port") } else { root_port }
+      if bus <= 0 or dev_token == null or port_token == null {
+        return Err(lsusb_failure("lsusb tree row lacks bus, port, or device"))
+      }
+
+      let interface_token = field_after(fields, "If")
+      var interface_number = null
+      if interface_token != null {
+        interface_number = decimal(interface_token)?
+      }
+
+      var driver = null
+      for token in fields {
+        if token.starts_with("Driver=") {
+          driver = token.byte_slice(7).split("/")[0]
+        }
+      }
+
+      yield {
         bus: bus,
         device: decimal(dev_token)?,
         port: decimal(port_token)?,
         interface_number: interface_number,
         driver: driver,
-      },
-    ]
+      }
+    }
   }
 
   rows
 }
 
 pure verbose_number(output: Str, key: Str, hex: Bool) -> Result[Int] {
-  var values = []
-  for line in output.lines() {
-    let fields = words(line.trim())
-    continue when fields.len() < 2 or fields[0] != key
-    var value = 0
-    if hex {
-      guard fields[1].starts_with("0x") else {
-        return Err(lsusb_failure(f"lsusb verbose {key} lacks hex value"))
+  let values = collect {
+    for line in output.lines() {
+      let fields = words(line.trim())
+      continue when fields.len() < 2 or fields[0] != key
+      var value = 0
+      if hex {
+        guard fields[1].starts_with("0x") else {
+          return Err(lsusb_failure(f"lsusb verbose {key} lacks hex value"))
+        }
+
+        value = hex4(fields[1].byte_slice(2))?
+      } else {
+        value = decimal(fields[1])?
       }
 
-      value = hex4(fields[1].byte_slice(2))?
-    } else {
-      value = decimal(fields[1])?
+      yield value
     }
-
-    values += [value]
   }
 
   if values.len() != 1 {
@@ -251,10 +251,9 @@ export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[Ls
     return Err(lsusb_failure("lsusb verbose output exceeds its bound"))
   }
 
-  var headers = []
-  for line in output.lines() {
-    if line.starts_with("Bus ") {
-      headers += parse_lsusb_list(line)?
+  let headers = collect {
+    for line in output.lines() {
+      yield @parse_lsusb_list(line)? when line.starts_with("Bus ")
     }
   }
 

@@ -2,16 +2,17 @@
 
 ## Selects the executable Cargo actually built, including custom target directories.
 export proc built_binary(messages: Str) [error] -> Result[Path, Error] {
-  var binaries = []
-  for line in messages.lines() {
-    let message = json.decode(line)?
-    let reason = json.get(message, ["reason"])?.require(Str)?
-    continue when reason != "compiler-artifact"
-    let name = json.get(message, ["target", "name"])?.require(Str)?
-    let kinds = json.get(message, ["target", "kind"])?.require(List[Str])?
-    continue when name != "xsh-fuzz" or "bin" not in kinds
-    let executable = json.get(message, ["executable"])?.require(Str?)?
-    if executable != null { binaries += [fp"{executable}"] }
+  let binaries = collect {
+    for line in messages.lines() {
+      let message = json.decode(line)?
+      let reason = json.get(message, ["reason"])?.require(Str)?
+      continue when reason != "compiler-artifact"
+      let name = json.get(message, ["target", "name"])?.require(Str)?
+      let kinds = json.get(message, ["target", "kind"])?.require(List[Str])?
+      continue when name != "xsh-fuzz" or "bin" not in kinds
+      let executable = json.get(message, ["executable"])?.require(Str?)?
+      yield fp"{executable}" when executable != null
+    }
   }
 
   if binaries.len() != 1 {

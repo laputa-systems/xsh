@@ -26,27 +26,27 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let comment_re = rx"^\s*#"
   let dquote_re = rx"""^"(.*)"$"""
   let squote_re = rx"^'(.*)'$"
-  var pairs: List[KV] = []
-
-  for line in content.lines() {
-    continue when line.trim() == ""
-    continue when comment_re.matches(line)
-    let caps = kv_re.captures(line)
-    continue when caps.len() < 3
-    let key = caps[1]
-    let raw = caps[2].trim()
-    let dquote = dquote_re.captures(raw)
-    let squote = squote_re.captures(raw)
-    let val = if dquote.len() >= 2 {
-      dquote[1]
-    } else {
-      if squote.len() >= 2 {
-        squote[1]
+  let pairs: List[KV] = collect {
+    for line in content.lines() {
+      continue when line.trim() == ""
+      continue when comment_re.matches(line)
+      let caps = kv_re.captures(line)
+      continue when caps.len() < 3
+      let key = caps[1]
+      let raw = caps[2].trim()
+      let dquote = dquote_re.captures(raw)
+      let squote = squote_re.captures(raw)
+      let val = if dquote.len() >= 2 {
+        dquote[1]
       } else {
-        raw
+        if squote.len() >= 2 {
+          squote[1]
+        } else {
+          raw
+        }
       }
+      yield {key: key, val: val}
     }
-    pairs += [{key: key, val: val}]
   }
 
   print f"loaded {pairs.len()} var(s) from {file}"

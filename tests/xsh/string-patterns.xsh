@@ -94,10 +94,11 @@ test test_a_failed_conversion_moves_to_the_next_arm {
 
 test test_text_pattern_binds_in_while_let_and_guard_let {
   var rest = "a,b,c"
-  var seen = []
-  while let f"{head},{tail}" = rest {
-    seen += [head]
-    rest = tail
+  let seen = collect {
+    while let f"{head},{tail}" = rest {
+      yield head
+      rest = tail
+    }
   }
 
   assert seen == ["a", "b"]

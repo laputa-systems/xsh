@@ -285,12 +285,12 @@ proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
   }
 
   let text = state_path.read_text()?
-  var new_lines = []
-
-  for line in text.lines() {
-    let fields = line.words()
-    continue when fields.len() >= 1 and fields[0].split("=")[0] == physical
-    new_lines += [line]
+  let new_lines = collect {
+    for line in text.lines() {
+      let fields = line.words()
+      continue when fields.len() >= 1 and fields[0].split("=")[0] == physical
+      yield line
+    }
   }
 
   if new_lines.is_empty() {

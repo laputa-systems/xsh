@@ -199,10 +199,8 @@ export pure target_rustflags(target: Target, inherited: Str) -> Str {
 
 ## Combines inherited and XSH-owned Darwin distribution compiler flags.
 export pure darwin_rustflags(target: Target, inherited: Str) -> Str {
-  var flags = []
-
-  if inherited.trim() != "" {
-    flags += [inherited.trim()]
+  let flags = collect {
+    yield inherited.trim() when inherited.trim() != ""
   }
 
   [

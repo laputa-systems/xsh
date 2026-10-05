@@ -149,9 +149,11 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-as-conversion` | Use `text as Int` instead of a propagated `parse_int()?`, and likewise for the other conversions `as` names |
 | `lint.prefer-text-pattern` | Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in) |
 | `lint.prefer-rel-path` | Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot |
-| `lint.prefer-argument-label` | Write the label of an argument whose parameter is registered with one (`src.copy(to: dest)`, `text.replace("a", with: "b")`), and call `link.symlink(to: target)` instead of `fs.symlink(target, link)` |
+| `lint.prefer-argument-label` | Call `link.symlink(to: target)`, whose label says which path is the target, instead of `fs.symlink(target, link)` |
 | `lint.empty-sentinel` | Note an optional bound through `?? ""` whose binding is then tested for emptiness, which an optional binding keeps apart from an empty value |
 | `lint.prefer-set` | Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in) |
+| `lint.prefer-collect` | Build a list that is declared empty and then only appended to with `collect { ... }` |
+| `lint.prefer-wait-until` | Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

@@ -36,26 +36,16 @@ proc main(...argv: List[Str]) [process, env, error] {
 
   let all = argv.is_empty() or parsed.all
   let u = system.uname()?
-  var cols = []
+  let cols = collect {
+    yield u.sysname when all or parsed.sys
 
-  if all or parsed.sys {
-    cols += [u.sysname]
-  }
+    yield u.nodename when all or parsed.node
 
-  if all or parsed.node {
-    cols += [u.nodename]
-  }
+    yield u.release when all or parsed.release
 
-  if all or parsed.release {
-    cols += [u.release]
-  }
+    yield u.version when all or parsed.version
 
-  if all or parsed.version {
-    cols += [u.version]
-  }
-
-  if all or parsed.machine {
-    cols += [u.machine]
+    yield u.machine when all or parsed.machine
   }
 
   print cols.join(" ")

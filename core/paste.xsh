@@ -22,15 +22,16 @@ proc paste_serial(paths: List[Str], delim: Str) [fs, error, io] {
 }
 
 proc paste_parallel(paths: List[Str], delim: Str) [fs, error, io] {
-  var columns = []
   var count = 0
 
-  for item in paths {
-    let lines = read_input(item)?
-    columns += [lines]
+  let columns = collect {
+    for item in paths {
+      let lines = read_input(item)?
+      yield lines
 
-    if lines.len() > count {
-      count = lines.len()
+      if lines.len() > count {
+        count = lines.len()
+      }
     }
   }
 

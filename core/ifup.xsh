@@ -431,40 +431,41 @@ proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
   var message_type = 0
   var netmask = ""
   var gateway = ""
-  var dns_servers = []
   var server_id = []
   var pos = DHCP_HEADER_LEN
 
-  while pos < total {
-    let tag = bytes.unpack_be(packet, 1, pos)?
+  let dns_servers = collect {
+    while pos < total {
+      let tag = bytes.unpack_be(packet, 1, pos)?
 
-    if tag == 0 {
-      pos = pos + 1
-      continue
-    }
-
-    break when tag == 255
-    let len = bytes.unpack_be(packet, 1, pos + 1)?
-    let value = pos + 2
-
-    if tag == 53 {
-      message_type = bytes.unpack_be(packet, 1, value)?
-    } else if tag == 1 {
-      netmask = ints_to_ip(read_ip_octets(packet, value)?)
-    } else if tag == 3 {
-      gateway = ints_to_ip(read_ip_octets(packet, value)?)
-    } else if tag == 54 {
-      server_id = read_ip_octets(packet, value)?
-    } else if tag == 6 {
-      var offset = 0
-
-      while offset + 4 <= len {
-        dns_servers += [ints_to_ip(read_ip_octets(packet, value + offset)?)]
-        offset = offset + 4
+      if tag == 0 {
+        pos = pos + 1
+        continue
       }
-    }
 
-    pos = value + len
+      break when tag == 255
+      let len = bytes.unpack_be(packet, 1, pos + 1)?
+      let value = pos + 2
+
+      if tag == 53 {
+        message_type = bytes.unpack_be(packet, 1, value)?
+      } else if tag == 1 {
+        netmask = ints_to_ip(read_ip_octets(packet, value)?)
+      } else if tag == 3 {
+        gateway = ints_to_ip(read_ip_octets(packet, value)?)
+      } else if tag == 54 {
+        server_id = read_ip_octets(packet, value)?
+      } else if tag == 6 {
+        var offset = 0
+
+        while offset + 4 <= len {
+          yield ints_to_ip(read_ip_octets(packet, value + offset)?)
+          offset = offset + 4
+        }
+      }
+
+      pos = value + len
+    }
   }
 
   {

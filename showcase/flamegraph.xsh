@@ -91,12 +91,12 @@ script;proc:format 1200
   }
 
   # Build frame list from cumulative counts.
-  var all_frames: List[Frame] = []
-
-  for key in cum.keys() {
-    let parts = key.split(";")
-    let frame: Frame = Frame(key:, name: parts[-1], depth: parts.len() - 1, count: cum.get(key) ?? 0)
-    all_frames += [frame]
+  let all_frames: List[Frame] = collect {
+    for key in cum.keys() {
+      let parts = key.split(";")
+      let frame: Frame = Frame(key:, name: parts[-1], depth: parts.len() - 1, count: cum.get(key) ?? 0)
+      yield frame
+    }
   }
 
   # Compute layout. Alphabetical key order is DFS preorder for semicolon-delimited

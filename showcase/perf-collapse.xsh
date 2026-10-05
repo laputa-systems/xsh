@@ -51,12 +51,13 @@ pure frame_symbol(line: Str) -> Str {
 pure stack_key(stack: List[Str], leaf_first: Bool) -> Result[Str] {
   return stack.join(";") when leaf_first
 
-  var out = []
   var i = stack.len() - 1
 
-  while i >= 0 {
-    out += [stack[i]]
-    i -= 1
+  let out = collect {
+    while i >= 0 {
+      yield stack[i]
+      i -= 1
+    }
   }
 
   out.join(";")

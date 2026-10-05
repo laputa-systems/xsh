@@ -109,10 +109,11 @@ test test_accept_stream_consumer_that_stops_early_ends_the_child { |ctx|
   let root = test.temp_dir(ctx, name: "accept-stream-cancel")?
   let marker = fp"{root}/marker"
   let rows = run.stream --text --accept=[0] sh -c "printf 'ready\n'; sleep 2; touch $1" sh $marker
-  var seen = []
-  for row in rows {
-    seen += [row]
-    break
+  let seen = collect {
+    for row in rows {
+      yield row
+      break
+    }
   }
 
   assert seen == ["ready"]
@@ -126,10 +127,11 @@ test test_accept_stream_consumer_that_stops_early_ends_descendants_of_an_exited_
   let marker = fp"{root}/marker"
   let rows = run.stream --text --accept=[0] sh -c "(sleep 0.2; printf 'ready\n'; sleep 2; touch $1) & exit 0" sh \
     $marker
-  var seen = []
-  for row in rows {
-    seen += [row]
-    break
+  let seen = collect {
+    for row in rows {
+      yield row
+      break
+    }
   }
 
   assert seen == ["ready"]

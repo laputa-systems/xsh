@@ -372,15 +372,16 @@ test test_pattern_conditionals_preserve_sibling_match_capture_reuse {
 }
 
 test test_pattern_conditions_over_comprehensions_fall_through_cleanly {
-  var labels = []
-  if let Ok(value) = {["a"]: word for word in ["b"]}.get("missing") {
-    labels += [value]
-  } else if let Ok(value) = [word for word in ["c"]].get(0) {
-    labels += [value]
-  }
+  let labels = collect {
+    if let Ok(value) = {["a"]: word for word in ["b"]}.get("missing") {
+      yield value
+    } else if let Ok(value) = [word for word in ["c"]].get(0) {
+      yield value
+    }
 
-  while let Ok(value) = {["a"]: word for word in ["b"]}.get("missing") {
-    labels += [value]
+    while let Ok(value) = {["a"]: word for word in ["b"]}.get("missing") {
+      yield value
+    }
   }
 
   assert labels == ["c"]

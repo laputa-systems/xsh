@@ -111,6 +111,11 @@ operand (8.6),
 and the `as` that ends its destination (8.7),
 `as` between a value and a type, where it is the conversion operator (6.11),
 `within` before the duration and block of a `within` scope (10.4),
+`until` directly after `wait`, and `within`, `every`, and `backoff` in the
+head of a `wait until` statement (8.6),
+`backoff` directly after `retry` and the `within` that follows its intervals
+(8.8),
+`collect` directly before the `{` of a `collect` expression (6.9),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -2119,6 +2124,55 @@ content is a single name. A block introduces a lexical and cleanup scope but
 no function, error, or loop boundary. In statement position it runs as
 statements; in value position its tail is its value.
 
+`collect { ... }` is an expression whose value is the list of what its block
+yields:
+
+```xsh
+pure start_order(units: List[Service]) -> List[Str] {
+  collect {
+    for unit in units {
+      continue unless unit.enabled
+      yield @unit.wants
+      yield unit.name
+    }
+  }
+}
+```
+
+The block runs once, as statements. Each `yield value` in it appends one
+item, and `yield @list` appends every item of a `List`, in the order the
+yields run; the value is a new `List[T]` when the block reaches its end. A
+`yield` belongs to the nearest `collect` whose block holds it, through any
+`if`, `match`, loop, bare block, `try`, or scope in between, and through a
+postfix `when` or `unless`. A function, a stage block, and a nested `collect`
+have their own yields: in a stage block inside the block a `yield` is not the
+`collect`'s (`check.yield` outside a producer). Inside a `stream` producer,
+the yields of a `collect` block append to its list and emit nothing.
+
+`T` is the item type of the expected type when the context states a
+`List[T]`, and otherwise the common type of the yields, found as a list
+literal finds the type of its elements. A block that never yields needs the
+expected type (`check.collect-item`). A `yield` takes no stream, and
+`yield @` takes no stream either: collect it first
+(`yield @rows.collect()`).
+
+The block is no boundary. `?` and a statement's failure leave it as they
+would leave a bare block, and the list is then discarded; `return`, `break`,
+and `continue` keep their targets, so a `break` ends a loop around the
+`collect` and no list is produced. A `yield` inside a `retry` attempt in the
+block is rejected (`check.yield`), because a failed attempt would leave its
+items behind; a `collect` inside the attempt builds a list per attempt. A
+`yield` in a `within` body in the block is allowed: nothing is suspended
+there. The expression has no effect of its own and may be used in a pure
+function.
+
+The word `collect` directly before a `{` on one line always begins this
+expression, wherever an expression may start, and is an ordinary name
+everywhere else (`rows.collect()`, `|> collect()`). A value named `collect`
+that a block follows is written `(collect)`. `lint.prefer-collect` rewrites a
+list that is declared empty and then only appended to, where a comprehension
+(6.5) does not already say it.
+
 A callback block receives one item: a stream stage block (13.1) other than
 `fold` and `reduce`, or an error handler after `??` (8.4). Written without
 `|name|`, such a block takes that item as its implicit parameter `.`, so
@@ -2707,6 +2761,68 @@ statement is a `repeat` statement when it begins with the word `repeat` and,
 on the same line, its count is followed by the word `times` directly before
 `{`; neither word is reserved.
 
+`wait until condition within limit` tests a condition again and again until
+it holds, and fails when the limit passes first. It is sugar, defined by its
+expansion:
+
+```xsh
+wait until socket.exists() within 30s every 250ms
+```
+
+means exactly
+
+```xsh
+{
+  let delay_1: Duration = 250ms
+  (within 30s {
+    loop {
+      if socket.exists() { break }
+      time.sleep(delay_1)
+    }
+  })?
+}
+```
+
+So the statement is a `within` scope (10.4) around a loop, and everything
+about deadlines said there holds here. The condition is tested first, before
+any sleep, and a condition that holds ends the statement at once. When the
+limit passes, the statement fails with the `Error` a `within` scope returns,
+which implements `Timeout`; the failure propagates as a statement's does
+(8.3), so a `try` around the statement captures it. The deadline interrupts
+the sleep between two tests and is noticed between the statements of the
+condition's callees, so the statement ends at the limit, not at the next
+test, and the condition is not tested once more as the limit passes. The
+condition is in a control position (8.3): a `Result[Bool]` propagates without
+`?`, and its failure leaves the statement as it would leave an `if`. The
+statement needs the `time` effect, and the `error` effect in a restricted
+proc.
+
+`every interval` names the time slept between two tests; without it the
+interval is `100ms`. `backoff first..cap` sleeps `first` after the first test
+that fails and twice as long after each later one, never longer than `cap`:
+
+```xsh
+wait until ! lease.exists() within patience backoff 100ms..5s
+```
+
+Its expansion keeps the interval in a variable, so `xsht desugar` shows the
+doubling. Nothing is added to an interval at random. An interval of `0ms`
+tests again without sleeping, and a first interval of `0ms` never grows. The
+limit and each interval is a duration literal or a name with any `.field`s,
+read once when the statement starts; bind any other expression to a name
+first. The `..` of a backoff is two dots with nothing between them.
+
+`until` directly after `wait` always begins this statement, which has no
+value and takes no postfix guard. A process handle that is named `until` is
+waited for as `wait (until)` (11.7). `lint.prefer-wait-until` notes a `while`
+loop that sleeps with `time.sleep` and counts its rounds. It is a note,
+and `--fix` never applies it, because no such loop is this
+statement: the loop fails with the error it wrote and counts sleeps, and the
+statement fails with `Timeout` after elapsed time. It shows the statement
+for a plain loop that fails when it gives up, and shows none for a loop that
+falls through to the code after it, which would then no longer run on a
+timeout.
+
 `return`, `break`, `continue`, `yield`, `exit`, and `fail` accept a postfix
 guard:
 
@@ -2979,7 +3095,10 @@ expression that is a `Result[Unit]` fails its action the same way, with or
 without `?`. Other actions still
 run. The original failure stays primary; if there was none, the first cleanup
 failure becomes primary, and later cleanup failures are reported with their
-locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
+locations. A primary cleanup failure in a function that returns a `Result` is
+the `Err` that function returns, from any of its blocks, so its caller matches
+or propagates it like any other; in any other function it is a failure of the
+call, which `try` captures. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
 the block's defers run (11.8).
 
@@ -3161,6 +3280,28 @@ rules; any other failure returns at once without consuming a delay. The result
 is `Ok(value)` from the first successful attempt or `Err` from the last failed
 one. A non-empty delay list requires the `time` effect. Each attempt emits a
 `retry.attempt` trace event.
+
+`retry backoff first..cap within limit { ... }` computes the delays in place
+of a written list:
+
+```xsh
+let index = retry backoff 100ms..5s within 30s on (is Timeout) {
+  fetch_index()?
+}?
+```
+
+The three durations are written as in a `wait until` statement (8.6) and
+evaluate once, in that order, before the first attempt. The delay after the
+first failed attempt is `first`, and each later delay is twice the one before
+it, never longer than `cap`. A delay is taken only if it would end within
+`limit`, measured from the start of the first attempt; otherwise the attempt
+that just failed was the last, and its `Err` is the result. So `limit` bounds
+when an attempt may start. It does not interrupt an attempt that is running,
+and the form never fails with `Timeout` of its own: put the `retry` in a
+`within` scope (10.4) for a deadline that stops the work. Every other rule is
+that of a written list, the optional `on (pattern)` included; the form always
+requires the `time` effect. The `max_attempts` of its `retry.attempt` events
+is the count the durations allow if no attempt took any time.
 
 `ctx description { ... }` labels failures that leave its body:
 
@@ -3439,7 +3580,8 @@ source evaluates once when reached; handle results explicitly
 value` is rejected. Defers run when the producer finishes, fails, or its
 consumer stops early (a delegated child is closed before its parent). Streams
 are one-pass, and aliases share one cursor. Producers use proc-style effect
-clauses.
+clauses. A `yield` inside a `collect` block (6.9) in a producer appends to
+that block's list and emits nothing.
 
 ### 9.6 Effects
 
@@ -3798,6 +3940,10 @@ inside the one it belongs to without those scopes reporting it. An inner
 scope that times out returns its `Err` to the code around it, which goes on
 under the outer deadline.
 
+`wait until condition within limit` (8.6) is this scope around a polling
+loop, and `retry backoff first..cap within limit` (8.8) uses the word for a
+limit on its delays that interrupts nothing.
+
 ### 10.5 Environment access
 
 ```xsh
@@ -4116,6 +4262,8 @@ server.cancel(signal: "TERM", kill_after: 2s)
 - A handle exposes `pid`, `command`, `argv`, and `detached`, which stay
   readable after the child is gone. The first `wait` or `cancel` consumes the
   child, and later use of any alias fails with `ProcessError.Unknown`.
+- `wait until` begins the polling statement of 8.6, so the handle of a `wait`
+  cannot be the bare name `until`; write `wait (until)`.
 
 ### 11.8 Ownership of live resources
 
@@ -4629,17 +4777,28 @@ let text = notes.replace("DRAFT", with: "FINAL")
   its argument is what the link names, stored as written; the receiver of
   `hardlink` is the file that exists and its argument is the new name. The
   label is a rule on the parameter in the registry (`xsht api` shows the
-  parameter under that name). The argument still checks when it is passed
-  by position or under the parameter's former name (`dest:`, `path:`, `to:`
-  of `replace`, `replacement:`), also as the field of a spread record, and
-  means the same. `lint.prefer-argument-label` writes the label at both and
-  rewrites `fs.symlink(target, link)` to `link.symlink(to: target)`. The
-  method evaluates the link before the target, so that rewrite is offered
-  only where the order cannot be observed: one operand is a literal, or
-  both only read (a name, a field path, text that interpolates those). A
-  function declared in XSH has no such rule: each of its parameters may be
-  passed by position or by name, and `with` is a keyword, so it can label
-  an argument of a standard method but cannot name a declared parameter.
+  parameter under that name), and it is required: the argument passed by
+  position is rejected (`check.named-arg`).
+
+  ```xsh
+  proc publish(build: Path, release: Path, notes: Str) [fs, error] -> Result[Str] {
+  build.copy(release) # error: check.named-arg
+  release.symlink(build) # error: check.named-arg
+  build.rename(dest: release) # error: check.named-arg
+  Ok(notes.replace("DRAFT", "FINAL")) # error: check.named-arg
+}
+  ```
+
+  A method called on an unchecked `Any` receiver takes no named argument at
+  all, so there the argument stays positional until the receiver is
+  validated. `fs.symlink(target, link)` keeps its two positional operands;
+  `lint.prefer-argument-label` rewrites it to `link.symlink(to: target)`.
+  The method evaluates the link before the target, so the rewrite is offered
+  only where the order cannot be observed: one operand is a literal, or both
+  only read (a name, a field path, text that interpolates those). A function
+  declared in XSH has no such rule: each of its parameters may be passed by
+  position or by name, and `with` is a keyword, so it can label an argument
+  of a standard method but cannot name a declared parameter.
 - `fs.mounts()` and `linux.disk_usage()` without a path list every mount
   whose statistics the host gives the process. A mount that refuses them
   with a permission error (`EACCES`, `EPERM`) is left out, as `df` leaves it
@@ -4814,7 +4973,16 @@ tests, or replaces it with `??`), the next statement, call, or `?` operand
 discards that record, and a later failure reports its own span and call path.
 A record is kept only for the error it was made for: an `Err` that replaces a
 handled one inside the same operand or statement, as in
-`(f() ?? Err(other))?`, starts its traceback at the `?` that propagates it.
+`(f() ?? Err(other))?`, starts its traceback at the `?` that propagates it,
+whether or not the two errors have the same kind and message. Taking the
+fallback of `??` and matching an `Err` in a value `match` both handle it.
+
+The failing span is the form that propagates: the `?` with its operand, a
+propagating condition, an `as` conversion, a propagating statement, or the
+deferred call that failed. It lies in the function that holds the form, and
+the call that reached that function is the last frame of the call path. An
+error that a function returns with `return Err(...)` or `fail` has propagated
+nowhere yet, so its traceback starts at the caller's form.
 
 ## 17. Native Tests
 

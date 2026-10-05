@@ -93,18 +93,19 @@ proc main(...argv: List[Str]) [error, io] {
   return Err(AppletError.Usage("seq: increment cannot be zero")) when step == 0
 
   var value = first
-  var values = []
   var max_width = 0
 
-  while should_emit(value, step, last) {
-    let rendered = f"{value}"
-    values += [rendered]
+  let values = collect {
+    while should_emit(value, step, last) {
+      let rendered = f"{value}"
+      yield rendered
 
-    if rendered.count_chars() > max_width {
-      max_width = rendered.count_chars()
+      if rendered.count_chars() > max_width {
+        max_width = rendered.count_chars()
+      }
+
+      value += step
     }
-
-    value += step
   }
 
   var out = ""

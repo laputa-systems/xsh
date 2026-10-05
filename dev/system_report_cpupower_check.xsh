@@ -56,11 +56,10 @@ export type CpupowerRun = {
 }
 
 pure one_prefixed_line(output: Str, prefix: Str) -> Result[Str] {
-  var values = []
-  for line in output.lines() {
-    let trimmed = line.trim()
-    if trimmed.starts_with(prefix) {
-      values += [trimmed.byte_slice(prefix.byte_len()).trim()]
+  let values = collect {
+    for line in output.lines() {
+      let trimmed = line.trim()
+      yield trimmed.byte_slice(prefix.byte_len()).trim() when trimmed.starts_with(prefix)
     }
   }
 
@@ -104,11 +103,12 @@ pure decimal_khz(value: Str) -> Result[Int] {
 ## Parses the explicit `frequency-info --driver` and `--hwlimits` forms.
 export pure parse_cpupower_frequency(driver_output: Str, limits_output: Str) -> Result[CpupowerFrequency, Error] {
   let driver = one_prefixed_line(driver_output, "driver:")?
-  var limits = []
-  for line in limits_output.lines() {
-    let words = line.trim().split(" ") |> where . != ""
-    if words.len() == 2 and (words[0].parse_int() ?? -1) >= 0 and (words[1].parse_int() ?? -1) >= 0 {
-      limits += [words]
+  let limits = collect {
+    for line in limits_output.lines() {
+      let words = line.trim().split(" ") |> where . != ""
+      if words.len() == 2 and (words[0].parse_int() ?? -1) >= 0 and (words[1].parse_int() ?? -1) >= 0 {
+        yield words
+      }
     }
   }
 

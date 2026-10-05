@@ -73,7 +73,6 @@ pure smbios_reference_fields(
   record_type: Int,
   formatted_length: Int,
 ) -> Result[List[SmbiosFieldReference]] {
-  var fields: List[SmbiosFieldReference] = []
   var specs: List[SmbiosFieldSpec] = []
   if record_type == 0 {
     specs = [
@@ -287,10 +286,12 @@ pure smbios_reference_fields(
     ]
   }
 
-  for spec in specs {
-    continue when spec.offset + spec.width > formatted_length
-    continue when spec.name == "extended_size_raw" and bytes.unpack_le(data, 2, offset + 12)? != 32767
-    fields += [{name: spec.name, value: bytes.unpack_le(data, spec.width, offset + spec.offset)?, unit: spec.unit}]
+  let fields: List[SmbiosFieldReference] = collect {
+    for spec in specs {
+      continue when spec.offset + spec.width > formatted_length
+      continue when spec.name == "extended_size_raw" and bytes.unpack_le(data, 2, offset + 12)? != 32767
+      yield {name: spec.name, value: bytes.unpack_le(data, spec.width, offset + spec.offset)?, unit: spec.unit}
+    }
   }
 
   fields
@@ -329,24 +330,25 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference, Error
       return Ok({records: records, complete: false, invalid_indices: invalid_indices})
     }
 
-    var strings: List[SmbiosStringReference] = []
     var string_start = strings_start
-    while string_start < terminator {
-      var string_end = string_start
-      while string_end < terminator and (data.byte_at(string_end) ?? -1) != 0 {
-        string_end += 1
-      }
-
-      if string_end > string_start {
-        let raw = data[string_start..string_end]
-        if let Ok(value) = raw.utf8() {
-          strings += [{state: "observed", value: value, raw_bytes_base64: null}]
-        } else {
-          strings += [{state: "malformed", value: null, raw_bytes_base64: raw.base64()}]
+    let strings: List[SmbiosStringReference] = collect {
+      while string_start < terminator {
+        var string_end = string_start
+        while string_end < terminator and (data.byte_at(string_end) ?? -1) != 0 {
+          string_end += 1
         }
-      }
 
-      string_start = string_end + 1
+        if string_end > string_start {
+          let raw = data[string_start..string_end]
+          if let Ok(value) = raw.utf8() {
+            yield {state: "observed", value: value, raw_bytes_base64: null}
+          } else {
+            yield {state: "malformed", value: null, raw_bytes_base64: raw.base64()}
+          }
+        }
+
+        string_start = string_end + 1
+      }
     }
 
     for field in fields {
@@ -382,21 +384,18 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   var missing_names: List[Str] = []
   var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
-  var unstable_fields: List[Str] = []
   if before == after and reference.complete and section.source != "smbios" {
     field_mismatches += ["source"]
   }
 
-  if before != after {
-    unstable_fields += ["table.changed"]
-  }
+  let unstable_fields: List[Str] = collect {
+    yield "table.changed" when before != after
 
-  if ! reference.complete {
-    unstable_fields += ["table.incomplete"]
-  }
+    yield "table.incomplete" unless reference.complete
 
-  for invalid in reference.invalid_indices {
-    unstable_fields += [f"{invalid}.string_index"]
+    for invalid in reference.invalid_indices {
+      yield f"{invalid}.string_index"
+    }
   }
 
   var reference_by_key: Map[Int] = {}
@@ -723,18 +722,19 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
   }
 
   let relocated_checksum = ((entry_point.byte_at(checksum_offset) ?? -1) + prior_address_sum - 32 + 256) % 256
-  var header: List[Int] = []
-  for index in range(32) {
-    var value = if index < entry_point.len() { entry_point.byte_at(index) ?? -1 } else { 0 }
-    if index == checksum_offset {
-      value = relocated_checksum
-    } else if index == address_start {
-      value = 32
-    } else if index > address_start and index < address_start + address_width {
-      value = 0
-    }
+  let header: List[Int] = collect {
+    for index in range(32) {
+      var value = if index < entry_point.len() { entry_point.byte_at(index) ?? -1 } else { 0 }
+      if index == checksum_offset {
+        value = relocated_checksum
+      } else if index == address_start {
+        value = 32
+      } else if index > address_start and index < address_start + address_width {
+        value = 0
+      }
 
-    header += [value]
+      yield value
+    }
   }
 
   let patched = bytes.from_ints(header)?
@@ -763,20 +763,21 @@ pure dmidecode_hex_row(line: Str) -> Result[List[Int]] {
   let tokens = line.trim().split(" ") |> where . != ""
   return Err(smbios_check_failure("dmidecode hex row is empty")) when tokens.is_empty()
 
-  var octets: List[Int] = []
-  for token in tokens {
-    guard token.count_chars() == 2 else {
-      return Err(smbios_check_failure("dmidecode hex row contains an invalid byte"))
-    }
-
-    if let Ok(value) = f"0x{token}".parse_int() {
-      if value < 0 or value > 255 {
-        return Err(smbios_check_failure("dmidecode hex byte is out of range"))
+  let octets: List[Int] = collect {
+    for token in tokens {
+      guard token.count_chars() == 2 else {
+        return Err(smbios_check_failure("dmidecode hex row contains an invalid byte"))
       }
 
-      octets += [value]
-    } else {
-      return Err(smbios_check_failure("dmidecode hex row contains a nonhexadecimal byte"))
+      if let Ok(value) = f"0x{token}".parse_int() {
+        if value < 0 or value > 255 {
+          return Err(smbios_check_failure("dmidecode hex byte is out of range"))
+        }
+
+        yield value
+      } else {
+        return Err(smbios_check_failure("dmidecode hex row contains a nonhexadecimal byte"))
+      }
     }
   }
 
@@ -981,7 +982,6 @@ export pure compare_dmidecode_hex_output(
   }
 
   var missing_names: List[Str] = []
-  var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
   var matched_count = 0
   for item in reference.records {
@@ -1029,10 +1029,10 @@ export pure compare_dmidecode_hex_output(
     }
   }
 
-  for item in decoded {
-    let key = f"{item.record_type}:{item.handle}"
-    if key not in reference_by_key {
-      unexpected_names += [key]
+  let unexpected_names: List[Str] = collect {
+    for item in decoded {
+      let key = f"{item.record_type}:{item.handle}"
+      yield key when key not in reference_by_key
     }
   }
 

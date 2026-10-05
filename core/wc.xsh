@@ -34,18 +34,12 @@ pure max_digits(counts: List[Counts], show_lines: Bool, show_words: Bool, show_b
 }
 
 pure format_counts(counts: Counts, show_lines: Bool, show_words: Bool, show_bytes: Bool, width: Int) -> Str {
-  var cols = []
+  let cols = collect {
+    yield tui.left_pad(f"{counts.lines}", width) when show_lines
 
-  if show_lines {
-    cols += [tui.left_pad(f"{counts.lines}", width)]
-  }
+    yield tui.left_pad(f"{counts.words}", width) when show_words
 
-  if show_words {
-    cols += [tui.left_pad(f"{counts.words}", width)]
-  }
-
-  if show_bytes {
-    cols += [tui.left_pad(f"{counts.bytes}", width)]
+    yield tui.left_pad(f"{counts.bytes}", width) when show_bytes
   }
 
   cols.join(" ")

@@ -99,28 +99,29 @@ proc run_suites(
   xsht: Path,
 ) [fs, process, env, error, io] -> Result[List[SuiteInput]] {
   out_dir.mkdir()
-  var outputs: List[SuiteInput] = []
   var failed = false
 
-  for suite in suites {
-    let suite_json = fp"{out_dir}/{suite_json_name(suite.name)}"
-    print f"coverage suite {suite.name}"
+  let outputs: List[SuiteInput] = collect {
+    for suite in suites {
+      let suite_json = fp"{out_dir}/{suite_json_name(suite.name)}"
+      print f"coverage suite {suite.name}"
 
-    cd suite.path {
-      let captured = run.capture --text $xsht @(suite_test_args(suite.name, suite_json))
-      io.write_stdout(captured.stdout)
+      cd suite.path {
+        let captured = run.capture --text $xsht @(suite_test_args(suite.name, suite_json))
+        io.write_stdout(captured.stdout)
 
-      if captured.stderr != "" {
-        io.write_stdout(captured.stderr)
+        if captured.stderr != "" {
+          io.write_stdout(captured.stderr)
+        }
+
+        if ! captured.status.ok {
+          failed = true
+        }
       }
 
-      if ! captured.status.ok {
-        failed = true
+      if suite_json.exists() {
+        yield {name: suite.name, path: relative_display(root, suite_json)?}
       }
-    }
-
-    if suite_json.exists() {
-      outputs += [{name: suite.name, path: relative_display(root, suite_json)?}]
     }
   }
 
@@ -177,14 +178,14 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[C
     |> where { |api|
       api not in api_hits
     }
-  var covered_rows: List[CoveredApiRow] = []
+  let covered_rows: List[CoveredApiRow] = collect {
+    for api_id in api_hits.keys() |> sort {
+      let hits = api_hits.get(api_id)?
+      let total = hits.tests + hits.examples
 
-  for api_id in api_hits.keys() |> sort {
-    let hits = api_hits.get(api_id)?
-    let total = hits.tests + hits.examples
-
-    if total > 0 {
-      covered_rows += [{api_id: api_id, tests: hits.tests, examples: hits.examples, total: total}]
+      if total > 0 {
+        yield {api_id: api_id, tests: hits.tests, examples: hits.examples, total: total}
+      }
     }
   }
 

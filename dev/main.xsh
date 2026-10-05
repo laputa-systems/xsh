@@ -155,28 +155,29 @@ pure usage(message: Str) -> Error {
 
 pure parse_global(args: List[Str]) -> Result[GlobalOptions] {
   var target = ""
-  var rest: List[Str] = []
   var index = 0
 
-  while index < args.len() {
-    let arg = args[index]
+  let rest: List[Str] = collect {
+    while index < args.len() {
+      let arg = args[index]
 
-    if arg == "--target" {
-      return Err(usage("--target requires a target triple")) when index + 1 >= args.len()
+      if arg == "--target" {
+        return Err(usage("--target requires a target triple")) when index + 1 >= args.len()
 
-      target = args[index + 1]
-      index += 2
-      continue
-    }
+        target = args[index + 1]
+        index += 2
+        continue
+      }
 
-    if arg.starts_with("--target=") {
-      target = arg.split("=", maxsplit: 1).get(1) ?? ""
+      if arg.starts_with("--target=") {
+        target = arg.split("=", maxsplit: 1).get(1) ?? ""
+        index += 1
+        continue
+      }
+
+      yield arg
       index += 1
-      continue
     }
-
-    rest += [arg]
-    index += 1
   }
 
   {target: target, rest: rest}

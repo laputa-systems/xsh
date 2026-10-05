@@ -245,14 +245,15 @@ test test_par_map_early_return_waits_for_running_items {
 # worker still running.
 test test_par_map_runs_to_its_end_before_a_downstream_stage_stops {
   let marker = "0.311606"
-  var seen = []
-  for round in [1, 2] {
-    let firsts = [1, 2, 3, 4] |> par-map(jobs: 4) { |n|
-      run sleep $marker
-      n * round
-    } |> take(1) |> collect()
-    seen += firsts
-    break when round == 1
+  let seen = collect {
+    for round in [1, 2] {
+      let firsts = [1, 2, 3, 4] |> par-map(jobs: 4) { |n|
+        run sleep $marker
+        n * round
+      } |> take(1) |> collect()
+      yield @firsts
+      break when round == 1
+    }
   }
 
   assert seen == [1]

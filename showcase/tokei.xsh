@@ -421,16 +421,15 @@ pure set_blob(blobs: Map[Any], language: Str, stats: Stats) -> Map[Any] {
 }
 
 pure join_lines(lines: List[Bytes]) -> Bytes {
-  var parts = []
   var first = true
 
-  for line in lines {
-    if ! first {
-      parts += [b"\n"]
-    }
+  let parts = collect {
+    for line in lines {
+      yield b"\n" unless first
 
-    parts += [line]
-    first = false
+      yield line
+      first = false
+    }
   }
 
   bytes.concat(parts)
@@ -691,101 +690,102 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
   var blanks = 0
   var code = 0
   var comments = 0
-  var doc_lines = []
   var block_depth = 0
 
-  for line in text.lines() {
-    if block_depth == 0 and ! (b"/" in line) {
-      if line.trim() == b"" {
-        blanks += 1
-      } else {
+  let doc_lines = collect {
+    for line in text.lines() {
+      if block_depth == 0 and ! (b"/" in line) {
+        if line.trim() == b"" {
+          blanks += 1
+        } else {
+          code += 1
+        }
+      } else if block_depth == 0 and ! (b"//" in line) and ! (b"/*" in line) {
         code += 1
-      }
-    } else if block_depth == 0 and ! (b"//" in line) and ! (b"/*" in line) {
-      code += 1
-    } else {
-      let trimmed = line.trim()
-
-      if collect_doc_markdown and block_depth == 0 and (trimmed.starts_with(b"///") or trimmed.starts_with(b"//!")) {
-        doc_lines += [trimmed[3..]]
-      } else if trimmed == b"" and block_depth == 0 {
-        blanks += 1
-      } else if block_depth == 0 and trimmed.starts_with(b"//") {
-        comments += 1
-      } else if block_depth == 0 and ! trimmed.starts_with(b"/") and (! (b"/*" in line) or b"*/" in line) {
-        code += 1
-      } else if block_depth == 0 and trimmed.starts_with(b"/*") and ! (b"*/" in line) {
-        comments += 1
-        block_depth = 1
-      } else if block_depth > 0 and trimmed == b"" {
-        blanks += 1
-      } else if block_depth > 0 and ! (b"*/" in line) and (! nested or ! (b"/*" in line)) {
-        comments += 1
-      } else if block_depth > 0 and trimmed.ends_with(b"*/") and (! nested or ! (b"/*" in line)) {
-        comments += 1
-        block_depth -= 1
       } else {
-        let line_len = line.len()
-        var index = 0
-        var code_seen = false
-        var comment_seen = false
-        var in_string = false
-        var string_delim = -1
-        var escaped = false
+        let trimmed = line.trim()
 
-        while index < line_len {
-          let ch = line.byte_at(index) ?? -1
-          let next = line.byte_at(index + 1) ?? -1
+        if collect_doc_markdown and block_depth == 0 and (trimmed.starts_with(b"///") or trimmed.starts_with(b"//!")) {
+          yield trimmed[3..]
+        } else if trimmed == b"" and block_depth == 0 {
+          blanks += 1
+        } else if block_depth == 0 and trimmed.starts_with(b"//") {
+          comments += 1
+        } else if block_depth == 0 and ! trimmed.starts_with(b"/") and (! (b"/*" in line) or b"*/" in line) {
+          code += 1
+        } else if block_depth == 0 and trimmed.starts_with(b"/*") and ! (b"*/" in line) {
+          comments += 1
+          block_depth = 1
+        } else if block_depth > 0 and trimmed == b"" {
+          blanks += 1
+        } else if block_depth > 0 and ! (b"*/" in line) and (! nested or ! (b"/*" in line)) {
+          comments += 1
+        } else if block_depth > 0 and trimmed.ends_with(b"*/") and (! nested or ! (b"/*" in line)) {
+          comments += 1
+          block_depth -= 1
+        } else {
+          let line_len = line.len()
+          var index = 0
+          var code_seen = false
+          var comment_seen = false
+          var in_string = false
+          var string_delim = -1
+          var escaped = false
 
-          if block_depth > 0 {
-            comment_seen = true
+          while index < line_len {
+            let ch = line.byte_at(index) ?? -1
+            let next = line.byte_at(index + 1) ?? -1
 
-            if ch == 47 and next == 42 and nested {
-              block_depth += 1
-              index += 2
-            } else if ch == 42 and next == 47 {
-              block_depth -= 1
+            if block_depth > 0 {
+              comment_seen = true
+
+              if ch == 47 and next == 42 and nested {
+                block_depth += 1
+                index += 2
+              } else if ch == 42 and next == 47 {
+                block_depth -= 1
+                index += 2
+              } else {
+                index += 1
+              }
+            } else if in_string {
+              code_seen = true
+
+              if escaped {
+                escaped = false
+              } else if ch == 92 {
+                escaped = true
+              } else if ch == string_delim {
+                in_string = false
+              }
+
+              code_seen = true
+              in_string = true
+              string_delim = ch
+              index += 1
+            } else if ch == 47 and next == 47 {
+              comment_seen = true
+              index = line_len
+            } else if ch == 47 and next == 42 {
+              comment_seen = true
+              block_depth = 1
               index += 2
             } else {
+              if ch != 32 and ch != 9 {
+                code_seen = true
+              }
+
               index += 1
             }
-          } else if in_string {
-            code_seen = true
-
-            if escaped {
-              escaped = false
-            } else if ch == 92 {
-              escaped = true
-            } else if ch == string_delim {
-              in_string = false
-            }
-
-            code_seen = true
-            in_string = true
-            string_delim = ch
-            index += 1
-          } else if ch == 47 and next == 47 {
-            comment_seen = true
-            index = line_len
-          } else if ch == 47 and next == 42 {
-            comment_seen = true
-            block_depth = 1
-            index += 2
-          } else {
-            if ch != 32 and ch != 9 {
-              code_seen = true
-            }
-
-            index += 1
           }
-        }
 
-        if code_seen {
-          code += 1
-        } else if comment_seen {
-          comments += 1
-        } else {
-          blanks += 1
+          if code_seen {
+            code += 1
+          } else if comment_seen {
+            comments += 1
+          } else {
+            blanks += 1
+          }
         }
       }
     }
@@ -1441,24 +1441,22 @@ proc main(...argv: List[Str]) [fs, error] {
       total_blanks += totals.total_blanks
       total_code += totals.total_code
       total_comments += totals.total_comments
-      var child_rows = []
+      let child_rows = collect {
+        for child in sorted_languages() {
+          let clabel = language_label(child)
+          let cagg = summary.get(f"{label}\t{clabel}") ?? zero_summary
+          continue when cagg.files == 0
+          let clines = cagg.blanks + cagg.code + cagg.comments
 
-      for child in sorted_languages() {
-        let clabel = language_label(child)
-        let cagg = summary.get(f"{label}\t{clabel}") ?? zero_summary
-        continue when cagg.files == 0
-        let clines = cagg.blanks + cagg.code + cagg.comments
-
-        child_rows += [
-          fmt_row(
+          yield fmt_row(
             f"|- {clabel}",
             f"{cagg.files}",
             f"{clines}",
             f"{cagg.code}",
             f"{cagg.comments}",
             f"{cagg.blanks}",
-          ),
-        ]
+          )
+        }
       }
 
       let lines = totals.blanks + totals.code + totals.comments

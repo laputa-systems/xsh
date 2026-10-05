@@ -74,14 +74,12 @@ export pure core_install_path(relative_source: Path) -> Path {
 ## Collects core script sources deterministically while excluding the native test subtree.
 export proc core_sources(ctx: context.Context) [fs, error] -> Result[List[Path], Error] {
   let core = fp"{ctx.root}/core"
-  var sources: List[Path] = []
+  let sources: List[Path] = collect {
+    for entry in fs.walk(core, hidden: true)? {
+      if entry.kind == "file" and entry.path.ext() == "xsh" {
+        let relative = entry.path.relative_to(core)
 
-  for entry in fs.walk(core, hidden: true)? {
-    if entry.kind == "file" and entry.path.ext() == "xsh" {
-      let relative = entry.path.relative_to(core)
-
-      if ! relative.display().starts_with("tests/") {
-        sources += [relative]
+        yield relative unless relative.display().starts_with("tests/")
       }
     }
   }
@@ -116,19 +114,19 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   let stage = root_handle.host_path()?
   let core = fp"{ctx.root}/core"
   let sources = core_sources(ctx)?
-  var archive_entries: List[Path] = []
-
-  for relative in sources {
-    let installed = core_install_path(relative)
-    let mode = if relative.display().starts_with("lib/") { 0o644 } else { 0o755 }
-    fs.install(
-      fp"{core}/{relative}",
-      fp"{stage}/{installed}",
-      mode,
-      parents: true,
-      overwrite: true,
-    )
-    archive_entries += [installed]
+  let archive_entries: List[Path] = collect {
+    for relative in sources {
+      let installed = core_install_path(relative)
+      let mode = if relative.display().starts_with("lib/") { 0o644 } else { 0o755 }
+      fs.install(
+        fp"{core}/{relative}",
+        fp"{stage}/{installed}",
+        mode,
+        parents: true,
+        overwrite: true,
+      )
+      yield installed
+    }
   }
 
   archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)
@@ -150,47 +148,47 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
     )
   }
 
-  var expected_files: List[Str] = []
+  let expected_files: List[Str] = collect {
+    for triple in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin"] {
+      let suffix = targets.release_suffix(triple)?
 
-  for triple in ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin"] {
-    let suffix = targets.release_suffix(triple)?
+      for product in targets.products {
+        let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
+        yield @[artifact.name, f"{artifact.name}.sha256"]
+        if artifact.exists() {
+          artifact.chmod(0o755)
+        }
 
-    for product in targets.products {
-      let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
-      expected_files += [artifact.name, f"{artifact.name}.sha256"]
-      if artifact.exists() {
-        artifact.chmod(0o755)
-      }
+        if ! artifact.exists() or ! artifact.executable() or artifact.metadata()?.size == 0 {
+          return Err(
+            stages.StageError.Failed(
+              stage: "release-validate",
+              target: triple,
+              detail: f"missing artifact {artifact}",
+            ),
+          )
+        }
 
-      if ! artifact.exists() or ! artifact.executable() or artifact.metadata()?.size == 0 {
-        return Err(
-          stages.StageError.Failed(
-            stage: "release-validate",
-            target: triple,
-            detail: f"missing artifact {artifact}",
-          ),
-        )
-      }
+        let checksum = fp"{artifact}.sha256"
+        if ! checksum.exists() {
+          return Err(
+            stages.StageError.Failed(
+              stage: "release-validate",
+              target: triple,
+              detail: f"missing checksum {artifact}.sha256",
+            ),
+          )
+        }
 
-      let checksum = fp"{artifact}.sha256"
-      if ! checksum.exists() {
-        return Err(
-          stages.StageError.Failed(
-            stage: "release-validate",
-            target: triple,
-            detail: f"missing checksum {artifact}.sha256",
-          ),
-        )
-      }
-
-      if checksum.read_text()? != checksum_line(artifact, ctx.root)? {
-        return Err(
-          stages.StageError.Failed(
-            stage: "release-validate",
-            target: triple,
-            detail: f"invalid checksum {checksum}",
-          ),
-        )
+        if checksum.read_text()? != checksum_line(artifact, ctx.root)? {
+          return Err(
+            stages.StageError.Failed(
+              stage: "release-validate",
+              target: triple,
+              detail: f"invalid checksum {checksum}",
+            ),
+          )
+        }
       }
     }
   }

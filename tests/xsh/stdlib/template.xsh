@@ -220,11 +220,12 @@ server {
 }
 
 test test_template_large_range_renders_every_item {
-  var rows = []
   var index = 0
-  while index < 1000 {
-    rows += [index]
-    index += 1
+  let rows = collect {
+    while index < 1000 {
+      yield index
+      index += 1
+    }
   }
 
   let rendered = template.render("{{range $i, $v := .}}{{if $i}},{{end}}{{$v}}{{end}}", rows)?

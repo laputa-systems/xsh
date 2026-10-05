@@ -49,10 +49,11 @@ proc disks(threshold: Int) -> Result[List[Check]] {
 }
 
 proc files(names: List[Str]) -> Result[List[Check]] {
-  var checks: List[Check] = []
-  for name in names {
-    let present = fp"{name}".exists()?
-    checks += [Check(check: f"file {name}", ok: present, detail: if present { "present" } else { "missing" })]
+  let checks: List[Check] = collect {
+    for name in names {
+      let present = fp"{name}".exists()?
+      yield Check(check: f"file {name}", ok: present, detail: if present { "present" } else { "missing" })
+    }
   }
 
   checks

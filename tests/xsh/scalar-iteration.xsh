@@ -12,17 +12,19 @@ test bytes_iteration_keeps_all_octets_without_decoding {
 
 test scalar_iteration_retains_sources_across_reassignment {
   var text = "éab"
-  var characters = []
-  for character in text {
-    text = "replacement"
-    characters += [character]
+  let characters = collect {
+    for character in text {
+      text = "replacement"
+      yield character
+    }
   }
 
   var payload = b"\0\xff"
-  var octets = []
-  for octet in payload {
-    payload = b"changed"
-    octets += [octet]
+  let octets = collect {
+    for octet in payload {
+      payload = b"changed"
+      yield octet
+    }
   }
 
   assert characters == ["é", "a", "b"]

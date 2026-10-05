@@ -103,46 +103,46 @@ proc main(...argv: List[Str]) [fs, process, error] {
   }
 
   print f"found {files.len()} audio files in {root}"
-  var results: List[ConvertResult] = []
+  let results: List[ConvertResult] = collect {
+    for entry in files {
+      let src = entry.path
+      let rel = src.relative_to(root)
+      let ext = src.ext()
+      let orig_kbps = ext_default_kbps(ext)
+      let aac_kbps = nearest_aac_kbps(orig_kbps)
 
-  for entry in files {
-    let src = entry.path
-    let rel = src.relative_to(root)
-    let ext = src.ext()
-    let orig_kbps = ext_default_kbps(ext)
-    let aac_kbps = nearest_aac_kbps(orig_kbps)
+      if opts.verbose {
+        print f"  {rel}: {ext} {orig_kbps}kbps → {aac_kbps}kbps"
+      }
 
-    if opts.verbose {
-      print f"  {rel}: {ext} {orig_kbps}kbps → {aac_kbps}kbps"
-    }
+      if opts.dry_run {
+        yield {source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: true}
+        continue
+      }
 
-    if opts.dry_run {
-      results += [{source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: true}]
-      continue
-    }
+      let dest = fp"{out_dir}/{rel}".with_ext("m4a")
+      dest.parent().mkdir()
 
-    let dest = fp"{out_dir}/{rel}".with_ext("m4a")
-    dest.parent().mkdir()
-
-    let cmd = process.command_argv(
-      "ffmpeg",
-      [
+      let cmd = process.command_argv(
         "ffmpeg",
-        "-i",
-        src,
-        "-c:a",
-        "aac_at",
-        "-b:a",
-        f"{aac_kbps}k",
-        "-vn",
-        "-y",
-        dest,
-      ],
-    )
+        [
+          "ffmpeg",
+          "-i",
+          src,
+          "-c:a",
+          "aac_at",
+          "-b:a",
+          f"{aac_kbps}k",
+          "-vn",
+          "-y",
+          dest,
+        ],
+      )
 
-    let status = process.run(cmd)?
+      let status = process.run(cmd)?
 
-    results += [{source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: status.exited_with(0)}]
+      yield {source: rel.display(), ext: ext, orig_kbps: orig_kbps, aac_kbps: aac_kbps, ok: status.exited_with(0)}
+    }
   }
 
   print ""

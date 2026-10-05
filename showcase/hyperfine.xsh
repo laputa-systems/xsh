@@ -127,21 +127,22 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
     let _ = time.measure(command, quiet: true)?
   }
 
-  var times_ns = []
   var user_total = 0
   var system_total = 0
   var failures = 0
 
-  repeat opts.runs times {
-    let result = time.measure(command, quiet: true)?
+  let times_ns = collect {
+    repeat opts.runs times {
+      let result = time.measure(command, quiet: true)?
 
-    if ! result.status.exited_with(0) {
-      failures += 1
+      if ! result.status.exited_with(0) {
+        failures += 1
+      }
+
+      yield floor0(result.wall_ns - baseline.wall_ns)
+      user_total += floor0(result.user_ns - baseline.user_ns)
+      system_total += floor0(result.system_ns - baseline.system_ns)
     }
-
-    times_ns += [floor0(result.wall_ns - baseline.wall_ns)]
-    user_total += floor0(result.user_ns - baseline.user_ns)
-    system_total += floor0(result.system_ns - baseline.system_ns)
   }
 
   if failures > 0 and ! opts.ignore_failure {
@@ -203,13 +204,11 @@ proc print_summary(results: List[Summary]) [error, io] {
 # hyperfine's JSON shape: {"results": [{command, mean, stddev, median, user, system,
 # min, max, times}, ...]} with all times in seconds.
 proc export_json(results: List[Summary], dest: Str) [fs, error] {
-  var entries: List[Any] = []
+  let entries: List[Any] = collect {
+    for result in results {
+      var times_s = [t / 1000.0 for t in result.times_ms]
 
-  for result in results {
-    var times_s = [t / 1000.0 for t in result.times_ms]
-
-    entries += [
-      {
+      yield {
         command: result.name,
         mean: result.mean_ms / 1000.0,
         stddev: result.stddev_ms / 1000.0,
@@ -219,8 +218,8 @@ proc export_json(results: List[Summary], dest: Str) [fs, error] {
         min: result.min_ms / 1000.0,
         max: result.max_ms / 1000.0,
         times: times_s,
-      },
-    ]
+      }
+    }
   }
 
   let encoded = json.encode({results: entries}, pretty: true)?
@@ -275,12 +274,12 @@ proc main(...argv: List[Str]) [fs, process, time, error, io] {
 
   let baseline = if opts.subtract_startup { startup } else { {wall_ns: 0, user_ns: 0, system_ns: 0} }
   print ""
-  var results: List[Summary] = []
-
-  for command_text in opts.commands {
-    let summary = bench(command_text, opts, baseline)?
-    report(summary, opts.runs)
-    results += [summary]
+  let results: List[Summary] = collect {
+    for command_text in opts.commands {
+      let summary = bench(command_text, opts, baseline)?
+      report(summary, opts.runs)
+      yield summary
+    }
   }
 
   if results.len() > 1 {

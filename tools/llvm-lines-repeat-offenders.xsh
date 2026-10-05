@@ -185,16 +185,14 @@ pure offenders_from_text(
   example_limit: Int,
   include_dependencies: Bool,
 ) -> Result[List[Offender]] {
-  var rows: List[MonoRow] = []
+  let rows: List[MonoRow] = collect {
+    for line in text.lines() {
+      let trimmed = line.trim()
 
-  for line in text.lines() {
-    let trimmed = line.trim()
+      if "::<" in trimmed and is_llvm_lines_row(trimmed) {
+        let row = parse_mono_row(trimmed)?
 
-    if "::<" in trimmed and is_llvm_lines_row(trimmed) {
-      let row = parse_mono_row(trimmed)?
-
-      if include_dependencies or is_project_owned(row.name) {
-        rows += [row]
+        yield row when include_dependencies or is_project_owned(row.name)
       }
     }
   }

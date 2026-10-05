@@ -94,18 +94,18 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let findings: List[Finding] = files
     |> par-map { |entry|
-      var hits: List[Finding] = []
+      let hits: List[Finding] = collect {
+        if let Ok(src) = entry.path.read_text() {
+          let rel = entry.path.relative_to(root).display()
 
-      if let Ok(src) = entry.path.read_text() {
-        let rel = entry.path.relative_to(root).display()
+          for item in src.lines() |> enumerate() {
+            let line_num = item.index + 1
+            let line = item.value
 
-        for item in src.lines() |> enumerate() {
-          let line_num = item.index + 1
-          let line = item.value
-
-          for pattern in patterns {
-            if pattern.re.matches(line) {
-              hits += [{file: rel, line: line_num, kind: pattern.kind, text: line.trim()}]
+            for pattern in patterns {
+              if pattern.re.matches(line) {
+                yield {file: rel, line: line_num, kind: pattern.kind, text: line.trim()}
+              }
             }
           }
         }

@@ -149,12 +149,11 @@ pure field_key(rel: Str) -> Str {
 
 # The names of the `collection` snippets whose output some template shows.
 pure shown_outputs(templates: List[Str], collection: Str) -> List[Str] {
-  var names: List[Str] = []
-  for source in templates {
-    for found in output_reference.find(source) {
-      let parts = found.text.split(".")
-      if parts[1] == collection {
-        names += [parts[2]]
+  let names: List[Str] = collect {
+    for source in templates {
+      for found in output_reference.find(source) {
+        let parts = found.text.split(".")
+        yield parts[2] when parts[1] == collection
       }
     }
   }
@@ -164,12 +163,11 @@ pure shown_outputs(templates: List[Str], collection: Str) -> List[Str] {
 
 # The names of the `collection` snippets whose desugared form some template shows.
 pure shown_expansions(templates: List[Str], collection: Str) -> List[Str] {
-  var names: List[Str] = []
-  for source in templates {
-    for found in desugared_reference.find(source) {
-      let parts = found.text.split(".")
-      if parts[1] == collection {
-        names += [parts[2]]
+  let names: List[Str] = collect {
+    for source in templates {
+      for found in desugared_reference.find(source) {
+        let parts = found.text.split(".")
+        yield parts[2] when parts[1] == collection
       }
     }
   }
@@ -353,10 +351,11 @@ proc snippets(
 # `LINE: CODE` for each `# error: CODE` comment in a snippet.
 pure expected_diagnostics(source: Str) -> List[Str] {
   let lines = source.lines()
-  var expected: List[Str] = []
-  for index in range(lines.len()) {
-    if let [_, code] = error_annotation.captures(lines[index]) {
-      expected += [f"{index + 1}: {code}"]
+  let expected: List[Str] = collect {
+    for index in range(lines.len()) {
+      if let [_, code] = error_annotation.captures(lines[index]) {
+        yield f"{index + 1}: {code}"
+      }
     }
   }
 
@@ -365,17 +364,16 @@ pure expected_diagnostics(source: Str) -> List[Str] {
 
 # `LINE: CODE` for each diagnostic in the `xsht check` report on one file.
 pure reported_diagnostics(report: Str) -> List[Str] {
-  var reported: List[Str] = []
   var code = ""
-  for text in report.lines() {
-    if let [_, line] = diagnostic_location.captures(text) {
-      if code != "" {
-        reported += [f"{line}: {code}"]
+  let reported: List[Str] = collect {
+    for text in report.lines() {
+      if let [_, line] = diagnostic_location.captures(text) {
+        yield f"{line}: {code}" when code != ""
       }
-    }
 
-    let heading = diagnostic_header.captures(text)
-    code = if heading.len() == 2 { heading[1] } else { "" }
+      let heading = diagnostic_header.captures(text)
+      code = if heading.len() == 2 { heading[1] } else { "" }
+    }
   }
 
   reported
@@ -447,28 +445,28 @@ proc stdlib(xsht: Path) [process, error] -> Result[Record] {
     answers[answer.query] = answer.matches
   }
 
-  var module_rows = []
-  for m in modules {
-    let matches = answers[f"module:{m.name}"]
-    module_rows += [
-      {
+  let module_rows = collect {
+    for m in modules {
+      let matches = answers[f"module:{m.name}"]
+      yield {
         name: m.name,
         summary: [found.summary for found in matches if found.kind == "module"].get(0) ?? "",
         functions: [index_line(found) for found in matches if found.kind == "module-function"],
-      },
-    ]
+      }
+    }
   }
 
-  var receiver_rows = []
-  for receiver in summary.method_receivers {
-    let owner = receiver.name.fields()[0]
-    let lines = [
-      index_line(found)
-      for m in receiver.methods
-      if " " not in m.name
-      for found in answers[f"method:{owner}.{m.name}"]
-    ]
-    receiver_rows += [{name: receiver.name, methods: lines}]
+  let receiver_rows = collect {
+    for receiver in summary.method_receivers {
+      let owner = receiver.name.fields()[0]
+      let lines = [
+        index_line(found)
+        for m in receiver.methods
+        if " " not in m.name
+        for found in answers[f"method:{owner}.{m.name}"]
+      ]
+      yield {name: receiver.name, methods: lines}
+    }
   }
 
   let records = [
@@ -500,10 +498,11 @@ proc cli_reference(tools: DocTools) [process, error] -> Result[Record] {
     return Err(DocsError.Layout("`xsht --help` lacks its command reference or workflows section"))
   }
 
-  var commands = []
-  for line in lines[reference..workflows] {
-    if let [_, name] = command_heading.captures(line) {
-      commands += [{name, help: body(run.text $tools.xsht help $name?)}]
+  let commands = collect {
+    for line in lines[reference..workflows] {
+      if let [_, name] = command_heading.captures(line) {
+        yield {name, help: body(run.text $tools.xsht help $name?)}
+      }
     }
   }
 

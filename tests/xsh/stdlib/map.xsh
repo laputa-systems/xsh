@@ -48,11 +48,12 @@ test test_map_index_updates_group_push_and_comprehension {
 
 test test_map_iteration_item_shape_order_and_snapshot {
   var counts: Map[Int] = {beta: 2, alpha: 1}
-  var seen = []
-  for entry in counts {
-    seen += [f"{entry.key}={entry.value}"]
-    counts["alpha"] = 99
-    counts = counts.remove("beta").set("gamma", 3)
+  let seen = collect {
+    for entry in counts {
+      yield f"{entry.key}={entry.value}"
+      counts["alpha"] = 99
+      counts = counts.remove("beta").set("gamma", 3)
+    }
   }
 
   assert seen == ["alpha=1", "beta=2"]
@@ -213,10 +214,11 @@ test test_map_literals_computed_constant_keys_spreads_and_aliases {
   let ordinary = {...source_row}
   assert ordinary.alpha == 1
   var values = inferred
-  var seen = []
-  for {key, value: _} in values {
-    seen += [key]
-    values = values.set("later", 9)
+  let seen = collect {
+    for {key, value: _} in values {
+      yield key
+      values = values.set("later", 9)
+    }
   }
 
   assert seen == ["alpha", "beta", "literal.dot"]

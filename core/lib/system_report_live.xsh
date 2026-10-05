@@ -328,47 +328,44 @@ proc read_cpu_info(root: FsRoot) [fs, error] -> CpuInfoRead {
     return {infos: [], state: source.observation.state, errno: source.errno, error_kind: source.error_kind}
   }
 
-  var values: List[CpuInfo] = []
   var current = empty_cpu_info(-1)
   var has_current = false
-  for line in source.observation.value.lines() {
-    if line.trim() == "" {
-      if has_current {
-        values += [current]
-        has_current = false
+  let values: List[CpuInfo] = collect {
+    for line in source.observation.value.lines() {
+      if line.trim() == "" {
+        if has_current {
+          yield current
+          has_current = false
+        }
+
+        continue
       }
 
-      continue
-    }
+      let pair = line.split(":", maxsplit: 1)
+      continue when pair.len() != 2
+      let key = pair[0].trim()
+      let value = pair[1].trim()
+      if key == "processor" or key == "processor number" {
+        yield current when has_current
 
-    let pair = line.split(":", maxsplit: 1)
-    continue when pair.len() != 2
-    let key = pair[0].trim()
-    let value = pair[1].trim()
-    if key == "processor" or key == "processor number" {
-      if has_current {
-        values += [current]
+        current = empty_cpu_info(parse_integer(value) ?? -1)
+        has_current = true
+        continue
       }
 
-      current = empty_cpu_info(parse_integer(value) ?? -1)
-      has_current = true
-      continue
+      continue unless has_current
+      match key {
+        "vendor_id" | "CPU implementer" => current = {...current, vendor: value}
+        "model name" | "Processor" | "Hardware" => current = {...current, model: value}
+        "cpu family" | "CPU architecture" => current = {...current, family: value}
+        "model" | "CPU part" => current = {...current, model_id: value}
+        "stepping" => current = {...current, stepping: value}
+        "flags" | "Features" => current = {...current, features: parse_words(value)}
+        else => {}
+      }
     }
 
-    continue unless has_current
-    match key {
-      "vendor_id" | "CPU implementer" => current = {...current, vendor: value}
-      "model name" | "Processor" | "Hardware" => current = {...current, model: value}
-      "cpu family" | "CPU architecture" => current = {...current, family: value}
-      "model" | "CPU part" => current = {...current, model_id: value}
-      "stepping" => current = {...current, stepping: value}
-      "flags" | "Features" => current = {...current, features: parse_words(value)}
-      else => {}
-    }
-  }
-
-  if has_current {
-    values += [current]
+    yield current when has_current
   }
 
   {
@@ -399,39 +396,40 @@ type CpuSetRead = {
 type CgroupMountInventory = {mounts: List[collectors.CgroupMount], has_v1: Bool, malformed: Bool}
 
 pure cgroup_mount_inventory(value: Str) -> CgroupMountInventory {
-  var mounts: List[collectors.CgroupMount] = []
   var has_v1 = false
   var malformed = false
-  for line in value.lines() {
-    let fields = parse_words(line)
-    var separator = 0
-    while separator < fields.len() and fields[separator] != "-" {
-      separator += 1
-    }
+  let mounts: List[collectors.CgroupMount] = collect {
+    for line in value.lines() {
+      let fields = parse_words(line)
+      var separator = 0
+      while separator < fields.len() and fields[separator] != "-" {
+        separator += 1
+      }
 
-    if separator == fields.len() {
-      malformed = true
-      continue
-    }
-
-    if separator < 6 or separator + 3 >= fields.len() {
-      malformed = true
-      continue
-    }
-
-    let filesystem = fields[separator + 1]
-    if filesystem in ["cgroup2", "cgroup"] {
-      let mount_root = decode_mount_field(fields[3])
-      let mount_point = decode_mount_field(fields[4])
-      if ! mount_root.starts_with("/") or ! mount_point.starts_with("/") {
+      if separator == fields.len() {
         malformed = true
         continue
       }
 
-      if filesystem == "cgroup2" {
-        mounts += [{root: mount_root, point: mount_point}]
-      } else {
-        has_v1 = true
+      if separator < 6 or separator + 3 >= fields.len() {
+        malformed = true
+        continue
+      }
+
+      let filesystem = fields[separator + 1]
+      if filesystem in ["cgroup2", "cgroup"] {
+        let mount_root = decode_mount_field(fields[3])
+        let mount_point = decode_mount_field(fields[4])
+        if ! mount_root.starts_with("/") or ! mount_point.starts_with("/") {
+          malformed = true
+          continue
+        }
+
+        if filesystem == "cgroup2" {
+          yield {root: mount_root, point: mount_point}
+        } else {
+          has_v1 = true
+        }
       }
     }
   }
@@ -1255,14 +1253,16 @@ proc collect_storage(
       ]
     }
 
-    var holders: List[Str] = []
-    var slaves: List[Str] = []
-    for holder in holders_listing.children {
-      holders += [holder.name()]
+    let holders: List[Str] = collect {
+      for holder in holders_listing.children {
+        yield holder.name()
+      }
     }
 
-    for slave in slaves_listing.children {
-      slaves += [slave.name()]
+    let slaves: List[Str] = collect {
+      for slave in slaves_listing.children {
+        yield slave.name()
+      }
     }
 
     var parent_name: Str? = null
@@ -1422,11 +1422,12 @@ proc collect_storage(
         continue
       }
 
-      var optional_fields: List[Str] = []
       var index = 6
-      while index < separator {
-        optional_fields += [decode_mount_field(fields[index])]
-        index += 1
+      let optional_fields: List[Str] = collect {
+        while index < separator {
+          yield decode_mount_field(fields[index])
+          index += 1
+        }
       }
 
       let target = decode_mount_field(fields[4])
@@ -1808,39 +1809,38 @@ proc collect_sensors(
       trip_indices += [trip_number]
     }
 
-    var trips: List[report.ThermalTrip] = []
-    for trip_number in trip_indices |> sort-by . {
-      let trip_temp = read_value(root, fp"{zone_path}/trip_point_{trip_number}_temp", max_bytes: 4096)
-      let trip_type = read_value(root, fp"{zone_path}/trip_point_{trip_number}_type", max_bytes: 4096)
-      issues = append_text_issue(
-        issues,
-        "sensors",
-        f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_type",
-        trip_type,
-      )
-      let hysteresis = read_value(root, fp"{zone_path}/trip_point_{trip_number}_hyst", max_bytes: 4096)
-      let trip_number_value = collectors.bounded_number(trip_temp, false)
-      let hysteresis_number = collectors.bounded_number(hysteresis, true)
-      issues = append_number_issue(
-        issues,
-        "sensors",
-        f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_temp",
-        trip_number_value,
-      )
-      issues = append_number_issue(
-        issues,
-        "sensors",
-        f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_hyst",
-        hysteresis_number,
-      )
-      trips += [
-        {
+    let trips: List[report.ThermalTrip] = collect {
+      for trip_number in trip_indices |> sort-by . {
+        let trip_temp = read_value(root, fp"{zone_path}/trip_point_{trip_number}_temp", max_bytes: 4096)
+        let trip_type = read_value(root, fp"{zone_path}/trip_point_{trip_number}_type", max_bytes: 4096)
+        issues = append_text_issue(
+          issues,
+          "sensors",
+          f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_type",
+          trip_type,
+        )
+        let hysteresis = read_value(root, fp"{zone_path}/trip_point_{trip_number}_hyst", max_bytes: 4096)
+        let trip_number_value = collectors.bounded_number(trip_temp, false)
+        let hysteresis_number = collectors.bounded_number(hysteresis, true)
+        issues = append_number_issue(
+          issues,
+          "sensors",
+          f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_temp",
+          trip_number_value,
+        )
+        issues = append_number_issue(
+          issues,
+          "sensors",
+          f"thermal_zones.{zone_path.name()}.trip_point_{trip_number}_hyst",
+          hysteresis_number,
+        )
+        yield {
           index: trip_number,
           kind: observed_source_text(trip_type) ?? "unknown",
           temperature_millidegrees: trip_number_value.value,
           hysteresis_millidegrees: hysteresis_number.value,
-        },
-      ]
+        }
+      }
     }
 
     zones += [
@@ -1959,12 +1959,13 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     ]
   }
 
-  var cap_paths: List[PowerCapSource] = []
-  for item in cap_listing.children {
-    let name = read_value(root, fp"{item}/name", max_bytes: 4096)
-    continue when name.observation.state == .Absent
-    issues = append_text_issue(issues, "power", f"cap_zones.{item.name()}.name", name)
-    cap_paths += [{path: item, name: name}]
+  let cap_paths: List[PowerCapSource] = collect {
+    for item in cap_listing.children {
+      let name = read_value(root, fp"{item}/name", max_bytes: 4096)
+      continue when name.observation.state == .Absent
+      issues = append_text_issue(issues, "power", f"cap_zones.{item.name()}.name", name)
+      yield {path: item, name: name}
+    }
   }
 
   for cap_source in cap_paths {
@@ -2033,19 +2034,18 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
         power_limit_uw: limit_number.value,
         time_window_us: window_number.value,
       )
-      var ordered: List[report.PowerCapConstraint] = []
       var inserted = false
-      for existing in constraints {
-        if ! inserted and index < existing.index {
-          ordered += [observed_constraint]
-          inserted = true
+      let ordered: List[report.PowerCapConstraint] = collect {
+        for existing in constraints {
+          if ! inserted and index < existing.index {
+            yield observed_constraint
+            inserted = true
+          }
+
+          yield existing
         }
 
-        ordered += [existing]
-      }
-
-      if ! inserted {
-        ordered += [observed_constraint]
+        yield observed_constraint unless inserted
       }
 
       constraints = ordered
@@ -2274,13 +2274,14 @@ proc read_process(root: FsRoot, process_path: Path, pid: Int, page_size_bytes: I
           continue
         }
 
-        var values: List[Int] = []
-        for field in fields {
-          let parsed = proc_optional_number(field)
-          if parsed.issue_state != null {
-            uid_issue = parsed.issue_state
-          } else {
-            values += [parsed.value ?? 0]
+        let values: List[Int] = collect {
+          for field in fields {
+            let parsed = proc_optional_number(field)
+            if parsed.issue_state != null {
+              uid_issue = parsed.issue_state
+            } else {
+              yield parsed.value ?? 0
+            }
           }
         }
 
@@ -2615,19 +2616,20 @@ proc collect_device_classes(
         parent_usb_device_index = usb_device_index_from_target(usb_indices, parent_target)
       }
 
-      var attributes: List[report.KernelParameter] = []
       let allowlisted_attributes = match class_name {
         "drm" => ["status", "enabled", "modes"],
         "sound" => ["number"],
         "input" => [],
         else => [],
       }
-      for attribute_name in allowlisted_attributes {
-        let attribute = read_value(root, fp"{entry}/{attribute_name}", max_bytes: 16384)
-        if attribute.observation.state == .Observed {
-          attributes += [{name: attribute_name, value: attribute.observation}]
-        } else {
-          issues = append_text_issue(issues, "devices", f"{class_name}.{entry_name}.{attribute_name}", attribute)
+      let attributes: List[report.KernelParameter] = collect {
+        for attribute_name in allowlisted_attributes {
+          let attribute = read_value(root, fp"{entry}/{attribute_name}", max_bytes: 16384)
+          if attribute.observation.state == .Observed {
+            yield {name: attribute_name, value: attribute.observation}
+          } else {
+            issues = append_text_issue(issues, "devices", f"{class_name}.{entry_name}.{attribute_name}", attribute)
+          }
         }
       }
 
@@ -2776,128 +2778,125 @@ pure smbios_raw_field(value: Int, name: Str) -> report.MemoryCounter {
 }
 
 pure smbios_fields(record_type: Int, data: Bytes, offset: Int, length: Int) -> Result[List[report.MemoryCounter]] {
-  var fields: List[report.MemoryCounter] = []
-  if record_type == 0 {
-    if length > 4 {
-      fields += [smbios_string_index(data.byte_at(offset + 4) ?? -1, "vendor_index")]
-    }
+  let fields: List[report.MemoryCounter] = collect {
+    if record_type == 0 {
+      if length > 4 {
+        yield smbios_string_index(data.byte_at(offset + 4) ?? -1, "vendor_index")
+      }
 
-    if length > 5 {
-      fields += [smbios_string_index(data.byte_at(offset + 5) ?? -1, "version_index")]
-    }
+      if length > 5 {
+        yield smbios_string_index(data.byte_at(offset + 5) ?? -1, "version_index")
+      }
 
-    if length > 8 {
-      fields += [smbios_string_index(data.byte_at(offset + 8) ?? -1, "release_date_index")]
-    }
+      if length > 8 {
+        yield smbios_string_index(data.byte_at(offset + 8) ?? -1, "release_date_index")
+      }
 
-    if length > 9 {
-      fields += [smbios_raw_field(data.byte_at(offset + 9) ?? -1, "rom_size_raw")]
-    }
-  } else if record_type == 1 {
-    if length > 4 {
-      fields += [smbios_string_index(data.byte_at(offset + 4) ?? -1, "manufacturer_index")]
-    }
+      yield smbios_raw_field(data.byte_at(offset + 9) ?? -1, "rom_size_raw") when length > 9
+    } else if record_type == 1 {
+      if length > 4 {
+        yield smbios_string_index(data.byte_at(offset + 4) ?? -1, "manufacturer_index")
+      }
 
-    if length > 5 {
-      fields += [smbios_string_index(data.byte_at(offset + 5) ?? -1, "product_index")]
-    }
+      if length > 5 {
+        yield smbios_string_index(data.byte_at(offset + 5) ?? -1, "product_index")
+      }
 
-    if length > 6 {
-      fields += [smbios_string_index(data.byte_at(offset + 6) ?? -1, "version_index")]
-    }
+      if length > 6 {
+        yield smbios_string_index(data.byte_at(offset + 6) ?? -1, "version_index")
+      }
 
-    if length > 7 {
-      fields += [smbios_string_index(data.byte_at(offset + 7) ?? -1, "serial_index")]
-    }
+      if length > 7 {
+        yield smbios_string_index(data.byte_at(offset + 7) ?? -1, "serial_index")
+      }
 
-    if length > 24 {
-      fields += [smbios_raw_field(data.byte_at(offset + 24) ?? -1, "wake_up_type_raw")]
-    }
+      if length > 24 {
+        yield smbios_raw_field(data.byte_at(offset + 24) ?? -1, "wake_up_type_raw")
+      }
 
-    if length > 25 {
-      fields += [smbios_string_index(data.byte_at(offset + 25) ?? -1, "sku_index")]
-    }
+      yield smbios_string_index(data.byte_at(offset + 25) ?? -1, "sku_index") when length > 25
 
-    if length > 26 {
-      fields += [smbios_string_index(data.byte_at(offset + 26) ?? -1, "family_index")]
-    }
-  } else if record_type == 2 {
-    if length > 4 {
-      fields += [smbios_string_index(data.byte_at(offset + 4) ?? -1, "manufacturer_index")]
-    }
+      if length > 26 {
+        yield smbios_string_index(data.byte_at(offset + 26) ?? -1, "family_index")
+      }
+    } else if record_type == 2 {
+      if length > 4 {
+        yield smbios_string_index(data.byte_at(offset + 4) ?? -1, "manufacturer_index")
+      }
 
-    if length > 5 {
-      fields += [smbios_string_index(data.byte_at(offset + 5) ?? -1, "product_index")]
-    }
+      if length > 5 {
+        yield smbios_string_index(data.byte_at(offset + 5) ?? -1, "product_index")
+      }
 
-    if length > 6 {
-      fields += [smbios_string_index(data.byte_at(offset + 6) ?? -1, "version_index")]
-    }
+      if length > 6 {
+        yield smbios_string_index(data.byte_at(offset + 6) ?? -1, "version_index")
+      }
 
-    if length > 7 {
-      fields += [smbios_string_index(data.byte_at(offset + 7) ?? -1, "serial_index")]
-    }
+      if length > 7 {
+        yield smbios_string_index(data.byte_at(offset + 7) ?? -1, "serial_index")
+      }
 
-    if length > 8 {
-      fields += [smbios_string_index(data.byte_at(offset + 8) ?? -1, "asset_tag_index")]
-    }
+      if length > 8 {
+        yield smbios_string_index(data.byte_at(offset + 8) ?? -1, "asset_tag_index")
+      }
 
-    if length > 13 {
-      fields += [smbios_raw_field(data.byte_at(offset + 13) ?? -1, "board_type_raw")]
-    }
-  } else if record_type == 4 {
-    if length > 4 {
-      fields += [smbios_string_index(data.byte_at(offset + 4) ?? -1, "socket_designation_index")]
-    }
+      if length > 13 {
+        yield smbios_raw_field(data.byte_at(offset + 13) ?? -1, "board_type_raw")
+      }
+    } else if record_type == 4 {
+      if length > 4 {
+        yield smbios_string_index(data.byte_at(offset + 4) ?? -1, "socket_designation_index")
+      }
 
-    if length > 7 {
-      fields += [smbios_string_index(data.byte_at(offset + 7) ?? -1, "manufacturer_index")]
-    }
+      if length > 7 {
+        yield smbios_string_index(data.byte_at(offset + 7) ?? -1, "manufacturer_index")
+      }
 
-    if length > 16 {
-      fields += [smbios_string_index(data.byte_at(offset + 16) ?? -1, "version_index")]
-    }
+      if length > 16 {
+        yield smbios_string_index(data.byte_at(offset + 16) ?? -1, "version_index")
+      }
 
-    if length > 23 {
-      fields += [smbios_raw_field(data.byte_at(offset + 23) ?? -1, "core_count_raw")]
-    }
+      if length > 23 {
+        yield smbios_raw_field(data.byte_at(offset + 23) ?? -1, "core_count_raw")
+      }
 
-    if length > 24 {
-      fields += [smbios_raw_field(data.byte_at(offset + 24) ?? -1, "core_enabled_raw")]
-    }
+      if length > 24 {
+        yield smbios_raw_field(data.byte_at(offset + 24) ?? -1, "core_enabled_raw")
+      }
 
-    if length > 25 {
-      fields += [smbios_raw_field(data.byte_at(offset + 25) ?? -1, "thread_count_raw")]
-    }
-  } else if record_type == 16 {
-    if length >= 11 {
-      fields += [{name: "maximum_capacity_raw", value: bytes.unpack_le(data, 4, offset + 7)?, unit: "smbios_raw"}]
-    }
+      if length > 25 {
+        yield smbios_raw_field(data.byte_at(offset + 25) ?? -1, "thread_count_raw")
+      }
+    } else if record_type == 16 {
+      if length >= 11 {
+        yield {name: "maximum_capacity_raw", value: bytes.unpack_le(data, 4, offset + 7)?, unit: "smbios_raw"}
+      }
 
-    if length >= 15 {
-      fields += [{name: "number_of_devices", value: bytes.unpack_le(data, 2, offset + 13)?, unit: "count"}]
-    }
-  } else if record_type == 17 {
-    if length >= 14 {
-      fields += [{name: "total_width_raw", value: bytes.unpack_le(data, 2, offset + 8)?, unit: "smbios_raw"}]
-      fields += [{name: "data_width_raw", value: bytes.unpack_le(data, 2, offset + 10)?, unit: "smbios_raw"}]
-      fields += [{name: "size_raw", value: bytes.unpack_le(data, 2, offset + 12)?, unit: "smbios_raw"}]
-    }
+      if length >= 15 {
+        yield {name: "number_of_devices", value: bytes.unpack_le(data, 2, offset + 13)?, unit: "count"}
+      }
+    } else if record_type == 17 {
+      if length >= 14 {
+        yield {name: "total_width_raw", value: bytes.unpack_le(data, 2, offset + 8)?, unit: "smbios_raw"}
+        yield {name: "data_width_raw", value: bytes.unpack_le(data, 2, offset + 10)?, unit: "smbios_raw"}
+        yield {name: "size_raw", value: bytes.unpack_le(data, 2, offset + 12)?, unit: "smbios_raw"}
+      }
 
-    if length > 16 {
-      fields += [smbios_string_index(data.byte_at(offset + 16) ?? -1, "device_locator_index")]
-    }
+      if length > 16 {
+        yield smbios_string_index(data.byte_at(offset + 16) ?? -1, "device_locator_index")
+      }
 
-    if length > 17 {
-      fields += [smbios_string_index(data.byte_at(offset + 17) ?? -1, "bank_locator_index")]
-    }
+      if length > 17 {
+        yield smbios_string_index(data.byte_at(offset + 17) ?? -1, "bank_locator_index")
+      }
 
-    if length > 26 {
-      fields += [smbios_string_index(data.byte_at(offset + 26) ?? -1, "part_number_index")]
-    }
+      if length > 26 {
+        yield smbios_string_index(data.byte_at(offset + 26) ?? -1, "part_number_index")
+      }
 
-    if length >= 32 and bytes.unpack_le(data, 2, offset + 12)? == 32767 {
-      fields += [{name: "extended_size_raw", value: bytes.unpack_le(data, 4, offset + 28)?, unit: "smbios_raw"}]
+      if length >= 32 and bytes.unpack_le(data, 2, offset + 12)? == 32767 {
+        yield {name: "extended_size_raw", value: bytes.unpack_le(data, 4, offset + 28)?, unit: "smbios_raw"}
+      }
     }
   }
 
@@ -2943,38 +2942,39 @@ export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error] 
     let strings_start = offset + formatted_length
     var position = strings_start
     var string_start = strings_start
-    var strings: List[report.TextObservation] = []
     var found_terminator = false
-    while position < data.len() {
-      if (data.byte_at(position) ?? -1) == 0 {
-        if position + 1 < data.len() and (data.byte_at(position + 1) ?? -1) == 0 {
+    let strings: List[report.TextObservation] = collect {
+      while position < data.len() {
+        if (data.byte_at(position) ?? -1) == 0 {
+          if position + 1 < data.len() and (data.byte_at(position + 1) ?? -1) == 0 {
+            if position > string_start {
+              let raw = data[string_start..position]
+              if let Ok(value) = raw.utf8() {
+                yield {state: report.Observed, value: value, raw_bytes_base64: null}
+              } else {
+                yield {state: report.Malformed, value: null, raw_bytes_base64: raw.base64()}
+              }
+            }
+
+            position += 2
+            found_terminator = true
+            break
+          }
+
           if position > string_start {
             let raw = data[string_start..position]
             if let Ok(value) = raw.utf8() {
-              strings += [{state: report.Observed, value: value, raw_bytes_base64: null}]
+              yield {state: report.Observed, value: value, raw_bytes_base64: null}
             } else {
-              strings += [{state: report.Malformed, value: null, raw_bytes_base64: raw.base64()}]
+              yield {state: report.Malformed, value: null, raw_bytes_base64: raw.base64()}
             }
           }
 
-          position += 2
-          found_terminator = true
-          break
+          position += 1
+          string_start = position
+        } else {
+          position += 1
         }
-
-        if position > string_start {
-          let raw = data[string_start..position]
-          if let Ok(value) = raw.utf8() {
-            strings += [{state: report.Observed, value: value, raw_bytes_base64: null}]
-          } else {
-            strings += [{state: report.Malformed, value: null, raw_bytes_base64: raw.base64()}]
-          }
-        }
-
-        position += 1
-        string_start = position
-      } else {
-        position += 1
       }
     }
 
@@ -3019,116 +3019,109 @@ export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error] 
 ## Parses interface settings and endpoints without joining identical numbers across configurations.
 export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternate], Error] {
   let records = collectors.parse_usb_descriptor_stream(data)?
-  var alternates: List[UsbDescriptorAlternate] = []
   var current_configuration: Int? = null
   var current_configuration_end: Int? = null
   var active: UsbDescriptorAlternate? = null
-  for descriptor in records {
-    if current_configuration_end != null {
-      let configuration_end = current_configuration_end
-      if descriptor.descriptor_type == 1 or descriptor.descriptor_type == 2 {
-        guard descriptor.offset == configuration_end else {
-          fail "USB configuration descriptor bytes do not match their declared total length"
+  let alternates: List[UsbDescriptorAlternate] = collect {
+    for descriptor in records {
+      if current_configuration_end != null {
+        let configuration_end = current_configuration_end
+        if descriptor.descriptor_type == 1 or descriptor.descriptor_type == 2 {
+          guard descriptor.offset == configuration_end else {
+            fail "USB configuration descriptor bytes do not match their declared total length"
+          }
+        } else if descriptor.offset >= configuration_end or descriptor.offset + descriptor.length > configuration_end {
+          fail "USB descriptor extends outside its configuration"
         }
-      } else if descriptor.offset >= configuration_end or descriptor.offset + descriptor.length > configuration_end {
-        fail "USB descriptor extends outside its configuration"
       }
+
+      if descriptor.descriptor_type == 1 {
+        guard descriptor.length >= 18 else {
+          fail "USB device descriptor is shorter than its fixed header"
+        }
+
+        yield active when active != null
+
+        current_configuration = null
+        current_configuration_end = null
+        active = null
+        continue
+      }
+
+      if descriptor.descriptor_type == 2 {
+        guard descriptor.length >= 9 else {
+          fail "USB configuration descriptor is shorter than its fixed header"
+        }
+
+        let total_length = bytes.unpack_le(descriptor.raw, 2, 2)?
+        if total_length < descriptor.length or total_length > data.len() - descriptor.offset {
+          fail "USB configuration total length is outside the available descriptor bytes"
+        }
+
+        yield active when active != null
+
+        current_configuration = bytes.unpack_le(descriptor.raw, 1, 5)?
+        current_configuration_end = descriptor.offset + total_length
+        active = null
+        continue
+      }
+
+      if descriptor.descriptor_type == 4 {
+        guard descriptor.length >= 9 else {
+          fail "USB interface descriptor is shorter than its fixed header"
+        }
+
+        let interface_number = bytes.unpack_le(descriptor.raw, 1, 2)?
+        let setting_number = bytes.unpack_le(descriptor.raw, 1, 3)?
+        yield active when active != null
+
+        active = {
+          configuration_value: current_configuration,
+          interface_number: interface_number,
+          setting_number: setting_number,
+          class_code: bytes.unpack_le(descriptor.raw, 1, 5)?,
+          subclass: bytes.unpack_le(descriptor.raw, 1, 6)?,
+          protocol: bytes.unpack_le(descriptor.raw, 1, 7)?,
+          endpoints: [],
+        }
+        continue
+      }
+
+      continue when descriptor.descriptor_type != 5
+      if descriptor.length < 7 {
+        fail "USB endpoint descriptor is truncated or has no owning interface"
+      }
+
+      if active == null {
+        fail "USB endpoint descriptor is truncated or has no owning interface"
+      }
+
+      let current = active
+      let address = bytes.unpack_le(descriptor.raw, 1, 2)?
+      let attributes = bytes.unpack_le(descriptor.raw, 1, 3)?
+      let packet_size = bytes.unpack_le(descriptor.raw, 2, 4)?
+      let interval = bytes.unpack_le(descriptor.raw, 1, 6)?
+      let transfer_type = match attributes % 4 {
+        0 => "control",
+        1 => "isochronous",
+        2 => "bulk",
+        else => "interrupt",
+      }
+      let endpoint: report.UsbEndpoint = report.UsbEndpoint(
+        address:,
+        direction: if address >= 128 {
+          "in"
+        } else {
+          "out"
+        },
+        transfer_type:,
+        max_packet_size: packet_size,
+        interval:,
+      )
+      active = {...current, endpoints: current.endpoints.push(endpoint)}
     }
 
-    if descriptor.descriptor_type == 1 {
-      guard descriptor.length >= 18 else {
-        fail "USB device descriptor is shorter than its fixed header"
-      }
-
-      if active != null {
-        alternates += [active]
-      }
-
-      current_configuration = null
-      current_configuration_end = null
-      active = null
-      continue
-    }
-
-    if descriptor.descriptor_type == 2 {
-      guard descriptor.length >= 9 else {
-        fail "USB configuration descriptor is shorter than its fixed header"
-      }
-
-      let total_length = bytes.unpack_le(descriptor.raw, 2, 2)?
-      if total_length < descriptor.length or total_length > data.len() - descriptor.offset {
-        fail "USB configuration total length is outside the available descriptor bytes"
-      }
-
-      if active != null {
-        alternates += [active]
-      }
-
-      current_configuration = bytes.unpack_le(descriptor.raw, 1, 5)?
-      current_configuration_end = descriptor.offset + total_length
-      active = null
-      continue
-    }
-
-    if descriptor.descriptor_type == 4 {
-      guard descriptor.length >= 9 else {
-        fail "USB interface descriptor is shorter than its fixed header"
-      }
-
-      let interface_number = bytes.unpack_le(descriptor.raw, 1, 2)?
-      let setting_number = bytes.unpack_le(descriptor.raw, 1, 3)?
-      if active != null {
-        alternates += [active]
-      }
-
-      active = {
-        configuration_value: current_configuration,
-        interface_number: interface_number,
-        setting_number: setting_number,
-        class_code: bytes.unpack_le(descriptor.raw, 1, 5)?,
-        subclass: bytes.unpack_le(descriptor.raw, 1, 6)?,
-        protocol: bytes.unpack_le(descriptor.raw, 1, 7)?,
-        endpoints: [],
-      }
-      continue
-    }
-
-    continue when descriptor.descriptor_type != 5
-    if descriptor.length < 7 {
-      fail "USB endpoint descriptor is truncated or has no owning interface"
-    }
-
-    if active == null {
-      fail "USB endpoint descriptor is truncated or has no owning interface"
-    }
-
-    let current = active
-    let address = bytes.unpack_le(descriptor.raw, 1, 2)?
-    let attributes = bytes.unpack_le(descriptor.raw, 1, 3)?
-    let packet_size = bytes.unpack_le(descriptor.raw, 2, 4)?
-    let interval = bytes.unpack_le(descriptor.raw, 1, 6)?
-    let transfer_type = match attributes % 4 {
-      0 => "control",
-      1 => "isochronous",
-      2 => "bulk",
-      else => "interrupt",
-    }
-    let endpoint: report.UsbEndpoint = report.UsbEndpoint(
-      address:,
-      direction: if address >= 128 {
-        "in"
-      } else {
-        "out"
-      },
-      transfer_type:,
-      max_packet_size: packet_size,
-      interval:,
-    )
-    active = {...current, endpoints: current.endpoints.push(endpoint)}
-  }
-
-  if active != null {
-    alternates += [active]
+    yield active when active != null
   }
 
   if current_configuration_end != null and current_configuration_end != data.len() {
@@ -3176,19 +3169,20 @@ pure usb_device_indices(devices: List[report.UsbDevice]) -> Map[Int] {
 ## Resolves USB parent indexes after every device has been enumerated.
 export pure link_usb_parents(devices: List[report.UsbDevice]) -> List[report.UsbDevice] {
   let device_index_by_name = usb_device_indices(devices)
-  var linked: List[report.UsbDevice] = []
-  for device in devices {
-    let parent_name = usb_parent_name(device.sysfs_name ?? "", device.bus_number)
-    var parent_index: Int? = null
-    if parent_name != null {
-      if parent_name in device_index_by_name {
-        if let Ok(index) = device_index_by_name.get(parent_name) {
-          parent_index = index
+  let linked: List[report.UsbDevice] = collect {
+    for device in devices {
+      let parent_name = usb_parent_name(device.sysfs_name ?? "", device.bus_number)
+      var parent_index: Int? = null
+      if parent_name != null {
+        if parent_name in device_index_by_name {
+          if let Ok(index) = device_index_by_name.get(parent_name) {
+            parent_index = index
+          }
         }
       }
-    }
 
-    linked += [{...device, parent_device_index: parent_index}]
+      yield {...device, parent_device_index: parent_index}
+    }
   }
 
   linked
@@ -4378,25 +4372,24 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
 
   let policies = collect_frequency_policies(root, issues)
   issues = policies.issues
-  var linked_cpus: List[report.Cpu] = []
-  for cpu_item in cpus {
-    var policy_name: Str? = null
-    let cache_ids = cache_ids_by_cpu.get(f"{cpu_item.id}") ?? []
-    for policy in policies.policies {
-      if cpu_item.id in policy.related_cpus {
-        policy_name = policy.name
-        break
+  let linked_cpus: List[report.Cpu] = collect {
+    for cpu_item in cpus {
+      var policy_name: Str? = null
+      let cache_ids = cache_ids_by_cpu.get(f"{cpu_item.id}") ?? []
+      for policy in policies.policies {
+        if cpu_item.id in policy.related_cpus {
+          policy_name = policy.name
+          break
+        }
       }
-    }
 
-    linked_cpus += [
-      {
+      yield {
         ...cpu_item,
         policy: policy_name,
         cache_ids: cache_ids,
         cache_indices: cache_ids,
-      },
-    ]
+      }
+    }
   }
 
   let vulnerabilities_listing = root.children(p"sys/devices/system/cpu/vulnerabilities", max_entries: 256)?
@@ -4734,21 +4727,20 @@ proc collect_frequency_policies(root: FsRoot, issues: List[report.CollectionIssu
       }
     }
 
-    var frequencies: List[Int] = []
-    for value in parse_words(observed_source_text(available_frequency)) {
-      let parsed = collectors.bounded_number(
-        {...available_frequency, observation.value: value},
-        true,
-      )
-      collected_issues = append_number_issue(
-        collected_issues,
-        "cpu",
-        f"{directory.name()}.scaling_available_frequencies",
-        parsed,
-      )
-      let exact = parsed.value ?? -1
-      if exact >= 0 {
-        frequencies += [exact]
+    let frequencies: List[Int] = collect {
+      for value in parse_words(observed_source_text(available_frequency)) {
+        let parsed = collectors.bounded_number(
+          {...available_frequency, observation.value: value},
+          true,
+        )
+        collected_issues = append_number_issue(
+          collected_issues,
+          "cpu",
+          f"{directory.name()}.scaling_available_frequencies",
+          parsed,
+        )
+        let exact = parsed.value ?? -1
+        yield exact when exact >= 0
       }
     }
 
@@ -6071,13 +6063,14 @@ pure network_mac(value: Bytes?) -> report.TextObservation {
     return empty_text(report.Absent)
   }
 
-  var parts: List[Str] = []
   let digits = "0123456789abcdef".split("")
-  for octet_bytes in value.chunks(1) {
-    if let Ok(octet) = bytes.unpack_le(octet_bytes, 1, 0) {
-      parts += [f"{digits[octet / 16]}{digits[octet % 16]}"]
-    } else {
-      return empty_text(report.Malformed)
+  let parts: List[Str] = collect {
+    for octet_bytes in value.chunks(1) {
+      if let Ok(octet) = bytes.unpack_le(octet_bytes, 1, 0) {
+        yield f"{digits[octet / 16]}{digits[octet % 16]}"
+      } else {
+        return empty_text(report.Malformed)
+      }
     }
   }
 
@@ -6104,44 +6097,27 @@ pure network_family(value: Str) -> Str {
 }
 
 pure network_link_flags(value: Int) -> List[Str] {
-  var flags: List[Str] = []
-  if value.bit_and(1) != 0 {
-    flags += ["up"]
-  }
+  let flags: List[Str] = collect {
+    yield "up" when value.bit_and(1) != 0
 
-  if value.bit_and(2) != 0 {
-    flags += ["broadcast"]
-  }
+    yield "broadcast" when value.bit_and(2) != 0
 
-  if value.bit_and(8) != 0 {
-    flags += ["loopback"]
-  }
+    yield "loopback" when value.bit_and(8) != 0
 
-  if value.bit_and(16) != 0 {
-    flags += ["point_to_point"]
-  }
+    yield "point_to_point" when value.bit_and(16) != 0
 
-  if value.bit_and(64) != 0 {
-    flags += ["running"]
-  }
+    yield "running" when value.bit_and(64) != 0
 
-  if value.bit_and(256) != 0 {
-    flags += ["promiscuous"]
-  }
+    yield "promiscuous" when value.bit_and(256) != 0
 
-  if value.bit_and(4096) != 0 {
-    flags += ["multicast"]
-  }
+    yield "multicast" when value.bit_and(4096) != 0
 
-  if value.bit_and(65536) != 0 {
-    flags += ["lower_up"]
-  }
+    yield "lower_up" when value.bit_and(65536) != 0
 
-  if value.bit_and(131072) != 0 {
-    flags += ["dormant"]
-  }
+    yield "dormant" when value.bit_and(131072) != 0
 
-  flags += [f"raw_bits={value}"]
+    yield f"raw_bits={value}"
+  }
   flags
 }
 
@@ -6275,13 +6251,14 @@ export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection 
   for raw_link in value.links {
     let addresses = addresses_by_link.get(f"{raw_link.ifindex}") ?? []
 
-    var counters: List[report.MemoryCounter] = []
-    if raw_link.rx_bytes != null {
-      counters += [{name: "rx_bytes", value: raw_link.rx_bytes, unit: "bytes"}]
-    }
+    let counters: List[report.MemoryCounter] = collect {
+      if raw_link.rx_bytes != null {
+        yield {name: "rx_bytes", value: raw_link.rx_bytes, unit: "bytes"}
+      }
 
-    if raw_link.tx_bytes != null {
-      counters += [{name: "tx_bytes", value: raw_link.tx_bytes, unit: "bytes"}]
+      if raw_link.tx_bytes != null {
+        yield {name: "tx_bytes", value: raw_link.tx_bytes, unit: "bytes"}
+      }
     }
 
     links += [

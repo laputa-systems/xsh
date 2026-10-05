@@ -2847,10 +2847,11 @@ test test_stream_where_string_views_match_ordinary_record_comparison {
   let source = """ MemFree :bytes
 VendorCounter:widgets
 """
-  var viewed: List[StreamLabelRow] = []
-  for line in source.lines() {
-    let fields = line.split(":")
-    viewed += [{name: fields[0].trim(), unit: fields[1]}]
+  let viewed: List[StreamLabelRow] = collect {
+    for line in source.lines() {
+      let fields = line.split(":")
+      yield {name: fields[0].trim(), unit: fields[1]}
+    }
   }
 
   let owned: List[StreamLabelRow] = [{name: "MemFree", unit: "bytes"}, {name: "VendorCounter", unit: "widgets"}]

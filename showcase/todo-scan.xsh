@@ -63,18 +63,18 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let hits: List[Hit] = files
     |> par-map { |entry|
-      var file_hits: List[Hit] = []
+      let file_hits: List[Hit] = collect {
+        if let Ok(src) = entry.path.read_text() {
+          let rel = entry.path.relative_to(root).display()
 
-      if let Ok(src) = entry.path.read_text() {
-        let rel = entry.path.relative_to(root).display()
-
-        for item in src.lines() |> enumerate() {
-          let caps = re.captures(item.value)
-          continue when caps.is_empty()
-          let tag = caps[1]
-          continue when opts.tag != "" and tag != opts.tag
-          let body = caps[2].trim()
-          file_hits += [{file: rel, line: item.index + 1, tag: tag, text: body}]
+          for item in src.lines() |> enumerate() {
+            let caps = re.captures(item.value)
+            continue when caps.is_empty()
+            let tag = caps[1]
+            continue when opts.tag != "" and tag != opts.tag
+            let body = caps[2].trim()
+            yield {file: rel, line: item.index + 1, tag: tag, text: body}
+          }
         }
       }
 

@@ -27,32 +27,32 @@ proc main(...argv: List[Str]) [fs, error] {
   var compression = "auto"
   var strip = 0
   var overwrite = false
-  var operands = []
-
-  for token in cli.tokens(argv, ["f", "C", "strip-components"])? {
-    match token.kind {
-      "short" => {
-        match token.name {
-          "c" => mode = "create"
-          "t" => mode = "list"
-          "x" => mode = "extract"
-          "z" => compression = "gz"
-          "j" => compression = "bz2"
-          "J" => compression = "xz"
-          "f" => archive_path = fp"{token.value}"
-          "C" => root = fp"{token.value}"
-          else => return Err(reject_unsupported("tar", f"-{token.name}"))
+  let operands = collect {
+    for token in cli.tokens(argv, ["f", "C", "strip-components"])? {
+      match token.kind {
+        "short" => {
+          match token.name {
+            "c" => mode = "create"
+            "t" => mode = "list"
+            "x" => mode = "extract"
+            "z" => compression = "gz"
+            "j" => compression = "bz2"
+            "J" => compression = "xz"
+            "f" => archive_path = fp"{token.value}"
+            "C" => root = fp"{token.value}"
+            else => return Err(reject_unsupported("tar", f"-{token.name}"))
+          }
         }
-      }
-      "long" => {
-        match token.name {
-          "overwrite" => overwrite = true
-          "strip-components" => strip = common_int(token.value, "strip components")?
-          else => return Err(reject_unsupported("tar", f"--{token.name}"))
+        "long" => {
+          match token.name {
+            "overwrite" => overwrite = true
+            "strip-components" => strip = common_int(token.value, "strip components")?
+            else => return Err(reject_unsupported("tar", f"--{token.name}"))
+          }
         }
+        "operand" => yield fp"{token.name}"
+        else => {}
       }
-      "operand" => operands += [fp"{token.name}"]
-      else => {}
     }
   }
 

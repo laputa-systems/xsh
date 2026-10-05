@@ -74,11 +74,11 @@ proc main(...raw: List[Str]) [process, env, error] {
     return
   }
 
-  var command_argv = []
-
-  while index < argv.len() {
-    command_argv += [argv[index]]
-    index += 1
+  let command_argv = collect {
+    while index < argv.len() {
+      yield argv[index]
+      index += 1
+    }
   }
 
   if path_update != "" and xsh_module_path_update != "" {

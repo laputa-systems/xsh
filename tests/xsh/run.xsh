@@ -78,14 +78,10 @@ test test_grouped_multiline_run_invocation_executes {
 }
 
 test test_run_status_can_drive_conditions {
-  var seen = []
+  let seen = collect {
+    yield "missing" unless run.status false
 
-  if ! run.status false {
-    seen += ["missing"]
-  }
-
-  if run.status true {
-    seen += ["ok"]
+    yield "ok" when run.status true
   }
 
   assert seen == ["missing", "ok"]
@@ -99,18 +95,12 @@ test test_path_absolute_uses_current_runtime_cwd_without_existing_path {
 
 test test_boolean_operators_short_circuit {
   let items = [1]
-  var seen = []
+  let seen = collect {
+    yield "bad-and" when false and items[9] == 0
 
-  if false and items[9] == 0 {
-    seen += ["bad-and"]
-  }
+    yield "ok-or" when true or items[9] == 0
 
-  if true or items[9] == 0 {
-    seen += ["ok-or"]
-  }
-
-  if ! items.is_empty() and items[0] == 1 {
-    seen += ["ok-and"]
+    yield "ok-and" when ! items.is_empty() and items[0] == 1
   }
 
   assert seen == ["ok-or", "ok-and"]
