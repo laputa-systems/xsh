@@ -507,6 +507,8 @@ parentheses, and it may itself contain spaces and parentheses, which is why
 The greedy `(.*)` matches up to the last `)` on the line, so the command name
 can contain anything. `guard let` binds an `Ok` value or runs its `else` block,
 which here skips processes that vanished mid-scan instead of failing the run.
+Over an optional it binds the value that is not `null` the same way:
+`guard let user = lookup(id) else { return }`.
 
 ## JSON Boundaries
 

@@ -176,6 +176,11 @@ pub struct CheckOutput {
     /// How each well-formed error constructor call binds its arguments, keyed
     /// by call expression.
     pub error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
+    /// Conditional bindings whose subject is an optional: the `guard let`
+    /// statement, or the `let pattern = subject` condition of an `if` or
+    /// `while`. A `null` subject takes the failure path and any other value is
+    /// bound; lowering reads this instead of deciding from the subject's type.
+    pub optional_binding_spans: BTreeSet<Span>,
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
@@ -590,6 +595,7 @@ pub struct Checker {
     record_constructor_fields: BTreeMap<Span, Vec<Name>>,
     message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
     error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
+    optional_binding_spans: BTreeSet<Span>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
@@ -723,6 +729,7 @@ impl Checker {
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
                 error_constructors: checker.error_constructors,
+                optional_binding_spans: checker.optional_binding_spans,
                 embedded_bodies_checked: options.embedded_bodies,
             }
         })
@@ -867,6 +874,7 @@ impl Checker {
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
                 error_constructors: checker.error_constructors,
+                optional_binding_spans: checker.optional_binding_spans,
                 embedded_bodies_checked: false,
             }
         })
@@ -935,6 +943,7 @@ impl Checker {
             record_constructor_fields: BTreeMap::new(),
             message_payload_constructors: BTreeMap::new(),
             error_constructors: BTreeMap::new(),
+            optional_binding_spans: BTreeSet::new(),
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),

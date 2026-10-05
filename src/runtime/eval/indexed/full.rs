@@ -3733,6 +3733,23 @@ impl<'a> FullDecoder<'a> {
         Ok(())
     }
 
+    /// An optional guard fails on `null`, which carries no error, so it has
+    /// no slot to bind one to. Executing such a row would leave that slot
+    /// holding whatever an earlier statement stored there.
+    fn verify_guard_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        LoweredCompTarget::decode(self, &mut payload)?;
+        payload.raw()?;
+        let else_param_slot = Option::<usize>::decode(self, &mut payload)?;
+        payload.raw()?;
+        Span::decode(self, &mut payload)?;
+        if bool::decode(self, &mut payload)? && else_param_slot.is_some() {
+            return Err(IrVerifyError::new(
+                "optional guard cannot bind a failure parameter",
+            ));
+        }
+        Ok(())
+    }
+
     fn finish_instruction(&self, index: usize) {
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
@@ -6054,6 +6071,10 @@ macro_rules! impl_node_codec {
                     let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
                     decoder.verify_retry_selection(payload)?;
                 }
+                if tag == FullTag::StmtGuard {
+                    let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
+                    decoder.verify_guard_shape(payload)?;
+                }
                 decoder.finish_instruction(instruction);
                 Ok(())
             }
@@ -8274,18 +8295,21 @@ impl_node_codec! {
             else_param_slot,
             else_body,
             span,
+            optional,
         } => StmtGuard {
             target: LoweredCompTarget,
             value: BuildExprId,
             else_param_slot: Option<usize>,
             else_body: Vec<BuildStmtId>,
             span: Span,
+            optional: bool,
         } => BuildStmtRow::Guard {
             target,
             value,
             else_param_slot,
             else_body,
             span,
+            optional,
         },
         BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span } => StmtWith {
             bindings: Vec<(usize, BuildExprId)>,
@@ -11700,5 +11724,51 @@ proc scoped() [io, error] -> Int {
                 .message
                 .contains("non-rest defaulted parameter entry")
         );
+    }
+
+    #[test]
+    fn verifier_rejects_optional_guard_with_failure_parameter() {
+        run_with_large_stack(|| {
+            let guard_payload = |program: &FullProgram| {
+                let guard = program
+                    .store
+                    .tags
+                    .iter()
+                    .position(|tag| *tag == FullTag::StmtGuard)
+                    .unwrap();
+                program.store.data[guard]
+                    .range()
+                    .bounds(program.store.extra.len())
+                    .unwrap()
+            };
+
+            // The checker's optional-binding fact reaches the row.
+            let optional = fixture(
+                "optional-guard.xsh",
+                "pure label(name: Str?) -> Str { guard let found = name else { return \"none\" }; found }\n",
+            );
+            FullVerifier::verify(&optional).unwrap();
+            assert_eq!(optional.store.extra[guard_payload(&optional).end - 1], 1);
+
+            // A Result guard binds its failure; marking it optional claims a
+            // failure with no error for that slot.
+            let result = fixture(
+                "result-guard.xsh",
+                "pure parse(text: Str) -> Result[Int] { text.parse_int() }\npure value(text: Str) -> Int { guard let number = parse(text) else { |failure| return failure.message.count_chars() }; number }\n",
+            );
+            FullVerifier::verify(&result).unwrap();
+            let flag = guard_payload(&result).end - 1;
+            assert_eq!(result.store.extra[flag], 0);
+            let mut invalid = result.clone();
+            invalid.store.extra[flag] = 1;
+            let error = FullVerifier::verify(&invalid).unwrap_err();
+            assert!(
+                error
+                    .message
+                    .contains("optional guard cannot bind a failure parameter"),
+                "{}",
+                error.message
+            );
+        });
     }
 }

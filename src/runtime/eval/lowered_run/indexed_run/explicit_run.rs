@@ -102,6 +102,8 @@ enum FrameContinuation {
         else_param_slot: Option<usize>,
         else_body: u32,
         span: Span,
+        /// The subject is an optional, so `null` fails and no `Result` is unwrapped.
+        optional: bool,
     },
     Store(usize),
     StoreTarget {
@@ -2072,6 +2074,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let else_body = indexed_raw(&mut payload, span)?;
                 let span =
                     indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                let optional =
+                    indexed_decode::<bool>(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 self.push_expr(
                     index,
@@ -2082,6 +2086,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         else_param_slot,
                         else_body,
                         span,
+                        optional,
                     },
                 );
                 Ok(())
@@ -3255,9 +3260,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 else_param_slot,
                 else_body,
                 span,
+                optional,
             } => match value {
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+                // An optional guard reads its subject as it is: `null` is the
+                // failure, with no error to bind, and anything else (a
+                // `Result` included) is the value the target names.
+                FrameValue::Value(LoweredValue::Null) if optional => {
+                    self.calls[index]
+                        .work
+                        .push(FrameWork::GuardFailureEnd(span));
+                    self.push_statement_block(index, else_body, span)?;
+                }
+                FrameValue::Value(value) if optional => {
+                    self.declare_target(index, &target);
+                    bind_lowered_comp_target(&target, value, &mut self.calls[index].slots, span)?;
                 }
                 FrameValue::Value(LoweredValue::ResultOk(value)) => {
                     self.declare_target(index, &target);

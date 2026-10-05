@@ -37,6 +37,9 @@ mod lint_size_literal;
 #[path = "lint_prefer_match_else.rs"]
 mod lint_prefer_match_else;
 
+#[path = "lint_optional_binding.rs"]
+mod lint_optional_binding;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -5395,6 +5398,7 @@ impl<'a> Linter<'a> {
         if let Some(&first) = stmts.first() {
             self.lint_negative_if_as_boolean_guard(first);
         }
+        lint_optional_binding::lint_null_test_then_binding(self, stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for (index, &stmt) in stmts.iter().enumerate() {

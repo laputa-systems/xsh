@@ -949,6 +949,17 @@ impl Checker {
                 .get(&arena.arena.expr(value).span)
                 .cloned()
                 .unwrap_or(Type::Unknown);
+            // An optional binding's pattern sees the non-null value.
+            let ty = match ty {
+                Type::Optional(present)
+                    if self
+                        .optional_binding_spans
+                        .contains(&arena.arena.expr(condition).span) =>
+                {
+                    *present
+                }
+                ty => ty,
+            };
             self.check_pattern_arena(
                 arena,
                 source,
@@ -1100,6 +1111,18 @@ impl Checker {
                     return ConditionNarrowings::default();
                 };
                 let pattern = arena.arena.match_expr_arms(arms)[0].pattern;
+                // An optional binding succeeds exactly when the subject is
+                // not null, so its branch may also use the subject itself.
+                if let Type::Optional(present) = &subject_ty
+                    && self
+                        .optional_binding_spans
+                        .contains(&arena.arena.expr(condition).span)
+                {
+                    return ConditionNarrowings {
+                        when_true: vec![binding.proof.fact(name, path, (**present).clone())],
+                        when_false: Vec::new(),
+                    };
+                }
                 let ty = self.pattern_test_narrowed_type(arena, pattern);
                 // A facet filters a nominal error without changing its family or
                 // variant. Keep that precision when no intersection type is available.
@@ -1539,13 +1562,32 @@ impl Checker {
             expected.as_ref(),
             schema,
         );
+        // The outermost type selects the form, so `Result[T?]` stays a Result
+        // binding and `Result[T]?` binds the Result itself. The fact is
+        // rewritten on every check of this statement, because inference may
+        // check a body more than once with a sharper subject type.
+        self.optional_binding_spans.remove(&span);
+        if let Type::Optional(present) = init_ty {
+            self.optional_binding_spans.insert(span);
+            self.check_optional_guard_arena(
+                arena,
+                source,
+                target,
+                ty,
+                initializer,
+                else_block,
+                *present,
+                span,
+            );
+            return;
+        }
         let (ok_ty, error_ty) = match init_ty {
             Type::Result(ok, error) => (*ok, *error),
             Type::Unknown => (Type::Unknown, Type::Unknown),
             other => {
                 self.error(
                     span,
-                    "`guard let` binding must produce a Result value",
+                    "`guard let` binding must produce a Result or an optional value",
                     DiagnosticCode::CheckGuardBinding,
                 );
                 (other, Type::Error)
@@ -1566,6 +1608,78 @@ impl Checker {
             ok_ty
         };
         self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
+        self.define_binding_target_arena(arena, target, &bind_ty, false, span);
+    }
+
+    /// `guard let target = subject else { ... }` over an optional subject:
+    /// `null` runs the block, any other value is bound as `present`.
+    ///
+    /// A null value carries no error, so the block is an ordinary guard
+    /// failure block: it takes no parameter and must leave the continuation.
+    /// A subject that is a stable binding or field path is narrowed for the
+    /// following statements exactly as `guard subject != null` narrows it, so
+    /// code that kept using the subject after a null test still checks.
+    #[allow(clippy::too_many_arguments)]
+    fn check_optional_guard_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        target: BindingTargetId,
+        ty: Option<TypeExprId>,
+        initializer: ArenaExprOrRun,
+        else_block: BlockId,
+        present: Type,
+        span: Span,
+    ) {
+        if record_target_requires_schema_check(arena, target, &present) {
+            self.error(
+                span,
+                "record destructuring of Any requires an explicit schema check",
+                DiagnosticCode::CheckDestructureType,
+            );
+        }
+        let bind_ty = if let Some(ty_id) = ty {
+            let ann = self.type_from_arena(arena, ty_id);
+            self.expect_type(&ann, &present, span);
+            ann
+        } else {
+            present.clone()
+        };
+        let else_span = arena.arena.span(arena.arena.block(else_block).span);
+        let success_scopes = self.scopes.clone();
+        if let Some(param) = arena
+            .arena
+            .block_params(arena.arena.block(else_block).params)
+            .first()
+        {
+            self.error(
+                arena.arena.span(param.span),
+                "an optional `guard let` has no error to bind: a null subject carries none, so its `else` block takes no parameter",
+                DiagnosticCode::CheckBlockParams,
+            );
+            // Check the body with the name defined so its uses do not add
+            // unknown-name errors to the one above.
+            self.check_error_handler_block_arena(arena, source, else_block, &Type::Unknown);
+        } else {
+            self.push_scope();
+            self.check_block_arena(arena, source, else_block);
+            self.pop_scope();
+            if !self.definitely_exiting_block_spans.contains(&else_span) {
+                self.error(
+                    else_span,
+                    "guard failure branch must leave the enclosing continuation on every reachable path",
+                    DiagnosticCode::CheckGuardFallthrough,
+                );
+            }
+        }
+        self.scopes = success_scopes;
+        if let ArenaExprOrRun::Expr(subject) = initializer
+            && let Some((name, path, Type::Optional(_))) = self.proof_subject_arena(arena, subject)
+            && let Some(binding) = self.lookup(name)
+        {
+            let fact = binding.proof.fact(name, path, present);
+            self.apply_narrowings(&[fact]);
+        }
         self.define_binding_target_arena(arena, target, &bind_ty, false, span);
     }
 

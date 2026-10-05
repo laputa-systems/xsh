@@ -98,6 +98,11 @@ pub struct CompactBodyFacts {
     pub record_constructor_fields: FxHashMap<ExprId, Vec<Name>>,
     /// The argument binding of each error constructor, keyed by call.
     pub error_constructors: FxHashMap<ExprId, super::CheckedErrorConstructor>,
+    /// `if let` and `while let` conditions that bind the non-null value of an
+    /// optional subject: `null` fails the condition before the pattern runs.
+    pub optional_binding_conditions: FxHashSet<ExprId>,
+    /// `guard let` statements whose subject is an optional, not a `Result`.
+    pub optional_binding_guards: FxHashSet<StmtId>,
 }
 
 impl CompactBodyFacts {
@@ -150,11 +155,22 @@ impl CompactBodyFacts {
             {
                 record_constructor_types.insert(callee, fact.ty.clone());
             }
+            if matches!(expression.kind, ArenaExprKind::PatternCondition { .. })
+                && checked.optional_binding_spans.contains(&span)
+            {
+                facts.optional_binding_conditions.insert(id);
+            }
         }
         for index in 0..arena.stmt_tags.len() {
             let id = StmtId::from_index(index);
-            if let Some(position) = checked.statement_positions.get(&arena.stmt(id).span) {
+            let statement = arena.stmt(id);
+            if let Some(position) = checked.statement_positions.get(&statement.span) {
                 facts.statement_positions.insert(id, *position);
+            }
+            if matches!(statement.kind, ArenaStmtKind::Guard { .. })
+                && checked.optional_binding_spans.contains(&statement.span)
+            {
+                facts.optional_binding_guards.insert(id);
             }
         }
         if !checked.handler_input_types.is_empty() {

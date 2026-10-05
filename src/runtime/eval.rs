@@ -1181,12 +1181,17 @@ enum BuildStmtRow {
     /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
     /// continue; on `Err`, bind the error to `else_param_slot` (if present) and
     /// run `else_body`, which must diverge.
+    ///
+    /// With `optional`, `value` is an optional instead: `null` runs
+    /// `else_body` and any other value is bound to `target` as it is. A null
+    /// value carries no error, so an optional guard has no `else_param_slot`.
     Guard {
         target: LoweredCompTarget,
         value: BuildExprId,
         else_param_slot: Option<usize>,
         else_body: Vec<BuildStmtId>,
         span: Span,
+        optional: bool,
     },
     With {
         bindings: Vec<(usize, BuildExprId)>,

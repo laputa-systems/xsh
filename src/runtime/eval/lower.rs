@@ -4369,10 +4369,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ArenaExprOrRun::Expr(value) => self.concrete_checked_type(value),
                     ArenaExprOrRun::Run(_) => None,
                 };
+                let optional = self.bodies.optional_binding_guards.contains(&id);
                 for (name, checked) in record_binding_types(
                     self.program,
                     target,
-                    checked.as_ref().and_then(Type::result_ok),
+                    checked
+                        .as_ref()
+                        .and_then(|ty| guard_bound_type(ty, optional)),
                 ) {
                     let kind = checked
                         .as_ref()
@@ -5813,7 +5816,12 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     ArenaExprOrRun::Expr(expr) => self.lower_binding_checked_type(None, expr),
                     ArenaExprOrRun::Run(_) => None,
                 };
-                let success_ty = checked.as_ref().and_then(Type::result_ok);
+                // The checker decided whether this guard unwraps a `Result` or
+                // tests an optional for `null`.
+                let optional = self.bodies.optional_binding_guards.contains(&id);
+                let success_ty = checked
+                    .as_ref()
+                    .and_then(|ty| guard_bound_type(ty, optional));
                 let value = match initializer {
                     ArenaExprOrRun::Expr(expr) => {
                         self.lower_expr(expr, slots, current_function, item_slot)?
@@ -5830,7 +5838,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     .arena
                     .block_params(self.program.arena.block(else_block).params)
                     .first()
-                    .filter(|param| param.name.as_str() != "_")
+                    // A null optional carries no error to bind.
+                    .filter(|param| !optional && param.name.as_str() != "_")
                     .map(|param| {
                         slots.declare_with_type(
                             param.name,
@@ -5858,6 +5867,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         else_param_slot,
                         else_body,
                         span: self.program.arena.stmt(id).span,
+                        optional,
                     }
                 ))
             }
@@ -6866,13 +6876,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let wildcard = push_build_row!(self, pattern, BuildPatternRow::Wildcard);
         let yes = push_build_row!(self, expr, BuildExprRow::Bool(true));
         let no = push_build_row!(self, expr, BuildExprRow::Bool(false));
+        let mut arms = vec![(pattern, None, yes), (wildcard, None, no)];
+        if self.bodies.optional_binding_conditions.contains(&id) {
+            // An optional binding fails on `null` before its pattern, which
+            // would otherwise accept and bind it.
+            let null_pattern =
+                push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null));
+            let absent = push_build_row!(self, expr, BuildExprRow::Bool(false));
+            arms.insert(0, (null_pattern, None, absent));
+        }
         Some((
             push_build_row!(
                 self,
                 expr,
                 BuildExprRow::MatchExpr {
                     value: subject,
-                    arms: vec![(pattern, None, yes), (wildcard, None, no)],
+                    arms,
                     span
                 }
             ),
@@ -14460,6 +14479,16 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
             "{}?",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
         ),
+    }
+}
+
+/// The type a `guard let` target receives from a subject of type `subject`:
+/// the non-null value of an optional guard, the `Ok` payload otherwise.
+fn guard_bound_type(subject: &Type, optional: bool) -> Option<&Type> {
+    match subject {
+        Type::Optional(present) if optional => Some(present),
+        _ if optional => None,
+        subject => subject.result_ok(),
     }
 }
 

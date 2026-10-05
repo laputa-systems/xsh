@@ -880,6 +880,9 @@ Narrowing is local and lexical. A fact holds inside the branch, guarded
 continuation, loop body, or match arm where a condition proved it.
 
 - `x != null` (or `x == null` on the false side) narrows `T?` to `T`.
+- An optional binding (8.6), `guard let y = x else { ... }`, `if let y = x`,
+  or `while let y = x` over `x: T?`, binds `y` as `T` and narrows `x` the same
+  way.
 - `x is Pattern` narrows a stable binding to the pattern's type.
 - `"field" in record` proves the field exists.
 - `!`, `and`, and `or` combine facts in the obvious way; an immutable `Bool`
@@ -1406,16 +1409,48 @@ call such as `abort`), or the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
 
-`guard let target = expr else { |failure| ... }` binds the `Ok` payload of a
-`Result` (with an optional type annotation) and otherwise runs the block with
-the error. Inside a loop the block may `break` or `continue`. It is a core
+`guard let target = expr else { ... }` binds `target` (with an optional type
+annotation) when `expr` succeeds and otherwise runs the block. `expr`
+evaluates once, and its type selects the form:
+
+- `Result[T, E]`: `Ok` binds its payload as `T`. `Err` runs the block, which
+  may name the error: `else { |failure| ... }`.
+- `T?`: any value but `null` is bound as `T`. `null` runs the block. A null
+  value carries no error, so the block takes no parameter
+  (`check.block-params`), and like the block of `guard cond` it must leave the
+  enclosing continuation (`check.guard-fallthrough`).
+
+```xsh
+{{.spec.optional_binding.source}}
+```
+
+Any other type is `check.guard-binding`. The outermost type decides: a
+`Result[T?]` is a Result binding whose target is still `T?`, so `Ok(null)`
+binds `null` and only `Err` runs the block; a `Result[T]?` is an optional
+binding, where only `null` runs the block and the target is the `Result[T]`.
+Inside a loop the block may `break` or `continue`. `guard let` is a core
 form, not sugar: its binding belongs to the enclosing block, and no other
 statement binds a name there from inside a branch.
 
+```xsh
+{{.spec.optional_binding_handler.source}}
+```
+
 `if let pattern = subject` and `while let pattern = subject` test a pattern.
-They do not unwrap `Result` or optional values implicitly: write
-`if let Ok(value) = result`. Captures are immutable and visible only in the
-selected branch or iteration. Irrefutable patterns are rejected.
+They do not unwrap a `Result` implicitly: write `if let Ok(value) = result`.
+Captures are immutable and visible only in the selected branch or iteration.
+A pattern that cannot fail is rejected
+(`check.irrefutable-pattern-condition`), except over an optional subject,
+where it is an optional binding: `if let name = subject` with `subject: T?`
+takes the `else` branch (and `while let` ends the loop) on `null`, and
+otherwise matches the pattern against the value as a `T`. A pattern that can
+fail on its own is matched against an optional subject as it is, with no
+unwrapping.
+
+An optional binding also narrows its subject (5.4): after
+`guard let name = subject else { ... }`, and inside the branch or body selected
+by `if let name = subject` or `while let name = subject`, a `subject` that is
+a binding or a known field path has type `T`, as after `subject != null`.
 
 `with` binds several fallible values with one error handler:
 

@@ -845,21 +845,36 @@ impl Checker {
             ArenaExprKind::PatternCondition { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
-                if super::stmt::patterns_are_exhaustive_arena(
+                let cannot_fail = super::stmt::patterns_are_exhaustive_arena(
                     arena,
                     &value_ty,
                     std::iter::once(pattern),
                     &self.type_defs,
                     &self.tag_variants,
-                ) {
-                    self.error(
-                        expr.span,
-                        "pattern condition cannot fail; bind the subject with `let` instead",
-                        DiagnosticCode::CheckIrrefutablePatternCondition,
-                    );
-                }
+                );
+                // A pattern that cannot fail on its own still has a failure
+                // case over an optional subject: `null`. That is optional
+                // binding, and the pattern then sees the non-null value. The
+                // fact is rewritten on every check of this condition.
+                self.optional_binding_spans.remove(&expr.span);
+                let subject_ty = match value_ty {
+                    Type::Optional(present) if cannot_fail => {
+                        self.optional_binding_spans.insert(expr.span);
+                        *present
+                    }
+                    value_ty => {
+                        if cannot_fail {
+                            self.error(
+                                expr.span,
+                                "pattern condition cannot fail; bind the subject with `let` instead",
+                                DiagnosticCode::CheckIrrefutablePatternCondition,
+                            );
+                        }
+                        value_ty
+                    }
+                };
                 self.push_scope();
-                self.check_pattern_arena(arena, source, pattern, &value_ty);
+                self.check_pattern_arena(arena, source, pattern, &subject_ty);
                 self.pop_scope();
                 Type::Bool
             }

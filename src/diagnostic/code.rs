@@ -318,7 +318,7 @@ diagnostic_codes! {
         CheckFlatMap = "check.flat-map", error, "Reject a `flat-map` block that does not produce a `List` or `Stream`";
         CheckFmtDollarName = "check.fmt-dollar-name", error, "Reject `$name` in an f-string, which interpolates with `{name}`";
         CheckForIterator = "check.for-iterator", error, "Reject a `for` loop over a value that is not a `List`, `Stream`, `Map`, `Str`, or `Bytes`";
-        CheckGuardBinding = "check.guard-binding", error, "Reject a `guard let` binding that is not a `Result` value";
+        CheckGuardBinding = "check.guard-binding", error, "Reject a `guard let` binding that is neither a `Result` nor an optional value";
         CheckGuardFallthrough = "check.guard-fallthrough", error, "Reject a `guard` else block that can fall through to the enclosing code";
         CheckHandlerBlockParams = "check.handler-block-params", error, "Reject an error handler block with more than one parameter";
         CheckHyphenatedModuleAlias = "check.hyphenated-module-alias", error, "Reject a hyphenated module path segment imported without an `as` alias";
@@ -330,7 +330,7 @@ diagnostic_codes! {
         CheckInferReturn = "check.infer-return", error, "Reject a function whose return shape is underdetermined or inferred inconsistently across paths";
         CheckInferredVariant = "check.inferred-variant", error, "Reject a leading-dot variant whose expected type names no single enum or error family with that variant";
         CheckIntLiteral = "check.int-literal", error, "Reject an integer literal outside the 64-bit signed range";
-        CheckIrrefutablePatternCondition = "check.irrefutable-pattern-condition", error, "Reject a pattern condition that cannot fail instead of binding with `let`";
+        CheckIrrefutablePatternCondition = "check.irrefutable-pattern-condition", error, "Reject a pattern condition that cannot fail over a subject that is not optional, instead of binding with `let`";
         CheckJsonCompatible = "check.json-compatible", error, "Reject a value that is not JSON-compatible, such as `Path`, `Bytes`, `Status`, or `Result`";
         CheckLastStatus = "check.last-status", error, "Reject `$?` read before any status has been set";
         CheckLegacyTestProc = "check.legacy-test-proc", error, "Reject a legacy `test_` proc and require migrating it to a `test NAME { |ctx| ... }` declaration";
@@ -563,6 +563,7 @@ diagnostic_codes! {
         LintPreferNamedArgumentPun = "lint.prefer-named-argument-pun", warning, "Use the named-argument shorthand when the argument repeats its value name";
         LintPreferNamedArgumentSpread = "lint.prefer-named-argument-spread", warning, "Forward record fields with a named argument spread such as `...record`";
         LintPreferNestedRecordUpdate = "lint.prefer-nested-record-update", warning, "Use disjoint static field paths instead of nested record spreads";
+        LintPreferOptionalBinding = "lint.prefer-optional-binding", warning, "Use `guard let` instead of an exiting null test followed by a binding that names the optional again";
         LintPreferOptionalPostfix = "lint.prefer-optional-postfix", warning, "Use a guarded postfix and `??` instead of an explicit null branch";
         LintPreferPositionalConstructor = "lint.prefer-positional-constructor", warning, "Pass leading schema constructor fields positionally when no two of them can hold the same value";
         LintPreferReadLines = "lint.prefer-read-lines", warning, "Read a file's lines with `Path.read_lines()?` instead of `read_text()?.lines()`";
