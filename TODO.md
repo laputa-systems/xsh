@@ -575,6 +575,11 @@ tooling. The items are independent of each other.
   `Result` propagates; that is a typing rule, not sugar.
   Needs the sugar expansion mechanism, and `CMD-12` so the output is not
   partial.
+- `CMD-13` The tour snippet `docs/snippets/tour/29-env-set.xsh` runs
+  `printenv STAGE RETRIES`, which prints both values only with GNU
+  `printenv`; the BSD one prints the first. `make docs` therefore writes a
+  different `docs/user-tour.md` on a macOS host without GNU coreutils first
+  on `PATH`, although generation is meant to be host-independent.
 - `CMD-12` **Move postfix `when`/`unless` and `guard ... else` onto the sugar
   expansion mechanism.** They are sugar by `docs/DESIGN.md` but are still
   first-class statements that the checker and lowering handle by hand

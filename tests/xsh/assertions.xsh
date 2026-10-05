@@ -370,7 +370,7 @@ assert actual == "new\\nline\\n"
 
 test test_assertion_diagnostics_bound_record_field_names { |ctx|
   var field = ""
-  for _ in range(1000) {
+  repeat 1000 times {
     field = field + "abcdefghij"
   }
 

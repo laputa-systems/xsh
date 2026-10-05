@@ -1278,9 +1278,9 @@ So the count is an `Int` evaluated once before the first iteration, `break`
 and `continue` target the `repeat`, a count of zero runs the block no times,
 and a negative count runs it `-count` times because `range` then counts down
 from zero. Diagnostics about the count are those of the `range` argument. A
-statement is a `repeat` statement when it begins with the word `repeat` and
-its count is followed by the word `times` directly before `{`; neither word is
-reserved.
+statement is a `repeat` statement when it begins with the word `repeat` and,
+on the same line, its count is followed by the word `times` directly before
+`{`; neither word is reserved.
 
 `return`, `break`, `continue`, and `yield` accept a postfix guard:
 
