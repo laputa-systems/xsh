@@ -1,6 +1,6 @@
 type BuildPlugin = module {
   export let name: Str
-  export proc build(root: Path) [fs, process, error] -> Result[Unit]
+  export proc build(root: Path) [fs, process, error] -> Result[Unit, Error]
 }
 
 proc build_with(plugin_path: Path, root: Path) [fs, process, error, io] -> Result[Unit] {

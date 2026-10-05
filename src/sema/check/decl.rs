@@ -349,6 +349,7 @@ impl Checker {
         self.check_test_declaration_names_arena(program, &stmt_ids, true);
         if !module.internal {
             self.check_public_docs(program, module.statements, &stmt_ids);
+            self.check_public_result_types(program, &stmt_ids);
         }
         for statement in &stmt_ids {
             if matches!(

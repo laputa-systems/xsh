@@ -56,6 +56,7 @@ pub(crate) use method::nearest_name;
 mod pattern;
 #[path = "check/proof.rs"]
 mod proof;
+mod public_result;
 #[path = "check/stmt.rs"]
 mod stmt;
 #[path = "check/stream.rs"]
@@ -1105,6 +1106,7 @@ impl Checker {
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }
+        self.check_public_result_types(program, &statements);
         self.exit_status_statement = None;
         self.resolve_checked_types();
         let (_, diagnostics) = crate::sema::cli_entry::validate_cli_entry(

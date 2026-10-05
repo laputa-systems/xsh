@@ -5,7 +5,7 @@ const root = p"."
 type BuildPlugin = module {
   export let name: Str
   export optional let description: Str
-  export proc build(root: Path) [fs, process, error] -> Result[Unit]
+  export proc build(root: Path) [fs, process, error] -> Result[Unit, Error]
   export pure label(name: Str) -> Str
 }
 

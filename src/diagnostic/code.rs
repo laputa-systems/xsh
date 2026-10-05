@@ -389,6 +389,7 @@ diagnostic_codes! {
         CheckPositionalErrorArguments = "check.positional-error-arguments", warning, "Name error constructor arguments that follow a named one or fill fields a single value fits two of";
         CheckProcCommandSyntax = "check.proc-command-syntax", error, "Reject calling a `proc` with command syntax instead of expression-call syntax";
         CheckProcessArgvEmpty = "check.process-argv-empty", error, "Reject an empty argv list in `process.command_argv`";
+        CheckPublicResultError = "check.public-result-error", warning, "Require an exported signature or module contract to spell the error type of each Result";
         CheckPureAssignment = "check.pure-assignment", error, "Reject assignment in a `pure` function to anything but its own local `var`";
         CheckPureCommand = "check.pure-command", error, "Reject a command statement inside a `pure` function";
         CheckPureDefer = "check.pure-defer", error, "Reject `defer` inside a `pure` function";
@@ -577,6 +578,7 @@ diagnostic_codes! {
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
         LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";
+        LintPublicResultError = "lint.public-result-error", warning, "Spell the error type of each Result in an exported signature or module contract";
         LintRedundantBareReturn = "lint.redundant-bare-return", warning, "Remove a bare `return` at the end of a `Result[Unit]` function";
         LintRedundantCommandFmt = "lint.redundant-command-fmt", warning, "Use command value syntax directly for a single-value command f-string";
         LintRedundantCommandInterpolation = "lint.redundant-command-interpolation", warning, "Use expression syntax directly for a single interpolation in command args";
