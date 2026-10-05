@@ -100,6 +100,7 @@ Environment variable and PATH manipulation.
 Expected validation failure construction.
 
 - `error.fail(message: Str) -> Result[Unit, Error]` — Constructs an expected validation failure as Result data.
+- `error.failure(message: Str) -> Error` — Constructs an expected validation failure as an Error value.
 
 ### `fs`
 
@@ -107,9 +108,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 
 - `fs.chgrp(path: Path, group: {gid: Int, members: List[Str], name: Str}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
 - `fs.children(path: Path, stat: Bool = default, ordered: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Lists immediate filesystem children as structured entries.
-- `fs.chmod(path: Path, mode: Int, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes permission bits on a filesystem path.
 - `fs.chown(path: Path, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
-- `fs.copy(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies one file to a destination path.
 - `fs.copy_file(source: Path, dest: Path, sparse: Str = default, reflink: Str = default, overwrite: Bool = default, mode: Int? = default) -> Result[{bytes: Int, hole_bytes: Int, method: Str}, Error]` — Copies a regular file's bytes with sparse and reflink control.
 - `fs.copy_tree(source: Path, dest: Path, parents: Bool = default, overwrite: Bool = default, follow_symlinks: Bool = default) -> Result[{dirs: Int, files: Int, symlinks: Int}, Error]` — Copies a directory tree and returns copy statistics.
 - `fs.cwd() -> Result[Path, Error]` — Returns the evaluator's current working directory.
@@ -117,8 +116,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.dev_major(dev: Int) -> Int` — Converts between a device number and its major and minor parts.
 - `fs.dev_minor(dev: Int) -> Int` — Converts between a device number and its major and minor parts.
 - `fs.dirs(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
-- `fs.executable(path: Path) -> Result[Bool, Error] (+1 overloads)` — Inspects one permission bit on a filesystem path.
-- `fs.exists(path: Path) -> Result[Bool, Error]` — Checks whether a filesystem path exists.
+- `fs.executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.files(path: Path, gitignore: Bool = default, stat: Bool = default, exts: List[Str] = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.filesystem_stats(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, used_1k: Int}, Error]` — Reads filesystem capacity statistics for a path.
 - `fs.fsync(path: Path) -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
@@ -129,20 +127,15 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.link(source: Path, dest: Path, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Creates a hard link, optionally following a final symlink in the source.
 - `fs.lock(path: Path, shared: Bool = default, nonblocking: Bool = default) -> Result[{id: Int, path: Path, shared: Bool}, Error]` — Acquires a filesystem lock and returns an explicit lock record.
 - `fs.makedev(major: Int, minor: Int) -> Int` — Converts between a device number and its major and minor parts.
-- `fs.metadata(path: Path) -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads filesystem metadata into an FsEntry record.
-- `fs.mkdir(path: Path, parents: Bool = default) -> Result[Unit, Error]` — Creates a directory with an explicit parent policy.
 - `fs.mkfifo(path: Path, mode: Int) -> Result[Unit, Error]` — Creates a named FIFO at a path.
 - `fs.mknod(path: Path, kind: Str, mode: Int, major: Int = default, minor: Int = default) -> Result[Unit, Error]` — Creates a file, FIFO, socket, or device node with an explicit mode.
-- `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` — Reads mounted-filesystem records for the host.
+- `fs.mount_for(path: Path) -> Result[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}, Error]` — Reads the mounted-filesystem record of the mount that holds a path.
 - `fs.mounts() -> Result[Stream[{available_1k: Int, blocks_1k: Int, capacity_percent: Int, device: Int, files: Int, files_capacity_percent: Int, files_free: Int, files_used: Int, filesystem: Str, fstype: Str, mounted_on: Path, readonly: Bool, used_1k: Int}], Error]` — Reads mounted-filesystem records for the host.
 - `fs.open_root(path: Path) -> Result[FsRoot, Error]` — Creates or accesses a rooted filesystem capability.
 - `fs.other_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.owner_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[FsRoot, Error]` — Finds the project root from a starting path.
-- `fs.read_text(path: Path) -> Result[Str, Error]` — Reads a UTF-8 file into Str.
-- `fs.remove(path: Path, missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree with an explicit missing policy.
 - `fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]` — Removes files and empty parents listed by a manifest.
-- `fs.rename(source: Path, dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path with an explicit overwrite policy.
 - `fs.rename_noreplace(source: Path, dest: Path) -> Result[Unit, Error]` — Renames a path atomically without replacing an existing destination.
 - `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `fs.set_owner(path: Path, uid: Int? = default, gid: Int? = default, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes a path's owner and group by numeric ID in one call.
@@ -154,6 +147,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.sticky(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.symlink(target: Path, path: Path) -> Result[Unit, Error]` — Creates a symbolic link with explicit target and link paths.
 - `fs.sync() -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
+- `fs.temp_sibling(path: Path) -> Result[Path, Error]` — Names a hidden temporary path beside a path, for producing a file that is then renamed over it.
 - `fs.tempdir() -> Result[FsRoot, Error]` — Creates a temporary resource under XSH ownership.
 - `fs.tempfile() -> Result[{path: Path, root: FsRoot}, Error]` — Creates a temporary resource under XSH ownership.
 - `fs.umask() -> Result[Int, Error]` — Returns the process file-creation mask.
@@ -161,8 +155,6 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.user_root(kind: Str) -> Result[FsRoot, Error]` — Returns the current user's filesystem root path.
 - `fs.walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.world_writable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
-- `fs.write(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes text or bytes to a path.
-- `fs.write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Replaces a file through an atomic write path.
 
 ### `group`
 
@@ -374,7 +366,7 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.wait_any(handles: List[ProcessHandle]) -> Result[{index: Int, pid: Int, status: Status}, ProcessError]` — Waits for one process from an owned handle set.
 - `process.wait_ready(handles: List[ProcessHandle]) -> Result[List[{index: Int, pid: Int, status: Status}], ProcessError]` — Waits for a process handle to become waitable.
 - `process.wait_timeout(handles: List[ProcessHandle], timeout: Duration) -> Result[{index: Int, pid: Int, status: Status}?, ProcessError]` — Waits for one process from an owned handle set for at most a duration.
-- `process.which(name: Str) -> Result[Path, Error]` — Resolves an executable through the current PATH.
+- `process.which(name: Str) -> Result[Path, Error] (+1 overloads)` — Resolves an executable through the current PATH.
 
 ### `regex`
 
@@ -384,12 +376,10 @@ Regex compilation, matching, captures, and replacement.
 
 ### `set`
 
-String-key set helpers backed by Map[Bool].
+Set constructors.
 
-- `set.add(set: Map[Bool], item: Str) -> Map[Bool]` — Adds or removes one string membership entry.
-- `set.empty() -> Map[Bool]` — Creates an empty string-key set.
-- `set.from(items: List[Str]) -> Map[Bool]` — Builds a set from a list of strings.
-- `set.remove(set: Map[Bool], item: Str) -> Map[Bool]` — Adds or removes one string membership entry.
+- `set.empty() -> Set[T]` — Creates the empty set.
+- `set.from(items: List[T]) -> Set[T]` — Builds a set from a list.
 
 ### `shlex`
 
@@ -421,12 +411,13 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 - `test.calls(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, op: Str = default) -> List[{args: Record, op: Str}]` — Reads recorded calls from a native-test mock.
 - `test.eq(left: Any, right: Any, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
 - `test.error_kind(value: Any, kind: Str, message: Str = default) -> Result[Unit, Error]` — Asserts one native-test condition.
+- `test.expect(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, status: Int, stderr: List[Str] = default, stdout: List[Str] = default, args: List[Union[Str, Path]] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH script and requires its exit status and output fragments.
 - `test.fail(message: Str = default) -> Result[Unit, Error]` — Fails the current native XSH test with an explicit message.
 - `test.linux_fake(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, settings: Record = default) -> Result[Unit, Error]` — Replaces the `linux` module with fixed results for the rest of a native XSH test.
 - `test.mock(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, op: Str, matcher: Record, result: Any, times: Int = default) -> Result[Unit, Error]` — Installs a scoped host-effect mock for a native XSH test.
 - `test.ne(left: Any, right: Any, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
 - `test.ok(condition: Bool, message: Str = default) -> Result[Unit, AssertionError]` — Asserts one native-test condition.
-- `test.run_script(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
+- `test.run_script(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, args: List[Union[Str, Path]] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
 - `test.run_xsh(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, xsh_args: List[Str] = default, script_args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
 - `test.run_xsht_trace(ctx: {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}, source: Str, trace_args: List[Str] = default, script_args: List[Str] = default, env: Record = default, stdin: Bytes = default, name: Str = default) -> Result[{status: Int, stderr: Str, stderr_bytes: Bytes, stdout: Str, stdout_bytes: Bytes, success: Bool}, Error]` — Runs a nested XSH or tracing fixture from a native test.
 - `test.skip(message: Str = default) -> Result[Unit, Error]` — Skips the current native XSH test.
@@ -538,6 +529,7 @@ Process-scoped utility helpers.
 - `Bytes.count_lines() -> Int` — Counts line separators in bytes.
 - `Bytes.dump(format: Str = default) -> Str` — Formats bytes as a diagnostic dump.
 - `Bytes.ends_with(suffix: Bytes) -> Bool` — Checks a byte-prefix or suffix relationship.
+- `Bytes.is_empty() -> Bool` — Tests whether a value has no elements.
 - `Bytes.len() -> Int` — Returns the number of bytes.
 - `Bytes.lines() -> List[Bytes]` — Splits bytes into line-oriented chunks.
 - `Bytes.lower() -> Bytes` — Lowercases ASCII-compatible bytes.
@@ -611,13 +603,16 @@ Process-scoped utility helpers.
 - `List[T].collect() -> List[T]` — Returns an already materialized list.
 - `List[T].extend(other: List[T]) -> List[T]` — Returns a list with another list appended.
 - `List[T].get(index: Int) -> Result[T, Error]` — Reads a list element as Result.
+- `List[T].is_empty() -> Bool` — Tests whether a value has no elements.
 - `List[Str].join(separator: Str = default) -> Str` — Joins list values into text.
 - `List[T].len() -> Int` — Returns the number of list elements.
 - `List[T].push(item: T) -> List[T]` — Returns a list with one value appended.
+- `List[T].to_set() -> Set[T]` — Returns the set of a list's elements.
 
 ### Map
 
 - `Map[K, V].get(key: K) -> Result[V, Error]` — Reads a map value as Result.
+- `Map[K, V].is_empty() -> Bool` — Tests whether a value has no elements.
 - `Map[K, V].keys() -> List[K]` — Lists map keys or values.
 - `Map[K, V].len() -> Int` — Returns the number of entries in a map.
 - `Map[K, List[T]].push(key: K, value: T) -> Self` — Appends a value to a map entry list.
@@ -630,6 +625,13 @@ Process-scoped utility helpers.
 - `NetJob.cancel() -> Result[Unit, Error]` — Cancels and consumes an owned network job.
 - `NetJob.wait() -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` — Consumes an owned network job and returns its buffered response.
 
+### NonEmpty
+
+- `NonEmpty[T].extend(other: List[T]) -> NonEmpty[T]` — Returns a non-empty list with another list appended.
+- `NonEmpty[T].first() -> T` — Returns the first element.
+- `NonEmpty[T].last() -> T` — Returns the last element.
+- `NonEmpty[T].push(item: T) -> NonEmpty[T]` — Returns a non-empty list with one value appended.
+
 ### Path constructor
 
 - `Path.parse_bytes(bytes: Bytes) -> Result[Path, Error]` — Parses Bytes as a filesystem path.
@@ -639,9 +641,9 @@ Process-scoped utility helpers.
 - `Path.basename() -> Str` — Returns the final component using POSIX basename semantics.
 - `Path.bytes() -> Bytes` — Returns the native bytes of a path.
 - `Path.bytes_lines() -> Result[Stream[Bytes], Error]` — Streams file lines as Bytes.
-- `Path.chmod(mode: Int) -> Result[Unit, Error]` — Changes permission bits on a path.
+- `Path.chmod(mode: Int, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes permission bits on a path.
 - `Path.components() -> List[Path]` — Splits a path into its components, each a Path.
-- `Path.copy(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies a path to an explicit destination.
+- `Path.copy(to: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Copies a path to an explicit destination.
 - `Path.dirname() -> Path` — Returns the directory component using POSIX dirname semantics.
 - `Path.display() -> Str` — Formats a path for display.
 - `Path.du() -> Result[Int, Error]` — Calculates disk usage for a path.
@@ -651,7 +653,10 @@ Process-scoped utility helpers.
 - `Path.ext() -> Str` — Returns the path extension.
 - `Path.ext_or(fallback: Str) -> Str` — Returns the path extension, or a fallback when there is no extension.
 - `Path.glob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern below a path.
-- `Path.hardlink(path: Path) -> Result[Unit, Error]` — Creates a hard link to a path.
+- `Path.hardlink(at: Path) -> Result[Unit, Error]` — Creates a hard link to the path at another path.
+- `Path.is_dir() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
+- `Path.is_file() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
+- `Path.is_symlink() -> Result[Bool, Error]` — Tests what kind of filesystem entry a path is.
 - `Path.lines() -> Result[Stream[Str], Error]` — Streams UTF-8 file lines.
 - `Path.metadata() -> Result[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}, Error]` — Reads a path's filesystem metadata record.
 - `Path.mkdir(parents: Bool = default) -> Result[Unit, Error]` — Creates a directory at a path.
@@ -663,19 +668,20 @@ Process-scoped utility helpers.
 - `Path.read_text() -> Result[Str, Error]` — Reads a UTF-8 file into Str.
 - `Path.readlink() -> Result[Path, Error]` — Reads a symbolic link target.
 - `Path.relative_to(base: Path) -> Path` — Computes a path relative to an explicit base.
-- `Path.remove(missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree with an explicit missing policy.
+- `Path.remove(missing_ok: Bool = default) -> Result[Unit, Error]` — Removes a file, symlink, or directory tree, leaving the path gone.
 - `Path.remove_dir() -> Result[Unit, Error]` — Removes an empty directory.
-- `Path.rename(dest: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
+- `Path.rename(to: Path, overwrite: Bool = default) -> Result[Unit, Error]` — Renames a path to an explicit destination.
 - `Path.resolve() -> Result[Path, Error]` — Resolves a path through the filesystem.
 - `Path.rglob(pattern: Str) -> Result[List[Path], Error]` — Expands a relative glob pattern at any depth below a path.
 - `Path.starts_with(prefix: Path) -> Bool` — Tests whether a path begins with the components of another path.
-- `Path.strip_prefix(prefix: Path) -> Result[Path, Error]` — Removes an explicit path prefix.
+- `Path.strip_prefix(prefix: Path) -> Result[RelPath, Error]` — Removes an explicit path prefix.
+- `Path.symlink(to: Path) -> Result[Unit, Error]` — Creates a symbolic link at the path that names a target.
 - `Path.touch(create: Bool = default) -> Result[Unit, Error]` — Creates or updates a path timestamp.
 - `Path.touch_from(reference: Path) -> Result[Unit, Error]` — Creates or updates a path timestamp.
 - `Path.truncate(size: Int) -> Result[Unit, Error]` — Changes a file's length.
 - `Path.unlink() -> Result[Unit, Error]` — Removes one directory entry.
 - `Path.with_ext(ext: Str) -> Path` — Replaces a path extension.
-- `Path.write(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes text or bytes to a path.
+- `Path.write(data: Bytes) -> Result[Unit, Error] (+3 overloads)` — Writes text or bytes to a path.
 - `Path.write_atomic(data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Atomically replaces a path with text or bytes.
 - `Path.write_lines(lines: List[Str]) -> Result[Unit, Error]` — Writes a list of text lines to a path, each followed by a newline.
 
@@ -693,11 +699,24 @@ Process-scoped utility helpers.
 - `Regex.captures(text: Str) -> List[Str]` — Extracts regex capture groups.
 - `Regex.find(text: Str) -> List[{end: Int, start: Int, text: Str}]` — Finds regex matches in text.
 - `Regex.matches(text: Str) -> Bool` — Tests whether a regex matches text.
-- `Regex.replace(text: Str, replacement: Str) -> Str` — Replaces regex matches in text.
+- `Regex.replace(text: Str, with: Str) -> Str` — Replaces regex matches in text.
+
+### RelPath
+
+- `RelPath.normalize() -> RelPath` — Normalizes lexical path components, still a RelPath.
+- `RelPath.parent() -> RelPath` — Returns the lexical parent path, still a RelPath.
 
 ### Result
 
 - `Result[T, E].context(kind: Str, message: Str = default) -> Self` — Adds a domain-specific error context before propagation.
+
+### Set
+
+- `Set[T].add(item: T) -> Set[T]` — Returns the set with one more element.
+- `Set[T].is_empty() -> Bool` — Tests whether a value has no elements.
+- `Set[T].len() -> Int` — Returns the number of elements in a set.
+- `Set[T].remove(item: T) -> Set[T]` — Returns the set without one element.
+- `Set[T].to_list() -> List[T]` — Lists the elements of a set in its iteration order.
 
 ### Status
 
@@ -722,6 +741,7 @@ Process-scoped utility helpers.
 - `Str.ends_with(suffix: Str) -> Bool` — Checks a text relationship.
 - `Str.fields(delimiter: Str = default) -> List[Str]` — Splits text into a structured list.
 - `Str.find(needle: Str, start: Int = default) -> Int?` — Finds a text substring position.
+- `Str.is_empty() -> Bool` — Tests whether a value has no elements.
 - `Str.lines() -> List[Str]` — Splits text into a structured list.
 - `Str.lower() -> Str` — Changes text case.
 - `Str.parse_float() -> Result[Float, Error]` — Parses text as a floating-point value.
@@ -729,7 +749,7 @@ Process-scoped utility helpers.
 - `Str.parse_int_decimal() -> Result[Int, Error]` — Parses text as a strict decimal integer.
 - `Str.parse_uint() -> Result[Int, Error]` — Parses text as a non-negative decimal integer, trimming surrounding whitespace.
 - `Str.parse_uint_positive() -> Result[Int, Error]` — Parses text as a positive decimal integer, trimming surrounding whitespace.
-- `Str.replace(from: Str, to: Str) -> Str` — Replaces text occurrences.
+- `Str.replace(from: Str, with: Str) -> Str` — Replaces text occurrences.
 - `Str.reverse() -> Str` — Transforms text characters.
 - `Str.split(separator: Str, maxsplit: Int = default) -> List[Str]` — Splits text at an explicit separator.
 - `Str.squeeze(chars: Str = default) -> Str` — Transforms text characters.

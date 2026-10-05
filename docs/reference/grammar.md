@@ -348,7 +348,7 @@ record_field = "." ~"." ~"." expression
              | "[" NEWLINE* expression NEWLINE* "]" ":" expression_item
              | ( LABEL | STRING ) ( "." LABEL )* ":" expression_item
              | IDENT ;
-set_literal = "{" NEWLINE* set_lead expression_item NEWLINE* "," list(!"[" expression_item) "}" ;
+set_literal = "{" NEWLINE* set_lead expression_item NEWLINE* "," list(!( "[" | LABEL ":" | STRING ":" ) expression_item) "}" ;
 set_lead = &( STRING | PATH | FMT_STRING | PATH_FMT | ENV_STRING | INT | FLOAT | DURATION | BYTES | "(" | "-" | "!" | "true" | "false" | "null" | "not" | "if" | "match" | NAME ~"(" | NAME ~"." | NAME ~"[" | NAME ~"?" | NAME "??" | NAME "or" | NAME "and" | NAME "==" | NAME "!=" | NAME "<" | NAME "<=" | NAME ">" | NAME ">=" | NAME "in" | NAME "not" | NAME "+" | NAME "-" | NAME "*" | NAME "/" | NAME "%" | NAME "|" | NAME "&" | NAME "is" | NAME "as" | NAME "|>" | NAME "as" | NAME "," | NAME "for" ) ;
 set_comprehension = "{" NEWLINE* set_lead expression NEWLINE* comprehension "}" ;
 map_comprehension = "{" NEWLINE* ( "[" NEWLINE* expression NEWLINE* "]" | ( LABEL | STRING ) ( "." LABEL )* ) ":" expression NEWLINE* comprehension "}" ;
