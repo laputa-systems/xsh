@@ -468,6 +468,12 @@ pub struct LintOptions {
     /// Opt in to `lint.prefer-implicit-message`, which a corpus adopts once
     /// it migrates its `Variant(message: Str)` declarations.
     pub prefer_implicit_messages: bool,
+    /// The checked constructor calls of this file's `Variant(message: Str)`
+    /// variants, which `lint.prefer-implicit-message` reads. `None` when the
+    /// caller has no check of the file or the check reported an error: the
+    /// facts of such a program do not cover every call, so the rule is silent.
+    pub message_payload_constructors:
+        Option<BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>>,
     /// Opt in to `lint.prefer-inferred-proc-return`.
     pub prefer_inferred_proc_returns: bool,
     /// Opt in to `lint.prefer-typed-callable`.
@@ -549,6 +555,7 @@ impl Default for LintOptions {
             prefer_inferred_variants: false,
             prefer_positional_constructors: false,
             prefer_implicit_messages: false,
+            message_payload_constructors: None,
             prefer_inferred_proc_returns: false,
             prefer_typed_callables: false,
             explicit_missing_ok: false,
@@ -661,6 +668,10 @@ pub struct Linter<'a> {
     statically_resolved_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
+    /// Where the pattern of each arm of a real `match` starts. A pattern test
+    /// or condition also stores its pattern as an arm, and is not one.
+    match_arm_head_starts: FxHashSet<usize>,
+    inferred_variant_patterns_reported: FxHashSet<Span>,
     dead_code: bool,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
@@ -781,8 +792,17 @@ impl<'a> Linter<'a> {
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
-        let prefer_implicit_messages = options.prefer_implicit_messages;
         let only = options.only;
+        // Naming a rule in `--only` asks for it as its setting does, so a
+        // corpus can count and migrate its sites without a configuration file.
+        let named = |code| only.as_deref().is_some_and(|only| only.contains(&code));
+        let prefer_implicit_messages =
+            options.prefer_implicit_messages || named(DiagnosticCode::LintPreferImplicitMessage);
+        let message_payload_constructors = options.message_payload_constructors;
+        let prefer_inferred_variants =
+            options.prefer_inferred_variants || named(DiagnosticCode::LintPreferInferredVariant);
+        let prefer_positional_constructors = options.prefer_positional_constructors
+            || named(DiagnosticCode::LintPreferPositionalConstructor);
         let checked_effects =
             if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
                 check_effects().function_effect_facts
@@ -810,8 +830,8 @@ impl<'a> Linter<'a> {
             prefer_env_string: options.prefer_env_string,
             prefer_item_shorthand: options.prefer_item_shorthand,
             prefer_tempdir_scope: options.prefer_tempdir_scope,
-            prefer_inferred_variants: options.prefer_inferred_variants,
-            prefer_positional_constructors: options.prefer_positional_constructors,
+            prefer_inferred_variants,
+            prefer_positional_constructors,
             // Naming the rule asks for it as the setting does, so its sites
             // can be counted without a configuration file.
             explicit_missing_ok: options.explicit_missing_ok
@@ -877,6 +897,8 @@ impl<'a> Linter<'a> {
             statically_resolved_call_spans: options.statically_resolved_call_spans,
             definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             redundant_variant_qualifiers: options.redundant_variant_qualifiers,
+            match_arm_head_starts: FxHashSet::default(),
+            inferred_variant_patterns_reported: FxHashSet::default(),
             dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
@@ -925,21 +947,6 @@ impl<'a> Linter<'a> {
                 .diagnostics
                 .extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
-        if linter.prefer_inferred_variants {
-            let patterns = lint_inferred_variant_pattern::lint_inferred_variant_patterns(
-                program,
-                source,
-                &linter.redundant_variant_qualifiers,
-            );
-            linter.diagnostics.extend(patterns);
-        }
-        if prefer_implicit_messages {
-            linter
-                .diagnostics
-                .extend(lint_implicit_message::lint_implicit_messages(
-                    program, source,
-                ));
-        }
         linter
             .diagnostics
             .extend(redundant_use_alias::lint_redundant_use_aliases(
@@ -962,6 +969,16 @@ impl<'a> Linter<'a> {
         linter
             .diagnostics
             .extend(fail_candidates.finish(&program.arena, source));
+        // After `lint.prefer-fail`, whose families this rule leaves alone.
+        if prefer_implicit_messages && let Some(constructors) = &message_payload_constructors {
+            let implicit_messages = lint_implicit_message::lint_implicit_messages(
+                program,
+                source,
+                constructors,
+                &linter.diagnostics,
+            );
+            linter.diagnostics.extend(implicit_messages);
+        }
         if linter.prefer_typed_callables {
             let callable_parameters = std::mem::take(&mut linter.callable_parameters);
             let reports = callable_parameters.finish(
@@ -2040,6 +2057,7 @@ impl<'a> Linter<'a> {
                 self.lint_expr(value);
                 for arm in self.arena.match_arms(arms).to_vec() {
                     self.push_scope();
+                    self.note_match_arm_head(arm.pattern);
                     self.lint_pattern(arm.pattern);
                     if let Some(guard) = arm.guard {
                         self.lint_expr(guard);
@@ -5431,9 +5449,36 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn note_match_arm_head(&mut self, pattern: PatternId) {
+        let span = self.arena.span(self.arena.pattern(pattern).span);
+        self.match_arm_head_starts.insert(span.start());
+    }
+
+    /// `lint.prefer-inferred-variant` for a pattern: the checker found its
+    /// qualifier redundant against the matched value's type.
+    fn lint_inferred_variant_pattern(&mut self, pattern: Span) {
+        if !self.prefer_inferred_variants {
+            return;
+        }
+        let Some(qualifier) = self.redundant_variant_qualifiers.get(&pattern).copied() else {
+            return;
+        };
+        if self.match_arm_head_starts.contains(&qualifier.start())
+            || !self.inferred_variant_patterns_reported.insert(pattern)
+        {
+            return;
+        }
+        self.diagnostics
+            .push(lint_inferred_variant_pattern::redundant_pattern_qualifier(
+                self.source,
+                qualifier,
+            ));
+    }
+
     fn lint_pattern(&mut self, pattern: PatternId) {
         let arena_pattern = self.arena.pattern(pattern).clone();
         let span = self.arena.span(arena_pattern.span);
+        self.lint_inferred_variant_pattern(span);
         match arena_pattern.kind {
             ArenaPatternKind::Group(child) => self.lint_pattern(child),
             ArenaPatternKind::Alias {
@@ -12775,7 +12820,11 @@ impl LintExprVisitor<'_, '_> {
                 let old = self.linter.regex_recovery_context;
                 self.linter.regex_recovery_context = true;
                 self.visit_expr(value);
+                let is_match = matches!(arena.expr(expr).kind, ArenaExprKind::Match { .. });
                 for arm in arena.match_expr_arms(arms).to_vec() {
+                    if is_match {
+                        self.linter.note_match_arm_head(arm.pattern);
+                    }
                     self.visit_match_expr_arm(&arm);
                 }
                 self.linter.regex_recovery_context = old;

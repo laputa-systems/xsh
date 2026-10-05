@@ -12,6 +12,10 @@ error FetchError {
     Refused(message: Str, port: Int) : PermissionDenied, Timeout
 }
 
+pure count_of(text: Str, needle: Str) -> Int {
+  text.split(needle).len() - 1
+}
+
 pure fetch_label(error: Error) -> Str {
   match Err(error) {
     Err(FetchError.Usage {message}) => f"usage: {message}"
@@ -339,6 +343,8 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   assert reported.status.exited_with(1), reported.stderr
   assert "`FetchError` is exported" in reported.stderr, reported.stderr
   assert "delete `(message: Str)` here" in reported.stderr, reported.stderr
+  assert "stops checking once the payload is gone (`check.error-constructor`)" in reported.stderr, reported.stderr
+  assert "help: declare the variant without a payload" not in reported.stderr, reported.stderr
 
   # Each call is fixed where it is written; the exported declaration is not.
   let fixing_module = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $module_file ?
@@ -361,16 +367,127 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   module_file.write_atomic(fixed_module.replace("Usage(message: Str)", "Usage"))
   let migrated = test.expect(ctx, fixed_importer, status: 0, args: [], env: module_env)?
   assert migrated.stdout == before.stdout
+
+  # The named call is the one thing the edit takes away, which is why the
+  # declaration waits for the importers.
+  let stale = test.expect(ctx, importer_source, status: 2, args: [], env: module_env)?
+  assert "err[check.error-constructor]" in stale.stderr, stale.stderr
+  assert count_of(stale.stderr, "err[") == 1, stale.stderr
 }
 
-test test_prefer_implicit_message_is_off_by_default { |ctx|
+test test_prefer_implicit_message_is_opt_in_and_named_by_only { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-default")?
   let candidate = fp"{root}/main.xsh"
-  candidate.write_atomic(r"""error ProofError = Usage(message: Str)
+  candidate.write_atomic(r"""error ProofError = Usage(message: Str) | Other(code: Int)
 print ${ProofError.Usage(message: "named").message}
+print ${ProofError.Other(code: 2).message}
 """)
-  let linted = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
-  assert linted.status.exited_with(0), linted.stderr
+  let linted = run.capture --text "xsht" lint $candidate ?
+  assert "lint.prefer-implicit-message" not in linted.stderr, linted.stderr
+  # Naming the rule asks for it as its setting does.
+  let named = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
+  assert named.status.exited_with(1), named.stderr
+  assert "`Usage` takes its message positionally" in named.stderr, named.stderr
+}
+
+# A module reached through the linted root is counted from the check of the
+# root's program. Each file's calls count toward its own family only, even
+# where the root and the module declare a family of the same name.
+test test_prefer_implicit_message_counts_each_file_of_a_program_apart { |ctx|
+  let root = test.temp_dir(ctx, name: "implicit-message-program")?
+  let module_file = fp"{root}/steps.xsh"
+  module_file.write_atomic("""##! Steps.
+
+error StepError = Skipped(message: Str) | Broken(code: Int)
+
+## Describe a step.
+export pure describe(step: Int) -> Str {
+  if step == 0 {
+    return StepError.Skipped("nothing to do").message
+  }
+  StepError.Broken(code: step).message
+}
+""")
+  let main_source = r"""use steps
+
+error StepError = Skipped(message: Str) | Broken(code: Int)
+
+print steps.describe(0)
+print ${StepError.Skipped(message: "named here").message}
+print ${StepError.Broken(code: 2).message}
+"""
+  let main = fp"{root}/main.xsh"
+  main.write_atomic(main_source)
+  let module_env = {XSH_MODULE_PATH: root.display()}
+  let before = test.expect(ctx, main_source, status: 0, args: [], env: module_env)?
+
+  # The module's calls are positional, so its declaration is fixed at once;
+  # the root's waits for its named call.
+  let first = run.capture --text "xsht" lint --only lint.prefer-implicit-message $main ?
+  assert first.status.exited_with(1), first.stderr
+  assert count_of(first.stderr, "help: declare the variant without a payload") == 1, first.stderr
+  assert count_of(first.stderr, "first pass the message positionally") == 1, first.stderr
+  assert count_of(first.stderr, "help: pass the message positionally") == 1, first.stderr
+
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $main ?
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = main.read_text()?
+  assert "error StepError = Skipped | Broken(code: Int)" in fixed, fixed
+  assert "StepError.Skipped(\"named here\")" in fixed, fixed
+  assert "error StepError = Skipped | Broken(code: Int)" in module_file.read_text()?
+  let after = test.expect(ctx, fixed, status: 0, args: [], env: module_env)?
+  assert after.stdout == before.stdout
+  let second = run.capture --text "xsht" lint --only lint.prefer-implicit-message $main ?
+  assert second.status.exited_with(0), second.stderr
+}
+
+# A private one-variant family that nothing matches on is `lint.prefer-fail`'s
+# to rewrite and delete, so this rule does not also offer to respell it. One
+# that is matched on stays a family, and this rule respells it.
+test test_prefer_implicit_message_leaves_a_family_that_prefer_fail_rewrites { |ctx|
+  let root = test.temp_dir(ctx, name: "implicit-message-fail")?
+  let candidate = fp"{root}/main.xsh"
+  candidate.write_atomic(r"""error LoadError = Unreadable(message: Str)
+
+error ParseError = Failed(message: Str)
+
+proc load(name: Str) -> Result[Str] {
+  if name == "" {
+    return Err(LoadError.Unreadable(message: "empty name"))
+  }
+  name
+}
+
+proc parse(text: Str) -> Result[Int, ParseError] {
+  if text == "" {
+    return Err(ParseError.Failed(message: "empty text"))
+  }
+  text.byte_len()
+}
+
+match load("") {
+  Err(problem) => print $problem.message
+  Ok(name) => print $name
+}
+match parse("") {
+  Err(ParseError.Failed {message}) => print f"parse: {message}"
+  Ok(size) => print $size
+}
+""")
+  let both = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate ?
+  assert both.status.exited_with(1), both.stderr
+  assert "`LoadError.Unreadable` only carries a message; report it with `fail`" in both.stderr, both.stderr
+  assert "`Failed` takes its message positionally" in both.stderr, both.stderr
+  assert count_of(both.stderr, "warn[lint.prefer-implicit-message]") == 2, both.stderr
+  assert count_of(both.stderr, "warn[lint.prefer-fail]") == 1, both.stderr
+
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate ?
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  assert "error LoadError = Unreadable(message: Str)\n" in fixed, fixed
+  assert "LoadError.Unreadable(message: \"empty name\")" in fixed, fixed
+  assert "error ParseError = Failed\n" in fixed, fixed
+  assert "ParseError.Failed(\"empty text\")" in fixed, fixed
 }
 
 test test_positional_error_arguments_fix_names_the_fields_they_fill { |ctx|

@@ -4,13 +4,32 @@
 //! positionally (which binds the same sole field), and then the declaration
 //! drops its payload (which keeps the `message` field, every positional
 //! construction, and every pattern).
+//!
+//! The one thing the second edit takes away is the named call: a variant
+//! without a payload takes no named argument. Calls in the linted file are
+//! counted, so a private family is fixed here. An exported family can be
+//! constructed by name in a file this lint does not see, so its declaration
+//! is reported without a fix.
+//!
+//! A private one-variant family that `lint.prefer-fail` rewrites to `fail`
+//! is that rule's alone: it is about to be deleted, not respelled.
 
-use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label, Severity};
-use xsh::frontend::check::Checker;
+use rustc_hash::FxHashSet;
+use std::collections::BTreeMap;
+use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
+use xsh::frontend::check::MessagePayloadConstructor;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{ArenaProgram, ArenaStmtKind};
 
-pub(super) fn lint_implicit_messages(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
+/// `constructors` are the checked constructor calls of the program the linted
+/// file was checked in, and `reported` the diagnostics the other rules have
+/// produced for the file.
+pub(super) fn lint_implicit_messages(
+    program: &ArenaProgram,
+    source: &str,
+    constructors: &BTreeMap<Span, MessagePayloadConstructor>,
+    reported: &[Diagnostic],
+) -> Vec<Diagnostic> {
     // Every reported site spells the field name, in a declaration or a call.
     if !source.contains("message") {
         return Vec::new();
@@ -22,27 +41,27 @@ pub(super) fn lint_implicit_messages(program: &ArenaProgram, source: &str) -> Ve
     else {
         return Vec::new();
     };
-    let checked = Checker::check_arena(program, source);
-    // Constructor facts of a program with check errors do not cover every call.
-    if checked
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == Severity::Error)
-    {
-        return Vec::new();
-    }
-    let constructors = checked
-        .message_payload_constructors
+    // A file the linted one imports can declare a family of the same name.
+    let constructors = constructors
         .iter()
         .filter(|(call, _)| call.source_id == source_id)
-        .map(|(_, constructor)| constructor)
         .collect::<Vec<_>>();
+    // `lint.prefer-fail` labels the declaration or the constructor call it
+    // rewrites.
+    let fail_sites = reported
+        .iter()
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferFail))
+        .filter_map(|diagnostic| diagnostic.labels.first().map(|label| label.span))
+        .collect::<FxHashSet<_>>();
 
     let mut diagnostics = Vec::new();
-    for constructor in &constructors {
+    for (call, constructor) in &constructors {
         let Some((argument, value)) = constructor.named_message else {
             continue;
         };
+        if fail_sites.contains(*call) {
+            continue;
+        }
         let mut diagnostic = Diagnostic::warning(format!(
             "`{}` takes its message positionally",
             constructor.variant
@@ -80,6 +99,14 @@ pub(super) fn lint_implicit_messages(program: &ArenaProgram, source: &str) -> Ve
             continue;
         };
         let family = program.arena.error_def(id);
+        if !exported
+            && (fail_sites.contains(&outer.span)
+                || constructors.iter().any(|(call, constructor)| {
+                    constructor.family == family.name && fail_sites.contains(*call)
+                }))
+        {
+            continue;
+        }
         for variant in program.arena.error_variants(family.variants) {
             let [field] = program.arena.error_fields(variant.fields) else {
                 continue;
@@ -98,7 +125,7 @@ pub(super) fn lint_implicit_messages(program: &ArenaProgram, source: &str) -> Ve
                 continue;
             };
             let payload = Span::new(source_id, name_end, payload_end);
-            let named_calls = constructors.iter().any(|constructor| {
+            let named_calls = constructors.iter().any(|(_, constructor)| {
                 constructor.family == family.name
                     && constructor.variant == variant.name
                     && constructor.named_message.is_some()
@@ -116,11 +143,10 @@ pub(super) fn lint_implicit_messages(program: &ArenaProgram, source: &str) -> Ve
                 ),
             ));
             if exported {
-                // Calls in importing files are not visible here, and one that
-                // names `message:` stops checking once the payload is gone.
                 diagnostic = diagnostic.with_note(format!(
-                    "`{}` is exported: once every `{}(message: ...)` call in the files that import it passes the message positionally, delete `(message: Str)` here",
-                    family.name, variant.name
+                    "`{family}` is exported, and a `{variant}(message: ...)` call in a file that imports it stops checking once the payload is gone (`check.error-constructor`); positional calls, patterns, and `.message` are unchanged. Run this rule over the importing files, which passes each message positionally, then delete `(message: Str)` here",
+                    family = family.name,
+                    variant = variant.name
                 ));
             } else if named_calls {
                 diagnostic = diagnostic.with_note(format!(

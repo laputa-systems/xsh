@@ -694,6 +694,19 @@ fn source_checked_set(
         .collect()
 }
 
+/// The constructor facts `lint.prefer-implicit-message` counts calls with.
+/// A check that reported an error did not reach every call, and a count that
+/// misses one would delete a payload a call still names.
+fn checked_message_payload_constructors(
+    checked: &xsh::frontend::check::CheckOutput,
+) -> Option<&std::collections::BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>> {
+    checked
+        .diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.severity != Severity::Error)
+        .then_some(&checked.message_payload_constructors)
+}
+
 fn set_checked_lint_facts_for_source(
     options: &mut LintOptions,
     checked: &xsh::frontend::check::CheckOutput,
@@ -732,6 +745,8 @@ fn set_checked_lint_facts_for_source(
         source_checked_set(&checked.definitely_exiting_block_spans, source_id);
     options.redundant_variant_qualifiers =
         source_checked_map(&checked.redundant_variant_qualifiers, source_id);
+    options.message_payload_constructors = checked_message_payload_constructors(checked)
+        .map(|constructors| source_checked_map(constructors, source_id));
     options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
         source_checked_set(&checked.statically_resolved_call_spans, source_id)
     } else {
@@ -1579,6 +1594,7 @@ fn lint_config_for_file(
         statically_resolved_call_spans: Default::default(),
         definitely_exiting_block_spans: Default::default(),
         redundant_variant_qualifiers: Default::default(),
+        message_payload_constructors: None,
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1659,6 +1675,8 @@ fn lint_one_file_with_fixes(
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
     lint_options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
+    lint_options.message_payload_constructors =
+        checked_message_payload_constructors(checked).cloned();
     lint_options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
         checked.statically_resolved_call_spans.clone()
     } else {
@@ -1950,6 +1968,8 @@ fn apply_cst_fixes(
         options.standard_call_spans = checked.standard_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
         options.redundant_variant_qualifiers = checked.redundant_variant_qualifiers.clone();
+        options.message_payload_constructors =
+            checked_message_payload_constructors(checked).cloned();
         options.statically_resolved_call_spans = if checked.diagnostics.iter().all(spelling_only) {
             checked.statically_resolved_call_spans.clone()
         } else {
