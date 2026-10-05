@@ -3,10 +3,7 @@
 use std::fs;
 use std::os::unix::ffi::OsStringExt;
 use std::process::Command;
-use std::sync::Mutex;
 use tempfile::TempDir;
-
-static SIGNAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn cli_workers_check_and_lint_nested_schema_constructors_without_stack_environment() {
@@ -2427,27 +2424,6 @@ fn check_rejects_main_without_spread_parameter_but_accepts_spread() {
 }
 
 #[test]
-fn lint_returns_interrupted_status_for_pending_sigint() {
-    let _lock = SIGNAL_TEST_LOCK.lock().unwrap();
-    let _guard = xsh::process::install_cancellation_signal_handlers()
-        .expect("install cancellation signal handlers");
-    xsh::process::clear_cancellation_request();
-    let kill_result = unsafe { libc::kill(libc::getpid(), libc::SIGINT) };
-    assert_eq!(kill_result, 0);
-
-    let output = xsht::cli::lint_files(&["unused.xsh".to_string()], false, false, None);
-    xsh::process::clear_cancellation_request();
-
-    assert_eq!(output.status, 130);
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "");
-    assert!(
-        String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("interrupted by SIGINT")
-    );
-}
-
-#[test]
 fn membership_migration_after_removal_fixes_shared_import_once_and_is_idempotent() {
     let root = TempDir::new().expect("create migration project");
     let helper = root.path().join("helper.xsh");
@@ -2793,6 +2769,11 @@ run sh -c \"sleep 300; : {marker}-grandchild\"
 /// A signal during a long `xsht lint --fix` ends the run between files or
 /// fix rounds. Fixed files are written only after every file is done, so an
 /// interrupted run leaves each file exactly as it was.
+///
+/// The signal goes to a spawned `xsht`. A cancellation request is state of
+/// the whole process, and the tests of this target run as threads of one
+/// process that call the same commands, so a request raised here would
+/// interrupt whichever of them was running.
 #[test]
 fn lint_fix_cancellation_writes_no_file() {
     let mut functions = String::new();
@@ -2811,7 +2792,7 @@ fn lint_fix_cancellation_writes_no_file() {
         let mut lint = Command::new(release_bin!("xsht"))
             .args(["lint", "--fix", "."])
             .current_dir(root.path())
-            .stdout(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .spawn()
             .expect("start xsht lint");
@@ -2830,6 +2811,13 @@ fn lint_fix_cancellation_writes_no_file() {
             Some(128 + signal),
             "{:?}: {}",
             output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+        let name = if signal == libc::SIGINT { "SIGINT" } else { "SIGTERM" };
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(&format!("interrupted by {name}")),
+            "{}",
             String::from_utf8_lossy(&output.stderr)
         );
         // One file's check and one fix round at most separate two looks at
