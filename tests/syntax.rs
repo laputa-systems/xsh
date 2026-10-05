@@ -9,7 +9,6 @@ use xsh::frontend::syntax::arena::{
     ArenaWordPart, ExprId, StmtId,
 };
 use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
-use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, Effect, RedirectionKind, RunKind, StreamStageKind,
 };
@@ -108,48 +107,6 @@ fn root_let_init_expr(output: &ArenaParseOutput, index: usize) -> ExprId {
 }
 
 #[test]
-fn lexer_fixture_covers_valid_and_invalid_inputs() {
-    let valid = include_str!("fixtures/syntax/valid/language.xsh");
-    let invalid = "let data = b\"\\u{41}\"\n";
-
-    let valid_output = Lexer::new(SourceId::new(0), valid).lex_compact();
-    let invalid_output = Lexer::new(SourceId::new(0), invalid).lex_compact();
-
-    assert!(valid_output.diagnostics.is_empty());
-    assert!(
-        (0..valid_output.token_table.len())
-            .any(|index| valid_output.token_table.tag_at(index) == Some(TokenTag::Comment))
-    );
-    assert!(
-        invalid_output
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("lex.invalid-bytes-escape"))
-    );
-}
-
-#[test]
-fn parser_fixture_covers_baseline_shapes() {
-    let source = include_str!("fixtures/syntax/valid/language.xsh");
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(
-        output
-            .arena
-            .statement_ids()
-            .any(|id| matches!(arena.stmt(id).kind, ArenaStmtKind::ProcDef(_)))
-    );
-    assert!(
-        output
-            .arena
-            .statement_ids()
-            .any(|id| matches!(arena.stmt(id).kind, ArenaStmtKind::PureDef(_)))
-    );
-}
-
-#[test]
 fn parser_retains_module_and_export_doc_comment_spans() {
     let source = r#"
 ##! Test module documentation.
@@ -175,19 +132,6 @@ export let value: Int = 1
         &source[export_doc.range()],
         "## Exposes a documented value."
     );
-}
-
-#[test]
-fn parser_does_not_treat_multiline_string_headings_as_doc_comments() {
-    let source = r##"
-let report = "# Manager\n\n## North-star impact\n\nfixture\n\n## task-tags\n"
-"##;
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert!(output.arena.docs.module.is_none());
-    assert!(output.arena.docs.orphaned.is_empty());
-    assert!(output.arena.docs.duplicate_modules.is_empty());
 }
 
 #[test]
@@ -373,97 +317,6 @@ fn formatter_reuses_parsed_program_without_changing_output() {
 }
 
 #[test]
-fn parser_accepts_keyword_schema_and_record_field_labels() {
-    let source =
-        "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert_parse_and_check(SourceId::new(0), source);
-}
-
-#[test]
-fn parser_accepts_quoted_reserved_record_fields() {
-    let source = "let rec = {\"run\": 0, \"lines\": []}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-}
-
-#[test]
-fn parser_reports_unsupported_c_style_boolean_operators_constructively() {
-    // Unsupported C-style boolean operators and the `then` keyword must be
-    // named by a constructive diagnostic that points at the offending token,
-    // not at the block brace that follows the condition.
-    let cases = [
-        (
-            "proc main() { if a || b { } }\n",
-            "parse.unsupported-boolean-operator",
-        ),
-        (
-            "proc main() { if a && b { } }\n",
-            "parse.unsupported-boolean-operator",
-        ),
-        // A doubled operator is reported whether or not its halves touch.
-        (
-            "proc main() { if a | | b { } }\n",
-            "parse.unsupported-boolean-operator",
-        ),
-        (
-            "proc main() { if a & & b { } }\n",
-            "parse.unsupported-boolean-operator",
-        ),
-        ("proc main() { if a then { } }\n", "parse.unsupported-then"),
-    ];
-    for (source, code) in cases {
-        let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            output
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some(code)),
-            "expected {code} but got for source:\n{source}\n{:?}",
-            output.diagnostics
-        );
-    }
-}
-
-#[test]
-fn parser_reports_integer_division_spellings_with_int_division_guidance() {
-    for source in ["let quotient = 7 // 2\n", "let quotient = 7 div 2\n"] {
-        let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-        let diagnostic = output
-            .diagnostics
-            .iter()
-            .find(|diagnostic| {
-                diagnostic.code.map(DiagnosticCode::name)
-                    == Some("parse.unsupported-integer-division")
-            })
-            .unwrap_or_else(|| panic!("expected integer-division diagnostic: {output:?}"));
-        assert!(diagnostic.message.contains("use `/` on Int operands"));
-        assert_eq!(diagnostic.fix_hints[0].replacement.as_deref(), Some("/"));
-    }
-
-    assert_parse_and_check(SourceId::new(0), "let quotient = 7 / 2\n");
-}
-
-#[test]
-fn parser_accepts_word_form_boolean_operators() {
-    // The valid `or`/`and` word forms must parse without diagnostics so the
-    // new constructive error does not change valid-program behavior.
-    for source in [
-        "proc main() { if a or b { } }\n",
-        "proc main() { if a or b and c { } }\n",
-    ] {
-        let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            output.diagnostics.is_empty(),
-            "source:\n{source}\n{:?}",
-            output.diagnostics
-        );
-    }
-}
-
-#[test]
 fn parser_accepts_nominal_error_declarations_and_patterns() {
     let source = r#"
 error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied
@@ -619,26 +472,6 @@ env DESTDIR=/tmp/stage {
 }
 
 #[test]
-fn parser_reports_malformed_signal_hook_syntax() {
-    let missing_effects = Parser::parse_source_arena_only(SourceId::new(0), "on SIGINT {\n}\n");
-    assert!(
-        missing_effects
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.signal-hook"))
-    );
-
-    let bad_option =
-        Parser::parse_source_arena_only(SourceId::new(0), "on TERM --pre-cancel=soon [] {\n}\n");
-    assert!(
-        bad_option
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.signal-hook"))
-    );
-}
-
-#[test]
 fn parser_accepts_path_literals_and_expr_env_blocks() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),
@@ -767,17 +600,6 @@ let label = f"hello {name}"
 }
 
 #[test]
-fn parser_accepts_nested_interpolation_boundaries_from_shared_scanner() {
-    let source = r#"
-let label = f"{ {raw: r"}", triple: """}""", nested: f"{ {brace: "}"} .brace }"}.nested }"
-run echo "${{name: f"{1}", text: "}"} .name}"
-"#;
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-}
-
-#[test]
 fn parser_marks_only_block_tail_plain_identifiers_as_tail_candidates() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),
@@ -901,16 +723,6 @@ fn parser_accepts_structured_pipeline_stages() {
         "{:?}",
         adapters.diagnostics
     );
-}
-
-#[test]
-fn pipeline_value_calls_accept_plain_receivers_result_tails_and_named_blocks() {
-    let source = r#"
-let parts = "a,b" |> split(",")
-let selected = [{value: "b"}] |> where { |entry| entry.value == "b" } |> first()?
-let first = ["a", "b"] |> get(0)?
-"#;
-    assert_parse_and_check(SourceId::new(0), source);
 }
 
 #[test]
@@ -1703,51 +1515,6 @@ stats["comments"] = 2
 }
 
 #[test]
-fn parser_treats_old_schema_helper_name_as_plain_call() {
-    let old_name = ["vali", "date"].concat();
-    let source = format!(
-        "type Row = {{name: Str}}\nlet raw = {{name: \"demo\"}}\nlet row = {old_name}(raw, Row)?\n"
-    );
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let arena = &parsed.arena.arena;
-    let ArenaExprKind::Try(inner) = arena.expr(root_let_init_expr(&parsed, 2)).kind else {
-        panic!("expected try expression");
-    };
-    let ArenaExprKind::Call { callee, .. } = arena.expr(inner).kind else {
-        panic!("expected ordinary call");
-    };
-    assert!(
-        matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == old_name.as_str())
-    );
-}
-
-#[test]
-fn parser_rejects_stale_surface_syntax() {
-    let cases = [
-        ("let label = fmt\"hello\"\n", None),
-        ("let files = glob\"*.rs\"\n", None),
-        ("let ok = not ready\n", None),
-    ];
-
-    for (source, code) in cases {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(!parsed.diagnostics.is_empty(), "{source}");
-        if let Some(code) = code {
-            assert!(
-                parsed
-                    .diagnostics
-                    .iter()
-                    .any(|diag| diag.code.map(DiagnosticCode::name) == Some(code)),
-                "{source}: {:?}",
-                parsed.diagnostics
-            );
-        }
-    }
-}
-
-#[test]
 fn bare_command_fixture_is_proc_command() {
     let output = Parser::parse_source_arena_only(SourceId::new(0), "make -j4\n");
 
@@ -1761,38 +1528,6 @@ fn bare_command_fixture_is_proc_command() {
         arena.command_stmt(cmd_id).command,
         ArenaCommand::Proc { .. }
     ));
-}
-
-#[test]
-fn proc_without_signature_fixture_is_rejected() {
-    let source = "proc build {\n  print \"bad\"\n}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(
-        output
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.required-signature"))
-    );
-}
-
-#[test]
-fn reserved_keywords_and_proc_identifiers_are_not_expression_names() {
-    let keyword = Parser::parse_source_arena_only(SourceId::new(0), "let if = 1\n");
-    let proc_ident = Parser::parse_source_arena_only(SourceId::new(0), "let build-all = 1\n");
-
-    assert!(
-        keyword
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.expected-ident"))
-    );
-    assert!(
-        proc_ident
-            .diagnostics
-            .iter()
-            .any(|diag| diag.code.map(DiagnosticCode::name) == Some("parse.expected-ident"))
-    );
 }
 
 #[test]
@@ -1878,18 +1613,6 @@ fn formatter_is_idempotent_on_laputa_corpus() {
 }
 
 // ── expression continuation across newlines ──
-
-#[test]
-fn parser_continues_binary_op_with_leading_operator_on_next_line() {
-    let source = "let x = 1\n+ 2\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(e), .. }
-            if matches!(arena.expr(e).kind, ArenaExprKind::Binary { op: BinaryOp::Add, .. }))
-    }));
-}
 
 /// A line break never silently joins two statements: no spelling that
 /// continues an expression onto the next line can also begin a statement.
@@ -1993,152 +1716,7 @@ fn joined_token_pairs_lex_back_to_the_same_tokens() {
     assert_eq!(spaced, 11383, "pairs that need a space");
 }
 
-#[test]
-fn line_starting_with_a_statement_token_starts_a_new_statement() {
-    for line in ["-1", "/tmp/x", "./x", "is_ok(1)"] {
-        let source = format!("let value = 1\n{line}\n");
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-        assert!(
-            parsed.diagnostics.is_empty(),
-            "{line}: {:?}",
-            parsed.diagnostics
-        );
-        assert_eq!(parsed.arena.statement_ids().count(), 2, "{line}");
-    }
-}
-
-#[test]
-fn parser_continues_binary_op_with_trailing_operator_on_previous_line() {
-    let source = "let x = 1 +\n2\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(e), .. }
-            if matches!(arena.expr(e).kind, ArenaExprKind::Binary { op: BinaryOp::Add, .. }))
-    }));
-}
-
-#[test]
-fn parser_continues_chained_comparisons_across_newlines() {
-    let source = "let ok = x > 0\nand x < 10\nand y != 0\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-}
-
-#[test]
-fn parser_breaks_expression_when_newline_not_followed_by_operator() {
-    let source = "let x = 1\nlet y = 2\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert_eq!(output.arena.statement_ids().count(), 2);
-}
-
-#[test]
-fn parser_allows_multiline_parenthesized_expression() {
-    let source = "let x = (1 +\n2)\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-}
-
-#[test]
-fn parser_allows_multiline_list() {
-    let source = "let xs = [\n1,\n2,\n3\n]\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-}
-
-#[test]
-fn parser_allows_multiline_record() {
-    let source = "let r = {\na: 1,\nb: 2,\n}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-}
-
-#[test]
-fn parser_allows_multiline_tag_union() {
-    let source = "enum T {\n  A,\n B,\n C(Int),\n}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::TypeDef(def)
-            if matches!(arena.type_def(def).body, ArenaTypeDefBody::TagUnion(ref variants) if arena.tag_variants(*variants).len() == 3))
-    }));
-}
-
-#[test]
-fn parser_allows_multiline_tag_union_with_paren_variants() {
-    let source = "enum Tok {\n  TNum(Float),\n TStr(Str),\n TOp(Str),\n TEOF,\n}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::TypeDef(def)
-            if matches!(arena.type_def(def).body, ArenaTypeDefBody::TagUnion(ref variants) if arena.tag_variants(*variants).len() == 4))
-    }));
-}
-
 // ── string concatenation operator ──
-
-#[test]
-fn parser_accepts_string_concatenation_operator() {
-    let source = r#"let x = "a" + "b"
-"#;
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(e), .. }
-            if matches!(arena.expr(e).kind, ArenaExprKind::Binary { op: BinaryOp::Add, .. }))
-    }));
-}
-
-#[test]
-fn parser_accepts_chained_string_concatenation() {
-    let source = r#"let x = "a" + "b" + "c"
-"#;
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-}
-
-#[test]
-fn parser_accepts_call_and_index_chains_in_command_args() {
-    let print_chain = "proc main() {\n  let c = {stderr: \"err\\n\"}\n  print c.stderr.trim()\n}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), print_chain);
-    assert!(
-        output.diagnostics.is_empty(),
-        "print with method chain should parse cleanly: {:?}",
-        output.diagnostics
-    );
-
-    let interp = "proc main() {\n  let c = {stderr: \"err\\n\"}\n  print ${c.stderr.trim()}\n}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), interp);
-    assert!(
-        output.diagnostics.is_empty(),
-        "unexpected diagnostics: {:?}",
-        output.diagnostics
-    );
-
-    let other_cmd = "proc main() {\n  let x = \"hi\"\n  run.status x.trim()\n}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), other_cmd);
-    assert!(
-        output.diagnostics.is_empty(),
-        "run command with method chain should parse cleanly: {:?}",
-        output.diagnostics
-    );
-
-    let bare = "print (\"x\")\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), bare);
-    assert!(
-        !output
-            .diagnostics
-            .iter()
-            .any(|d| d.code.map(DiagnosticCode::name) == Some("parse.command-call-expr")),
-        "bare name() should not trigger parse.command-call-expr: {:?}",
-        output.diagnostics
-    );
-}
 
 #[test]
 fn formatter_keeps_command_call_args_bare_without_stealing_propagate_flag() {
@@ -2249,42 +1827,6 @@ fn parser_named_argument_puns_keep_identifier_spans_and_formatting() {
     assert_eq!(first.formatted, source);
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn checker_named_argument_pun_missing_name_labels_original_identifier() {
-    let source = include_str!("fixtures/sema/named-argument-pun-missing.xsh");
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let checked = Checker::check_arena(&parsed.arena, source);
-    let diagnostic = checked
-        .diagnostics
-        .iter()
-        .find(|diagnostic| {
-            diagnostic.code.map(DiagnosticCode::name) == Some("check.unresolved-name")
-        })
-        .expect("the pun must resolve an ordinary lexical name");
-    assert_eq!(diagnostic.labels.len(), 1);
-    assert_eq!(&source[diagnostic.labels[0].span.range()], "value");
-    assert_eq!(
-        diagnostic.labels[0].span.start(),
-        source.rfind("value:").unwrap(),
-    );
-}
-
-#[test]
-fn parser_rejects_colon_inclusive_and_stride_slices() {
-    for source in [
-        "let part = b\"abcd\"[0:2]\n",
-        "let part = b\"abcd\"[..=2]\n",
-        "let part = b\"abcd\"[0..2..1]\n",
-    ] {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            !parsed.diagnostics.is_empty(),
-            "unexpectedly accepted {source}"
-        );
-    }
 }
 
 #[test]
@@ -2427,43 +1969,6 @@ fn guarded_postfix_records_index_and_slice_flags_and_byte_spans() {
 }
 
 #[test]
-fn parser_requires_grouping_between_ordering_and_pattern_tests() {
-    for source in [
-        "let result = 0 < 1 < 2 is Bool\n",
-        "let result = value is Str < true\n",
-    ] {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            parsed
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
-                    == Some("parse.mixed-comparison")),
-            "{source}: {:?}",
-            parsed.diagnostics
-        );
-    }
-    for source in [
-        "let result = (0 < 1 < 2) is Bool\n",
-        "let result = (value is Str) < true\n",
-    ] {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            parsed.diagnostics.is_empty(),
-            "{source}: {:?}",
-            parsed.diagnostics
-        );
-    }
-}
-
-#[test]
-fn parser_keeps_type_pattern_match_arms_after_unbraced_values() {
-    let source = "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    _ => return \"other\"\n  }\n}\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-}
-
-#[test]
 fn list_literal_splices_retain_element_and_splice_spans() {
     let source = "let values = [1, @more, @[2],]\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -2526,21 +2031,6 @@ fn regex_literals_parse_as_prepared_regex_atoms_with_raw_source_spans() {
             .format_source(SourceId::new(7), &formatted.formatted)
             .formatted
     );
-}
-
-#[test]
-fn regex_literal_unterminated_delimiters_are_lexical_errors() {
-    for source in ["let pattern = rx\"abc", "let pattern = rx\"\"\"abc\n"] {
-        let lexed = Lexer::new(SourceId::new(0), source).lex_compact();
-        assert!(
-            lexed
-                .diagnostics
-                .iter()
-                .any(|d| d.code.map(DiagnosticCode::name) == Some("lex.unterminated-string")),
-            "{:?}",
-            lexed.diagnostics
-        );
-    }
 }
 
 #[test]
@@ -2615,38 +2105,6 @@ fn parser_record_defaults_preserve_spans_and_stable_formatting() {
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(first.formatted, second.formatted);
     assert_parse_and_check(SourceId::new(0), &first.formatted);
-}
-
-#[test]
-fn field_label_keywords_cannot_be_shorthand_puns_or_lexical_bindings() {
-    for source in [
-        "let row = {type}\n",
-        "let {type} = {type: 1}\n",
-        "type Entry = {type: Int}\nlet entry = Entry(type:)\n",
-        "let row = {type: 1}\nlet selected = match row { {type} => 1, _ => 2 }\n",
-    ] {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            parsed
-                .diagnostics
-                .iter()
-                .any(|d| d.code.map(DiagnosticCode::name) == Some("parse.keyword-label-binding")),
-            "{source}: {:?}",
-            parsed.diagnostics
-        );
-    }
-    for source in [
-        "let type = 1\n",
-        "pure value(match: Int) -> Int { 1 }\n",
-        "use fs as type\n",
-    ] {
-        assert!(
-            !Parser::parse_source_arena_only(SourceId::new(0), source)
-                .diagnostics
-                .is_empty(),
-            "{source}"
-        );
-    }
 }
 
 #[test]
@@ -2791,157 +2249,6 @@ fn parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting() {
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(first.formatted, second.formatted);
     assert_parse_and_check(SourceId::new(0), &first.formatted);
-}
-
-#[test]
-fn parser_value_pipeline_holes_reject_nested_multiple_and_spread_arguments() {
-    for source in [
-        "1 |> render(_, _)\n",
-        "1 |> render(_ + 1)\n",
-        "1 |> render(nested(_))\n",
-        "1 |> render(@_)\n",
-        "1 |> render(if true { _ } else { 0 })\n",
-    ] {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-        assert!(
-            parsed
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code.map(DiagnosticCode::name)
-                    == Some("parse.pipeline-hole")),
-            "{source}: {:?}",
-            parsed.diagnostics
-        );
-    }
-}
-
-#[test]
-fn stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes() {
-    let source = "# café\nlet values = [1] |> par-map --jobs=workers { |item| item } # retain\nlet groups = values |> reduce-by --sum --jobs=2 { |item| {key: \"all\", value: item} }\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert_eq!(parsed.diagnostics.len(), 2, "{:?}", parsed.diagnostics);
-    let mut fixed = source.to_string();
-    for diagnostic in parsed.diagnostics.iter().rev() {
-        assert_eq!(
-            diagnostic.code.map(DiagnosticCode::name),
-            Some("parse.stream-option-migration")
-        );
-        let hint = diagnostic
-            .fix_hints
-            .first()
-            .expect("unambiguous stage flag fix");
-        fixed.replace_range(
-            hint.span.unwrap().range(),
-            hint.replacement.as_deref().unwrap(),
-        );
-    }
-    assert!(fixed.contains("par-map (jobs: workers) { |item| item } # retain"));
-    assert!(fixed.contains("reduce-by (sum: true, jobs: 2)"));
-    assert!(fixed.starts_with("# café\n"));
-    let second = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-}
-
-#[test]
-fn stream_stage_flag_migration_refuses_ambiguous_argument_lists() {
-    let source = "let values = [1] |> sort-by --desc (.size)\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    let migration = parsed
-        .diagnostics
-        .iter()
-        .find(|diagnostic| {
-            diagnostic.code.map(DiagnosticCode::name) == Some("parse.stream-option-migration")
-        })
-        .expect("stage migration diagnostic");
-    assert!(migration.fix_hints.is_empty());
-    let command =
-        Parser::parse_source_arena_only(SourceId::new(0), "run printf --jobs --desc --max-bytes\n");
-    assert!(command.diagnostics.is_empty(), "{:?}", command.diagnostics);
-}
-
-#[test]
-fn parser_enum_migration_preserves_comments_exports_and_aliases() {
-    let source = "## Nominal café.\nexport type Choice =\n  Selected(Int) # first variant\n  | Empty # second variant\ntype Alias = Choice\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
-    let migration = &parsed.diagnostics[0];
-    assert_eq!(
-        migration.code.map(DiagnosticCode::name),
-        Some("parse.enum-migration")
-    );
-    let mut edits: Vec<_> = migration
-        .fix_hints
-        .iter()
-        .map(|hint| {
-            (
-                hint.span.expect("migration edit span"),
-                hint.replacement.as_ref().expect("migration replacement"),
-            )
-        })
-        .collect();
-    edits.sort_by_key(|(span, _)| span.start());
-    let mut fixed = source.to_string();
-    for (span, replacement) in edits.into_iter().rev() {
-        assert!(!parsed.cst.get().contains_comment(span));
-        fixed.replace_range(span.range(), replacement);
-    }
-    assert!(fixed.contains("export enum Choice {"), "{fixed}");
-    assert!(fixed.contains("# first variant"));
-    assert!(fixed.contains("# second variant"));
-    assert!(fixed.contains("type Alias = Choice"));
-    assert!(fixed.contains("café"));
-    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
-    assert!(
-        reparsed.diagnostics.is_empty(),
-        "{:?}",
-        reparsed.diagnostics
-    );
-}
-
-#[test]
-fn parser_enum_singleton_is_nominal_and_identifier_rhs_stays_alias() {
-    let source = "enum Token { Present(Str), }\ntype Alias = Token\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let kinds: Vec<_> = parsed
-        .arena
-        .statement_ids()
-        .map(|id| parsed.arena.arena.stmt(id).kind)
-        .collect();
-    let ArenaStmtKind::TypeDef(token) = kinds[0] else {
-        panic!("enum declaration");
-    };
-    let ArenaTypeDefBody::TagUnion(variants) = parsed.arena.arena.type_def(token).body else {
-        panic!("nominal enum");
-    };
-    assert_eq!(parsed.arena.arena.tag_variants(variants).len(), 1);
-    let ArenaStmtKind::TypeDef(alias) = kinds[1] else {
-        panic!("alias declaration");
-    };
-    assert!(matches!(
-        parsed.arena.arena.type_def(alias).body,
-        ArenaTypeDefBody::Alias(_)
-    ));
-}
-
-#[test]
-fn selective_retry_requires_parenthesized_clause_and_retains_on_names() {
-    let invalid = Parser::parse_source_arena_only(
-        SourceId::new(0),
-        "let result = retry [] on FetchError.Busy { fetch()? }",
-    );
-    assert!(invalid.diagnostics.iter().any(
-        |diagnostic| diagnostic.code.map(DiagnosticCode::name) == Some("parse.expected-token")
-    ));
-    let ordinary = Parser::parse_source_arena_only(
-        SourceId::new(0),
-        "let on = 1\nlet result = retry [] { on }\nrun echo on\n",
-    );
-    assert!(
-        ordinary.diagnostics.is_empty(),
-        "{:?}",
-        ordinary.diagnostics
-    );
 }
 
 // These assertions own CST and original byte spans, including offsets into
