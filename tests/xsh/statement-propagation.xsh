@@ -304,3 +304,85 @@ work(p"{root}/missing")
 """,
   )?
 }
+
+const LINT_CANDIDATE = r"""error Step = Bad(message: Str)
+
+proc step(fail: Bool) -> Result[Unit, Step] {
+  if fail { return Err(Step.Bad("stopped")) }
+}
+
+proc count() -> Result[Int, Step] {
+  2
+}
+
+proc finish(fail: Bool) -> Result[Unit, Step] {
+  step(false)<removed>
+  step(fail)?
+}
+
+proc work(dir: Path, fail: Bool) [env, io, error] -> Result[Int] {
+  step(false)<removed>
+  defer step(false)?
+  for flag in [false, false] {
+    step(flag)<removed>
+  }
+  let captured = try {
+    step(fail)?
+  }
+  print ${captured is Err(_)}
+  cd $dir {
+    step(false)<removed>
+  }<removed>
+  env ({MODE: "x"}) {
+    step(false)<removed>
+  }<removed>
+<unit-match>
+<value-match>
+  let total = count()?
+  finish(fail)<removed>
+  total
+}
+
+print ${work(p"ROOT", false)?}
+print ${work(p"ROOT", true) is Err(_)}
+"""
+
+# The three rules through the CLI: every redundant `?` goes, a re-propagating
+# `match` becomes `?` and then loses it where the statement propagates anyway,
+# and each `?` that carries information stays (a function's `Result[Unit]`
+# tail, `defer`, a bound `try` tail, and a value).
+test test_propagation_lints_fix_only_the_redundant_spellings { |ctx|
+  let root = test.temp_dir(ctx, name: "propagation-lints")?
+  let outline = LINT_CANDIDATE.replace("ROOT", root.display())
+  let source = outline.replace("<removed>", "?")
+    .replace(
+      "<unit-match>",
+      "  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }",
+    )
+    .replace(
+      "<value-match>",
+      "  match count() {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }",
+    )
+  let expected = outline.replace("<removed>", "")
+    .replace("<unit-match>", "  step(false)")
+    .replace("<value-match>", "  let _ = count()?")
+  let rules = "lint.redundant-propagation,lint.redundant-scope-propagation,lint.prefer-propagation"
+  let candidate = test.temp_file(ctx, name: "propagation-lints.xsh", contents: bytes.from_text(source))?
+  let applied = run.capture --text "xsht" lint --only $rules --fix $candidate ?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
+  let fixed = candidate.read_text()?
+  assert fixed == expected
+
+  let before = test.run_script(ctx, source)?
+  let after = test.run_script(ctx, fixed)?
+  assert before.success, before.stderr
+  assert after.success, after.stderr
+  assert before.stdout == "false\n2\ntrue\ntrue\n"
+  assert after.stdout == before.stdout
+
+  let repeated = run.capture --text "xsht" lint --only $rules $candidate ?
+  assert repeated.status.exited_with(0)
+  assert "lint." not in repeated.stderr
+}

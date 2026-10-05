@@ -570,6 +570,7 @@ diagnostic_codes! {
         LintPreferOptionalBinding = "lint.prefer-optional-binding", warning, "Use `guard let` instead of an exiting null test followed by a binding that names the optional again";
         LintPreferOptionalPostfix = "lint.prefer-optional-postfix", warning, "Use a guarded postfix and `??` instead of an explicit null branch";
         LintPreferPositionalConstructor = "lint.prefer-positional-constructor", warning, "Pass leading schema constructor fields positionally when no two of them can hold the same value";
+        LintPreferPropagation = "lint.prefer-propagation", warning, "Use `?` instead of a `match` whose `Err` arm only returns the same error";
         LintPreferReadLines = "lint.prefer-read-lines", warning, "Read a file's lines with `Path.read_lines()?` instead of `read_text()?.lines()`";
         LintPreferRecordConstructor = "lint.prefer-record-constructor", warning, "Use the named schema constructor for a record literal of a schema type";
         LintPreferRecordDestructuring = "lint.prefer-record-destructuring", warning, "Bind adjacent fields of one record together with a destructuring `let`";

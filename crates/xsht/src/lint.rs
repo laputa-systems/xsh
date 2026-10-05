@@ -62,6 +62,9 @@ mod lint_redundant_propagation;
 #[path = "lint_redundant_scope_propagation.rs"]
 mod lint_redundant_scope_propagation;
 
+#[path = "lint_prefer_propagation.rs"]
+mod lint_prefer_propagation;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -489,6 +492,13 @@ pub struct Linter<'a> {
     whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
     guarded_statement_depth: usize,
     propagating_statements: BTreeSet<Span>,
+    /// Inside a proc or pure body: whether `?` may replace `return Err(e)`
+    /// there without changing the function's effect contract.
+    propagation_function: Option<bool>,
+    /// How many forms lie between the enclosing function body and the
+    /// statement being visited through which `return` and `?` may leave
+    /// differently: any expression, and a `with` statement.
+    propagation_boundary_depth: usize,
     negated_call_spans: BTreeMap<Span, Span>,
     size_products: lint_size_literal::SizeProducts,
     exit_statements: lint_exit::ExitStatements,
@@ -665,6 +675,8 @@ impl<'a> Linter<'a> {
             whole_statement_values: std::sync::OnceLock::new(),
             guarded_statement_depth: 0,
             propagating_statements: options.propagating_statements,
+            propagation_function: None,
+            propagation_boundary_depth: 0,
             negated_call_spans: BTreeMap::new(),
             size_products: lint_size_literal::SizeProducts::default(),
             exit_statements: lint_exit::ExitStatements::default(),
@@ -1452,8 +1464,40 @@ impl<'a> Linter<'a> {
                 &facts,
                 statement,
             ),
+            self.propagation_function
+                .filter(|_| self.propagation_boundary_depth == 0)
+                .and_then(|allowed| {
+                    lint_prefer_propagation::repropagating_match(
+                        self.arena,
+                        self.source,
+                        &facts,
+                        statement,
+                        allowed,
+                    )
+                }),
         ];
         self.diagnostics.extend(found.into_iter().flatten());
+    }
+
+    /// Lints a proc or pure body as one whose statements may trade
+    /// `return Err(e)` for `?`.
+    fn lint_propagating_function(
+        &mut self,
+        definition: FunctionDefId,
+        pure: bool,
+        lint: impl FnOnce(&mut Self),
+    ) {
+        let allowed = lint_prefer_propagation::propagation_allowed(
+            self.arena,
+            &self.checked_effects,
+            definition,
+            pure,
+        );
+        let function = self.propagation_function.replace(allowed);
+        let depth = std::mem::take(&mut self.propagation_boundary_depth);
+        lint(self);
+        self.propagation_function = function;
+        self.propagation_boundary_depth = depth;
     }
 
     fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
@@ -1571,7 +1615,13 @@ impl<'a> Linter<'a> {
                 self.lint_expr_or_run(&value);
             }
             ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
-                self.lint_proc_function(def, exported, stmt.span);
+                if matches!(stmt.kind, ArenaStmtKind::ProcDef(_)) {
+                    self.lint_propagating_function(def, false, |linter| {
+                        linter.lint_proc_function(def, exported, stmt.span);
+                    });
+                } else {
+                    self.lint_proc_function(def, exported, stmt.span);
+                }
                 // Test declarations and program entrypoints are already
                 // unrestricted and have no restricted callers, so a clause adds
                 // no contract.
@@ -1585,7 +1635,7 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::PureDef(def) => {
                 self.lint_inferred_pure_return(def, exported);
-                self.lint_function(def);
+                self.lint_propagating_function(def, true, |linter| linter.lint_function(def));
             }
             ArenaStmtKind::StreamDef(def) => {
                 self.lint_proc_function(def, exported, stmt.span);
@@ -1792,8 +1842,10 @@ impl<'a> Linter<'a> {
                 for binding in self.arena.with_bindings(bindings).to_vec() {
                     self.lint_expr_or_run(&ArenaExprOrRun::Expr(binding.initializer));
                 }
+                self.propagation_boundary_depth += 1;
                 self.lint_block(body);
                 self.lint_block(else_block);
+                self.propagation_boundary_depth -= 1;
                 self.regex_recovery_context = old_regex_context;
             }
         }
@@ -11918,6 +11970,12 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_expr(&mut self, expr: ExprId) {
+        self.linter.propagation_boundary_depth += 1;
+        self.visit_expression(expr);
+        self.linter.propagation_boundary_depth -= 1;
+    }
+
+    fn visit_expression(&mut self, expr: ExprId) {
         if let ArenaExprKind::Unary {
             op: UnaryOp::Not,
             expr: inner,
