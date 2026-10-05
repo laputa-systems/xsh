@@ -1,5 +1,3 @@
-error CoverageError = Failed(message: Str)
-
 pure join_path(entries: List[Path]) -> Str {
   [entry.display() for entry in entries].join(":")
 }
@@ -37,7 +35,7 @@ proc rust_host() [process, error] -> Result[Str] {
     return line.split(": ")[1] when line.starts_with("host: ")
   }
 
-  Err(CoverageError.Failed("coverage: rustc -vV did not report a host triple"))
+  Err(error.failure("coverage: rustc -vV did not report a host triple"))
 }
 
 proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
@@ -54,7 +52,7 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
     return entry.path when entry.kind == "file" and entry.name == tool and entry.executable
   }
 
-  Err(CoverageError.Failed(f"coverage: could not find {tool}; install rustup component llvm-tools-preview"))
+  Err(error.failure(f"coverage: could not find {tool}; install rustup component llvm-tools-preview"))
 }
 
 proc remove_dir(target: Path) [fs, error] {
@@ -70,7 +68,7 @@ proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
   ]
 
   if paths.len() == 0 {
-    return Err(CoverageError.Failed(f"coverage: no .profraw files were produced in {raw_dir}"))
+    fail f"coverage: no .profraw files were produced in {raw_dir}"
   }
 
   paths
@@ -172,11 +170,7 @@ proc main() [fs, process, env, error, io] {
   objects = objects |> sort
 
   if objects.len() == 0 {
-    return Err(
-      CoverageError.Failed(
-        f"coverage: no instrumented objects found under {release_dir} or {debug_dir}",
-      ),
-    )
+    fail f"coverage: no instrumented objects found under {release_dir} or {debug_dir}"
   }
 
   fs.write(

@@ -2,8 +2,6 @@
 use system_report as report
 use system_report_collect as collectors
 
-error SystemReportUsbDescriptorError = Invalid(message: Str)
-
 pure empty_text(state: report.ObservationState) -> report.TextObservation {
   {state: state, value: null, raw_bytes_base64: null}
 }
@@ -3030,22 +3028,16 @@ export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescript
       let configuration_end = current_configuration_end
       if descriptor.descriptor_type == 1 or descriptor.descriptor_type == 2 {
         guard descriptor.offset == configuration_end else {
-          return Err(
-            SystemReportUsbDescriptorError.Invalid(
-              message: "USB configuration descriptor bytes do not match their declared total length",
-            ),
-          )
+          fail "USB configuration descriptor bytes do not match their declared total length"
         }
       } else if descriptor.offset >= configuration_end or descriptor.offset + descriptor.length > configuration_end {
-        return Err(SystemReportUsbDescriptorError.Invalid(message: "USB descriptor extends outside its configuration"))
+        fail "USB descriptor extends outside its configuration"
       }
     }
 
     if descriptor.descriptor_type == 1 {
       guard descriptor.length >= 18 else {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(message: "USB device descriptor is shorter than its fixed header"),
-        )
+        fail "USB device descriptor is shorter than its fixed header"
       }
 
       if active != null {
@@ -3060,18 +3052,12 @@ export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescript
 
     if descriptor.descriptor_type == 2 {
       guard descriptor.length >= 9 else {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(message: "USB configuration descriptor is shorter than its fixed header"),
-        )
+        fail "USB configuration descriptor is shorter than its fixed header"
       }
 
       let total_length = bytes.unpack_le(descriptor.raw, 2, 2)?
       if total_length < descriptor.length or total_length > data.len() - descriptor.offset {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(
-            message: "USB configuration total length is outside the available descriptor bytes",
-          ),
-        )
+        fail "USB configuration total length is outside the available descriptor bytes"
       }
 
       if active != null {
@@ -3086,9 +3072,7 @@ export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescript
 
     if descriptor.descriptor_type == 4 {
       guard descriptor.length >= 9 else {
-        return Err(
-          SystemReportUsbDescriptorError.Invalid(message: "USB interface descriptor is shorter than its fixed header"),
-        )
+        fail "USB interface descriptor is shorter than its fixed header"
       }
 
       let interface_number = bytes.unpack_le(descriptor.raw, 1, 2)?
@@ -3111,15 +3095,11 @@ export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescript
 
     continue when descriptor.descriptor_type != 5
     if descriptor.length < 7 {
-      return Err(
-        SystemReportUsbDescriptorError.Invalid(message: "USB endpoint descriptor is truncated or has no owning interface"),
-      )
+      fail "USB endpoint descriptor is truncated or has no owning interface"
     }
 
     if active == null {
-      return Err(
-        SystemReportUsbDescriptorError.Invalid(message: "USB endpoint descriptor is truncated or has no owning interface"),
-      )
+      fail "USB endpoint descriptor is truncated or has no owning interface"
     }
 
     let current = active
@@ -3152,11 +3132,7 @@ export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescript
   }
 
   if current_configuration_end != null and current_configuration_end != data.len() {
-    return Err(
-      SystemReportUsbDescriptorError.Invalid(
-        message: "USB configuration descriptor bytes do not match their declared total length",
-      ),
-    )
+    fail "USB configuration descriptor bytes do not match their declared total length"
   }
 
   alternates

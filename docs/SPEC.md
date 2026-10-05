@@ -35,7 +35,7 @@ composition model and replaces its semantics.
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
   can leave a function only through a visible `?`, a statement-position
-  `Result[Unit]`, an `assert`, or a failed plain `run`.
+  `Result[Unit]`, an `assert`, a `fail`, or a failed plain `run`.
 - **Effects are tracked.** Pure functions cannot touch the host. Procs infer
   which host effects they use; a declared clause is a checked upper bound.
 - **Predictable execution.** Evaluation order is source order. The concurrency
@@ -89,6 +89,10 @@ Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
 statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
+`fail` at the start of a `fail` statement and `because` after its first
+operand (8.6),
+`atomically` and `replace` at the start of an `atomically replace` statement
+and the `as` that ends its destination (8.7),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -112,7 +116,8 @@ namespace cannot be shadowed. Two names are exceptions:
 - `args` is the predeclared script-argument list. Nested scopes may declare
   their own `args`; the root binding stays the script arguments.
 - `error` is the conventional name for an error payload (`Err(error)`), so it
-  may be bound anywhere. Unshadowed `error.fail(...)` still names the module.
+  may be bound anywhere. A call written `error.fail(...)` or
+  `error.failure(...)` names the module function even where `error` is bound.
 
 Record destructuring may bind fields named like modules, because standard
 records commonly have fields such as `path`.
@@ -683,9 +688,9 @@ An enum declares one or more variants; payload-free variants are bare names
 and payload variants are called like functions. Constructors live in the
 declaring module's namespace, not under the enum name; where the expected type
 is the enum, `.Variant` names one without a namespace (5.5). A statement `match`
-over an enum without a catch-all warns about uncovered variants
-(`check.non-exhaustive-match`); a value `match` names them in its
-`check.match-value-exhaustive` error instead.
+over an enum covers every variant or ends in a catch-all
+(`check.non-exhaustive-match`, 6.8); a value `match` names the uncovered
+variants in its `check.match-value-exhaustive` error instead.
 `type Alias = Level` aliases the same nominal type.
 
 A Str-backed enum gives each payload-free variant a unique constant wire
@@ -829,7 +834,8 @@ error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;
 `is Facet` matches any variant that implements a facet. Programs branch on
 variants and facets, never on string kinds; family and variant names appear in
-diagnostics only.
+diagnostics only. A `match` over a value of one declared family covers every
+variant or ends in a catch-all (6.8).
 
 A variant declared without a payload carries only its message, as the one
 field `message: Str`. Its constructor takes the message as a single optional
@@ -863,10 +869,14 @@ let named = FetchError.Usage(message: "not a URL")  # error: check.error-constru
 let extra = FetchError.Usage("not a URL", "again")  # error: check.arity
 ```
 
-`error.fail(message)` builds a `Result[Unit, Error]` validation failure; it is
-the shortest way to report an expected failure from a fallible function.
+`error.failure(message)` builds a plain `Error` that carries only its message,
+and `error.fail(message)` is `Err(error.failure(message))` as a
+`Result[Unit, Error]`. The `fail` statement (8.6) returns that error from a
+function with any `Ok` type and is the usual way to report an expected
+failure.
 
-`Err(outer, cause: inner)` translates one error into another and keeps the
+`Err(outer, cause: inner)`, which `fail ... because inner` (8.6) returns,
+translates one error into another and keeps the
 original as diagnostic cause. The outer error's family, payload, and Result
 type are unchanged, and matching inspects only the outer error. Tracebacks
 render the cause chain (bounded). Resources reachable from an error payload or
@@ -1248,8 +1258,8 @@ error ProofError {
 }
 
 pure classify(file: Path) -> Result[Kind, ProofError] {
-  return Err(.Usage("no file named")) when file == p""
-  return Err(.Missing(file:)) when file == p"gone"
+  fail .Usage("no file named") when file == p""
+  fail .Missing(file:) when file == p"gone"
   return Ok(.Tree(2)) when file == p"usr"
   Ok(.Binary)
 }
@@ -1497,6 +1507,41 @@ let label = match level {
 
 A `match` with no matching arm fails with `match-no-arm`.
 
+A statement `match` over an enum, ordinary or Str-backed, over a value whose
+type is one declared error family, or over a union (4.12) must be exhaustive
+as well: its unguarded arms cover every variant or member, or it ends in
+`else =>`. An arm covers a variant when it matches the variant whatever its
+payload is, so `Fault("disk") =>` does not cover `Fault`; `is Facet` covers
+each error variant that implements the facet; a type pattern covers the union
+members it accepts (6.10). A missing variant or member is
+`check.non-exhaustive-match`, so a variant added to a declaration is reported
+at every `match` that has not said what to do with it:
+
+```xsh
+match level {  # error: check.non-exhaustive-match
+  Info => print "info"
+  Fault("disk") => print "disk fault"
+}
+
+match level {
+  Info => print "info"
+  else => {}
+}
+
+match failure {  # error: check.non-exhaustive-match
+  FetchError.Usage {message} => print $message
+  is Timeout => print "offline"
+}
+```
+
+A value `match` over an error family is exhaustive by the same rule, and
+names the missing variants in its `check.match-value-exhaustive` error.
+
+The checker enumerates no other subject of a statement `match` (a number, a
+string, a record, `Any`, the broad `Error`, a `Result`, even one whose error
+is a single family): there an unmatched value is still the run-time
+`match-no-arm`.
+
 The last arm of a `match` statement or expression may be `else => ...`, the
 catch-all: it runs for any subject no earlier arm selected, and binds nothing.
 
@@ -1594,9 +1639,9 @@ touching elements and apply only to `List` values. Type patterns apply only to
 `Any`, erased `Record`, and unions; for a known shape use `.require(T)?`. On a
 union the tested type must be one of its members (`check.pattern-type`), and
 unguarded type patterns that cover every member make the `match` exhaustive.
-A statement `match` that misses a member warns
-(`check.non-exhaustive-match`); a value `match` names the missing members in
-its `check.match-value-exhaustive` error.
+A statement `match` that misses a member is `check.non-exhaustive-match`,
+as for an enum (6.8); a value `match` names the missing members in its
+`check.match-value-exhaustive` error.
 
 ```xsh
 match json.decode(input)? {
@@ -1731,6 +1776,10 @@ A statement-position `Result[Unit]` propagates without `?` (8.1), so
 Both leave a `?` whose operand would otherwise be the value of its body, such
 as the tail of a `try` block that is bound.
 
+`?` passes on a failure that already exists. A function that detects a
+failure itself states it with `fail` (8.6), or with `assert` (8.2) when a
+false condition is the whole report.
+
 ### 8.4 Fallback with `??`
 
 `left ?? fallback` yields the `Ok` payload of a `Result`, or a non-null
@@ -1806,7 +1855,8 @@ statement is a `repeat` statement when it begins with the word `repeat` and,
 on the same line, its count is followed by the word `times` directly before
 `{`; neither word is reserved.
 
-`return`, `break`, `continue`, `yield`, and `exit` accept a postfix guard:
+`return`, `break`, `continue`, `yield`, `exit`, and `fail` accept a postfix
+guard:
 
 ```xsh
 return cached when cached != null
@@ -1870,6 +1920,67 @@ continuation on every path (by `return`, `break`, `continue`, or `exit`), or
 the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
+
+`fail message` returns from the enclosing function with an error that carries
+`message`. It is sugar:
+
+```xsh
+fail f"port {value} is out of range"
+```
+
+means exactly
+
+```xsh
+return Err(error.failure(f"port {value} is out of range"))
+```
+
+So it is a `return`: it leaves the function and not an enclosing `try` or
+`retry`, deferred cleanup runs, it ends a block the way `return` does, and it
+accepts a postfix guard (`fail "no input" unless ready`). The message is a
+`Str` evaluated once. The error is a plain `Error` (4.10), so the function
+must return a `Result` whose error type is `Error`, as `Result[T]` is; in any
+other function, and at the top level of a script
+(`check.return-outside-callable`), the diagnostics are those of the `return`.
+Use `fail` for a
+failure that callers report and do not branch on, and a declared family for
+one they match: `lint.prefer-fail` rewrites the constructors of a private
+family that has one message-only variant and that nothing in its file names
+in a pattern or a type, and then deletes the family. An uncaught failure is
+reported as `validation` where it was reported under the family's name.
+
+A function that declares an error family fails with one of its variants,
+written in the leading-dot form (5.5): `fail .Offline()` means exactly
+`return Err(.Offline())`. The variant comes from the declared return type and
+from nowhere else, so in a function whose error type is `Error`, or is
+inferred, `fail .Name(...)` is `check.inferred-variant`. An operand that is
+not a leading-dot name, alone or called, is a message; a qualified
+constructor is not a message, so `fail FetchError.Offline()` is a type error.
+
+`because cause` after either form keeps the error being replaced as the cause
+of the new one (4.10):
+
+```xsh
+Err(problem) => fail .RemoteFetch(f"fetching {url}") because problem
+```
+
+means exactly
+
+```xsh
+Err(problem) => return Err(.RemoteFetch(f"fetching {url}"), cause: problem)
+```
+
+and `fail "loading index" because problem` means
+`return Err(error.failure("loading index"), cause: problem)`. The message or
+variant is evaluated before the cause, which must be an error value; its
+diagnostics are those of the `cause:` argument. `lint.prefer-fail` also rewrites a
+`return Err(.Name(...))`, with or without `cause:`, to this statement.
+
+`fail` is not a reserved word. A statement is a `fail` statement when it
+begins with the word `fail` followed, after a space on the same line, by its
+message or variant, in the position where a command named `fail` would
+otherwise be read (10.1); `fail = 1`, `fail(1)`, and `test.fail("...")` are an
+assignment and two calls. A proc named `fail` is called with parentheses.
+`because` is a word only after the first operand of a `fail` statement.
 
 `guard let target = expr else { ... }` binds `target` (with an optional type
 annotation) when `expr` succeeds and otherwise runs the block. `expr`
@@ -2047,6 +2158,68 @@ on one line; neither word is reserved, and the path is a head expression like
 the source of a `for`.
 `fs.tempdir()` (15) is the other scratch directory: a private one at a path
 the runtime chooses, owned through its handle.
+
+`atomically replace dest as name { ... }` publishes a file that something
+other than XSH writes (an archiver, a compiler, an image builder): the block
+writes to a temporary path beside the destination, and the path is renamed
+over the destination once the block has finished. It is sugar, defined by its
+expansion:
+
+```xsh
+atomically replace image as partial {
+  run docker save --output $partial $tag
+  fs.fsync(partial)
+}
+```
+
+means exactly
+
+```xsh
+{
+  let dest_1: Path = image
+  let partial: Path = fp"{dest_1.parent()}/.{dest_1.name()}.tmp"
+  fs.remove(partial, missing_ok: true)
+  defer fs.remove(partial, missing_ok: true)
+  {
+    run docker save --output $partial $tag
+    fs.fsync(partial)
+  }
+  fs.rename(partial, dest_1, overwrite: true)?
+}
+```
+
+So the destination is a `Path` evaluated once, and `name` is the immutable
+`Path` `.NAME.tmp` in the destination's directory, where `NAME` is the
+destination's final component; it is in scope for the body only. The local
+that holds the destination has no spelling in source, and `xsht desugar`
+prints it under a fresh name. "Atomically" means visibility by rename within
+one directory: another process sees the old destination or the complete new
+one, never a partial file. It promises nothing about a crash; call `fs.fsync`
+in the body, as above, when the contents must be durable before they are
+visible. Two writers replacing the same destination at once share the
+temporary path and need a lock of their own.
+
+Whatever is at the temporary path is removed before the body runs, so a file
+an interrupted run left behind is not an error. The rename is the last step
+and runs only when the body ran to its end: it replaces an existing
+destination (`overwrite: true`) and fails, as `fs.rename` does, when the body
+produced nothing at the path or the destination's directory does not exist.
+The deferred removal runs however control leaves the statement, after the
+body's own defers, and follows the `defer` rules above. A body that fails, or
+leaves early by `return`, `break`, or `continue`, therefore leaves the
+destination untouched and nothing at the temporary path; after a rename there
+is nothing there to remove. The body's last statement is in statement
+position: a failed `Result[Unit]` there propagates before the rename, and any
+other value is rejected as ignored. The statement produces no value: a failed
+rename propagates like any other failure of the statement, so `try` around it
+captures one `Result[Unit]`. It needs the `fs` effect, and the `error` effect where a failure can
+leave a restricted proc. The temporary name ends in `.tmp`, so a producer
+that chooses a format by file extension must be told the format. A
+statement is an `atomically replace`
+statement when it begins with the words `atomically` and `replace` on one
+line; no word of the head is reserved, and the destination is a head
+expression like the source of a `for`. `Path.write_atomic` (15) is the same
+publication for bytes the program already holds.
 
 ### 8.8 `try`, `retry`, and `ctx`
 

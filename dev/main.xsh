@@ -13,8 +13,6 @@ use release as releases
 use system_report_check as system_reports
 use test_workflows as tests
 
-error DevUsage = Invalid(message: Str)
-
 type GlobalOptions = {target: Str, rest: List[Str]}
 
 enum TestKind {
@@ -150,7 +148,7 @@ internal container commands are intentionally omitted from public help.
 }
 
 pure usage(message: Str) -> Error {
-  DevUsage.Invalid(message: f"""{message}
+  error.failure(f"""{message}
 
 {help_text()}""")
 }

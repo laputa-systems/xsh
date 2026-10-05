@@ -40,6 +40,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.path-text-query` | Test a Path for a root component instead of testing its display text for a leading `/` |
 | `lint.pattern-conditional` | Use `if let` for a two-arm match with a complementary pattern |
 | `lint.positional-error-arguments` | Name error constructor arguments that follow a named one or fill fields a single value fits two of |
+| `lint.prefer-atomically-replace` | Use `atomically replace DEST as NAME` for a file produced at a temporary path and renamed into place |
 | `lint.prefer-bare-field-label` | Write identifier-shaped record field labels without quotes |
 | `lint.prefer-block-string` | Use a block string for a constant multiline string concatenation |
 | `lint.prefer-callable-alias` | Use an immutable alias for a callable that exactly forwards to another |
@@ -49,6 +50,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-defer-block` | Replace a single-use literal cleanup helper with a `defer` block |
 | `lint.prefer-empty-map-literal` | Use `{}` for an empty map in map-typed contexts |
 | `lint.prefer-env-string` | Read an environment variable with a literal identifier name as `e"NAME"` |
+| `lint.prefer-fail` | Return a failure that only carries a message with `fail MESSAGE` instead of a one-variant error family |
 | `lint.prefer-file-lines` | Use `path.lines()?` instead of `read_text()?.lines()` in a loop |
 | `lint.prefer-fs-files` | Use `fs.files()` instead of `fs.walk()` filtered to `kind == file` |
 | `lint.prefer-generic-record-constructor` | Let a constructor infer its concrete schema from the supplied fields |

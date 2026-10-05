@@ -199,11 +199,14 @@ pure failure_label(failure: FetchError) -> Str {
     is Timeout => "timeout",
     FetchError.Rejected {status, ..} => f"rejected {status}",
   }
+  var label = kind
   match failure {
-    FetchError.Usage {message} => return f"{kind}: {message}"
-    FetchError.Offline => return kind
-    FetchError.Rejected {url, ..} => return f"{kind} {url}"
+    FetchError.Usage {message} => label = f"{kind}: {message}"
+    FetchError.Offline => {}
+    FetchError.Rejected {url, ..} => label = f"{kind} {url}"
   }
+
+  label
 }
 
 test test_error_family_matches_covering_every_variant_run {

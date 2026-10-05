@@ -153,7 +153,8 @@ compound_statement = if_statement
                    | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook )
                    | repeat_statement
                    | without_statement
-                   | tempdir_statement ;
+                   | tempdir_statement
+                   | atomically_statement ;
 simple_statement = binding
                  | assert_statement
                  | return_statement
@@ -172,7 +173,8 @@ simple_statement = binding
                  | tempdir_scope "?"?
                  | named_command "?"?
                  | expression_statement
-                 | exit_statement ;
+                 | exit_statement
+                 | fail_statement ;
 ```
 
 ## Declarations
@@ -213,6 +215,7 @@ return_statement = "return" ( postfix_guard | guarded_value )? ;
 yield_statement = "yield" ( "@" expression postfix_guard? | guarded_value ) ;
 break_statement = "break" ( postfix_guard | expression postfix_guard? )? ;
 exit_statement = "exit" line(expression) postfix_guard? ;
+fail_statement = "fail" line(expression ( "because" expression )?) postfix_guard? ;
 continue_statement = "continue" postfix_guard? ;
 defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
@@ -225,6 +228,7 @@ loop_statement = "loop" block ;
 repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
 tempdir_statement = "tempdir" IDENT "at" condition_expression block ;
+atomically_statement = "atomically" "replace" condition_expression "as" IDENT block ;
 match_statement = "match" condition_expression "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
 arm_head = !( "." IDENT ) pattern ( "if" expression )? "=>" ;
 else_arm_head = "else" "=>" ;

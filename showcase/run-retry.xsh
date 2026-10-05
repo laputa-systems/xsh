@@ -5,8 +5,6 @@
 # Attempts have no implicit deadline; SIGINT/SIGTERM stop retries and cancel the child group.
 # Usage: xsh showcase/run-retry.xsh -- COMMAND [ARGS...]
 # Example: xsh showcase/run-retry.xsh -- curl -fsS https://example.com
-error RetryRunError = CommandFailed(message: Str)
-
 on SIGINT [error] {
   exit 3
 }
@@ -34,7 +32,7 @@ proc run_attempt(argv: List[Str], try_num: Int, max_tries: Int) [process, error]
     print f"failed (try {try_num}/{max_tries})"
   }
 
-  Err(RetryRunError.CommandFailed(message: f"command failed on try {try_num}"))
+  Err(error.failure(f"command failed on try {try_num}"))
 }
 
 proc main(...cmd: List[Str]) [process, time, error] {

@@ -1,5 +1,3 @@
-error BusyboxTestError = ProcessList(message: Str)
-
 type Process = {
   pid: Int,
   parent_pid: Int,
@@ -23,7 +21,7 @@ proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
     time.sleep(100ms)
   }
 
-  Err(BusyboxTestError.ProcessList(message: f"spawned process {pid} was not visible"))
+  Err(error.failure(f"spawned process {pid} was not visible"))
 }
 
 test test_pstree_renders_tree_with_pid_labels { |ctx|

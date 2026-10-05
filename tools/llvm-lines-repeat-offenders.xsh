@@ -30,8 +30,6 @@
 # The generated-mode artifact is intentionally bounded: the script analyzes the
 # complete captured llvm-lines output in memory, then stores only the header and the
 # top --artifact-rows individual llvm-lines rows under /tmp/xsh-llvm-lines-<pid>/.
-error LlvmLinesError = Failed(message: Str)
-
 type Options = {
   input: Str,
   limit: Int,
@@ -315,7 +313,7 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
     io.write_stdout(captured.stderr)
   }
 
-  return Err(LlvmLinesError.Failed("cargo llvm-lines failed")) unless captured.status.ok
+  fail "cargo llvm-lines failed" unless captured.status.ok
 
   var artifact_path = /tmp/xsh-llvm-lines.txt
 

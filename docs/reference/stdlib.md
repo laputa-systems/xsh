@@ -100,6 +100,7 @@ Environment variable and PATH manipulation.
 Expected validation failure construction.
 
 - `error.fail(message: Str) -> Result[Unit, Error]` — Constructs an expected validation failure as Result data.
+- `error.failure(message: Str) -> Error` — Constructs an expected validation failure as an Error value.
 
 ### `fs`
 
