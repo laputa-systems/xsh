@@ -7,5 +7,5 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 mod xsht;
 
 fn main() -> ExitCode {
-    xsht::app::main()
+    xsh::execution::script::on_preparation_stack(xsht::app::main)
 }

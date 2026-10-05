@@ -7980,9 +7980,20 @@ fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     })
 }
 
+/// The stack of a thread that evaluates a script: `default`, which is sized
+/// for an optimized build.
+///
+/// Evaluation recurses once per level of expression nesting, and the parser
+/// limits nesting to `MAX_NESTING_DEPTH`. An optimized build takes about
+/// 63 KiB a level, so the deepest expression uses 8 MiB of the 12 MiB the
+/// callers ask for. An unoptimized build takes about 620 KiB a level, 76 MiB
+/// in all, and gets sixteen times the stack; the pages are only reserved
+/// until they are touched.
 fn debug_test_eval_stack_size(default: usize) -> usize {
     if cfg!(feature = "native-tests") && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
         8 * 1024 * 1024
+    } else if cfg!(debug_assertions) {
+        default * 16
     } else {
         default
     }

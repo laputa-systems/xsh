@@ -109,6 +109,29 @@ pub fn run_startup() -> ScriptOutput {
     }
 }
 
+/// Runs a binary's work where preparing a script has the stack it needs.
+///
+/// Parsing, checking, and lowering recurse once per level of source nesting,
+/// which the parser limits. An optimized build prepares the deepest source
+/// the limit allows in under 2 MiB, so `work` runs where it is called: on the
+/// main thread, whose stack is 8 MiB on every supported host. An unoptimized
+/// build has frames several times larger and needs more than 9 MiB, so there
+/// `work` runs on a thread whose stack does not depend on the host's limit.
+pub fn on_preparation_stack<R: Send>(work: impl FnOnce() -> R + Send) -> R {
+    const UNOPTIMIZED_STACK_BYTES: usize = 64 * 1024 * 1024;
+    if !cfg!(debug_assertions) {
+        return work();
+    }
+    std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .stack_size(UNOPTIMIZED_STACK_BYTES)
+            .spawn_scoped(scope, work)
+            .expect("spawn the preparation thread")
+            .join()
+            .unwrap_or_else(|payload| std::panic::resume_unwind(payload))
+    })
+}
+
 pub fn run_script(options: RunOptions) -> ScriptOutput {
     match try_run_program(&options) {
         Ok(attempt) => finish_run_attempt(&options, attempt),
@@ -1456,6 +1479,142 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
         assert_eq!(output.stdout, format!("{}\n", FIELDS - 1).as_bytes());
         if let Some(parent) = path.parent() {
             let _ = fs::remove_dir_all(parent);
+        }
+    }
+
+    /// Source that repeats one nesting construct `levels` times, with the
+    /// number of repetitions that reaches the nesting limit exactly.
+    fn nested_source(family: &str, levels: usize) -> String {
+        let open = |text: &str| text.repeat(levels);
+        match family {
+            "list" => format!("let x = {}1{}\nprint \"ok\"\n", open("["), open("]")),
+            "record" => format!("let x = {}1{}\nprint \"ok\"\n", open("{a: "), open("}")),
+            "call" => format!(
+                "pure f(v: Int) -> Int {{\n  v + 1\n}}\n\nlet x = {}1{}\nprint \"ok\"\n",
+                open("f("),
+                open(")")
+            ),
+            "method" => format!("let x = \" a \"{}\nprint \"ok\"\n", open(".trim()")),
+            "sum" => format!("let x = 1{}\nprint \"ok\"\n", open(" + 1")),
+            "not" => format!("let x = {}true\nprint \"ok\"\n", open("! ")),
+            "type" => format!(
+                "let x: {}Int{} = {}{}\nprint \"ok\"\n",
+                open("List["),
+                open("]"),
+                open("["),
+                open("]")
+            ),
+            "pattern" => format!(
+                "let v = {}1{}\nmatch v {{\n  {}x{} => print \"ok\"\n  _ => print \"no\"\n}}\n",
+                open("["),
+                open("]"),
+                open("["),
+                open("]")
+            ),
+            "if" => format!("{}print \"ok\"\n{}", open("if true {\n"), open("}\n")),
+            "if value" => format!(
+                "let x = {}1{}\nprint \"ok\"\n",
+                open("if true { "),
+                open(" } else { 0 }")
+            ),
+            "stage block" => format!(
+                "let x = {}1{}\nprint \"ok\"\n",
+                open("[1] |> map { "),
+                open(" }")
+            ),
+            "interpolation" => {
+                let mut value = "1".to_string();
+                for _ in 0..levels {
+                    value = format!("f\"{{{value}}}\"");
+                }
+                format!("let x = {value}\nprint \"ok\"\n")
+            }
+            other => panic!("unknown family {other}"),
+        }
+    }
+
+    /// Runs `source` the way `xsh` does, preparing it on a thread whose stack
+    /// is the 8 MiB of a main thread at most, whatever the host's limit is.
+    /// An unoptimized build prepares on the larger stack `xsh` gives it.
+    fn run_on_fixed_stack(name: &str, source: &str) -> ScriptOutput {
+        let path = temp_script(name, source);
+        let options = RunOptions {
+            script: path.to_string_lossy().into_owned(),
+            args: Vec::new(),
+            coverage_trace_dir: None,
+        };
+        let output = std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || on_preparation_stack(move || run_script(options)))
+            .expect("spawn the main-thread stand-in")
+            .join()
+            .expect("the run finishes");
+        if let Some(parent) = path.parent() {
+            let _ = fs::remove_dir_all(parent);
+        }
+        output
+    }
+
+    // Each family reaches the limit of 128 levels with the count given here:
+    // a script that deep is prepared and evaluated, and one more repetition
+    // is the nesting diagnostic. The counts differ because a repetition is
+    // one level for a list and several for a block, which holds a statement
+    // that holds an expression.
+    #[test]
+    fn nesting_runs_at_the_limit_and_is_a_diagnostic_one_level_past_it() {
+        for (family, at_limit) in [
+            ("list", 126),
+            ("record", 126),
+            ("call", 126),
+            ("method", 63),
+            ("sum", 126),
+            ("not", 126),
+            ("type", 126),
+            ("pattern", 126),
+            ("if", 63),
+            ("if value", 62),
+            ("stage block", 42),
+        ] {
+            let name = family.replace(' ', "-");
+            let output = run_on_fixed_stack(&name, &nested_source(family, at_limit));
+            assert_eq!(
+                (output.status, output.stdout.as_slice()),
+                (0, b"ok\n".as_slice()),
+                "{family} at {at_limit}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+
+            let output = run_on_fixed_stack(&name, &nested_source(family, at_limit + 1));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status, 2, "{family} at {}: {stderr}", at_limit + 1);
+            assert!(
+                stderr.starts_with("err[parse.nesting-depth]: nesting is deeper than 128 levels"),
+                "{family} at {}: {stderr}",
+                at_limit + 1
+            );
+            assert_eq!(stderr.matches("err[").count(), 1, "{family}: {stderr}");
+            assert!(output.stdout.is_empty(), "{family}");
+        }
+    }
+
+    // The parser stops at the limit instead of recursing through the whole
+    // input, in a string's interpolations as in the file itself, so input far
+    // past the limit costs no more stack than input just past it.
+    #[test]
+    fn nesting_far_past_the_limit_is_the_same_diagnostic() {
+        for family in ["list", "call", "if", "sum", "method", "interpolation"] {
+            let output = run_on_fixed_stack(
+                &format!("far-{family}"),
+                &nested_source(family, 50_000),
+            );
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status, 2, "{family}: {stderr}");
+            assert!(
+                stderr.starts_with("err[parse.nesting-depth]"),
+                "{family}: {}",
+                &stderr[..stderr.len().min(300)]
+            );
+            assert_eq!(stderr.matches("err[").count(), 1, "{family}");
         }
     }
 }

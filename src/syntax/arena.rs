@@ -820,9 +820,74 @@ fn doc_comment_blocks(
     blocks
 }
 
+/// The deepest nesting a source file may have: the longest chain of
+/// constructs, each inside the one before, counting every expression,
+/// statement, block, pattern, and type on it.
+///
+/// Every later pass walks the syntax tree and what is lowered from it
+/// recursively, so this bound is what keeps their stack use finite. It is
+/// chosen so that the deepest tree fits the smallest stack a pass runs on in
+/// an unoptimized build, and is several times what hand-written code reaches.
+pub const MAX_NESTING_DEPTH: u32 = 128;
+
+/// Measures nesting while a tree is built.
+///
+/// The parser, and the parsers it starts for interpolations, share one meter
+/// through the builder they all append to, so an interpolation continues the
+/// depth of the string it is written in.
+#[derive(Debug, Default)]
+pub struct NestingMeter {
+    /// Constructs open around the current position.
+    open: u32,
+    /// The tallest subtree finished inside the innermost open construct.
+    height: u32,
+    exceeded: bool,
+}
+
+impl NestingMeter {
+    /// Opens a construct. Returns the height to hand back to [`Self::close`],
+    /// or `None` when the construct would be nested too deeply to open.
+    pub fn open(&mut self) -> Option<u32> {
+        if self.open >= MAX_NESTING_DEPTH {
+            self.exceeded = true;
+            return None;
+        }
+        self.open += 1;
+        Some(std::mem::take(&mut self.height))
+    }
+
+    /// Closes the innermost construct, whose own node tops a subtree of
+    /// `height`. Returns whether the path through it stays within the limit.
+    pub fn close(&mut self, outer: u32, height: u32) -> bool {
+        self.open -= 1;
+        let within = self.open + height <= MAX_NESTING_DEPTH;
+        self.exceeded |= !within;
+        self.height = outer.max(height);
+        within
+    }
+
+    /// Takes the height of the tallest subtree finished since the last call.
+    pub fn take_height(&mut self) -> u32 {
+        std::mem::take(&mut self.height)
+    }
+
+    /// Whether a node that tops a subtree of `height` at the current position
+    /// stays within the limit.
+    pub fn fits(&mut self, height: u32) -> bool {
+        let within = self.open.saturating_sub(1) + height <= MAX_NESTING_DEPTH;
+        self.exceeded |= !within;
+        within
+    }
+
+    pub fn exceeded(&self) -> bool {
+        self.exceeded
+    }
+}
+
 #[derive(Default)]
 pub struct ArenaProgramBuilder<'a> {
     lowerer: ArenaLowerer<'a>,
+    pub nesting: NestingMeter,
     symbols: crate::symbol::SymbolOwner,
     paren_groups: Vec<(ExprId, Span)>,
     statements: Vec<StmtId>,
@@ -921,6 +986,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             modules: Vec::new(),
             docs: ArenaDocComments::default(),
             internal_source_depth: 0,
+            nesting: NestingMeter::default(),
         }
     }
 
@@ -982,6 +1048,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             modules: Vec::new(),
             docs: ArenaDocComments::default(),
             internal_source_depth: 0,
+            nesting: NestingMeter::default(),
         }
     }
 

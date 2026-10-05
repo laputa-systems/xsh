@@ -20,6 +20,13 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.skip_comments();
+        self.nested(arena, Self::parse_statement_form_arena_only)
+    }
+
+    fn parse_statement_form_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
         let start = self.current_start();
         if let Some(form) = self.current_keyword().and_then(grammar::statement_form) {
             return match form {
@@ -2130,6 +2137,13 @@ impl<'a> Parser<'a> {
         arena.begin_block();
         self.block_depth += 1;
         self.skip_separators();
+        // The block is a level of its own between the construct it belongs
+        // to and its statements. It is not parsed through `nested` because
+        // the builder's open block must be finished whatever happens.
+        let nesting = arena.nesting.open();
+        if nesting.is_none() {
+            self.nested(arena, |_, _| Some(()));
+        }
         self.in_nested_group(|parser| {
             while !parser.at(TokenKindMatch::RBrace) && !parser.at(TokenKindMatch::Eof) {
                 if parser.parse_statement_arena_only(arena).is_none() {
@@ -2138,6 +2152,10 @@ impl<'a> Parser<'a> {
                 parser.skip_separators();
             }
         });
+        if let Some(outer) = nesting {
+            let height = arena.nesting.take_height() + 1;
+            arena.nesting.close(outer, height);
+        }
         self.block_depth -= 1;
         let end = self
             .expect(TokenKindMatch::RBrace, "expected `}` to close block")

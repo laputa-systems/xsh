@@ -254,6 +254,7 @@ diagnostic_codes! {
         ParseUnsupportedThen = "parse.unsupported-then", error, "Reject the `then` keyword after an `if`, `while`, or `for` head";
         ParseUnterminatedInterpolation = "parse.unterminated-interpolation", error, "Reject a string interpolation or f-string `{` with no closing delimiter";
         ParseForIndex = "parse.for-index", error, "Reject a destructured index in `for INDEX, ITEM in SOURCE`";
+        ParseNestingDepth = "parse.nesting-depth", error, "Reject a construct nested more deeply than the limit every later pass is sized for";
     }
     Check {
         CheckAcceptPolicy = "check.accept-policy", error, "Reject an invalid `accept` exit-code list: empty, outside 0..255, or with duplicates";

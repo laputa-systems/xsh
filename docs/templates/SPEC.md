@@ -62,6 +62,16 @@ Every diagnostic from loading, parsing, checking, linting, or evaluation
 carries a source span when one exists, and human and machine output render the
 same diagnostic value.
 
+A source file may nest constructs at most 128 levels deep, counting every
+expression, statement, block, pattern, and type that encloses a piece of
+source, each operand of a prefix or binary operator, and each `.name`, call,
+or index applied to a value; interpolations count on from the string they are
+written in, and the stages of one pipeline share a level. The construct that
+would be level 129 is reported as `parse.nesting-depth` and nothing after it
+is parsed. Checking, lowering, and evaluation are sized for this bound, so
+deeply nested source is a diagnostic instead of a stack overflow; bind an
+inner part with `let` or move it into a function.
+
 ### 2.2 Comments and documentation
 
 `#` starts a comment that runs to the end of the line, outside strings. A

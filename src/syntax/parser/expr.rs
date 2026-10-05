@@ -597,12 +597,15 @@ impl<'a> Parser<'a> {
         min_prec: u8,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
-        let command_arg_root = self.command_arg_expr;
-        if command_arg_root {
-            self.command_arg_expr = false;
-        }
-        let left = self.parse_prefix_arena_only(arena)?;
-        self.parse_operators_after_arena_only(left, min_prec, command_arg_root, arena)
+        self.nested(arena, |parser, arena| {
+            let command_arg_root = parser.command_arg_expr;
+            if command_arg_root {
+                parser.command_arg_expr = false;
+            }
+            let left = parser.parse_prefix_arena_only(arena)?;
+            parser.spine_height = arena.nesting.take_height() + 1;
+            parser.parse_operators_after_arena_only(left, min_prec, command_arg_root, arena)
+        })
     }
 
     /// Whether a run form that just ended heads a pipeline: `|>` follows it,
@@ -666,7 +669,14 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
         let mut pending_pipeline: Option<ArenaPendingPipeline> = None;
+        let mut extended = false;
         loop {
+            // Coming round again means the pass before applied one form to
+            // `left`.
+            if extended && !self.extend_spine(arena, left.span, pending_pipeline.is_some()) {
+                return None;
+            }
+            extended = true;
             self.skip_postfix_newlines();
             self.skip_pipeline_newlines();
             // A typed command argument ends at whitespace or a line break.

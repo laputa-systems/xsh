@@ -154,7 +154,56 @@ fn skip_string_in_expr(source: &str, start: usize) -> Option<usize> {
     }
 }
 
+thread_local! {
+    /// How many interpolation scans are open on this thread, and whether one
+    /// was refused since the flag was last taken.
+    static INTERPOLATION_SCANS: std::cell::Cell<(u32, bool)> =
+        const { std::cell::Cell::new((0, false)) };
+}
+
+/// An open scan for the end of an interpolation.
+///
+/// Finding where an interpolation ends means scanning the strings inside it,
+/// whose interpolations are scanned the same way, so the scanners recurse
+/// once per string nested in a string. They take one of these each, and are
+/// refused past the nesting limit, which keeps their stack use bounded on
+/// input of any depth.
+pub(crate) struct InterpolationScan(());
+
+impl InterpolationScan {
+    pub(crate) fn open() -> Option<Self> {
+        INTERPOLATION_SCANS.with(|scans| {
+            let (open, _) = scans.get();
+            if open >= crate::syntax::arena::MAX_NESTING_DEPTH {
+                scans.set((open, true));
+                return None;
+            }
+            scans.set((open + 1, scans.get().1));
+            Some(Self(()))
+        })
+    }
+
+    /// Whether a scan was refused since this was last asked.
+    pub(crate) fn take_refused() -> bool {
+        INTERPOLATION_SCANS.with(|scans| {
+            let (open, refused) = scans.get();
+            scans.set((open, false));
+            refused
+        })
+    }
+}
+
+impl Drop for InterpolationScan {
+    fn drop(&mut self) {
+        INTERPOLATION_SCANS.with(|scans| {
+            let (open, refused) = scans.get();
+            scans.set((open - 1, refused));
+        });
+    }
+}
+
 pub(crate) fn interpolation_close(source: &str, start: usize) -> Option<usize> {
+    let _scan = InterpolationScan::open()?;
     let bytes = source.as_bytes();
     let mut offset = start;
     let mut depth = 0usize;

@@ -63,6 +63,13 @@ pub struct Parser<'a> {
     head_as_index: Option<usize>,
     block_depth: usize,
     parenthesized_expr_depth: usize,
+    /// The height of the operand the operator loop is extending: each
+    /// postfix form or binary operator it applies puts one more node above
+    /// everything parsed so far, without the parser recursing.
+    spine_height: u32,
+    /// Set once nesting passed the limit: parsing has stopped, and only that
+    /// diagnostic is reported.
+    nesting_exceeded: bool,
     diagnostics: Vec<Diagnostic>,
     /// Offsets of the `\` line continuations no command has accepted yet.
     /// The lexer reads a continuation as whitespace wherever it is written;
@@ -184,6 +191,8 @@ impl<'a> Parser<'a> {
             head_as_index: None,
             block_depth: 0,
             parenthesized_expr_depth: 0,
+            spine_height: 0,
+            nesting_exceeded: false,
             diagnostics: Vec::new(),
         }
     }
@@ -439,7 +448,102 @@ impl<'a> Parser<'a> {
                     .with_note("an expression continues when the next line begins with an operator, `.name`, or `|>`, or inside an open bracket"),
             );
         }
+        // The lexer reports nesting it could not scan through and stops, as
+        // the parser does.
+        let lexer_stopped = self
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::ParseNestingDepth));
+        if self.nesting_exceeded || lexer_stopped {
+            // What was parsed after the limit was passed is not the program
+            // that was written, so its diagnostics would only mislead.
+            // An interpolation refused by the lexer is refused again
+            // at each level the parser reaches it through, so one report is
+            // kept.
+            self.diagnostics
+                .retain(|diagnostic| diagnostic.code == Some(DiagnosticCode::ParseNestingDepth));
+            self.diagnostics.truncate(1);
+        }
         without_repeated_literal_diagnostics(std::mem::take(&mut self.diagnostics))
+    }
+
+    /// Parses one construct that counts as a level of nesting: an
+    /// expression, a statement, a block, a pattern, or a type.
+    ///
+    /// A construct that would be nested past the limit is reported and not
+    /// parsed, so the parser itself never recurses deeper than the limit;
+    /// parsing then stops at once, because skipping the construct leaves
+    /// nothing sensible to continue from.
+    pub(in crate::syntax::parser) fn nested<T>(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        parse: impl FnOnce(&mut Self, &mut ArenaProgramBuilder<'_>) -> Option<T>,
+    ) -> Option<T> {
+        let start = self.current_start();
+        let Some(outer) = arena.nesting.open() else {
+            self.report_nesting(self.span(start, self.current_end()));
+            return None;
+        };
+        let spine = std::mem::replace(&mut self.spine_height, 0);
+        let result = parse(self, arena);
+        // The construct's own node tops whatever was finished inside it, and
+        // the operator loop may have put more nodes above that.
+        let height = self.spine_height.max(arena.nesting.take_height() + 1);
+        self.spine_height = spine;
+        if !arena.nesting.close(outer, height) {
+            self.report_nesting(self.span(start, self.previous_end().max(start)));
+        }
+        if arena.nesting.exceeded() {
+            // An interpolation's own parser may have been the one to report.
+            self.stop_after_nesting_limit();
+            return None;
+        }
+        result
+    }
+
+    /// Accounts for one more node the operator loop put above its operand.
+    /// `flat` is a pipeline stage, which joins the stages before it instead
+    /// of enclosing them.
+    pub(in crate::syntax::parser) fn extend_spine(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        operand: Span,
+        flat: bool,
+    ) -> bool {
+        let operands = arena.nesting.take_height();
+        self.spine_height = if flat {
+            self.spine_height.max(operands + 1)
+        } else {
+            self.spine_height.max(operands) + 1
+        };
+        if arena.nesting.fits(self.spine_height) {
+            return true;
+        }
+        self.report_nesting(operand);
+        false
+    }
+
+    fn report_nesting(&mut self, span: Span) {
+        if self.nesting_exceeded {
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::error(format!(
+                "nesting is deeper than {} levels",
+                crate::syntax::arena::MAX_NESTING_DEPTH
+            ))
+            .with_code(DiagnosticCode::ParseNestingDepth)
+            .with_label(Label::primary(
+                span,
+                "this is nested too deeply; name an inner part with `let` or move it into a function",
+            )),
+        );
+        self.stop_after_nesting_limit();
+    }
+
+    fn stop_after_nesting_limit(&mut self) {
+        self.nesting_exceeded = true;
+        self.index = self.token_table.len().saturating_sub(1);
     }
 
     pub(in crate::syntax::parser) fn at_run_segment_end(&mut self) -> bool {

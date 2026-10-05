@@ -196,6 +196,13 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
     ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        self.nested(arena, Self::parse_pattern_alternatives_arena_only)
+    }
+
+    fn parse_pattern_alternatives_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
         let (first, first_span) = self.parse_alias_pattern_arena_only(arena)?;
         if self.consume(TokenKindMatch::Pipe).is_none() {
             return Some((first, first_span));

@@ -1,5 +1,7 @@
 use std::process::ExitCode;
-use xsh::execution::script::{RunOptions, ScriptOutput, run_script_with_shared_stdio, run_startup};
+use xsh::execution::script::{
+    RunOptions, ScriptOutput, on_preparation_stack, run_script_with_shared_stdio, run_startup,
+};
 use xsh::process::{clear_cancellation_request, install_cancellation_signal_handlers};
 
 const HELP: &str = "\
@@ -53,7 +55,7 @@ pub fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Ok(Some(options)) => {
-            let output = run_script_with_shared_stdio(options);
+            let output = on_preparation_stack(move || run_script_with_shared_stdio(options));
             finish(output)
         }
         Err(message) => {

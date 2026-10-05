@@ -61,6 +61,9 @@ pub(crate) fn invalid_utf8_string_diagnostic(span: Span) -> Diagnostic {
 /// first one outside every bracket, string, and nested f-string the lexer
 /// sees, so the expression parser and this boundary always agree.
 pub(crate) fn interpolation_end(source: &str, start: usize) -> InterpolationEnd {
+    let Some(_scan) = literal::InterpolationScan::open() else {
+        return InterpolationEnd::Unclosed;
+    };
     let mut lexer = Lexer {
         source_id: SourceId::new(0),
         source,
@@ -135,8 +138,27 @@ impl<'a> Lexer<'a> {
     }
 
     fn lex_source(&mut self) {
+        literal::InterpolationScan::take_refused();
         while !self.is_eof() {
+            let start = self.offset;
             self.lex_token();
+            if literal::InterpolationScan::take_refused() {
+                // The token's end was not found, so what follows it cannot be
+                // told apart from its text: lexing stops here, and the parser
+                // reports this diagnostic alone.
+                self.diagnostics.push(
+                    Diagnostic::error(format!(
+                        "nesting is deeper than {} levels",
+                        crate::syntax::arena::MAX_NESTING_DEPTH
+                    ))
+                    .with_code(DiagnosticCode::ParseNestingDepth)
+                    .with_label(Label::primary(
+                        self.span(start, self.source.len()),
+                        "the interpolations in this string are nested too deeply; bind an inner string with `let`",
+                    )),
+                );
+                self.offset = self.source.len();
+            }
         }
 
         self.push(TokenKind::Eof, self.offset, self.offset);
