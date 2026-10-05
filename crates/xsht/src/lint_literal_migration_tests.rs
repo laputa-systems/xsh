@@ -97,7 +97,7 @@ fn prepared_path_literals_and_exported_data_preserve_comments_and_converge() {
 
 #[test]
 fn literal_migrations_retain_runtime_initialization_and_computed_arguments() {
-    let source = "let root = Path(\"out\")\nlet copied = root\nlet joined = fp\"{root}/file\"\nproc paths() -> Path { let local = p\"out\"; local }\nproc delays() -> List[Duration] {\n  var values = [1s]\n  values = values.push(time.millis(2))\n  values\n}\n";
+    let source = "let root = Path(\"out\")\nlet copied = root\nlet joined = fp\"{root}/file\"\nproc paths() -> Path { let local = p\"out\"; local }\nproc delays() -> List[Duration] {\n  var values = [1s]\n  values = values.push(time.millis(2))\n  values\n}\nvar shared = [1s]\nshared = shared.push(time.millis(2))\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -117,9 +117,19 @@ fn literal_migrations_retain_runtime_initialization_and_computed_arguments() {
             .iter()
             .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferConst))
     );
-    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code
-        == Some(DiagnosticCode::LintPreferListCompoundAssignment)
-        && !diagnostic.fix_hints.is_empty()));
+    // A call cannot assign the local `values`, so its update keeps the call as
+    // written; any proc might assign the module-level `shared`, so that update
+    // is left alone.
+    let replacements = output
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            diagnostic.code == Some(DiagnosticCode::LintPreferListCompoundAssignment)
+        })
+        .flat_map(|diagnostic| &diagnostic.fix_hints)
+        .map(|fix| fix.replacement.as_deref().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(replacements, ["values += [time.millis(2)]"]);
 }
 
 #[test]

@@ -93,6 +93,66 @@ fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
     }
 }
 
+/// Whether `text` spells `name` as a whole identifier. A nested block can
+/// assign a binding only by writing its name, so a missing spelling proves it
+/// leaves the binding alone; a spelling inside a string or comment merely errs
+/// toward the conservative answer.
+fn mentions_identifier(text: &str, name: &str) -> bool {
+    let identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
+    text.match_indices(name).any(|(start, _)| {
+        !text[..start].chars().next_back().is_some_and(identifier_char)
+            && !text[start + name.len()..]
+                .chars()
+                .next()
+                .is_some_and(identifier_char)
+    })
+}
+
+/// One `push` or `extend` call in a chain that appends to a list, with the
+/// parenthesized argument text's span.
+struct ListUpdate {
+    method: Name,
+    argument: ExprId,
+    parenthesized: Span,
+}
+
+/// Whether evaluating `expr` can assign the variable spelled `name`.
+///
+/// `x = x.push(a)` reads `x` before it evaluates `a`, and `x += [a]` reads it
+/// after, so the two spellings agree exactly when `a` leaves `x` alone. A
+/// local variable is visible only to its own callable, and an expression can
+/// assign it only through statements in a block nested inside the expression
+/// (a callback, a `try` or value block, a builder or command interpolation);
+/// calls cannot reach it, because nested declarations are rejected and a
+/// callable value never captures a caller's local. Module-level variables are
+/// not covered: any proc call may assign them. `text` is the source of the
+/// whole expression, which stands in for forms whose own span does not cover
+/// everything they evaluate (commands and builders).
+fn expr_may_assign_local(
+    arena: &AstArena,
+    source: &str,
+    expr: ExprId,
+    name: &str,
+    text: &str,
+) -> bool {
+    let nested_statements = matches!(
+        arena.expr(expr).kind,
+        ArenaExprKind::Run(_)
+            | ArenaExprKind::Spawn(_)
+            | ArenaExprKind::Wait(_)
+            | ArenaExprKind::BuilderCall { .. }
+    ) && mentions_identifier(text, name);
+    nested_statements
+        || expr_child_blocks(arena, expr).into_iter().any(|block| {
+            source
+                .get(arena.span(arena.block(block).span).range())
+                .is_none_or(|block_text| mentions_identifier(block_text, name))
+        })
+        || expr_child_exprs(arena, expr)
+            .into_iter()
+            .any(|child| expr_may_assign_local(arena, source, child, name, text))
+}
+
 /// Whether replacing `span` could drop a comment. Unlexable text counts as
 /// commented so callers stay conservative.
 fn span_may_contain_comment(source: &str, span: Span) -> bool {
@@ -6546,52 +6606,117 @@ impl<'a> Linter<'a> {
         let ArenaAssignTargetKind::Name(target_name) = self.arena.assign_target(target).kind else {
             return;
         };
-        let Some(binding) = self
+        let Some((scope_depth, binding)) = self
             .scopes
             .iter()
+            .enumerate()
             .rev()
-            .find_map(|scope| scope.get(target_name.as_str().as_str()))
+            .find_map(|(depth, scope)| {
+                scope
+                    .get(target_name.as_str().as_str())
+                    .map(|binding| (depth, binding))
+            })
         else {
             return;
         };
         if !binding.mutable {
             return;
         }
+        let module_level = scope_depth == 0;
         let ArenaExprOrRun::Expr(value) = value else {
             return;
         };
-        let ArenaExprKind::Call { callee, args } = self.arena.expr(value).kind else {
-            return;
-        };
-        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
-            return;
-        };
-        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == target_name)
+        // `x.push(a).push(b)` is one update; walk from the outermost call to
+        // the receiver, collecting each appended argument.
+        let mut updates: Vec<ListUpdate> = Vec::new();
+        let mut receiver = value;
+        while let ArenaExprKind::Call { callee, args } = self.arena.expr(receiver).kind
+            && let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind
+            && (name == "push" || name == "extend")
+            && args.len() == 1
+            && let ArenaCallArgKind::Positional(argument) = self.arena.call_args(args)[0].kind
+        {
+            updates.push(ListUpdate {
+                method: name,
+                argument,
+                parenthesized: Span::new(
+                    span.source_id,
+                    self.arena.expr(callee).span.end(),
+                    self.arena.expr(receiver).span.end(),
+                ),
+            });
+            receiver = base;
+        }
+        // Only `push` chains have a single `+=` spelling: `extend` operands
+        // would need spreads whose grouping depends on the operand.
+        if updates.is_empty()
+            || (updates.len() > 1 && updates.iter().any(|update| update.method != "push"))
+            || !matches!(self.arena.expr(receiver).kind, ArenaExprKind::Ident(name) if name == target_name)
             || !matches!(
-                self.expr_types.get(&self.arena.expr(base).span),
+                self.expr_types.get(&self.arena.expr(receiver).span),
                 Some(Type::List(_))
             )
-            || (name != "push" && name != "extend")
-            || args.len() != 1
         {
             return;
         }
-        let ArenaCallArgKind::Positional(argument) = self.arena.call_args(args)[0].kind else {
+        updates.reverse();
+        // An expression's own span can omit the input of a pipeline, so the
+        // argument text is read back from between the call's parentheses.
+        let Some(argument_sources) = updates
+            .iter()
+            .map(|update| {
+                let call = self.source.get(update.parenthesized.range())?;
+                let inner = call.trim().strip_prefix('(')?.strip_suffix(')')?.trim();
+                Some(inner.strip_suffix(',').unwrap_or(inner).trim_end())
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
             return;
         };
-        // A stable argument cannot replace the target between its receiver read
-        // and the compound assignment's read of the current value.
-        if !list_update_argument_stable(self.arena, argument) {
+        // The target must not change between the receiver read and the compound
+        // assignment's read of the current value. Any proc may assign a
+        // module-level variable, so only a call-free argument is known to
+        // leave it alone.
+        let arguments_preserve_target = updates.iter().zip(&argument_sources).all(
+            |(update, argument_source)| {
+                if module_level {
+                    list_update_argument_stable(self.arena, update.argument)
+                } else {
+                    !expr_may_assign_local(
+                        self.arena,
+                        self.source,
+                        update.argument,
+                        target_name.as_str().as_str(),
+                        argument_source,
+                    )
+                }
+            },
+        );
+        if !arguments_preserve_target {
             return;
         }
-        let argument_span = self.arena.expr(argument).span;
-        let Some(argument_source) = self.source.get(argument_span.range()) else {
-            return;
-        };
-        let replacement = if name == "push" {
-            format!("{target_name} += [{argument_source}]")
+        let multiline_argument = argument_sources.iter().any(|source| source.contains('\n'));
+        let replacement = if updates[0].method == "push" {
+            let one_line = format!("{target_name} += [{}]", argument_sources.join(", "));
+            // The formatter breaks a list that overflows the line width into
+            // one element per line, indented from the statement's line.
+            let line_start = self.source[..span.start()].rfind('\n').map_or(0, |i| i + 1);
+            let prefix = &self.source[line_start..span.start()];
+            let indent: String = prefix.chars().take_while(|ch| ch.is_whitespace()).collect();
+            if prefix.chars().count() + one_line.chars().count()
+                > super::format::DEFAULT_LINE_WIDTH
+                && !multiline_argument
+            {
+                let elements: String = argument_sources
+                    .iter()
+                    .map(|source| format!("{indent}  {source},\n"))
+                    .collect();
+                format!("{target_name} += [\n{elements}{indent}]")
+            } else {
+                one_line
+            }
         } else {
-            format!("{target_name} += {argument_source}")
+            format!("{target_name} += {}", argument_sources[0])
         };
         let mut diagnostic = Diagnostic::new(
             Severity::Warning,
@@ -6604,19 +6729,18 @@ impl<'a> Linter<'a> {
             span.start(),
             self.arena.expr(value).span.end(),
         );
-        if self
-            .source
-            .get(edit_span.range())
-            .is_some_and(|source| !source.contains('#') && !source.contains('\n'))
-        {
+        // Replacing the statement would discard a comment between its tokens;
+        // a `#` inside a string literal is not one. A multiline argument is
+        // copied as written, so its continuation lines keep their
+        // indentation and the formatter owns their final layout.
+        if span_may_contain_comment(self.source, edit_span) {
+            diagnostic = diagnostic.with_note("comments inside the update require a manual rewrite");
+        } else {
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
                 edit_span,
                 "rewrite as list compound assignment",
                 replacement,
             ));
-        } else {
-            diagnostic =
-                diagnostic.with_note("comments or multiline arguments require a manual rewrite");
         }
         self.diagnostics.push(diagnostic);
     }

@@ -98,6 +98,9 @@ A safe fix:
 When a rule cannot preserve nearby comments, it reports without a fix. Lint
 diagnostics are invariant under formatting; a rule that measures source shape
 measures the formatter's spelling. Shapes the formatter owns are not lint rules.
+`lint.prefer-guard` reports a postfix guard only when the guarded statement fits
+88 columns, because the formatter has no readable multiline layout for a longer
+one; a longer guard stays an `if` block.
 `check.redundant-parens` is the one diagnostic formatting removes: it never
 blocks `fmt` or hides lint diagnostics, and formatted output has none
 (`lint_format_invariance`). `check.mixed-logical` still blocks `fmt`, which
