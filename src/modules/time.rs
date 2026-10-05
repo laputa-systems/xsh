@@ -194,9 +194,35 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
             let tm = calendar(now / NANOS_PER_SECOND, utc)?;
             let midnight = from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, utc)?;
             let delta = if lower == "yesterday" { -86_400_000_000_000 } else if lower == "tomorrow" { 86_400_000_000_000 } else { 0 };
-            return midnight.checked_add(delta).ok_or_else(|| "timestamp out of range".into());
+            return if delta == 0 { Ok(midnight) } else { parse(if delta < 0 { "-1 day" } else { "+1 day" }, utc, Some(midnight)) };
         }
         _ => {}
+    }
+    let weekdays = [("sun", "sunday"), ("mon", "monday"), ("tue", "tuesday"), ("wed", "wednesday"), ("thu", "thursday"), ("fri", "friday"), ("sat", "saturday")];
+    let words: Vec<&str> = lower.split_whitespace().collect();
+    let weekday_word = words.last().copied().unwrap_or("");
+    if let Some(day) = weekdays.iter().position(|&(short, full)| weekday_word == short || weekday_word == full) {
+        if words.len() <= 2 && (words.len() == 1 || matches!(words[0], "last" | "this" | "next")) {
+            let tm = calendar(now.div_euclid(NANOS_PER_SECOND), utc)?;
+            let mut days = (day as i64 - tm.tm_wday as i64).rem_euclid(7);
+            if words.first() == Some(&"last") { days -= 7; }
+            else if days == 0 && words.first() == Some(&"next") { days = 7; }
+            let midnight = from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, utc)?;
+            return parse(&std::format!("{days} days"), utc, Some(midnight));
+        }
+    }
+    let digits = lower.strip_suffix('j').unwrap_or(&lower);
+    if lower == "j" || (!digits.is_empty() && digits.len() <= 4 && digits.bytes().all(|b| b.is_ascii_digit())) {
+        let numeric = if lower == "j" { 0 } else { digits.parse::<i64>().map_err(|_| "invalid time")? };
+        let (hour, minute) = if digits.len() <= 2 { (numeric, 0) } else { (numeric / 100, numeric % 100) };
+        let tm = calendar(now.div_euclid(NANOS_PER_SECOND), utc)?;
+        return from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, hour, minute, 0, utc);
+    }
+    if lower.len() >= 2 && lower.len() <= 3 && lower.as_bytes()[0].is_ascii_alphabetic()
+        && lower.as_bytes()[1..].iter().all(|b| b.is_ascii_digit()) {
+        let hours = lower[1..].parse::<i64>().map_err(|_| "invalid time")?;
+        if hours > 23 { return Err("invalid time".into()); }
+        return parse(&lower[..1], utc, Some(now))?.checked_add(hours * 3600 * NANOS_PER_SECOND).ok_or_else(|| "timestamp out of range".into());
     }
     // Peel relative units from the end so an absolute calendar prefix and
     // multiple relative adjustments share exactly one baseline observation.
@@ -247,7 +273,8 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
     }
     let mut input = text.to_owned();
     let mut explicit_offset = None;
-    for (suffix, offset) in [(" UTC", 0), (" GMT", 0), ("Z", 0), (" EST", -18000), (" EDT", -14400), (" CST", -21600), (" CDT", -18000), (" MST", -25200), (" MDT", -21600), (" PST", -28800), (" PDT", -25200)] {
+    for (suffix, offset) in [(" AWST", 28800), (" ACST", 34200), (" ACDT", 37800), (" AEST", 36000), (" AEDT", 39600), (" WET", 0), (" WEST", 3600), (" CET", 3600), (" CEST", 7200), (" MET", 3600), (" MEST", 7200), (" UTC", 0), (" GMT", 0), ("Z", 0), (" EST", -18000), (" EDT", -14400), (" CST", -21600), (" CDT", -18000), (" MST", -25200), (" MDT", -21600), (" PST", -28800), (" PDT", -25200)] {
+        if input.eq_ignore_ascii_case(suffix.trim()) { input.clear(); explicit_offset = Some(offset); break; }
         if let Some(rest) = input.strip_suffix(suffix) { input = rest.trim_end().into(); explicit_offset = Some(offset); break; }
     }
     if explicit_offset.is_none() {
@@ -286,6 +313,13 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
         return from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, true)?
             .checked_sub(explicit_offset.unwrap() * NANOS_PER_SECOND).ok_or_else(|| "timestamp out of range".into());
     }
+    for word in ["today", "yesterday", "tomorrow"] {
+        if let Some(time) = input.strip_prefix(&std::format!("{word} ")) {
+            let zone_utc = utc || explicit_offset.is_some();
+            let midnight = parse(word, zone_utc, Some(now))?;
+            return parse(time, zone_utc, Some(midnight))?.checked_sub(explicit_offset.unwrap_or(0) * NANOS_PER_SECOND).ok_or_else(|| "timestamp out of range".into());
+        }
+    }
     let mut nanos = 0;
     if let Some(dot) = input.rfind('.') {
         let digits = &input[dot + 1..];
@@ -296,7 +330,7 @@ pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, 
     }
     let text_c = std::ffi::CString::new(input.as_str()).map_err(|_| "date contains NUL")?;
     let current = calendar(now / NANOS_PER_SECOND, utc)?;
-    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
+    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y %I:%M%p", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
     for pattern in formats {
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         tm.tm_year = current.tm_year; tm.tm_mon = current.tm_mon; tm.tm_mday = current.tm_mday;

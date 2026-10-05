@@ -26,3 +26,14 @@ fn calendar_validation_and_bounded_formats() {
     assert!(format(0, "%999999999999999999999Y", true).is_err());
     assert!(format(0, "%65536Y%65536Y", true).is_err());
 }
+
+#[test]
+fn calendar_relative_weekdays_and_clock_only_inputs() {
+    assert_eq!(parse("last thu", true, Some(0)).unwrap(), -604800000000000);
+    assert_eq!(parse("this thu", true, Some(0)).unwrap(), 0);
+    assert_eq!(parse("next thu", true, Some(0)).unwrap(), 604800000000000);
+    assert_eq!(parse("0700", true, Some(0)).unwrap(), 25200000000000);
+    assert_eq!(parse("1230j", true, Some(0)).unwrap(), 45000000000000);
+    assert_eq!(parse("m9", true, Some(0)).unwrap(), -10800000000000);
+    assert_eq!(parse("yesterday 10:00 GMT", true, Some(0)).unwrap(), -50400000000000);
+}
