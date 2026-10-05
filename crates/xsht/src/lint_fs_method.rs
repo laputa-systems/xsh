@@ -284,6 +284,28 @@ mod tests {
         );
     }
 
+    // The formatter writes a command argument's expression in parentheses
+    // and an f-string argument without them. Either way it is the same
+    // argument, so each spelling has the same findings; only the rewrite
+    // waits for the parentheses.
+    #[test]
+    fn a_command_argument_has_the_same_findings_however_it_is_laid_out() {
+        let program = |argument: &str| {
+            format!("proc show(log: Path) [fs, error] {{\n  print {argument}\n}}\n")
+        };
+        let bare = lint(&program("fs.read_text(log)?"));
+        let wrapped = lint(&program("(fs.read_text(log)?)"));
+        assert_eq!(bare.len(), 1, "{bare:?}");
+        assert_eq!(wrapped.len(), 1, "{wrapped:?}");
+        assert_eq!(bare[0].message, wrapped[0].message);
+        assert!(bare[0].fix_hints.is_empty());
+        assert_eq!(wrapped[0].fix_hints.len(), 1);
+
+        let bare_text = lint(&program("f\"{fs.read_text(log)?}\""));
+        let wrapped_text = lint(&program("(f\"{fs.read_text(log)?}\")"));
+        assert_eq!(bare_text.len(), wrapped_text.len());
+    }
+
     // A comment beside the path would be lost, and a literal with an escape
     // has no quoted path spelling here; both are reported without a rewrite.
     #[test]

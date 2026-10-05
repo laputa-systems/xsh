@@ -12861,26 +12861,54 @@ impl LintExprVisitor<'_, '_> {
         }
     }
 
-    /// An expression a command argument holds between its own delimiters:
-    /// `(EXPR)`, `${EXPR}`, or `@(EXPR)`. Inside them any expression can
-    /// replace it, so it is linted like an expression anywhere else. One
-    /// written without delimiters (a bare `f"..."` argument, a `$name.field`
-    /// shorthand) is a command word as much as an expression, and replacing
-    /// it could turn it into a literal word, so its rewrites stay off.
+    /// An expression a command argument holds: `(EXPR)`, `${EXPR}`,
+    /// `@(EXPR)`, or the same expression written without the delimiters,
+    /// which the formatter adds. It is linted like an expression anywhere
+    /// else, and which findings it has depends only on the expression, never
+    /// on how the argument is laid out.
+    ///
+    /// A literal is the exception: a bare `f"..."` argument and `(f"...")`
+    /// are the same argument, the formatter prefers the bare one, and
+    /// replacing a bare literal could turn it into a command word. Its
+    /// rewrites stay off in both spellings.
+    ///
+    /// A rewrite is offered only where the delimiters are written, because
+    /// only there can any expression stand in for the old one.
     fn visit_command_delimited_expr(&mut self, expr: ExprId) {
-        let start = self.linter.arena.expr(expr).span.start();
+        let node = self.linter.arena.expr(expr);
+        if matches!(
+            node.kind,
+            ArenaExprKind::Null
+                | ArenaExprKind::Bool(_)
+                | ArenaExprKind::Int(_)
+                | ArenaExprKind::Float(_)
+                | ArenaExprKind::Duration(_)
+                | ArenaExprKind::Str(_)
+                | ArenaExprKind::PathStr(_)
+                | ArenaExprKind::GlobStr(_)
+                | ArenaExprKind::FmtString(_)
+                | ArenaExprKind::PathFmtString(_)
+                | ArenaExprKind::Bytes(_)
+                | ArenaExprKind::Regex(_)
+        ) {
+            return self.visit_command_embedded_expr(expr);
+        }
+        let start = node.span.start();
         let delimited = start > 0
             && matches!(
                 self.linter.source.as_bytes().get(start - 1),
                 Some(b'(' | b'{')
             );
-        if !delimited {
-            return self.visit_command_embedded_expr(expr);
-        }
+        let reported = self.linter.diagnostics.len();
         let old = self.suppress_expr_autofixes;
         self.suppress_expr_autofixes = false;
         self.visit_expr(expr);
         self.suppress_expr_autofixes = old;
+        if !delimited {
+            for diagnostic in &mut self.linter.diagnostics[reported..] {
+                diagnostic.fix_hints.clear();
+            }
+        }
     }
 
     fn visit_command_embedded_expr(&mut self, expr: ExprId) {
