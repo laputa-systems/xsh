@@ -342,15 +342,18 @@ Dotted paths name subdirectories.
 
 The project module roots are the `module_path` entries of the nearest
 `xsht-config.ini`: the one in the entry script's directory, or else in the
-closest directory above it on the script's path as given (a relative path is
-searched up to the current directory). Entries are relative to the config's
-directory, and a config without `module_path` names its own directory. Every
-module of a program resolves through the entry script's roots, including the
-imports of a module loaded with `module.load`. A program whose entry script
-has no config above it has no project roots. A config that cannot be read or
-decoded, or whose `module_path` is not text, is an error before anything runs.
-`xsh`, `xshi`, and `xsht` share this resolution, so a `use` that checks is a
-`use` that loads.
+closest directory above it, up to the filesystem root. The search starts from
+the script's absolute location (a relative path joined onto the current
+directory, without resolving symbolic links), so it does not depend on where
+the command was started. Entries are relative to the config's directory, and
+a config without `module_path` names its own directory. Every module of a
+program resolves through the entry script's roots, including the imports of a
+module loaded with `module.load`. A program whose entry script has no config
+above it has no project roots; the current directory is never one. A config
+that cannot be read or decoded, or whose `module_path` is not text, is an
+error before anything runs. `xsh`, `xshi`, and every `xsht` command share this
+resolution, each file `xsht` is given being its own entry, so a `use` that
+checks is a `use` that loads.
 
 A module's top level may contain only `use`, `const`, `let`, `proc`, `pure`,
 `stream`, `type`, `enum`, and `error` declarations, optionally exported. It may
@@ -2267,7 +2270,8 @@ Without paths, `check`, `lint`, `grep`, and `refactor` process every `.xsh`
 file under the current directory plus `include` entries from the nearest
 `xsht-config.ini`, filtered by its `exclude` patterns. Each file uses the
 nearest config among its ancestors (for `module_path`, `[format] line-width`
-(default 120), lint options, and `[check] annotate`). `xsht fmt` discovery also
+(default 120), lint options, and `[check] annotate`); a file with no config
+above it has no project module roots (3.3). `xsht fmt` discovery also
 skips the discovery root's `[format] exclude` patterns.
 
 `xsht check` runs exactly the checks that execution runs before evaluating

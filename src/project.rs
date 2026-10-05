@@ -16,19 +16,56 @@ pub const PROJECT_CONFIG_FILE_NAME: &str = "xsht-config.ini";
 const MODULE_PATH_KEY: &str = "module_path";
 
 /// The directory of the nearest project config governing `file`: the file's
-/// own directory, or else the closest directory above it on the path as
-/// given. A relative path is therefore searched up to the current directory
-/// and no further.
+/// own directory, or else the closest directory above it, all the way to the
+/// filesystem root. A relative path is joined onto the current directory
+/// first, without resolving symbolic links, so the answer does not depend on
+/// where the command was started from.
+///
+/// A directory at or below the current directory comes back relative to it,
+/// so paths built from it read like the paths the user wrote.
 pub fn nearest_project_config_dir(file: &Path) -> Option<PathBuf> {
-    let parent = file.parent().unwrap_or_else(|| Path::new("."));
-    parent.ancestors().find_map(|ancestor| {
-        let dir = if ancestor.as_os_str().is_empty() {
-            PathBuf::from(".")
-        } else {
-            ancestor.to_path_buf()
-        };
-        dir.join(PROJECT_CONFIG_FILE_NAME).is_file().then_some(dir)
+    let cwd = if file.is_absolute() {
+        None
+    } else {
+        // Without a current directory a relative path names nothing.
+        Some(std::env::current_dir().ok()?)
+    };
+    let absolute = match &cwd {
+        Some(cwd) => lexically_normalized(&cwd.join(file)),
+        None => lexically_normalized(file),
+    };
+    let dir = absolute
+        .parent()?
+        .ancestors()
+        .find(|dir| dir.join(PROJECT_CONFIG_FILE_NAME).is_file())?;
+    let Some(cwd) = cwd else {
+        return Some(dir.to_path_buf());
+    };
+    Some(match dir.strip_prefix(lexically_normalized(&cwd)) {
+        Ok(below) if below.as_os_str().is_empty() => PathBuf::from("."),
+        Ok(below) => below.to_path_buf(),
+        Err(_) => dir.to_path_buf(),
     })
+}
+
+/// `path` with `.` components dropped and each `..` cancelling the component
+/// before it. Symbolic links are not consulted: a script reached through a
+/// link belongs to the project the link is in.
+fn lexically_normalized(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component);
+                }
+            }
+            other => normalized.push(other),
+        }
+    }
+    normalized
 }
 
 /// Reads and decodes the project config at `path`. `None` means the file does
@@ -151,6 +188,26 @@ mod tests {
         assert_eq!(
             project_module_roots(&entry),
             Ok(vec![project.join("bin").join(".")])
+        );
+        fs::remove_dir_all(&project).expect("remove project tree");
+    }
+
+    #[test]
+    fn parent_components_cancel_before_the_walk() {
+        assert_eq!(
+            lexically_normalized(Path::new("/a/b/../c/./d.xsh")),
+            PathBuf::from("/a/c/d.xsh")
+        );
+        let project = temp_project("normalized");
+        fs::write(project.join("bin").join(PROJECT_CONFIG_FILE_NAME), "").expect("write config");
+        // `bin/../run.xsh` is beside `bin`, not inside it.
+        assert_eq!(
+            nearest_project_config_dir(&project.join("bin/../run.xsh")),
+            None
+        );
+        assert_eq!(
+            nearest_project_config_dir(&project.join("bin/tools/../run.xsh")),
+            Some(project.join("bin"))
         );
         fs::remove_dir_all(&project).expect("remove project tree");
     }

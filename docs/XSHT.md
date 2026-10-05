@@ -39,16 +39,18 @@ last line (`StageTimings`, `crates/xsht/src/cli/timing.rs`).
 
 ## Configuration
 
-`xsht-config.ini` is resolved per file from the nearest ancestor; the current
-directory's config controls no-argument discovery. Relative paths resolve from
-the config's directory. A missing file means defaults; an invalid file is a
-command error.
+`xsht-config.ini` is resolved per file from the nearest ancestor of the file's
+absolute location; the current directory's config controls no-argument
+discovery. Relative paths resolve from the config's directory. A file with no
+config above it takes tool settings from the current directory's config or
+the defaults, and has no project module roots. An invalid file is a command
+error.
 
 | Key | Meaning |
 |---|---|
 | `include` | extra roots for no-argument discovery |
 | `exclude` | glob patterns removed from discovery for path-oriented commands; an explicit directory uses its nearest config's `exclude` |
-| `module_path` | module search roots (default `.`), searched after file-relative lookup and `XSH_MODULE_PATH`; `xsh` and `xshi` read this one key for the entry script through the same `project_module_roots` (`src/project.rs`); `xsht test` also passes the roots to `module.load` and appends them to children's `XSH_MODULE_PATH` |
+| `module_path` | module search roots (default `.`, the config's directory), searched after file-relative lookup and `XSH_MODULE_PATH`; `xsh` and `xshi` read this one key for the entry script through the same `project_module_roots` (`src/project.rs`); `xsht test` also passes the roots to `module.load` and appends them to children's `XSH_MODULE_PATH` |
 | `test_roots` | directories `xsht test` searches |
 | `[format] line-width` | formatter width target (default 120) |
 | `[format] exclude` | glob patterns, matched from the discovery root, that `xsht fmt` skips during discovery; files named explicitly are still formatted |

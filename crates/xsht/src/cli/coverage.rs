@@ -69,7 +69,7 @@ impl CoverageCollector {
         }
     }
 
-    pub fn register_source_files(&mut self, files: &[PathBuf], module_roots: &[PathBuf]) {
+    pub fn register_source_files(&mut self, files: &[PathBuf]) {
         for file in files {
             let file = absolute_path(file);
             let file_text = match fs::read_to_string(&file) {
@@ -84,7 +84,12 @@ impl CoverageCollector {
                 executable_lines: executable_line_numbers(&file_text),
                 proc_decls: proc_decl_lines(&file_text),
             };
-            let metadata = parse_source_metadata(&file, module_roots).unwrap_or_else(|| {
+            // Each file loads with its own project module roots, as it
+            // does when it runs. Metadata is best effort: a file that does
+            // not load keeps the line-based fallback.
+            let module_roots =
+                xsh::frontend::load::project_module_roots(&file).unwrap_or_default();
+            let metadata = parse_source_metadata(&file, &module_roots).unwrap_or_else(|| {
                 BTreeMap::from([(file.to_string_lossy().into_owned(), fallback)])
             });
             for (source_file, metadata) in metadata {
@@ -1069,7 +1074,7 @@ mod tests {
             root: Some(root.clone()),
             ..CoverageCollector::default()
         };
-        collector.register_source_files(&[covered.clone(), missed.clone()], &[]);
+        collector.register_source_files(&[covered.clone(), missed.clone()]);
         collector
             .ingest_jsonl(&format!(
                 "{{\"kind\":\"source.file\",\"file\":\"{}\",\"line_count\":7}}\n{{\"kind\":\"core.call\",\"source_span\":{{\"file\":\"{}\",\"start_line\":6,\"end_line\":6}}}}\n",
@@ -1116,7 +1121,7 @@ mod tests {
             exclude: excludes,
             ..CoverageCollector::default()
         };
-        collector.register_source_files(&[kept.clone(), excluded.clone()], &[]);
+        collector.register_source_files(&[kept.clone(), excluded.clone()]);
 
         let files = collector.source_file_coverages();
         assert!(files.iter().any(|file| file.file == "kept.xsh"));

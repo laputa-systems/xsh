@@ -586,7 +586,6 @@ pub fn check_script_with_options(script: &str, annotate: bool) -> CliOutput {
             };
         }
     };
-    let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
     let annotation_policy = if annotate {
         match configured_annotation_policy(&config) {
             Ok(policy) => Some(policy),
@@ -603,8 +602,8 @@ pub fn check_script_with_options(script: &str, annotate: bool) -> CliOutput {
     } else {
         None
     };
-    let line_width = match formatter_line_width_for_script(script, &config) {
-        Ok(line_width) => line_width,
+    let file_config = match config_for_file(script, &config) {
+        Ok(file_config) => file_config,
         Err(message) => {
             return CliOutput {
                 status: 2,
@@ -615,7 +614,12 @@ pub fn check_script_with_options(script: &str, annotate: bool) -> CliOutput {
             };
         }
     };
-    check_one_script(script, annotation_policy, &module_roots, line_width)
+    check_one_script(
+        script,
+        annotation_policy,
+        &file_config.module_roots(),
+        file_config.line_width(),
+    )
 }
 
 fn check_one_script(

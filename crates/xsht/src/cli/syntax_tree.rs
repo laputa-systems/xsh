@@ -1,5 +1,5 @@
 use crate::xsht::cli::{CliOutput, load_config, parse_script_with_module_roots, text_bytes};
-use std::path::PathBuf;
+use crate::xsht::config::config_for_file;
 use xsh::diagnostic::DiagnosticRenderer;
 
 pub fn ast_script(script: &str) -> CliOutput {
@@ -15,7 +15,18 @@ pub fn ast_script(script: &str) -> CliOutput {
             };
         }
     };
-    let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
+    let module_roots = match config_for_file(script, &config) {
+        Ok(file_config) => file_config.module_roots(),
+        Err(message) => {
+            return CliOutput {
+                status: 2,
+                stdout: Vec::new(),
+                stderr: text_bytes(format!("xsht: {message}\n")),
+                trace_text: String::new(),
+                syscall_summary: None,
+            };
+        }
+    };
     let (sources, parsed) = match parse_script_with_module_roots(script, &module_roots) {
         Ok(parsed) => parsed,
         Err(err) => {

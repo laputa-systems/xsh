@@ -145,3 +145,71 @@ test a_script_without_a_project_config_has_no_project_roots { |ctx|
   assert "failed to read module" in output.stderr, output.stderr
   assert "`module_path` in the project's xsht-config.ini" in output.stderr, output.stderr
 }
+
+# The config is found from the script's absolute location, so starting the
+# command inside the project resolves the same roots as starting it above.
+test the_project_config_is_found_from_any_starting_directory { |ctx|
+  let root = project(ctx, "any-cwd", "module_path = lib\n")?
+
+  cd fp"{root}/bin" {
+    let run_output = run.capture --text "xsh" entry.xsh ?
+    assert run_output.status.exited_with(0), run_output.stderr
+    assert run_output.stdout == "42\n", run_output.stdout
+
+    let check_output = run.capture --text "xsht" check entry.xsh ?
+    assert check_output.status.exited_with(0), check_output.stderr
+
+    let through_parent = run.capture --text "xsh" "../bin/entry.xsh" ?
+    assert through_parent.status.exited_with(0), through_parent.stderr
+  } ?
+}
+
+# Without a config above the file, neither binary invents a root: a module in
+# the starting directory is not found by a script in a subdirectory.
+test the_starting_directory_is_not_a_module_root { |ctx|
+  let root = test.temp_dir(ctx, name: "no-cwd-root")?
+  fp"{root}/shared".mkdir()?
+  fp"{root}/sub".mkdir()?
+  fp"{root}/shared/answers.xsh".write(answers_module)?
+  fp"{root}/sub/entry.xsh".write(entry_script)?
+
+  cd root {
+    let run_output = run.capture --text "xsh" "sub/entry.xsh" ?
+    assert !run_output.status.ok, run_output.stdout
+    assert "failed to read module" in run_output.stderr, run_output.stderr
+
+    let check_output = run.capture --text "xsht" check "sub/entry.xsh" ?
+    assert !check_output.status.ok, check_output.stderr
+    assert "failed to read module" in check_output.stderr, check_output.stderr
+
+    let lint_output = run.capture --text "xsht" lint "sub/entry.xsh" ?
+    assert "failed to read module" in lint_output.stderr, lint_output.stderr
+  } ?
+}
+
+# `xsht test` and `xsht ast` load each file with the roots of the config above
+# that file, not those of the config in the starting directory.
+test xsht_test_and_ast_take_module_roots_per_file { |ctx|
+  let outer = test.temp_dir(ctx, name: "per-file-roots")?
+  let root = fp"{outer}/project"
+  fp"{root}/lib/shared".mkdir()?
+  fp"{root}/tests".mkdir()?
+  fp"{outer}/xsht-config.ini".write("module_path = elsewhere\ntest_roots = project/tests\n")?
+  fp"{root}/xsht-config.ini".write("module_path = lib\n")?
+  fp"{root}/lib/shared/answers.xsh".write(answers_module)?
+  fp"{root}/tests/test-answers.xsh".write("""use shared.answers
+
+test answers_resolve_through_the_nearest_config {
+  assert answers.answer() == 42
+}
+""")?
+
+  cd outer {
+    let tested = run.capture --text "xsht" test "project/tests/test-answers.xsh" ?
+    assert tested.status.exited_with(0), f"{tested.stdout}{tested.stderr}"
+    assert "1 passed" in tested.stdout, tested.stdout
+
+    let tree = run.capture --text "xsht" ast "project/tests/test-answers.xsh" ?
+    assert tree.status.exited_with(0), tree.stderr
+  } ?
+}

@@ -886,10 +886,11 @@ Resolution is file-relative first, then each directory in `XSH_MODULE_PATH`
 
 - `xsh` reads `module_path`, and only that, from the nearest
   `xsht-config.ini` above the entry script, exactly as `xsht` does:
-  `xsh bin/harden.xsh` finds `lib/sshd.xsh` with nothing else set. A script
-  installed away from its project has no config above it, so install its
-  modules next to it or set `XSH_MODULE_PATH` in the unit file or wrapper that
-  launches it.
+  `xsh bin/harden.xsh` finds `lib/sshd.xsh` with nothing else set, and so
+  does `cd bin && xsh harden.xsh`. A script with no config above it has no
+  project roots in either tool, and the current directory is never searched;
+  install such a script's modules next to it or set `XSH_MODULE_PATH` in the
+  unit file or wrapper that launches it.
 - File-relative lookup wins, so a test file named `tests/sshd.xsh` that says
   `use sshd` imports itself. Name test files `test-*.xsh`.
 

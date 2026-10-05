@@ -161,6 +161,15 @@ pub(crate) fn is_path_excluded(root: &Path, path: &Path, excludes: &[String]) ->
     if excludes.iter().any(|pat| glob_matches(pat, normalized)) {
         return true;
     }
+    // A config found above the current directory has an absolute root; a
+    // relative path is then made absolute the same way before the two meet.
+    let absolute;
+    let path = if root.is_absolute() && path.is_relative() {
+        absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+        absolute.as_path()
+    } else {
+        path
+    };
     let Ok(stripped) = path.strip_prefix(root) else {
         return false;
     };

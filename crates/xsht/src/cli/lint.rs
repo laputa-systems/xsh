@@ -1434,10 +1434,10 @@ fn lint_config_for_file(
     cwd_config: &XshConfig,
     config_cache: &ConfigCache,
 ) -> Result<ResolvedLintConfig, String> {
-    let (config_dir, config) = config_cache
-        .nearest_config_for_file(Path::new(file))?
-        .unwrap_or_else(|| (PathBuf::from("."), cwd_config.clone()));
-    let tool_config = FileToolConfig { config_dir, config };
+    let tool_config = FileToolConfig::new(
+        config_cache.nearest_config_for_file(Path::new(file))?,
+        cwd_config,
+    );
     let line_width = tool_config.line_width();
     let module_roots = tool_config.module_roots();
     let configured_return_annotations = tool_config

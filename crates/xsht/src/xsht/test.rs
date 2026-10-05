@@ -4,6 +4,8 @@ use crate::xsht::cli::{
     CliOutput, CoverageCollector, cancellation_output, collect_configured_xsh_files,
     collect_xsh_files, load_config,
 };
+use crate::xsht::cli::XshConfig;
+use crate::xsht::config::config_for_file;
 use crate::xsht::trace::{CoverageTraceRenderer, TracebackRenderer};
 use std::ffi::OsString;
 use std::fs;
@@ -70,9 +72,6 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
             };
         }
     };
-    let module_roots: Vec<PathBuf> = config.module_path.iter().map(PathBuf::from).collect();
-    let coverage_module_roots = module_roots.clone();
-    let child_module_path = child_module_path(&module_roots);
     let coverage_exclude = config.coverage.exclude.clone();
     if options.collect_coverage()
         && let Err(message) =
@@ -95,8 +94,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         match discover_native_tests(
             root,
             &config.exclude,
-            &module_roots,
-            child_module_path.as_ref(),
+            &config,
             &options,
         ) {
             Ok(native) => cases.extend(native),
@@ -144,7 +142,7 @@ pub(crate) fn test_scripts(options: TestOptions) -> CliOutput {
         .collect_coverage()
         .then(|| CoverageCollector::with_api_and_excludes(options.api, &coverage_exclude));
     if let Some(collector) = coverage.as_mut() {
-        collector.register_source_files(&coverage_source_files, &coverage_module_roots);
+        collector.register_source_files(&coverage_source_files);
     }
     let mut interrupted = None;
     run_test_cases(cases, &run_id, &options, |id, outcome| {
@@ -530,8 +528,7 @@ fn native_test_signature_uses_ctx(
 fn discover_native_tests(
     root: &Path,
     excludes: &[String],
-    module_roots: &[PathBuf],
-    child_module_path: Option<&Arc<OsString>>,
+    fallback_config: &XshConfig,
     options: &TestOptions,
 ) -> Result<Vec<TestCase>, String> {
     if !root.exists() {
@@ -547,7 +544,11 @@ fn discover_native_tests(
         if !test_file_may_match(&file, &file_name, options) {
             continue;
         }
-        let (sources, parsed) = match parse_script_with_module_roots(&file_name, module_roots) {
+        // A test file loads with the project module roots of the config
+        // above it, exactly as `xsh` and `xsht check` load it.
+        let module_roots = config_for_file(&file_name, fallback_config)?.module_roots();
+        let child_module_path = child_module_path(&module_roots);
+        let (sources, parsed) = match parse_script_with_module_roots(&file_name, &module_roots) {
             Ok(parsed) => parsed,
             Err(err) => {
                 let id = file_name.clone();
@@ -656,9 +657,9 @@ fn discover_native_tests(
         }
 
         let prepared = match Evaluator::new_with_shared_sources(Vec::new(), Arc::clone(&sources))
-            .with_module_roots(module_roots.to_vec())
+            .with_module_roots(module_roots)
             .with_native_test_host({
-                let module_path = child_module_path.cloned();
+                let module_path = child_module_path.clone();
                 Arc::new(move |request| native_test_host(request, module_path.as_deref()))
             })
             .prepare_test_program(
@@ -694,7 +695,7 @@ fn discover_native_tests(
                     name,
                     prepared: Arc::clone(&prepared),
                     has_ctx,
-                    module_path: child_module_path.cloned(),
+                    module_path: child_module_path.clone(),
                 })),
                 Err(message) => cases.push(TestCase::Invalid { id, message }),
             }
