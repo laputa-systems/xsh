@@ -424,3 +424,62 @@ ok
   let second = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate ?
   assert second.status.exited_with(0), second.stderr
 }
+
+# The call sits in a module that the linted root imports. The module is longer
+# than the root, so an edit built from the root's text at the module's offsets
+# would be cut from the wrong file.
+test test_positional_error_arguments_fix_reaches_an_imported_module { |ctx|
+  let root = test.temp_dir(ctx, name: "positional-error-arguments-module")?
+  let module_file = fp"{root}/proof.xsh"
+  module_file.write_atomic(r"""##! Proof helpers shared by several entry scripts.
+
+## Why a proof failed.
+export error ProofError = Failed(kind: Str, message: Str)
+
+## A result every proof returns.
+export type Outcome = {name: Str, detail: Result[Int]}
+
+## Fails with a kind and a message.
+export proc refuse(kind: Str, package: Str) -> Result[Unit, ProofError] {
+  let message = f"{package} has no proof"
+  return Err(ProofError.Failed(kind, message)) when package == "a"
+  return Err(.Failed("missing", f"{package} is not installed")) when package == "b"
+}
+
+## Loads a proof.
+export proc load(file: Path) [fs, error] -> Result[Str] {
+  file.read_text()
+}
+""")?
+  let main = fp"{root}/main.xsh"
+  main.write_atomic(r"""use proof
+for package in ["a", "b", "c"] {
+  match proof.refuse("kind", package) {
+    Err(proof.ProofError.Failed {kind, message}) => print f"{kind}: {message}"
+    Err(error) => print $error.message
+    Ok(_) => print "ok"
+  }
+}
+""")?
+  let module_env = {XSH_MODULE_PATH: root.display()}
+  let before = test.run_script(ctx, main.read_text()?, [], module_env)?
+  assert before.success, before.stderr
+
+  let fixing = run.capture --text "xsht" lint --fix --only lint.positional-error-arguments $main ?
+  assert ! fixing.status.exited_with(2), fixing.stderr
+  let fixed = module_file.read_text()?
+  assert "Err(ProofError.Failed(kind:, message:))" in fixed, fixed
+  assert "Err(.Failed(kind: \"missing\", message: f\"{package} is not installed\"))" in fixed, fixed
+  let results = run.capture --text "xsht" lint --fix --only lint.public-result-error $main ?
+  assert ! results.status.exited_with(2), results.stderr
+  let spelled = module_file.read_text()?
+  assert "detail: Result[Int, Error]}" in spelled, spelled
+  assert "export proc load(file: Path) [fs, error] -> Result[Str, Error] {" in spelled, spelled
+
+  let after = test.run_script(ctx, main.read_text()?, [], module_env)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+  let remaining = run.capture --text "xsht" check $main ?
+  assert "check.positional-error-arguments" not in remaining.stderr, remaining.stderr
+  assert "check.public-result-error" not in remaining.stderr, remaining.stderr
+}

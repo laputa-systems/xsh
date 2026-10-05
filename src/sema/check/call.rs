@@ -17,20 +17,30 @@ fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
 }
 
 #[allow(dead_code)]
-/// Rewrites the positional argument at `argument` to name the field it fills,
-/// as a pun when the argument is that name.
-fn named_argument_fix(source: &str, argument: Span, field: Name) -> Option<super::FixHint> {
-    let text = source.get(argument.range())?;
-    let replacement = if field == text {
-        format!("{field}:")
-    } else {
-        format!("{field}: {text}")
-    };
-    Some(super::FixHint::replacement(
-        argument,
-        format!("pass `{field}` by name"),
-        replacement,
-    ))
+/// A positional error-constructor argument and the field it fills.
+struct PositionalErrorArgument {
+    span: Span,
+    field: Name,
+    /// The argument is the bare name of its field, so naming it is a pun.
+    names_field: bool,
+}
+
+impl PositionalErrorArgument {
+    /// Names the field this argument fills. The edit is built from the span
+    /// and the field alone: the argument may sit in an imported module, whose
+    /// text the checker of the importing program does not hold.
+    fn named_fix(&self) -> super::FixHint {
+        let message = format!("pass `{}` by name", self.field);
+        if self.names_field {
+            super::FixHint::replacement(self.span, message, format!("{}:", self.field))
+        } else {
+            super::FixHint::replacement(
+                Span::new(self.span.source_id, self.span.start(), self.span.start()),
+                message,
+                format!("{}: ", self.field),
+            )
+        }
+    }
 }
 
 impl Checker {
@@ -1589,7 +1599,17 @@ impl Checker {
                         continue;
                     };
                     positional_index += 1;
-                    let argument = (call_arg_span_arena(arena, &arg.kind), name);
+                    let span = call_arg_span_arena(arena, &arg.kind);
+                    let argument = PositionalErrorArgument {
+                        span,
+                        field: name,
+                        names_field: matches!(
+                            &arg.kind,
+                            ArenaCallArgKind::Positional(value)
+                                if matches!(arena.arena.expr(*value).kind, ArenaExprKind::Ident(ident) if ident == name)
+                                    && span.end() - span.start() == name.as_str().len()
+                        ),
+                    };
                     if named_seen {
                         trailing.push(argument);
                     } else {
@@ -1644,22 +1664,21 @@ impl Checker {
             .with_note(format!(
                 "write `{left}: ...` and `{right}: ...`; positional payload fields must have types no single value fits both of"
             ));
-            for (argument, name) in &leading {
-                if let Some(fix) = named_argument_fix(source, *argument, *name) {
-                    diagnostic = diagnostic.with_fix_hint(fix);
-                }
+            for argument in &leading {
+                diagnostic = diagnostic.with_fix_hint(argument.named_fix());
             }
             self.diagnostics.push(diagnostic);
         }
-        for (argument, name) in &trailing {
-            let mut diagnostic = Diagnostic::warning(
+        for argument in &trailing {
+            let diagnostic = Diagnostic::warning(
                 "positional error constructor arguments must come before named ones",
             )
             .with_code(DiagnosticCode::CheckPositionalErrorArguments)
-            .with_label(Label::primary(*argument, format!("this fills `{name}`")));
-            if let Some(fix) = named_argument_fix(source, *argument, *name) {
-                diagnostic = diagnostic.with_fix_hint(fix);
-            }
+            .with_label(Label::primary(
+                argument.span,
+                format!("this fills `{}`", argument.field),
+            ))
+            .with_fix_hint(argument.named_fix());
             self.diagnostics.push(diagnostic);
         }
         self.message_payload_constructors.remove(&span);
