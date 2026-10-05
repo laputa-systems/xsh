@@ -808,6 +808,67 @@ impl Checker {
                 self.context_scope_tail_value = tail_value;
                 Type::Result(Box::new(body_type), Box::new(Type::Error))
             }
+            ArenaExprKind::ResourceScope {
+                bindings,
+                block,
+                value_body,
+            } => {
+                let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
+                if self.in_pure {
+                    self.error(
+                        expr.span,
+                        "a `with` resource scope is not allowed in pure functions",
+                        DiagnosticCode::CheckPureEffect,
+                    );
+                }
+                self.require_effect(crate::syntax::node::Effect::Fs, expr.span, "`with`");
+                self.push_scope();
+                // Each value is evaluated with the names before it in scope:
+                // a later resource may be opened through an earlier one.
+                let mut kinds = Vec::new();
+                for binding in arena.arena.with_bindings(*bindings) {
+                    let ty = self.check_expr_arena(arena, source, binding.initializer, None);
+                    let value_span = arena.arena.expr(binding.initializer).span;
+                    match crate::modules::managed_resource_for(&ty) {
+                        Some(kind) => kinds.push(kind),
+                        None => self.reject_unmanaged_resource(&ty, value_span),
+                    }
+                    let binding_span = arena.arena.span(binding.span);
+                    if self.current_scope().contains_key(&binding.name) {
+                        self.error(
+                            binding_span,
+                            "duplicate name in scope",
+                            DiagnosticCode::CheckDuplicateName,
+                        );
+                    }
+                    if binding.name.as_str() != "_" {
+                        self.define(binding.name, super::Binding::new(ty, false), binding_span);
+                    }
+                }
+                // Lowering releases by these kinds; a scope with a rejected
+                // binding publishes none.
+                if kinds.len() == bindings.len as usize {
+                    self.resource_scopes.insert(expr.span, kinds);
+                } else {
+                    self.resource_scopes.remove(&expr.span);
+                }
+                let body_type = if *value_body
+                    || tail_value
+                    || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit)
+                {
+                    let expected = match expected {
+                        Some(Type::Result(ok, _)) => Some(ok.as_ref()),
+                        _ => None,
+                    };
+                    self.check_tail_block_contents_arena(arena, source, *block, expected)
+                } else {
+                    self.check_statement_block_contents_arena(arena, source, *block);
+                    Type::Unit
+                };
+                self.pop_scope();
+                self.context_scope_tail_value = tail_value;
+                Type::Result(Box::new(body_type), Box::new(Type::Error))
+            }
             ArenaExprKind::ValueBlock(block)
                 if self.block_written_for_set(arena, *block, expected).is_some() =>
             {

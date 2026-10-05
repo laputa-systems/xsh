@@ -216,6 +216,8 @@ pub struct LintConfig {
     /// On only when `prefer-text-pattern = true`.
     pub prefer_text_pattern: bool,
     pub prefer_rel_path: bool,
+    /// On only when `prefer-with-scope = true`.
+    pub prefer_with_scope: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -231,6 +233,7 @@ impl Default for LintConfig {
             prefer_set: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
+            prefer_with_scope: false,
             runless_except: Vec::new(),
         }
     }
@@ -379,6 +382,8 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         prefer_text_pattern: ini_string(lint, "prefer-text-pattern")
             .is_some_and(|value| value == "true"),
         prefer_rel_path: ini_string(lint, "prefer-rel-path").is_some_and(|value| value == "true"),
+        prefer_with_scope: ini_string(lint, "prefer-with-scope")
+            .is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }
 }
@@ -678,6 +683,17 @@ mod tests {
             relative_paths(&root, &files),
             vec!["a/a.xsh", "b/b.xsh", "z.xsh"]
         );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn prefer_with_scope_lint_is_explicit_opt_in() {
+        let root = temp_root("prefer-with-scope-lint-config");
+        let path = root.join("xsht-config.ini");
+        fs::write(&path, "[lint]\nprefer-with-scope = true\n").unwrap();
+        assert!(load_config_from(&path).unwrap().lint.prefer_with_scope);
+        fs::write(&path, "[lint]\n").unwrap();
+        assert!(!load_config_from(&path).unwrap().lint.prefer_with_scope);
         let _ = fs::remove_dir_all(root);
     }
 

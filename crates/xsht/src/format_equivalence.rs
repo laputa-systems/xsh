@@ -1092,6 +1092,19 @@ impl CanonicalWriter<'_> {
                 }
                 self.block(*block);
             }
+            ArenaExprKind::ResourceScope {
+                bindings,
+                block,
+                value_body,
+            } => {
+                self.put("resource-scope;");
+                self.debug(value_body);
+                for binding in self.arena.with_bindings(*bindings) {
+                    self.debug(&binding.name);
+                    self.expr(binding.initializer);
+                }
+                self.block(*block);
+            }
         }
         self.put(")");
     }

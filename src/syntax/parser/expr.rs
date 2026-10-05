@@ -1304,6 +1304,31 @@ impl<'a> Parser<'a> {
             && self.peek_name(2).is_some_and(|name| name == "at")
     }
 
+    /// `with NAME = VALUE, ... { ... }` where a value is expected: a resource
+    /// scope whose value is its body's tail. In statement position the
+    /// statement parser reads the same head, and an `else` after the body
+    /// makes that statement the grouping form instead; a value has no such
+    /// form, so the scope ends at its body.
+    pub(super) fn parse_resource_scope_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        let start = self.current_start();
+        self.bump();
+        let bindings = self.parse_with_bindings_arena_only(arena)?;
+        if bindings.is_empty() {
+            self.expect_ident("expected binding name in `with`")?;
+        }
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        let bindings = arena.push_with_bindings(&bindings);
+        Some(ArenaOnlyExpr {
+            id: arena.push_resource_scope_expr(bindings, block, true, span),
+            span,
+            bare_ident: None,
+        })
+    }
+
     pub(super) fn parse_tempdir_scope_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
@@ -1534,6 +1559,9 @@ impl<'a> Parser<'a> {
                 span,
                 bare_ident: None,
             });
+        }
+        if self.current_keyword() == Some(Keyword::With) {
+            return self.parse_resource_scope_arena_only(arena);
         }
         if let Some(form) = self.current_keyword().and_then(grammar::primary_form) {
             return self.parse_keyword_primary_arena_only(form, span, arena);

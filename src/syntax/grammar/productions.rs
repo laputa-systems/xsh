@@ -834,6 +834,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([r("context_scope"), opt(t(T::Question))]),
                 seq([r("tempdir_scope"), opt(t(T::Question))]),
                 seq([r("within_scope"), opt(t(T::Question))]),
+                seq([r("resource_scope"), opt(t(T::Question))]),
                 seq([r("named_command"), opt(t(T::Question))]),
                 r("print_statement"),
                 r("expression_statement"),
@@ -1789,6 +1790,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 r("context_scope"),
                 r("tempdir_scope"),
                 r("within_scope"),
+                r("resource_scope"),
                 r("builder_call"),
                 r("item_expression"),
                 r("bare_path"),
@@ -2137,6 +2139,17 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 star(sep()),
                 r("statements"),
                 t(T::RBrace),
+            ]),
+        ),
+        // `with` bindings without an `else`: the grouping statement always
+        // has its `else`, so the two never overlap. At least one binding.
+        rule(
+            Expressions,
+            "resource_scope",
+            seq([
+                kw(Keyword::With),
+                list1(seq([ident(), t(T::Equals), r("condition_expression")])),
+                block(),
             ]),
         ),
         rule(

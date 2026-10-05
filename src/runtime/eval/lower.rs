@@ -461,6 +461,8 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsIsFile
             | RuntimeOp::FsIsSymlink
             | RuntimeOp::FsTempSibling
+            | RuntimeOp::FsCloseRootIfOpen
+            | RuntimeOp::FsUnlockIfHeld
             | RuntimeOp::FsSymlinkAt
             | RuntimeOp::GroupCurrent
             | RuntimeOp::GroupLookup
@@ -1983,6 +1985,20 @@ fn compact_collect_expr_call_edges(
         ArenaExprKind::BuilderCall { call, .. } => {
             compact_collect_expr_call_edges(program, call, namespace, index_of, edges);
         }
+        ArenaExprKind::ResourceScope {
+            bindings, block, ..
+        } => {
+            for binding in program.arena.with_bindings(bindings) {
+                compact_collect_expr_call_edges(
+                    program,
+                    binding.initializer,
+                    namespace,
+                    index_of,
+                    edges,
+                );
+            }
+            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
+        }
         _ => {}
     }
 }
@@ -2401,6 +2417,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Set(_) => 48,
         ArenaExprKind::SetComp { .. } => 49,
         ArenaExprKind::Collect { .. } => 50,
+        ArenaExprKind::ResourceScope { .. } => 51,
     }
 }
 
@@ -2466,6 +2483,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::TempDirScope { .. } => "tempdir_scope",
         ArenaExprKind::Convert { .. } => "convert",
         ArenaExprKind::Collect { .. } => "collect",
+        ArenaExprKind::ResourceScope { .. } => "resource_scope",
     }
 }
 
@@ -3052,7 +3070,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 13];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 50];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 52];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -8281,6 +8299,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaExprKind::TempDirScope { path, block, .. } => {
                 self.lower_tempdir_scope(path, block, span, slots, current_function, item_slot)
             }
+            ArenaExprKind::ResourceScope {
+                bindings, block, ..
+            } => self.lower_resource_scope(
+                id,
+                bindings,
+                block,
+                span,
+                slots,
+                current_function,
+                item_slot,
+            ),
             ArenaExprKind::ValueBlock(block) => {
                 self.lower_block_value_expr(block, slots, current_function, item_slot)
             }
@@ -13756,6 +13785,151 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ),
                 push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }),
             ];
+            Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+        })();
+        slots.exit(saved);
+        result
+    }
+
+    /// A managed `with` scope, built from rows that exist: each value is
+    /// bound and its release deferred, so every way out of the body releases
+    /// what was opened, in reverse. A body that reaches its end is followed
+    /// by the same releases under a capture, whose `Err` is the scope's: the
+    /// first release that fails, with any later one reported as a cleanup
+    /// failure. That capture sets a flag once its own releases are
+    /// registered, and the outer ones do nothing from then on, so a release
+    /// that failed is not attempted a second time.
+    fn lower_resource_scope(
+        &mut self,
+        scope: ExprId,
+        bindings: crate::syntax::arena::ArenaRange,
+        block: BlockId,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let bindings = self.program.arena.with_bindings(bindings).to_vec();
+        // The checker publishes one kind per binding, or nothing for a scope
+        // it rejected.
+        let kinds = self
+            .bodies
+            .resource_scopes
+            .get(&scope)
+            .filter(|kinds| kinds.len() == bindings.len())?
+            .clone();
+        let saved = slots.enter();
+        let result = (|| {
+            let closing_slot = slots.reserve("with.closing");
+            let release = |lowerer: &mut Self,
+                           slot: usize,
+                           kind: crate::modules::ManagedResource,
+                           unless_closing: bool| {
+                let value = push_build_row!(lowerer, expr, BuildExprRow::Param(slot));
+                let call = push_build_row!(
+                    lowerer,
+                    expr,
+                    BuildExprRow::ModuleCall {
+                        cli_plan: None,
+                        op: kind.release_op(),
+                        args: vec![Some(value)],
+                        span,
+                    }
+                );
+                let mut release = push_build_row!(lowerer, expr, BuildExprRow::Try { value: call, span });
+                if unless_closing {
+                    let closing = push_build_row!(lowerer, expr, BuildExprRow::Param(closing_slot));
+                    let nothing = push_build_row!(lowerer, expr, BuildExprRow::Unit);
+                    release = push_build_row!(
+                        lowerer,
+                        expr,
+                        BuildExprRow::IfExpr {
+                            branches: vec![(closing, nothing)],
+                            else_value: release,
+                            span,
+                        }
+                    );
+                }
+                push_build_row!(
+                    lowerer,
+                    stmt,
+                    BuildStmtRow::Defer {
+                        value: release,
+                        on_error: false,
+                    }
+                )
+            };
+            let mut body = Vec::new();
+            let open = push_build_row!(self, expr, BuildExprRow::Bool(false));
+            body.push(push_build_row!(
+                self,
+                stmt,
+                BuildStmtRow::Let {
+                    slot: closing_slot,
+                    value: open
+                }
+            ));
+            let mut held = Vec::with_capacity(bindings.len());
+            for (binding, kind) in bindings.iter().zip(kinds) {
+                let ty = self.lower_binding_checked_type(None, binding.initializer);
+                let value =
+                    self.lower_expr(binding.initializer, slots, current_function, item_slot)?;
+                let slot = if binding.name.as_str() == "_" {
+                    slots.reserve("with.resource")
+                } else {
+                    slots.declare_with_type(binding.name, ty)
+                };
+                body.push(push_build_row!(self, stmt, BuildStmtRow::Let { slot, value }));
+                body.push(release(self, slot, kind, true));
+                held.push((slot, kind));
+            }
+            // The body is a block of its own: its defers run and its handles
+            // are cleaned up before anything is released.
+            let finished = self.lower_tempdir_body(
+                block,
+                Vec::new(),
+                span,
+                slots,
+                current_function,
+                item_slot,
+            )?;
+            let finished_slot = slots.reserve("with.finished");
+            body.push(push_build_row!(
+                self,
+                stmt,
+                BuildStmtRow::Let {
+                    slot: finished_slot,
+                    value: finished
+                }
+            ));
+            let mut closing = Vec::with_capacity(held.len() + 2);
+            for (slot, kind) in held {
+                closing.push(release(self, slot, kind, false));
+            }
+            let handed_over = push_build_row!(self, expr, BuildExprRow::Bool(true));
+            closing.push(push_build_row!(
+                self,
+                stmt,
+                BuildStmtRow::Assign {
+                    slot: closing_slot,
+                    op: AssignOp::Set,
+                    value: handed_over,
+                    check: None,
+                    span,
+                }
+            ));
+            let finished = push_build_row!(self, expr, BuildExprRow::Param(finished_slot));
+            let value = push_build_row!(self, expr, BuildExprRow::Try { value: finished, span });
+            closing.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+            let outcome = push_build_row!(
+                self,
+                expr,
+                BuildExprRow::Capture {
+                    body: closing,
+                    span
+                }
+            );
+            body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value: outcome }));
             Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
         })();
         slots.exit(saved);

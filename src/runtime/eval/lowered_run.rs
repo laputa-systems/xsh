@@ -4965,8 +4965,12 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsCloseRoot if values.len() == 1 => {
+            // The scope's release differs from the method only on a root that
+            // is already closed, which it accepts: the body may have closed
+            // it. A value that never was this evaluator's root still fails.
+            RuntimeOp::FsCloseRoot | RuntimeOp::FsCloseRootIfOpen if values.len() == 1 => {
                 let root = values.pop().expect("checked value length");
+                let closed_ok = op == RuntimeOp::FsCloseRootIfOpen;
 
                 match lowered_root_id(&root, &self.fs_root_owner, span)
                     .ok()
@@ -4977,7 +4981,7 @@ impl Evaluator {
                     .and_then(|index| self.fs_roots.get_mut(index))
                 {
                     Some(slot) => {
-                        if slot.take().is_some() {
+                        if slot.take().is_some() || closed_ok {
                             lowered_result_ok(LoweredValue::Unit)
                         } else {
                             lowered_result_err_value(
@@ -5669,7 +5673,9 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::FsUnlock if values.len() == 1 => {
+            // As for a root: the scope's release accepts a lock the body
+            // already released, and still rejects a record that names no lock.
+            RuntimeOp::FsUnlock | RuntimeOp::FsUnlockIfHeld if values.len() == 1 => {
                 let lock = lowered_record_arg(values.pop(), "fs.unlock", span)?;
                 let id = record_int_field(&lock, "id", "fs-lock", span)?;
                 let Some(slot) = id
@@ -5682,6 +5688,9 @@ impl Evaluator {
                     )));
                 };
                 let Some(file) = slot.take() else {
+                    if op == RuntimeOp::FsUnlockIfHeld {
+                        return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)));
+                    }
                     return Ok(ControlFlow::Continue(lowered_result_err_value(
                         RuntimeError::new("fs-lock", "lock handle is not active").with_span(span),
                     )));

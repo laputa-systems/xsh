@@ -3056,6 +3056,57 @@ impl<'a> Writer<'a> {
                 let indent = indent_for_expr(output);
                 self.write_block(*block, indent, output);
             }
+            ArenaExprKind::ResourceScope {
+                bindings, block, ..
+            } => {
+                // Laid out as the `with ... else` statement lays out its
+                // bindings: on the `with` line when the author wrote them
+                // there and they fit, and one to a line otherwise.
+                let indent = indent_for_expr(output);
+                let bindings = self.arena.with_bindings(*bindings).to_vec();
+                let len = bindings.len();
+                let head_start = self.arena.expr(expr_id).span.start();
+                let body_start = self.arena.span(self.arena.block(*block).span).start();
+                let one_line = self
+                    .source
+                    .get(head_start..body_start)
+                    .is_some_and(|header| !header.contains('\n'));
+                let flat = one_line
+                    && !self.has_comment_in(head_start, body_start)
+                    && self.try_write_flat(output, |writer, line| {
+                        line.push_str("with ");
+                        for (index, binding) in bindings.iter().enumerate() {
+                            if index > 0 {
+                                line.push_str(", ");
+                            }
+                            line.push_str(binding.name.as_str().as_str());
+                            line.push_str(" = ");
+                            writer.write_expr(
+                                binding.initializer,
+                                child(binding.initializer),
+                                line,
+                            );
+                        }
+                        line.push_str(" {");
+                    });
+                if flat {
+                    output.pop();
+                } else {
+                    output.push_str("with\n");
+                    for (index, binding) in bindings.iter().enumerate() {
+                        self.write_indent(indent + 1, output);
+                        output.push_str(binding.name.as_str().as_str());
+                        output.push_str(" = ");
+                        self.write_expr(binding.initializer, child(binding.initializer), output);
+                        if index + 1 < len {
+                            output.push(',');
+                        }
+                        output.push('\n');
+                    }
+                    self.write_indent(indent, output);
+                }
+                self.write_block(*block, indent, output);
+            }
         }
     }
 

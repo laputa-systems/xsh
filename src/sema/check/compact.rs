@@ -123,6 +123,8 @@ pub struct CompactBodyFacts {
     pub from_end_indexes: FxHashMap<ExprId, u32>,
     /// The operation each `value as TARGET` expression performs.
     pub conversions: FxHashMap<ExprId, super::Conversion>,
+    /// The resource kind of each binding of a managed `with` scope.
+    pub resource_scopes: FxHashMap<ExprId, Vec<crate::modules::ManagedResource>>,
     /// Each text pattern as the checker compiled it.
     pub text_patterns: FxHashMap<crate::syntax::arena::PatternId, super::TextPattern>,
 }
@@ -199,6 +201,11 @@ impl CompactBodyFacts {
                 && let Some(conversion) = checked.conversions.get(&span)
             {
                 facts.conversions.insert(id, *conversion);
+            }
+            if matches!(expression.kind, ArenaExprKind::ResourceScope { .. })
+                && let Some(kinds) = checked.resource_scopes.get(&span)
+            {
+                facts.resource_scopes.insert(id, kinds.clone());
             }
         }
         if !checked.inferred_variant_patterns.is_empty() {

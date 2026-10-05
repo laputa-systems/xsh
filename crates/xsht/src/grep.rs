@@ -338,6 +338,43 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
+        // A resource scope matches in statement and in value position. A
+        // binding name in the pattern is literal unless it is a metavariable,
+        // which stands for any name.
+        (
+            ArenaExprKind::ResourceScope {
+                bindings: pbind,
+                block: pb,
+                ..
+            },
+            ArenaExprKind::ResourceScope {
+                bindings: tbind,
+                block: tb,
+                ..
+            },
+        ) => {
+            let pbind = p.with_bindings(*pbind);
+            let tbind = t.with_bindings(*tbind);
+            let mut candidate = bindings.clone();
+            if pbind.len() != tbind.len()
+                || !pbind.iter().zip(tbind).all(|(pbinding, tbinding)| {
+                    (is_metavar(pbinding.name.as_str().as_str()) || pbinding.name == tbinding.name)
+                        && match_expr(
+                            p,
+                            pbinding.initializer,
+                            t,
+                            tbinding.initializer,
+                            source,
+                            &mut candidate,
+                        )
+                })
+                || !match_context_block(p, *pb, t, *tb, source, &mut candidate)
+            {
+                return false;
+            }
+            *bindings = candidate;
+            true
+        }
         (
             ArenaExprKind::ErrorContext {
                 message: pm,

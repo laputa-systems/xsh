@@ -114,6 +114,18 @@ impl ReturnInferenceIndex {
                         }
                     }
                 }
+                // A resource binding is in scope from the end of its value
+                // to the end of the scope.
+                ArenaExprKind::ResourceScope { bindings, .. } => {
+                    for binding in program.arena.with_bindings(bindings) {
+                        let span = Span::new(
+                            expr.span.source_id,
+                            program.arena.expr(binding.initializer).span.end(),
+                            expr.span.end(),
+                        );
+                        shadows.entry(binding.name).or_default().push(span);
+                    }
+                }
                 ArenaExprKind::ListComp { qualifiers, .. }
                 | ArenaExprKind::MapComp { qualifiers, .. } => {
                     for qualifier in program.arena.comp_qualifiers(qualifiers) {

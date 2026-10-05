@@ -851,6 +851,9 @@ fn lead_needs_parens(arena: &AstArena, kind: &ArenaExprKind, lead: Lead, context
         }
         | ArenaExprKind::TempDirScope {
             value_body: true, ..
+        }
+        | ArenaExprKind::ResourceScope {
+            value_body: true, ..
         } => statement,
         // A run form that heads a pipeline reads as a value at any lead, and
         // so does one written under `try`, which begins with that word.
@@ -1038,6 +1041,15 @@ pub fn child_context(arena: &AstArena, parent: ExprId, context: Context, child: 
         ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::PatternCondition { .. }
         | ArenaExprKind::TempDirScope { .. } => open(Follow::BRACE),
+        // A value before a comma ends there; the last one ends at the body.
+        ArenaExprKind::ResourceScope { bindings, .. } => {
+            let last = arena.with_bindings(bindings).last();
+            if last.is_some_and(|binding| binding.initializer == child) {
+                open(Follow::BRACE)
+            } else {
+                open(Follow::CLOSE)
+            }
+        }
         ArenaExprKind::ListComp { expr, .. } if expr == child => open(Follow::WORD),
         ArenaExprKind::MapComp { value, .. } if value == child => open(Follow::WORD),
         ArenaExprKind::SetComp { expr, .. } if expr == child => {
@@ -1232,6 +1244,11 @@ pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Ex
             path: Some(path), ..
         } => visit(path),
         ArenaExprKind::Retry { delays, .. } => arena.expr_ids(delays).for_each(visit),
+        ArenaExprKind::ResourceScope { bindings, .. } => {
+            for binding in arena.with_bindings(bindings) {
+                visit(binding.initializer);
+            }
+        }
         _ => {}
     }
 }

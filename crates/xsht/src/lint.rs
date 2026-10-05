@@ -30,6 +30,8 @@ mod prefer_within;
 mod prefer_wait_until;
 #[path = "lint_prefer_collect.rs"]
 mod prefer_collect;
+#[path = "lint_prefer_with_scope.rs"]
+mod prefer_with_scope;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
 
@@ -494,6 +496,9 @@ pub struct LintOptions {
     pub prefer_text_pattern: bool,
     /// Opt in to `lint.prefer-rel-path`.
     pub prefer_rel_path: bool,
+    /// Opt in to `lint.prefer-with-scope`, which has no fix and reports
+    /// every handle whose release is deferred where it is opened.
+    pub prefer_with_scope: bool,
     /// The file and module roots a return-annotation proof loads imports
     /// with. Without them only a file with no user imports is provable.
     pub return_proof: Option<ReturnProofContext>,
@@ -566,6 +571,7 @@ impl Default for LintOptions {
             prefer_set: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
+            prefer_with_scope: false,
             return_proof: None,
             runless: false,
             runless_except: Vec::new(),
@@ -624,6 +630,7 @@ pub struct Linter<'a> {
     prefer_inferred_proc_returns: bool,
     prefer_text_pattern: bool,
     prefer_rel_path: bool,
+    prefer_with_scope: bool,
     return_proof: Option<ReturnProofContext>,
     proc_return_candidates: Vec<inferred_proc_return::ProcReturnCandidate>,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
@@ -846,6 +853,10 @@ impl<'a> Linter<'a> {
             prefer_rel_path: options.prefer_rel_path
                 || only.as_deref().is_some_and(|only| {
                     only.contains(&DiagnosticCode::LintPreferRelPath)
+                }),
+            prefer_with_scope: options.prefer_with_scope
+                || only.as_deref().is_some_and(|only| {
+                    only.contains(&DiagnosticCode::LintPreferWithScope)
                 }),
             prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
             return_proof: options.return_proof,
@@ -1247,6 +1258,9 @@ impl<'a> Linter<'a> {
         prefer_within::lint_repeated_timeouts(self, statements);
         prefer_collect::lint_built_lists(self, statements);
         prefer_wait_until::lint_polling_loops(self, statements);
+        if self.prefer_with_scope {
+            prefer_with_scope::lint_deferred_releases(self, statements);
+        }
         self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
@@ -3574,7 +3588,8 @@ impl<'a> Linter<'a> {
             | ArenaExprKind::Collect { .. }
             | ArenaExprKind::ErrorContext { .. }
             | ArenaExprKind::ContextScope { .. }
-            | ArenaExprKind::TempDirScope { .. } => true,
+            | ArenaExprKind::TempDirScope { .. }
+            | ArenaExprKind::ResourceScope { .. } => true,
             ArenaExprKind::Require { schema, .. } => {
                 schema.is_none()
                     || (removing_annotation
@@ -5689,6 +5704,9 @@ impl<'a> Linter<'a> {
         prefer_within::lint_repeated_timeouts(self, &stmts);
         prefer_collect::lint_built_lists(self, &stmts);
         prefer_wait_until::lint_polling_loops(self, &stmts);
+        if self.prefer_with_scope {
+            prefer_with_scope::lint_deferred_releases(self, &stmts);
+        }
         self.lint_statement_sequence(&stmts);
     }
 
@@ -11907,6 +11925,12 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::ContextScope { input: message, .. } => out.push(message),
         ArenaExprKind::TempDirScope { path, .. } => out.extend(path),
         ArenaExprKind::Retry { delays, .. } => out.extend(arena.expr_ids(delays)),
+        ArenaExprKind::ResourceScope { bindings, .. } => out.extend(
+            arena
+                .with_bindings(bindings)
+                .iter()
+                .map(|binding| binding.initializer),
+        ),
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
         | ArenaExprKind::Int(_)
@@ -11942,7 +11966,8 @@ fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
         | ArenaExprKind::Retry { block, .. }
         | ArenaExprKind::ErrorContext { block, .. }
         | ArenaExprKind::ContextScope { block, .. }
-        | ArenaExprKind::TempDirScope { block, .. } => out.push(block),
+        | ArenaExprKind::TempDirScope { block, .. }
+        | ArenaExprKind::ResourceScope { block, .. } => out.push(block),
         ArenaExprKind::Pipeline { stages, .. } => {
             for stage in arena.pipe_stages(stages).to_vec() {
                 if let ArenaPipeStageKind::Stream(stage) = stage.kind
@@ -12452,7 +12477,8 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::ContextScope { .. }
-        | ArenaExprKind::TempDirScope { .. } => true,
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => true,
         ArenaExprKind::Capture(_) | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => {
             false
         }
@@ -13047,6 +13073,14 @@ impl LintExprVisitor<'_, '_> {
                 } else {
                     self.linter.lint_stream_block(block);
                 }
+            }
+            ArenaExprKind::ResourceScope {
+                bindings, block, ..
+            } => {
+                for binding in arena.with_bindings(bindings).to_vec() {
+                    self.visit_expr(binding.initializer);
+                }
+                self.linter.lint_block(block);
             }
             ArenaExprKind::Retry {
                 schedule: _,
@@ -13810,6 +13844,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Retry { .. } => false,
@@ -13902,6 +13937,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Collect { .. }
         | ArenaExprKind::Retry { .. } => true,
@@ -14686,6 +14722,14 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaExprKind::TempDirScope { path, block, .. } => {
                 if let Some(path) = path {
                     self.scan_expr(path);
+                }
+                self.scan_block(block);
+            }
+            ArenaExprKind::ResourceScope {
+                bindings, block, ..
+            } => {
+                for binding in self.arena().with_bindings(bindings).to_vec() {
+                    self.scan_expr(binding.initializer);
                 }
                 self.scan_block(block);
             }
@@ -15501,6 +15545,16 @@ fn expr_flow(
                 None => entered,
             }
         }
+        // The body runs once every value is bound.
+        ArenaExprKind::ResourceScope {
+            bindings, block, ..
+        } => arena
+            .with_bindings(bindings)
+            .iter()
+            .fold(FlowSummary::fallthrough(), |flow, binding| {
+                flow.then(expr_flow(arena, binding.initializer))
+            })
+            .then(block_flow(arena, block)),
         ArenaExprKind::ErrorContext { message, block } => expr_flow(
             arena,
             message,

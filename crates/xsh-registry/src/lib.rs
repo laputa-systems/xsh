@@ -7,6 +7,7 @@
 pub mod api_docs;
 pub mod errors;
 mod examples;
+pub mod managed_resource;
 pub mod records;
 pub mod reference;
 pub mod runtime_op;
@@ -15,6 +16,7 @@ pub mod stream_parameters;
 pub mod symbols;
 pub mod types;
 
+pub use managed_resource::ManagedResource;
 pub use runtime_op::RuntimeOp;
 
 pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[

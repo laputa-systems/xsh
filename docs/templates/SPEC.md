@@ -97,6 +97,9 @@ true try type unless use var wait when while with yield
 ```
 
 `not` appears only in the binary operator `not in`; unary negation is `!`.
+`with` begins two forms that its `else` tells apart: with an `else` block it
+groups fallible bindings under one handler (8.6), and without one it is a
+resource scope (10.4).
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
@@ -2524,7 +2527,10 @@ a binding or a known field path has type `T`, as after `subject != null`.
 
 Each binding sees the earlier ones. If any initializer fails, the `else` block
 runs with the error (the common nominal type, or `Error` for mixed families).
-Bindings are not visible in the handler.
+Bindings are not visible in the handler. This statement always has its `else`,
+on the line of the closing brace or a later one; the same head without an
+`else` is a resource scope (10.4). Which form a `with` is depends on that
+word only, never on the types of its values.
 
 Parameterized blocks always put the parameters inside the brace:
 `{ |name| ... }`, except a `tempdir` scope (10.4), whose name after the word
@@ -2588,7 +2594,9 @@ the script, and it leaves with an error when the script fails, is canceled,
 or exits with a nonzero status.
 
 A `tempdir` scope (10.4) removes its directory with a deferred action of this
-kind, registered before the body runs.
+kind, registered before the body runs. A `with` resource scope (10.4)
+releases each resource with one, registered as the resource is bound; it is
+the scope for `let h = OPEN?` directly followed by `defer h.close()`.
 
 `atomically replace dest as name { ... }` publishes a file that something
 other than XSH writes (an archiver, a compiler, an image builder): the block
@@ -3072,7 +3080,7 @@ Script stdout and stderr are byte streams. Text APIs write UTF-8.
 `io.write_stdout(text)` writes without a newline, and
 `io.write_stdout_bytes(data)` writes bytes exactly, with no UTF-8 requirement.
 
-### 10.4 `cd`, `env`, `tempdir`, and `within` scopes
+### 10.4 `cd`, `env`, `tempdir`, `within`, and `with` scopes
 
 ```xsh
 {{.spec.scopes.source}}
@@ -3243,6 +3251,88 @@ under the outer deadline.
 `wait until condition within limit` (8.6) is this scope around a polling
 loop, and `retry backoff first..cap within limit` (8.8) uses the word for a
 limit on its delays that interrupts nothing.
+`with NAME = VALUE { ... }`, without an `else`, is the scope for a resource
+that has to be released: it binds the value, runs the body, and releases the
+value however the body ends.
+
+```xsh
+{{.spec.with_resource.source}}
+```
+
+`VALUE` is an expression of a built-in resource type, and there are two:
+
+| Type | From | Released as |
+|---|---|---|
+| `FsRoot` | `fs.open_root`, `fs.tempdir`, `FsRoot.open_root` | `root.close()` |
+| `FsLock` | `fs.lock` | `fs.unlock(lock)` |
+
+Any other type is a check error (`check.with-resource`) that names these, and
+that includes `Any`, an unresolved type, and a `Result` that was not
+propagated:
+
+```xsh
+{{.spec.with_resource_type.source}}
+```
+
+There is no protocol a program can implement; the checker knows the resource
+types and how each is released. Of the other built-in handles, a
+`ProcessHandle`, a `NetJob`, and an open stream are already released by the
+block that owns them (11.8) and have no fallible release to state; the HTTP
+pools of `net.pool` are closed by name, not through a value; and the staged
+socket functions of the `linux` and `unix` modules are sequences, not one
+value with one release.
+
+`NAME` is immutable and in scope for the body only (`_` binds nothing). The
+value is an ordinary expression: a failure in it, such as the `?` of
+`fs.open_root(path)?`, goes where it would go anywhere else, and the body
+does not run. Several bindings are separated by commas, and line breaks may
+surround each. They are entered left to right, each value evaluated with the
+names before it in scope, and released right to left. When a later value
+fails to open, the resources already bound are released before the failure
+goes on.
+
+A resource is released on every way out of the scope: the body reaching its
+end, `return`, `break`, `continue`, a failure that propagates (`?`, `fail`, a
+failed statement, a runtime failure), `exit`, cancellation, and the deadline
+of an enclosing `within`. The release runs after the body's own defers and
+after the body's owned handles are cleaned up (8.7, 11.8), as a deferred
+action registered when the resource was bound runs.
+
+The scope follows the rule of `cd` and `env`. In statement position it
+returns `Result[Unit]`, and a failure propagates as a failed statement does
+(8.1), with or without `?`. In value position it returns `Result[T]` of the
+body's tail and needs no parentheses; the tail is computed before anything is
+released. A `Result` tail stays nested, and so does the scope as the tail of
+a `try` block. As the tail of a function that returns `Result[T]`, the scope
+with a `T` tail is the function's result. In value position the scope ends
+at its body: `else` after it is a parse error, because the grouping form is
+a statement.
+
+The scope's `Err` reports only a release that failed after the body reached
+its end. Every resource is still released; the first failure, in release
+order, is the `Err`, and a later one is reported as a cleanup failure with
+its location (8.7). Failures inside the body propagate to their ordinary
+destination, and a release never replaces or hides one: when a release fails
+after the body failed or left early, the body's failure or exit stays
+primary and the release failure is reported as a cleanup failure, exactly
+as a failing `defer` is while another failure propagates.
+
+A body may release its resource early, by `root.close()` or
+`fs.unlock(lock)`. Neither operation can be repeated (a second `close` or
+`unlock` fails with "handle is not active"), so the scope's own release
+accepts a value that is already released and does nothing. It still fails
+for a value that never named a live resource.
+
+The value may leave the scope, as the tail or through an assignment, but it
+names a released resource afterwards. The scope needs the `fs` effect and is
+rejected in pure functions.
+
+`lint.prefer-with-scope`, an opt-in note (16.1; `[lint] prefer-with-scope = true`
+or `--only`), reports `let NAME = OPEN?` directly followed by
+`defer NAME.close()` or `defer fs.unlock(NAME)` where the handle stays in its
+block. It offers no rewrite: the two shapes differ where the release fails
+after the block reached its end, which a `defer` raises from the enclosing
+function and the scope returns as its `Err`.
 
 ### 10.5 Environment access
 
@@ -3535,6 +3625,11 @@ defers run. Detached handles are released to a background reaper instead. A
 `NetJob` is consumed by its first `wait()` or `cancel()`, like a process
 handle. These are process and transfer fan-out, not an async runtime: there
 are no futures, callbacks, channels, `await`, or wait-any.
+
+An `FsRoot` and an `fs.lock` lock are not owned this way: nothing releases
+one when its block ends, and it stays open until it is closed or the script
+ends. Bind it with a `with` scope (10.4), or register its release with
+`defer` (8.7).
 
 ### 11.9 Command plans and builder blocks
 

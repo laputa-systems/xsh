@@ -236,6 +236,9 @@ pub struct CheckOutput {
     /// from the conversion table. Lowering builds the operation from this
     /// and never looks at the operand's type or the target again.
     pub conversions: BTreeMap<Span, Conversion>,
+    /// The resource kind of each binding of a managed `with` scope, in binding
+    /// order, keyed by the scope. A scope with a rejected binding has none.
+    pub resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     /// Each text pattern, compiled: its literal segments and what each hole
     /// makes of the text it matches. Lowering copies this into the program.
     pub text_patterns: BTreeMap<Span, TextPattern>,
@@ -758,6 +761,7 @@ pub struct Checker {
     collect_scope: Option<collect::CollectScope>,
     from_end_indexes: BTreeMap<Span, u32>,
     conversions: BTreeMap<Span, Conversion>,
+    resource_scopes: BTreeMap<Span, Vec<crate::modules::ManagedResource>>,
     text_patterns: BTreeMap<Span, TextPattern>,
     inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
@@ -930,6 +934,7 @@ impl Checker {
                 collect_yields: checker.collect_yields,
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
+                resource_scopes: checker.resource_scopes,
                 text_patterns: checker.text_patterns,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: options.embedded_bodies,
@@ -1109,6 +1114,7 @@ impl Checker {
                 collect_yields: checker.collect_yields,
                 from_end_indexes: checker.from_end_indexes,
                 conversions: checker.conversions,
+                resource_scopes: checker.resource_scopes,
                 text_patterns: checker.text_patterns,
                 inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: false,
@@ -1191,6 +1197,7 @@ impl Checker {
             collect_scope: None,
             from_end_indexes: BTreeMap::new(),
             conversions: BTreeMap::new(),
+            resource_scopes: BTreeMap::new(),
             text_patterns: BTreeMap::new(),
             inferred_variant_patterns: BTreeMap::new(),
             options,
@@ -1607,6 +1614,31 @@ impl Checker {
                 .with_code(code)
                 .with_label(Label::primary(span, message)),
         );
+    }
+
+    /// Reports the value of a managed `with` binding whose type is not a
+    /// built-in resource. Every type but a resource is rejected, an unresolved
+    /// one included: the scope must know how to release what it binds.
+    pub(crate) fn reject_unmanaged_resource(&mut self, ty: &Type, span: Span) {
+        let known = crate::modules::ManagedResource::ALL
+            .map(|kind| format!("`{}`", kind.type_name()))
+            .join(" and ");
+        let message = format!(
+            "`with` without `else` binds a resource it releases when the block ends, and `{ty}` is not one; the resource types are {known}"
+        );
+        let mut diagnostic = Diagnostic::error(message.clone())
+            .with_code(DiagnosticCode::CheckWithResource)
+            .with_label(Label::primary(span, message));
+        if let Type::Result(ok, _) = ty
+            && crate::modules::managed_resource_for(ok).is_some()
+        {
+            diagnostic = diagnostic.with_note("propagate the `Result` with `?` to bind its value");
+        } else {
+            diagnostic = diagnostic.with_note(
+                "to group fallible bindings under one handler, write `with ... { ... } else { ... }`",
+            );
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     pub(crate) fn warning(&mut self, span: Span, message: &str, code: DiagnosticCode) {

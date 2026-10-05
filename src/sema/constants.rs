@@ -2479,6 +2479,31 @@ impl PreparedConstants {
                 _ => {}
             }
         }
+        // A resource scope binds its names for its body, as a `with ... else`
+        // statement does. Tags are read first: the arena holds every module.
+        for (index, tag) in arena.expr_tags.iter().enumerate() {
+            if !matches!(
+                tag,
+                crate::syntax::arena::ArenaExprTag::ResourceScope
+                    | crate::syntax::arena::ArenaExprTag::ResourceStatementScope
+            ) {
+                continue;
+            }
+            let ArenaExprKind::ResourceScope {
+                bindings, block, ..
+            } = arena.expr(ExprId::from_index(index)).kind
+            else {
+                continue;
+            };
+            if !active_sources.contains(&arena.span(arena.block(block).span).source_id) {
+                continue;
+            }
+            for binding in arena.with_bindings(bindings) {
+                preparation.scopes[block.index()]
+                    .bindings
+                    .insert(binding.name, None);
+            }
+        }
         for arm in &arena.match_arms {
             if !active_sources.contains(&arena.span(arena.block(arm.block).span).source_id) {
                 continue;

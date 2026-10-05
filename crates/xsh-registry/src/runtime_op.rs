@@ -225,6 +225,8 @@ pub enum RuntimeOp {
     FsIsSymlink,
     FsTempSibling,
     FsSymlinkAt,
+    FsCloseRootIfOpen,
+    FsUnlockIfHeld,
     GroupCurrent,
     GroupLookup,
     GroupByGid,

@@ -2030,6 +2030,47 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump(); // consume `with`
+        let bindings = self.parse_with_bindings_arena_only(arena)?;
+        let body = self.parse_block_arena_only(arena)?;
+        // Without an `else` the statement is a resource scope. The `else`
+        // may stand on a later line, so it is looked for past line breaks.
+        let mut offset = 0;
+        while matches!(
+            self.peek_tag(offset),
+            Some(TokenTag::Newline | TokenTag::Comment)
+        ) {
+            offset += 1;
+        }
+        let has_else = self.peek_tag(offset) == Some(TokenTag::Keyword)
+            && self.peek_keyword(offset) == Some(Keyword::Else);
+        if !has_else && !bindings.is_empty() {
+            let span = self.span(start, self.previous_end());
+            let bindings_range = arena.push_with_bindings(&bindings);
+            let scope = arena.push_resource_scope_expr(bindings_range, body, false, span);
+            let value = if self.consume(TokenKindMatch::Question).is_some() {
+                arena.push_try_expr(scope, self.span(start, self.previous_end()))
+            } else {
+                scope
+            };
+            let end = self.expect_terminator();
+            arena.push_expr_statement(value, self.span(start, end));
+            return Some(());
+        }
+        self.skip_newlines();
+        self.expect_keyword(Keyword::Else, "expected `else` after `with` body")?;
+        let else_block = self.parse_error_handler_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        let bindings_range = arena.push_with_bindings(&bindings);
+        arena.push_with(bindings_range, body, else_block, span);
+        Some(())
+    }
+
+    /// The `NAME = VALUE, ...` list of a `with` head, up to the `{` of its
+    /// body. Line breaks may surround each binding and comma.
+    pub(super) fn parse_with_bindings_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<Vec<(Name, ExprId, crate::source::Span)>> {
         self.skip_newlines();
         let mut bindings = Vec::new();
         loop {
@@ -2058,14 +2099,7 @@ impl<'a> Parser<'a> {
             }
             self.skip_newlines();
         }
-        let body = self.parse_block_arena_only(arena)?;
-        self.skip_newlines();
-        self.expect_keyword(Keyword::Else, "expected `else` after `with` body")?;
-        let else_block = self.parse_error_handler_block_arena_only(arena)?;
-        let span = self.span(start, self.previous_end());
-        let bindings_range = arena.push_with_bindings(&bindings);
-        arena.push_with(bindings_range, body, else_block, span);
-        Some(())
+        Some(bindings)
     }
 
     fn parse_match_arena_only(

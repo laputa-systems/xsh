@@ -526,3 +526,19 @@ test test_grep_and_refactor_context_scopes_preserve_input_body_and_scope_kind { 
   assert "env ({X: 7}) {" in fixed, fixed
   assert "cd (p\".\") {" in fixed, fixed
 }
+
+test test_grep_matches_a_resource_scope_in_statement_and_value_position { |ctx|
+  let file = script(
+    ctx,
+    "resource.xsh",
+    "proc f(dir: Path) [fs, error] {\n  with root = fs.open_root(dir)? { root.close() }\n  let n = with held = fs.lock(dir)? { 1 }?\n  print $n\n}\n",
+  )?
+  let opened = found("with NAME = fs.open_root(EXPR)? { BODY }", file)?
+  assert "with root = fs.open_root(dir)? { root.close() }" in opened, opened
+  assert "fs.lock" not in opened, opened
+  let named = found("with held = EXPR { BODY }", file)?
+  assert "with held = fs.lock(dir)? { 1 }" in named, named
+  assert "fs.open_root" not in named, named
+  let other = absent("with other = EXPR { BODY }", file)?
+  assert "0 matches" in other, other
+}

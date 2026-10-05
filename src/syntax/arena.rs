@@ -3726,6 +3726,23 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
+    pub fn push_resource_scope_expr(
+        &mut self,
+        bindings: ArenaRange,
+        block: BlockId,
+        value_body: bool,
+        span: Span,
+    ) -> ExprId {
+        self.lowerer.push_expr_kind(
+            ArenaExprKind::ResourceScope {
+                bindings,
+                block,
+                value_body,
+            },
+            span,
+        )
+    }
+
     pub fn push_value_block_expr(&mut self, block: BlockId, span: Span) -> ExprId {
         self.lowerer
             .push_expr_kind(ArenaExprKind::ValueBlock(block), span)
@@ -4939,6 +4956,14 @@ impl AstArena {
                     delays: ArenaRange::new(raw[0] as usize, raw[1] as usize),
                     pattern: (raw[3] != ARENA_ABSENT).then(|| PatternId::new(raw[3] as usize)),
                     block: BlockId::new(raw[2] as usize),
+                }
+            }
+            ArenaExprTag::ResourceScope | ArenaExprTag::ResourceStatementScope => {
+                let raw = range_slice(&self.extra, range_from_data(data));
+                ArenaExprKind::ResourceScope {
+                    bindings: ArenaRange::new(raw[0] as usize, raw[1] as usize),
+                    block: BlockId::new(raw[2] as usize),
+                    value_body: matches!(tag, ArenaExprTag::ResourceScope),
                 }
             }
         }
@@ -6578,6 +6603,8 @@ pub enum ArenaExprTag {
     BinaryUnion,
     BinaryIntersect,
     Collect,
+    ResourceScope,
+    ResourceStatementScope,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -6814,6 +6841,13 @@ pub enum ArenaExprKind {
     /// whatever was there is removed.
     TempDirScope {
         path: Option<ExprId>,
+        block: BlockId,
+        value_body: bool,
+    },
+    /// `with NAME = VALUE, ... { ... }` without an `else`: each value is a
+    /// built-in resource, bound for the body and released when the body ends.
+    ResourceScope {
+        bindings: ArenaRange,
         block: BlockId,
         value_body: bool,
     },
@@ -8104,6 +8138,22 @@ impl ArenaLowerer<'_> {
                     },
                 ]);
                 (ArenaExprTag::Retry, data)
+            }
+            ArenaExprKind::ResourceScope {
+                bindings,
+                block,
+                value_body,
+            } => {
+                let data =
+                    self.push_expr_extra(&[bindings.start, bindings.len, raw_block_id(block)]);
+                (
+                    if value_body {
+                        ArenaExprTag::ResourceScope
+                    } else {
+                        ArenaExprTag::ResourceStatementScope
+                    },
+                    data,
+                )
             }
         }
     }

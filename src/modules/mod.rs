@@ -27,6 +27,15 @@ pub(crate) mod unix;
 pub(crate) mod user;
 
 pub use signature::{ApiArgCheck, MethodReceiver, MethodSig, ModuleFnSig, RuntimeOp, api_spec};
+pub use xsh_registry::ManagedResource;
+
+/// The resource kind that manages a value of the checked type `ty`. Only the
+/// exact type of a kind is one: an unresolved or dynamic type is not.
+pub(crate) fn managed_resource_for(ty: &crate::sema::types::Type) -> Option<ManagedResource> {
+    ManagedResource::ALL
+        .into_iter()
+        .find(|kind| signature::convert_type(&kind.resource_type()) == *ty)
+}
 
 #[cfg(test)]
 use rustc_hash::FxHashMap;

@@ -1607,6 +1607,7 @@ fn lint_config_for_file(
         prefer_item_shorthand: tool_config.config.lint.prefer_item_shorthand,
         prefer_tempdir_scope: tool_config.config.lint.prefer_tempdir_scope,
         prefer_text_pattern: tool_config.config.lint.prefer_text_pattern,
+        prefer_with_scope: tool_config.config.lint.prefer_with_scope,
         // A project that asks `xsht check --annotate` to write returns does
         // not also want them removed.
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns

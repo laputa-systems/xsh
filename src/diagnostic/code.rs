@@ -486,6 +486,7 @@ diagnostic_codes! {
         CheckYieldStream = "check.yield-stream", error, "Reject `yield` of a stream value; use `yield @stream`";
         CheckCollectItem = "check.collect-item", error, "Reject a `collect` block that never yields where no expected type gives its item type";
         CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
+        CheckWithResource = "check.with-resource", error, "Reject a `with` without `else` that binds a value which is not a built-in resource (`FsRoot`, `FsLock`)";
         CheckUnionType = "check.union-type", error, "Reject a `Union[...]` whose members are fewer than two, repeat or contain one another, or are `Any`, `Null`, optional, a stream, a callable type, or another union";
         CheckUnionNarrow = "check.union-narrow", error, "Reject an operation on a `Union[...]` value that has not been narrowed to one member by `is` or a type pattern";
         CheckCallableType = "check.callable-type", error, "Reject a callable type whose parameters have a default, a rest marker, a repeated name, or no type, and a callable type used as a runtime type test";
@@ -609,6 +610,7 @@ diagnostic_codes! {
         LintPreferTempdir = "lint.prefer-tempdir", warning, "Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
+        LintPreferWithScope = "lint.prefer-with-scope", note, "Note `let NAME = OPEN?` directly followed by the deferred release of `NAME`, which one `with` scope would bind and release";
         LintPreferWithin = "lint.prefer-within", note, "Note a block whose `run` forms all carry the same `--timeout`, which one `within` scope would state once";
         LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";

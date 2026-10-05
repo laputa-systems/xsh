@@ -4161,7 +4161,8 @@ impl Checker {
         match &arena.arena.expr(value).kind {
             ArenaExprKind::ErrorContext { block, .. }
             | ArenaExprKind::ContextScope { block, .. }
-            | ArenaExprKind::TempDirScope { block, .. } => {
+            | ArenaExprKind::TempDirScope { block, .. }
+            | ArenaExprKind::ResourceScope { block, .. } => {
                 self.block_definitely_exits_arena(arena, *block)
             }
             _ => false,
@@ -4236,7 +4237,8 @@ pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: Ex
     match arena.arena.expr(expr).kind {
         ArenaExprKind::Capture(_)
         | ArenaExprKind::ContextScope { .. }
-        | ArenaExprKind::TempDirScope { .. } => true,
+        | ArenaExprKind::TempDirScope { .. }
+        | ArenaExprKind::ResourceScope { .. } => true,
         ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind,
             ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"),
         ArenaExprKind::ValueBlock(block) | ArenaExprKind::ErrorContext { block, .. } => arena

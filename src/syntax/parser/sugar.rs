@@ -1284,6 +1284,77 @@ mod tests {
         ]);
     }
 
+    #[test]
+    fn the_grammar_recognizes_written_resource_scopes() {
+        assert_grammar_recognizes(&[
+            include_str!("../../../tests/xsh/with-resource.xsh"),
+            include_str!("../../../docs/snippets/spec/71-with-resource.xsh"),
+            include_str!("../../../docs/snippets/spec/rejected/34-with-resource-type.xsh"),
+        ]);
+    }
+
+    /// A `with` head without an `else` is a resource scope wherever it
+    /// stands: every sentence of the production parses as one, as a
+    /// statement, under `?`, and as the value of a binding.
+    #[test]
+    fn every_resource_scope_sentence_parses_as_a_scope() {
+        use crate::syntax::arena::{ArenaExprKind, ArenaExprOrRun, ArenaStmtKind};
+        let grammar = grammar();
+        let recognizer = Recognizer::new(grammar);
+        let mut generator = Generator::new(grammar);
+        let mut checked = 0;
+        for depth in [4, 7, 10] {
+            for seed in 0..200 {
+                let Some(scope) = generator.sentence("resource_scope", seed, depth) else {
+                    continue;
+                };
+                for (source, value) in [
+                    (format!("{scope}\n"), false),
+                    (format!("{scope} ?\n"), false),
+                    (format!("let bound = {scope}\n"), true),
+                ] {
+                    let Some(tokens) = lex_grammar_tokens(&source) else {
+                        continue;
+                    };
+                    if recognizer.recognize(&tokens).is_err() {
+                        continue;
+                    }
+                    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                    assert!(
+                        parsed.diagnostics.is_empty(),
+                        "depth {depth} seed {seed}: {:?}\n{source}",
+                        parsed.diagnostics
+                    );
+                    let arena = &parsed.arena.arena;
+                    let statement = parsed.arena.statement_ids().next().expect("one statement");
+                    let mut expr = match arena.stmt(statement).kind {
+                        ArenaStmtKind::Expr(expr) => expr,
+                        ArenaStmtKind::Let {
+                            initializer: ArenaExprOrRun::Expr(expr),
+                            ..
+                        } => expr,
+                        other => panic!("depth {depth} seed {seed}: {other:?}\n{source}"),
+                    };
+                    if let ArenaExprKind::Try(inner) = arena.expr(expr).kind {
+                        expr = inner;
+                    }
+                    let ArenaExprKind::ResourceScope {
+                        bindings,
+                        value_body,
+                        ..
+                    } = arena.expr(expr).kind
+                    else {
+                        panic!("depth {depth} seed {seed} is not a resource scope:\n{source}");
+                    };
+                    assert!(bindings.len > 0, "{source}");
+                    assert_eq!(value_body, value, "{source}");
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 100, "only {checked} sentences were checked");
+    }
+
     /// `try run...` is a primary of its own, read by the parser before the
     /// `try` block.
     #[test]

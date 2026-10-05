@@ -45,6 +45,16 @@ that form does. `tempdir NAME { ... }` already was a scope that returns a
 `Result`, usable as a value; a block that propagates its failures could not
 be that, so the fixed-path form became a second head of the same scope.
 
+`with NAME = VALUE { ... }`, the scope that releases a resource, is a core
+form for the first reason: releasing on every exit, and returning a failed
+release as the scope's `Result`, is not an expansion a reader could write
+out in a line. It reuses `with` instead of adding a word such as `using`:
+both forms bind names for one block, and the `else` that the grouping form
+always has is the whole difference, visible at the site and never decided by
+a type. The resource types are the ones the checker knows; a protocol that
+programs implement would need a trait system this one feature does not
+justify.
+
 ## One name per concept, no overloaded sigils
 
 Each concept gets one spelling. Two ways to say the same thing (`fs.write(p, x)`
