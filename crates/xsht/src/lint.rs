@@ -487,6 +487,10 @@ pub struct LintOptions {
         Option<BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>>,
     /// Opt in to `lint.prefer-inferred-proc-return`.
     pub prefer_inferred_proc_returns: bool,
+    /// The project's `check --annotate` writes return annotations, so the
+    /// two rules that remove one stay off, whether a setting or `--only`
+    /// asks for them: the two tools would undo each other.
+    pub annotation_policy_writes_returns: bool,
     /// Opt in to the advice of `lint.prefer-set` for a `Map[K, Bool]` that
     /// is not provably a set; the fix for one that is needs no opt-in.
     pub prefer_set: bool,
@@ -569,6 +573,7 @@ impl Default for LintOptions {
             prefer_tempdir_scope: true,
             message_payload_constructors: None,
             prefer_inferred_proc_returns: false,
+            annotation_policy_writes_returns: false,
             prefer_set: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
@@ -814,11 +819,14 @@ impl<'a> Linter<'a> {
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
         let only = options.only;
-        // Naming the rule in `--only` asks for its advice as the setting does.
-        let prefer_set_advice = options.prefer_set
-            || only
-                .as_deref()
-                .is_some_and(|only| only.contains(&DiagnosticCode::LintPreferSet));
+        // Naming a rule in `--only` asks for it as its setting does, whether
+        // the setting is an opt-in that was left out or a default that was
+        // turned off.
+        let named = |code: DiagnosticCode| only.as_deref().is_some_and(|only| only.contains(&code));
+        let prefer_set_advice = options.prefer_set || named(DiagnosticCode::LintPreferSet);
+        // A project whose `check --annotate` writes return annotations keeps
+        // them, however their removal was asked for.
+        let removes_returns = !options.annotation_policy_writes_returns;
         let excluded_rules = options.excluded_rules;
         let message_payload_constructors = options.message_payload_constructors;
         let checked_effects =
@@ -845,24 +853,25 @@ impl<'a> Linter<'a> {
                         .is_some_and(|name| name == "time")
                 },
             ),
-            prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
-            prefer_inferred_private_effects: options.prefer_inferred_private_effects,
-            prefer_env_string: options.prefer_env_string,
-            prefer_item_shorthand: options.prefer_item_shorthand,
-            prefer_tempdir_scope: options.prefer_tempdir_scope,
+            prefer_inferred_pure_returns: removes_returns
+                && (options.prefer_inferred_pure_returns
+                    || named(DiagnosticCode::LintPreferInferredPureReturn)),
+            prefer_inferred_private_effects: options.prefer_inferred_private_effects
+                || named(DiagnosticCode::LintPreferInferredPrivateEffects),
+            prefer_env_string: options.prefer_env_string
+                || named(DiagnosticCode::LintPreferEnvString),
+            prefer_item_shorthand: options.prefer_item_shorthand
+                || named(DiagnosticCode::LintPreferItemShorthand),
+            prefer_tempdir_scope: options.prefer_tempdir_scope
+                || named(DiagnosticCode::LintPreferTempdirScope),
             prefer_text_pattern: options.prefer_text_pattern
-                || only.as_deref().is_some_and(|only| {
-                    only.contains(&DiagnosticCode::LintPreferTextPattern)
-                }),
-            prefer_rel_path: options.prefer_rel_path
-                || only.as_deref().is_some_and(|only| {
-                    only.contains(&DiagnosticCode::LintPreferRelPath)
-                }),
+                || named(DiagnosticCode::LintPreferTextPattern),
+            prefer_rel_path: options.prefer_rel_path || named(DiagnosticCode::LintPreferRelPath),
             prefer_with_scope: options.prefer_with_scope
-                || only.as_deref().is_some_and(|only| {
-                    only.contains(&DiagnosticCode::LintPreferWithScope)
-                }),
-            prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
+                || named(DiagnosticCode::LintPreferWithScope),
+            prefer_inferred_proc_returns: removes_returns
+                && (options.prefer_inferred_proc_returns
+                    || named(DiagnosticCode::LintPreferInferredProcReturn)),
             return_proof: options.return_proof,
             proc_return_candidates: Vec::new(),
             return_removal_before: None,

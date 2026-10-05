@@ -1540,18 +1540,17 @@ fn lint_config_for_file(
     });
     let lint_options = LintOptions {
         native_test_file,
-        prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns
-            && !configured_return_annotations,
+        prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns,
         prefer_inferred_private_effects: tool_config.config.lint.prefer_inferred_private_effects,
         prefer_env_string: tool_config.config.lint.prefer_env_string,
         prefer_item_shorthand: tool_config.config.lint.prefer_item_shorthand,
         prefer_tempdir_scope: tool_config.config.lint.prefer_tempdir_scope,
         prefer_text_pattern: tool_config.config.lint.prefer_text_pattern,
         prefer_with_scope: tool_config.config.lint.prefer_with_scope,
+        prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns,
         // A project that asks `xsht check --annotate` to write returns does
         // not also want them removed.
-        prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns
-            && !configured_return_annotations,
+        annotation_policy_writes_returns: configured_return_annotations,
         prefer_set: tool_config.config.lint.prefer_set,
         prefer_rel_path: tool_config.config.lint.prefer_rel_path,
         return_proof: Some(crate::xsht::lint::ReturnProofContext {

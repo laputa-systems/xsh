@@ -101,8 +101,11 @@ test test_inferred_proc_returns_are_dropped_only_where_proved { |ctx|
 test test_inferred_proc_return_lint_is_opt_in { |ctx|
   let root = project(ctx, "module_path = lib\n")?
   let report = fp"{root}/bin/report.xsh"
-  let reported = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report
+  let reported = run.capture --text "xsht" lint $report
   assert "lint.prefer-inferred-proc-return" not in reported.stderr, reported.stderr
+  # Naming the rule asks for it as the setting does.
+  let named = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report
+  assert named.stderr.split("warn[lint.prefer-inferred-proc-return]").len() == 3, named.stderr
 }
 
 # A family in the annotation is a contract the body's `Err(.Variant(...))`
