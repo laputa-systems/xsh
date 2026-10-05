@@ -396,11 +396,14 @@ references to that module's private types.
 
 `const NAME = expr` declares prepared, immutable data. The initializer may use
 literals, other constants (including exported constants of imported modules),
-record, list, map, and tag constructors over constants, and primitive
+record, list, map, set, and tag constructors over constants, and primitive
 operators. It may not use runtime bindings, calls, methods, blocks,
 comprehensions, or propagation. Cycles are errors, and invalid arithmetic is
 reported at check time. Empty containers need a type annotation; `Any` and
 resource values cannot be constants. Constants are bounded in size and nesting.
+A constant set is a set literal (6.4) over constants, so it has at least one
+element: the empty set is the call `set.empty()`, and the set operators
+build sets at run time.
 
 `let` at module level runs its initializer at load time. Prefer `const` for
 literal configuration data (`lint.prefer-const`).
@@ -591,7 +594,8 @@ elements. `.add(x)` and `.remove(x)` return a new set, and adding an element
 the set holds or removing one it does not returns an equal set. `.len()` and
 `.is_empty()` count elements, and `list.to_set()` drops a list's repeated
 elements. The operators are `in`, `not in`, `|`, `&`, and `-` (6.2); the
-literal is in 6.4. A set is not indexed, and a constant cannot be one.
+literal is in 6.4. A set is not indexed. A set literal over constants is a
+constant (3.4).
 
 ```xsh
 {{.spec.sets.source}}

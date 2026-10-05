@@ -10,7 +10,7 @@ use crate::syntax::arena::{
 };
 use crate::syntax::node::UnaryOp;
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 /// A bounded literal value, independent of runtime bindings or evaluation.
@@ -36,6 +36,8 @@ pub enum LiteralConstant {
     Map(Arc<BTreeMap<MapKey, LiteralConstant>>),
     List(Arc<Vec<LiteralConstant>>),
     Record(Arc<BTreeMap<Name, LiteralConstant>>),
+    /// The distinct elements, in the order a set visits them.
+    Set(Arc<BTreeSet<MapKey>>),
 }
 
 impl LiteralConstant {
@@ -1767,6 +1769,7 @@ impl LiteralConstant {
                 Box::new(constant_item_type(values.values())),
             ),
             Self::List(values) => Type::List(Box::new(constant_item_type(values.iter()))),
+            Self::Set(values) => Type::Set(Box::new(constant_map_key_type(values.iter()))),
             Self::Record(values) => Type::Record(
                 values
                     .iter()
@@ -2611,6 +2614,7 @@ fn cli_constant_value(
                 .map(|value| cli_constant_value(value, enums))
                 .collect::<Option<Vec<_>>>()?,
         ),
+        LiteralConstant::Set(values) => Value::Set(values.as_ref().clone()),
         LiteralConstant::Record(values) => Value::Record(
             values
                 .iter()
@@ -3142,6 +3146,43 @@ impl ConstantPreparation<'_> {
                 }
                 LiteralConstant::List(Arc::new(values))
             }
+            // A set literal over constants. Each element is stored as the
+            // key it is, so a repeated element is held once.
+            ArenaExprKind::Set(items) => {
+                let element_ty = match expected.map(Type::unvalidated) {
+                    Some(Type::Set(element)) => Some(element.as_ref()),
+                    _ => None,
+                };
+                let mut elements = BTreeSet::new();
+                for item in arena.list_elements(items) {
+                    if item.splice_span.is_some() {
+                        return Err(failure());
+                    }
+                    let value = self.expression(item.value, scope, element_ty, depth + 1)?;
+                    elements.insert(value.map_key().ok_or_else(failure)?);
+                }
+                LiteralConstant::Set(Arc::new(elements))
+            }
+            // Braces of bare names where a set is expected: the names are
+            // the elements, as they are for a runtime set.
+            ArenaExprKind::Record(fields)
+                if matches!(expected.map(Type::unvalidated), Some(Type::Set(_)))
+                    && !arena.record_fields(fields).is_empty()
+                    && arena
+                        .record_fields(fields)
+                        .iter()
+                        .all(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { .. })) =>
+            {
+                let mut elements = BTreeSet::new();
+                for field in arena.record_fields(fields) {
+                    let ArenaRecordFieldKind::Shorthand { name, .. } = field.kind else {
+                        return Err(failure());
+                    };
+                    let value = self.reference(scope, name, expr.span, depth + 1)?;
+                    elements.insert(value.map_key().ok_or_else(failure)?);
+                }
+                LiteralConstant::Set(Arc::new(elements))
+            }
             ArenaExprKind::Record(fields) => {
                 let map = matches!(expected, Some(Type::Map(_, _)))
                     || arena
@@ -3570,6 +3611,7 @@ fn constant_type_allowed(ty: &Type) -> bool {
         Type::List(item) | Type::Optional(item) => constant_type_allowed(item),
         Type::Validated(validated) => constant_type_allowed(validated.base()),
         Type::Map(key, value) => key.is_map_key() && constant_type_allowed(value),
+        Type::Set(element) => element.is_map_key(),
         Type::Record(fields) => fields.values().all(constant_type_allowed),
         _ => false,
     }
@@ -3708,6 +3750,9 @@ fn constant_matches_type(value: &LiteralConstant, ty: &Type) -> bool {
             })
         }
         (LiteralConstant::EmptyMap, Type::Map(_, _)) => true,
+        (LiteralConstant::Set(values), Type::Set(element)) => values
+            .iter()
+            .all(|value| constant_key_matches_type(value, element)),
         (LiteralConstant::Int(value), Type::UInt) => *value >= 0,
         (LiteralConstant::Record(values), Type::Record(fields)) => {
             fields.len() == values.len()
@@ -3765,6 +3810,11 @@ fn constant_size_within_limit(value: &LiteralConstant) -> bool {
             LiteralConstant::Map(values) => {
                 units = units.saturating_add(values.keys().map(constant_key_size).sum::<usize>());
                 pending.extend(values.values());
+            }
+            LiteralConstant::Set(values) => {
+                units = units
+                    .saturating_add(values.len())
+                    .saturating_add(values.iter().map(constant_key_size).sum::<usize>());
             }
             _ => {}
         }

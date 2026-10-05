@@ -2813,6 +2813,7 @@ pub(super) fn lower_literal_constant(
                 .map(|value| lower_literal_constant(value, enums))
                 .collect::<Option<Vec<_>>>()?,
         )),
+        C::Set(values) => LoweredValue::Set(values.clone()),
         C::Record(values) => LoweredValue::Record(Arc::new(
             values
                 .iter()
@@ -9573,7 +9574,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
             C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
             C::EmptyMap => BuildExprRow::EmptyMap,
-            C::Map(_) => BuildExprRow::PreparedConstant(super::PreparedConstantValue(
+            C::Map(_) | C::Set(_) => BuildExprRow::PreparedConstant(super::PreparedConstantValue(
                 lower_literal_constant(value, Some(&self.declarations.wire_enums))?,
             )),
             C::List(values) => BuildExprRow::List(

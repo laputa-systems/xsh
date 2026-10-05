@@ -348,6 +348,7 @@ pub(in crate::runtime::eval) enum FullValueTag {
     Map,
     Tag,
     ResultOk,
+    Set,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -5539,7 +5540,8 @@ fn prepared_constant_is_data(value: &LoweredValue, depth: usize) -> bool {
         | LoweredValue::Str(_)
         | LoweredValue::Bytes(_)
         | LoweredValue::Path(_)
-        | LoweredValue::Regex(_) => true,
+        | LoweredValue::Regex(_)
+        | LoweredValue::Set(_) => true,
         LoweredValue::List(values) => values
             .iter()
             .all(|value| prepared_constant_is_data(value, depth + 1)),
@@ -5986,6 +5988,24 @@ impl FullCodec for crate::map_key::MapKey {
 }
 impl_btree_codec!(Arc<str>, LoweredValue);
 
+/// The elements of a constant set. Each is a scalar key, and a set holds an
+/// element once, so a payload that repeats one does not describe a set.
+fn decode_set_payload(
+    decoder: &FullDecoder<'_>,
+    payload: &mut FullCursor<'_>,
+) -> Result<BTreeSet<crate::map_key::MapKey>, IrVerifyError> {
+    let len = payload.raw()? as usize;
+    let mut elements = BTreeSet::new();
+    for _ in 0..len {
+        if !elements.insert(crate::map_key::MapKey::decode(decoder, payload)?) {
+            return Err(IrVerifyError::new(
+                "set payload contains a duplicate element",
+            ));
+        }
+    }
+    Ok(elements)
+}
+
 impl FullCodec for LoweredValue {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
@@ -6072,9 +6092,16 @@ impl FullCodec for LoweredValue {
                 value.encode(builder, &mut payload)?;
                 FullValueTag::Map
             }
-            // No constant is a set, so no instruction carries one.
-            Self::Set(_) => {
-                return Err(IrBuildError::format("set_literal_value", None, 0, 0));
+            // A constant set: its length, then its elements in set order.
+            Self::Set(value) => {
+                payload.push(
+                    u32::try_from(value.len())
+                        .map_err(|_| IrBuildError::format("set_overflow", None, 0, 0))?,
+                );
+                for element in value.iter() {
+                    element.encode(builder, &mut payload)?;
+                }
+                FullValueTag::Set
             }
             Self::Tag(value) => {
                 value.type_name.encode(builder, &mut payload)?;
@@ -6180,6 +6207,7 @@ impl FullCodec for LoweredValue {
             FullValueTag::ResultOk => {
                 Self::ResultOk(Box::new(LoweredValue::decode(decoder, &mut payload)?))
             }
+            FullValueTag::Set => Self::Set(Arc::new(decode_set_payload(decoder, &mut payload)?)),
         };
         payload.finish()?;
         Ok(value)
@@ -6239,6 +6267,9 @@ impl FullCodec for LoweredValue {
                 Vec::<LoweredValue>::verify(decoder, &mut payload)?;
             }
             FullValueTag::ResultOk => LoweredValue::verify(decoder, &mut payload)?,
+            FullValueTag::Set => {
+                decode_set_payload(decoder, &mut payload)?;
+            }
         }
         payload.finish()
     }
@@ -9648,6 +9679,56 @@ pure selected() -> Str {
             builder.rewind(checkpoint);
             assert!(builder.store.prepared_constants.is_empty());
         });
+    }
+
+    /// A constant set is stored as its elements, and a payload that names
+    /// one element twice is not a set.
+    #[test]
+    fn constant_set_value_round_trips_and_rejects_a_repeated_element() {
+        use crate::map_key::MapKey;
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        let elements = [MapKey::from("a"), MapKey::from("b")]
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        let mut words = Vec::new();
+        LoweredValue::Set(Arc::new(elements.clone()))
+            .encode(&mut builder, &mut words)
+            .unwrap();
+        let index = words[0] as usize;
+        assert_eq!(builder.store.values[index], FullValueTag::Set);
+        let read = |store: &FullStore, verify: bool| {
+            let decoder = FullDecoder {
+                store,
+                owner: 0,
+                instruction_range: 0..0,
+                instruction_states: None,
+                block_states: None,
+                slot_count: 0,
+                pattern_ceiling: Cell::new(usize::MAX),
+                verified: false,
+            };
+            let mut cursor = FullCursor::new(&words);
+            if verify {
+                LoweredValue::verify(&decoder, &mut cursor).map(|()| None)
+            } else {
+                LoweredValue::decode(&decoder, &mut cursor).map(Some)
+            }
+        };
+        let Ok(Some(LoweredValue::Set(decoded))) = read(&builder.store, false) else {
+            panic!("a set value");
+        };
+        assert_eq!(*decoded, elements);
+        assert!(read(&builder.store, true).is_ok());
+
+        // The payload is the length, then one value id per element.
+        let payload = builder.store.value_data[index]
+            .range()
+            .bounds(builder.store.extra.len())
+            .unwrap();
+        assert_eq!(payload.len(), 3);
+        builder.store.extra[payload.start + 2] = builder.store.extra[payload.start + 1];
+        assert!(read(&builder.store, false).is_err());
+        assert!(read(&builder.store, true).is_err());
     }
 
     #[test]

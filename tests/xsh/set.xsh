@@ -3,6 +3,18 @@
 
 type Inventory = {name: Str, tags: Set[Str]}
 
+const known_words = {"pear", "apple", "pear"}
+const first_word = "fig"
+const named_words: Set[Str] = {first_word, first_word}
+const known_paths: Set[Path] = {"b/c", "a"}
+const word_groups = {sizes: [{2, 1}], words: known_words}
+
+type Search = {among: Set[Str] = known_words, word: Str}
+
+pure is_known(word: Str, among: Set[Str] = known_words) -> Bool {
+  word in among
+}
+
 pure count(text: Str, needle: Str) -> Int {
   text.split(needle).len() - 1
 }
@@ -98,6 +110,48 @@ test test_sets_are_sources_of_loops_comprehensions_and_pipelines {
   }
 
   assert total.to_list() == [3, 5]
+}
+
+# A set literal over constants is a constant: prepared once, held in key
+# order, and usable wherever a set is, including as a default.
+test test_set_literals_over_constants_are_constants {
+  const local_sizes: Set[Int] = {3, 1, 3}
+  assert known_words.to_list() == ["apple", "pear"]
+  assert named_words == {"fig",}
+  assert p"a" in known_paths
+  assert local_sizes.to_list() == [1, 3]
+  assert word_groups.sizes[0] == {1, 2}
+  assert word_groups.words == known_words
+
+  assert is_known("pear")
+  assert ! is_known("pear", among: named_words)
+  assert Search(word: "x").among == known_words
+
+  # A constant is a value: growing a copy leaves it as it was.
+  var grown = known_words
+  grown = grown.add("kiwi")
+  assert grown.len() == 3
+  assert (known_words | named_words).len() == 3
+  assert known_words.len() == 2
+}
+
+test test_constant_sets_reject_what_is_not_constant_data { |ctx|
+  let output = test.expect(
+    ctx,
+    """const ratios = {1.5, 2.5}
+const wrong: Set[Int] = {"a", "b"}
+const none: Set[Str] = set.empty()
+const built = {"a".upper(), "b"}
+const base = {"a", "b"}
+const joined = base | {"c",}
+print \${ratios.len()} \${wrong.len()} \${none.len()} \${built.len()} \${joined.len()}
+""",
+    status: 2,
+  )?
+  assert output.stdout == ""
+  assert count(output.stderr, "err[check.set-element-type]") == 1, output.stderr
+  assert count(output.stderr, "err[check.type-mismatch]") == 2, output.stderr
+  assert count(output.stderr, "err[check.const]") == 4, output.stderr
 }
 
 test test_sets_cross_json_as_sorted_arrays {

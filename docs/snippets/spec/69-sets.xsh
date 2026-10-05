@@ -1,6 +1,8 @@
 # begin example
+const KINDS = {"file", "dir"}
+
 pure allowed(kind: Str, extra: Set[Str]) -> Bool {
-  kind in {"file", "dir"} | extra
+  kind in KINDS | extra
 }
 
 proc report(words: List[Str]) [error] {
