@@ -81,62 +81,70 @@ const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 # undocumented `---io-blksize` is taken out as well (the cli cannot declare an
 # option name that starts with a dash).
 pure modernize(argv: List[Str]) -> Rewritten {
-  var out: List[Str] = []
   var obsolete = ""
   var blksize = ""
   var pending = false
   var options = true
   var value = false
 
-  for item in argv {
-    if pending {
-      blksize = item
-      pending = false
-    } else if ! options or value {
-      out += [item]
-      value = false
-    } else if item == "--" {
-      options = false
-      out += [item]
-    } else if item == "---io-blksize" {
-      pending = true
-    } else if item.starts_with("---io-blksize=") {
-      blksize = item.byte_slice(14)
-    } else if item.starts_with("--") or ! item.starts_with("-") or item.byte_len() < 2 {
-      out += [item]
-      value = item in ["--suffix-length", "--additional-suffix", "--bytes", "--line-bytes", "--filter", "--lines", "--number", "--separator"]
-    } else {
-      var kept = "-"
-      var at = 1
-      var taken = false
+  let out: List[Str] = collect {
+    for item in argv {
+      if pending {
+        blksize = item
+        pending = false
+      } else if ! options or value {
+        yield item
+        value = false
+      } else if item == "--" {
+        options = false
+        yield item
+      } else if item == "---io-blksize" {
+        pending = true
+      } else if item.starts_with("---io-blksize=") {
+        blksize = item.byte_slice(14)
+      } else if item.starts_with("--") or ! item.starts_with("-") or item.byte_len() < 2 {
+        yield item
+        value = item in [
+          "--suffix-length",
+          "--additional-suffix",
+          "--bytes",
+          "--line-bytes",
+          "--filter",
+          "--lines",
+          "--number",
+          "--separator",
+        ]
+      } else {
+        var kept = "-"
+        var at = 1
+        var taken = false
 
-      while at < item.byte_len() {
-        let ch = item.byte_slice(at, length: 1)
+        while at < item.byte_len() {
+          let ch = item.byte_slice(at, length: 1)
 
-        if ch in DIGITS {
-          var stop = at
+          if ch in DIGITS {
+            var stop = at
 
-          while stop < item.byte_len() and item.byte_slice(stop, length: 1) in DIGITS {
-            stop += 1
+            while stop < item.byte_len() and item.byte_slice(stop, length: 1) in DIGITS {
+              stop += 1
+            }
+
+            obsolete = item.byte_slice(at, length: stop - at)
+            at = stop
+          } else if ch in ["a", "b", "C", "l", "n", "t"] {
+            kept = kept + item.byte_slice(at)
+            taken = at == item.byte_len() - 1
+            at = item.byte_len()
+          } else {
+            kept = kept + ch
+            at += 1
           }
-
-          obsolete = item.byte_slice(at, length: stop - at)
-          at = stop
-        } else if ch in ["a", "b", "C", "l", "n", "t"] {
-          kept = kept + item.byte_slice(at)
-          taken = at == item.byte_len() - 1
-          at = item.byte_len()
-        } else {
-          kept = kept + ch
-          at += 1
         }
-      }
 
-      if kept != "-" {
-        out += [kept]
-      }
+        yield kept when kept != "-"
 
-      value = taken
+        value = taken
+      }
     }
   }
 
@@ -162,9 +170,7 @@ pure digits_needed(limit: Int, radix: Int) -> Int {
   var reach = 1
 
   while reach < limit {
-    if reach > tio.MAX_COUNT / radix {
-      return width + 1
-    }
+    return width + 1 when reach > tio.MAX_COUNT / radix
 
     reach *= radix
     width += 1
@@ -184,7 +190,7 @@ pure fixed_name(value: Int, radix: Int, width: Int) -> Str {
   var rest = value
   var out = ""
 
-  for _ in range(width) {
+  repeat width times {
     out = digit_char(rest % radix, radix) + out
     rest = rest / radix
   }
@@ -211,14 +217,14 @@ pure suffix_name(index: Int, naming: Naming) -> Str {
 
   var digits = ""
 
-  for _ in range(width) {
+  repeat width times {
     digits = digit_char(remaining % naming.radix, naming.radix) + digits
     remaining = remaining / naming.radix
   }
 
   var fill = ""
 
-  for _ in range(width - 2) {
+  repeat width - 2 times {
     fill = fill + digit_char(naming.radix - 1, naming.radix)
   }
 
@@ -249,7 +255,7 @@ proc record_ends(data: Bytes, sep: Int) [error] -> Result[List[Int]] {
     }
   }
 
-  if data.len() > 0 and (ends.len() == 0 or ends[ends.len() - 1] != data.len()) {
+  if ! data.is_empty() and (ends.is_empty() or ends[-1] != data.len()) {
     ends += [data.len()]
   }
 
@@ -257,31 +263,33 @@ proc record_ends(data: Bytes, sep: Int) [error] -> Result[List[Int]] {
 }
 
 pure bytes_pieces(data: Bytes, size: Int) -> List[Bytes] {
-  var out: List[Bytes] = []
   var at = 0
   let total = data.len()
 
-  while at < total {
-    let stop = if size < total - at { at + size } else { total }
+  let out: List[Bytes] = collect {
+    while at < total {
+      let stop = if size < total - at { at + size } else { total }
 
-    out += [data[at..stop]]
-    at = stop
+      yield data[at..stop]
+      at = stop
+    }
   }
 
   out
 }
 
 pure lines_pieces(data: Bytes, ends: List[Int], per: Int) -> List[Bytes] {
-  var out: List[Bytes] = []
   var first = 0
   let count = ends.len()
 
-  while first < count {
-    let last = if per < count - first { first + per } else { count }
-    let from = if first == 0 { 0 } else { ends[first - 1] }
+  let out: List[Bytes] = collect {
+    while first < count {
+      let last = if per < count - first { first + per } else { count }
+      let from = if first == 0 { 0 } else { ends[first - 1] }
 
-    out += [data[from..ends[last - 1]]]
-    first = last
+      yield data[from..ends[last - 1]]
+      first = last
+    }
   }
 
   out
@@ -369,7 +377,7 @@ pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
       }
 
       if k == 0 and ! elide {
-        for _ in range(chunk - current - 1) {
+        repeat chunk - current - 1 times {
           out += [b""]
         }
       }
@@ -386,10 +394,10 @@ pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
   }
 
   if k == 0 and ! elide {
-    for _ in range(count - current) {
+    repeat count - current times {
       out += [b""]
     }
-  } else if k > 0 and out.len() == 0 {
+  } else if k > 0 and out.is_empty() {
     out += [b""]
   }
 
@@ -398,12 +406,12 @@ pure chunk_lines(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
 
 pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) -> List[Bytes] {
   if k > 0 {
-    var parts: List[Bytes] = []
-
-    for index in range(ends.len()) {
-      if index % count == k - 1 {
-        let from = if index == 0 { 0 } else { ends[index - 1] }
-        parts += [data[from..ends[index]]]
+    let parts: List[Bytes] = collect {
+      for index in range(ends.len()) {
+        if index % count == k - 1 {
+          let from = if index == 0 { 0 } else { ends[index - 1] }
+          yield data[from..ends[index]]
+        }
       }
     }
 
@@ -423,7 +431,7 @@ pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
   var out: List[Bytes] = [bytes.concat(parts) for parts in buckets]
 
   if ! elide {
-    for _ in range(count - width) {
+    repeat count - width times {
       out += [b""]
     }
   }
@@ -477,7 +485,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if rewritten.blksize != "" {
     let parsed = if rx"^[0-9]".matches(rewritten.blksize) { tio.parse_count(rewritten.blksize) } else { null }
 
-    if parsed == null or (parsed ?? 0) > 2147483647 or (parsed ?? 0) == 0 {
+    if parsed == null or parsed > 2147483647 or parsed == 0 {
       gnu.error(f"invalid IO block size: {gnu.quote(rewritten.blksize)}")
       exit 1
     }
@@ -502,33 +510,33 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var lines = 1000
   var size = 0
   var line_size = 0
-  var chunks: Chunks = {kind: "", k: 0, n: 0}
+  var chunks: Chunks = Chunks(kind: "", k: 0, n: 0)
 
   if line_text != "" {
     # A count past the unsigned range reads as the largest count, so one piece.
     let parsed: Int? = if rx"^[0-9]{19,}$".matches(line_text) { tio.MAX_COUNT } else { parse_u64(line_text) }
 
-    if parsed == null or (parsed ?? 0) == 0 {
+    if parsed == null or parsed == 0 {
       gnu.error(f"invalid number of lines: {if parsed == null { gnu.quote(line_text) } else { "0" }}")
       exit 1
     }
 
-    lines = parsed ?? 1000
+    lines = parsed
   }
 
   for text in [opts.bytes, opts.line_bytes] {
     if text != "" {
       let parsed = if rx"^[0-9]".matches(text) { tio.parse_count(text) } else { null }
 
-      if parsed == null or (parsed ?? 0) == 0 {
+      if parsed == null or parsed == 0 {
         gnu.error(f"invalid number of bytes: {if parsed == null { gnu.quote(text) } else { "0" }}")
         exit 1
       }
 
       if text == opts.bytes {
-        size = parsed ?? 0
+        size = parsed
       } else {
-        line_size = parsed ?? 0
+        line_size = parsed
       }
     }
   }
@@ -558,7 +566,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     let total = parse_u64(n_text)
 
-    if total == null or (total ?? 0) == 0 {
+    if total == null or total == 0 {
       gnu.error(f"invalid number of chunks: {gnu.quote(n_text)}")
       exit 1
     }
@@ -568,15 +576,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if k_text != "" {
       let picked = parse_u64(k_text)
 
-      if picked == null or (picked ?? 0) == 0 or (picked ?? 0) > (total ?? 0) {
+      if picked == null or picked == 0 or picked > total {
         gnu.error(f"invalid chunk number: {gnu.quote(k_text)}")
         exit 1
       }
 
-      which = picked ?? 0
+      which = picked
     }
 
-    chunks = {kind: kind, k: which, n: total ?? 0}
+    chunks = {kind: kind, k: which, n: total}
   }
 
   if opts.filter != null and chunks.k > 0 {
@@ -640,12 +648,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.suffix_length != "" {
     let parsed = parse_u64(opts.suffix_length)
 
-    if parsed == null or (parsed ?? 0) > 4096 {
+    if parsed == null or parsed > 4096 {
       gnu.error(f"invalid suffix length: {gnu.quote(opts.suffix_length)}")
       exit 1
     }
 
-    width = parsed ?? 2
+    width = parsed
     length_given = true
 
     if width > 0 {
@@ -674,14 +682,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     width = 2
   }
 
-  let naming: Naming = {
-    prefix: opts.files.get(1) ?? "x",
-    radix: radix,
-    width: width,
-    start: start,
-    widen: widen,
-    extra: opts.additional,
-  }
+  let naming: Naming = Naming(prefix: opts.files.get(1) ?? "x", radix:, width:, start:, widen:, extra: opts.additional)
 
   if ! widen and fixed_name(start, radix, width) == "" {
     gnu.error("numerical suffix start value is too large for the suffix length")
@@ -708,7 +709,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       input_ino = found.ino
       input_dev = found.dev
 
-      if chunks.n > 0 and found.kind != "file" and input_name != "/dev/null" and data.len() == 0 {
+      if chunks.n > 0 and found.kind != "file" and input_name != "/dev/null" and data.is_empty() {
         gnu.error(f"{gnu.quote_maybe(input_name)}: cannot determine file size")
         exit 1
       }
@@ -731,7 +732,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         for index in range(limit) {
           let piece = chunk_bytes(data, chunks.n, index + 1)
 
-          if piece.len() > 0 or ! opts.elide {
+          if ! piece.is_empty() or ! opts.elide {
             pieces += [piece]
           }
         }
@@ -743,7 +744,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     if opts.elide {
-      pieces = [piece for piece in pieces if piece.len() > 0]
+      pieces = [piece for piece in pieces if ! piece.is_empty()]
     }
   } else if size > 0 {
     pieces = bytes_pieces(data, size)
@@ -789,7 +790,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     if opts.filter != null {
-      let command = opts.filter ?? ""
+      let command = opts.filter
       let plan = process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, bytes.concat([piece]))
       let status = process.run(plan)?
 

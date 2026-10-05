@@ -1,11 +1,11 @@
 proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
   let raw = bytes.from_text(text)
-  return Ok(bytes.concat([raw, bytes.zero(width - raw.len())?]))
+  bytes.concat([raw, bytes.zero(width - raw.len())?])
 }
 
 # One 384-byte glibc `struct utmp` record in native byte order.
 proc utmp_record(kind: Int, pid: Int, line: Str, id: Str, account: Str, host: Str, sec: Int, addr: List[Int]) [error] -> Result[Bytes, Error] {
-  return Ok(bytes.concat([
+  bytes.concat([
     bytes.pack_le(kind, 2)?,
     bytes.zero(2)?,
     bytes.pack_le(pid, 4)?,
@@ -20,7 +20,7 @@ proc utmp_record(kind: Int, pid: Int, line: Str, id: Str, account: Str, host: St
     bytes.pack_le(250000, 4)?,
     bytes.from_ints(addr)?,
     bytes.zero(20)?,
-  ]))
+  ])
 }
 
 test test_read_utmp_decodes_every_field { |ctx|
@@ -34,7 +34,7 @@ test test_read_utmp_decodes_every_field { |ctx|
     utmp_record(7, 1234, "tty1", "1", "alice", "example.org", 1700000100, v4)?,
     utmp_record(8, 99, "pts/3", "ts/3", "", "", 1700000200, none)?,
     utmp_record(6, 5, "pts/4", "ts/4", "LOGIN", "[::1]", 1700000300, v6)?,
-  ]))?
+  ]))
 
   let records = unix.read_utmp(file)?
   assert records.len() == 4
@@ -75,7 +75,7 @@ test test_read_utmp_ignores_a_partial_trailing_record_and_names_failures { |ctx|
 
   let none = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
   let torn = fp"{root}/torn"
-  torn.write(bytes.concat([utmp_record(7, 1, "tty1", "1", "bob", "", 1, none)?, bytes.from_text("tail")]))?
+  torn.write(bytes.concat([utmp_record(7, 1, "tty1", "1", "bob", "", 1, none)?, bytes.from_text("tail")]))
   assert unix.read_utmp(torn)?.len() == 1
 
   let missing = unix.read_utmp(fp"{root}/missing")

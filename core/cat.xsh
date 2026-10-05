@@ -102,15 +102,16 @@ pure make_style(opts: CatOptions) -> Style {
 pure convert(content: Bytes, style: Style) -> Bytes {
   return content when ! style.convert
 
-  var pieces: List[Bytes] = []
   var start = 0
 
-  for index in range(content.len()) {
-    let value = content.byte_at(index) ?? 0
+  let pieces: List[Bytes] = collect {
+    for index in range(content.len()) {
+      let value = content.byte_at(index) ?? 0
 
-    if style.special[value] {
-      pieces += [content[start..index], style.table[value]]
-      start = index + 1
+      if style.special[value] {
+        yield @[content[start..index], style.table[value]]
+        start = index + 1
+      }
     }
   }
 
@@ -123,47 +124,44 @@ pure convert(content: Bytes, style: Style) -> Bytes {
 # `pending` unless `final`). `lines()` drops a trailing CR, so the terminator
 # is recovered from the bytes after each line.
 pure render(data: Bytes, final: Bool, style: Style, state: State) -> Rendered {
-  var pieces: List[Bytes] = []
   var position = 0
   var line = state.line
   var blank = state.blank
   var pending = b""
 
-  for item in data.lines() {
-    let end = position + item.len()
-    let after = data.byte_at(end) ?? -1
-    let crlf = after == 13 and (data.byte_at(end + 1) ?? -1) == 10
-    let newline = after == 10 or crlf
-    let lone_cr = if after == 13 and ! crlf { 1 } else { 0 }
+  let pieces: List[Bytes] = collect {
+    for item in data.lines() {
+      let end = position + item.len()
+      let after = data.byte_at(end) ?? -1
+      let crlf = after == 13 and (data.byte_at(end + 1) ?? -1) == 10
+      let newline = after == 10 or crlf
+      let lone_cr = if after == 13 and ! crlf { 1 } else { 0 }
 
-    if ! newline and ! final {
-      pending = data[position..]
-      break
+      if ! newline and ! final {
+        pending = data[position..]
+        break
+      }
+
+      let empty = after == 10 and item.is_empty()
+      let numbered = if style.nonblank { ! empty } else { style.number }
+
+      if ! (style.squeeze and empty and blank) {
+        if numbered {
+          yield bytes.from_text(f"{line:>6}\t")
+          line += 1
+        }
+
+        yield convert(data[position..end + lone_cr], style)
+
+        yield style.cr when crlf
+
+        yield if style.ends { b"$\n" } else { b"\n" } when newline
+      }
+
+      let width = if crlf { 2 } else if after == 10 or lone_cr == 1 { 1 } else { 0 }
+      blank = empty
+      position = end + width
     }
-
-    let empty = after == 10 and item.len() == 0
-    let numbered = if style.nonblank { ! empty } else { style.number }
-
-    if ! (style.squeeze and empty and blank) {
-      if numbered {
-        pieces += [bytes.from_text(f"{line:>6}\t")]
-        line += 1
-      }
-
-      pieces += [convert(data[position..end + lone_cr], style)]
-
-      if crlf {
-        pieces += [style.cr]
-      }
-
-      if newline {
-        pieces += [if style.ends { b"$\n" } else { b"\n" }]
-      }
-    }
-
-    let width = if crlf { 2 } else if after == 10 or lone_cr == 1 { 1 } else { 0 }
-    blank = empty
-    position = end + width
   }
 
   {out: bytes.concat(pieces), state: {pending: pending, line: line, blank: blank}}
@@ -202,7 +200,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let style = make_style(opts)
   let plain = ! (style.number or style.nonblank or style.squeeze or style.ends or style.convert)
-  let operands = if opts.files.len() == 0 { ["-"] } else { opts.files }
+  let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
   let out = tio.standard_file(1)
   var state = {pending: b"", line: 1, blank: false}
   var written = 0
@@ -215,7 +213,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       continue
     }
 
-    if tio.is_unsafe_overwrite(source, out, written)? {
+    if tio.is_unsafe_overwrite(source, out, written) {
       gnu.error(f"{gnu.quote_maybe(name)}: input file is output file")
       failed = true
       continue
@@ -230,7 +228,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         break
       }
 
-      break when chunk.len() == 0
+      break when chunk.is_empty()
 
       offset += chunk.len()
 

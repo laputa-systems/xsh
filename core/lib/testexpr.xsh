@@ -129,7 +129,7 @@ proc syntax_error(message: Str) [process, env] -> Unit {
 
 # `missing argument after LAST-WORD`, the error for running out of words.
 proc beyond(argv: List[Str]) [process, env] -> Unit {
-  syntax_error(f"missing argument after {gnu.quote_value(argv[argv.len() - 1])}")
+  syntax_error(f"missing argument after {gnu.quote_value(argv[-1])}")
 }
 
 pure blank(text: Str) -> Bool {
@@ -554,14 +554,14 @@ export proc evaluate(argv: List[Str]) [fs, process, env, error, io] -> Unit {
       return
     }
 
-    if argv.len() == 0 or argv[argv.len() - 1] != "]" {
+    if argv.is_empty() or argv[-1] != "]" {
       syntax_error("missing ']'")
     }
 
     words = argv[0..argv.len() - 1]
   }
 
-  if words.len() == 0 {
+  if words.is_empty() {
     exit 1
   }
 

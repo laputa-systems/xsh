@@ -95,7 +95,7 @@ proc probe(
   script.write(probe_source())
   let entry = fp"{root}/{invoked}"
   if invoked != "real.xsh" {
-    fs.symlink(p"real.xsh", entry)
+    entry.symlink(to: p"real.xsh")
   }
 
   let out = fp"{root}/stdout"
@@ -239,8 +239,7 @@ test test_gnu_permission_denied_reads_as_strerror { |ctx|
 
   let root = test.temp_dir(ctx, name: "gnu-denied")?.resolve()?
   let secret = fp"{root}/secret"
-  secret.write("x")
-  secret.chmod(0o000)
+  secret.write("x", mode: 0o000)
   let result = probe(ctx, ["strerror", secret.display()])?
   assert result.stdout == "13|Permission denied\n"
 }

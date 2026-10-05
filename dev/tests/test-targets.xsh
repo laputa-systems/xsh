@@ -187,7 +187,7 @@ test test_applet_manifest_without_alias_table_has_no_aliases { |ctx|
   fp"{root}/core/cat.xsh".write("print \"cat\"\n")
   let release_ctx = fixtures.linux_context(root, "dev")?
   let manifest = json.decode(releases.applet_manifest(release_ctx)?)?.require(ManifestShape)?
-  assert manifest.aliases.len() == 0
+  assert manifest.aliases.is_empty()
   assert (manifest.applets |> map .name) == ["cat"]
 }
 

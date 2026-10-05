@@ -349,9 +349,9 @@ proc main(...argv: List[Str]) [io, error] {
   let _ = cli.applet(argv, {gnu: {}, verbose: {form: "-v", default: false}})?
 }
 """)
-  fs.symlink(fp"{root}/real.xsh", fp"{root}/dir")
+  fp"{root}/dir".symlink(to: fp"{root}/real.xsh")
   let link = fp"{root}/dir"
-  let output = run.capture --text --accept=[1] "xsh" $link "-z" ?
+  let output = run.capture --text --accept=[1] "xsh" $link "-z"
   assert output.status.exited_with(1)
   assert output.stderr == """dir: invalid option -- 'z'
 Try 'dir --help' for more information.

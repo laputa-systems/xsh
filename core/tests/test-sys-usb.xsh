@@ -71,7 +71,7 @@ test test_sys_usb_alternates_keep_configuration_and_endpoint_ownership {
 
 test test_sys_usb_collect_links_hub_children_controller_and_interfaces {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/bus/usb/devices", parents: true)
   let controller = "pci0000:00/0000:00:14.0"
   add_device(root, "usb1", f"{controller}/usb1", "1d6b", "0002", 1)
@@ -113,7 +113,7 @@ test test_sys_usb_collect_links_hub_children_controller_and_interfaces {
 
 test test_sys_usb_collect_keeps_a_device_with_invalid_identity_and_reports_it {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/bus/usb/devices", parents: true)
   add_device(root, "1-1", "pci0000:00/0000:00:14.0/usb1/1-1", "zz", "0610", 2)
   add_device(root, "1-2", "pci0000:00/0000:00:14.0/usb1/1-2", "046d", "c52b", 3)
@@ -131,12 +131,12 @@ test test_sys_usb_collect_keeps_a_device_with_invalid_identity_and_reports_it {
 
 test test_sys_usb_collect_reports_an_absent_bus_as_absent {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   let inventory = usb.collect(root)
   assert inventory.listing_state == "absent"
   assert ! inventory.enumeration_succeeded
   assert inventory.devices == []
-  assert inventory.issues[0].state == report.Absent
+  assert inventory.issues[0].state == .Absent
 }
 
 test test_sys_usb_parent_names_and_indexes_follow_sysfs_naming {
@@ -154,16 +154,16 @@ test test_sys_usb_parent_names_and_indexes_follow_sysfs_naming {
 
 test test_sys_usb_controller_address_distinguishes_links_directories_and_absence {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/devices/pci0000:00/0000:00:14.0/usb1", parents: true)
   root.mkdir(p"sys/bus/usb/devices", parents: true)
   root.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")
   root.mkdir(p"sys/bus/usb/devices/plain")
 
   let linked = usb.controller_address(root, p"sys/bus/usb/devices/usb1")
-  assert linked.address == "0000:00:14.0" and linked.state == report.Observed
+  assert linked.address == "0000:00:14.0" and linked.state == .Observed
   let directory = usb.controller_address(root, p"sys/bus/usb/devices/plain")
-  assert directory.address == null and directory.state == report.Observed
+  assert directory.address == null and directory.state == .Observed
   let missing = usb.controller_address(root, p"sys/bus/usb/devices/gone")
-  assert missing.address == null and missing.state == report.Disappeared
+  assert missing.address == null and missing.state == .Disappeared
 }

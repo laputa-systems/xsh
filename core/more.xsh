@@ -94,20 +94,21 @@ proc window() [process, env] -> Geometry {
 # Underline (`_` backspace char) and bold (`char` backspace `char`) overstrikes
 # reduced to the plain character, for -u.
 pure strip_overstrike(line: Bytes) -> Bytes {
-  var out: List[Int] = []
   let total = line.len()
   var at = 0
 
-  while at < total {
-    let byte = line.byte_at(at) ?? 0
-    let next = line.byte_at(at + 1)
-    let after = line.byte_at(at + 2)
+  let out: List[Int] = collect {
+    while at < total {
+      let byte = line.byte_at(at) ?? 0
+      let next = line.byte_at(at + 1)
+      let after = line.byte_at(at + 2)
 
-    if next == 8 and after != null and (byte == 95 or byte == after) {
-      at += 2
-    } else {
-      out += [byte]
-      at += 1
+      if next == 8 and after != null and (byte == 95 or byte == after) {
+        at += 2
+      } else {
+        yield byte
+        at += 1
+      }
     }
   }
 
@@ -137,7 +138,7 @@ pure line_rows(line: Bytes, cols: Int, logical: Bool) -> Int {
 }
 
 pure is_blank(line: Bytes) -> Bool {
-  line.trim().len() == 0
+  line.trim().is_empty()
 }
 
 # The index of the first line at or after `from` containing `needle`, or -1.
@@ -158,24 +159,25 @@ pure find_line(lines: List[Bytes], from: Int, needle: Str) -> Int {
 type Screen = {text: Bytes, next: Int}
 
 pure build_screen(opts: MoreOptions, lines: List[Bytes], top: Int, capacity: Int, cols: Int) -> Screen {
-  var chunks: List[Bytes] = []
   var used = 0
   var index = top
   let end = if opts.clean_print { b"\x1b[K\n" } else { b"\n" }
 
-  while index < lines.len() and used < capacity {
-    let line = lines[index]
-    index += 1
+  let chunks: List[Bytes] = collect {
+    while index < lines.len() and used < capacity {
+      let line = lines[index]
+      index += 1
 
-    if opts.squeeze and index > 1 and is_blank(line) and is_blank(lines[index - 2]) {
-      continue
+      if opts.squeeze and index > 1 and is_blank(line) and is_blank(lines[index - 2]) {
+        continue
+      }
+
+      let shown = if opts.plain { strip_overstrike(line) } else { line }
+      yield @[shown, end]
+      used += line_rows(line, cols, opts.logical)
+
+      break when ! opts.no_pause and line_text(line).find("\u{c}") != null
     }
-
-    let shown = if opts.plain { strip_overstrike(line) } else { line }
-    chunks += [shown, end]
-    used += line_rows(line, cols, opts.logical)
-
-    break when ! opts.no_pause and line_text(line).find("\u{c}") != null
   }
 
   {text: bytes.concat(chunks), next: index}
@@ -219,9 +221,10 @@ proc flush_output() [process, env, io] {
 
 # Commands come a line at a time; end of input quits.
 proc wait_for_line() [io] -> Str? {
-  match io.stdin_line() {
-    Ok(text) => text
-    Err(_) => null
+  if let Ok(text) = io.stdin_line() {
+    text
+  } else {
+    null
   }
 }
 
@@ -233,7 +236,7 @@ proc page(opts: MoreOptions, source: Source, next_name: Str?, geometry: Geometry
   var top = if from_line > 0 { from_line - 1 } else { 0 }
   var pattern = opts.pattern ?? ""
 
-  if top >= source.lines.len() and source.lines.len() > 0 {
+  if top >= source.lines.len() and ! source.lines.is_empty() {
     show_notice(f"Cannot seek to line number {top + 1}")
     top = 0
   }
@@ -371,7 +374,7 @@ proc load(name: Str) [fs, process, env, error, io] -> Source? {
     return {label: ":", lines: data.lines(), size: data.len()}
   }
 
-  let file = Path(name)
+  let file = fp"{name}"
 
   match fs.stat(file) {
     Ok(info) => {
@@ -435,10 +438,10 @@ proc main(...argv: List[Str]) [process, env, error, io, fs] {
   let _ = count_option(opts.number, "--number")
   let _ = count_option(opts.from_line, "--from-line")
 
-  let names = if opts.files.len() == 0 { ["-"] } else { opts.files }
+  let names = if opts.files.is_empty() { ["-"] } else { opts.files }
   let stdin_terminal = unix.isatty(0)
 
-  if opts.files.len() == 0 and stdin_terminal {
+  if opts.files.is_empty() and stdin_terminal {
     gnu.usage_error("bad usage")
   }
 

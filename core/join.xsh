@@ -101,8 +101,8 @@ pure split_fields(line: Bytes, layout: Layout) -> List[Bytes] {
     if layout.mode == "blank" {
       let words = [bytes.from_text(hit.text) for hit in rx"[^ \t\n]+".find(text)]
 
-      return [] when words.len() == 0
-      return words + [b""] when text.ends_with(" ") or text.ends_with("\t") or text.ends_with("\n")
+      return [] when words.is_empty()
+      return [@words, b""] when text.ends_with(" ") or text.ends_with("\t") or text.ends_with("\n")
 
       return words
     }
@@ -195,25 +195,24 @@ pure split_records(data: Bytes, sep: Int) -> List[Bytes] {
   if let Ok(text) = data.utf8() {
     var parts = text.split(if sep == 0 { "\0" } else { "\n" })
 
-    if parts.len() > 0 and parts[parts.len() - 1] == "" {
+    if ! parts.is_empty() and parts[-1] == "" {
       parts = parts[..parts.len() - 1]
     }
 
     return [bytes.from_text(part) for part in parts]
   }
 
-  var records: List[Bytes] = []
   var start = 0
 
-  for index in range(data.len()) {
-    if data.byte_at(index) == sep {
-      records += [data[start..index]]
-      start = index + 1
+  let records: List[Bytes] = collect {
+    for index in range(data.len()) {
+      if data.byte_at(index) == sep {
+        yield data[start..index]
+        start = index + 1
+      }
     }
-  }
 
-  if start < data.len() {
-    records += [data[start..]]
+    yield data[start..] when start < data.len()
   }
 
   records
@@ -223,9 +222,7 @@ pure field_value(fields: List[Bytes], index: Int, filler: Bytes) -> Bytes {
   if index < fields.len() {
     let found = fields[index]
 
-    if found.len() > 0 {
-      return found
-    }
+    return found unless found.is_empty()
   }
 
   filler
@@ -234,30 +231,34 @@ pure field_value(fields: List[Bytes], index: Int, filler: Bytes) -> Bytes {
 # The output line for a pair of lines; `blank` marks the side that is absent
 # (an unpairable line from the other file).
 pure join_line(left: List[Bytes], right: List[Bytes], blank1: Bool, layout: Layout) -> List[Bytes] {
-  var parts: List[Bytes] = []
-
-  if layout.specs.len() > 0 {
-    for item in layout.specs {
-      if item.file == 0 {
-        parts += [if blank1 { field_value(right, layout.keys[1], layout.filler) } else { field_value(left, layout.keys[0], layout.filler) }]
-      } else if item.file == 1 {
-        parts += [field_value(left, item.field, layout.filler)]
+  let parts: List[Bytes] = collect {
+    if ! layout.specs.is_empty() {
+      for item in layout.specs {
+        if item.file == 0 {
+          yield if blank1 {
+            field_value(right, layout.keys[1], layout.filler)
+          } else {
+            field_value(left, layout.keys[0], layout.filler)
+          }
+        } else if item.file == 1 {
+          yield field_value(left, item.field, layout.filler)
+        } else {
+          yield field_value(right, item.field, layout.filler)
+        }
+      }
+    } else {
+      yield if blank1 {
+        field_value(right, layout.keys[1], layout.filler)
       } else {
-        parts += [field_value(right, item.field, layout.filler)]
+        field_value(left, layout.keys[0], layout.filler)
       }
-    }
-  } else {
-    parts += [if blank1 { field_value(right, layout.keys[1], layout.filler) } else { field_value(left, layout.keys[0], layout.filler) }]
 
-    for index in range(left.len()) {
-      if index != layout.keys[0] {
-        parts += [field_value(left, index, layout.filler)]
+      for index in range(left.len()) {
+        yield field_value(left, index, layout.filler) when index != layout.keys[0]
       }
-    }
 
-    for index in range(right.len()) {
-      if index != layout.keys[1] {
-        parts += [field_value(right, index, layout.filler)]
+      for index in range(right.len()) {
+        yield field_value(right, index, layout.filler) when index != layout.keys[1]
       }
     }
   }
@@ -282,14 +283,12 @@ proc disorder(flags: Flags, side: Int, text: Bytes, name: Str, number: Int, chec
 }
 
 proc emit(parts: List[Bytes], layout: Layout, eol: Bytes) [process, env, io] -> Unit {
-  var pieces: List[Bytes] = []
+  let pieces: List[Bytes] = collect {
+    for index in range(parts.len()) {
+      yield layout.out_sep when index > 0
 
-  for index in range(parts.len()) {
-    if index > 0 {
-      pieces += [layout.out_sep]
+      yield parts[index]
     }
-
-    pieces += [parts[index]]
   }
 
   gnu.write_bytes(bytes.concat([@pieces, eol]))
@@ -303,9 +302,7 @@ proc field_number(text: Str) [process, env] -> Int {
     exit 1
   }
 
-  if text.byte_len() > 18 {
-    return tio.MAX_COUNT - 1
-  }
+  return tio.MAX_COUNT - 1 when text.byte_len() > 18
 
   (text.parse_int() ?? 1) - 1
 }
@@ -325,45 +322,43 @@ proc file_number(text: Str) [process, env] -> Int {
 }
 
 proc parse_format(items: List[Str]) [process, env] -> List[Spec] {
-  var specs: List[Spec] = []
+  let specs: List[Spec] = collect {
+    for item in items {
+      let words = item.replace(",", with: " ").replace("\t", with: " ").split(" ")
+      var seen = false
 
-  for item in items {
-    let words = item.replace(",", with: " ").replace("\t", with: " ").split(" ")
-    var seen = false
+      for word in words {
+        continue when word == "" and words.len() > 1
 
-    for word in words {
-      if word == "" and words.len() > 1 {
-        continue
+        seen = true
+
+        if word == "0" {
+          yield {file: 0, field: 0}
+          continue
+        }
+
+        if word.starts_with("0") {
+          gnu.error(f"invalid field specifier: {gnu.quote(word)}")
+          exit 1
+        }
+
+        if word == "" or ! (word.starts_with("1") or word.starts_with("2")) {
+          gnu.error(f"invalid file number in field spec: {gnu.quote(word)}")
+          exit 1
+        }
+
+        if word.byte_len() < 2 or word.byte_slice(1, length: 1) != "." {
+          gnu.error(f"invalid field specifier: {gnu.quote(word)}")
+          exit 1
+        }
+
+        yield {file: if word.starts_with("1") { 1 } else { 2 }, field: field_number(word.byte_slice(2))}
       }
 
-      seen = true
-
-      if word == "0" {
-        specs += [{file: 0, field: 0}]
-        continue
-      }
-
-      if word.starts_with("0") {
-        gnu.error(f"invalid field specifier: {gnu.quote(word)}")
+      if ! seen {
+        gnu.error("invalid file number in field spec: ''")
         exit 1
       }
-
-      if word == "" or ! (word.starts_with("1") or word.starts_with("2")) {
-        gnu.error(f"invalid file number in field spec: {gnu.quote(word)}")
-        exit 1
-      }
-
-      if word.byte_len() < 2 or word.byte_slice(1, length: 1) != "." {
-        gnu.error(f"invalid field specifier: {gnu.quote(word)}")
-        exit 1
-      }
-
-      specs += [{file: if word.starts_with("1") { 1 } else { 2 }, field: field_number(word.byte_slice(2))}]
-    }
-
-    if ! seen {
-      gnu.error("invalid file number in field spec: ''")
-      exit 1
     }
   }
 
@@ -372,15 +367,16 @@ proc parse_format(items: List[Str]) [process, env] -> List[Spec] {
 
 # `-j1 FIELD` and `-j2 FIELD` are the old spellings of `-1 FIELD` and `-2 FIELD`.
 pure modernize(argv: List[Str]) -> List[Str] {
-  var out: List[Str] = []
   var options = true
 
-  for item in argv {
-    if item == "--" {
-      options = false
-    }
+  let out: List[Str] = collect {
+    for item in argv {
+      if item == "--" {
+        options = false
+      }
 
-    out += [if options and item == "-j1" { "-1" } else if options and item == "-j2" { "-2" } else { item }]
+      yield if options and item == "-j1" { "-1" } else if options and item == "-j2" { "-2" } else { item }
+    }
   }
 
   out
@@ -420,7 +416,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  if opts.files.len() == 0 {
+  if opts.files.is_empty() {
     gnu.missing_operand()
   }
 
@@ -480,12 +476,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  let pairable = opts.only.len() == 0
+  let pairable = opts.only.is_empty()
   var mode = "blank"
   var sep = b""
 
   if opts.tab != null {
-    let tab = opts.tab ?? ""
+    let tab = opts.tab
 
     if tab == "" {
       mode = "line"
@@ -501,17 +497,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  var autoformat = opts.format.len() > 0
-  var items: List[Str] = []
-
-  for text in opts.format {
-    if text != "auto" {
-      autoformat = false
-      items += [text]
+  var autoformat = ! opts.format.is_empty()
+  let items: List[Str] = collect {
+    for text in opts.format {
+      if text != "auto" {
+        autoformat = false
+        yield text
+      }
     }
   }
 
-  if items.len() > 0 {
+  if ! items.is_empty() {
     autoformat = false
   }
 
@@ -520,28 +516,27 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 1
   }
 
-  let layout: Layout = {
-    mode: mode,
-    sep: sep,
-    out_sep: if mode == "sep" { sep } else if mode == "line" { b"\n" } else { b" " },
-    specs: parse_format(items),
-    filler: bytes.from_text(opts.empty),
-    keys: [if key1 < 0 { 0 } else { key1 }, if key2 < 0 { 0 } else { key2 }],
-  }
+  let layout: Layout = Layout(mode:, sep:, out_sep: if mode == "sep" { sep } else if mode == "line" { b"\n" } else { b" " }, specs: parse_format(items), filler: bytes.from_text(opts.empty), keys: [if key1 < 0 { 0 } else { key1 }, if key2 < 0 { 0 } else { key2 }])
 
   let eol_value = if opts.zero { 0 } else { 10 }
   let eol = bytes.from_ints([eol_value])?
-  var inputs: List[Input] = []
+  let inputs: List[Input] = collect {
+    for side in [0, 1] {
+      let name = opts.files[side]
+      let texts = split_records(read_input(name), eol_value)
+      let fields = [split_fields(text, layout) for text in texts]
+      let keys = [
+        field_value(row, layout.keys[side], b"")
+        for row in fields
+      ]
 
-  for side in [0, 1] {
-    let name = opts.files[side]
-    let texts = split_records(read_input(name), eol_value)
-    let fields = [split_fields(text, layout) for text in texts]
-    let keys = [
-      field_value(row, layout.keys[side], b"") for row in fields
-    ]
-
-    inputs += [{name: name, texts: texts, fields: fields, keys: if opts.ignore_case { [fold(key) for key in keys] } else { keys }}]
+      yield {
+        name: name,
+        texts: texts,
+        fields: fields,
+        keys: if opts.ignore_case { [fold(key) for key in keys] } else { keys },
+      }
+    }
   }
 
   var layout_out = layout
@@ -550,7 +545,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var specs: List[Spec] = [{file: 0, field: 0}]
 
     for side in [0, 1] {
-      if inputs[side].fields.len() > 0 {
+      if ! inputs[side].fields.is_empty() {
         for index in range(inputs[side].fields[0].len()) {
           if index != layout.keys[side] {
             specs += [{file: side + 1, field: index}]
@@ -568,7 +563,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let ts = [inputs[0].texts, inputs[1].texts]
   let rows = [inputs[0].fields, inputs[1].fields]
   let names = [inputs[0].name, inputs[1].name]
-  var flags: Flags = {warned: [false, false], unpairable: false}
+  var flags: Flags = Flags([false, false], false)
   var next: List[Int] = [0, 0]
   var head: List[Int] = [-1, -1]
   var start: List[Int] = [0, 0]

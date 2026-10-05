@@ -121,7 +121,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var ok = true
   var targets: List[Str?] = [null]
 
-  if opts.users.len() > 0 {
+  if ! opts.users.is_empty() {
     targets = [spec for spec in opts.users]
   }
 
@@ -175,12 +175,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         line += if egroup == null { "" } else { f"({egroup})" }
       }
 
-      var listed: List[Str] = []
+      let listed: List[Str] = collect {
+        for gid in [who.egid, @who.groups] {
+          let label = idtools.group_name(gid)
 
-      for gid in [who.egid, @who.groups] {
-        let label = idtools.group_name(gid)
-
-        listed += [if label == null { f"{gid}" } else { f"{gid}({label})" }]
+          yield if label == null { f"{gid}" } else { f"{gid}({label})" }
+        }
       }
 
       gnu.write_text(f"{line} groups={listed.join(",")}")

@@ -162,7 +162,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     let read_only = src.read_source_text(root, fp"{device_path}/ro", max_bytes: 4096)
     let model = src.read_source_text(root, fp"{device_path}/device/model", max_bytes: 4096)
     let firmware = src.read_source_text(root, fp"{device_path}/device/firmware_rev", max_bytes: 4096)
-    let fallback_firmware = if firmware.observation.state == report.Absent {
+    let fallback_firmware = if firmware.observation.state == .Absent {
       src.read_source_text(root, fp"{device_path}/device/rev", max_bytes: 4096)
     } else {
       firmware
@@ -178,7 +178,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
       },
     ] {
       let observed = field_source.source
-      if observed.observation.state != report.Observed and observed.observation.state != report.Absent {
+      if observed.observation.state != .Observed and observed.observation.state != .Absent {
         issues += [
           src.issue(
             f"devices.{name}.{field_source.field}",
@@ -193,13 +193,13 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     let scheduler = src.read_source_text(root, fp"{device_path}/queue/scheduler", max_bytes: 4096)
     var active_scheduler: Str? = null
     var available_schedulers: List[Str] = []
-    if scheduler.observation.state != report.Observed and scheduler.observation.state != report.Absent {
+    if scheduler.observation.state != .Observed and scheduler.observation.state != .Absent {
       issues += [
         src.issue(f"devices.{name}.scheduler", scheduler.observation.state, scheduler.error_kind, scheduler.errno),
       ]
     }
 
-    if scheduler.observation.state == report.Observed {
+    if scheduler.observation.state == .Observed {
       let parsed_scheduler = parse_scheduler(src.observed_text(scheduler) ?? "")
       if parsed_scheduler == null {
         issues += [src.issue(f"devices.{name}.scheduler", report.Malformed, "invalid_scheduler_selection", null)]
@@ -272,13 +272,13 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
     }
 
     let stats = src.read_source_text(root, fp"{device_path}/stat", max_bytes: 4096)
-    if stats.observation.state != report.Observed and stats.observation.state != report.Absent {
+    if stats.observation.state != .Observed and stats.observation.state != .Absent {
       issues += [src.issue(f"devices.{name}.stat", stats.observation.state, stats.error_kind, stats.errno)]
     }
 
     let stats_values = src.observed_text(stats) |> src.parse_words(_)
     let stat_field_count_valid = stats_values.len() in [11, 15, 17] or stats_values.len() > 17
-    if stats.observation.state == report.Observed and ! stat_field_count_valid {
+    if stats.observation.state == .Observed and ! stat_field_count_valid {
       issues += [src.issue(f"devices.{name}.stat", report.Malformed, "invalid_io_counter_count", null)]
     }
 
@@ -342,7 +342,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
 
     let size_number = src.bounded_number(size, true)
     let sectors = size_number.value ?? -1
-    if size.observation.state == report.Absent {
+    if size.observation.state == .Absent {
       issues += [src.issue(f"devices.{name}.size", report.Absent, size.error_kind, size.errno)]
     } else if size_number.state != null {
       issues += [
@@ -368,7 +368,7 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
 
     let target_source = src.class_entry_target(root, device_path)
     let target_path = target_source.target
-    if target_source.state != report.Observed {
+    if target_source.state != .Observed {
       issues += [
         src.issue(f"devices.{name}.sysfs_target", target_source.state, target_source.error_kind, target_source.errno),
       ]
@@ -414,14 +414,16 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
       ]
     }
 
-    var holders: List[Str] = []
-    var slaves: List[Str] = []
-    for holder in holders_listing.children {
-      holders += [holder.name()]
+    let holders: List[Str] = collect {
+      for holder in holders_listing.children {
+        yield holder.name()
+      }
     }
 
-    for slave in slaves_listing.children {
-      slaves += [slave.name()]
+    let slaves: List[Str] = collect {
+      for slave in slaves_listing.children {
+        yield slave.name()
+      }
     }
 
     var parent_name: Str? = null
@@ -506,19 +508,17 @@ export proc collect(root: FsRoot) [fs, error] -> BlockInventory {
 
   var linked_devices: List[BlockDevice] = []
   for candidate in candidates {
-    var holders: List[Int] = []
-    var slaves: List[Int] = []
-    for name in candidate.holder_names {
-      let index = block_name_index(block_indices_by_name, name)
-      if index != null {
-        holders += [index]
+    let holders: List[Int] = collect {
+      for name in candidate.holder_names {
+        let index = block_name_index(block_indices_by_name, name)
+        yield index when index != null
       }
     }
 
-    for name in candidate.slave_names {
-      let index = block_name_index(block_indices_by_name, name)
-      if index != null {
-        slaves += [index]
+    let slaves: List[Int] = collect {
+      for name in candidate.slave_names {
+        let index = block_name_index(block_indices_by_name, name)
+        yield index when index != null
       }
     }
 

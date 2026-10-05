@@ -93,29 +93,30 @@ pure decode(data: Bytes) -> Decoded {
     return {clean: text, marked: text}
   }
 
-  var runs: List[Str] = []
   var start = 0
   var at = 0
   let total = data.len()
 
-  while at < total {
-    guard (data.byte_at(at) ?? 0) >= 128 else {
-      at += 1
-      continue
+  let runs: List[Str] = collect {
+    while at < total {
+      guard (data.byte_at(at) ?? 0) >= 128 else {
+        at += 1
+        continue
+      }
+
+      let width = sequence_width(data, at)
+
+      if width > 0 {
+        at += width
+      } else {
+        yield data[start..at].utf8() ?? ""
+        at += 1
+        start = at
+      }
     }
 
-    let width = sequence_width(data, at)
-
-    if width > 0 {
-      at += width
-    } else {
-      runs += [data[start..at].utf8() ?? ""]
-      at += 1
-      start = at
-    }
+    yield data[start..total].utf8() ?? ""
   }
-
-  runs += [data[start..total].utf8() ?? ""]
 
   {clean: runs.join(""), marked: runs.join("X")}
 }
@@ -211,30 +212,18 @@ pure column(value: Int, width: Int) -> Str {
 }
 
 pure line_for(counts: Counts, shown: Shown, width: Int, title: Str) -> Str {
-  var cells: List[Str] = []
+  let cells: List[Str] = collect {
+    yield column(counts.lines, width) when shown.lines
 
-  if shown.lines {
-    cells += [column(counts.lines, width)]
-  }
+    yield column(counts.words, width) when shown.words
 
-  if shown.words {
-    cells += [column(counts.words, width)]
-  }
+    yield column(counts.chars, width) when shown.chars
 
-  if shown.chars {
-    cells += [column(counts.chars, width)]
-  }
+    yield column(counts.bytes, width) when shown.bytes
 
-  if shown.bytes {
-    cells += [column(counts.bytes, width)]
-  }
+    yield column(counts.longest, width) when shown.longest
 
-  if shown.longest {
-    cells += [column(counts.longest, width)]
-  }
-
-  if title != "" {
-    cells += [title]
+    yield title when title != ""
   }
 
   cells.join(" ") + "\n"
@@ -277,7 +266,7 @@ pure total_choice(value: Str) -> Str {
 
   let matches = [name for name in names if value != "" and name.starts_with(value)]
 
-  if matches.len() == 1 { matches[0] } else if matches.len() == 0 { "" } else { "?" }
+  if matches.len() == 1 { matches[0] } else if matches.is_empty() { "" } else { "?" }
 }
 
 proc posix_mode() [env] -> Bool {
@@ -293,16 +282,16 @@ proc posix_mode() [env] -> Bool {
 proc read_file(file: Path) [fs, error] -> Result[Bytes, Error] {
   let data = file.read_bytes()?
 
-  return Ok(data) when data.len() > 0
+  return Ok(data) when ! data.is_empty()
 
   if let Ok(text) = file.read_text() {
     return Ok(bytes.from_text(text))
   }
 
-  var pieces: List[Bytes] = []
-
-  for line in file.bytes_lines()? {
-    pieces += [line, b"\n"]
+  let pieces: List[Bytes] = collect {
+    for line in file.bytes_lines()? {
+      yield @[line, b"\n"]
+    }
   }
 
   Ok(bytes.concat(pieces))
@@ -359,7 +348,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var streamed_list = false
 
   if let list = opts.files0_from {
-    if opts.files.len() > 0 {
+    guard opts.files.is_empty() else {
       gnu.error(f"extra operand {gnu.quote(opts.files[0])}")
       eprint "file operands cannot be combined with --files0-from"
       gnu.try_help()
@@ -401,7 +390,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     var names = text.split("\0")
 
-    if names.len() > 0 and names[names.len() - 1] == "" {
+    if ! names.is_empty() and names[-1] == "" {
       names = names[..names.len() - 1]
     }
 
@@ -418,7 +407,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         inputs += [{name: name, path: fp"{name}", stdin: name == "-", issue: ""}]
       }
     }
-  } else if opts.files.len() == 0 {
+  } else if opts.files.is_empty() {
     implicit = true
     inputs = [{name: "-", path: p"-", stdin: true, issue: ""}]
   } else {

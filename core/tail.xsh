@@ -65,13 +65,13 @@ const FOLLOW_MODES = ["descriptor", "name"]
 # Rewrite the obsolete first argument `[+-]N[bcl][f]` into the options it
 # stands for.
 pure modernize(argv: List[Str]) -> List[Str] {
-  guard argv.len() > 0 else {
+  guard ! argv.is_empty() else {
     return argv
   }
 
   let parts = rx"^([+-])([0-9]*)([bcl]?)(f?)$".captures(argv[0])
 
-  return argv when parts.len() == 0 or (parts[2] == "" and (parts[1] == "-" or parts[3] == ""))
+  return argv when parts.is_empty() or (parts[2] == "" and (parts[1] == "-" or parts[3] == ""))
 
   let sign = if parts[1] == "+" { "+" } else { "" }
   let digits = if parts[2] == "" { "10" } else { parts[2] }
@@ -106,7 +106,7 @@ proc match_choice(text: Str, choices: List[Str], option: Str) [process, env] -> 
 
   return found[0] when found.len() == 1
 
-  let kind = if found.len() == 0 { "invalid" } else { "ambiguous" }
+  let kind = if found.is_empty() { "invalid" } else { "ambiguous" }
   gnu.error(f"{kind} argument {gnu.quote_value(text)} for '--{option}'")
   eprint "Valid arguments are:"
 
@@ -163,7 +163,7 @@ pure data_start(data: Bytes, spec: Spec, zero: Bool) -> Int {
     return if ends.len() >= spec.value - 1 { ends[spec.value - 2] } else { size }
   }
 
-  let partial = if size > 0 and (ends.len() == 0 or ends[ends.len() - 1] != size) { 1 } else { 0 }
+  let partial = if size > 0 and (ends.is_empty() or ends[-1] != size) { 1 } else { 0 }
   let total = ends.len() + partial
 
   return 0 when total <= spec.value
@@ -214,16 +214,17 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
     return Ok({data: b"", start: file_start(source, spec, zero)?})
   }
 
-  var chunks: List[Bytes] = []
   var offset = 0
 
-  loop {
-    let chunk = tio.read_chunk(source, offset)?
-    break when chunk.len() == 0
+  let chunks: List[Bytes] = collect {
+    loop {
+      let chunk = tio.read_chunk(source, offset)?
+      break when chunk.is_empty()
 
-    chunks += [chunk]
-    offset += chunk.len()
-    break when source.mode == "device" and spec.bytes and ! spec.from_start and offset >= spec.value
+      yield chunk
+      offset += chunk.len()
+      break when source.mode == "device" and spec.bytes and ! spec.from_start and offset >= spec.value
+    }
   }
 
   let data = bytes.concat(chunks)
@@ -234,7 +235,7 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let args = modernize(tio.without_presume_pipe(argv))
 
-  if args.len() > 0 and rx"^-[0-9]".matches(args[0]) {
+  if ! args.is_empty() and rx"^-[0-9]".matches(args[0]) {
     gnu.usage_error(f"option used in invalid context -- {args[0][1..2]}")
   }
 
@@ -315,7 +316,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.error("warning: PID ignored; --pid=PID is useful only when following")
   }
 
-  let operands = if opts.files.len() == 0 { ["-"] } else { opts.files }
+  let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
 
   if follow_mode == "name" and "-" in operands {
     gnu.error("cannot follow '-' by name")
@@ -374,7 +375,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           break
         }
 
-        break when chunk.len() == 0
+        break when chunk.is_empty()
 
         gnu.write_bytes(chunk)
         offset += chunk.len()
@@ -388,9 +389,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  if following and growing.len() > 0 {
+  if following and ! growing.is_empty() {
     let running = [entry for entry in process.list()? if entry.pid == pid]
-    let alive = pid > 0 and running.len() > 0
+    let alive = pid > 0 and ! running.is_empty()
 
     if pid == 0 or alive {
       gnu.error(

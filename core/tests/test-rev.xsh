@@ -55,6 +55,6 @@ test test_rev_getopt_diagnostics_help_and_version { |ctx|
 
   let help = rev_run(ctx, root, ["-h"])?
   assert help.status == 0
-  assert "rev [options] [file ...]" in help.stdout.utf8()?
+  assert "rev [options] [file ...]" in help.stdout as Str
   assert rev_run(ctx, root, ["-V"])?.stdout.starts_with(b"rev")
 }

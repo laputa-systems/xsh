@@ -34,22 +34,23 @@ pure trim_limbs(parts: List[Int]) -> List[Int] {
 }
 
 pure big_from(text: Str) -> List[Int] {
-  var out: List[Int] = []
   var end = text.byte_len()
 
-  while end > 0 {
-    let start = if end > 9 { end - 9 } else { 0 }
-    out += [text.byte_slice(start, length: end - start).parse_int() ?? 0]
-    end = start
+  let out: List[Int] = collect {
+    while end > 0 {
+      let start = if end > 9 { end - 9 } else { 0 }
+      yield text.byte_slice(start, length: end - start).parse_int() ?? 0
+      end = start
+    }
   }
 
   trim_limbs(out)
 }
 
 pure big_text(parts: List[Int]) -> Str {
-  return "0" when parts.len() == 0
+  return "0" when parts.is_empty()
 
-  var out = f"{parts[parts.len() - 1]}"
+  var out = f"{parts[-1]}"
   var at = parts.len() - 2
 
   while at >= 0 {
@@ -78,16 +79,17 @@ pure big_cmp(a: List[Int], b: List[Int]) -> Int {
 }
 
 pure big_add(a: List[Int], b: List[Int]) -> List[Int] {
-  var out: List[Int] = []
   var carry = 0
   var at = 0
   let count = if a.len() > b.len() { a.len() } else { b.len() }
 
-  while at < count or carry > 0 {
-    let sum = (if at < a.len() { a[at] } else { 0 }) + (if at < b.len() { b[at] } else { 0 }) + carry
-    out += [sum % BASE]
-    carry = sum / BASE
-    at += 1
+  let out: List[Int] = collect {
+    while at < count or carry > 0 {
+      let sum = (if at < a.len() { a[at] } else { 0 }) + (if at < b.len() { b[at] } else { 0 }) + carry
+      yield sum % BASE
+      carry = sum / BASE
+      at += 1
+    }
   }
 
   out
@@ -95,49 +97,51 @@ pure big_add(a: List[Int], b: List[Int]) -> List[Int] {
 
 # A - B for A >= B.
 pure big_sub(a: List[Int], b: List[Int]) -> List[Int] {
-  var out: List[Int] = []
   var borrow = 0
   var at = 0
 
-  while at < a.len() {
-    var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
+  let out: List[Int] = collect {
+    while at < a.len() {
+      var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
 
-    if gap < 0 {
-      gap += BASE
-      borrow = 1
-    } else {
-      borrow = 0
+      if gap < 0 {
+        gap += BASE
+        borrow = 1
+      } else {
+        borrow = 0
+      }
+
+      yield gap
+      at += 1
     }
-
-    out += [gap]
-    at += 1
   }
 
   trim_limbs(out)
 }
 
 pure big_mul_small(a: List[Int], factor: Int) -> List[Int] {
-  return [] when factor == 0 or a.len() == 0
+  return [] when factor == 0 or a.is_empty()
 
-  var out: List[Int] = []
   var carry = 0
 
-  for part in a {
-    let product = part * factor + carry
-    out += [product % BASE]
-    carry = product / BASE
-  }
+  let out: List[Int] = collect {
+    for part in a {
+      let product = part * factor + carry
+      yield product % BASE
+      carry = product / BASE
+    }
 
-  while carry > 0 {
-    out += [carry % BASE]
-    carry = carry / BASE
+    while carry > 0 {
+      yield carry % BASE
+      carry = carry / BASE
+    }
   }
 
   out
 }
 
 pure big_mul(a: List[Int], b: List[Int]) -> List[Int] {
-  return [] when a.len() == 0 or b.len() == 0
+  return [] when a.is_empty() or b.is_empty()
 
   var out: List[Int] = [0 for slot in range(a.len() + b.len())]
 
@@ -187,7 +191,7 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   var at = a.len() - 1
 
   while at >= 0 {
-    rest = trim_limbs([a[at]] + rest)
+    rest = trim_limbs([a[at], @rest])
 
     if big_cmp(rest, b) >= 0 {
       let top = if rest.len() == width {
@@ -233,7 +237,7 @@ pure big_from_int(value: Int) -> List[Int] {
 
 # A value below 10^18.
 pure big_to_int(a: List[Int]) -> Int {
-  (if a.len() > 0 { a[0] } else { 0 }) + (if a.len() > 1 { a[1] * BASE } else { 0 })
+  (if ! a.is_empty() { a[0] } else { 0 }) + (if a.len() > 1 { a[1] * BASE } else { 0 })
 }
 
 # A mod D and A / D for a divisor below 9 * 10^9.
@@ -292,18 +296,18 @@ pure gcd_int(a: Int, b: Int) -> Int {
 }
 
 pure primes_below(limit: Int) -> List[Int] {
-  var composite: List[Bool] = [false for slot in range(limit)]
-  var found: List[Int] = []
+  var composite = [false for slot in range(limit)]
+  let found: List[Int] = collect {
+    for candidate in range(2, limit) {
+      if ! composite[candidate] {
+        yield candidate
 
-  for candidate in range(2, limit) {
-    if ! composite[candidate] {
-      found += [candidate]
+        var multiple = candidate * candidate
 
-      var multiple = candidate * candidate
-
-      while multiple < limit {
-        composite[multiple] = true
-        multiple += candidate
+        while multiple < limit {
+          composite[multiple] = true
+          multiple += candidate
+        }
       }
     }
   }
@@ -405,9 +409,7 @@ pure is_prime_int(n: Int) -> Bool {
   let wide = if n < 341550071728321 { bases } else { [2, 325, 9375, 28178, 450775, 9780504, 1795265022] }
 
   for base in wide {
-    if n % base == 0 {
-      return n == base
-    }
+    return n == base when n % base == 0
 
     var x = powmod(base % n, odd, info)
 
@@ -423,9 +425,7 @@ pure is_prime_int(n: Int) -> Bool {
         }
       }
 
-      if witness {
-        return false
-      }
+      return false when witness
     }
   }
 
@@ -498,10 +498,10 @@ pure powmod_big(base: List[Int], exponent: List[Int], m: List[Int]) -> List[Int]
   var factor = big_divmod(base, m).remainder
   var left = exponent
 
-  while left.len() > 0 {
+  while ! left.is_empty() {
     let half = big_div_small(left, 2)
 
-    if half.remainder.len() > 0 {
+    if ! half.remainder.is_empty() {
       result = mulmod_big(result, factor, m)
     }
 
@@ -519,7 +519,7 @@ pure is_prime_big(n: List[Int]) -> Bool {
   var odd = below
   var twos = 0
 
-  while odd.len() > 0 and odd[0] % 2 == 0 {
+  while ! odd.is_empty() and odd[0] % 2 == 0 {
     odd = big_div_small(odd, 2).quotient
     twos += 1
   }
@@ -536,7 +536,7 @@ pure is_prime_big(n: List[Int]) -> Bool {
   for base in bases {
     var x = powmod_big(big_divmod(big_from_int(base), n).remainder, odd, n)
 
-    if x.len() > 0 and ! big_is_one(x) and big_cmp(x, below) != 0 {
+    if ! x.is_empty() and ! big_is_one(x) and big_cmp(x, below) != 0 {
       var witness = true
 
       repeat twos - 1 times {
@@ -548,9 +548,7 @@ pure is_prime_big(n: List[Int]) -> Bool {
         }
       }
 
-      if witness {
-        return false
-      }
+      return false when witness
     }
   }
 
@@ -561,7 +559,7 @@ pure gcd_big(a: List[Int], b: List[Int]) -> List[Int] {
   var x = a
   var y = b
 
-  while y.len() > 0 {
+  while ! y.is_empty() {
     let rest = big_divmod(x, y).remainder
     x = y
     y = rest
@@ -670,9 +668,7 @@ pure squfof(n: List[Int]) -> Int {
     let target = big_mul_small(n, multiplier)
     let start = isqrt_big(target)
 
-    if big_cmp(big_mul(big_from_int(start), big_from_int(start)), target) == 0 {
-      continue
-    }
+    continue when big_cmp(big_mul(big_from_int(start), big_from_int(start)), target) == 0
 
     let limit = 6 * isqrt_int(2 * start) + 100
     var p = start
@@ -719,9 +715,7 @@ pure squfof(n: List[Int]) -> Int {
         let next_p = leap * q - p
         let next_q = previous_q + leap * (p - next_p)
 
-        if next_p == p {
-          break
-        }
+        break when next_p == p
 
         previous_q = q
         p = next_p
@@ -731,9 +725,7 @@ pure squfof(n: List[Int]) -> Int {
       let remainder = big_to_int(big_divmod(n, big_from_int(p)).remainder)
       let g = gcd_int(p, remainder)
 
-      if g != 1 and big_cmp(big_from_int(g), n) != 0 {
-        return g
-      }
+      return g when g != 1 and big_cmp(big_from_int(g), n) != 0
     }
   }
 
@@ -763,9 +755,7 @@ pure perfect_power(n: List[Int]) -> Power {
       if guess > 1 {
         let root = big_from_int(guess)
 
-        if big_cmp(big_pow(root, exponent), n) == 0 {
-          return {root: root, exponent: exponent}
-        }
+        return {root: root, exponent: exponent} when big_cmp(big_pow(root, exponent), n) == 0
       }
     }
 
@@ -806,14 +796,14 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
   for p in small {
     var division = big_div_small(rest, p)
 
-    while division.remainder.len() == 0 {
+    while division.remainder.is_empty() {
       primes += [f"{p}"]
       rest = division.quotient
       division = big_div_small(rest, p)
     }
   }
 
-  {primes: primes, rest: rest, proven: rest.len() <= 1 and big_to_int(rest) < 4194304 and rest.len() > 0 and big_to_int(rest) > 1}
+  {primes: primes, rest: rest, proven: rest.len() <= 1 and big_to_int(rest) < 4194304 and ! rest.is_empty() and big_to_int(rest) > 1}
 }
 
 # One nontrivial factor of an odd composite with no factor below 2048, as
@@ -852,7 +842,7 @@ pure find_factor(n: List[Int]) -> List[Int] {
   while c < 12 {
     let found = rho_big(n, c, 2000000)
 
-    return found when found.len() > 0
+    return found when ! found.is_empty()
 
     c += 1
   }
@@ -873,14 +863,14 @@ pure factorize(n: List[Int], small: List[Int]) -> Factors {
 
   if stripped.proven {
     primes += [big_text(stripped.rest)]
-  } else if stripped.rest.len() > 0 and ! big_is_one(stripped.rest) {
+  } else if ! stripped.rest.is_empty() and ! big_is_one(stripped.rest) {
     work = [stripped.rest]
   }
 
   var incomplete = false
 
-  while work.len() > 0 {
-    let current = work[work.len() - 1]
+  while ! work.is_empty() {
+    let current = work[-1]
 
     work = work[..work.len() - 1]
 
@@ -896,7 +886,7 @@ pure factorize(n: List[Int], small: List[Int]) -> Factors {
       } else {
         let factor = find_factor(current)
 
-        if factor.len() == 0 {
+        if factor.is_empty() {
           incomplete = true
           primes += [big_text(current)]
         } else {
@@ -924,7 +914,7 @@ pure sorted_primes(primes: List[Str]) -> List[Str] {
       at -= 1
     }
 
-    out = out[..at] + [item] + out[at..]
+    out = [@out[..at], item, @out[at..]]
   }
 
   out
@@ -1004,23 +994,22 @@ pure shown(raw: Bytes) -> Str {
 # The numbers on one input line: blanks, tabs, and NULs separate them, and a
 # NUL also discards the chunk after it, as GNU does.
 pure tokens_of(line: Bytes) -> List[Bytes] {
-  var out: List[Bytes] = []
   var display = true
   var previous = 0
   let total = line.len()
 
-  for index in range(total + 1) {
-    let byte = if index < total { line.byte_at(index) ?? 1 } else { 1 }
-    let end = index == total
-    let has_null = ! end and byte == 0
+  let out: List[Bytes] = collect {
+    for index in range(total + 1) {
+      let byte = if index < total { line.byte_at(index) ?? 1 } else { 1 }
+      let end = index == total
+      let has_null = ! end and byte == 0
 
-    if end or byte == 32 or byte == 9 or has_null {
-      if display and (previous != index or has_null) {
-        out += [line[previous..index]]
+      if end or byte == 32 or byte == 9 or has_null {
+        yield line[previous..index] when display and (previous != index or has_null)
+
+        display = ! has_null
+        previous = index + 1
       }
-
-      display = ! has_null
-      previous = index + 1
     }
   }
 
@@ -1041,9 +1030,7 @@ pure outcome_for(raw: Bytes, exponents: Bool, small: List[Int]) -> Outcome {
   let n = big_from(body)
   let canonical = big_text(n)
 
-  if n.len() == 0 or big_is_one(n) {
-    return {line: f"{canonical}:", error: ""}
-  }
+  return {line: f"{canonical}:", error: ""} when n.is_empty() or big_is_one(n)
 
   let found = factorize(n, small)
 
@@ -1079,7 +1066,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   let small = primes_below(2048)
   var tokens: List[Bytes] = []
 
-  if opts.numbers.len() > 0 {
+  if ! opts.numbers.is_empty() {
     tokens = [bytes.from_text(item.trim()) for item in opts.numbers]
   } else {
     var data = b""

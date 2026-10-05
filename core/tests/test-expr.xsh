@@ -55,7 +55,7 @@ test test_expr_precedence_and_parentheses { |ctx|
 }
 
 test test_expr_deep_and_long_expressions { |ctx|
-  let nested = ["(" for n in range(3000)].extend(["1"]).extend([")" for n in range(3000)])
+  let nested = [@["(" for n in range(3000)], "1", @[")" for n in range(3000)]]
   assert expr_out(ctx, nested)? == "1\n"
 
   let lengths = ["length" for n in range(3000)].extend(["1"])

@@ -182,6 +182,6 @@ test test_tail_getopt_diagnostics_and_help { |ctx|
   assert bad.stderr == "tail: unrecognized option '--definitely-invalid'\nTry 'tail --help' for more information.\n", bad.stderr
 
   assert tail_run(ctx, root, ["---presume-input-pipe", "-n1"], b"a\nb\n")?.stdout == b"b\n"
-  assert "Usage: tail [OPTION]... [FILE]..." in tail_run(ctx, root, ["--help"])?.stdout.utf8()?
+  assert "Usage: tail [OPTION]... [FILE]..." in tail_run(ctx, root, ["--help"])?.stdout as Str
   assert tail_run(ctx, root, ["--version"])?.stdout.starts_with(b"tail")
 }

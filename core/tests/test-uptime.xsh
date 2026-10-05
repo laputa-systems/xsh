@@ -5,12 +5,12 @@ const USER_PROCESS = 7
 
 proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
   let raw = bytes.from_text(text)
-  return Ok(bytes.concat([raw, bytes.zero(width - raw.len())?]))
+  bytes.concat([raw, bytes.zero(width - raw.len())?])
 }
 
 # One 384-byte glibc `struct utmp` record in native byte order.
 proc utmp_record(kind: Int, line: Str, account: Str, stamp: Int) [error] -> Result[Bytes, Error] {
-  return Ok(bytes.concat([
+  bytes.concat([
     bytes.pack_le(kind, 2)?,
     bytes.zero(2)?,
     bytes.zero(4)?,
@@ -22,7 +22,7 @@ proc utmp_record(kind: Int, line: Str, account: Str, stamp: Int) [error] -> Resu
     bytes.pack_le(stamp, 4)?,
     bytes.zero(4)?,
     bytes.zero(36)?,
-  ]))
+  ])
 }
 
 proc uptime_run(ctx: TestContext, args: List[Str], sink: Path? = null) [fs, process, error] -> Result[Ran] {
@@ -39,7 +39,7 @@ proc uptime_run(ctx: TestContext, args: List[Str], sink: Path? = null) [fs, proc
 proc utmp_file(ctx: TestContext, records: List[Bytes]) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "uptime-utmp")?
   let file = fp"{root}/utmp"
-  file.write(bytes.concat(records))?
+  file.write(bytes.concat(records))
   Ok(file)
 }
 
@@ -63,7 +63,7 @@ test test_uptime_with_a_boot_record_counts_days_and_users { |ctx|
   assert result.status == 0
   assert result.stderr == ""
   let parts = LINE.captures(result.stdout.trim())
-  assert parts.len() > 0, result.stdout
+  assert ! parts.is_empty(), result.stdout
   assert parts[1] == "3 days  5:07", parts[1]
   assert parts[2] == "2"
 }
@@ -81,7 +81,7 @@ test test_uptime_singular_day_and_user { |ctx|
 test test_uptime_without_boot_record_names_the_problem_and_fails { |ctx|
   let root = test.temp_dir(ctx, name: "uptime-bad")?
   let junk = fp"{root}/junk"
-  junk.write("hello")?
+  junk.write("hello")
   let result = uptime_run(ctx, [junk.display()])?
   assert result.status == 1
   assert result.stderr == "uptime: couldn't get boot time\n", result.stderr
@@ -104,7 +104,7 @@ test test_uptime_unreadable_operands_are_named_by_errno { |ctx|
 test test_uptime_fifo_operand_is_refused_without_opening_it { |ctx|
   let root = test.temp_dir(ctx, name: "uptime-fifo")?
   let fifo = fp"{root}/fifo"
-  fs.mkfifo(fifo, 0o600)?
+  fs.mkfifo(fifo, 0o600)
   let result = uptime_run(ctx, [fifo.display()])?
   assert result.status == 1
   assert result.stderr == "uptime: couldn't get boot time: Illegal seek\n", result.stderr
@@ -155,7 +155,7 @@ test test_uptime_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_uptime_reports_a_full_device { |ctx|
-  if ! p"/dev/full".exists()? {
+  if ! p"/dev/full".exists() {
     test.skip("/dev/full is not available")
   }
 

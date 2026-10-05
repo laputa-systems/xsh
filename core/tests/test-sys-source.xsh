@@ -3,30 +3,30 @@ use core.lib.system_report as report
 
 test test_sys_source_read_withholds_values_it_cannot_prove_complete {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.write(p"text", "  value \n")
   root.write(p"binary", b"\xff\xfe")
   root.write(p"long", "0123456789")
 
   let trimmed = src.read_source_text(root, p"text")
-  assert trimmed.observation.state == report.Observed and trimmed.observation.value == "value"
+  assert trimmed.observation.state == .Observed and trimmed.observation.value == "value"
   let kept = src.read_source_text(root, p"text", preserve_whitespace: true)
   assert kept.observation.value == "  value \n"
   let binary = src.read_source_text(root, p"binary")
-  assert binary.observation.state == report.Malformed and binary.observation.value == null
+  assert binary.observation.state == .Malformed and binary.observation.value == null
   assert binary.observation.raw_bytes_base64 == "//4="
   let truncated = src.read_source_text(root, p"long", max_bytes: 4)
-  assert truncated.observation.state == report.Truncated, "a prefix never becomes a value"
+  assert truncated.observation.state == .Truncated, "a prefix never becomes a value"
   assert truncated.observation.value == null
   let missing = src.read_source_text(root, p"missing")
-  assert missing.observation.state == report.Absent
+  assert missing.observation.state == .Absent
   assert src.observed_text(missing) == null
   assert src.observed_text(trimmed) == "value"
 }
 
 test test_sys_source_numbers_reject_prefixes_signs_and_json_unsafe_values {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   for item in [
     {file: "ok", value: "42"},
     {file: "negative", value: "-7"},
@@ -52,26 +52,26 @@ test test_sys_source_numbers_reject_prefixes_signs_and_json_unsafe_values {
 
 test test_sys_source_links_separate_unbound_failed_and_present_states {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"dev/real/driver_target", parents: true)
   root.symlink(p"driver_target", p"dev/real/driver")
   root.mkdir(p"class/entry", parents: true)
   root.symlink(../dev/real, p"class/entry/device")
 
   assert src.driver_name(root, p"dev/real/driver").observation.value == "driver_target"
-  assert src.driver_name(root, p"dev/real/unbound").observation.state == report.Absent
+  assert src.driver_name(root, p"dev/real/unbound").observation.state == .Absent
   let parent = src.class_parent_target(root, p"class/entry")
-  assert parent.state == report.Observed
+  assert parent.state == .Observed
   assert parent.target?.display() == "../dev/real"
   let missing = src.class_entry_target(root, p"class/none")
-  assert missing.state == report.Disappeared
+  assert missing.state == .Disappeared
   let directory = src.class_entry_target(root, p"dev/real")
-  assert directory.state == report.Observed and directory.target == null, "rooted fixtures may use directories"
+  assert directory.state == .Observed and directory.target == null, "rooted fixtures may use directories"
 }
 
 test test_sys_source_issues_carry_a_section_only_when_attached {
   let issue = src.issue("devices.sda.size", report.Malformed, "invalid_integer", null)
-  assert issue.detail.state == report.Malformed
+  assert issue.detail.state == .Malformed
   let detailed = src.issue_with_detail("mounts.1.usage", report.Malformed, "invalid_mount_target", null, "not absolute")
   assert detailed.detail.value == "not absolute"
   let tagged = src.with_section("storage", [issue, detailed])

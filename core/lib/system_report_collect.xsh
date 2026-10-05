@@ -41,30 +41,30 @@ export type SourceRead = src.SourceRead
 export type BoundedNumber = src.BoundedNumber
 
 error SystemReportSourceError {
-    InvalidPciAddress(message: Str)
-    InvalidPciId(message: Str)
-    InvalidUsbDescriptor(message: Str)
-    InvalidThpPolicy(message: Str)
-    InvalidCgroupMount(message: Str)
-    InvalidCpuFreqMembers(message: Str)
-    InvalidCacheSharing(message: Str)
-    InvalidIdleStateIndex(message: Str)
+    InvalidPciAddress
+    InvalidPciId
+    InvalidUsbDescriptor
+    InvalidThpPolicy
+    InvalidCgroupMount
+    InvalidCpuFreqMembers
+    InvalidCacheSharing
+    InvalidIdleStateIndex
 }
 
 ## Parses a canonical kernel state directory without publishing an inexact JSON integer.
 export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {
   guard name.starts_with("state") else {
-    return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle directory does not start with state"))
+    return Err(SystemReportSourceError.InvalidIdleStateIndex("CPUIdle directory does not start with state"))
   }
 
   let suffix = name.split("") |> drop(5).join("")
   if suffix == "" {
-    return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is empty"))
+    return Err(SystemReportSourceError.InvalidIdleStateIndex("CPUIdle state index is empty"))
   }
 
   for digit in suffix {
     if digit not in "0123456789" {
-      return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is not decimal"))
+      return Err(SystemReportSourceError.InvalidIdleStateIndex("CPUIdle state index is not decimal"))
     }
   }
 
@@ -73,14 +73,14 @@ export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {
     index = value
   } else {
     return Err(
-      SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is outside the supported integer range"),
+      SystemReportSourceError.InvalidIdleStateIndex("CPUIdle state index is outside the supported integer range"),
     )
   }
 
   if index > 9007199254740991 or f"state{index}" != name {
     return Err(
       SystemReportSourceError.InvalidIdleStateIndex(
-        message: "CPUIdle state index is noncanonical or outside the exact JSON range",
+        "CPUIdle state index is noncanonical or outside the exact JSON range",
       ),
     )
   }
@@ -93,7 +93,7 @@ export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int], Error] {
   if let Ok(ids) = report.parse_cpu_list(value) {
     Ok(ids)
   } else {
-    Err(SystemReportSourceError.InvalidCacheSharing(message: "cache shared CPU list is malformed"))
+    Err(SystemReportSourceError.InvalidCacheSharing("cache shared CPU list is malformed"))
   }
 }
 
@@ -101,7 +101,7 @@ export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int], Error] {
 export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
   if value == "" or value.trim() != value {
     return Err(
-      SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty or has surrounding whitespace"),
+      SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership is empty or has surrounding whitespace"),
     )
   }
 
@@ -112,7 +112,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
     for character in word {
       if character not in "0123456789" {
         return Err(
-          SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership has a non-decimal CPU identifier"),
+          SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership has a non-decimal CPU identifier"),
         )
       }
     }
@@ -122,32 +122,32 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
     if let Ok(members) = parsed {
       guard members.len() == 1 else {
         return Err(
-          SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership must use individual CPU identifiers"),
+          SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership must use individual CPU identifiers"),
         )
       }
 
       cpu_id = members[0]
     } else {
       return Err(
-        SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership has a non-decimal CPU identifier"),
+        SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership has a non-decimal CPU identifier"),
       )
     }
 
     let key = f"{cpu_id}"
     if key in seen {
-      return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership repeats a CPU identifier"))
+      return Err(SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership repeats a CPU identifier"))
     }
 
     if ids.len() >= 65536 {
-      return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership exceeds 65536 CPUs"))
+      return Err(SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership exceeds 65536 CPUs"))
     }
 
     seen = seen.add(key)
     ids += [cpu_id]
   }
 
-  if ids.len() == 0 {
-    return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty"))
+  if ids.is_empty() {
+    return Err(SystemReportSourceError.InvalidCpuFreqMembers("CPUFreq membership is empty"))
   }
 
   ids |> sort-by .
@@ -158,7 +158,7 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
   let max_bytes = 1048576
   let max_descriptors = 65536
   if data.len() > max_bytes {
-    return Err(SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor input exceeds the 1 MiB limit"))
+    return Err(SystemReportSourceError.InvalidUsbDescriptor("USB descriptor input exceeds the 1 MiB limit"))
   }
 
   var descriptors: List[UsbDescriptorRecord] = []
@@ -166,26 +166,26 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
   while offset < data.len() {
     let remaining = data.len() - offset
     if remaining < 2 {
-      return Err(SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor header is truncated"))
+      return Err(SystemReportSourceError.InvalidUsbDescriptor("USB descriptor header is truncated"))
     }
 
     let length = bytes.unpack_le(data, 1, offset)?
     let descriptor_type = bytes.unpack_le(data, 1, offset + 1)?
     if length < 2 {
       return Err(
-        SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor length is smaller than its header"),
+        SystemReportSourceError.InvalidUsbDescriptor("USB descriptor length is smaller than its header"),
       )
     }
 
     if length > remaining {
       return Err(
-        SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor extends beyond the available bytes"),
+        SystemReportSourceError.InvalidUsbDescriptor("USB descriptor extends beyond the available bytes"),
       )
     }
 
     if descriptors.len() == max_descriptors {
       return Err(
-        SystemReportSourceError.InvalidUsbDescriptor(message: "USB descriptor count exceeds the 65,536 descriptor limit"),
+        SystemReportSourceError.InvalidUsbDescriptor("USB descriptor count exceeds the 65,536 descriptor limit"),
       )
     }
 
@@ -239,14 +239,14 @@ export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
 ## Chooses the most specific visible cgroup mount whose root contains the membership path.
 export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?, Error] {
   guard group_path.starts_with("/") else {
-    return Err(SystemReportSourceError.InvalidCgroupMount(message: "cgroup membership path is not absolute"))
+    return Err(SystemReportSourceError.InvalidCgroupMount("cgroup membership path is not absolute"))
   }
 
   var selected: CgroupMount? = null
   var selected_root_length = -1
   for mount in mounts {
     if ! mount.root.starts_with("/") or ! mount.point.starts_with("/") {
-      return Err(SystemReportSourceError.InvalidCgroupMount(message: "cgroup mount root or point is not absolute"))
+      return Err(SystemReportSourceError.InvalidCgroupMount("cgroup mount root or point is not absolute"))
     }
 
     let contains_group = mount.root == "/" or group_path == mount.root or group_path.starts_with(f"{mount.root}/")
@@ -276,7 +276,7 @@ export pure valid_psi_average(value: Str) -> Bool {
 ## Parses the bracketed selected value without assuming a fixed policy vocabulary.
 export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Error] {
   guard value.lines().len() == 1 else {
-    return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy must contain one line"))
+    return Err(SystemReportSourceError.InvalidThpPolicy("THP policy must contain one line"))
   }
 
   let choices = value.replace("\t", with: " ").split(" ") |> where .trim() != ""
@@ -286,7 +286,7 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
     var name = choice
     if choice.starts_with("[") and choice.ends_with("]") and choice.count_chars() >= 3 {
       guard selected == null else {
-        return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has multiple selected values"))
+        return Err(SystemReportSourceError.InvalidThpPolicy("THP policy has multiple selected values"))
       }
 
       name = choice.split("")
@@ -296,14 +296,14 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Er
     }
 
     if name == "" or name.split("[").len() != 1 or name.split("]").len() != 1 or name in available {
-      return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has an invalid or repeated value"))
+      return Err(SystemReportSourceError.InvalidThpPolicy("THP policy has an invalid or repeated value"))
     }
 
     available += [name]
   }
 
   if selected == null {
-    return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has no selected value"))
+    return Err(SystemReportSourceError.InvalidThpPolicy("THP policy has no selected value"))
   }
 
   Ok({selected: selected, available: available})
@@ -397,20 +397,21 @@ export pure valid_os_release_id(value: Str) -> Bool {
 
 ## Decodes a device-tree string list only when every element has its NUL terminator.
 export pure decode_device_tree_strings(raw: Str) -> List[Str]? {
-  var values: List[Str] = []
   var current = ""
-  for character in raw {
-    if character == "\0" {
-      return null when current == ""
+  let values: List[Str] = collect {
+    for character in raw {
+      if character == "\0" {
+        return null when current == ""
 
-      values += [current]
-      current = ""
-    } else {
-      current = current + character
+        yield current
+        current = ""
+      } else {
+        current = current + character
+      }
     }
   }
 
-  return null when current != "" or values.len() == 0
+  return null when current != "" or values.is_empty()
 
   values
 }
@@ -418,7 +419,7 @@ export pure decode_device_tree_strings(raw: Str) -> List[Str]? {
 ## Parses the two complete decimal counters in /proc/uptime and retains exact whole seconds.
 export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumber {
   let observed = source.observation
-  if observed.state != report.Observed {
+  if observed.state != .Observed {
     return {value: null, state: observed.state, error_kind: source.error_kind, errno: source.errno}
   }
 
@@ -441,7 +442,7 @@ export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumber {
 ## Converts kernel size suffixes only after a complete read and bounds the byte value.
 export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   let observed = source.observation
-  return src.bounded_number(source, true) when observed.state != report.Observed
+  return src.bounded_number(source, true) when observed.state != .Observed
 
   let raw = observed.value ?? ""
   var number_text = raw
@@ -476,7 +477,7 @@ export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
 export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
   match sys_pci.parse_address(value) {
     Ok(address) => Ok(address)
-    Err(error) => Err(SystemReportSourceError.InvalidPciAddress(message: error.message), cause: error)
+    Err(error) => Err(SystemReportSourceError.InvalidPciAddress(error.message), cause: error)
   }
 }
 
@@ -484,7 +485,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
 export pure parse_pci_hex_value(value: Str) -> Result[Int, Error] {
   match sys_pci.parse_hex_value(value) {
     Ok(parsed) => Ok(parsed)
-    Err(error) => Err(SystemReportSourceError.InvalidPciId(message: error.message), cause: error)
+    Err(error) => Err(SystemReportSourceError.InvalidPciId(error.message), cause: error)
   }
 }
 
@@ -492,7 +493,7 @@ export pure parse_pci_hex_value(value: Str) -> Result[Int, Error] {
 export pure parse_pci_decimal_value(value: Str) -> Result[Int, Error] {
   match sys_pci.parse_decimal_value(value) {
     Ok(parsed) => Ok(parsed)
-    Err(error) => Err(SystemReportSourceError.InvalidPciId(message: error.message), cause: error)
+    Err(error) => Err(SystemReportSourceError.InvalidPciId(error.message), cause: error)
   }
 }
 

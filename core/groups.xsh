@@ -32,7 +32,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  if opts.users.len() == 0 {
+  if opts.users.is_empty() {
     let who = idtools.process_ids()?
     let ok = idtools.print_group_list(who, true, " ")
 

@@ -75,48 +75,56 @@ pure offset_value(text: Str) -> Int {
 # The pieces of PATTERN... operands: each pattern with its `{N}` or `{*}`
 # repeat folded in. Reports the failure text, or "" when all parse.
 proc parse_patterns(operands: List[Str]) [process, env] -> List[Pattern] {
-  var out: List[Pattern] = []
   var index = 0
 
-  while index < operands.len() {
-    let text = operands[index]
-    index += 1
+  let out: List[Pattern] = collect {
+    while index < operands.len() {
+      let text = operands[index]
+      index += 1
 
-    var repeat = 0
+      var repeat = 0
 
-    if index < operands.len() {
-      let next = operands[index]
+      if index < operands.len() {
+        let next = operands[index]
 
-      if next == "{*}" {
-        repeat = -1
-        index += 1
-      } else {
-        let counted = rx"^\{([0-9]+)\}$".captures(next)
-
-        if counted.len() > 0 {
-          repeat = line_value(counted[1])
+        if next == "{*}" {
+          repeat = -1
           index += 1
+        } else {
+          let counted = rx"^\{([0-9]+)\}$".captures(next)
+
+          if ! counted.is_empty() {
+            repeat = line_value(counted[1])
+            index += 1
+          }
         }
       }
-    }
 
-    let slashed = rx"^/(.*)/([+-]?[0-9]+)?$".captures(text)
-    let percent = rx"^%(.*)%([+-]?[0-9]+)?$".captures(text)
+      let slashed = rx"^/(.*)/([+-]?[0-9]+)?$".captures(text)
+      let percent = rx"^%(.*)%([+-]?[0-9]+)?$".captures(text)
 
-    if slashed.len() > 0 or percent.len() > 0 {
-      let parts = if slashed.len() > 0 { slashed } else { percent }
+      if ! slashed.is_empty() or ! percent.is_empty() {
+        let parts = if ! slashed.is_empty() { slashed } else { percent }
 
-      if let Err(failure) = regex.compile(parts[1]) {
-        gnu.error(f"{gnu.quote(text)}: invalid regular expression: {failure.message}")
+        if let Err(failure) = regex.compile(parts[1]) {
+          gnu.error(f"{gnu.quote(text)}: invalid regular expression: {failure.message}")
+          exit 1
+        }
+
+        yield {
+          kind: if ! slashed.is_empty() { "up" } else { "skip" },
+          limit: 0,
+          re: parts[1],
+          offset: if parts[2] == "" { 0 } else { offset_value(parts[2]) },
+          text: text,
+          repeat: repeat,
+        }
+      } else if rx"^[0-9]+$".matches(text) {
+        yield {kind: "line", limit: line_value(text), re: "", offset: 0, text: text, repeat: repeat}
+      } else {
+        gnu.error(f"{gnu.quote(text)}: invalid pattern")
         exit 1
       }
-
-      out += [{kind: if slashed.len() > 0 { "up" } else { "skip" }, limit: 0, re: parts[1], offset: if parts[2] == "" { 0 } else { offset_value(parts[2]) }, text: text, repeat: repeat}]
-    } else if rx"^[0-9]+$".matches(text) {
-      out += [{kind: "line", limit: line_value(text), re: "", offset: 0, text: text, repeat: repeat}]
-    } else {
-      gnu.error(f"{gnu.quote(text)}: invalid pattern")
-      exit 1
     }
   }
 
@@ -255,7 +263,7 @@ pure to_base(value: Int, base: Int, upper: Bool) -> Str {
 pure spaces(count: Int, fill: Str) -> Str {
   var out = ""
 
-  for _ in range(count) {
+  repeat count times {
     out = out + fill
   }
 
@@ -330,7 +338,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  if opts.operands.len() == 0 {
+  if opts.operands.is_empty() {
     gnu.missing_operand()
   }
 
@@ -370,13 +378,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let ends = tio.line_ends(data, false)
   var spans = ends
 
-  if data.len() > 0 and (spans.len() == 0 or spans[spans.len() - 1] != data.len()) {
+  if ! data.is_empty() and (spans.is_empty() or spans[-1] != data.len()) {
     spans += [data.len()]
   }
 
   let total = spans.len()
-  var texts: List[Str] = []
-
   var needs_match = false
 
   for item in patterns {
@@ -385,27 +391,27 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  if needs_match {
-    for index in range(total) {
-      let from = if index == 0 { 0 } else { spans[index - 1] }
-      var stop = spans[index]
+  let texts: List[Str] = collect {
+    if needs_match {
+      for index in range(total) {
+        let from = if index == 0 { 0 } else { spans[index - 1] }
+        var stop = spans[index]
 
-      if stop > from and data.byte_at(stop - 1) == 10 {
-        stop -= 1
+        if stop > from and data.byte_at(stop - 1) == 10 {
+          stop -= 1
+        }
+
+        yield data[from..stop].utf8() ?? ""
       }
-
-      texts += [data[from..stop].utf8() ?? ""]
     }
   }
 
-  var walk: Walk = {cur: 0, held: 0, pieces: [], failure: ""}
+  var walk: Walk = Walk(cur: 0, held: 0, pieces: [], failure: "")
   var forever = false
   var ended = false
 
   for item in patterns {
-    if ended or walk.failure != "" {
-      break
-    }
+    break when ended or walk.failure != ""
 
     let rule = regex.compile(item.re)
     var round = 0
@@ -554,9 +560,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   for piece in pieces {
     let size = piece.to - piece.from
 
-    if opts.elide and size == 0 {
-      continue
-    }
+    continue when opts.elide and size == 0
 
     if writing {
       let name = opts.prefix + suffix(spec, made.len())

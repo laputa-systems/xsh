@@ -5,16 +5,16 @@ test test_script_path_is_the_script_as_invoked { |ctx|
   print process.script_path()?.display()
 }
 """)
-  fs.symlink(p"probe.xsh", fp"{root}/alias")
+  fp"{root}/alias".symlink(to: p"probe.xsh")
 
-  let plain = run.text ${ctx.xsh_bin} $script ?
+  let plain = run.text ${ctx.xsh_bin} $script
   assert plain == f"{script}\n"
 
-  let separated = run.text ${ctx.xsh_bin} -- $script extra ?
+  let separated = run.text ${ctx.xsh_bin} -- $script extra
   assert separated == f"{script}\n"
 
   let alias = fp"{root}/alias"
-  let aliased = run.text ${ctx.xsh_bin} $alias ?
+  let aliased = run.text ${ctx.xsh_bin} $alias
   assert aliased == f"{alias}\n", "a symlink alias must keep its own name"
 
   let stdout = fp"{root}/relative.txt"

@@ -19,7 +19,7 @@ proc piece(root: Path, name: Str) [fs, error] -> Result[Bytes] {
   fp"{root}/{name}".read_bytes()?
 }
 
-proc clean(root: Path) [fs, error] -> Result[Unit] {
+proc clean(root: Path) [fs, error] {
   for entry in fs.children(root)? {
     if entry.name.starts_with("xx") or entry.name.starts_with("dog") {
       entry.path.remove()
@@ -34,14 +34,14 @@ test test_csplit_line_number_patterns { |ctx|
   assert csplit_run(ctx, root, ["n", "10"])?.stdout == b"18\n123\n"
   assert piece(root, "xx00")? == numbers(1, 10)
   assert piece(root, "xx01")? == numbers(10, 51)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["n", "10", "{2}"])?.stdout == b"18\n30\n30\n63\n"
   assert piece(root, "xx02")? == numbers(20, 30)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["n", "/20/", "10", "/40/"])?.stdout == b"48\n0\n60\n33\n", "an already passed line number gives an empty piece"
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["-", "2", "4"], b"a\nb\nc\nd")?.stdout == b"2\n4\n1\n", "a final unterminated line is counted"
 }
@@ -53,22 +53,22 @@ test test_csplit_regex_patterns_and_offsets { |ctx|
   assert csplit_run(ctx, root, ["n", "/9$/", "{*}"])?.stdout == b"16\n29\n30\n30\n30\n6\n"
   let made = fs.children(root)? |> where { |e| e.name.starts_with("xx") } |> count()
   assert made == 6
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["n", "/9$/+3"])?.stdout == b"24\n117\n"
   assert piece(root, "xx00")? == numbers(1, 12)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["n", "/9$/-3"])?.stdout == b"10\n131\n"
   assert piece(root, "xx01")? == numbers(6, 51)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["n", "%23%"])?.stdout == b"84\n", "%REGEXP% skips without writing a piece"
   assert piece(root, "xx00")? == numbers(23, 51)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["n", "%0$%", "/^4/"])?.stdout == b"90\n33\n"
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["--suppress-matched", "n", "/10$/", "/12$/-1"])?.stdout == b"18\n0\n117\n"
   assert piece(root, "xx02")? == numbers(12, 51)
@@ -88,7 +88,7 @@ test test_csplit_errors_remove_files_unless_kept { |ctx|
   assert kept.status == 1
   assert piece(root, "xx00")? == numbers(1, 20)
   assert piece(root, "xx01")? == numbers(20, 51)
-  clean(root)?
+  clean(root)
 
   let range = csplit_run(ctx, root, ["n", "40", "{2}"])?
   assert range.stdout == b"108\n33\n"
@@ -108,23 +108,23 @@ test test_csplit_options { |ctx|
 
   assert csplit_run(ctx, root, ["-q", "n", "13", "%25%", "/0$/"])?.stdout == b""
   assert piece(root, "xx01")? == numbers(25, 30)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["--prefix", "dog", "n", "10"])?.status == 0
   assert piece(root, "dog01")? == numbers(10, 51)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["-n", "3", "n", "10"])?.status == 0
   assert piece(root, "xx001")? == numbers(10, 51)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["--suffix-format", "%#6.3x", "n", "10"])?.status == 0
   assert piece(root, "xx 0x001")? == numbers(10, 51)
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["--suffix-format", "-%02d", "n", "10"])?.status == 0
   assert piece(root, "xx-01")? == numbers(10, 51), "a format starting with a hyphen is a value"
-  clean(root)?
+  clean(root)
 
   assert csplit_run(ctx, root, ["-z", "--suppress-matched", "n", "/0$/", "{*}"])?.stdout == b"18\n27\n27\n27\n27\n"
   assert ! fp"{root}/xx05".exists()?, "-z elides the empty last piece"
@@ -165,7 +165,7 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
 
   let after_line = csplit_run(ctx, root, ["n", "3", "/3/"])?
   assert after_line.stdout == b"4\n0\n47\n", "a line number leaves its own line to be matched"
-  clean(root)?
+  clean(root)
 
   let after_offset = csplit_run(ctx, root, ["n", "/^5$/+1", "/^6$/"])?
   assert after_offset.status == 1
@@ -182,7 +182,7 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
   assert gone.stderr == "csplit: input disappeared\n", gone.stderr
   assert piece(root, "xx00")? == numbers(1, 21), "finished pieces stay"
   assert piece(root, "xx01")? == b"", "and so does the piece being opened"
-  clean(root)?
+  clean(root)
 
   let behind = csplit_run(ctx, root, ["n", "/^15$/-3", "14", "/^15$/"])?
   assert behind.stdout == b"24\n6\n21\n", "a line number leaves the lines already read by a negative offset unmatched"

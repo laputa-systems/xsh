@@ -157,7 +157,7 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
   var issues: List[src.Issue] = []
   let mount_source = src.read_source_text(root, p"proc/self/mountinfo", max_bytes: 4194304)
   var mounts: List[MountEntry] = []
-  if mount_source.observation.state != report.Observed or mount_source.observation.value == null {
+  if mount_source.observation.state != .Observed or mount_source.observation.value == null {
     issues += [src.issue("mounts", mount_source.observation.state, mount_source.error_kind, mount_source.errno)]
   } else {
     let usage_index = mount_usage_index(mount_source.observation.value)
@@ -191,11 +191,12 @@ export proc collect(root: FsRoot, include_usage: Bool = false) [fs, error] -> Mo
         continue
       }
 
-      var optional_fields: List[Str] = []
       var index = 6
-      while index < separator {
-        optional_fields += [decode_mount_field(fields[index])]
-        index += 1
+      let optional_fields: List[Str] = collect {
+        while index < separator {
+          yield decode_mount_field(fields[index])
+          index += 1
+        }
       }
 
       let target = decode_mount_field(fields[4])

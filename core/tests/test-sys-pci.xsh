@@ -40,7 +40,7 @@ test test_sys_pci_address_and_identifier_parsers_keep_typed_boundaries {
 
 test test_sys_pci_collect_links_a_function_to_its_bridge_by_index {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/bus/pci/devices", parents: true)
   add_function(root, "0001:02:01.0", "pci0001:02/0001:02:01.0", "0x060400")
   add_function(root, "0001:02:03.0", "pci0001:02/0001:02:01.0/0001:02:03.0", "0x010802")
@@ -53,7 +53,7 @@ test test_sys_pci_collect_links_a_function_to_its_bridge_by_index {
   )
 
   let inventory = pci.collect(root)
-  assert inventory.status.state == report.Complete
+  assert inventory.status.state == .Complete
   assert inventory.status.enumeration_succeeded
   assert inventory.issues == []
   assert inventory.functions.len() == 2
@@ -71,7 +71,7 @@ test test_sys_pci_collect_links_a_function_to_its_bridge_by_index {
 
 test test_sys_pci_collect_keeps_valid_neighbors_of_malformed_functions {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/bus/pci/devices", parents: true)
   add_function(root, "0000:00:02.0", "pci0000:00/0000:00:02.0", "0x030000")
   add_function(root, "0000:00:03.0", "pci0000:00/0000:00:03.0", "0x030000")
@@ -79,7 +79,7 @@ test test_sys_pci_collect_keeps_valid_neighbors_of_malformed_functions {
   root.mkdir(p"sys/bus/pci/devices/zzzz:bad", parents: true)
 
   let inventory = pci.collect(root)
-  assert inventory.status.state == report.Partial
+  assert inventory.status.state == .Partial
   assert inventory.functions.len() == 2
   let damaged = (inventory.functions |> where .address == "0000:00:03.0")[0]
   assert damaged.revision == null
@@ -92,9 +92,9 @@ test test_sys_pci_collect_keeps_valid_neighbors_of_malformed_functions {
 
 test test_sys_pci_collect_reports_an_absent_bus_as_absent_not_empty_success {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   let inventory = pci.collect(root)
-  assert inventory.status.state == report.SectionAbsent
+  assert inventory.status.state == .SectionAbsent
   assert ! inventory.status.enumeration_succeeded
   assert inventory.functions == []
   assert inventory.issues.len() == 1
@@ -109,7 +109,7 @@ test test_sys_pci_path_helpers_resolve_addresses_and_indexes {
   assert pci.parent_bridge_address(../../../devices/pci0001:02/0001:02:03.0, "0001:02:03.0") == null
 
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/bus/pci/devices", parents: true)
   add_function(root, "0000:00:02.0", "pci0000:00/0000:00:02.0", "0x030000")
   let indices = pci.function_indices(pci.collect(root).functions)

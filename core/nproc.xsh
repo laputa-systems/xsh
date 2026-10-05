@@ -46,7 +46,7 @@ pure leading_count(text: Str) -> Leading? {
 
   let found = rx"^[0-9]+".captures(text.byte_slice(start))
 
-  return null when found.len() == 0
+  return null when found.is_empty()
 
   {count: count_of(found[0]), rest: text.byte_slice(start + found[0].byte_len())}
 }

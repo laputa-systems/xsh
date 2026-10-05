@@ -25,9 +25,10 @@ type Tz = {name: Str, offset: Int}
 type Civil = {year: Int, month: Int, day: Int, hour: Int, minute: Int, second: Int}
 
 proc env_text(name: Str) [env] -> Str? {
-  match env.get(name) {
-    Ok(text) => text
-    Err(_) => null
+  if let Ok(text) = env.get(name) {
+    text
+  } else {
+    null
   }
 }
 
@@ -37,7 +38,7 @@ proc load_tz() [env] -> Tz {
   let value = env_text("TZ") ?? ""
   let parts = rx"^<?([A-Za-z0-9+-]+?)>?([+-]?)([0-9]{1,2})(?::([0-9]{2}))?(?::([0-9]{2}))?$".captures(value)
 
-  if parts.len() > 0 {
+  if ! parts.is_empty() {
     let seconds = (parts[3].parse_int() ?? 0) * 3600 + (parts[4].parse_int() ?? 0) * 60 + (parts[5].parse_int() ?? 0)
 
     return {name: parts[1], offset: if parts[2] == "-" { seconds } else { -seconds }}
@@ -83,9 +84,7 @@ pure up_text(uptime: Int) -> Str {
   let minutes = uptime % 3600 / 60
   let clock = f"{hours:>2}:{two(minutes)}"
 
-  if days > 0 {
-    return f"up {plural(days, "day", "days")} {clock}"
-  }
+  return f"up {plural(days, "day", "days")} {clock}" when days > 0
 
   f"up {clock}"
 }
@@ -111,7 +110,7 @@ pure pretty_text(uptime: Int) -> Str {
     parts += [plural(hours, "hour", "hours")]
   }
 
-  if minutes > 0 or parts.len() == 0 {
+  if minutes > 0 or parts.is_empty() {
     parts += [plural(minutes, "minute", "minutes")]
   }
 
@@ -127,9 +126,7 @@ proc read_sessions(file: Path) [process, env, error] -> Result[List[UnixUtmp], E
 # is opened, since opening it would wait for a writer.
 proc boot_from_file(file: Path, now: Int) [fs, process, env, error] -> Boot {
   if let Ok(info) = fs.stat(file) {
-    if info.kind == "fifo" {
-      return {uptime: null, users: 0, problem: "Illegal seek"}
-    }
+    return {uptime: null, users: 0, problem: "Illegal seek"} when info.kind == "fifo"
   }
 
   match read_sessions(file) {
@@ -173,9 +170,10 @@ proc boot_from_host() [fs, process, env, error] -> Boot {
 }
 
 proc load_text() [process, error] -> Str {
-  match unix.load_average() {
-    Ok(load) => f",  load average: {load.one.format(2)}, {load.five.format(2)}, {load.fifteen.format(2)}"
-    Err(_) => ","
+  if let Ok(load) = unix.load_average() {
+    f",  load average: {load.one.format(2)}, {load.five.format(2)}, {load.fifteen.format(2)}"
+  } else {
+    ","
   }
 }
 
@@ -207,7 +205,7 @@ proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
   }
 
   let now = time.now() / 1000
-  let boot = if opts.files.len() == 1 { boot_from_file(Path(opts.files[0]), now) } else { boot_from_host() }
+  let boot = if opts.files.len() == 1 { boot_from_file(fp"{opts.files[0]}", now) } else { boot_from_host() }
   let tz = load_tz()
   var status = 0
 

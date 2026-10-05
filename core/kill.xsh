@@ -44,11 +44,12 @@ proc find_signal(text: Str) [process] -> Sig? {
   return null when ! (DIGITS.matches(text) or SIGNAL_WORD.matches(text))
 
   let table = process.signals()
-  let bound = table[table.len() - 1].number
+  let bound = table[-1].number
 
-  match process.signal(text) {
-    Ok(found) => if found.number > bound { null } else { found }
-    Err(_) => null
+  if let Ok(found) = process.signal(text) {
+    if found.number > bound { null } else { found }
+  } else {
+    null
   }
 }
 
@@ -128,13 +129,13 @@ proc list_operand(operand: Str, bound: Int) [process] -> Str? {
 }
 
 proc list_signals(operands: List[Str]) [process, env, error, io] {
-  if operands.len() == 0 {
+  if operands.is_empty() {
     print_names()
     return
   }
 
   let table = process.signals()
-  let bound = table[table.len() - 1].number
+  let bound = table[-1].number
   var out = ""
   var failed = false
 
@@ -171,7 +172,7 @@ pure parse_pid(text: Str) -> Int? {
 
 # Deliver `name` to one operand. Zero is the caller's own process group and a
 # negative number names a group.
-proc deliver(pid: Int, name: Str) [process, error] -> Result[Unit, Error] {
+proc deliver(pid: Int, name: Str) [process, error] {
   return process.kill(pid, name) when pid > 0
   return process.kill_group(process.group_id()?, name) when pid == 0
 
@@ -184,7 +185,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
   # `-9`, `-TERM`, `-SIGTERM`: only the first argument can be one, and a name
   # starts with an upper-case letter.
-  if args.len() > 0 and args[0].starts_with("-") and args[0].byte_len() > 1 {
+  if ! args.is_empty() and args[0].starts_with("-") and args[0].byte_len() > 1 {
     let word = args[0].byte_slice(1)
     let lead = word.byte_slice(0, length: 1)
     let lower = lead.lower() == lead and lead.upper() != lead
@@ -230,7 +231,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       gnu.usage_error("cannot combine signal with -l or -t")
     }
 
-    if opts.table and opts.operands.len() == 0 {
+    if opts.table and opts.operands.is_empty() {
       print_table()
     } else {
       list_signals(opts.operands)
@@ -239,7 +240,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  var chosen: Sig = {name: "TERM", number: 15}
+  var chosen: Sig = Sig("TERM", 15)
 
   if let given = obsolete {
     chosen = given
@@ -256,7 +257,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     chosen = found ?? chosen
   }
 
-  if opts.operands.len() == 0 {
+  if opts.operands.is_empty() {
     gnu.usage_error("no process ID specified")
   }
 
@@ -271,7 +272,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     } else if pid == -1 {
       gnu.error(f"{gnu.quote_value(operand)}: signaling every process is not supported")
       failed = true
-    } else if let Err(failure) = deliver(pid ?? 0, chosen.name) {
+    } else if let Err(failure) = deliver(pid, chosen.name) {
       gnu.error(f"{gnu.quote_value(operand)}: {delivery_text(failure)}")
       failed = true
     }

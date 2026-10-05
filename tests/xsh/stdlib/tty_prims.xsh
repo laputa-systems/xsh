@@ -1,15 +1,16 @@
 pure flag_named(table: UnixTtyTable, name: Str) -> UnixTtyFlag {
-  return [flag for flag in table.flags if flag.name == name][0]
+  [flag for flag in table.flags if flag.name == name][0]
 }
 
 pure char_named(table: UnixTtyTable, name: Str) -> UnixTtyChar {
-  return [char for char in table.chars if char.name == name][0]
+  [char for char in table.chars if char.name == name][0]
 }
 
 pure errno_of(result: Result[Any, Error]) -> Int {
-  match result {
-    Err(failure) => return failure.errno ?? -1
-    Ok(_) => return 0
+  if let Err(failure) = result {
+    return failure.errno ?? -1
+  } else {
+    return 0
   }
 }
 
@@ -24,7 +25,7 @@ pure flag_on(table: UnixTtyTable, attrs: UnixTtyAttrs, name: Str) -> Bool {
   } else {
     attrs.lflag
   }
-  return word.bit_and(flag.mask) == flag.value
+  word.bit_and(flag.mask) == flag.value
 }
 
 test test_pty_pairs_are_terminals_with_a_name { |ctx|
@@ -61,7 +62,7 @@ test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams { |c
   assert fd > 2
   assert unix.isatty(fd)
   assert unix.ttyname(fd)? == pty.name
-  unix.close_fd(fd)?
+  unix.close_fd(fd)
   assert errno_of(unix.close_fd(fd)) == 9
 
   let missing = unix.open_fd(fp"/nonexistent/xsh-tty")
@@ -88,14 +89,14 @@ test test_window_size_round_trips { |ctx|
   let initial = unix.window_size(pty.replica)?
   assert initial.rows == 0 and initial.cols == 0
 
-  unix.set_window_size(24, 80, fd: pty.replica)?
+  unix.set_window_size(24, 80, fd: pty.replica)
   let size = unix.window_size(pty.replica)?
   assert size.rows == 24
   assert size.cols == 80
   assert size.xpixel == 0 and size.ypixel == 0
   assert unix.window_size(pty.master)? == size
 
-  unix.set_window_size(50, 132, xpixel: 800, ypixel: 600, fd: pty.master)?
+  unix.set_window_size(50, 132, xpixel: 800, ypixel: 600, fd: pty.master)
   let pixels = unix.window_size(pty.replica)?
   assert pixels.rows == 50 and pixels.cols == 132
   assert pixels.xpixel == 800 and pixels.ypixel == 600
@@ -163,14 +164,14 @@ test test_tty_attrs_follow_the_table_through_a_round_trip { |ctx|
   var chars = attrs.control_chars
   chars[char_named(table, "intr").index] = 24
   let changed = {...attrs, lflag: attrs.lflag.clear_bits(echo.mask), control_chars: chars}
-  unix.set_tty_attrs(changed, fd: pty.replica)?
+  unix.set_tty_attrs(changed, fd: pty.replica)
   let after = unix.tty_attrs(pty.replica)?
   assert ! after.echo
   assert after.control_chars[char_named(table, "intr").index] == 24
   assert after.iflag == attrs.iflag
 
-  unix.set_tty_attrs(attrs, fd: pty.replica, when: "drain")?
-  unix.set_tty_attrs(attrs, fd: pty.replica, when: "flush")?
+  unix.set_tty_attrs(attrs, fd: pty.replica, when: "drain")
+  unix.set_tty_attrs(attrs, fd: pty.replica, when: "flush")
   assert unix.tty_attrs(pty.replica)?.echo == attrs.echo
   test.error_kind(unix.set_tty_attrs(attrs, fd: pty.replica, when: "later"), "invalid-argument")
 }
@@ -219,7 +220,7 @@ test test_tty_modes_follow_stty_definitions { |ctx|
   assert sane.lflag == start.lflag
   assert sane.control_chars == start.control_chars
 
-  unix.set_tty_attrs(raw, fd: pty.replica)?
+  unix.set_tty_attrs(raw, fd: pty.replica)
   let applied = unix.tty_attrs(pty.replica)?
   assert ! flag_on(table, applied, "icanon")
   assert applied.control_chars[char_named(table, "min").index] == 1

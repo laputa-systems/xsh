@@ -125,7 +125,7 @@ pure quote_pieces(pieces: Pieces, always: Bool) -> Str {
   var single = false
   var apostrophe = false
   var escaped = false
-  var must = always or pieces.texts.len() == 0
+  var must = always or pieces.texts.is_empty()
 
   for kind in pieces.kinds {
     if kind > 0 {
@@ -145,7 +145,7 @@ pure quote_pieces(pieces: Pieces, always: Bool) -> Str {
     }
   }
 
-  if pieces.texts.len() > 0 and (pieces.texts[0] == "~" or pieces.texts[0] == "#") {
+  if ! pieces.texts.is_empty() and (pieces.texts[0] == "~" or pieces.texts[0] == "#") {
     must = true
   }
 
@@ -275,7 +275,7 @@ export pure strerror(failure: Error) -> Str {
   return text when at < 0
 
   let parts = text.byte_slice(0, at).split(": ")
-  parts[parts.len() - 1]
+  parts[-1]
 }
 
 ## Report `PROG: cannot VERB 'NAME': STRERROR`.

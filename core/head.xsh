@@ -43,13 +43,13 @@ type Count = {value: Int, elide: Bool}
 # Rewrite the obsolete first argument `-NUM[bkm][cqvz]...` into the options it
 # stands for.
 pure modernize(argv: List[Str]) -> List[Str] {
-  guard argv.len() > 0 else {
+  guard ! argv.is_empty() else {
     return argv
   }
 
   let parts = rx"^-([0-9]+[bkm]?)([cqvz]*)$".captures(argv[0])
 
-  return argv when parts.len() == 0
+  return argv when parts.is_empty()
 
   let flags = parts[2]
   let unit = if flags.find("c") != null { "-c" } else { "-n" }
@@ -106,7 +106,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let elide = spec.elide and spec.value > 0
   let total = if spec.elide and spec.value == 0 { tio.MAX_COUNT } else { spec.value }
   let wants = elide or total > 0
-  let operands = if opts.files.len() == 0 { ["-"] } else { opts.files }
+  let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var first = true
   var failed = false
@@ -152,7 +152,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       shown = true
 
-      break when chunk.len() == 0
+      break when chunk.is_empty()
 
       offset += chunk.len()
 
@@ -168,7 +168,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       } else if elide {
         let data = bytes.concat([held, chunk])
         let ends = tio.line_ends(data, opts.zero)
-        let lines = ends.len() + (if ends.len() > 0 and ends[ends.len() - 1] == data.len() { 0 } else { 1 })
+        let lines = ends.len() + (if ! ends.is_empty() and ends[-1] == data.len() { 0 } else { 1 })
 
         if lines > total {
           let cut = ends[lines - total - 1]

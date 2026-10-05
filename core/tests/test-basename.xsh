@@ -121,13 +121,13 @@ test test_basename_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_basename_runs_as_executable_shebang_script { |ctx|
-  if ! p"/bin/xsh".exists()? {
+  if ! p"/bin/xsh".exists() {
     test.skip("/bin/xsh is not installed")
   }
 
   let script = fp"{ctx.core_dir}/basename.xsh"
   script.chmod(0o755)
-  let output = run.text $script -- /tmp/demo.txt ?
+  let output = run.text $script -- /tmp/demo.txt
 
   assert output == """demo.txt
 """

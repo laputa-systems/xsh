@@ -37,22 +37,21 @@ pure tokenize(data: Bytes) -> List[Bytes] {
     return [bytes.from_text(word) for word in text.replace("\t", with: " ").replace("\n", with: " ").split(" ") if word != ""]
   }
 
-  var out: List[Bytes] = []
   var start = -1
 
-  for index in range(data.len()) {
-    if is_space(data.byte_at(index) ?? 0) {
-      if start >= 0 {
-        out += [data[start..index]]
-        start = -1
+  let out: List[Bytes] = collect {
+    for index in range(data.len()) {
+      if is_space(data.byte_at(index) ?? 0) {
+        if start >= 0 {
+          yield data[start..index]
+          start = -1
+        }
+      } else if start < 0 {
+        start = index
       }
-    } else if start < 0 {
-      start = index
     }
-  }
 
-  if start >= 0 {
-    out += [data[start..]]
+    yield data[start..] when start >= 0
   }
 
   out
@@ -71,9 +70,7 @@ pure find_loop(top: List[List[Int]], done: List[Bool], order: List[Int]) -> List
   var next: List[Int] = [0 for _ in range(total + 1)]
 
   for start in order {
-    if done[start] or state[start] != 0 {
-      continue
-    }
+    continue when done[start] or state[start] != 0
 
     var depth = 1
 
@@ -159,7 +156,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 1
   }
 
-  var ids: Map[Str, Int] = map.empty()
+  var ids: Map[Str, Int] = {}
   var labels: List[Bytes] = []
   var keys: List[Str] = []
   var succ: List[List[Int]] = []
@@ -218,7 +215,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       if remaining > LARGE_GRAPH {
         let cycle = find_loop(top, done, order)
-        let last = cycle[cycle.len() - 1]
+        let last = cycle[-1]
         let first = cycle[0]
 
         for node in cycle {
@@ -242,9 +239,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
         while ! found {
           for node in order {
-            if count[node] == 0 or found {
-              continue
-            }
+            continue when count[node] == 0 or found
 
             if chain < 0 {
               chain = node

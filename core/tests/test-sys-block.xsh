@@ -35,7 +35,7 @@ test test_sys_block_scheduler_parser_requires_exactly_one_selected_choice {
 
 test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/class/block", parents: true)
   let disk = "pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1"
   add_device(root, "nvme0n1", disk, "259:0", "2048")
@@ -85,7 +85,7 @@ test test_sys_block_collect_links_partitions_stacked_devices_and_pci_parent {
 
 test test_sys_block_collect_keeps_a_device_with_missing_or_invalid_fields {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"sys/class/block", parents: true)
   add_device(root, "sda", "pci0000:00/0000:00:1f.2/ata1/block/sda", "8:0", "16")
   add_device(root, "sdb", "pci0000:00/0000:00:1f.2/ata2/block/sdb", "8:16", "16")
@@ -109,11 +109,11 @@ test test_sys_block_collect_keeps_a_device_with_missing_or_invalid_fields {
 
 test test_sys_block_collect_reports_an_absent_class_directory_as_absent {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   let inventory = block.collect(root)
   assert inventory.listing_state == "absent"
   assert ! inventory.enumeration_succeeded
   assert inventory.devices == []
   assert inventory.issues.len() == 1
-  assert inventory.issues[0].state == report.Absent
+  assert inventory.issues[0].state == .Absent
 }

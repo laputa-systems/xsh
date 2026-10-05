@@ -72,9 +72,10 @@ type Civil = {year: Int, month: Int, day: Int, hour: Int, minute: Int, second: I
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 proc env_text(name: Str) [env] -> Str? {
-  match env.get(name) {
-    Ok(text) => text
-    Err(_) => null
+  if let Ok(text) = env.get(name) {
+    text
+  } else {
+    null
   }
 }
 
@@ -84,9 +85,7 @@ proc hard_time_locale() [env] -> Bool {
   for name in ["LC_ALL", "LC_TIME", "LANG"] {
     let found = env_text(name) ?? ""
 
-    if found != "" {
-      return found != "C" and found != "POSIX"
-    }
+    return found != "C" and found != "POSIX" when found != ""
   }
 
   false
@@ -98,7 +97,7 @@ proc load_tz() [env] -> Tz {
   let value = env_text("TZ") ?? ""
   let parts = rx"^<?([A-Za-z0-9+-]+?)>?([+-]?)([0-9]{1,2})(?::([0-9]{2}))?(?::([0-9]{2}))?$".captures(value)
 
-  if parts.len() > 0 {
+  if ! parts.is_empty() {
     let seconds = (parts[3].parse_int() ?? 0) * 3600 + (parts[4].parse_int() ?? 0) * 60 + (parts[5].parse_int() ?? 0)
 
     return {name: parts[1], offset: if parts[2] == "-" { seconds } else { -seconds }}
@@ -201,7 +200,7 @@ proc read_sessions(file: Path) [process, env, error] -> List[UnixUtmp] {
   match unix.read_utmp(file) {
     Ok(records) => records
     Err(failure) => {
-      if failure.errno == null {
+      guard failure.errno != null else {
         gnu.error(f"{gnu.quote_maybe(file.display())}: {gnu.strerror(failure)}")
         exit 1
       }
@@ -321,13 +320,9 @@ pure chr(code: Int) -> Str {
 proc describe(plan: Plan, entry: UnixUtmp, tz: Tz) [fs, error, time, process, env] -> Str? {
   let stamp = time_string(entry.time_sec, tz, plan.hard_time)
 
-  if plan.users and is_user(entry) {
-    return user_line(plan, entry, tz)
-  }
+  return user_line(plan, entry, tz) when plan.users and is_user(entry)
 
-  if plan.runlevel and entry.kind == "run_level" {
-    return run_level_line(plan, entry, tz)
-  }
+  return run_level_line(plan, entry, tz) when plan.runlevel and entry.kind == "run_level"
 
   if plan.boot and entry.kind == "boot_time" {
     return layout(plan, "", " ", "system boot", stamp, "", "", "", "")
@@ -408,24 +403,9 @@ proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
 
   let selected = opts.all or opts.boot or opts.dead or opts.login or opts.process or opts.runlevel or opts.time or opts.users
   let exits = opts.all or opts.dead
-  let plan: Plan = {
-    users: opts.all or opts.users or ! selected,
-    boot: opts.all or opts.boot,
-    dead: opts.all or opts.dead,
-    login: opts.all or opts.login,
-    initspawn: opts.all or opts.process,
-    runlevel: opts.all or opts.runlevel,
-    clockchange: opts.all or opts.time,
-    mesg: opts.all or opts.mesg,
-    idle: opts.all or opts.dead or opts.login or opts.runlevel or opts.users,
-    exit: exits,
-    short: (opts.short or ! selected) and ! exits,
-    lookup: opts.lookup,
-    mine: opts.only_hostname_user or opts.files.len() == 2,
-    hard_time: hard_time_locale(),
-  }
+  let plan: Plan = Plan(users: opts.all or opts.users or ! selected, boot: opts.all or opts.boot, dead: opts.all or opts.dead, login: opts.all or opts.login, initspawn: opts.all or opts.process, runlevel: opts.all or opts.runlevel, clockchange: opts.all or opts.time, mesg: opts.all or opts.mesg, idle: opts.all or opts.dead or opts.login or opts.runlevel or opts.users, exit: exits, short: (opts.short or ! selected) and ! exits, lookup: opts.lookup, mine: opts.only_hostname_user or opts.files.len() == 2, hard_time: hard_time_locale())
 
-  let file = if opts.files.len() == 1 { Path(opts.files[0]) } else { p"/var/run/utmp" }
+  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { p"/var/run/utmp" }
   let listed = read_sessions(file)
   let sessions = if opts.files.len() == 1 { listed } else { with_boot_record(drop_dead_sessions(listed), file) }
 
@@ -454,9 +434,7 @@ proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
   let tz = load_tz()
 
   for entry in sessions {
-    if plan.mine and entry.line != terminal {
-      continue
-    }
+    continue when plan.mine and entry.line != terminal
 
     if let text = describe(plan, entry, tz) {
       gnu.write_text(text + "\n")

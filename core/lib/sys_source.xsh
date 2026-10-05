@@ -83,7 +83,7 @@ export pure issue_with_detail(
 ## Appends an issue for a source that was neither observed nor absent.
 export pure append_text_issue(issues: List[Issue], field: Str, source: SourceRead) -> List[Issue] {
   let state = source.observation.state
-  return issues when state == report.Observed or state == report.Absent
+  return issues when state == .Observed or state == .Absent
 
   issues.push(issue(field, state, source.error_kind, source.errno))
 }
@@ -119,17 +119,17 @@ export proc read_source_text(
     if let Ok(text) = data.utf8() {
       value = if preserve_whitespace { text } else { text.trim() }
     } else {
-      if state == report.Observed {
+      if state == .Observed {
         state = report.Malformed
       }
 
       raw_bytes_base64 = data.base64()
     }
-  } else if state == report.Observed {
+  } else if state == .Observed {
     state = report.Malformed
   }
 
-  if state != report.Observed {
+  if state != .Observed {
     value = null
   }
 
@@ -146,7 +146,7 @@ export proc read_source_text(
 
 ## Returns the observed text of a read, or null when it was not fully observed.
 export pure observed_text(source: SourceRead) -> Str? {
-  return source.observation.value when source.observation.state == report.Observed
+  return source.observation.value when source.observation.state == .Observed
 
   null
 }
@@ -221,11 +221,11 @@ export pure split_csv(value: Str) -> List[Str] {
 ## Parses only complete source observations and keeps integers exact in JSON.
 export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumber {
   let observed = source.observation
-  if observed.state == report.Absent {
+  if observed.state == .Absent {
     return {value: null, state: null, error_kind: null, errno: null}
   }
 
-  if observed.state != report.Observed {
+  if observed.state != .Observed {
     return {value: null, state: observed.state, error_kind: source.error_kind, errno: source.errno}
   }
 
@@ -324,7 +324,7 @@ export proc driver_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRe
       value = observed.target.name()
     }
 
-    if state == report.Observed and value == null {
+    if state == .Observed and value == null {
       return {
         observation: empty_text(report.Malformed),
         errno: null,

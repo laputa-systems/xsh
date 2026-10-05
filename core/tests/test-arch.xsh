@@ -21,7 +21,7 @@ proc applet_run(
 }
 
 test test_arch_prints_the_machine_name { |ctx|
-  let machine = run.text uname -m ?
+  let machine = run.text uname -m
   let result = applet_run(ctx, [])?
   assert result.status == 0
   assert result.stdout == machine

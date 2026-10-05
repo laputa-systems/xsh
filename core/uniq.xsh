@@ -71,7 +71,7 @@ proc method_or_die(option: Str, value: Str, names: List[Str]) [process, env] -> 
 
   if found.len() != 1 {
     let list = [f"  - {gnu.quote(name)}" for name in names].join("\n")
-    let word = if found.len() == 0 { "invalid" } else { "ambiguous" }
+    let word = if found.is_empty() { "invalid" } else { "ambiguous" }
 
     gnu.usage_error(f"{word} argument {gnu.quote(value)} for {gnu.quote(option)}\nValid arguments are:\n{list}")
   }
@@ -88,9 +88,7 @@ proc size_or_die(text: Str, what: Str) [process, env] -> Int {
     exit 1
   }
 
-  if digits.byte_len() > 18 {
-    return tio.MAX_COUNT
-  }
+  return tio.MAX_COUNT when digits.byte_len() > 18
 
   digits.parse_int() ?? 0
 }
@@ -101,22 +99,23 @@ proc modernize(argv: List[Str]) [env] -> List[Str] {
 
   return argv when version >= 200112
 
-  var out: List[Str] = []
   var options = true
   var value = false
 
-  for item in argv {
-    if item == "--" {
-      options = false
-    }
+  let out: List[Str] = collect {
+    for item in argv {
+      if item == "--" {
+        options = false
+      }
 
-    if options and ! value and rx"^\+[0-9]+$".matches(item) {
-      out += ["-s", item.byte_slice(1)]
-    } else {
-      out += [item]
-    }
+      if options and ! value and rx"^\+[0-9]+$".matches(item) {
+        yield @["-s", item.byte_slice(1)]
+      } else {
+        yield item
+      }
 
-    value = options and item in ["-f", "-s", "-w", "--skip-fields", "--skip-chars", "--check-chars"]
+      value = options and item in ["-f", "-s", "-w", "--skip-fields", "--skip-chars", "--check-chars"]
+    }
   }
 
   out
@@ -144,25 +143,24 @@ proc split_records(data: Bytes, sep: Int) [error] -> Result[List[Bytes]] {
     let mark = if sep == 0 { "\0" } else { "\n" }
     var parts = text.split(mark)
 
-    if parts.len() > 0 and parts[parts.len() - 1] == "" {
+    if ! parts.is_empty() and parts[-1] == "" {
       parts = parts[..parts.len() - 1]
     }
 
     return [bytes.from_text(part) for part in parts]
   }
 
-  var records: List[Bytes] = []
   var start = 0
 
-  for index in range(data.len()) {
-    if data.byte_at(index) == sep {
-      records += [data[start..index]]
-      start = index + 1
+  let records: List[Bytes] = collect {
+    for index in range(data.len()) {
+      if data.byte_at(index) == sep {
+        yield data[start..index]
+        start = index + 1
+      }
     }
-  }
 
-  if start < data.len() {
-    records += [data[start..]]
+    yield data[start..] when start < data.len()
   }
 
   records
@@ -290,22 +288,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.usage_error("printing all duplicated lines and repeat counts is meaningless")
   }
 
-  let key: Key = {
-    fields: if opts.skip_fields == null { 0 } else { size_or_die(opts.skip_fields ?? "", "invalid number of fields to skip") },
-    skip: if opts.skip_chars == null { 0 } else { size_or_die(opts.skip_chars ?? "", "invalid number of bytes to skip") },
-    width: if opts.check_chars == null { -1 } else { size_or_die(opts.check_chars ?? "", "invalid number of bytes to compare") },
-    fold: opts.ignore_case,
-    utf8: utf8_locale(),
-  }
+  let key: Key = Key(fields: if opts.skip_fields == null { 0 } else { size_or_die(opts.skip_fields, "invalid number of fields to skip") }, skip: if opts.skip_chars == null { 0 } else { size_or_die(opts.skip_chars, "invalid number of bytes to skip") }, width: if opts.check_chars == null { -1 } else { size_or_die(opts.check_chars, "invalid number of bytes to compare") }, fold: opts.ignore_case, utf8: utf8_locale())
 
-  let select: Selection = {
-    unique: ! opts.repeated and ! dups,
-    first: ! opts.unique,
-    later: dups,
-    delimit: if grouping { group_method } else { dup_method },
-    group: grouping,
-    counts: opts.count,
-  }
+  let select: Selection = Selection(unique: ! opts.repeated and ! dups, first: ! opts.unique, later: dups, delimit: if grouping { group_method } else { dup_method }, group: grouping, counts: opts.count)
 
   let input_name = opts.files.get(0) ?? "-"
   let output_name = opts.files.get(1) ?? "-"
@@ -325,14 +310,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   for index in range(records.len() + 1) {
     let line = if index < records.len() { records[index] } else { b"" }
-    let same = index < records.len() and bunch.len() > 0 and key_of(line, key) == group_key
+    let same = index < records.len() and ! bunch.is_empty() and key_of(line, key) == group_key
 
     if same {
       bunch += [line]
       continue
     }
 
-    if bunch.len() > 0 {
+    if ! bunch.is_empty() {
       let size = bunch.len()
       var lines: List[Bytes] = []
 
@@ -346,7 +331,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         lines = [bunch[0]]
       }
 
-      if lines.len() > 0 {
+      if ! lines.is_empty() {
         let before = select.delimit == "prepend" or select.delimit == "both" or (select.delimit == "separate" and printed > 0)
 
         if before {

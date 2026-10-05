@@ -101,7 +101,7 @@ test test_cat_help_and_version_go_to_stdout { |ctx|
   let help = cat_run(ctx, root, ["--help"])?
   assert help.status == 0
   assert help.stderr == ""
-  assert "Usage: cat [OPTION]... [FILE]..." in help.stdout.utf8()?
+  assert "Usage: cat [OPTION]... [FILE]..." in help.stdout as Str
 
   let version = cat_run(ctx, root, ["--version"])?
   assert version.stdout.starts_with(b"cat")

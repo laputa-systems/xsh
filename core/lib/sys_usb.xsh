@@ -88,7 +88,7 @@ export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord
   let max_bytes = 1048576
   let max_descriptors = 65536
   if data.len() > max_bytes {
-    return Err(SysUsbError.InvalidStream(message: "USB descriptor input exceeds the 1 MiB limit"))
+    return Err(SysUsbError.InvalidStream("USB descriptor input exceeds the 1 MiB limit"))
   }
 
   var descriptors: List[DescriptorRecord] = []
@@ -96,26 +96,26 @@ export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord
   while offset < data.len() {
     let remaining = data.len() - offset
     if remaining < 2 {
-      return Err(SysUsbError.InvalidStream(message: "USB descriptor header is truncated"))
+      return Err(SysUsbError.InvalidStream("USB descriptor header is truncated"))
     }
 
     let length = bytes.unpack_le(data, 1, offset)?
     let descriptor_type = bytes.unpack_le(data, 1, offset + 1)?
     if length < 2 {
       return Err(
-        SysUsbError.InvalidStream(message: "USB descriptor length is smaller than its header"),
+        SysUsbError.InvalidStream("USB descriptor length is smaller than its header"),
       )
     }
 
     if length > remaining {
       return Err(
-        SysUsbError.InvalidStream(message: "USB descriptor extends beyond the available bytes"),
+        SysUsbError.InvalidStream("USB descriptor extends beyond the available bytes"),
       )
     }
 
     if descriptors.len() == max_descriptors {
       return Err(
-        SysUsbError.InvalidStream(message: "USB descriptor count exceeds the 65,536 descriptor limit"),
+        SysUsbError.InvalidStream("USB descriptor count exceeds the 65,536 descriptor limit"),
       )
     }
 
@@ -136,140 +136,133 @@ export pure parse_descriptor_stream(data: Bytes) -> Result[List[DescriptorRecord
 ## Parses interface settings and endpoints without joining identical numbers across configurations.
 export proc parse_alternates(data: Bytes) [error] -> Result[List[DescriptorAlternate], Error] {
   let records = parse_descriptor_stream(data)?
-  var alternates: List[DescriptorAlternate] = []
   var current_configuration: Int? = null
   var current_configuration_end: Int? = null
   var active: DescriptorAlternate? = null
-  for descriptor in records {
-    if current_configuration_end != null {
-      let configuration_end = current_configuration_end
-      if descriptor.descriptor_type == 1 or descriptor.descriptor_type == 2 {
-        guard descriptor.offset == configuration_end else {
+  let alternates: List[DescriptorAlternate] = collect {
+    for descriptor in records {
+      if current_configuration_end != null {
+        let configuration_end = current_configuration_end
+        if descriptor.descriptor_type == 1 or descriptor.descriptor_type == 2 {
+          guard descriptor.offset == configuration_end else {
+            return Err(
+              SysUsbError.InvalidDescriptor(
+                "USB configuration descriptor bytes do not match their declared total length",
+              ),
+            )
+          }
+        } else if descriptor.offset >= configuration_end or descriptor.offset + descriptor.length > configuration_end {
+          return Err(SysUsbError.InvalidDescriptor("USB descriptor extends outside its configuration"))
+        }
+      }
+
+      if descriptor.descriptor_type == 1 {
+        guard descriptor.length >= 18 else {
+          return Err(
+            SysUsbError.InvalidDescriptor("USB device descriptor is shorter than its fixed header"),
+          )
+        }
+
+        yield active when active != null
+
+        current_configuration = null
+        current_configuration_end = null
+        active = null
+        continue
+      }
+
+      if descriptor.descriptor_type == 2 {
+        guard descriptor.length >= 9 else {
+          return Err(
+            SysUsbError.InvalidDescriptor("USB configuration descriptor is shorter than its fixed header"),
+          )
+        }
+
+        let total_length = bytes.unpack_le(descriptor.raw, 2, 2)?
+        if total_length < descriptor.length or total_length > data.len() - descriptor.offset {
           return Err(
             SysUsbError.InvalidDescriptor(
-              message: "USB configuration descriptor bytes do not match their declared total length",
+              "USB configuration total length is outside the available descriptor bytes",
             ),
           )
         }
-      } else if descriptor.offset >= configuration_end or descriptor.offset + descriptor.length > configuration_end {
-        return Err(SysUsbError.InvalidDescriptor(message: "USB descriptor extends outside its configuration"))
-      }
-    }
 
-    if descriptor.descriptor_type == 1 {
-      guard descriptor.length >= 18 else {
+        yield active when active != null
+
+        current_configuration = bytes.unpack_le(descriptor.raw, 1, 5)?
+        current_configuration_end = descriptor.offset + total_length
+        active = null
+        continue
+      }
+
+      if descriptor.descriptor_type == 4 {
+        guard descriptor.length >= 9 else {
+          return Err(
+            SysUsbError.InvalidDescriptor("USB interface descriptor is shorter than its fixed header"),
+          )
+        }
+
+        let interface_number = bytes.unpack_le(descriptor.raw, 1, 2)?
+        let setting_number = bytes.unpack_le(descriptor.raw, 1, 3)?
+        yield active when active != null
+
+        active = {
+          configuration_value: current_configuration,
+          interface_number: interface_number,
+          setting_number: setting_number,
+          class_code: bytes.unpack_le(descriptor.raw, 1, 5)?,
+          subclass: bytes.unpack_le(descriptor.raw, 1, 6)?,
+          protocol: bytes.unpack_le(descriptor.raw, 1, 7)?,
+          endpoints: [],
+        }
+        continue
+      }
+
+      continue when descriptor.descriptor_type != 5
+      if descriptor.length < 7 {
         return Err(
-          SysUsbError.InvalidDescriptor(message: "USB device descriptor is shorter than its fixed header"),
+          SysUsbError.InvalidDescriptor("USB endpoint descriptor is truncated or has no owning interface"),
         )
       }
 
-      if active != null {
-        alternates += [active]
-      }
-
-      current_configuration = null
-      current_configuration_end = null
-      active = null
-      continue
-    }
-
-    if descriptor.descriptor_type == 2 {
-      guard descriptor.length >= 9 else {
+      if active == null {
         return Err(
-          SysUsbError.InvalidDescriptor(message: "USB configuration descriptor is shorter than its fixed header"),
+          SysUsbError.InvalidDescriptor("USB endpoint descriptor is truncated or has no owning interface"),
         )
       }
 
-      let total_length = bytes.unpack_le(descriptor.raw, 2, 2)?
-      if total_length < descriptor.length or total_length > data.len() - descriptor.offset {
-        return Err(
-          SysUsbError.InvalidDescriptor(
-            message: "USB configuration total length is outside the available descriptor bytes",
-          ),
-        )
+      let current = active
+      let address = bytes.unpack_le(descriptor.raw, 1, 2)?
+      let attributes = bytes.unpack_le(descriptor.raw, 1, 3)?
+      let packet_size = bytes.unpack_le(descriptor.raw, 2, 4)?
+      let interval = bytes.unpack_le(descriptor.raw, 1, 6)?
+      let transfer_type = match attributes % 4 {
+        0 => "control",
+        1 => "isochronous",
+        2 => "bulk",
+        else => "interrupt",
       }
-
-      if active != null {
-        alternates += [active]
-      }
-
-      current_configuration = bytes.unpack_le(descriptor.raw, 1, 5)?
-      current_configuration_end = descriptor.offset + total_length
-      active = null
-      continue
-    }
-
-    if descriptor.descriptor_type == 4 {
-      guard descriptor.length >= 9 else {
-        return Err(
-          SysUsbError.InvalidDescriptor(message: "USB interface descriptor is shorter than its fixed header"),
-        )
-      }
-
-      let interface_number = bytes.unpack_le(descriptor.raw, 1, 2)?
-      let setting_number = bytes.unpack_le(descriptor.raw, 1, 3)?
-      if active != null {
-        alternates += [active]
-      }
-
-      active = {
-        configuration_value: current_configuration,
-        interface_number: interface_number,
-        setting_number: setting_number,
-        class_code: bytes.unpack_le(descriptor.raw, 1, 5)?,
-        subclass: bytes.unpack_le(descriptor.raw, 1, 6)?,
-        protocol: bytes.unpack_le(descriptor.raw, 1, 7)?,
-        endpoints: [],
-      }
-      continue
-    }
-
-    continue when descriptor.descriptor_type != 5
-    if descriptor.length < 7 {
-      return Err(
-        SysUsbError.InvalidDescriptor(message: "USB endpoint descriptor is truncated or has no owning interface"),
+      let endpoint: report.UsbEndpoint = report.UsbEndpoint(
+        address:,
+        direction: if address >= 128 {
+          "in"
+        } else {
+          "out"
+        },
+        transfer_type:,
+        max_packet_size: packet_size,
+        interval:,
       )
+      active = {...current, endpoints: current.endpoints.push(endpoint)}
     }
 
-    if active == null {
-      return Err(
-        SysUsbError.InvalidDescriptor(message: "USB endpoint descriptor is truncated or has no owning interface"),
-      )
-    }
-
-    let current = active
-    let address = bytes.unpack_le(descriptor.raw, 1, 2)?
-    let attributes = bytes.unpack_le(descriptor.raw, 1, 3)?
-    let packet_size = bytes.unpack_le(descriptor.raw, 2, 4)?
-    let interval = bytes.unpack_le(descriptor.raw, 1, 6)?
-    let transfer_type = match attributes % 4 {
-      0 => "control",
-      1 => "isochronous",
-      2 => "bulk",
-      else => "interrupt",
-    }
-    let endpoint: report.UsbEndpoint = report.UsbEndpoint(
-      address:,
-      direction: if address >= 128 {
-        "in"
-      } else {
-        "out"
-      },
-      transfer_type:,
-      max_packet_size: packet_size,
-      interval:,
-    )
-    active = {...current, endpoints: current.endpoints.push(endpoint)}
-  }
-
-  if active != null {
-    alternates += [active]
+    yield active when active != null
   }
 
   if current_configuration_end != null and current_configuration_end != data.len() {
     return Err(
       SysUsbError.InvalidDescriptor(
-        message: "USB configuration descriptor bytes do not match their declared total length",
+        "USB configuration descriptor bytes do not match their declared total length",
       ),
     )
   }
@@ -316,19 +309,20 @@ export pure name_indices(names: List[Str?]) -> Map[Int] {
 ## Resolves each device's parent index after every device has been enumerated.
 export pure parent_indices(names: List[Str?], bus_numbers: List[Int?]) -> List[Int?] {
   let by_name = name_indices(names)
-  var parents: List[Int?] = []
-  for index in range(names.len()) {
-    let parent = parent_name(names[index] ?? "", bus_numbers[index])
-    var parent_index: Int? = null
-    if parent != null {
-      if parent in by_name {
-        if let Ok(found) = by_name.get(parent) {
-          parent_index = found
+  let parents: List[Int?] = collect {
+    for index in range(names.len()) {
+      let parent = parent_name(names[index] ?? "", bus_numbers[index])
+      var parent_index: Int? = null
+      if parent != null {
+        if parent in by_name {
+          if let Ok(found) = by_name.get(parent) {
+            parent_index = found
+          }
         }
       }
-    }
 
-    parents += [parent_index]
+      yield parent_index
+    }
   }
 
   parents
@@ -414,7 +408,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
     let product = src.read_source_text(root, fp"{device_path}/idProduct", max_bytes: 4096)
     let vendor_id = hex_optional(src.observed_text(vendor), 4)
     let product_id = hex_optional(src.observed_text(product), 4)
-    if vendor.observation.state != report.Observed {
+    if vendor.observation.state != .Observed {
       issues += [
         src.issue(f"devices.{device_path.name()}.vendor_id", vendor.observation.state, vendor.error_kind, vendor.errno),
       ]
@@ -422,7 +416,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       issues += [src.issue(f"devices.{device_path.name()}.vendor_id", report.Malformed, "invalid_usb_vendor_id", null)]
     }
 
-    if product.observation.state != report.Observed {
+    if product.observation.state != .Observed {
       issues += [
         src.issue(
           f"devices.{device_path.name()}.product_id",
@@ -479,7 +473,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
         value: version_code,
       },
     ] {
-      if named_value.source.observation.state == report.Observed and named_value.value == null {
+      if named_value.source.observation.state == .Observed and named_value.value == null {
         issues += [
           src.issue(f"devices.{device_path.name()}.{named_value.name}", report.Malformed, "invalid_usb_hex_value", null),
         ]
@@ -543,7 +537,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       )
     }
 
-    if power_control.observation.state != report.Observed and power_control.observation.state != report.Absent {
+    if power_control.observation.state != .Observed and power_control.observation.state != .Absent {
       issues += [
         src.issue(
           f"devices.{device_path.name()}.power_control",
@@ -554,7 +548,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       ]
     }
 
-    if autosuspend.observation.state != report.Observed and autosuspend.observation.state != report.Absent {
+    if autosuspend.observation.state != .Observed and autosuspend.observation.state != .Absent {
       issues += [
         src.issue(
           f"devices.{device_path.name()}.autosuspend_delay_ms",
@@ -565,7 +559,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       ]
     }
 
-    if runtime_status.observation.state != report.Observed and runtime_status.observation.state != report.Absent {
+    if runtime_status.observation.state != .Observed and runtime_status.observation.state != .Absent {
       issues += [
         src.issue(
           f"devices.{device_path.name()}.runtime_status",
@@ -630,7 +624,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
       }
 
       let driver_link = src.driver_name(root, fp"{interface_path}/driver")
-      if driver_link.observation.state != report.Observed and driver_link.observation.state != report.Absent {
+      if driver_link.observation.state != .Observed and driver_link.observation.state != .Absent {
         issues += [
           src.issue(
             f"devices.{device_path.name()}.interfaces.{interface_name}.driver",
@@ -643,7 +637,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
 
       let active = src.read_source_text(root, fp"{interface_path}/bAlternateSetting", max_bytes: 4096)
       let active_alternate = decimal_optional(src.observed_text(active), 0)
-      if active.observation.state == report.Observed and active_alternate == null {
+      if active.observation.state == .Observed and active_alternate == null {
         issues += [
           src.issue(
             f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
@@ -652,7 +646,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
             null,
           ),
         ]
-      } else if active.observation.state != report.Observed and active.observation.state != report.Absent {
+      } else if active.observation.state != .Observed and active.observation.state != .Absent {
         issues = src.append_text_issue(
           issues,
           f"devices.{device_path.name()}.interfaces.{interface_name}.active_alternate",
@@ -715,7 +709,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
         value: autosuspend_delay,
       },
     ] {
-      if named_number.source.observation.state == report.Observed and named_number.value == null {
+      if named_number.source.observation.state == .Observed and named_number.value == null {
         issues += [
           src.issue(f"devices.{device_path.name()}.{named_number.name}", report.Malformed, "invalid_usb_number", null),
         ]
@@ -723,7 +717,7 @@ export proc collect(root: FsRoot) [fs, error] -> UsbInventory {
     }
 
     let controller = controller_address(root, device_path)
-    if controller.state != report.Observed {
+    if controller.state != .Observed {
       issues += [
         src.issue(f"devices.{device_path.name()}.controller", controller.state, controller.error_kind, controller.errno),
       ]

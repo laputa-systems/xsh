@@ -111,22 +111,23 @@ pure trim_limbs(parts: List[Int]) -> List[Int] {
 }
 
 pure big_from(text: Str) -> List[Int] {
-  var out: List[Int] = []
   var end = text.byte_len()
 
-  while end > 0 {
-    let start = if end > 9 { end - 9 } else { 0 }
-    out += [text.byte_slice(start, length: end - start).parse_int() ?? 0]
-    end = start
+  let out: List[Int] = collect {
+    while end > 0 {
+      let start = if end > 9 { end - 9 } else { 0 }
+      yield text.byte_slice(start, length: end - start).parse_int() ?? 0
+      end = start
+    }
   }
 
   trim_limbs(out)
 }
 
 pure big_text(parts: List[Int]) -> Str {
-  return "0" when parts.len() == 0
+  return "0" when parts.is_empty()
 
-  var out = f"{parts[parts.len() - 1]}"
+  var out = f"{parts[-1]}"
   var at = parts.len() - 2
 
   while at >= 0 {
@@ -156,49 +157,51 @@ pure big_cmp(a: List[Int], b: List[Int]) -> Int {
 
 # A - B for A >= B.
 pure big_sub(a: List[Int], b: List[Int]) -> List[Int] {
-  var out: List[Int] = []
   var borrow = 0
   var at = 0
 
-  while at < a.len() {
-    var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
+  let out: List[Int] = collect {
+    while at < a.len() {
+      var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
 
-    if gap < 0 {
-      gap += BASE
-      borrow = 1
-    } else {
-      borrow = 0
+      if gap < 0 {
+        gap += BASE
+        borrow = 1
+      } else {
+        borrow = 0
+      }
+
+      yield gap
+      at += 1
     }
-
-    out += [gap]
-    at += 1
   }
 
   trim_limbs(out)
 }
 
 pure big_mul_small(a: List[Int], factor: Int) -> List[Int] {
-  return [] when factor == 0 or a.len() == 0
+  return [] when factor == 0 or a.is_empty()
 
-  var out: List[Int] = []
   var carry = 0
 
-  for part in a {
-    let product = part * factor + carry
-    out += [product % BASE]
-    carry = product / BASE
-  }
+  let out: List[Int] = collect {
+    for part in a {
+      let product = part * factor + carry
+      yield product % BASE
+      carry = product / BASE
+    }
 
-  while carry > 0 {
-    out += [carry % BASE]
-    carry = carry / BASE
+    while carry > 0 {
+      yield carry % BASE
+      carry = carry / BASE
+    }
   }
 
   out
 }
 
 pure big_mul(a: List[Int], b: List[Int]) -> List[Int] {
-  return [] when a.len() == 0 or b.len() == 0
+  return [] when a.is_empty() or b.is_empty()
 
   var out: List[Int] = [0 for slot in range(a.len() + b.len())]
 
@@ -248,7 +251,7 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   var at = a.len() - 1
 
   while at >= 0 {
-    rest = trim_limbs([a[at]] + rest)
+    rest = trim_limbs([a[at], @rest])
 
     if big_cmp(rest, b) >= 0 {
       let top = if rest.len() == width {
@@ -292,7 +295,7 @@ pure whole_from(text: Str) -> Whole {
   let neg = text.starts_with("-")
   let mag = big_from(if neg { text.byte_slice(1) } else { text })
 
-  {neg: neg and mag.len() > 0, mag: mag}
+  {neg: neg and ! mag.is_empty(), mag: mag}
 }
 
 pure whole_text(value: Whole) -> Str {
@@ -325,12 +328,13 @@ pure float_num(value: Float) -> Num {
 
 # The unit scales: 1000^k or 1024^k for k in 0..=10 (up to 1e30).
 pure scale_bases(iec: Bool) -> List[Float] {
-  var out: List[Float] = []
   var current = 1.0
 
-  repeat 11 times {
-    out += [current]
-    current = current * (if iec { 1024.0 } else { 1000.0 })
+  let out: List[Float] = collect {
+    repeat 11 times {
+      yield current
+      current = current * (if iec { 1024.0 } else { 1000.0 })
+    }
   }
 
   out
@@ -816,9 +820,9 @@ proc to_unit_text(num: Num, to: Str, to_unit: Int, method: Str, precision: Int, 
     let unit = big_from(f"{to_unit}")
     let division = big_divmod(num.whole.mag, unit)
 
-    if division.remainder.len() == 0 {
-      let scaled = {neg: num.whole.neg and division.quotient.len() > 0, mag: division.quotient}
-      let magnitude = if scaled.mag.len() == 0 { [1] } else { scaled.mag }
+    if division.remainder.is_empty() {
+      let scaled = {neg: num.whole.neg and ! division.quotient.is_empty(), mag: division.quotient}
+      let magnitude = if scaled.mag.is_empty() { [1] } else { scaled.mag }
       var power = [1]
 
       repeat if precision > 19 { 19 } else { precision } times {
@@ -840,8 +844,7 @@ proc to_unit_text(num: Num, to: Str, to_unit: Int, method: Str, precision: Int, 
 
   return {text: "", err: scaled.err} when scaled.err != ""
 
-  let i2 = scaled.value
-  let tail = scaled.suffix
+  let {value: i2, suffix: tail, ..} = scaled
   let wide = precision <= 65535
 
   var text = ""
@@ -1062,7 +1065,7 @@ pure parse_implicit_precision(s: Str, decimal: Str) -> Int {
 
   return 0 when point == null
 
-  let rest = s.byte_slice((point ?? 0) + decimal.byte_len())
+  let rest = s.byte_slice(point + decimal.byte_len())
   var count = 0
 
   while count < rest.byte_len() and is_digit(rest.byte_slice(count, length: 1)) {
@@ -1079,7 +1082,7 @@ pure last_is_alphabetic(s: Str) -> Bool {
 }
 
 proc format_string(source: Str, settings: Settings, implicit: Int?) [env] -> Rendered {
-  let stripped = if settings.suffix != null and source.ends_with(settings.suffix ?? "") { source.byte_slice(0, length: source.byte_len() - (settings.suffix ?? "").byte_len()) } else { source }
+  let stripped = if settings.suffix != null and source.ends_with(settings.suffix) { source.byte_slice(0, length: source.byte_len() - settings.suffix.byte_len()) } else { source }
   let decimal = settings.separators.decimal
   var specified = true
   var precision = 0
@@ -1114,8 +1117,8 @@ proc format_string(source: Str, settings: Settings, implicit: Int?) [env] -> Ren
     let scaled = if user_suffix != "" and with_suffix.ends_with(user_suffix) { with_suffix.byte_slice(0, length: with_suffix.byte_len() - user_suffix.byte_len()) } else { with_suffix }
     let tail_suffix = if user_suffix != "" and with_suffix.ends_with(user_suffix) { user_suffix } else { "" }
     let pieces = rx"(?s)^(.*[0-9])(.*)$".captures(scaled)
-    let number = if pieces.len() == 0 { scaled } else { pieces[1] }
-    let unit = if pieces.len() == 0 { "" } else { pieces[2] }
+    let number = if pieces.is_empty() { scaled } else { pieces[1] }
+    let unit = if pieces.is_empty() { "" } else { pieces[2] }
     let trailing = unit + tail_suffix
     var zero_padded = ""
 
@@ -1143,9 +1146,7 @@ proc format_string(source: Str, settings: Settings, implicit: Int?) [env] -> Ren
 
 pure field_selected(settings: Settings, n: Int) -> Bool {
   for index in range(settings.lows.len()) {
-    if n >= settings.lows[index] and n <= settings.highs[index] {
-      return true
-    }
+    return true when n >= settings.lows[index] and n <= settings.highs[index]
   }
 
   false
@@ -1267,7 +1268,7 @@ proc format_delimited(line: Str, delimiter: Str, settings: Settings) [env] -> Re
 pure is_scientific(line: Str) -> Bool {
   let at = rx"[eE]".find(line)
 
-  return false when at.len() == 0
+  return false when at.is_empty()
 
   is_digit(line.byte_slice(at[0].end, length: 1))
 }
@@ -1353,12 +1354,10 @@ pure parse_range(item: Str) -> RangeParse {
 
   let split = item.find("-")
 
-  if split == null {
-    return bound_error(item)
-  }
+  return bound_error(item) when split == null
 
-  let low = item.byte_slice(0, length: split ?? 0)
-  let high = item.byte_slice((split ?? 0) + 1)
+  let low = item.byte_slice(0, length: split)
+  let high = item.byte_slice(split + 1)
 
   return {...none, err: "invalid range with no endpoint"} when low == "" and high == ""
 
@@ -1414,7 +1413,7 @@ pure choose(value: Str, names: List[Str]) -> Str {
 
   let matches = [name for name in names if value != "" and name.starts_with(value)]
 
-  if matches.len() == 1 { matches[0] } else if matches.len() == 0 { "" } else { "?" }
+  if matches.len() == 1 { matches[0] } else if matches.is_empty() { "" } else { "?" }
 }
 
 proc argument_error(value: Str, option: Str, names: List[Str]) [process, env] -> Unit {
@@ -1614,7 +1613,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       gnu.error("grouping has no effect in this locale")
     }
 
-    if settings.header > 0 and opts.numbers.len() > 0 {
+    if settings.header > 0 and ! opts.numbers.is_empty() {
       gnu.error("--header ignored with command-line input")
     }
   }
@@ -1623,7 +1622,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var lines: List[Bytes] = []
   var ends: List[Bool] = []
 
-  if opts.numbers.len() > 0 {
+  if ! opts.numbers.is_empty() {
     lines = [bytes.from_text(item) for item in opts.numbers]
     ends = [true for item in opts.numbers]
   } else {
@@ -1659,7 +1658,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   while index < lines.len() {
     let raw = lines[index]
     let eol = if ends[index] { terminator } else { "" }
-    let from_stdin = opts.numbers.len() == 0
+    let from_stdin = opts.numbers.is_empty()
 
     if from_stdin and index < settings.header {
       out += (raw.utf8() ?? "") + eol

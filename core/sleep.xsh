@@ -77,7 +77,7 @@ pure scan_number(text: Str) -> Scanned {
 
   let hex = HEXADECIMAL.captures(body)
 
-  if hex.len() > 0 {
+  if ! hex.is_empty() {
     let value = hex_value(hex[1], hex[2] + hex[3], hex[4].parse_int() ?? 0)
 
     return {value: sign * value, rest: body.byte_slice(hex[0].byte_len())}
@@ -85,7 +85,7 @@ pure scan_number(text: Str) -> Scanned {
 
   let decimal = DECIMAL.captures(body)
 
-  return {value: 0.0, rest: text} when decimal.len() == 0
+  return {value: 0.0, rest: text} when decimal.is_empty()
 
   {value: sign * (decimal[0].parse_float() ?? 0.0), rest: body.byte_slice(decimal[0].byte_len())}
 }
@@ -126,7 +126,7 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
     return
   }
 
-  if opts.intervals.len() == 0 {
+  if opts.intervals.is_empty() {
     gnu.missing_operand()
   }
 

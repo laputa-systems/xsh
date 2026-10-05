@@ -357,7 +357,7 @@ pure line_at(breaks: List[Int], offset: Int) -> Int {
 pure split_lines(text: Str) -> List[Str] {
   var parts = text.split("\n")
 
-  if parts.len() > 0 and parts[parts.len() - 1] == "" {
+  if ! parts.is_empty() and parts[-1] == "" {
     parts = parts[..parts.len() - 1]
   }
 
@@ -474,7 +474,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var sentence: Regex? = null
 
   if opts.sentence != null {
-    let pattern = patch_backslash(opts.sentence ?? "")
+    let pattern = patch_backslash(opts.sentence)
 
     match regex.compile(pattern) {
       Ok(found) => {
@@ -502,7 +502,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     inputs = [opts.files.get(0) ?? "-"]
     output = opts.files.get(1) ?? "-"
-  } else if inputs.len() == 0 {
+  } else if inputs.is_empty() {
     inputs = ["-"]
   }
 
@@ -511,17 +511,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var break_chars = ""
 
   if opts.only_file != null {
-    only_words = split_lines(read_text(opts.only_file ?? ""))
+    only_words = split_lines(read_text(opts.only_file))
   }
 
   if opts.ignore_file != null {
-    ignore_words = split_lines(read_text(opts.ignore_file ?? ""))
+    ignore_words = split_lines(read_text(opts.ignore_file))
   }
 
   let word_override = opts.word ?? ""
 
   if opts.break_file != null and opts.word == null {
-    break_chars = read_text(opts.break_file ?? "")
+    break_chars = read_text(opts.break_file)
 
     if opts.traditional {
       break_chars = break_chars + " \t\n"
@@ -558,53 +558,44 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     breaks += [[hit.start for hit in rx"\n".find(text)]]
   }
 
-  var found: List[Occurrence] = []
   let word_regex = regex.compile(word_pattern)
   let context_regex = regex.compile(context_pattern)?
   let alpha = regex.compile(ALPHA_CLASS)?
   let default_words = word_pattern == WORD_CLASS
 
-  if let Ok(words) = word_regex {
-    for file in range(files.len()) {
-      for index in range(files[file].len()) {
-        let line = files[file][index]
-        let first = context_regex.find(line)
-        let ref_from = if first.len() > 0 { first[0].start } else { 0 }
-        let ref_to = if first.len() > 0 { first[0].end } else { 0 }
+  let found: List[Occurrence] = collect {
+    if let Ok(words) = word_regex {
+      for file in range(files.len()) {
+        for index in range(files[file].len()) {
+          let line = files[file][index]
+          let first = context_regex.find(line)
+          let ref_from = if ! first.is_empty() { first[0].start } else { 0 }
+          let ref_to = if ! first.is_empty() { first[0].end } else { 0 }
 
-        for hit in words.find(line) {
-          var from = hit.start
-          let to = hit.end
+          for hit in words.find(line) {
+            var from = hit.start
+            let to = hit.end
 
-          if from == to {
-            continue
-          }
+            continue when from == to
 
-          if default_words {
-            let inner = alpha.find(hit.text)
+            if default_words {
+              let inner = alpha.find(hit.text)
 
-            if inner.len() == 0 {
-              continue
+              continue when inner.is_empty()
+
+              from += inner[0].start
             }
 
-            from += inner[0].start
+            continue when opts.references and from == ref_from and to == ref_to
+
+            let word = line.byte_slice(from, length: to - from)
+
+            continue when opts.only_file != null and ! (word in only_words)
+
+            continue when opts.ignore_file != null and word in ignore_words
+
+            yield {key: if opts.ignore_case { word.upper() } else { word }, file: file, line: index, from: from, to: to}
           }
-
-          if opts.references and from == ref_from and to == ref_to {
-            continue
-          }
-
-          let word = line.byte_slice(from, length: to - from)
-
-          if opts.only_file != null and ! (word in only_words) {
-            continue
-          }
-
-          if opts.ignore_file != null and word in ignore_words {
-            continue
-          }
-
-          found += [{key: if opts.ignore_case { word.upper() } else { word }, file: file, line: index, from: from, to: to}]
         }
       }
     }
@@ -634,57 +625,53 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       }
     }
 
-    if opts.auto_reference and ordered.len() > 0 {
+    if opts.auto_reference and ! ordered.is_empty() {
       line_width = shorter(width, digits + names + 1)
     }
   }
 
-  let layout: Layout = {
-    format: format,
-    width: line_width,
-    gap: gap,
-    truncation: opts.truncation,
-    macro_name: opts.macro_name,
-    refs: layout_refs,
-    right: opts.right_refs,
-  }
+  let layout: Layout = Layout(format:, width: line_width, gap:, truncation: opts.truncation, macro_name: opts.macro_name, refs: layout_refs, right: opts.right_refs)
 
-  var out: List[Str] = []
+  let out: List[Str] = collect {
+    for item in ordered {
+      let line = files[item.file][item.line]
+      let name = inputs[item.file]
+      var reference = ""
 
-  for item in ordered {
-    let line = files[item.file][item.line]
-    let name = inputs[item.file]
-    var reference = ""
+      if opts.auto_reference {
+        let number = line_at(breaks[item.file], starts[item.file][item.line] + item.from)
 
-    if opts.auto_reference {
-      let number = line_at(breaks[item.file], starts[item.file][item.line] + item.from)
+        reference = if name == "-" { f":{number}" } else { f"{gnu.quote_maybe(name)}:{number}" }
+      } else if opts.references {
+        let first = context_regex.find(line)
 
-      reference = if name == "-" { f":{number}" } else { f"{gnu.quote_maybe(name)}:{number}" }
-    } else if opts.references {
-      let first = context_regex.find(line)
-
-      reference = if first.len() > 0 { first[0].text } else { ""}
-    }
-
-    let before_text = line.byte_slice(0, length: item.from)
-    var trimmed = before_text
-
-    if opts.references and reference != "" {
-      while trimmed.starts_with(reference) {
-        trimmed = trimmed.byte_slice(reference.byte_len())
+        reference = if ! first.is_empty() { first[0].text } else { "" }
       }
+
+      let before_text = line.byte_slice(0, length: item.from)
+      var trimmed = before_text
+
+      if opts.references and reference != "" {
+        while trimmed.starts_with(reference) {
+          trimmed = trimmed.byte_slice(reference.byte_len())
+        }
+      }
+
+      let lead = if opts.references {
+        before_text.byte_len() - rx"^\s+".replace(trimmed, with: "").byte_len()
+      } else {
+        0
+      }
+      let before_cs = [m.text for m in rx"(?s).".find(before_text.byte_slice(lead))]
+      let keyword = line.byte_slice(item.from, length: item.to - item.from)
+      let after_cs = [m.text for m in rx"(?s).".find(line.byte_slice(item.to))]
+      let chunks = make_chunks(layout, before_cs, keyword, after_cs)
+
+      yield render(layout, chunks, reference)
     }
-
-    let lead = if opts.references { before_text.byte_len() - rx"^\s+".replace(trimmed, with: "").byte_len() } else { 0 }
-    let before_cs = [m.text for m in rx"(?s).".find(before_text.byte_slice(lead))]
-    let keyword = line.byte_slice(item.from, length: item.to - item.from)
-    let after_cs = [m.text for m in rx"(?s).".find(line.byte_slice(item.to))]
-    let chunks = make_chunks(layout, before_cs, keyword, after_cs)
-
-    out += [render(layout, chunks, reference)]
   }
 
-  let text = if out.len() > 0 { out.join("\n") + "\n" } else { "" }
+  let text = if ! out.is_empty() { out.join("\n") + "\n" } else { "" }
 
   if output == "-" {
     gnu.write_text(text)

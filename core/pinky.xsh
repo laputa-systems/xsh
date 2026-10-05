@@ -1,6 +1,6 @@
 #!/bin/xsh
-use lib.gnu
 use lib.auth
+use lib.gnu
 
 const USAGE = """Usage: pinky [OPTION]... [USER]...
 
@@ -47,9 +47,10 @@ type Civil = {year: Int, month: Int, day: Int, hour: Int, minute: Int, second: I
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 proc env_text(name: Str) [env] -> Str? {
-  match env.get(name) {
-    Ok(text) => text
-    Err(_) => null
+  if let Ok(text) = env.get(name) {
+    text
+  } else {
+    null
   }
 }
 
@@ -59,9 +60,7 @@ proc hard_time_locale() [env] -> Bool {
   for name in ["LC_ALL", "LC_TIME", "LANG"] {
     let found = env_text(name) ?? ""
 
-    if found != "" {
-      return found != "C" and found != "POSIX"
-    }
+    return found != "C" and found != "POSIX" when found != ""
   }
 
   false
@@ -73,7 +72,7 @@ proc load_tz() [env] -> Tz {
   let value = env_text("TZ") ?? ""
   let parts = rx"^<?([A-Za-z0-9+-]+?)>?([+-]?)([0-9]{1,2})(?::([0-9]{2}))?(?::([0-9]{2}))?$".captures(value)
 
-  if parts.len() > 0 {
+  if ! parts.is_empty() {
     let seconds = (parts[3].parse_int() ?? 0) * 3600 + (parts[4].parse_int() ?? 0) * 60 + (parts[5].parse_int() ?? 0)
 
     return {name: parts[1], offset: if parts[2] == "-" { seconds } else { -seconds }}
@@ -186,12 +185,11 @@ proc account_named(accounts: List[auth.PasswdEntry], name: Str) -> auth.PasswdEn
 }
 
 proc read_accounts() [fs, env, error] -> List[auth.PasswdEntry] {
-  match auth.read_passwd_entries() {
-    Ok(entries) => entries
-    Err(_) => {
-      let none: List[auth.PasswdEntry] = []
-      none
-    }
+  if let Ok(entries) = auth.read_passwd_entries() {
+    entries
+  } else {
+    let none: List[auth.PasswdEntry] = []
+    none
   }
 }
 
@@ -200,7 +198,7 @@ proc read_accounts() [fs, env, error] -> List[auth.PasswdEntry] {
 proc utmp_path() [env] -> Path {
   let named = env_text("XSH_UTMP_FILE") ?? ""
 
-  if named == "" { p"/var/run/utmp" } else { Path(named) }
+  if named == "" { p"/var/run/utmp" } else { fp"{named}" }
 }
 
 # User sessions only. A missing or unreadable file lists nobody, as glibc does,
@@ -211,7 +209,7 @@ proc read_sessions() [fs, process, env, error] -> List[UnixUtmp] {
   match unix.read_utmp(file) {
     Ok(records) => [entry for entry in records if entry.kind == "user_process" and entry.user != ""]
     Err(failure) => {
-      if failure.errno == null {
+      guard failure.errno != null else {
         gnu.error(f"{gnu.quote_maybe(file.display())}: {gnu.strerror(failure)}")
         exit 1
       }
@@ -296,13 +294,7 @@ proc entry_line(columns: Columns, accounts: List[auth.PasswdEntry], entry: UnixU
 }
 
 proc short_format(opts: PinkyOptions) [fs, process, env, error, io, time] {
-  let columns: Columns = {
-    name: ! (opts.omit_name or opts.omit_name_host or opts.omit_name_host_idle),
-    idle: ! opts.omit_name_host_idle,
-    where: ! (opts.omit_name_host or opts.omit_name_host_idle),
-    hard_time: hard_time_locale(),
-    lookup: opts.lookup,
-  }
+  let columns: Columns = Columns(name: ! (opts.omit_name or opts.omit_name_host or opts.omit_name_host_idle), idle: ! opts.omit_name_host_idle, where: ! (opts.omit_name_host or opts.omit_name_host_idle), hard_time: hard_time_locale(), lookup: opts.lookup)
 
   if ! opts.omit_heading {
     gnu.write_text(f"{heading(columns)}\n")
@@ -313,7 +305,7 @@ proc short_format(opts: PinkyOptions) [fs, process, env, error, io, time] {
   let now = time.now() / 1000
 
   for entry in read_sessions() {
-    if opts.users.len() == 0 or entry.user in opts.users {
+    if opts.users.is_empty() or entry.user in opts.users {
       gnu.write_text(f"{entry_line(columns, accounts, entry, tz, now)}\n")
     }
   }
@@ -388,7 +380,7 @@ proc main(...argv: List[Str]) [process, env, error, io, fs, time] {
   # `conflicts` makes the last of -l and -s decide, as in GNU.
   let long_format = opts.long
 
-  if long_format and opts.users.len() == 0 {
+  if long_format and opts.users.is_empty() {
     gnu.usage_error("no username specified; at least one must be specified when using -l")
   }
 

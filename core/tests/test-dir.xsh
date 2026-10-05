@@ -11,16 +11,16 @@ proc ls_in(
   name = "dir",
 ) [fs, process, error] -> Result[Ran] {
   let bin = fp"{work}/../bin"
-  bin.mkdir()?
+  bin.mkdir()
 
   let script = fp"{bin}/{name}"
 
-  if ! script.exists()? {
-    fs.symlink(fp"{ctx.core_dir}/ls.xsh", script)?
+  if ! script.exists() {
+    script.symlink(to: fp"{ctx.core_dir}/ls.xsh")
   }
 
-  if ! fp"{bin}/lib".exists()? {
-    fs.symlink(fp"{ctx.core_dir}/lib", fp"{bin}/lib")?
+  if ! fp"{bin}/lib".exists() {
+    fp"{bin}/lib".symlink(to: fp"{ctx.core_dir}/lib")
   }
 
   let out = fp"{work}/../stdout"
@@ -36,7 +36,7 @@ proc ls_in(
 proc sandbox(ctx: TestContext) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "ls")?
   let work = fp"{root}/work"
-  work.mkdir()?
+  work.mkdir()
   Ok(work)
 }
 

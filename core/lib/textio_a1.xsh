@@ -20,8 +20,6 @@ export const CHUNK = 65536
 # be delivered and would only exhaust memory.
 const DEVICE_LIMIT = 67108864
 
-error InputError = Unbounded(message: Str)
-
 ## `mode` is `stdin`, `file` (nonempty regular file, chunked and seekable),
 ## `device` (character or block device read in chunks), or `whole` (read in
 ## one call). `kind` is the file type nibble of `st_mode` (8 regular, 4
@@ -68,7 +66,7 @@ export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, i
   }
 
   if offset >= DEVICE_LIMIT {
-    return Err(InputError.Unbounded("input is unbounded and stdout is not flushed incrementally"))
+    fail "input is unbounded and stdout is not flushed incrementally"
   }
 
   match bytes.read_at(source.path, 0, count) {
@@ -227,16 +225,15 @@ export pure line_ends(data: Bytes, zero: Bool) -> List[Int] {
 ## algorithm for seekable input, never the result); the cli grammar cannot
 ## declare an option name that starts with a dash.
 export pure without_presume_pipe(argv: List[Str]) -> List[Str] {
-  var kept: List[Str] = []
   var options = true
 
-  for item in argv {
-    if item == "--" {
-      options = false
-    }
+  let kept: List[Str] = collect {
+    for item in argv {
+      if item == "--" {
+        options = false
+      }
 
-    if ! (options and item == "---presume-input-pipe") {
-      kept += [item]
+      yield item unless options and item == "---presume-input-pipe"
     }
   }
 

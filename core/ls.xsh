@@ -249,15 +249,13 @@ proc argmatch(text: Str, names: List[Str], values: List[Str], option: Str) [proc
 
   let found = [index for index in range(names.len()) if names[index].starts_with(text)]
 
-  if found.len() > 0 {
+  if ! found.is_empty() {
     let first = values[found[0]]
 
-    if [index for index in found if values[index] != first].len() == 0 {
-      return first
-    }
+    return first when [index for index in found if values[index] != first].is_empty()
   }
 
-  let kind = if found.len() == 0 { "invalid" } else { "ambiguous" }
+  let kind = if found.is_empty() { "invalid" } else { "ambiguous" }
   gnu.error(f"{kind} argument {gnu.quote_value(text)} for {gnu.quote_value(option)}")
   eprint "Valid arguments are:"
   var line = ""
@@ -323,14 +321,14 @@ pure parse_block_size(text: Str) -> Block {
 
   let parts = rx"^'?([0-9]*)([EGKMPTYZRQegkmptyzrq]?)(iB|B)?$".captures(text)
 
-  return {ok: false, human: "", size: 0} when parts.len() == 0 or (parts[1] == "" and parts[2] == "") or (parts[3] != "" and parts[2] == "")
+  return {ok: false, human: "", size: 0} when parts.is_empty() or (parts[1] == "" and parts[2] == "") or (parts[3] != "" and parts[2] == "")
 
   var size = if parts[1] == "" { 1 } else { parts[1].parse_int() ?? 0 }
   let unit = parts[2].upper()
   let base = if parts[3] == "B" { 1000 } else { 1024 }
 
   if unit != "" {
-    for _ in range(("KMGTPEZYRQ".find(unit) ?? 0) + 1) {
+    repeat ("KMGTPEZYRQ".find(unit) ?? 0) + 1 times {
       size *= base
     }
   }
@@ -363,7 +361,7 @@ proc line_option(text: Str, what: Str) [process, env] -> Int {
 proc when_option(v: Str?, option: Str, tty: Bool) [process, env] -> Bool {
   return true when v == null
 
-  let word = argmatch(v ?? "", WHEN_NAMES, WHEN_VALUES, option)
+  let word = argmatch(v, WHEN_NAMES, WHEN_VALUES, option)
 
   word == "always" or (word == "auto" and tty)
 }
@@ -378,7 +376,7 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "author" => {...c, author: true}
     "escape" => {...c, quoting: "escape"}
     "block_size" => block_size_option(c, arg)
-    "ignore_backups" => {...c, ignores: c.ignores + ["*~", ".*~"]}
+    "ignore_backups" => {...c, ignores: [@c.ignores, "*~", ".*~"]}
     "ctime" => {...c, time: "ctime", time_given: true}
     "atime" => {...c, time: "atime", time_given: true}
     "columns" => {...c, format_set: true, format: "columns"}
@@ -407,8 +405,8 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "deref_cmdline" => {...c, deref: "cmdline"}
     "deref_cmdline_dir" => {...c, deref: "cmdline_dir"}
     "deref_all" => {...c, deref: "always"}
-    "hide" => {...c, hides: c.hides + [arg]}
-    "ignore" => {...c, ignores: c.ignores + [arg]}
+    "hide" => {...c, hides: [@c.hides, arg]}
+    "ignore" => {...c, ignores: [@c.ignores, arg]}
     "hyperlink" => {...c, hyperlink: if when_option(v, "--hyperlink", tty) { "always" } else { "never" }}
     "inode" => {...c, inode: true}
     "kibibytes" => {...c, kibibytes: true}
@@ -447,99 +445,100 @@ proc usage_failure(message: Str) [process, env] -> Unit {
 # of several conflicting options wins and errors appear in command-line order.
 proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Parsed {
   var cfg = start
-  var operands: List[Str] = []
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
   var only_operands = false
   var index = 0
 
-  while index < argv.len() {
-    let arg = argv[index]
-    index += 1
+  let operands: List[Str] = collect {
+    while index < argv.len() {
+      let arg = argv[index]
+      index += 1
 
-    if only_operands or arg == "-" or ! arg.starts_with("-") {
-      operands += [arg]
-      if posix {
-        only_operands = true
-      }
-
-      continue
-    }
-
-    if arg == "--" {
-      only_operands = true
-      continue
-    }
-
-    if arg.starts_with("--") {
-      let body = arg[2..]
-      let equals = body.find("=")
-      let name = if equals == null { body } else { body.byte_slice(0, equals ?? 0) }
-      let attached: Str? = if equals == null { null } else { body.byte_slice((equals ?? 0) + 1) }
-      var matches = [opt for opt in OPTS if opt.long == name]
-
-      if matches.len() == 0 {
-        matches = [opt for opt in OPTS if opt.long != "" and opt.long.starts_with(name)]
-      }
-
-      let ids = [opt.id for opt in matches]
-
-      if matches.len() == 0 {
-        usage_failure(f"unrecognized option '--{name}'")
-      }
-
-      if ids.len() > 1 and [id for id in ids if id != ids[0]].len() > 0 {
-        let names = [f"'--{opt.long}'" for opt in matches |> sort-by .long]
-        usage_failure(f"option '--{name}' is ambiguous; possibilities: {names.join(" ")}")
-      }
-
-      let opt = matches[0]
-      var value: Str? = attached
-
-      if opt.arg == 0 and attached != null {
-        usage_failure(f"option '--{opt.long}' doesn't allow an argument")
-      }
-
-      if opt.arg == 1 and attached == null {
-        if index >= argv.len() {
-          usage_failure(f"option '--{opt.long}' requires an argument")
+      if only_operands or arg == "-" or ! arg.starts_with("-") {
+        yield arg
+        if posix {
+          only_operands = true
         }
 
-        value = argv[index]
-        index += 1
+        continue
       }
 
-      cfg = dispatch(cfg, opt.id, value, tty)
-      continue
-    }
-
-    var position = 1
-    let total = arg.count_chars()
-
-    while position < total {
-      let letter = arg[position..position + 1]
-      position += 1
-      let found = [opt for opt in OPTS if opt.short == letter]
-
-      if found.len() == 0 {
-        usage_failure(f"invalid option -- '{letter}'")
+      if arg == "--" {
+        only_operands = true
+        continue
       }
 
-      let opt = found[0]
-      var value: Str? = null
+      if arg.starts_with("--") {
+        let body = arg[2..]
+        let equals = body.find("=")
+        let name = if equals == null { body } else { body.byte_slice(0, equals) }
+        let attached: Str? = if equals == null { null } else { body.byte_slice(equals + 1) }
+        var matches = [opt for opt in OPTS if opt.long == name]
 
-      if opt.arg == 1 {
-        if position < total {
-          value = arg[position..]
-          position = total
-        } else if index < argv.len() {
+        if matches.is_empty() {
+          matches = [opt for opt in OPTS if opt.long != "" and opt.long.starts_with(name)]
+        }
+
+        let ids = [opt.id for opt in matches]
+
+        if matches.is_empty() {
+          usage_failure(f"unrecognized option '--{name}'")
+        }
+
+        if ids.len() > 1 and ! [id for id in ids if id != ids[0]].is_empty() {
+          let names = [f"'--{opt.long}'" for opt in matches |> sort-by .long]
+          usage_failure(f"option '--{name}' is ambiguous; possibilities: {names.join(" ")}")
+        }
+
+        let opt = matches[0]
+        var value: Str? = attached
+
+        if opt.arg == 0 and attached != null {
+          usage_failure(f"option '--{opt.long}' doesn't allow an argument")
+        }
+
+        if opt.arg == 1 and attached == null {
+          if index >= argv.len() {
+            usage_failure(f"option '--{opt.long}' requires an argument")
+          }
+
           value = argv[index]
           index += 1
-        } else {
-          usage_failure(f"option requires an argument -- '{letter}'")
         }
+
+        cfg = dispatch(cfg, opt.id, value, tty)
+        continue
       }
 
-      cfg = dispatch(cfg, opt.id, value, tty)
+      var position = 1
+      let total = arg.count_chars()
+
+      while position < total {
+        let letter = arg[position..position + 1]
+        position += 1
+        let found = [opt for opt in OPTS if opt.short == letter]
+
+        if found.is_empty() {
+          usage_failure(f"invalid option -- '{letter}'")
+        }
+
+        let opt = found[0]
+        var value: Str? = null
+
+        if opt.arg == 1 {
+          if position < total {
+            value = arg[position..]
+            position = total
+          } else if index < argv.len() {
+            value = argv[index]
+            index += 1
+          } else {
+            usage_failure(f"option requires an argument -- '{letter}'")
+          }
+        }
+
+        cfg = dispatch(cfg, opt.id, value, tty)
+      }
     }
   }
 
@@ -562,9 +561,10 @@ proc dispatch(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env, io] -> Cfg {
 }
 
 proc env_text(name: Str) [env] -> Str? {
-  match env.get(name) {
-    Ok(text) => text
-    Err(_) => null
+  if let Ok(text) = env.get(name) {
+    text
+  } else {
+    null
   }
 }
 
@@ -634,9 +634,7 @@ pure human_readable(n: Int, from: Int, to: Int, mode: Str) -> Str {
     power += 1
   }
 
-  if power > 0 and whole < 10 {
-    return f"{whole}.{tenths}{suffixes[power]}"
-  }
+  return f"{whole}.{tenths}{suffixes[power]}" when power > 0 and whole < 10
 
   f"{whole}{suffixes[power]}"
 }
@@ -647,7 +645,7 @@ proc load_tz() [env] -> Tz {
   let value = env_text("TZ") ?? ""
   let parts = rx"^<?([A-Za-z0-9+-]+?)>?([+-]?)([0-9]{1,2})(?::([0-9]{2}))?(?::([0-9]{2}))?$".captures(value)
 
-  if parts.len() > 0 {
+  if ! parts.is_empty() {
     let seconds = (parts[3].parse_int() ?? 0) * 3600 + (parts[4].parse_int() ?? 0) * 60 + (parts[5].parse_int() ?? 0)
 
     return {name: parts[1], offset: if parts[2] == "-" { seconds } else { -seconds }}
@@ -1136,7 +1134,7 @@ pure quote_raw(raw: Bytes, qs: QuoteStyle) -> Bytes {
 
   let text = raw.utf8() ?? ""
 
-  if text != "" and SAFE_NAME.matches(text) and (qs.extra == "" or [c for c in qs.extra if text.find(c) != null].len() == 0) {
+  if text != "" and SAFE_NAME.matches(text) and (qs.extra == "" or [c for c in qs.extra if text.find(c) != null].is_empty()) {
     return match style {
       "shell-always" | "shell-escape-always" => bytes.concat([b"'", raw, b"'"])
       "c" => bytes.concat([b"\"", raw, b"\""])
@@ -1169,10 +1167,10 @@ pure quote_raw(raw: Bytes, qs: QuoteStyle) -> Bytes {
 # shell styles).
 pure hide_controls(raw: Bytes, utf8: Bool) -> Bytes {
   let units = decode_units(raw, utf8)
-  var pieces: List[Bytes] = []
-
-  for index in range(units.chars.len()) {
-    pieces += [if units.printable[index] { units.chars[index] } else { b"?" }]
+  let pieces: List[Bytes] = collect {
+    for index in range(units.chars.len()) {
+      yield if units.printable[index] { units.chars[index] } else { b"?" }
+    }
   }
 
   bytes.concat(pieces)
@@ -1284,37 +1282,43 @@ pure ls_color_parse(text: Str) -> Colors {
   var exts: List[ExtColor] = []
   var referent = false
   var failed = false
-  var unknown: List[Str] = []
+  let unknown: List[Str] = collect {
+    for entry in text.split(":") {
+      continue when entry == ""
 
-  for entry in text.split(":") {
-    continue when entry == ""
+      let equals = entry.find("=")
 
-    let equals = entry.find("=")
-
-    if entry.starts_with("*") {
-      if equals == null {
-        failed = true
-        break
-      }
-
-      exts = [{ext: unescape_color(entry.byte_slice(1, length: (equals ?? 0) - 1)), seq: unescape_color(entry.byte_slice((equals ?? 0) + 1)), exact: false}] + exts
-    } else {
-      if equals != 2 {
-        failed = true
-        break
-      }
-
-      let label = entry.byte_slice(0, length: 2)
-      let value = unescape_color(entry.byte_slice(3))
-
-      if label in INDICATOR_CODES {
-        ind = ind.set(label, value)
-
-        if label == "ln" and value == "target" {
-          referent = true
+      if entry.starts_with("*") {
+        guard equals != null else {
+          failed = true
+          break
         }
+
+        exts = [
+          {
+            ext: unescape_color(entry.byte_slice(1, length: equals - 1)),
+            seq: unescape_color(entry.byte_slice(equals + 1)),
+            exact: false,
+          },
+        ] + exts
       } else {
-        unknown += [label]
+        guard equals == 2 else {
+          failed = true
+          break
+        }
+
+        let label = entry.byte_slice(0, length: 2)
+        let value = unescape_color(entry.byte_slice(3))
+
+        if label in INDICATOR_CODES {
+          ind = ind.set(label, value)
+
+          if label == "ln" and value == "target" {
+            referent = true
+          }
+        } else {
+          yield label
+        }
       }
     }
   }
@@ -1322,7 +1326,7 @@ pure ls_color_parse(text: Str) -> Colors {
   var kept: List[ExtColor] = []
 
   for entry in exts {
-    if [seen for seen in kept if seen.ext == entry.ext].len() == 0 {
+    if [seen for seen in kept if seen.ext == entry.ext].is_empty() {
       kept += [entry]
     }
   }
@@ -1331,7 +1335,7 @@ pure ls_color_parse(text: Str) -> Colors {
     {
       ext: entry.ext,
       seq: entry.seq,
-      exact: [other for other in kept if other.ext != entry.ext and other.ext.lower() == entry.ext.lower() and other.seq != entry.seq].len() > 0,
+      exact: ! [other for other in kept if other.ext != entry.ext and other.ext.lower() == entry.ext.lower() and other.seq != entry.seq].is_empty(),
     }
     for entry in kept
   ]
@@ -1425,7 +1429,7 @@ pure kind_letter(kind: Str) -> Str {
 }
 
 pure join_raw(dir: Bytes, name: Bytes) -> Bytes {
-  return name when dir.len() == 0
+  return name when dir.is_empty()
 
   if dir.byte_at(dir.len() - 1) == 47 {
     bytes.concat([dir, name])
@@ -1435,11 +1439,11 @@ pure join_raw(dir: Bytes, name: Bytes) -> Bytes {
 }
 
 pure raw_path(raw: Bytes) -> Path {
-  Path.parse_bytes(raw) ?? Path("")
+  Path.parse_bytes(raw) ?? p""
 }
 
 pure lossy(raw: Bytes) -> Str {
-  raw.utf8() ?? (Path.parse_bytes(raw) ?? Path("")).display()
+  raw.utf8() ?? (Path.parse_bytes(raw) ?? p"").display()
 }
 
 # The last path component of `path`'s bytes.
@@ -1466,7 +1470,7 @@ proc follow_stat(target: Path, follow: Bool) [fs] -> Result[FsStat] {
 }
 
 proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, process, env] -> Gobbled {
-  let full = if dir.len() == 0 or dir == b"." { name } else { join_raw(dir, name) }
+  let full = if dir.is_empty() or dir == b"." { name } else { join_raw(dir, name) }
   let target = raw_path(full)
   let display = lossy(full)
   var st = ZERO_STAT
@@ -1501,9 +1505,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
       Err(problem) => {
         gnu.cannot_access(display, problem)
 
-        if arg {
-          return {file: null, status: 2}
-        }
+        return {file: null, status: 2} when arg
 
         failed = true
       }
@@ -1532,22 +1534,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   }
 
   let shown = quote_name(ctx, name, ctx.qs)
-  let file: File = {
-    raw: name,
-    name: lossy(name),
-    path: target,
-    ok: ok,
-    st: st,
-    kind: kind,
-    arg: arg,
-    q: shown.q,
-    qw: shown.w,
-    quoted: shown.quoted,
-    link: link,
-    linkok: linkok,
-    linkmode: linkmode,
-    linkkind: linkkind,
-  }
+  let file: File = File(raw: name, name: lossy(name), path: target, ok:, st:, kind:, arg:, q: shown.q, qw: shown.w, quoted: shown.quoted, link:, linkok:, linkmode:, linkkind:)
 
   {file: file, status: if failed { 1 } else { 0 }}
 }
@@ -1826,17 +1813,18 @@ pure merge_version(items: List[File]) -> List[File] {
   let middle = items.len() / 2
   let left = merge_version(items[..middle])
   let right = merge_version(items[middle..])
-  var out: List[File] = []
   var l = 0
   var r = 0
 
-  while l < left.len() and r < right.len() {
-    if version_less_equal(left[l], right[r]) {
-      out += [left[l]]
-      l += 1
-    } else {
-      out += [right[r]]
-      r += 1
+  let out: List[File] = collect {
+    while l < left.len() and r < right.len() {
+      if version_less_equal(left[l], right[r]) {
+        yield left[l]
+        l += 1
+      } else {
+        yield right[r]
+        r += 1
+      }
     }
   }
 
@@ -1848,7 +1836,7 @@ pure extension_of(name: Str) -> Str {
 
   return "" when pieces.len() < 2 or name == ".."
 
-  let tail = pieces[pieces.len() - 1]
+  let tail = pieces[-1]
   let cut = name.byte_len() - tail.byte_len() - 1
 
   if cut <= 0 { "" } else { name.byte_slice(cut) }
@@ -1899,9 +1887,10 @@ pure sort_files(ctx: Ctx, files: List[File]) -> List[File] {
 }
 
 pure ind_get(colors: Colors, code: Str) -> Str? {
-  match colors.ind.get(code) {
-    Ok(text) => text
-    Err(_) => null
+  if let Ok(text) = colors.ind.get(code) {
+    text
+  } else {
+    null
   }
 }
 
@@ -1917,9 +1906,7 @@ pure is_colored(colors: Colors, code: Str) -> Bool {
 pure prep_text(colors: Colors) -> Str {
   let end = ind_get(colors, "ec")
 
-  if end != null {
-    return end ?? ""
-  }
+  return end when end != null
 
   f"{ind_get(colors, "lc") ?? ""}{ind_get(colors, "rs") ?? ""}{ind_get(colors, "rc") ?? ""}"
 }
@@ -1989,9 +1976,7 @@ pure color_for(ctx: Ctx, f: File, target: Bool) -> Str? {
 
       let hit = if ext.exact { name.ends_with(ext.ext) } else { lowered.ends_with(ext.ext.lower()) }
 
-      if hit {
-        return ext.seq
-      }
+      return ext.seq when hit
     }
   }
 
@@ -2013,7 +1998,7 @@ pure lpad(text: Str, width: Int) -> Str {
 pure spaces(count: Int) -> Str {
   var out = ""
 
-  for _ in range(count) {
+  repeat count times {
     out = f"{out} "
   }
 
@@ -2116,16 +2101,18 @@ proc listing_widths(ctx: Ctx, files: List[File]) [fs] -> Widths {
 }
 
 proc user_name(uid: Int) [fs] -> Str {
-  match user.by_uid(uid) {
-    Ok(found) => found.name
-    Err(_) => ""
+  if let Ok(found) = user.by_uid(uid) {
+    found.name
+  } else {
+    ""
   }
 }
 
 proc group_name(gid: Int) [fs] -> Str {
-  match group.by_gid(gid) {
-    Ok(found) => found.name
-    Err(_) => ""
+  if let Ok(found) = group.by_gid(gid) {
+    found.name
+  } else {
+    ""
   }
 }
 
@@ -2214,7 +2201,7 @@ pure name_piece(ctx: Ctx, f: File, target: Bool, pad0: Bool, used0: Bool, col: I
 
     if seq != null {
       let restore = if norm { prep_text(colors) } else { "" }
-      pre = with_first(colors, used, f"{restore}{ind_get(colors, "lc") ?? ""}{seq ?? ""}{ind_get(colors, "rc") ?? ""}")
+      pre = with_first(colors, used, f"{restore}{ind_get(colors, "lc") ?? ""}{seq}{ind_get(colors, "rc") ?? ""}")
       used = true
     }
 
@@ -2225,7 +2212,7 @@ pure name_piece(ctx: Ctx, f: File, target: Bool, pad0: Bool, used0: Bool, col: I
       let cl = ind_get(colors, "cl")
 
       if ctx.line_length > 0 and cl != null and col / ctx.line_length != (col + shown.w - 1) / ctx.line_length {
-        post = f"{post}{cl ?? ""}"
+        post = f"{post}{cl}"
       }
     }
   }
@@ -2317,31 +2304,32 @@ type Layout = {bytes: Bytes, used: Bool}
 # Commas, and columns/across with no width limit: names joined by a
 # separator, wrapping at the line length.
 pure print_separated(ctx: Ctx, files: List[File], wd: Widths, pad: Bool, used0: Bool, sep: Str) -> Layout {
-  var chunks: List[Bytes] = []
   var used = used0
   var pos = 0
 
-  for index in range(files.len()) {
-    let f = files[index]
-    let len = if ctx.line_length > 0 { name_len(ctx, f, wd, pad) } else { 0 }
+  let chunks: List[Bytes] = collect {
+    for index in range(files.len()) {
+      let f = files[index]
+      let len = if ctx.line_length > 0 { name_len(ctx, f, wd, pad) } else { 0 }
 
-    if index != 0 {
-      if ctx.line_length == 0 or pos + len + 2 <= ctx.line_length {
-        pos += 2
-        chunks += [bytes.from_text(f"{sep} ")]
-      } else {
-        pos = 0
-        chunks += [bytes.from_text(f"{sep}\n")]
+      if index != 0 {
+        if ctx.line_length == 0 or pos + len + 2 <= ctx.line_length {
+          pos += 2
+          yield bytes.from_text(f"{sep} ")
+        } else {
+          pos = 0
+          yield bytes.from_text(f"{sep}\n")
+        }
       }
+
+      let piece = file_piece(ctx, f, wd, pad, used, pos)
+      yield piece.bytes
+      used = piece.used
+      pos += len
     }
 
-    let piece = file_piece(ctx, f, wd, pad, used, pos)
-    chunks += [piece.bytes]
-    used = piece.used
-    pos += len
+    yield bytes.from_text(ctx.eol)
   }
-
-  chunks += [bytes.from_text(ctx.eol)]
 
   {bytes: bytes.concat(chunks), used: used}
 }
@@ -2377,61 +2365,62 @@ pure print_grid(ctx: Ctx, files: List[File], wd: Widths, pad: Bool, used0: Bool,
   }
 
   let widths = col_arr[cols - 1]
-  var chunks: List[Bytes] = []
   var used = used0
 
-  if by_columns {
-    let rows = total / cols + (if total % cols != 0 { 1 } else { 0 })
+  let chunks: List[Bytes] = collect {
+    if by_columns {
+      let rows = total / cols + (if total % cols != 0 { 1 } else { 0 })
 
-    for row in range(rows) {
-      var col = 0
-      var filesno = row
+      for row in range(rows) {
+        var col = 0
+        var filesno = row
+        var pos = 0
+
+        loop {
+          let piece = file_piece(ctx, files[filesno], wd, pad, used, pos)
+          yield piece.bytes
+          used = piece.used
+          let name_length = lens[filesno]
+          let max_length = widths[col]
+          col += 1
+          filesno += rows
+
+          break when filesno >= total
+
+          yield bytes.from_text(indent_text(pos + name_length, pos + max_length, ctx.tabsize))
+          pos += max_length
+        }
+
+        yield bytes.from_text(ctx.eol)
+      }
+    } else {
       var pos = 0
+      var name_length = lens[0]
+      var max_length = widths[0]
+      let first = file_piece(ctx, files[0], wd, pad, used, 0)
+      yield first.bytes
+      used = first.used
 
-      loop {
+      for filesno in range(1, total) {
+        let col = filesno % cols
+
+        if col == 0 {
+          yield bytes.from_text(ctx.eol)
+          pos = 0
+        } else {
+          yield bytes.from_text(indent_text(pos + name_length, pos + max_length, ctx.tabsize))
+          pos += max_length
+        }
+
         let piece = file_piece(ctx, files[filesno], wd, pad, used, pos)
-        chunks += [piece.bytes]
+        yield piece.bytes
         used = piece.used
-        let name_length = lens[filesno]
-        let max_length = widths[col]
-        col += 1
-        filesno += rows
-
-        break when filesno >= total
-
-        chunks += [bytes.from_text(indent_text(pos + name_length, pos + max_length, ctx.tabsize))]
-        pos += max_length
+        name_length = lens[filesno]
+        max_length = widths[col]
       }
 
-      chunks += [bytes.from_text(ctx.eol)]
+      yield bytes.from_text(ctx.eol)
     }
-  } else {
-    var pos = 0
-    var name_length = lens[0]
-    var max_length = widths[0]
-    let first = file_piece(ctx, files[0], wd, pad, used, 0)
-    chunks += [first.bytes]
-    used = first.used
-
-    for filesno in range(1, total) {
-      let col = filesno % cols
-
-      if col == 0 {
-        chunks += [bytes.from_text(ctx.eol)]
-        pos = 0
-      } else {
-        chunks += [bytes.from_text(indent_text(pos + name_length, pos + max_length, ctx.tabsize))]
-        pos += max_length
-      }
-
-      let piece = file_piece(ctx, files[filesno], wd, pad, used, pos)
-      chunks += [piece.bytes]
-      used = piece.used
-      name_length = lens[filesno]
-      max_length = widths[col]
-    }
-
-    chunks += [bytes.from_text(ctx.eol)]
   }
 
   {bytes: bytes.concat(chunks), used: used}
@@ -2449,7 +2438,7 @@ pure time_text(ctx: Ctx, f: File) -> Str {
 
   let t = file_time(ctx, f)
   let seconds = floor_nanos(t)
-  let recent = ctx.now - 15778476000000000 < t and t < ctx.now
+  let recent = ctx.now - 15778476000000000 < t < ctx.now
 
   format_time(ctx.time_fmt[if recent { 1 } else { 0 }], seconds, t - seconds * 1000000000, ctx.tz)
 }
@@ -2553,7 +2542,7 @@ proc render_files(ctx: Ctx, files: List[File], used0: Bool) [fs] -> Rendered {
     wd = {...wd, inode: 0, blocks: 0, context: 0}
   }
 
-  let pad = ctx.align and [f for f in files if f.quoted].len() > 0
+  let pad = ctx.align and ! [f for f in files if f.quoted].is_empty()
   var chunks: List[Bytes] = []
   var used = used0
   var dired: List[Int] = []
@@ -2609,15 +2598,13 @@ pure file_ignored(ctx: Ctx, name: Str) -> Bool {
 }
 
 proc take_entry(ctx: Ctx, dir: Bytes, raw: Bytes, kind: Str) [fs, process, env] -> Gobbled {
-  if file_ignored(ctx, lossy(raw)) {
-    return {file: null, status: 0}
-  }
+  return {file: null, status: 0} when file_ignored(ctx, lossy(raw))
 
   gobble(ctx, raw, dir, false, kind)
 }
 
 proc flush(out: List[Bytes]) [process, env, io] -> Unit {
-  if out.len() > 0 {
+  if ! out.is_empty() {
     gnu.write_bytes(bytes.concat(out))
   }
 }
@@ -2637,7 +2624,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
   var active: List[Str] = []
   var files: List[File] = []
 
-  if operands.len() == 0 {
+  if operands.is_empty() {
     if cfg.directory {
       let g = gobble(ctx, b".", b"", true, "")
       status = max_of(status, g.status)
@@ -2659,7 +2646,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
     }
   }
 
-  if files.len() > 0 {
+  if ! files.is_empty() {
     files = sort_files(ctx, files)
 
     if ! cfg.directory {
@@ -2668,14 +2655,14 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
     }
   }
 
-  if files.len() > 0 {
+  if ! files.is_empty() {
     let r = render_files(ctx, files, used)
     used = r.used
     dired += [pos + x for x in r.dired]
     out += [r.bytes]
     pos += r.bytes.len()
 
-    if pending.len() > 0 {
+    if ! pending.is_empty() {
       out += [b"\n"]
       pos += 1
     }
@@ -2683,7 +2670,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
     print_name = false
   }
 
-  while pending.len() > 0 {
+  while ! pending.is_empty() {
     let dir = pending[0]
     pending = pending[1..]
 
@@ -2783,7 +2770,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
       pos += line.len()
     }
 
-    if listing.len() > 0 {
+    if ! listing.is_empty() {
       let r = render_files(ctx, listing, used)
       used = r.used
       dired += [pos + x for x in r.dired]
@@ -2800,11 +2787,11 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, io, error] -> In
   if cfg.dired {
     var trailer = ""
 
-    if dired.len() > 0 {
+    if ! dired.is_empty() {
       trailer = f"//DIRED// {[f"{x}" for x in dired].join(" ")}\n"
     }
 
-    if subdired.len() > 0 {
+    if ! subdired.is_empty() {
       trailer = f"{trailer}//SUBDIRED// {[f"{x}" for x in subdired].join(" ")}\n"
     }
 
@@ -2891,10 +2878,10 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   if cfg.width == null and columns != "" {
     let parsed = parse_c_unsigned(columns)
 
-    if parsed == null or (parsed ?? 0) <= 0 {
+    if parsed == null or parsed <= 0 {
       gnu.error(f"ignoring invalid width in environment variable COLUMNS: {gnu.quote_value(columns)}")
     } else {
-      line_length = parsed ?? 80
+      line_length = parsed
     }
   }
 
@@ -2908,7 +2895,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     if parsed == null {
       gnu.error(f"ignoring invalid tab size in environment variable TABSIZE: {gnu.quote_value(tab_env)}")
     } else {
-      tabsize = parsed ?? 8
+      tabsize = parsed
     }
   }
 
@@ -2921,8 +2908,8 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     else => ""
   }
   let curly = utf8
-  let qs: QuoteStyle = {name: style, utf8: utf8, curly: curly, extra: extra, space: style == "escape"}
-  let dir_qs: QuoteStyle = {name: style, utf8: utf8, curly: curly, extra: ":", space: false}
+  let qs: QuoteStyle = QuoteStyle(name: style, utf8:, curly:, extra:, space: style == "escape")
+  let dir_qs: QuoteStyle = QuoteStyle(name: style, utf8:, curly:, extra: ":", space: false)
 
   var human = cfg.human
   var block_size = cfg.block_size ?? 0
@@ -2958,7 +2945,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     }
   }
 
-  var colors: Colors = {ok: true, ind: DEFAULT_COLORS, exts: [], referent: false, unknown: []}
+  var colors: Colors = Colors(ok: true, ind: DEFAULT_COLORS, exts: [], referent: false, unknown: [])
   var color = cfg.color == "always"
 
   if color {
@@ -2991,7 +2978,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
 
   if hyper {
     host = system.hostname() ?? ""
-    cwd = (fs.cwd() ?? Path("/")).display()
+    cwd = (fs.cwd() ?? p"/").display()
   }
 
   let formats = if long { time_formats(cfg) } else { ["%b %e  %Y", "%b %e %H:%M"] }
@@ -3047,7 +3034,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
     Err(problem) => {
       if problem.message.find("UTF-8") != null {
-        let raw = (env.Path.QUOTING_STYLE ?? Path("")).bytes()
+        let raw = (env.Path.QUOTING_STYLE ?? p"").bytes()
         eprint f"{prog}: ignoring invalid value of environment variable QUOTING_STYLE: {gnu.quote_value_bytes(raw)}"
       }
     }
@@ -3057,43 +3044,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     quoting = "escape"
   }
 
-  let start: Cfg = {
-    format_set: false,
-    format: if prog == "dir" { "columns" } else if prog == "vdir" { "long" } else if tty { "columns" } else { "single-column" },
-    ignore_mode: "default",
-    sort: null,
-    reverse: false,
-    time: "mtime",
-    time_given: false,
-    recursive: false,
-    directory: false,
-    inode: false,
-    size: false,
-    owner: true,
-    group: true,
-    author: false,
-    numeric: false,
-    context: false,
-    deref: null,
-    indicator: "none",
-    quoting: quoting,
-    hide_control: prog == "ls" and tty,
-    color: null,
-    hyperlink: "never",
-    dired: false,
-    zero: false,
-    width: null,
-    tabsize: null,
-    human: "",
-    block_size: null,
-    file_human: "",
-    file_block_size: null,
-    kibibytes: false,
-    ignores: [],
-    hides: [],
-    dirs_first: false,
-    time_style: null,
-  }
+  let start: Cfg = Cfg(format_set: false, format: if prog == "dir" { "columns" } else if prog == "vdir" { "long" } else if tty { "columns" } else { "single-column" }, ignore_mode: "default", sort: null, reverse: false, time: "mtime", time_given: false, recursive: false, directory: false, inode: false, size: false, owner: true, group: true, author: false, numeric: false, context: false, deref: null, indicator: "none", quoting:, hide_control: prog == "ls" and tty, color: null, hyperlink: "never", dired: false, zero: false, width: null, tabsize: null, human: "", block_size: null, file_human: "", file_block_size: null, kibibytes: false, ignores: [], hides: [], dirs_first: false, time_style: null)
 
   let parsed = parse_args(argv, start, tty)
   let ctx = build_ctx(parsed.cfg, tty)

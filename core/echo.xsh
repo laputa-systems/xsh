@@ -146,7 +146,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var newline = true
   var first = 0
 
-  if ! posix or (argv.len() > 0 and argv[0] == "-n") {
+  if ! posix or (! argv.is_empty() and argv[0] == "-n") {
     while first < argv.len() {
       let word = argv[first]
 
@@ -178,25 +178,22 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  var parts: List[Bytes] = []
   var stopped = false
 
-  for index in range(words.len()) {
-    if index > 0 {
-      parts += [b" "]
+  let parts: List[Bytes] = collect {
+    for index in range(words.len()) {
+      yield b" " when index > 0
+
+      let piece = expand(words[index])?
+      yield piece.data
+
+      if piece.stop {
+        stopped = true
+        break
+      }
     }
 
-    let piece = expand(words[index])?
-    parts += [piece.data]
-
-    if piece.stop {
-      stopped = true
-      break
-    }
-  }
-
-  if newline and ! stopped {
-    parts += [b"\n"]
+    yield b"\n" when newline and ! stopped
   }
 
   gnu.write_bytes(bytes.concat(parts))

@@ -64,17 +64,18 @@ pure reverse_line(content: Bytes) -> Bytes {
 # unless `final`, in which case it is reversed too.
 pure reverse_lines(data: Bytes, zero: Bool, final: Bool) -> Reversed {
   let ends = tio.line_ends(data, zero)
-  var pieces: List[Bytes] = []
   var start = 0
 
-  for end in ends {
-    pieces += [reverse_line(data[start..end - 1]), data[end - 1..end]]
-    start = end
+  let pieces: List[Bytes] = collect {
+    for end in ends {
+      yield @[reverse_line(data[start..end - 1]), data[end - 1..end]]
+      start = end
+    }
   }
 
   let rest = data[start..]
 
-  if final and rest.len() > 0 {
+  if final and ! rest.is_empty() {
     return {out: bytes.concat([@pieces, reverse_line(rest)]), rest: b""}
   }
 
@@ -106,7 +107,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var failed = false
   var rest = b""
 
-  for name in if opts.files.len() == 0 { ["-"] } else { opts.files } {
+  for name in if opts.files.is_empty() { ["-"] } else { opts.files } {
     guard let source = tio.open_source(name) else { |failure|
       gnu.error(f"cannot open {gnu.quote_maybe(name)}: {gnu.strerror(failure)}")
       failed = true
@@ -122,7 +123,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         break
       }
 
-      break when chunk.len() == 0
+      break when chunk.is_empty()
 
       offset += chunk.len()
 
@@ -131,7 +132,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       gnu.write_bytes(done.out)
     }
 
-    if rest.len() > 0 {
+    if ! rest.is_empty() {
       gnu.write_bytes(reverse_lines(rest, opts.zero, true).out)
       rest = b""
     }

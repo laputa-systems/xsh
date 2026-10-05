@@ -85,6 +85,6 @@ test test_tac_getopt_diagnostics_and_help { |ctx|
   let missing = tac_run(ctx, root, ["-s"])?
   assert missing.stderr == "tac: option requires an argument -- 's'\nTry 'tac --help' for more information.\n", missing.stderr
 
-  assert "Usage: tac [OPTION]... [FILE]..." in tac_run(ctx, root, ["--help"])?.stdout.utf8()?
+  assert "Usage: tac [OPTION]... [FILE]..." in tac_run(ctx, root, ["--help"])?.stdout as Str
   assert tac_run(ctx, root, ["--vers"])?.stdout.starts_with(b"tac")
 }

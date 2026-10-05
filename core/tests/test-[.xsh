@@ -12,8 +12,8 @@ proc applet_run(
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{root}/["
-  fs.symlink(fp"{ctx.core_dir}/test.xsh", script)?
-  fs.symlink(fp"{ctx.core_dir}/lib", fp"{root}/lib")?
+  script.symlink(to: fp"{ctx.core_dir}/test.xsh")
+  fp"{root}/lib".symlink(to: fp"{ctx.core_dir}/lib")
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   let plan = process.command_argv(ctx.xsh_bin, argv, root, vars, stdin, out, err)
   let status = process.run(plan)?

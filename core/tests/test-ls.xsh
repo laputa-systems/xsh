@@ -11,16 +11,16 @@ proc ls_in(
   name = "ls",
 ) [fs, process, error] -> Result[Ran] {
   let bin = fp"{work}/../bin"
-  bin.mkdir()?
+  bin.mkdir()
 
   let script = fp"{bin}/{name}"
 
-  if ! script.exists()? {
-    fs.symlink(fp"{ctx.core_dir}/ls.xsh", script)?
+  if ! script.exists() {
+    script.symlink(to: fp"{ctx.core_dir}/ls.xsh")
   }
 
-  if ! fp"{bin}/lib".exists()? {
-    fs.symlink(fp"{ctx.core_dir}/lib", fp"{bin}/lib")?
+  if ! fp"{bin}/lib".exists() {
+    fp"{bin}/lib".symlink(to: fp"{ctx.core_dir}/lib")
   }
 
   let out = fp"{work}/../stdout"
@@ -36,7 +36,7 @@ proc ls_in(
 proc sandbox(ctx: TestContext) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "ls")?
   let work = fp"{root}/work"
-  work.mkdir()?
+  work.mkdir()
   Ok(work)
 }
 
@@ -119,7 +119,7 @@ test test_ls_long_format_columns { |ctx|
   fp"{work}/small".write("12")
   fp"{work}/big".write("1234567")
   fp"{work}/link".mkdir()
-  fs.symlink(p"small", fp"{work}/ln")?
+  fp"{work}/ln".symlink(to: p"small")
 
   let result = ls_in(ctx, work, ["-l", "--time-style=+T"])?
   let lines = result.text.lines()
@@ -181,8 +181,8 @@ test test_ls_time_sort_and_styles { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/old".write("")
   fp"{work}/new".write("")
-  fs.set_times(fp"{work}/old", 1000000000000000000, 1000000000000000000)?
-  fs.set_times(fp"{work}/new", 1700000000000000000, 1700000000000000000)?
+  fs.set_times(fp"{work}/old", 1000000000000000000, 1000000000000000000)
+  fs.set_times(fp"{work}/new", 1700000000000000000, 1700000000000000000)
 
   assert ls_in(ctx, work, ["-t"])?.text == "new\nold\n"
   assert ls_in(ctx, work, ["-tr"])?.text == "old\nnew\n"
@@ -217,7 +217,7 @@ test test_ls_quoting_styles { |ctx|
     assert result.text == f"{case[1]}\n", f"{case[0]}: {result.text}"
   }
 
-  fp"{work}/one two".remove()?
+  fp"{work}/one two".remove()
   fp"{work}/tab\there".write("")
   fp"{work}/it's".write("")
 
@@ -235,10 +235,9 @@ test test_ls_indicators { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/d".mkdir()
   fp"{work}/plain".write("")
-  fp"{work}/prog".write("")
-  fp"{work}/prog".chmod(0o755)
-  fs.symlink(p"plain", fp"{work}/ln")?
-  fs.mkfifo(fp"{work}/fifo", 0o644)?
+  fp"{work}/prog".write("", mode: 0o755)
+  fp"{work}/ln".symlink(to: p"plain")
+  fs.mkfifo(fp"{work}/fifo", 0o644)
 
   assert ls_in(ctx, work, ["-F"])?.text == "d/\nfifo|\nln@\nplain\nprog*\n"
   assert ls_in(ctx, work, ["--file-type"])?.text == "d/\nfifo|\nln@\nplain\nprog\n"
@@ -250,7 +249,7 @@ test test_ls_symlink_dereference_options { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/real".mkdir()
   fp"{work}/real/inside".write("")
-  fs.symlink(p"real", fp"{work}/ln")?
+  fp"{work}/ln".symlink(to: p"real")
 
   assert ls_in(ctx, work, ["ln"])?.text == "inside\n", "a symlink to a directory is followed on the command line"
   assert ls_in(ctx, work, ["-l", "-og", "--time-style=+T", "ln"])?.text == "lrwxrwxrwx 1 4 T ln -> real\n"
@@ -262,7 +261,7 @@ test test_ls_symlink_dereference_options { |ctx|
 test test_ls_recursive_stops_at_directory_cycles { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/loop".mkdir()
-  fs.symlink(p"../loop", fp"{work}/loop/sub")?
+  fp"{work}/loop/sub".symlink(to: p"../loop")
 
   let result = ls_in(ctx, work, ["-RL", "loop"])?
   assert result.status == 2
@@ -334,9 +333,8 @@ test test_ls_color_uses_gnu_default_and_ls_colors_sequences { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/d".mkdir()
   fp"{work}/plain".write("")
-  fp"{work}/run".write("")
-  fp"{work}/run".chmod(0o755)
-  fs.symlink(p"missing", fp"{work}/dangling")?
+  fp"{work}/run".write("", mode: 0o755)
+  fp"{work}/dangling".symlink(to: p"missing")
 
   let colored = ls_in(ctx, work, ["--color=always"])?
   assert colored.text == "\u{1b}[0m\u{1b}[01;34md\u{1b}[0m\n\u{1b}[01;36mdangling\u{1b}[0m\nplain\n\u{1b}[01;32mrun\u{1b}[0m\n", colored.text

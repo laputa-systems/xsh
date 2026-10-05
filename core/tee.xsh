@@ -42,7 +42,7 @@ proc resolve_mode(text: Str) [process, env] -> Str {
 
   return found[0] when found.len() == 1
 
-  let kind = if found.len() == 0 { "invalid" } else { "ambiguous" }
+  let kind = if found.is_empty() { "invalid" } else { "ambiguous" }
   gnu.error(f"{kind} argument {gnu.quote_value(text)} for '--output-error'")
   eprint "Valid arguments are:"
 

@@ -51,25 +51,24 @@ pure split_records(data: Bytes, sep: Int) -> List[Bytes] {
   if let Ok(text) = data.utf8() {
     var parts = text.split(if sep == 0 { "\0" } else { "\n" })
 
-    if parts.len() > 0 and parts[parts.len() - 1] == "" {
+    if ! parts.is_empty() and parts[-1] == "" {
       parts = parts[..parts.len() - 1]
     }
 
     return [bytes.from_text(part) for part in parts]
   }
 
-  var records: List[Bytes] = []
   var start = 0
 
-  for index in range(data.len()) {
-    if data.byte_at(index) == sep {
-      records += [data[start..index]]
-      start = index + 1
+  let records: List[Bytes] = collect {
+    for index in range(data.len()) {
+      if data.byte_at(index) == sep {
+        yield data[start..index]
+        start = index + 1
+      }
     }
-  }
 
-  if start < data.len() {
-    records += [data[start..]]
+    yield data[start..] when start < data.len()
   }
 
   records
@@ -159,16 +158,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 1
   }
 
-  if opts.echo and opts.range.len() > 0 {
+  if opts.echo and ! opts.range.is_empty() {
     gnu.error("cannot combine -e and -i options")
     exit 1
   }
 
-  if opts.range.len() > 0 and opts.operands.len() > 0 {
+  if ! opts.range.is_empty() and ! opts.operands.is_empty() {
     gnu.extra_operand(opts.operands[0])
   }
 
-  if ! opts.echo and opts.range.len() == 0 and opts.operands.len() > 1 {
+  if ! opts.echo and opts.range.is_empty() and opts.operands.len() > 1 {
     gnu.extra_operand(opts.operands[1])
   }
 
@@ -183,8 +182,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    if ! counted or (parsed ?? 0) < head {
-      head = parsed ?? 0
+    if ! counted or parsed < head {
+      head = parsed
     }
 
     counted = true
@@ -193,18 +192,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var lo = 0
   var hi = -1
 
-  if opts.range.len() > 0 {
+  if ! opts.range.is_empty() {
     let text = opts.range[0]
     let cut = text.find("-") ?? -1
     let from = if cut > 0 { parse_count(text.byte_slice(0, length: cut)) } else { null }
     let to = if cut >= 0 { parse_count(text.byte_slice(cut + 1)) } else { null }
 
-    if from == null or to == null or (from ?? 0) - 1 > (to ?? 0) {
+    if from == null or to == null or from - 1 > to {
       gnu.error(f"invalid input range: {gnu.quote(text)}")
       exit 1
     }
 
-    if (from ?? 0) >= tio.MAX_COUNT or (to ?? 0) >= tio.MAX_COUNT {
+    if from >= tio.MAX_COUNT or to >= tio.MAX_COUNT {
       if ! opts.repeat and head == tio.MAX_COUNT {
         gnu.error("memory exhausted")
       } else {
@@ -214,8 +213,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    lo = from ?? 0
-    hi = to ?? 0
+    lo = from
+    hi = to
   }
 
   let sep = if opts.zero { 0 } else { 10 }
@@ -237,7 +236,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var device = true
 
   if opts.source != null {
-    let name = opts.source ?? ""
+    let name = opts.source
     let kind = if let Ok(found) = fs.stat(fp"{name}", follow_symlinks: true) { found.kind } else { "missing" }
 
     if kind == "file" or kind == "missing" or name == "-" {
@@ -251,14 +250,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  let device_path = if opts.source != null { fp"{opts.source ?? ""}" } else { p"/dev/urandom" }
+  let device_path = if opts.source != null { fp"{opts.source}" } else { p"/dev/urandom" }
 
   var items: List[Bytes] = []
   var total = 0
   var later: List[Bytes] = []
   var reservoir = false
 
-  if opts.range.len() > 0 {
+  if ! opts.range.is_empty() {
     total = hi - lo + 1
   } else if opts.echo {
     items = [bytes.from_text(item) for item in opts.operands]
@@ -308,16 +307,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # long input range through a map of the swapped positions, dense mode
   # shuffles the items (or the range) in place.
   let amount = if opts.repeat { head } else if head < total { head } else { total }
-  let ranged = opts.range.len() > 0
+  let ranged = ! opts.range.is_empty()
   let sparse = ranged and ! opts.repeat and amount * 16 < total
-  var moved: Map[Int, Int] = map.empty()
+  var moved: Map[Int, Int] = {}
   var picks: List[Int] = []
 
   if ranged and ! opts.repeat and ! sparse {
     picks = [lo + step for step in range(total)]
   }
 
-  var out: List[Bytes] = []
   var size = 0
   var failed = false
   var limited = false
@@ -330,91 +328,91 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var sampled = 0
 
-  while (sampled < later.len() + (if reservoir { 1 } else { 0 }) or index < amount) and ! failed and ! limited {
-    let sampling = reservoir and sampled < later.len() + 1
-    let at_most = if sampling { head + sampled } else if opts.repeat { total - 1 } else { total - index - 1 }
-    var value = 0
-    var settled = false
+  let out: List[Bytes] = collect {
+    while (sampled < later.len() + (if reservoir { 1 } else { 0 }) or index < amount) and ! failed and ! limited {
+      let sampling = reservoir and sampled < later.len() + 1
+      let at_most = if sampling { head + sampled } else if opts.repeat { total - 1 } else { total - index - 1 }
+      var value = 0
+      var settled = false
 
-    while ! settled and ! failed {
-      let got = draw(window, spot, state, entropy, at_most)
+      while ! settled and ! failed {
+        let got = draw(window, spot, state, entropy, at_most)
 
-      state = got.state
-      entropy = got.entropy
-      spot = got.pos
+        state = got.state
+        entropy = got.entropy
+        spot = got.pos
 
-      if got.ok {
-        value = got.value
-        settled = true
-      } else {
-        if device {
-          window = bytes.read_at(device_path, 0, 4096) ?? b""
+        if got.ok {
+          value = got.value
+          settled = true
         } else {
-          let stop = if offset + 256 < source.len() { offset + 256 } else { source.len() }
+          if device {
+            window = bytes.read_at(device_path, 0, 4096) ?? b""
+          } else {
+            let stop = if offset + 256 < source.len() { offset + 256 } else { source.len() }
 
-          window = source[offset..stop]
-          offset = stop
+            window = source[offset..stop]
+            offset = stop
+          }
+
+          spot = 0
+
+          if window.is_empty() {
+            failed = true
+          }
+        }
+      }
+
+      break when failed
+
+      if sampling {
+        if sampled < later.len() and value < head {
+          items[value] = later[sampled]
         }
 
-        spot = 0
+        sampled += 1
+        continue
+      }
 
-        if window.len() == 0 {
-          failed = true
+      if opts.repeat {
+        let piece = if ranged { bytes.from_text(f"{lo + value}") } else { items[value] }
+
+        yield @[piece, mark]
+        size += piece.len() + 1
+
+        if size > OUTPUT_LIMIT and head == tio.MAX_COUNT {
+          limited = true
         }
-      }
-    }
+      } else if sparse {
+        let here = lo + index
+        let held = moved.get(here) ?? here
+        let there = here + value
+        var shown = held
 
-    if failed {
-      break
-    }
+        if there != here {
+          shown = moved.get(there) ?? there
+          moved[there] = held
+        }
 
-    if sampling {
-      if sampled < later.len() and value < head {
-        items[value] = later[sampled]
-      }
+        yield @[bytes.from_text(f"{shown}"), mark]
+      } else if ranged {
+        let other = index + value
+        let held = picks[index]
 
-      sampled += 1
-      continue
-    }
+        picks[index] = picks[other]
+        picks[other] = held
+        yield @[bytes.from_text(f"{picks[index]}"), mark]
+      } else {
+        let other = index + value
+        let held = items[index]
 
-    if opts.repeat {
-      let piece = if ranged { bytes.from_text(f"{lo + value}") } else { items[value] }
-
-      out += [piece, mark]
-      size += piece.len() + 1
-
-      if size > OUTPUT_LIMIT and head == tio.MAX_COUNT {
-        limited = true
-      }
-    } else if sparse {
-      let here = lo + index
-      let held = moved.get(here) ?? here
-      let there = here + value
-      var shown = held
-
-      if there != here {
-        shown = moved.get(there) ?? there
-        moved[there] = held
+        items[index] = items[other]
+        items[other] = held
+        yield @[items[index], mark]
       }
 
-      out += [bytes.from_text(f"{shown}"), mark]
-    } else if ranged {
-      let other = index + value
-      let held = picks[index]
-
-      picks[index] = picks[other]
-      picks[other] = held
-      out += [bytes.from_text(f"{picks[index]}"), mark]
-    } else {
-      let other = index + value
-      let held = items[index]
-
-      items[index] = items[other]
-      items[other] = held
-      out += [items[index], mark]
+      index += 1
     }
-
-    index += 1
   }
 
   # A permutation is written only once complete; repeated output goes out as

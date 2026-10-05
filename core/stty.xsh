@@ -275,9 +275,7 @@ pure parse_c_integer(text: Str) -> Integer {
   while at < total {
     let digit = hex_digit(text.byte_at(at) ?? 0)
 
-    if digit < 0 or digit >= base {
-      return {status: "invalid", value: 0}
-    }
+    return {status: "invalid", value: 0} when digit < 0 or digit >= base
 
     if value > 1152921504606846976 {
       overflow = true
@@ -318,9 +316,7 @@ proc integer_arg(text: Str, max: Int) [process, env] -> Int {
 proc char_value(text: Str) [process, env] -> Int {
   let total = text.byte_len()
 
-  if total <= 1 {
-    return text.byte_at(0) ?? 0
-  }
+  return text.byte_at(0) ?? 0 when total <= 1
 
   return 0 when text == "^-" or text == "undef"
 
@@ -363,8 +359,7 @@ pure baud_value(text: Str, speeds: List[Int]) -> Int {
 
   return -1 when value < 0 or value > 4294967295
 
-  if parts.len() == 2 {
-    let fraction = parts[1]
+  if let [_, fraction] = parts {
 
     return -1 when fraction == "" or ! rx"^[0-9]+$".matches(fraction)
 
@@ -559,9 +554,7 @@ pure apply_combo(table: UnixTtyTable, attrs: UnixTtyAttrs, name: Str, reversed: 
     return set_char(table, set_char(table, attrs, "erase", sane_char(table, "erase")), "kill", sane_char(table, "kill"))
   }
 
-  if name == "cbreak" {
-    return set_flag(table, attrs, "icanon", reversed)
-  }
+  return set_flag(table, attrs, "icanon", reversed) when name == "cbreak"
 
   if name == "pass8" {
     if reversed {
@@ -581,17 +574,13 @@ pure apply_combo(table: UnixTtyTable, attrs: UnixTtyAttrs, name: Str, reversed: 
 
   # GNU applies `decctlq` as `-ixany` (only the start character restarts
   # output) although its help says it is the same as `ixany`.
-  if name == "decctlq" {
-    return set_flag(table, attrs, "ixany", reversed)
-  }
+  return set_flag(table, attrs, "ixany", reversed) when name == "decctlq"
 
   if name == "lcase" or name == "LCASE" {
     return set_flags(table, attrs, ["xcase", "iuclc", "olcuc"], ! reversed)
   }
 
-  if name == "crt" {
-    return set_flags(table, attrs, ["echoe", "echoctl", "echoke"], true)
-  }
+  return set_flags(table, attrs, ["echoe", "echoctl", "echoke"], true) when name == "crt"
 
   if name == "dec" {
     let chars = set_char(table, set_char(table, set_char(table, attrs, "intr", 3), "erase", 127), "kill", 21)
@@ -640,27 +629,27 @@ pure parse_saved(text: Str) -> List[Int]? {
 
   return null when parts.len() != 4 + NCCS
 
-  var values: List[Int] = []
+  let values: List[Int] = collect {
+    for index in range(parts.len()) {
+      let last = index == parts.len() - 1
+      let captured = rx"^[ \t\n\r\f\v]*(?:0[xX])?([0-9a-fA-F]+)(.*)$".captures(parts[index])
 
-  for index in range(parts.len()) {
-    let last = index == parts.len() - 1
-    let captured = rx"^[ \t\n\r\f\v]*(?:0[xX])?([0-9a-fA-F]+)(.*)$".captures(parts[index])
+      return null when captured.is_empty()
+      return null when ! last and captured[2] != ""
 
-    return null when captured.len() == 0
-    return null when ! last and captured[2] != ""
+      let digits = captured[1]
+      var value = 0
 
-    let digits = captured[1]
-    var value = 0
+      for position in range(digits.byte_len()) {
+        value = value * 16 + hex_digit(digits.byte_at(position) ?? 0)
 
-    for position in range(digits.byte_len()) {
-      value = value * 16 + hex_digit(digits.byte_at(position) ?? 0)
+        return null when value > 4294967295
+      }
 
-      return null when value > 4294967295
+      return null when index >= 4 and value > 255
+
+      yield value
     }
-
-    return null when index >= 4 and value > 255
-
-    values += [value]
   }
 
   values
@@ -676,112 +665,113 @@ proc parse_arguments(argv: List[Str]) [process, env] -> Parsed {
   var file: Str? = null
   var help = false
   var version = false
-  var settings: List[Str] = []
   var marked = false
   var index = 0
   var finished = false
 
-  while index < argv.len() {
-    let arg = argv[index]
-    index += 1
+  let settings: List[Str] = collect {
+    while index < argv.len() {
+      let arg = argv[index]
+      index += 1
 
-    if finished {
-      settings += [arg]
-      continue
-    }
-
-    if arg == "--" {
-      finished = true
-      continue
-    }
-
-    if arg.starts_with("--") {
-      let equals = arg.find("=")
-      let name = if equals == null { arg.byte_slice(2) } else { arg.byte_slice(2, length: equals - 2) }
-      let longs = ["all", "save", "file", "help", "version"]
-      let matches = [long for long in longs if long.starts_with(name)]
-      let chosen = if name in longs { name } else if matches.len() == 1 { matches[0] } else { "" }
-
-      if chosen == "all" and equals == null {
-        all = true
-      } else if chosen == "save" and equals == null {
-        save = true
-      } else if chosen == "help" and equals == null {
-        help = true
-        break
-      } else if chosen == "version" and equals == null {
-        version = true
-        break
-      } else if chosen == "file" and (equals != null or index < argv.len()) {
-        if equals != null {
-          file = arg.byte_slice(equals + 1)
-        } else {
-          file = argv[index]
-          index += 1
-        }
-      } else {
-        settings += [arg]
+      if finished {
+        yield arg
+        continue
       }
 
-      continue
-    }
+      if arg == "--" {
+        finished = true
+        continue
+      }
 
-    if arg.starts_with("-") and arg != "-" {
-      let letters = arg.byte_slice(1)
-      var position = 0
-      var unknown = false
-      var consumed_next = false
-      var recognized_all = false
-      var recognized_save = false
-      var device: Str? = null
+      if arg.starts_with("--") {
+        let equals = arg.find("=")
+        let name = if equals == null { arg.byte_slice(2) } else { arg.byte_slice(2, length: equals - 2) }
+        let longs = ["all", "save", "file", "help", "version"]
+        let matches = [long for long in longs if long.starts_with(name)]
+        let chosen = if name in longs { name } else if matches.len() == 1 { matches[0] } else { "" }
 
-      while position < letters.byte_len() {
-        let letter = letters.byte_slice(position, length: 1)
-        position += 1
+        if chosen == "all" and equals == null {
+          all = true
+        } else if chosen == "save" and equals == null {
+          save = true
+        } else if chosen == "help" and equals == null {
+          help = true
+          break
+        } else if chosen == "version" and equals == null {
+          version = true
+          break
+        } else if chosen == "file" and (equals != null or index < argv.len()) {
+          if equals != null {
+            file = arg.byte_slice(equals + 1)
+          } else {
+            file = argv[index]
+            index += 1
+          }
+        } else {
+          yield arg
+        }
 
-        if letter == "a" {
-          recognized_all = true
-        } else if letter == "g" {
-          recognized_save = true
-        } else if letter == "F" {
-          let attached = letters.byte_slice(position)
+        continue
+      }
 
-          if attached != "" {
-            device = attached
-          } else if index < argv.len() {
-            device = argv[index]
-            consumed_next = true
+      if arg.starts_with("-") and arg != "-" {
+        let letters = arg.byte_slice(1)
+        var position = 0
+        var unknown = false
+        var consumed_next = false
+        var recognized_all = false
+        var recognized_save = false
+        var device: Str? = null
+
+        while position < letters.byte_len() {
+          let letter = letters.byte_slice(position, length: 1)
+          position += 1
+
+          if letter == "a" {
+            recognized_all = true
+          } else if letter == "g" {
+            recognized_save = true
+          } else if letter == "F" {
+            let attached = letters.byte_slice(position)
+
+            if attached != "" {
+              device = attached
+            } else if index < argv.len() {
+              device = argv[index]
+              consumed_next = true
+            } else {
+              unknown = true
+            }
+
+            position = letters.byte_len()
           } else {
             unknown = true
+            break
           }
-
-          position = letters.byte_len()
-        } else {
-          unknown = true
-          break
         }
+
+        all = all or recognized_all
+        save = save or recognized_save
+
+        if let named = device {
+          file = named
+        }
+
+        if consumed_next {
+          index += 1
+        }
+
+        if unknown {
+          marked = true
+          yield arg
+        }
+
+        continue
       }
 
-      all = all or recognized_all
-      save = save or recognized_save
-
-      if let named = device {
-        file = named
-      }
-
-      if consumed_next {
-        index += 1
-      }
-
-      if unknown {
-        marked = true
-        settings += [arg]
-      }
-
-      continue
+      yield arg
     }
-
-    settings += [arg]
   }
 
   {all: all, save: save, file: file, help: help, version: version, settings: settings, marked: marked}
@@ -800,68 +790,75 @@ proc invalid_argument(arg: Str) [process, env] {
 # Check every setting before the terminal is touched, as GNU's first pass
 # does, and return the typed list the apply pass walks.
 proc check_settings(table: UnixTtyTable, texts: List[Str]) [process, env, error] -> List[Setting] {
-  var checked: List[Setting] = []
   var at = 0
 
-  while at < texts.len() {
-    let arg = texts[at]
-    let reversed = arg.starts_with("-")
-    let word = if reversed { arg.byte_slice(1) } else { arg }
-    let name = alias_of(word)
+  let checked: List[Setting] = collect {
+    while at < texts.len() {
+      let arg = texts[at]
+      let reversed = arg.starts_with("-")
+      let word = if reversed { arg.byte_slice(1) } else { arg }
+      let name = alias_of(word)
 
-    if reversed and (is_grouped(word) or word in COMBOS_PLAIN or word == "sane") {
-      invalid_argument(arg)
-    }
-
-    if flag_named(table, name) != null and (! reversed or ! is_grouped(name)) {
-      checked += [{kind: "flag", name: name, reversed: reversed, text: "", number: 0}]
-    } else if flag_named(table, name) != null {
-      invalid_argument(arg)
-    } else if word == "drain" {
-      checked += [{kind: "drain", name: "drain", reversed: reversed, text: "", number: 0}]
-    } else if ! reversed and char_named(table, word) != null and word != "min" and word != "time" {
-      needs_argument(arg, texts, at)
-      at += 1
-      checked += [{kind: "char", name: word, reversed: false, text: texts[at], number: char_value(texts[at])}]
-    } else if ! reversed and (word == "min" or word == "time") {
-      needs_argument(arg, texts, at)
-      at += 1
-      checked += [{kind: "number", name: word, reversed: false, text: texts[at], number: integer_arg(texts[at], 255)}]
-    } else if ! reversed and (word == "ispeed" or word == "ospeed") {
-      needs_argument(arg, texts, at)
-      at += 1
-
-      let speed = baud_value(texts[at], table.speeds)
-
-      if speed < 0 {
-        gnu.usage_error(f"invalid {word} {gnu.quote_value(texts[at])}")
+      if reversed and (is_grouped(word) or word in COMBOS_PLAIN or word == "sane") {
+        invalid_argument(arg)
       }
 
-      checked += [{kind: word, name: word, reversed: false, text: texts[at], number: speed}]
-    } else if ! reversed and (word == "rows" or word == "cols" or word == "columns") {
-      needs_argument(arg, texts, at)
-      at += 1
+      if flag_named(table, name) != null and (! reversed or ! is_grouped(name)) {
+        yield {kind: "flag", name: name, reversed: reversed, text: "", number: 0}
+      } else if flag_named(table, name) != null {
+        invalid_argument(arg)
+      } else if word == "drain" {
+        yield {kind: "drain", name: "drain", reversed: reversed, text: "", number: 0}
+      } else if ! reversed and char_named(table, word) != null and word != "min" and word != "time" {
+        needs_argument(arg, texts, at)
+        at += 1
+        yield {kind: "char", name: word, reversed: false, text: texts[at], number: char_value(texts[at])}
+      } else if ! reversed and (word == "min" or word == "time") {
+        needs_argument(arg, texts, at)
+        at += 1
+        yield {kind: "number", name: word, reversed: false, text: texts[at], number: integer_arg(texts[at], 255)}
+      } else if ! reversed and (word == "ispeed" or word == "ospeed") {
+        needs_argument(arg, texts, at)
+        at += 1
 
-      let size = integer_arg(texts[at], 4294967295)
+        let speed = baud_value(texts[at], table.speeds)
 
-      checked += [{kind: if word == "rows" { "rows" } else { "cols" }, name: word, reversed: false, text: texts[at], number: size % 65536}]
-    } else if ! reversed and word == "line" {
-      needs_argument(arg, texts, at)
+        if speed < 0 {
+          gnu.usage_error(f"invalid {word} {gnu.quote_value(texts[at])}")
+        }
+
+        yield {kind: word, name: word, reversed: false, text: texts[at], number: speed}
+      } else if ! reversed and (word == "rows" or word == "cols" or word == "columns") {
+        needs_argument(arg, texts, at)
+        at += 1
+
+        let size = integer_arg(texts[at], 4294967295)
+
+        yield {
+          kind: if word == "rows" { "rows" } else { "cols" },
+          name: word,
+          reversed: false,
+          text: texts[at],
+          number: size % 65536,
+        }
+      } else if ! reversed and word == "line" {
+        needs_argument(arg, texts, at)
+        at += 1
+        yield {kind: "line", name: word, reversed: false, text: texts[at], number: integer_arg(texts[at], 255)}
+      } else if ! reversed and (word == "size" or word == "speed") {
+        yield {kind: word, name: word, reversed: false, text: "", number: 0}
+      } else if word in COMBOS_PLAIN or word in COMBOS_NEGATABLE {
+        yield {kind: "combo", name: word, reversed: reversed, text: "", number: 0}
+      } else if ! reversed and parse_saved(arg) != null {
+        yield {kind: "saved", name: "saved", reversed: false, text: arg, number: 0}
+      } else if baud_value(arg, table.speeds) >= 0 and ! reversed {
+        yield {kind: "both", name: "speed", reversed: false, text: arg, number: baud_value(arg, table.speeds)}
+      } else {
+        invalid_argument(arg)
+      }
+
       at += 1
-      checked += [{kind: "line", name: word, reversed: false, text: texts[at], number: integer_arg(texts[at], 255)}]
-    } else if ! reversed and (word == "size" or word == "speed") {
-      checked += [{kind: word, name: word, reversed: false, text: "", number: 0}]
-    } else if word in COMBOS_PLAIN or word in COMBOS_NEGATABLE {
-      checked += [{kind: "combo", name: word, reversed: reversed, text: "", number: 0}]
-    } else if ! reversed and parse_saved(arg) != null {
-      checked += [{kind: "saved", name: "saved", reversed: false, text: arg, number: 0}]
-    } else if baud_value(arg, table.speeds) >= 0 and ! reversed {
-      checked += [{kind: "both", name: "speed", reversed: false, text: arg, number: baud_value(arg, table.speeds)}]
-    } else {
-      invalid_argument(arg)
     }
-
-    at += 1
   }
 
   checked
@@ -877,7 +874,7 @@ proc open_device(file: Str?) [process, env] -> Device {
     return {fd: 0, name: "standard input", opened: false}
   }
 
-  match unix.open_fd(Path(named), nonblock: true) {
+  match unix.open_fd(fp"{named}", nonblock: true) {
     Ok(fd) => {
       {fd: fd, name: named, opened: true}
     }
@@ -916,25 +913,21 @@ pure speed_item(attrs: UnixTtyAttrs) -> Str {
 # or `-name` and a grouped flag shows only the member that is selected;
 # otherwise only the deviations from `stty sane` show.
 pure flag_items(table: UnixTtyTable, attrs: UnixTtyAttrs, names: List[Str], everything: Bool) -> List[Str] {
-  var items: List[Str] = []
-
-  for name in names {
-    guard let flag = flag_named(table, name) else {
-      continue
-    }
-
-    let active = word_of(attrs, flag.field).bit_and(flag.mask) == flag.value
-
-    if is_grouped(name) {
-      if active and (everything or ! flag.sane) {
-        items += [name]
+  let items: List[Str] = collect {
+    for name in names {
+      guard let flag = flag_named(table, name) else {
+        continue
       }
-    } else if active {
-      if everything or name in SANE_CLEARED {
-        items += [name]
+
+      let active = word_of(attrs, flag.field).bit_and(flag.mask) == flag.value
+
+      if is_grouped(name) {
+        yield name when active and (everything or ! flag.sane)
+      } else if active {
+        yield name when everything or name in SANE_CLEARED
+      } else if everything or flag.sane {
+        yield f"-{name}"
       }
-    } else if everything or flag.sane {
-      items += [f"-{name}"]
     }
   }
 
@@ -1043,7 +1036,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     exit 1
   }
 
-  if (parsed.all or parsed.save) and (parsed.settings.len() > 0 or parsed.marked) {
+  if (parsed.all or parsed.save) and (! parsed.settings.is_empty() or parsed.marked) {
     gnu.error("when specifying an output style, modes may not be set")
     exit 1
   }

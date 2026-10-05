@@ -109,6 +109,6 @@ test test_tee_getopt_diagnostics_and_help { |ctx|
   assert bad.status == 1
   assert bad.stderr == "tee: unrecognized option '--definitely-invalid'\nTry 'tee --help' for more information.\n", bad.stderr
 
-  assert "Usage: tee [OPTION]... [FILE]..." in tee_run(ctx, root, ["--help"])?.stdout.utf8()?
+  assert "Usage: tee [OPTION]... [FILE]..." in tee_run(ctx, root, ["--help"])?.stdout as Str
   assert tee_run(ctx, root, ["--version"])?.stdout.starts_with(b"tee")
 }

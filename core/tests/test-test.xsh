@@ -28,7 +28,7 @@ proc status_of(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result
 proc expect(ctx: TestContext, cases: List[List[Str]]) [fs, process, error] {
   for case in cases {
     let status = status_of(ctx, case[1..case.len()])?
-    assert status == case[0].parse_int()?, f"test {case[1..case.len()].join(" ")}: {status}"
+    assert status == case[0] as Int, f"test {case[1..case.len()].join(" ")}: {status}"
   }
 }
 
@@ -38,8 +38,8 @@ proc fixtures(ctx: TestContext) [fs, error] -> Result[Path] {
   fp"{root}/regular".write("data")
   fp"{root}/empty".write("")
   fp"{root}/dir".mkdir()
-  fs.symlink(fp"{root}/regular", fp"{root}/link")
-  fs.symlink(fp"{root}/missing", fp"{root}/dangling")
+  fp"{root}/link".symlink(to: fp"{root}/regular")
+  fp"{root}/dangling".symlink(to: fp"{root}/missing")
 
   Ok(root)
 }

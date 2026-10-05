@@ -111,6 +111,6 @@ test test_head_getopt_diagnostics_and_help { |ctx|
   assert late.stderr == "head: invalid option -- '5'\nTry 'head --help' for more information.\n", late.stderr
 
   assert head_run(ctx, root, ["---presume-input-pipe", "-n1"], b"a\nb\n")?.stdout == b"a\n"
-  assert "Usage: head [OPTION]... [FILE]..." in head_run(ctx, root, ["--help"])?.stdout.utf8()?
+  assert "Usage: head [OPTION]... [FILE]..." in head_run(ctx, root, ["--help"])?.stdout as Str
   assert head_run(ctx, root, ["--version"])?.stdout.starts_with(b"head")
 }

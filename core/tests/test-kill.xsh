@@ -18,7 +18,7 @@ proc kill_run(ctx: TestContext, args: List[Str], out: Path? = null) [fs, process
 
 pure last_signal() -> Int {
   let table = process.signals()
-  table[table.len() - 1].number
+  table[-1].number
 }
 
 # Signals a fresh `sleep 30` through the applet and returns how it ended.
@@ -63,7 +63,7 @@ test test_kill_signal_in_every_spelling { |ctx|
 
 test test_kill_realtime_signals_by_offset { |ctx|
   let table = process.signals()
-  let last = table[table.len() - 1]
+  let last = table[-1]
   if last.name != "RTMAX" {
     test.skip("the host has no real-time signals")
   }

@@ -73,38 +73,32 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   let everything = opts.all or opts.all_labeled
   let chosen = everything or opts.kernel_name or opts.nodename or opts.kernel_release or opts.kernel_version or opts.machine or opts.processor or opts.hardware_platform or opts.operating_system
   let info = system.uname()?
-  var fields: List[Field] = []
+  let fields: List[Field] = collect {
+    if everything or opts.kernel_name or ! chosen {
+      yield {label: "Kernel name", text: info.sysname}
+    }
 
-  if everything or opts.kernel_name or ! chosen {
-    fields += [{label: "Kernel name", text: info.sysname}]
-  }
+    yield {label: "Node name", text: info.nodename} when everything or opts.nodename
 
-  if everything or opts.nodename {
-    fields += [{label: "Node name", text: info.nodename}]
-  }
+    if everything or opts.kernel_release {
+      yield {label: "Kernel release", text: info.release}
+    }
 
-  if everything or opts.kernel_release {
-    fields += [{label: "Kernel release", text: info.release}]
-  }
+    if everything or opts.kernel_version {
+      yield {label: "Kernel version", text: info.version}
+    }
 
-  if everything or opts.kernel_version {
-    fields += [{label: "Kernel version", text: info.version}]
-  }
+    yield {label: "Machine", text: info.machine} when everything or opts.machine
 
-  if everything or opts.machine {
-    fields += [{label: "Machine", text: info.machine}]
-  }
+    yield {label: "Processor", text: "unknown"} when opts.processor and ! everything
 
-  if opts.processor and ! everything {
-    fields += [{label: "Processor", text: "unknown"}]
-  }
+    if opts.hardware_platform and ! everything {
+      yield {label: "Hardware platform", text: "unknown"}
+    }
 
-  if opts.hardware_platform and ! everything {
-    fields += [{label: "Hardware platform", text: "unknown"}]
-  }
-
-  if everything or opts.operating_system {
-    fields += [{label: "Operating system", text: "GNU/Linux"}]
+    if everything or opts.operating_system {
+      yield {label: "Operating system", text: "GNU/Linux"}
+    }
   }
 
   if opts.all_labeled {

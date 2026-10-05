@@ -107,7 +107,7 @@ export proc applet_manifest(ctx: context.Context) [fs, error] -> Result[Str, Err
   let alias_file = fp"{ctx.root}/dev/compat/aliases.json"
   var aliases: List[AliasEntry] = []
 
-  if alias_file.exists()? {
+  if alias_file.exists() {
     let table = json.read(alias_file)?.require(AliasFile)?
     for {name: key, target: value} in table.aliases {
       if value not in names {
@@ -203,7 +203,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
 
   stages.ensure_dir(fp"{stage}/core")
   fp"{stage}/core/applets.json".write(applet_manifest(ctx)?)
-  let archived = archive_entries + [p"core/applets.json"]
+  let archived = [@archive_entries, p"core/applets.json"]
   archive.tar_create(core_archive, stage, archived, compression: "xz", overwrite: true)
 
   if core_archive.metadata()?.size == 0 {

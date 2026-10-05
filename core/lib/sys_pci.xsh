@@ -83,7 +83,7 @@ pure parse_hex_component(value: Str) -> Result[Int] {
 export pure parse_address(value: Str) -> Result[PciAddress, Error] {
   let parts = value.split(":")
   if parts.len() != 3 or ! is_hex_component(parts[0], 4) or ! is_hex_component(parts[1], 2) {
-    return Err(SysPciError.InvalidAddress(message: "PCI address has invalid domain or bus syntax"))
+    return Err(SysPciError.InvalidAddress("PCI address has invalid domain or bus syntax"))
   }
 
   let device_function = parts[2].split(".")
@@ -91,7 +91,7 @@ export pure parse_address(value: Str) -> Result[PciAddress, Error] {
     device_function[1],
     1,
   ) {
-    return Err(SysPciError.InvalidAddress(message: "PCI address has invalid device or function syntax"))
+    return Err(SysPciError.InvalidAddress("PCI address has invalid device or function syntax"))
   }
 
   let domain = parse_hex_component(parts[0])?
@@ -99,7 +99,7 @@ export pure parse_address(value: Str) -> Result[PciAddress, Error] {
   let device = parse_hex_component(device_function[0])?
   let function = parse_hex_component(device_function[1])?
   if device > 31 or function > 7 {
-    return Err(SysPciError.InvalidAddress(message: "PCI device or function value exceeds its ABI range"))
+    return Err(SysPciError.InvalidAddress("PCI device or function value exceeds its ABI range"))
   }
 
   Ok({domain: domain, bus: bus, device: device, function: function})
@@ -115,12 +115,12 @@ export pure parse_hex_value(value: Str) -> Result[Int, Error] {
   }
 
   if digits == "" or ! is_hex_component(digits, digits.count_chars()) {
-    return Err(SysPciError.InvalidId(message: "PCI identifier is not hexadecimal"))
+    return Err(SysPciError.InvalidId("PCI identifier is not hexadecimal"))
   }
 
   let parsed = parse_hex_component(digits)?
   if parsed > 4294967295 {
-    return Err(SysPciError.InvalidId(message: "PCI identifier exceeds the supported unsigned range"))
+    return Err(SysPciError.InvalidId("PCI identifier exceeds the supported unsigned range"))
   }
 
   parsed
@@ -128,20 +128,18 @@ export pure parse_hex_value(value: Str) -> Result[Int, Error] {
 
 ## Parses a nonnegative PCI decimal attribute within JSON's exact integer range.
 export pure parse_decimal_value(value: Str) -> Result[Int, Error] {
-  if value == "" {
-    return Err(SysPciError.InvalidId(message: "PCI decimal attribute is empty"))
-  }
+  return Err(SysPciError.InvalidId("PCI decimal attribute is empty")) when value == ""
 
   for digit in value {
     if digit not in "0123456789" {
-      return Err(SysPciError.InvalidId(message: "PCI decimal attribute is not unsigned decimal"))
+      return Err(SysPciError.InvalidId("PCI decimal attribute is not unsigned decimal"))
     }
   }
 
-  let parsed = value.parse_int()?
+  let parsed = value as Int
   if parsed > 9007199254740991 {
     return Err(
-      SysPciError.InvalidId(message: "PCI decimal attribute exceeds the exact JSON integer range"),
+      SysPciError.InvalidId("PCI decimal attribute exceeds the exact JSON integer range"),
     )
   }
 
@@ -156,11 +154,11 @@ proc read_numeric_attribute(
 ) [fs, error] -> NumericRead {
   let source = src.read_source_text(root, source_path)
   var state = source.observation.state
-  if state == report.Absent {
+  if state == .Absent {
     state = report.Disappeared
   }
 
-  if state != report.Observed {
+  if state != .Observed {
     return {
       value: null,
       state: state,
@@ -197,7 +195,7 @@ pure section_state(enumeration: Str, issues: List[src.Issue]) -> report.SectionS
 
   return report.SectionTruncated when enumeration == "truncated"
 
-  return report.Complete when enumeration == "complete" and issues.len() == 0
+  return report.Complete when enumeration == "complete" and issues.is_empty()
 
   report.Partial
 }
@@ -220,7 +218,7 @@ export pure parent_bridge_address(target: Path, child_address: Str) -> Str? {
 proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> src.SourceRead {
   let source = root.readlink_result(source_path)?
   let state = src.source_state(source.state, false)
-  if state != report.Observed {
+  if state != .Observed {
     return {
       observation: {
         state: state,
@@ -285,15 +283,15 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
     let class = read_numeric_attribute(root, fp"{device_path}/class", true)
     let revision = read_numeric_attribute(root, fp"{device_path}/revision", true)
 
-    if vendor.state != report.Observed {
+    if vendor.state != .Observed {
       issues += [src.issue(f"functions.{address_text}.vendor_id", vendor.state, vendor.error_kind, vendor.errno)]
     }
 
-    if device.state != report.Observed {
+    if device.state != .Observed {
       issues += [src.issue(f"functions.{address_text}.device_id", device.state, device.error_kind, device.errno)]
     }
 
-    if subsystem_vendor.state != report.Observed {
+    if subsystem_vendor.state != .Observed {
       issues += [
         src.issue(
           f"functions.{address_text}.subsystem_vendor_id",
@@ -304,7 +302,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       ]
     }
 
-    if subsystem_device.state != report.Observed {
+    if subsystem_device.state != .Observed {
       issues += [
         src.issue(
           f"functions.{address_text}.subsystem_device_id",
@@ -315,11 +313,11 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       ]
     }
 
-    if class.state != report.Observed {
+    if class.state != .Observed {
       issues += [src.issue(f"functions.{address_text}.class_code", class.state, class.error_kind, class.errno)]
     }
 
-    if revision.state != report.Observed {
+    if revision.state != .Observed {
       issues += [src.issue(f"functions.{address_text}.revision", revision.state, revision.error_kind, revision.errno)]
     }
 
@@ -349,17 +347,17 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
     let current_link_width = read_numeric_attribute(root, fp"{device_path}/current_link_width", false)
     let maximum_link_speed = src.read_source_text(root, fp"{device_path}/max_link_speed", max_bytes: 4096)
     let maximum_link_width = read_numeric_attribute(root, fp"{device_path}/max_link_width", false)
-    if numa.state != report.Observed and numa.state != report.Absent and numa.state != report.Disappeared {
+    if numa.state != .Observed and numa.state != .Absent and numa.state != .Disappeared {
       issues += [src.issue(f"functions.{address_text}.numa_node", numa.state, numa.error_kind, numa.errno)]
     }
 
-    if driver.observation.state != report.Observed and driver.observation.state != report.Absent {
+    if driver.observation.state != .Observed and driver.observation.state != .Absent {
       issues += [
         src.issue(f"functions.{address_text}.driver", driver.observation.state, driver.error_kind, driver.errno),
       ]
     }
 
-    if iommu_group.observation.state != report.Observed and iommu_group.observation.state != report.Absent {
+    if iommu_group.observation.state != .Observed and iommu_group.observation.state != .Absent {
       issues += [
         src.issue(
           f"functions.{address_text}.iommu_group",
@@ -370,7 +368,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       ]
     }
 
-    if current_link_speed.observation.state != report.Observed and current_link_speed.observation.state != report.Absent {
+    if current_link_speed.observation.state != .Observed and current_link_speed.observation.state != .Absent {
       issues += [
         src.issue(
           f"functions.{address_text}.current_link_speed",
@@ -381,7 +379,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       ]
     }
 
-    if current_link_width.state != report.Observed and current_link_width.state != report.Disappeared {
+    if current_link_width.state != .Observed and current_link_width.state != .Disappeared {
       issues += [
         src.issue(
           f"functions.{address_text}.current_link_width",
@@ -392,7 +390,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       ]
     }
 
-    if maximum_link_speed.observation.state != report.Observed and maximum_link_speed.observation.state != report.Absent {
+    if maximum_link_speed.observation.state != .Observed and maximum_link_speed.observation.state != .Absent {
       issues += [
         src.issue(
           f"functions.{address_text}.maximum_link_speed",
@@ -403,7 +401,7 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
       ]
     }
 
-    if maximum_link_width.state != report.Observed and maximum_link_width.state != report.Disappeared {
+    if maximum_link_width.state != .Observed and maximum_link_width.state != .Disappeared {
       issues += [
         src.issue(
           f"functions.{address_text}.maximum_link_width",
@@ -436,13 +434,13 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
         parent_function_index: null,
         numa_node: numa_node,
         iommu_group: iommu_group.observation.value,
-        current_link_speed: if current_link_speed.observation.state == report.Observed {
+        current_link_speed: if current_link_speed.observation.state == .Observed {
           current_link_speed.observation.value
         } else {
           null
         },
         current_link_width: current_link_width.value,
-        maximum_link_speed: if maximum_link_speed.observation.state == report.Observed {
+        maximum_link_speed: if maximum_link_speed.observation.state == .Observed {
           maximum_link_speed.observation.value
         } else {
           null
@@ -463,24 +461,23 @@ export proc collect(root: FsRoot) [fs, error] -> PciInventory {
     }
   }
 
-  var linked_functions: List[report.PciFunction] = []
   var position = 0
-  while position < functions.len() {
-    let parent_address = parent_addresses[position]
-    var parent_index: Int? = null
-    if parent_address != null {
-      if parent_address in function_index_by_address {
-        parent_index = function_index_by_address.get(parent_address)?
+  let linked_functions: List[report.PciFunction] = collect {
+    while position < functions.len() {
+      let parent_address = parent_addresses[position]
+      var parent_index: Int? = null
+      if parent_address != null {
+        if parent_address in function_index_by_address {
+          parent_index = function_index_by_address.get(parent_address)?
+        }
       }
-    }
 
-    linked_functions += [
-      {
+      yield {
         ...functions[position],
         parent_function_index: parent_index,
-      },
-    ]
-    position += 1
+      }
+      position += 1
+    }
   }
 
   {

@@ -2,12 +2,12 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 
 proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
   let raw = bytes.from_text(text)
-  return Ok(bytes.concat([raw, bytes.zero(width - raw.len())?]))
+  bytes.concat([raw, bytes.zero(width - raw.len())?])
 }
 
 # One 384-byte glibc `struct utmp` record in native byte order.
 proc utmp_record(kind: Int, pid: Int, line: Str, account: Str) [error] -> Result[Bytes, Error] {
-  return Ok(bytes.concat([
+  bytes.concat([
     bytes.pack_le(kind, 2)?,
     bytes.zero(2)?,
     bytes.pack_le(pid, 4)?,
@@ -20,7 +20,7 @@ proc utmp_record(kind: Int, pid: Int, line: Str, account: Str) [error] -> Result
     bytes.pack_le(1700000000, 4)?,
     bytes.zero(4)?,
     bytes.zero(36)?,
-  ]))
+  ])
 }
 
 proc users_run(ctx: TestContext, args: List[Str], sink: Path? = null) [fs, process, error] -> Result[Ran] {
@@ -37,7 +37,7 @@ proc users_run(ctx: TestContext, args: List[Str], sink: Path? = null) [fs, proce
 proc session_file(ctx: TestContext, records: List[Bytes]) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "users-utmp")?
   let file = fp"{root}/utmp"
-  file.write(bytes.concat(records))?
+  file.write(bytes.concat(records))
   Ok(file)
 }
 
@@ -100,7 +100,7 @@ test test_users_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_users_reports_a_full_device { |ctx|
-  if ! p"/dev/full".exists()? {
+  if ! p"/dev/full".exists() {
     test.skip("/dev/full is not available")
   }
 

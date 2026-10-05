@@ -13,12 +13,12 @@ const STAMP = 1700000000
 
 proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
   let raw = bytes.from_text(text)
-  return Ok(bytes.concat([raw, bytes.zero(width - raw.len())?]))
+  bytes.concat([raw, bytes.zero(width - raw.len())?])
 }
 
 # One 384-byte glibc `struct utmp` record in native byte order.
-proc utmp_record(kind: Int, pid: Int, line: Str, id: Str, account: Str, host: Str, termination: Int = 0, code: Int = 0) [error] -> Result[Bytes, Error] {
-  return Ok(bytes.concat([
+proc utmp_record(kind: Int, pid: Int, line: Str, id: Str, account: Str, host: Str, termination = 0, code = 0) [error] -> Result[Bytes, Error] {
+  bytes.concat([
     bytes.pack_le(kind, 2)?,
     bytes.zero(2)?,
     bytes.pack_le(pid, 4)?,
@@ -32,7 +32,7 @@ proc utmp_record(kind: Int, pid: Int, line: Str, id: Str, account: Str, host: St
     bytes.pack_le(STAMP, 4)?,
     bytes.zero(4)?,
     bytes.zero(36)?,
-  ]))
+  ])
 }
 
 proc run_level(previous: Int, current: Int) [error] -> Result[Bytes] {
@@ -50,7 +50,7 @@ proc fixture(ctx: TestContext) [fs, error] -> Result[Path] {
     utmp_record(LOGIN_PROCESS, 2345, "tty1", "1", "LOGIN", "")?,
     utmp_record(USER_PROCESS, 3456, "ttyNotThere", "ts/9", "alice", "example.org")?,
     utmp_record(DEAD_PROCESS, 4567, "pts/98", "ts/8", "", "", termination: 1, code: 2)?,
-  ]))?
+  ]))
   Ok(file)
 }
 
@@ -121,7 +121,7 @@ test test_who_count_lists_names_and_a_total { |ctx|
 
   let root = test.temp_dir(ctx, name: "who-none")?
   let empty = fp"{root}/utmp"
-  empty.write(b"")?
+  empty.write(b"")
   assert who_run(ctx, ["-q", empty.display()])?.stdout == "\n# users=0\n"
 }
 
@@ -144,9 +144,9 @@ test test_who_headings_follow_the_selected_columns { |ctx|
 test test_who_run_level_reports_the_previous_level { |ctx|
   let root = test.temp_dir(ctx, name: "who-levels")?
   let file = fp"{root}/utmp"
-  file.write(run_level(51, 53)?)?
+  file.write(run_level(51, 53)?)
   assert who_run(ctx, ["-r", file.display()])?.stdout == "         run-level 5  Nov 14 22:13                   last=3\n"
-  file.write(run_level(0, 53)?)?
+  file.write(run_level(0, 53)?)
   assert who_run(ctx, ["-r", file.display()])?.stdout == "         run-level 5  Nov 14 22:13\n"
 }
 
@@ -165,17 +165,17 @@ test test_who_host_display_is_kept_after_the_host { |ctx|
   file.write(bytes.concat([
     utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "box:0")?,
     utmp_record(USER_PROCESS, 2, "tty2", "2", "eve", ":1")?,
-  ]))?
+  ]))
   assert who_run(ctx, [file.display()])?.stdout == "bob      tty1         Nov 14 22:13 (box:0)\neve      tty2         Nov 14 22:13 (:1)\n"
 }
 
 test test_who_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
   let root = test.temp_dir(ctx, name: "who-lookup")?
   let file = fp"{root}/utmp"
-  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "192.0.2.7:0")?)?
+  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "192.0.2.7:0")?)
   assert who_run(ctx, ["--lookup", file.display()])?.stdout == "bob      tty1         Nov 14 22:13 (192.0.2.7:0)\n"
 
-  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "box.invalid")?)?
+  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "box.invalid")?)
   let refused = who_run(ctx, ["--lookup", file.display()])?
   assert refused.status == 1
   assert refused.stderr == "who: --lookup: cannot canonicalize host name 'box.invalid': canonical names are not available\n", refused.stderr
@@ -188,21 +188,21 @@ test test_who_message_state_and_idle_come_from_the_terminal_file { |ctx|
   let root = test.temp_dir(ctx, name: "who-tty")?
   let writable = p"/tmp/xsh-who-writable"
   let closed = p"/tmp/xsh-who-closed"
-  defer writable.remove(missing_ok: true)
-  defer closed.remove(missing_ok: true)
-  writable.write("")?
-  closed.write("")?
-  writable.chmod(0o620)?
-  closed.chmod(0o600)?
+  defer writable.remove()
+  defer closed.remove()
+  writable.write("")
+  closed.write("")
+  writable.chmod(0o620)
+  closed.chmod(0o600)
   let now_ns = time.now() * 1000000
-  fs.set_times(writable, atime_ns: now_ns - 7200 * 1000000000)?
-  fs.set_times(closed, atime_ns: now_ns - 200000 * 1000000000)?
+  fs.set_times(writable, atime_ns: now_ns - 7200 * 1000000000)
+  fs.set_times(closed, atime_ns: now_ns - 200000 * 1000000000)
 
   let file = fp"{root}/utmp"
   file.write(bytes.concat([
     utmp_record(USER_PROCESS, 1, writable.display(), "1", "bob", "")?,
     utmp_record(USER_PROCESS, 2, closed.display(), "2", "eve", "")?,
-  ]))?
+  ]))
 
   let result = who_run(ctx, ["-T", "-u", file.display()])?
   let lines = result.stdout.lines()
@@ -228,7 +228,7 @@ test test_who_am_i_needs_a_terminal_on_stdin { |ctx|
   assert silent.stdout == ""
   let root = test.temp_dir(ctx, name: "who-ami")?
   let file = fp"{root}/utmp"
-  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "")?)?
+  file.write(utmp_record(USER_PROCESS, 1, "tty1", "1", "bob", "")?)
   assert who_run(ctx, ["am", "i"])?.stdout == "", "two operands mean -m with the default file"
   assert who_run(ctx, ["-H", "-m", file.display()])?.stdout == "NAME     LINE         TIME         COMMENT\n"
 }
@@ -264,7 +264,7 @@ test test_who_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_who_reports_a_full_device { |ctx|
-  if ! p"/dev/full".exists()? {
+  if ! p"/dev/full".exists() {
     test.skip("/dev/full is not available")
   }
 

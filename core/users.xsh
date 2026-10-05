@@ -17,7 +17,7 @@ proc read_sessions(file: Path) [process, env, error] -> List[UnixUtmp] {
   match unix.read_utmp(file) {
     Ok(records) => records
     Err(failure) => {
-      if failure.errno == null {
+      guard failure.errno != null else {
         gnu.error(f"{gnu.quote_maybe(file.display())}: {gnu.strerror(failure)}")
         exit 1
       }
@@ -67,12 +67,12 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     gnu.extra_operand(opts.files[1])
   }
 
-  let file = if opts.files.len() == 1 { Path(opts.files[0]) } else { p"/var/run/utmp" }
+  let file = if opts.files.len() == 1 { fp"{opts.files[0]}" } else { p"/var/run/utmp" }
   let listed = read_sessions(file)
   let sessions = if opts.files.len() == 1 { listed } else { drop_dead_sessions(listed) }
   let names = [entry.user for entry in sessions if entry.kind == "user_process" and entry.user != ""]
 
-  if names.len() > 0 {
+  if ! names.is_empty() {
     gnu.write_text(f"{names |> sort |> join(" ")}\n")
   }
 

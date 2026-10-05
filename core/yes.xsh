@@ -53,7 +53,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  let line = (if opts.words.len() == 0 { "y" } else { opts.words.join(" ") }) + "\n"
+  let line = (if opts.words.is_empty() { "y" } else { opts.words.join(" ") }) + "\n"
   let fitting = OUTPUT_LIMIT / line.byte_len()
   let count = if fitting < 16 { 16 } else { fitting }
 

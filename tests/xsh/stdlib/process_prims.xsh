@@ -28,7 +28,7 @@ test test_signal_table_is_ordered_and_named {
 
 test test_realtime_signals_are_named_by_offset {
   let table = process.signals()
-  let last = table[table.len() - 1]
+  let last = table[-1]
   if last.name != "RTMAX" {
     test.skip("the host has no real-time signals")
   }
@@ -69,7 +69,7 @@ test test_children_lead_their_own_process_group_and_can_be_signaled_as_a_group {
   let handle = spawn run sleep 30 ?
   assert process.group_id(handle.pid)? == handle.pid
   assert process.session_id(handle.pid)? == process.session_id()?
-  process.kill_group(handle.pid, "0")?
+  process.kill_group(handle.pid, "0")
 
   # An exec'd child can no longer be moved into another group (EACCES).
   let moved = process.set_group_id(handle.pid, process.group_id()?)
@@ -78,7 +78,7 @@ test test_children_lead_their_own_process_group_and_can_be_signaled_as_a_group {
     assert failure.errno == 13
   }
 
-  process.kill_group(handle.pid)?
+  process.kill_group(handle.pid)
   let status = wait handle?
   assert status.signaled()
   assert status.signal_number()? == 15
@@ -290,5 +290,5 @@ for name in ["plain", "default"] {
 
 test test_flush_stdout_is_a_no_op_for_captured_output {
   io.write_stdout("captured")
-  io.flush_stdout()?
+  io.flush_stdout()
 }

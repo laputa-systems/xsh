@@ -11,16 +11,16 @@ proc ls_in(
   name = "vdir",
 ) [fs, process, error] -> Result[Ran] {
   let bin = fp"{work}/../bin"
-  bin.mkdir()?
+  bin.mkdir()
 
   let script = fp"{bin}/{name}"
 
-  if ! script.exists()? {
-    fs.symlink(fp"{ctx.core_dir}/ls.xsh", script)?
+  if ! script.exists() {
+    script.symlink(to: fp"{ctx.core_dir}/ls.xsh")
   }
 
-  if ! fp"{bin}/lib".exists()? {
-    fs.symlink(fp"{ctx.core_dir}/lib", fp"{bin}/lib")?
+  if ! fp"{bin}/lib".exists() {
+    fp"{bin}/lib".symlink(to: fp"{ctx.core_dir}/lib")
   }
 
   let out = fp"{work}/../stdout"
@@ -36,7 +36,7 @@ proc ls_in(
 proc sandbox(ctx: TestContext) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "ls")?
   let work = fp"{root}/work"
-  work.mkdir()?
+  work.mkdir()
   Ok(work)
 }
 
@@ -58,8 +58,8 @@ test test_vdir_time_selection_keeps_name_order { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/a".write("")
   fp"{work}/b".write("")
-  fs.set_times(fp"{work}/a", 1000000000000000000, 1000000000000000000)?
-  fs.set_times(fp"{work}/b", 1100000000000000000, 1100000000000000000)?
+  fs.set_times(fp"{work}/a", 1000000000000000000, 1000000000000000000)
+  fs.set_times(fp"{work}/b", 1100000000000000000, 1100000000000000000)
 
   let by_name = ls_in(ctx, work, ["-u", "--time-style=+%Y", "-og"])?
   assert by_name.text == "total 0\n-rw-r--r-- 1 0 2001 a\n-rw-r--r-- 1 0 2004 b\n", by_name.text

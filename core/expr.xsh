@@ -82,22 +82,23 @@ pure trim_limbs(parts: List[Int]) -> List[Int] {
 }
 
 pure big_from(text: Str) -> List[Int] {
-  var out: List[Int] = []
   var end = text.byte_len()
 
-  while end > 0 {
-    let start = if end > 9 { end - 9 } else { 0 }
-    out += [text.byte_slice(start, length: end - start).parse_int() ?? 0]
-    end = start
+  let out: List[Int] = collect {
+    while end > 0 {
+      let start = if end > 9 { end - 9 } else { 0 }
+      yield text.byte_slice(start, length: end - start).parse_int() ?? 0
+      end = start
+    }
   }
 
   trim_limbs(out)
 }
 
 pure big_text(parts: List[Int]) -> Str {
-  return "0" when parts.len() == 0
+  return "0" when parts.is_empty()
 
-  var out = f"{parts[parts.len() - 1]}"
+  var out = f"{parts[-1]}"
   var at = parts.len() - 2
 
   while at >= 0 {
@@ -126,16 +127,17 @@ pure big_cmp(a: List[Int], b: List[Int]) -> Int {
 }
 
 pure big_add(a: List[Int], b: List[Int]) -> List[Int] {
-  var out: List[Int] = []
   var carry = 0
   var at = 0
   let count = if a.len() > b.len() { a.len() } else { b.len() }
 
-  while at < count or carry > 0 {
-    let sum = (if at < a.len() { a[at] } else { 0 }) + (if at < b.len() { b[at] } else { 0 }) + carry
-    out += [sum % BASE]
-    carry = sum / BASE
-    at += 1
+  let out: List[Int] = collect {
+    while at < count or carry > 0 {
+      let sum = (if at < a.len() { a[at] } else { 0 }) + (if at < b.len() { b[at] } else { 0 }) + carry
+      yield sum % BASE
+      carry = sum / BASE
+      at += 1
+    }
   }
 
   out
@@ -143,49 +145,51 @@ pure big_add(a: List[Int], b: List[Int]) -> List[Int] {
 
 # A - B for A >= B.
 pure big_sub(a: List[Int], b: List[Int]) -> List[Int] {
-  var out: List[Int] = []
   var borrow = 0
   var at = 0
 
-  while at < a.len() {
-    var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
+  let out: List[Int] = collect {
+    while at < a.len() {
+      var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
 
-    if gap < 0 {
-      gap += BASE
-      borrow = 1
-    } else {
-      borrow = 0
+      if gap < 0 {
+        gap += BASE
+        borrow = 1
+      } else {
+        borrow = 0
+      }
+
+      yield gap
+      at += 1
     }
-
-    out += [gap]
-    at += 1
   }
 
   trim_limbs(out)
 }
 
 pure big_mul_small(a: List[Int], factor: Int) -> List[Int] {
-  return [] when factor == 0 or a.len() == 0
+  return [] when factor == 0 or a.is_empty()
 
-  var out: List[Int] = []
   var carry = 0
 
-  for part in a {
-    let product = part * factor + carry
-    out += [product % BASE]
-    carry = product / BASE
-  }
+  let out: List[Int] = collect {
+    for part in a {
+      let product = part * factor + carry
+      yield product % BASE
+      carry = product / BASE
+    }
 
-  while carry > 0 {
-    out += [carry % BASE]
-    carry = carry / BASE
+    while carry > 0 {
+      yield carry % BASE
+      carry = carry / BASE
+    }
   }
 
   out
 }
 
 pure big_mul(a: List[Int], b: List[Int]) -> List[Int] {
-  return [] when a.len() == 0 or b.len() == 0
+  return [] when a.is_empty() or b.is_empty()
 
   var out: List[Int] = [0 for slot in range(a.len() + b.len())]
 
@@ -235,7 +239,7 @@ pure big_divmod(a: List[Int], b: List[Int]) -> Division {
   var at = a.len() - 1
 
   while at >= 0 {
-    rest = trim_limbs([a[at]] + rest)
+    rest = trim_limbs([a[at], @rest])
 
     if big_cmp(rest, b) >= 0 {
       let top = if rest.len() == width {
@@ -278,7 +282,7 @@ pure whole_from(text: Str) -> Whole {
   let neg = text.starts_with("-")
   let mag = big_from(if neg { text.byte_slice(1) } else { text })
 
-  {neg: neg and mag.len() > 0, mag: mag}
+  {neg: neg and ! mag.is_empty(), mag: mag}
 }
 
 pure whole_text(value: Whole) -> Str {
@@ -306,7 +310,7 @@ pure whole_add(a: Whole, b: Whole) -> Whole {
 }
 
 pure whole_negate(a: Whole) -> Whole {
-  {neg: ! a.neg and a.mag.len() > 0, mag: a.mag}
+  {neg: ! a.neg and ! a.mag.is_empty(), mag: a.mag}
 }
 
 pure looks_like_integer(text: Str) -> Bool {
@@ -538,7 +542,7 @@ pure parse_branch(pat: List[Int], state: Parsed, depth: Int) -> Parsed {
       return fail_with(inner, "Unmatched ( or \\(") when inner.at + 1 >= pat.len() or pat[inner.at] != 92 or pat[inner.at + 1] != 41
 
       atom = [{op: 5, a: 2 * index, b: 0}] + inner.code + [{op: 5, a: 2 * index + 1, b: 0}]
-      st = {...inner, at: inner.at + 2, done: inner.done + [index]}
+      st = {...inner, at: inner.at + 2, done: [@inner.done, index]}
     } else if c == 92 and pat[st.at + 1] >= 49 and pat[st.at + 1] <= 57 {
       let index = pat[st.at + 1] - 48
 
@@ -613,7 +617,7 @@ pure parse_branch(pat: List[Int], state: Parsed, depth: Int) -> Parsed {
         let text = body.utf8() ?? ""
         let parts = rx"^([0-9]*)(,?)([0-9]*)$".captures(text)
 
-        return fail_with(st, "Invalid content of \\{\\}") when parts.len() == 0 or text == ""
+        return fail_with(st, "Invalid content of \\{\\}") when parts.is_empty() or text == ""
         return fail_with(st, "Regular expression too big") when parts[1].byte_len() > 5 or parts[3].byte_len() > 5
 
         let low = if parts[1] == "" { 0 } else { parts[1].parse_int() ?? 0 }
@@ -665,23 +669,23 @@ pure parse_branch(pat: List[Int], state: Parsed, depth: Int) -> Parsed {
 
 pure parse_alt(pat: List[Int], state: Parsed, depth: Int) -> Parsed {
   var st = state
-  var branches: List[List[Instr]] = []
+  let branches: List[List[Instr]] = collect {
+    loop {
+      st = parse_branch(pat, st, depth)
 
-  loop {
-    st = parse_branch(pat, st, depth)
+      return st when st.failure != ""
 
-    return st when st.failure != ""
+      yield st.code
 
-    branches += [st.code]
-
-    if st.at + 1 < pat.len() and pat[st.at] == 92 and pat[st.at + 1] == 124 {
-      st = {...st, at: st.at + 2}
-    } else {
-      break
+      if st.at + 1 < pat.len() and pat[st.at] == 92 and pat[st.at + 1] == 124 {
+        st = {...st, at: st.at + 2}
+      } else {
+        break
+      }
     }
   }
 
-  var joined = branches[branches.len() - 1]
+  var joined = branches[-1]
   var index = branches.len() - 2
 
   while index >= 0 {
@@ -718,7 +722,7 @@ pure run_program(code: List[Instr], sets: List[CharSet], units: List[Int], refs:
   let second = [item.b for item in code]
   var best = -1
   var best_caps: List[Int] = []
-  var seen: Map[Bool] = {}
+  var seen: Set[Str] = set.empty()
   var stack_pc: List[Int] = [0]
   var stack_pos: List[Int] = [0]
   var stack_caps: List[List[Int]] = [[-1 for slot in range(caps_size)]]
@@ -736,7 +740,7 @@ pure run_program(code: List[Instr], sets: List[CharSet], units: List[Int], refs:
 
       break when key in seen
 
-      seen[key] = true
+      seen = seen.add(key)
 
       let op = ops[pc]
 
@@ -820,15 +824,13 @@ type Locale = {utf8: Bool, collate_c: Bool}
 type Outcome = {value: Bytes, error: Str}
 
 const PRECEDENCE: Map[Int] = {"|": 1, "&": 2, "<": 3, "<=": 3, "=": 3, "==": 3, "!=": 3, ">=": 3, ">": 3, "+": 4, "-": 4, "*": 5, "/": 5, "%": 5, ":": 6}
-const ARITY: Map[Int] = {"length": 1, "match": 2, "index": 2, "substr": 3}
+const ARITY: Map[Int] = {length: 1, match: 2, index: 2, substr: 3}
 
 proc locale_variable(category: Str) [env] -> Str {
   for name in ["LC_ALL", category, "LANG"] {
     let found = env.get_or(name, "") ?? ""
 
-    if found != "" {
-      return found
-    }
+    return found when found != ""
   }
 
   ""
@@ -882,18 +884,18 @@ pure arithmetic(op: Str, left: Bytes, right: Bytes) -> Outcome {
   } else if op == "-" {
     return ok(whole_text(whole_add(a, whole_negate(b))))
   } else if op == "*" {
-    return ok(whole_text({neg: a.neg != b.neg and a.mag.len() > 0 and b.mag.len() > 0, mag: big_mul(a.mag, b.mag)}))
+    return ok(whole_text({neg: a.neg != b.neg and ! a.mag.is_empty() and ! b.mag.is_empty(), mag: big_mul(a.mag, b.mag)}))
   }
 
-  return failed("division by zero") when b.mag.len() == 0
+  return failed("division by zero") when b.mag.is_empty()
 
   let division = big_divmod(a.mag, b.mag)
 
   if op == "/" {
-    return ok(whole_text({neg: a.neg != b.neg and division.quotient.len() > 0, mag: division.quotient}))
+    return ok(whole_text({neg: a.neg != b.neg and ! division.quotient.is_empty(), mag: division.quotient}))
   }
 
-  ok(whole_text({neg: a.neg and division.remainder.len() > 0, mag: division.remainder}))
+  ok(whole_text({neg: a.neg and ! division.remainder.is_empty(), mag: division.remainder}))
 }
 
 pure alphanumeric_key(text: Str) -> Str {
@@ -904,15 +906,12 @@ pure alphanumeric_key(text: Str) -> Str {
 # is ignored first, as the usual collations do.
 pure string_order(left: Bytes, right: Bytes, plain: Bool) -> Int {
   if ! plain {
-    match [left.utf8(), right.utf8()] {
-      [Ok(a), Ok(b)] => {
-        let ka = alphanumeric_key(a)
-        let kb = alphanumeric_key(b)
-
-        return -1 when ka < kb
-        return 1 when ka > kb
-      }
-      _ => {}
+    if let [Ok(a), Ok(b)] = [left.utf8(), right.utf8()] {
+      let ka = alphanumeric_key(a)
+      let kb = alphanumeric_key(b)
+    
+      return -1 when ka < kb
+      return 1 when ka > kb
     }
   }
 
@@ -952,9 +951,10 @@ pure comparison(op: Str, left: Bytes, right: Bytes, plain: Bool) -> Bytes {
 pure length_of(value: Bytes, utf8: Bool) -> Bytes {
   return value_of(f"{value.len()}") when ! utf8
 
-  match value.utf8() {
-    Ok(text) => value_of(f"{text.count_chars()}")
-    Err(_) => value_of(f"{decode_units(value, true).units.len()}")
+  if let Ok(text) = value.utf8() {
+    value_of(f"{text.count_chars()}")
+  } else {
+    value_of(f"{decode_units(value, true).units.len()}")
   }
 }
 
@@ -963,9 +963,7 @@ pure index_of(value: Bytes, chars: Bytes, utf8: Bool) -> Bytes {
   let wanted = decode_units(chars, utf8).units
 
   for position in range(haystack.len()) {
-    if haystack[position] in wanted {
-      return value_of(f"{position + 1}")
-    }
+    return value_of(f"{position + 1}") when haystack[position] in wanted
   }
 
   value_of("0")
@@ -975,7 +973,7 @@ pure index_of(value: Bytes, chars: Bytes, utf8: Bool) -> Bytes {
 pure clamped(value: Whole) -> Int {
   return if value.neg { -9223372036854775807 } else { 9223372036854775807 } when value.mag.len() > 2
 
-  let magnitude = (if value.mag.len() > 0 { value.mag[0] } else { 0 }) + (if value.mag.len() > 1 { value.mag[1] * BASE } else { 0 })
+  let magnitude = (if ! value.mag.is_empty() { value.mag[0] } else { 0 }) + (if value.mag.len() > 1 { value.mag[1] * BASE } else { 0 })
 
   if value.neg { -magnitude } else { magnitude }
 }
@@ -1015,9 +1013,7 @@ pure match_value(subject: Bytes, pattern: Bytes, utf8: Bool) -> Outcome {
   let program = compiled.code + [{op: 9, a: 0, b: 0}]
   let result = run_program(program, compiled.sets, pieces.units, compiled.refs, 2 * compiled.groups + 2, utf8)
 
-  if compiled.groups == 0 {
-    return ok(if result.found { f"{result.end}" } else { "0" })
-  }
+  return ok(if result.found { f"{result.end}" } else { "0" }) when compiled.groups == 0
 
   return ok("") when ! result.found or result.caps[2] < 0 or result.caps[3] < 0
 
@@ -1304,9 +1300,9 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  let args = if argv.len() > 0 and argv[0] == "--" { argv[1..] } else { argv }
+  let args = if ! argv.is_empty() and argv[0] == "--" { argv[1..] } else { argv }
 
-  if args.len() == 0 {
+  if args.is_empty() {
     gnu.missing_operand(2)
   }
 

@@ -57,8 +57,8 @@ test test_stat_follows_symlinks_only_when_asked { |ctx|
   let link = fp"{root}/link"
   let dangling = fp"{root}/dangling"
   file.write("hello")
-  fs.symlink(p"file", link)
-  fs.symlink(p"nowhere", dangling)
+  link.symlink(to: p"file")
+  dangling.symlink(to: p"nowhere")
 
   let lstat = fs.stat(link)?
   assert lstat.kind == "symlink"
@@ -142,7 +142,7 @@ test test_set_times_nofollow_changes_the_link_not_its_target { |ctx|
   let file = fp"{root}/file"
   let link = fp"{root}/link"
   file.write("x")
-  fs.symlink(p"file", link)
+  link.symlink(to: p"file")
   fs.set_times(file, atime_ns: 1000000000, mtime_ns: 1000000000)
 
   fs.set_times(link, atime_ns: 3000000000, mtime_ns: 3000000000)
@@ -159,7 +159,7 @@ test test_set_owner_changes_both_ids_and_leaves_null_alone { |ctx|
   let file = fp"{root}/file"
   let link = fp"{root}/link"
   file.write("x")
-  fs.symlink(p"file", link)
+  link.symlink(to: p"file")
   let before = fs.stat(file)?
 
   fs.set_owner(file)
@@ -206,7 +206,7 @@ test test_chmod_can_refuse_to_follow_a_symlink { |ctx|
   let file = fp"{root}/file"
   let link = fp"{root}/link"
   file.write("x")
-  fs.symlink(p"file", link)
+  link.symlink(to: p"file")
   file.chmod(0o600)
 
   file.chmod(0o640, follow_symlinks: false)
@@ -289,7 +289,7 @@ test test_link_follows_a_source_symlink_only_when_asked { |ctx|
   let file = fp"{root}/file"
   let link = fp"{root}/link"
   file.write("x")
-  fs.symlink(p"file", link)
+  link.symlink(to: p"file")
 
   fs.link(link, fp"{root}/to-link")
   assert fs.stat(fp"{root}/to-link")?.kind == "symlink"
@@ -366,7 +366,7 @@ test test_data_ranges_lists_allocated_runs_of_a_sparse_file { |ctx|
   let ranges = fs.data_ranges(file)?
   assert ranges.len() >= 1
   assert ranges[0].offset == 0
-  let last = ranges[ranges.len() - 1]
+  let last = ranges[-1]
   assert last.offset + last.length == size
 
   var covered = 0
@@ -401,8 +401,7 @@ test test_copy_file_copies_bytes_with_the_source_mode_and_reports_the_method { |
   let root = test.temp_dir(ctx, name: "fs-copy-file")?
   let source = fp"{root}/source"
   let dest = fp"{root}/dest"
-  source.write("hello world")
-  source.chmod(0o640)
+  source.write("hello world", mode: 0o640)
 
   let copied = fs.copy_file(source, dest)?
   assert copied.bytes == 11

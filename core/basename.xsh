@@ -34,7 +34,7 @@ pure basename_value(name: Str, suffix: Str) -> Str {
 
   let trimmed = name.byte_slice(0, length: end)
   let parts = trimmed.split("/")
-  let base = if parts.len() > 0 { parts[parts.len() - 1] } else { trimmed }
+  let base = if ! parts.is_empty() { parts[-1] } else { trimmed }
 
   return base when suffix == "" or base == suffix or ! base.ends_with(suffix)
 
@@ -68,7 +68,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var names = opts.names
   var suffix = opts.suffix ?? ""
 
-  if names.len() == 0 {
+  if names.is_empty() {
     gnu.missing_operand()
   }
 

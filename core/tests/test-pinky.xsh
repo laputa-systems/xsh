@@ -8,12 +8,12 @@ const STAMP = 1700000000
 
 proc padded(text: Str, width: Int) [error] -> Result[Bytes, Error] {
   let raw = bytes.from_text(text)
-  return Ok(bytes.concat([raw, bytes.zero(width - raw.len())?]))
+  bytes.concat([raw, bytes.zero(width - raw.len())?])
 }
 
 # One 384-byte glibc `struct utmp` record in native byte order.
 proc utmp_record(kind: Int, line: Str, account: Str, host: Str) [error] -> Result[Bytes, Error] {
-  return Ok(bytes.concat([
+  bytes.concat([
     bytes.pack_le(kind, 2)?,
     bytes.zero(2)?,
     bytes.zero(4)?,
@@ -25,7 +25,7 @@ proc utmp_record(kind: Int, line: Str, account: Str, host: Str) [error] -> Resul
     bytes.pack_le(STAMP, 4)?,
     bytes.zero(4)?,
     bytes.zero(36)?,
-  ]))
+  ])
 }
 
 # A passwd file and utmp file the applet reads through XSH_PASSWD_FILE and
@@ -35,19 +35,19 @@ type World = {passwd: Path, utmp: Path, home: Path}
 proc world(ctx: TestContext, records: List[Bytes]) [fs, error] -> Result[World] {
   let root = test.temp_dir(ctx, name: "pinky")?
   let home = fp"{root}/home"
-  home.mkdir()?
+  home.mkdir()
   let passwd = fp"{root}/passwd"
   passwd.write(f"""alice:x:1000:1000:Alice Liddell,Room 1,555-1234:{home}:/bin/zsh
 bob:x:1001:1001:& Builder:/home/bob:/bin/sh
 longname:x:1002:1002:An Exceptionally Long Real Name:/home/longname:/bin/sh
 blank:x:1003:1003::/home/blank:/bin/sh
-""")?
+""")
   let utmp = fp"{root}/utmp"
-  utmp.write(bytes.concat(records))?
+  utmp.write(bytes.concat(records))
   Ok({passwd: passwd, utmp: utmp, home: home})
 }
 
-proc pinky_run(ctx: TestContext, args: List[Str], w: World, sink: Path? = null, locale: Str = "C") [fs, process, error] -> Result[Ran] {
+proc pinky_run(ctx: TestContext, args: List[Str], w: World, sink: Path? = null, locale = "C") [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "pinky-run")?
   let out = sink ?? fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -106,19 +106,19 @@ test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|
   let shut_line = p"/tmp/xsh-pinky-shut"
   let old_line = p"/tmp/xsh-pinky-old"
   for line in [open_line, shut_line, old_line] {
-    line.write("")?
+    line.write("")
   }
 
-  defer open_line.remove(missing_ok: true)
-  defer shut_line.remove(missing_ok: true)
-  defer old_line.remove(missing_ok: true)
-  open_line.chmod(0o620)?
-  shut_line.chmod(0o600)?
-  old_line.chmod(0o660)?
+  defer open_line.remove()
+  defer shut_line.remove()
+  defer old_line.remove()
+  open_line.chmod(0o620)
+  shut_line.chmod(0o600)
+  old_line.chmod(0o660)
   let now_ns = time.now() * 1000000
-  fs.set_times(open_line, atime_ns: now_ns - 10 * 1000000000)?
-  fs.set_times(shut_line, atime_ns: now_ns - 3000 * 1000000000)?
-  fs.set_times(old_line, atime_ns: now_ns - 200000 * 1000000000)?
+  fs.set_times(open_line, atime_ns: now_ns - 10 * 1000000000)
+  fs.set_times(shut_line, atime_ns: now_ns - 3000 * 1000000000)
+  fs.set_times(old_line, atime_ns: now_ns - 200000 * 1000000000)
 
   let w = world(ctx, [
     utmp_record(USER_PROCESS, open_line.display(), "alice", "")?,
@@ -144,7 +144,7 @@ test test_pinky_long_format_prints_account_details { |ctx|
   let result = pinky_run(ctx, ["-l", "alice"], w)?
   assert result.status == 0
   assert result.stdout == f"""Login name: alice                       In real life:  Alice Liddell
-Directory: {w.home.display()}{pad(w.home.display(), 29)}Shell:  /bin/zsh
+Directory: {w.home}{pad(w.home.display(), 29)}Shell:  /bin/zsh
 
 """, result.stdout
 }
@@ -172,8 +172,8 @@ Login name: blank                       In real life:
 
 test test_pinky_long_format_copies_project_and_plan_files { |ctx|
   let w = sessions(ctx)?
-  fp"{w.home}/.project".write("Compiler\nsecond line\n")?
-  fp"{w.home}/.plan".write("Ship it\n\nsoon")?
+  fp"{w.home}/.project".write("Compiler\nsecond line\n")
+  fp"{w.home}/.plan".write("Ship it\n\nsoon")
 
   let full = pinky_run(ctx, ["-l", "alice"], w)?.stdout
   assert full.ends_with("Project: Compiler\nsecond line\nPlan:\nShip it\n\nsoon\n"), full
@@ -216,7 +216,7 @@ test test_pinky_lookup_passes_numeric_hosts_and_refuses_names { |ctx|
 
 test test_pinky_missing_utmp_lists_only_the_heading { |ctx|
   let w = sessions(ctx)?
-  w.utmp.remove()?
+  w.utmp.remove()
   let result = pinky_run(ctx, [], w)?
   assert result.status == 0
   assert result.stdout == HEADING
@@ -243,7 +243,7 @@ test test_pinky_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_pinky_reports_a_full_device { |ctx|
-  if ! p"/dev/full".exists()? {
+  if ! p"/dev/full".exists() {
     test.skip("/dev/full is not available")
   }
 

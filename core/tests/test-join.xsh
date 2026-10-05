@@ -10,7 +10,7 @@ proc join_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, p
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
-proc join_fixtures(root: Path) [fs, error] -> Result[Unit] {
+proc join_fixtures(root: Path) [fs, error] {
   fp"{root}/f1".write("1\n2\n3\n5\n8\n")
   fp"{root}/f2".write("1 a\n2 b\n3 c\n4 d\n5 e\n6 f\n7 g\n8 h\n9 i\n")
   fp"{root}/f3".write("a 2 f\nb 3 g\nc 4 h\nf 5 i\ng 6 j\nh 7 k\ni 99 l\n")
@@ -18,7 +18,7 @@ proc join_fixtures(root: Path) [fs, error] -> Result[Unit] {
 
 test test_join_pairs_on_the_first_field { |ctx|
   let root = test.temp_dir(ctx, name: "join")?
-  join_fixtures(root)?
+  join_fixtures(root)
 
   assert join_run(ctx, root, ["f1", "f2"])?.stdout == b"1 a\n2 b\n3 c\n5 e\n8 h\n"
   assert join_run(ctx, root, ["-1", "2", "f3", "f2"])?.stdout == b"2 a f b\n3 b g c\n4 c h d\n5 f i e\n6 g j f\n7 h k g\n"
@@ -31,7 +31,7 @@ test test_join_pairs_on_the_first_field { |ctx|
 
 test test_join_unpairable_lines { |ctx|
   let root = test.temp_dir(ctx, name: "join")?
-  join_fixtures(root)?
+  join_fixtures(root)
 
   assert join_run(ctx, root, ["-a", "2", "f1", "f2"])?.stdout == b"1 a\n2 b\n3 c\n4 d\n5 e\n6 f\n7 g\n8 h\n9 i\n"
   assert join_run(ctx, root, ["-v", "2", "f1", "f2"])?.stdout == b"4 d\n6 f\n7 g\n9 i\n", "-v prints only the unpairable lines"
@@ -40,7 +40,7 @@ test test_join_unpairable_lines { |ctx|
 
 test test_join_output_format_and_empty_filler { |ctx|
   let root = test.temp_dir(ctx, name: "join")?
-  join_fixtures(root)?
+  join_fixtures(root)
 
   assert join_run(ctx, root, ["-o", "2.2 1.1", "f1", "f2"])?.stdout == b"a 1\nb 2\nc 3\ne 5\nh 8\n"
   assert join_run(ctx, root, ["-o", "2.2", "-o", "1.1", "f1", "f2"])?.stdout == b"a 1\nb 2\nc 3\ne 5\nh 8\n", "-o accumulates"
@@ -48,7 +48,7 @@ test test_join_output_format_and_empty_filler { |ctx|
   assert join_run(ctx, root, ["-a", "2", "-e", "x", "-o", "0,1.2,2.2", "f1", "f2"])?.stdout == b"1 x a\n2 x b\n3 x c\n4 x d\n5 x e\n6 x f\n7 x g\n8 x h\n9 x i\n"
 
   let auto = join_run(ctx, root, ["-o", "auto", "f2", "f1"])?
-  assert auto.stdout == b"1 a\n2 b\n3 c\n5 e\n8 h\n", auto.stdout.utf8()?
+  assert auto.stdout == b"1 a\n2 b\n3 c\n5 e\n8 h\n", auto.stdout as Str
 }
 
 test test_join_field_separators { |ctx|

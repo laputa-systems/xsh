@@ -120,13 +120,14 @@ pure unsigned_cmp(left: Str, right: Str) -> Int {
 
 # Base 1e9 limbs, least significant first.
 pure limbs(text: Str) -> List[Int] {
-  var out: List[Int] = []
   var end = text.byte_len()
 
-  while end > 0 {
-    let start = if end > 9 { end - 9 } else { 0 }
-    out += [text.byte_slice(start, length: end - start).parse_int() ?? 0]
-    end = start
+  let out: List[Int] = collect {
+    while end > 0 {
+      let start = if end > 9 { end - 9 } else { 0 }
+      yield text.byte_slice(start, length: end - start).parse_int() ?? 0
+      end = start
+    }
   }
 
   out
@@ -148,16 +149,17 @@ pure from_limbs(parts: List[Int]) -> Str {
 pure unsigned_add(left: Str, right: Str) -> Str {
   let a = limbs(left)
   let b = limbs(right)
-  var out: List[Int] = []
   var carry = 0
   var at = 0
   let count = if a.len() > b.len() { a.len() } else { b.len() }
 
-  while at < count or carry > 0 {
-    let sum = (if at < a.len() { a[at] } else { 0 }) + (if at < b.len() { b[at] } else { 0 }) + carry
-    out += [sum % 1000000000]
-    carry = sum / 1000000000
-    at += 1
+  let out: List[Int] = collect {
+    while at < count or carry > 0 {
+      let sum = (if at < a.len() { a[at] } else { 0 }) + (if at < b.len() { b[at] } else { 0 }) + carry
+      yield sum % 1000000000
+      carry = sum / 1000000000
+      at += 1
+    }
   }
 
   from_limbs(out)
@@ -167,22 +169,23 @@ pure unsigned_add(left: Str, right: Str) -> Str {
 pure unsigned_sub(left: Str, right: Str) -> Str {
   let a = limbs(left)
   let b = limbs(right)
-  var out: List[Int] = []
   var borrow = 0
   var at = 0
 
-  while at < a.len() {
-    var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
+  let out: List[Int] = collect {
+    while at < a.len() {
+      var gap = a[at] - (if at < b.len() { b[at] } else { 0 }) - borrow
 
-    if gap < 0 {
-      gap += 1000000000
-      borrow = 1
-    } else {
-      borrow = 0
+      if gap < 0 {
+        gap += 1000000000
+        borrow = 1
+      } else {
+        borrow = 0
+      }
+
+      yield gap
+      at += 1
     }
-
-    out += [gap]
-    at += 1
   }
 
   from_limbs(out)
@@ -190,18 +193,19 @@ pure unsigned_sub(left: Str, right: Str) -> Str {
 
 # TEXT * FACTOR + PLUS for a factor below 2^31.
 pure mul_small_add(text: Str, factor: Int, plus: Int) -> Str {
-  var out: List[Int] = []
   var carry = plus
 
-  for part in limbs(text) {
-    let product = part * factor + carry
-    out += [product % 1000000000]
-    carry = product / 1000000000
-  }
+  let out: List[Int] = collect {
+    for part in limbs(text) {
+      let product = part * factor + carry
+      yield product % 1000000000
+      carry = product / 1000000000
+    }
 
-  while carry > 0 {
-    out += [carry % 1000000000]
-    carry = carry / 1000000000
+    while carry > 0 {
+      yield carry % 1000000000
+      carry = carry / 1000000000
+    }
   }
 
   from_limbs(out)
@@ -279,16 +283,17 @@ pure finite(neg: Bool, digits: Str, scale: Int, ints: Int, fracs: Int) -> Num {
 
 # The integer value of an exponent text, or null when it does not fit 64 bits.
 pure exponent_value(text: Str) -> Int? {
-  match text.parse_int() {
-    Ok(value) => value
-    Err(_) => null
+  if let Ok(value) = text.parse_int() {
+    value
+  } else {
+    null
   }
 }
 
 pure parse_hex(body: Str, neg: Bool) -> Num {
   let parts = rx"^0[xX]([0-9a-fA-F]*)(?:\.([0-9a-fA-F]*))?(?:[pP]([+-]?[0-9]+))?$".captures(body)
 
-  return bad("float") when parts.len() == 0 or (parts[1] == "" and parts[2] == "")
+  return bad("float") when parts.is_empty() or (parts[1] == "" and parts[2] == "")
 
   let exponent = parts[3]
   let power = if exponent == "" { 0 } else { exponent_value(exponent) ?? (if exponent.starts_with("-") { -99999999 } else { 99999999 }) }
@@ -317,7 +322,7 @@ pure parse_number(raw: Str) -> Num {
 
   let parts = rx"^([0-9]*)(?:\.([0-9]*))?(?:[eE]([+-]?[0-9]+))?$".captures(body)
 
-  return bad("float") when parts.len() == 0 or (parts[1] == "" and parts[2] == "")
+  return bad("float") when parts.is_empty() or (parts[1] == "" and parts[2] == "")
 
   let whole = parts[1]
   let fraction = parts[2]
@@ -354,7 +359,7 @@ pure round_digits(digits: Str, drop: Int) -> Str {
   let odd = (kept.byte_slice(keep - 1, length: 1).parse_int() ?? 0) % 2 == 1
   let up = first > "5" or (first == "5" and (beyond or odd))
 
-  return strip_zeros(if up { unsigned_add(kept, "1") } else { kept })
+  strip_zeros(if up { unsigned_add(kept, "1") } else { kept })
 }
 
 # The magnitude with exactly PLACES fractional digits, as text.
@@ -640,7 +645,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
   let words = opts.numbers
 
-  if words.len() == 0 {
+  if words.is_empty() {
     gnu.missing_operand()
   }
 
@@ -660,7 +665,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     gnu.usage_error(f"invalid Zero increment value: {gnu.quote(words[1])}")
   }
 
-  let last = number_argument(words[words.len() - 1])
+  let last = number_argument(words[-1])
   var spec = {prefix: "", suffix: "", left: false, plus: false, space: false, alt: false, zero: true, width: 0, precision: -1, conv: "g"}
   var places = -1
 
@@ -702,57 +707,66 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     exit 1
   }
 
-  var lines: List[Str] = []
   let empty = first.kind == "inf" or last.kind == "inf"
 
-  if ! empty {
-    var scale = if first.scale > last.scale { first.scale } else { last.scale }
-    scale = if step.kind == "fin" and step.scale > scale { step.scale } else { scale }
+  let lines: List[Str] = collect {
+    if ! empty {
+      var scale = if first.scale > last.scale { first.scale } else { last.scale }
+      scale = if step.kind == "fin" and step.scale > scale { step.scale } else { scale }
 
-    let from = value_of(first, scale)
-    let stop = value_of(last, scale)
-    let inc = if step.kind == "fin" { value_of(step, scale) } else { {neg: step.neg, digits: "0"} }
-    let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt
-    let small = from.digits.byte_len() <= 17 and stop.digits.byte_len() <= 17 and inc.digits.byte_len() <= 17
+      let from = value_of(first, scale)
+      let stop = value_of(last, scale)
+      let inc = if step.kind == "fin" { value_of(step, scale) } else { {neg: step.neg, digits: "0"} }
+      let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt
+      let small = from.digits.byte_len() <= 17 and stop.digits.byte_len() <= 17 and inc.digits.byte_len() <= 17
 
-    if small and step.kind == "fin" {
-      var current = if from.neg { 0 - (from.digits.parse_int() ?? 0) } else { from.digits.parse_int() ?? 0 }
-      let delta = if inc.neg { 0 - (inc.digits.parse_int() ?? 0) } else { inc.digits.parse_int() ?? 0 }
-      let limit = if stop.neg { 0 - (stop.digits.parse_int() ?? 0) } else { stop.digits.parse_int() ?? 0 }
-      var negative = from.neg
+      if small and step.kind == "fin" {
+        var current = if from.neg { 0 - (from.digits.parse_int() ?? 0) } else { from.digits.parse_int() ?? 0 }
+        let delta = if inc.neg { 0 - (inc.digits.parse_int() ?? 0) } else { inc.digits.parse_int() ?? 0 }
+        let limit = if stop.neg { 0 - (stop.digits.parse_int() ?? 0) } else { stop.digits.parse_int() ?? 0 }
+        var negative = from.neg
 
-      if plain and scale == 0 and spec.width == 0 {
-        if negative and current == 0 {
-          lines += ["-0"]
-          current += delta
-        }
+        if plain and scale == 0 and spec.width == 0 {
+          if negative and current == 0 {
+            yield "-0"
+            current += delta
+          }
 
-        while if forward { current <= limit } else { current >= limit } {
-          lines += [f"{current}"]
-          current += delta
+          while if forward { current <= limit } else { current >= limit } {
+            yield f"{current}"
+            current += delta
+          }
+        } else {
+          while if forward { current <= limit } else { current >= limit } {
+            let value = {neg: negative, digits: f"{if current < 0 { 0 - current } else { current }}"}
+
+            yield if plain {
+              plain_line(value, scale, spec.width)
+            } else {
+              spec.prefix + format_number(negative, value.digits, scale, spec) + spec.suffix
+            }
+            current += delta
+            negative = current < 0
+          }
         }
       } else {
-        while if forward { current <= limit } else { current >= limit } {
-          let value = {neg: negative, digits: f"{if current < 0 { 0 - current } else { current }}"}
+        var current = from
+        var count = 0
 
-          lines += [if plain { plain_line(value, scale, spec.width) } else { spec.prefix + format_number(negative, value.digits, scale, spec) + spec.suffix }]
-          current += delta
-          negative = current < 0
+        while (if forward { signed_cmp(current, stop) <= 0 } else { signed_cmp(current, stop) >= 0 }) and (count == 0 or step.kind == "fin") {
+          yield if plain {
+            plain_line(current, scale, spec.width)
+          } else {
+            spec.prefix + format_number(current.neg, current.digits, scale, spec) + spec.suffix
+          }
+          current = signed_add(current, inc)
+          count += 1
         }
-      }
-    } else {
-      var current = from
-      var count = 0
-
-      while (if forward { signed_cmp(current, stop) <= 0 } else { signed_cmp(current, stop) >= 0 }) and (count == 0 or step.kind == "fin") {
-        lines += [if plain { plain_line(current, scale, spec.width) } else { spec.prefix + format_number(current.neg, current.digits, scale, spec) + spec.suffix }]
-        current = signed_add(current, inc)
-        count += 1
       }
     }
   }
 
-  if lines.len() > 0 {
+  if ! lines.is_empty() {
     gnu.write_text(lines.join(opts.separator) + opts.terminator)
   }
 }

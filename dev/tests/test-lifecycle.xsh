@@ -123,7 +123,7 @@ if "parity.py" in args.join("|") {{
   exit 7
 }}""",
   )
-  let result = test.run_script(
+  test.expect(
     ctx,
     f"""
 use build
@@ -136,11 +136,11 @@ match build.check_compat(ctx) {{
   Err(error) => print ${{error.message}}
 }}
 """,
-    [],
-    {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
+    status: 0,
+    stdout: ["StageError.Failed"],
+    args: [],
+    env: {PATH: tools, XSH_MODULE_PATH: fp"{repository}/dev"},
   )?
-  assert result.success, result.stderr
-  assert "StageError.Failed" in result.stdout, result.stdout
   assert log.read_text()? == "dev/compat/check_ignored_options.py\ndev/compat/check_kernel_reads.py\ndev/compat/check_exclusions.py\ndev/compat/parity.py|--check\n"
 }
 

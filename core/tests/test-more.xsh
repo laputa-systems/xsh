@@ -4,11 +4,11 @@ type Ran = {status: Int, stdout: Str, stderr: Str, raw: Bytes}
 # output, so it prints without paging; the paging path needs a terminal on
 # both and is covered by the uutils pty tests (a script cannot read a pty's
 # master side).
-proc more_run(ctx: TestContext, args: List[Str], input: Bytes = b"", files: List[List[Str]] = []) [fs, process, error] -> Result[Ran] {
+proc more_run(ctx: TestContext, args: List[Str], input = b"", files: List[List[Str]] = []) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "more")?
 
   for pair in files {
-    fp"{root}/{pair[0]}".write(pair[1])?
+    fp"{root}/{pair[0]}".write(pair[1])
   }
 
   let out = fp"{root}/stdout"
@@ -62,7 +62,7 @@ test test_more_plain_strips_underline_and_bold_overstrikes { |ctx|
 test test_more_keeps_non_utf8_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "more-bytes")?
   let input = fp"{root}/in"
-  input.write(b"ok\n\xff\xfe line\n")?
+  input.write(b"ok\n\xff\xfe line\n")
   let result = more_run(ctx, [input.display()])?
   assert result.status == 0
   assert result.stderr == ""
@@ -71,8 +71,8 @@ test test_more_keeps_non_utf8_bytes { |ctx|
 
 test test_more_reports_directories_and_missing_files_and_goes_on { |ctx|
   let root = test.temp_dir(ctx, name: "more-errors")?
-  fp"{root}/folder".mkdir()?
-  fp"{root}/real.txt".write("real\n")?
+  fp"{root}/folder".mkdir()
+  fp"{root}/real.txt".write("real\n")
   let result = more_run(ctx, [fp"{root}/folder".display(), fp"{root}/absent".display(), fp"{root}/real.txt".display()])?
   assert result.status == 0
   assert f"more: '{root}/folder' is a directory.\n" in result.stderr, result.stderr

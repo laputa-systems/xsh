@@ -49,25 +49,24 @@ proc split_records(data: Bytes, sep: Int) [error] -> Result[List[Bytes]] {
   if let Ok(text) = data.utf8() {
     var parts = text.split(if sep == 0 { "\0" } else { "\n" })
 
-    if parts.len() > 0 and parts[parts.len() - 1] == "" {
+    if ! parts.is_empty() and parts[-1] == "" {
       parts = parts[..parts.len() - 1]
     }
 
     return [bytes.from_text(part) for part in parts]
   }
 
-  var records: List[Bytes] = []
   var start = 0
 
-  for index in range(data.len()) {
-    if data.byte_at(index) == sep {
-      records += [data[start..index]]
-      start = index + 1
+  let records: List[Bytes] = collect {
+    for index in range(data.len()) {
+      if data.byte_at(index) == sep {
+        yield data[start..index]
+        start = index + 1
+      }
     }
-  }
 
-  if start < data.len() {
-    records += [data[start..]]
+    yield data[start..] when start < data.len()
   }
 
   records
@@ -121,7 +120,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  if opts.files.len() == 0 {
+  if opts.files.is_empty() {
     gnu.missing_operand()
   }
 
@@ -136,7 +135,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var delim = "\t"
 
   for index in range(opts.delimiter.len()) {
-    if opts.delimiter[index] != opts.delimiter[0] {
+    guard opts.delimiter[index] == opts.delimiter[0] else {
       gnu.error("multiple output delimiters specified")
       exit 1
     }
@@ -144,7 +143,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     delim = opts.delimiter[0]
   }
 
-  if opts.delimiter.len() > 0 and opts.delimiter[0] == "" {
+  if ! opts.delimiter.is_empty() and opts.delimiter[0] == "" {
     delim = "\0"
   }
 

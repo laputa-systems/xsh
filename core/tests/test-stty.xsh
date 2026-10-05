@@ -6,7 +6,7 @@ proc stty_run(ctx: TestContext, pty: UnixPty, args: List[Str], vars: Record = {L
   stty_plain(ctx, ["--file", pty.name].extend(args), vars)
 }
 
-proc stty_plain(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C", COLUMNS: "80"}, input: Bytes = b"", sink: Path? = null) [fs, process, error] -> Result[Ran] {
+proc stty_plain(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C", COLUMNS: "80"}, input = b"", sink: Path? = null) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "stty")?
   let out = sink ?? fp"{root}/stdout"
   let err = fp"{root}/stderr"
@@ -213,7 +213,7 @@ test test_stty_sets_and_reports_speeds { |ctx|
     ["ispeed", "  +9600", "9600"],
     ["ispeed", "  9600.", "9600"],
   ] {
-    let speed = case[case.len() - 1]
+    let speed = case[-1]
     let words = case[0..case.len() - 1]
     assert stty_run(ctx, pty, words)?.status == 0, words.join(" ")
     assert stty_run(ctx, pty, ["speed"])?.stdout == f"{speed}\n", words.join(" ")
@@ -278,7 +278,7 @@ test test_stty_save_round_trips_the_whole_state { |ctx|
   let saved = stty_run(ctx, pty, ["--save"])?.stdout
   assert rx"^[0-9a-f]+(:[0-9a-f]+){35}\n$".matches(saved), saved
   assert stty_run(ctx, pty, ["-g"])?.stdout == saved
-  assert saved.starts_with("500:5:bf:"), "no input-speed bits in a terminal that never had them: {saved}"
+  assert saved.starts_with("500:5:bf:"), f"no input-speed bits in a terminal that never had them: {saved}"
 
   assert stty_run(ctx, pty, ["raw", "-echo", "intr", "^A", "9600"])?.status == 0
   assert stty_run(ctx, pty, ["-g"])?.stdout != saved
@@ -388,7 +388,7 @@ test test_stty_integer_arguments_name_what_is_wrong { |ctx|
     let result = stty_run(ctx, pty, words)?
     assert result.status == 1, words.join(" ")
     assert result.stdout == ""
-    assert result.stderr == case[case.len() - 1], f"{words.join(" ")}: {result.stderr}"
+    assert result.stderr == case[-1], f"{words.join(" ")}: {result.stderr}"
   }
 }
 
@@ -460,7 +460,7 @@ test test_stty_output_wraps_at_columns { |ctx|
   }
 
   let wide = stty_run(ctx, pty, ["-a"], {LC_ALL: "C", COLUMNS: "200"})?
-  assert [line for line in wide.stdout.lines() if line.count_chars() > 80].len() > 0
+  assert ! [line for line in wide.stdout.lines() if line.count_chars() > 80].is_empty()
 
   for bad in ["invalid", "0", "-10", ""] {
     let result = stty_run(ctx, pty, ["-a"], {LC_ALL: "C", COLUMNS: bad})?
@@ -504,7 +504,7 @@ test test_stty_help_and_version_go_to_stdout { |ctx|
 }
 
 test test_stty_reports_a_full_device { |ctx|
-  if ! p"/dev/full".exists()? {
+  if ! p"/dev/full".exists() {
     test.skip("/dev/full is not available")
   }
 
