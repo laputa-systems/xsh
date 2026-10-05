@@ -129,7 +129,7 @@ proc syntax_error(message: Str) [process, env] -> Unit {
 
 # `missing argument after LAST-WORD`, the error for running out of words.
 proc beyond(argv: List[Str]) [process, env] -> Unit {
-  syntax_error(f"missing argument after {gnu.quote(argv[argv.len() - 1])}")
+  syntax_error(f"missing argument after {gnu.quote_value(argv[argv.len() - 1])}")
 }
 
 pure blank(text: Str) -> Bool {
@@ -188,7 +188,7 @@ proc integer_operand(text: Str) [process, env] -> Integer {
   let number = parse_integer(text)
 
   if ! number.ok {
-    syntax_error(f"invalid integer {gnu.quote(text)}")
+    syntax_error(f"invalid integer {gnu.quote_value(text)}")
   }
 
   number
@@ -289,7 +289,7 @@ proc unary_at(argv: List[Str], at: Int) [fs, process, env, error] -> Result[Eval
   let op = argv[at].byte_slice(0, length: 2)
 
   if ! (op in UNARY_OPS) {
-    syntax_error(f"{gnu.quote(argv[at])}: unary operator expected")
+    syntax_error(f"{gnu.quote_value(argv[at])}: unary operator expected")
   }
 
   if at + 1 >= argv.len() {
@@ -406,7 +406,7 @@ proc three_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Resu
 
   return expression(argv, at) when argv[at + 1] == "-a" or argv[at + 1] == "-o"
 
-  syntax_error(f"{gnu.quote(argv[at + 1])}: binary operator expected")
+  syntax_error(f"{gnu.quote_value(argv[at + 1])}: binary operator expected")
   Ok({value: false, pos: at})
 }
 
@@ -480,7 +480,7 @@ proc term(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval]
     }
 
     if argv[inner.pos] != ")" {
-      syntax_error(f"')' expected, found {gnu.quote(argv[inner.pos])}")
+      syntax_error(f"')' expected, found {gnu.quote_value(argv[inner.pos])}")
     }
 
     result = {value: inner.value, pos: inner.pos + 1}
@@ -568,7 +568,7 @@ export proc evaluate(argv: List[Str]) [fs, process, env, error, io] -> Unit {
   let outcome = posixtest(words, 0, words.len())?
 
   if outcome.pos != words.len() {
-    syntax_error(f"extra argument {gnu.quote(words[outcome.pos])}")
+    syntax_error(f"extra argument {gnu.quote_value(words[outcome.pos])}")
   }
 
   if ! outcome.value {

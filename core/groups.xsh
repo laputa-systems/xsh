@@ -49,7 +49,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   for name in opts.users {
     if let Err(_) = user.lookup(name) {
-      gnu.error(f"{gnu.quote(name)}: no such user")
+      gnu.error(f"{gnu.quote_value(name)}: no such user")
       ok = false
     } else {
       idtools.unsupported_user_groups(name)

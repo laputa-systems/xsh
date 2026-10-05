@@ -103,7 +103,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     let parsed = leading_count(given)
 
     if parsed == null or parsed.rest != "" {
-      gnu.error(f"invalid number: {gnu.quote(given)}")
+      gnu.error(f"invalid number: {gnu.quote_value(given)}")
       exit 1
     }
 

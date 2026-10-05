@@ -137,7 +137,7 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
     let seconds = interval_seconds(text)
 
     if seconds == null {
-      gnu.error(f"invalid time interval {gnu.quote(text)}")
+      gnu.error(f"invalid time interval {gnu.quote_value(text)}")
       valid = false
     } else {
       total += seconds

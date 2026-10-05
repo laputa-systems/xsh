@@ -14,6 +14,8 @@ proc main(...argv: List[Str]) [env, fs, io, process, error] -> Result[Unit] {
   } else if cmd == "quote" {
     print gnu.quote(arg)
     print gnu.quote_maybe(arg)
+  } else if cmd == "quote-value" {
+    print gnu.quote_value(arg)
   } else if cmd == "quote-bytes" {
     print gnu.quote_bytes(io.stdin_bytes()?)
   } else if cmd == "error" {
@@ -323,4 +325,27 @@ test test_gnu_read_operand_reads_bytes_from_files_and_stdin { |ctx|
 
   let directory = probe(ctx, ["read", root.display()], invoked: "cat")?
   assert directory.stderr == f"cat: {root}: Is a directory\n"
+}
+
+test test_gnu_quote_value_uses_locale_style_c_escapes { |ctx|
+  let cases = [
+    ["1", "'1'"],
+    ["a\tb", "'a\\tb'"],
+    ["\t", "'\\t'"],
+    ["1\n", "'1\\n'"],
+    ["a b", "'a b'"],
+    ["it's", "'it\\'s'"],
+    ["back\\slash", "'back\\\\slash'"],
+    ["\u{1}", "'\\001'"],
+    ["\u{1b}x", "'\\033x'"],
+    ["²", "'\\302\\262'"],
+  ]
+
+  for entry in cases {
+    let result = probe(ctx, ["quote-value", entry[0]], locale: "C")?
+    assert result.stdout == f"{entry[1]}\n", f"quote_value of {entry[0].byte_len()} bytes: {result.stdout}"
+  }
+
+  let utf8 = probe(ctx, ["quote-value", "a²\t"], locale: "en_US.UTF-8")?
+  assert utf8.stdout == "‘a²\\t’\n", "a UTF-8 locale prints curly quotes and printable text as is"
 }
