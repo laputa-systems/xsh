@@ -70,10 +70,22 @@ fn run_lint(root: &Path, budget: Duration) -> Result<LintRun, String> {
     })
 }
 
+/// Whether every finding in a lint report is a note. A note is advice with no
+/// safe rewrite and leaves the corpus clean; a rendered finding starts its
+/// line with the severity and a bracketed code, or a colon.
+fn reports_only_notes(report: &str) -> bool {
+    report.lines().all(|line| {
+        !["warn", "err", "info"].iter().any(|severity| {
+            line.strip_prefix(severity)
+                .is_some_and(|rest| rest.starts_with(['[', ':']))
+        })
+    })
+}
+
 fn require_clean_lint(run: &LintRun) -> Result<(), String> {
     if run.status.success()
         && run.stdout.is_empty()
-        && crate::stderr_before_timing_line("lint", &run.stderr).is_empty()
+        && reports_only_notes(crate::stderr_before_timing_line("lint", &run.stderr))
     {
         return Ok(());
     }

@@ -133,7 +133,7 @@ test test_test_help_lists_parallelism_option {
 test test_lint_short_help_is_accepted {
   let help = run.capture --text "xsht" lint -h
   assert help.status.exited_with(0), help.stderr
-  assert "xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [FILE...]" in help.stdout, help.stdout
+  assert "xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [--deny-notes] [FILE...]" in help.stdout, help.stdout
 }
 
 test test_ast_prints_parser_debug_output {

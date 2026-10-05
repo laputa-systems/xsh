@@ -128,7 +128,7 @@ fn split_read_by_position(
         .join(separator);
     Some(
         Diagnostic::new(
-            Severity::Warning,
+            Severity::Note,
             "pieces of a split are read by position; a text pattern names them",
         )
         .with_code(DiagnosticCode::LintPreferTextPattern)
@@ -182,7 +182,7 @@ fn prefix_test_with_slice(source: &str, span: Span) -> Vec<Diagnostic> {
         }
         diagnostics.push(
             Diagnostic::new(
-                Severity::Warning,
+                Severity::Note,
                 "a prefix test and a slice at its length say one thing twice; a text pattern says it once",
             )
             .with_code(DiagnosticCode::LintPreferTextPattern)

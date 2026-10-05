@@ -60,8 +60,9 @@ pub fn main() -> ExitCode {
             fix,
             runless,
             only,
+            deny_notes,
         }) => finish_timed("lint", |timings| {
-            lint_files_timed(&files, fix, runless, only, timings)
+            lint_files_timed(&files, fix, runless, only, deny_notes, timings)
         }),
         Ok(Command::Ast { script }) => finish_command(|| ast_script(&script)),
         Ok(Command::Highlight { script }) => finish_command(|| highlight_script(&script)),
@@ -112,6 +113,7 @@ enum Command {
         fix: bool,
         runless: bool,
         only: Option<Vec<DiagnosticCode>>,
+        deny_notes: bool,
     },
     Ast {
         script: String,
@@ -527,10 +529,16 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
         }
         let fix = parsed.flag("--fix");
         let runless = parsed.flag("--runless");
+        let deny_notes = parsed.flag("--deny-notes");
         let format = parsed.value("--format");
 
         if parsed.flag("--list") {
-            if fix || runless || only.is_some() || !parsed.positionals.is_empty() {
+            if fix
+                || runless
+                || deny_notes
+                || only.is_some()
+                || !parsed.positionals.is_empty()
+            {
                 return Err("`xsht lint --list` accepts only --format".to_string());
             }
             return Ok(Command::Text(lint_code_list(format.unwrap_or("text"))?));
@@ -544,6 +552,7 @@ fn parse_lint(args: &[String]) -> Result<Command, String> {
             fix,
             runless,
             only,
+            deny_notes,
         })
     })
 }

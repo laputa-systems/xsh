@@ -1633,7 +1633,7 @@ never counts toward exhaustiveness, so a `match` over text ends in `else`.
 Taking text apart by position says less: `parts[1]` after a `split` fails at
 run time where a pattern would not match, and a `starts_with` test followed
 by a slice states the prefix twice. The opt-in `lint.prefer-text-pattern`
-notes both shapes and rewrites neither, because a pattern's last hole keeps
+notes (16.1) both shapes and rewrites neither, because a pattern's last hole keeps
 any further separator where `split` makes another piece.
 
 ### 6.11 Conversion
@@ -2568,7 +2568,7 @@ marker, a repeated label, or no type is also `check.callable-type`. A function
 that does not fit, a dynamic `Proc` or `Pure` where a callable type is
 expected, and a spliced call are `check.callable-mismatch`. `Proc` and `Pure`
 stay the types of callables whose signature is not known until run time.
-The opt-in `lint.prefer-typed-callable` reports a `Proc` or `Pure` parameter
+`lint.prefer-typed-callable` notes (16.1) a `Proc` or `Pure` parameter
 of a private function when every call in the module passes a function with
 one signature, and names the callable type. It offers no fix: the body's
 `.call(...)` and what it does with the dynamic result change with the type.
@@ -2754,7 +2754,7 @@ where the type is not known. A `NAME=$list` word keeps its older rule for
 every other list, which accepts exactly one item; that includes an empty
 list, which does not say what it is a list of.
 
-`lint.prefer-env-path-list` reports a `NAME: f"{dir}:{e"NAME" ?? ""}"` field.
+`lint.prefer-env-path-list` notes (16.1) a `NAME: f"{dir}:{e"NAME" ?? ""}"` field.
 Its rewrite, `NAME: [fp"{dir}", @env.PathList.NAME ?? []]`, is offered but
 not applied by `--fix`, because it is not the same value in three cases: an
 unset variable no longer leaves a trailing empty entry (which a search treats
@@ -3733,7 +3733,7 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 | `xshi` | interactive shell (`docs/SPEC-INTERACTIVE.md`) |
 | `xsht check [--summary] [--annotate[=CLASSES]] [PATH...]` | parse, type-check, and validate scripts |
 | `xsht fmt [--check] [FILE...]` | format |
-| `xsht lint [--fix] [--only RULE,...] [--runless] [FILE...]` | quality checks and safe fixes |
+| `xsht lint [--fix] [--only RULE,...] [--runless] [--deny-notes] [FILE...]` | quality checks and safe fixes |
 | `xsht test [OPTIONS] [FILTER]` | run native tests (17) |
 | `xsht trace [--raw] [--trace-format text\|jsonl\|flamegraph] [--trace-file PATH] SCRIPT ARGS...` | run with tracing |
 | `xsht api [QUERY...]` | query language and standard-library reference data |
@@ -3771,6 +3771,17 @@ statements appear. `xsht lint --list [--format text|jsonl]` prints every
 selectable code with a one-line summary; the generated
 `docs/reference/lints.md` is that catalog. Each finding names its rule, and a fix is withheld (with an
 explanation) whenever equivalence cannot be proved.
+
+A lint finding has one of two severities. A warning (`warn[CODE]`) is a
+shape with one preferred spelling; it fails the run with status 1. A note
+(`note[CODE]`) is advice that no rewrite can apply safely, because the
+better form means something else at some input or needs a decision outside
+the file, such as `lint.prefer-non-empty-argv`. A note is printed and
+selected with `--only` like a warning, but a run that reports only notes
+exits 0, and `--fix` writes nothing for one. A run that printed a note ends
+its findings with a count of each kind, `xsht lint: 2 findings, 3 notes`.
+`--deny-notes` makes a note fail the run with status 1. `xsht check` reports
+no lint finding of either severity.
 
 `xsht grep` patterns are XSH expressions where uppercase identifiers are
 metavariables (`X.push(ITEM)`, `ARGS..` for zero or more arguments). Matching

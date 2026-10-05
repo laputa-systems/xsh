@@ -116,7 +116,7 @@ fn formatted_search_path(
         return None;
     }
 
-    let mut diagnostic = Diagnostic::warning(format!(
+    let mut diagnostic = Diagnostic::note(format!(
         "`{variable}` is extended by formatting a `:`-separated string"
     ))
     .with_code(DiagnosticCode::LintPreferEnvPathList)

@@ -4,9 +4,8 @@ use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
-/// Runs the whole linter with the rule switched on, as `xsht lint` does with
-/// `[lint] prefer-typed-callables = true`, and keeps this rule's reports.
-fn lint_with(source: &str, enabled: bool) -> Vec<Diagnostic> {
+/// Runs the whole linter, as `xsht lint` does, and keeps this rule's reports.
+fn lint(source: &str) -> Vec<Diagnostic> {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let checked = Checker::check_arena(&parsed.arena, source);
@@ -16,7 +15,6 @@ fn lint_with(source: &str, enabled: bool) -> Vec<Diagnostic> {
         function_return_types: checked.function_return_types,
         function_effect_facts: checked.function_effect_facts,
         function_effect_facts_checked: true,
-        prefer_typed_callables: enabled,
         ..LintOptions::default()
     };
     Linter::lint(&parsed.arena, source, options)
@@ -24,10 +22,6 @@ fn lint_with(source: &str, enabled: bool) -> Vec<Diagnostic> {
         .into_iter()
         .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferTypedCallable))
         .collect()
-}
-
-fn lint(source: &str) -> Vec<Diagnostic> {
-    lint_with(source, true)
 }
 
 const BUILDERS: &str = "proc debug_build(root: Path) [fs, error] -> Result[Unit] {\n  root.mkdir()\n}\n\nproc release_build(root: Path) {\n  root.mkdir()\n  run make -C $root\n}\n\n";
@@ -53,7 +47,7 @@ fn proc_parameter_passed_one_signature_names_its_callable_type() {
         Some("the callable type is `proc(root: Path) [fs, process, error] -> Result[Unit]`")
     );
     assert!(diagnostic.fix_hints.is_empty(), "{:?}", diagnostic.fix_hints);
-    assert!(lint_with(&source, false).is_empty());
+    assert_eq!(diagnostic.severity, xsh::diagnostic::Severity::Note);
 }
 
 #[test]

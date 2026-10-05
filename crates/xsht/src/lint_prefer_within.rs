@@ -44,7 +44,7 @@ pub(super) fn lint_repeated_timeouts(linter: &mut super::Linter<'_>, stmts: &[St
     let span = arena.span(arena.run_form(first).span);
     linter.diagnostics.push(
         Diagnostic::new(
-            Severity::Warning,
+            Severity::Note,
             format!("every `run` in this block carries `--timeout={limit}`"),
         )
         .with_code(DiagnosticCode::LintPreferWithin)

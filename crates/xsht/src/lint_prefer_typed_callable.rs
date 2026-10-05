@@ -172,7 +172,7 @@ impl CallableParameters {
                     continue;
                 };
                 diagnostics.push(
-                    Diagnostic::warning(format!(
+                    Diagnostic::note(format!(
                         "every call of `{}` passes a function with one signature as `{}`",
                         function.name, parameter.name
                     ))

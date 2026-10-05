@@ -137,6 +137,12 @@ impl Diagnostic {
         Self::new(Severity::Warning, message)
     }
 
+    /// Advice that has no safe automatic rewrite. `xsht lint` prints it
+    /// without failing the run.
+    pub fn note(message: impl Into<String>) -> Self {
+        Self::new(Severity::Note, message)
+    }
+
     /// Attaches `code`, which must agree with this diagnostic's severity
     /// when the code declares a default one.
     pub fn with_code(mut self, code: DiagnosticCode) -> Self {

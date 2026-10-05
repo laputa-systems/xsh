@@ -27,7 +27,7 @@ pub(super) fn prefer_non_empty_argv(
         return None;
     };
     Some(
-        Diagnostic::warning("this command vector may be empty, which fails only when it runs")
+        Diagnostic::note("this command vector may be empty, which fails only when it runs")
             .with_code(DiagnosticCode::LintPreferNonEmptyArgv)
             .with_label(Label::secondary(
                 span,

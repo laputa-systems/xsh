@@ -14,7 +14,7 @@ the authoritative option reference.
 |---|---|---|
 | `xsht check [PATH...]` | parse, load modules, type-check; `--annotate[=POLICY]` writes inferred annotations; `--summary` counts diagnostics by code | `crates/xsht/src/cli/check.rs` |
 | `xsht fmt [--check] [FILE...]` | format through the checked program (`docs/XSHT-FMT.md`) | `crates/xsht/src/cli/fmt.rs` |
-| `xsht lint [--fix] [--only RULE,...] [--runless] [FILE...]`, `xsht lint --list` | non-fatal quality diagnostics and conservative autofixes; the code catalog | `crates/xsht/src/cli/lint.rs`, `crates/xsht/src/lint.rs` |
+| `xsht lint [--fix] [--only RULE,...] [--runless] [--deny-notes] [FILE...]`, `xsht lint --list` | non-fatal quality diagnostics and conservative autofixes; the code catalog | `crates/xsht/src/cli/lint.rs`, `crates/xsht/src/lint.rs` |
 | `xsht test [FILTER]` | discover and run native `test NAME { ... }` declarations | `crates/xsht/src/xsht/test.rs` |
 | `xsht api [QUERY...]` | query language and standard-library metadata | `crates/xsht/src/api.rs`, `crates/xsht/src/cli/api.rs` |
 | `xsht trace SCRIPT` | run with structured tracing (text, jsonl, flamegraph, syscall totals) | `crates/xsht/src/trace.rs`, `crates/xsht/src/cli/trace.rs` |
@@ -62,10 +62,8 @@ error.
 | `[lint] prefer-inferred-variants`, `prefer-positional-constructors` | opt-in `lint.prefer-inferred-variant` (drop a variant qualifier the expected type selects, or in a pattern the matched value's type; a match arm head keeps its qualifier) and `lint.prefer-positional-constructor` (pass in-order constructor fields positionally). Naming either rule in `--only` also turns it on |
 | `[lint] prefer-inferred-proc-returns` | opt-in `lint.prefer-inferred-proc-return`: a private proc drops its return annotation when a second check of the file without it is clean and leaves every checked type, statement position, and effect of the file unchanged. Exports, `main`, tests, and recursive procs keep theirs, as does a body that needs the annotation as an expected type (`Err(.Variant(...))`, `.require()`, an empty collection). Off when `[check] annotate` writes returns |
 | `[lint] prefer-implicit-messages` | opt-in `lint.prefer-implicit-message`: a variant declared `V(message: Str)` drops its payload and takes the message positionally. Calls that name `message:` are fixed first, in every file, and then the declaration of a private family. An exported declaration is reported without a fix: a variant without a payload takes no named argument, so a `V(message: ...)` call in an importing file, which the lint of the module does not see, would stop checking (`check.error-constructor`); nothing else an importer can write changes. A private one-variant family that `lint.prefer-fail` rewrites is left to that rule. `--only lint.prefer-implicit-message` also turns the rule on |
-| `[lint] prefer-non-empty-argv` | opt-in `lint.prefer-non-empty-argv`: a spliced command vector (`run @argv`, in any run form and pipeline segment) whose type is a plain `List[T]` is reported, because it may be empty and then fails only when it runs. No fix: the `NonEmpty[T]` type comes from the binding's annotation, the parameter and its callers, or a `.require(NonEmpty[T])?`. `--only lint.prefer-non-empty-argv` also turns it on |
-| `[lint] prefer-rel-path` | opt-in `lint.prefer-rel-path`: the `path` argument of an `FsRoot` method whose type is a plain `Path` is reported, because it may be absolute or climb out with `..` and then fails only when the root resolves it. A literal without interpolation is left alone. No fix: the `RelPath` type comes from the binding's annotation, the parameter and its callers, or a `.require(RelPath)?`. `--only lint.prefer-rel-path` also turns it on |
-| `[lint] prefer-typed-callables` | opt-in `lint.prefer-typed-callable`: a `Proc` or `Pure` parameter of a private top-level function is reported with its callable type when every call in the module passes a top-level function and those functions have one signature. A function whose name is also used as a value, or that is called with a splice or spread, is skipped. No fix: the body's `.call(...)` becomes a direct call. `--only lint.prefer-typed-callable` also turns it on |
-| `[lint] prefer-text-pattern` | opt-in `lint.prefer-text-pattern`, which has no fix: it notes a `split` whose pieces are read as `parts[0]`, `parts[1]`, and a `starts_with` test in a statement that also slices at the prefix's length, where an f-string pattern names the pieces. A pattern matches the whole text and its last hole takes the rest, so the rewrite is the author's; `--only lint.prefer-text-pattern` also runs it |
+| `[lint] prefer-rel-path` | opt-in note `lint.prefer-rel-path`: the `path` argument of an `FsRoot` method whose type is a plain `Path` is reported, because it may be absolute or climb out with `..` and then fails only when the root resolves it. A literal without interpolation is left alone. No fix: the `RelPath` type comes from the binding's annotation, the parameter and its callers, or a `.require(RelPath)?`. `--only lint.prefer-rel-path` also turns it on |
+| `[lint] prefer-text-pattern` | opt-in note `lint.prefer-text-pattern`, which has no fix: it reports a `split` whose pieces are read as `parts[0]`, `parts[1]`, and a `starts_with` test in a statement that also slices at the prefix's length, where an f-string pattern names the pieces. A pattern matches the whole text and its last hole takes the rest, so the rewrite is the author's; `--only lint.prefer-text-pattern` also runs it |
 | `[lint] runless-except` | commands allowed under `--runless` |
 | `[dead-code] exclude` | files exempt from `lint.dead-code` and `lint.unused-callable` |
 | `[coverage] exclude` | files removed from the `xsht test --cov` denominator only |
@@ -88,6 +86,26 @@ its span; the formatter keeps a comment with the match arm it precedes, so a
 later round finds it in the same place and declines again.
 A file with a check error is not linted, because its checked facts are
 incomplete; a check warning is reported beside the file's lint findings.
+
+A code's table severity is `error`, `warning`, `note`, or `mixed`. A lint that
+has no safe fix is a `note`: advice that is printed, counted apart in the
+closing `xsht lint: N findings, M notes` line (printed only when a note was
+reported), and selected by `--only`, but that leaves the exit status at 0.
+`lint_diagnostics_status` gives a file's status and never counts a note;
+`lint_files_timed` counts the printed notes and, under `--deny-notes`, turns
+a run that would exit 0 into status 1. The repository gates agree with the
+exit status: `cargo dev check` runs `xsht lint` and reads its status, and
+`lint_performance` requires status 0 and no finding other than a note. A
+note rule is on by default unless it reports too many sites to read
+(`lint.prefer-rel-path`, `lint.prefer-text-pattern`, each behind its `[lint]`
+key or `--only`). The notes that are always on:
+
+| Code | Reports |
+|---|---|
+| `lint.prefer-non-empty-argv` | a spliced command vector (`run @argv`, in any run form and pipeline segment) whose type is a plain `List[T]`, which may be empty and then fails only when it runs. The `NonEmpty[T]` type comes from the binding's annotation, the parameter and its callers, or a `.require(NonEmpty[T])?` |
+| `lint.prefer-typed-callable` | a `Proc` or `Pure` parameter of a private top-level function, with its callable type, when every call in the module passes a top-level function and those functions have one signature. A function whose name is also used as a value, or that is called with a splice or spread, is skipped. The body's `.call(...)` becomes a direct call |
+| `lint.prefer-within` | a block whose `run` forms all carry the same `--timeout`; one `within` scope states the limit once but bounds the commands together |
+| `lint.prefer-env-path-list` | a search-path environment value formatted as a `:`-separated string; the `List[Path]` rewrite is shown and never applied |
 A fix round is accepted when the rewritten file has no check diagnostic the
 file did not have before, whether or not `--only` selects its code. SIGINT or
 SIGTERM is observed between files and between fix rounds; fixed files are

@@ -78,7 +78,7 @@ pub(super) fn unvalidated_rooted_path(
         return None;
     }
     Some(
-        Diagnostic::warning(
+        Diagnostic::note(
             "this path may be absolute or leave the root, which fails only when it is resolved",
         )
         .with_code(DiagnosticCode::LintPreferRelPath)

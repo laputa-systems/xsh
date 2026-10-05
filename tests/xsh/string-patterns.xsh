@@ -246,7 +246,8 @@ print ${probe("a=b")}
 
   let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-text-pattern $candidate
   let report = linted.stdout + linted.stderr
-  assert count(report, "warn[lint.prefer-text-pattern]") == 2, report
+  assert linted.status.exited_with(0), report
+  assert count(report, "note[lint.prefer-text-pattern]") == 2, report
   assert "if let f\"{a}={b}\" = ..." in report, report
   assert "if let f\"#define {rest}\" = line" in report, report
 

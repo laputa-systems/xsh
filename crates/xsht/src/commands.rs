@@ -252,6 +252,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 UsagePart::Opt("--fix"),
                 UsagePart::Opt("--runless"),
                 UsagePart::Opt("--only"),
+                UsagePart::Opt("--deny-notes"),
                 UsagePart::Args,
             ],
             &[UsagePart::Req("--list"), UsagePart::Opt("--format")],
@@ -274,6 +275,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                 arg: OptionArg::Flag,
                 repeatable: false,
                 description: "Reject external commands unless configured",
+            },
+            OptionSpec {
+                names: &["--deny-notes"],
+                arg: OptionArg::Flag,
+                repeatable: false,
+                description: "Exit 1 when a note is reported",
             },
             OptionSpec {
                 names: &["--list"],
@@ -799,7 +806,7 @@ mod tests {
         assert_eq!(
             usage("lint"),
             [
-                "xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [FILE...]",
+                "xsht lint [--fix] [--runless] [--only RULE[,RULE...]] [--deny-notes] [FILE...]",
                 "xsht lint --list [--format text|jsonl]",
             ]
         );

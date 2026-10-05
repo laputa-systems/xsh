@@ -47,13 +47,18 @@ impl DiagnosticFamily {
 }
 
 /// Maps a table severity keyword to the code's default severity; `mixed`
-/// marks a code whose emission sites choose the severity per finding.
+/// marks a code whose emission sites choose the severity per finding. `note`
+/// is advice with no safe automatic rewrite: `xsht lint` prints it and still
+/// succeeds.
 macro_rules! code_severity {
     (error) => {
         Some(Severity::Error)
     };
     (warning) => {
         Some(Severity::Warning)
+    };
+    (note) => {
+        Some(Severity::Note)
     };
     (mixed) => {
         None
@@ -600,7 +605,7 @@ diagnostic_codes! {
         LintPreferTempdir = "lint.prefer-tempdir", warning, "Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
-        LintPreferWithin = "lint.prefer-within", warning, "Note a block whose `run` forms all carry the same `--timeout`, which one `within` scope would state once";
+        LintPreferWithin = "lint.prefer-within", note, "Note a block whose `run` forms all carry the same `--timeout`, which one `within` scope would state once";
         LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";
         LintPublicResultError = "lint.public-result-error", warning, "Spell the error type of each Result in an exported signature or module contract";
@@ -640,19 +645,19 @@ diagnostic_codes! {
         LintPreferInferredProcReturn = "lint.prefer-inferred-proc-return", warning, "Drop a private proc return type when it is inferred exactly";
         LintRedundantUseAlias = "lint.redundant-use-alias", warning, "Drop a `use` alias that repeats the last path segment, as in `use a.b as b`";
         LintListAnyUnion = "lint.list-any-union", warning, "Name the closed `List[Union[...]]` type of an immutable `List[Any]` whose literal elements have a few concrete types";
-        LintPreferEnvPathList = "lint.prefer-env-path-list", warning, "Write a search-path environment value as a `List[Path]` instead of formatting a `:`-separated string";
+        LintPreferEnvPathList = "lint.prefer-env-path-list", note, "Write a search-path environment value as a `List[Path]` instead of formatting a `:`-separated string";
         LintPreferWriteMode = "lint.prefer-write-mode", warning, "Merge a write directly followed by a `chmod` of the same path into `write(..., mode: M)`";
         LintPreferForIndex = "lint.prefer-for-index", warning, "Use `for index, item in list` (or `for item in list`) instead of a counter loop that only walks a list";
         LintPreferPathKind = "lint.prefer-path-kind", warning, "Test a path's kind with `is_dir()`, `is_file()`, or `is_symlink()` instead of comparing `metadata()?.kind`";
         LintPreferPathMethod = "lint.prefer-path-method", warning, "Call the `Path` method instead of the `fs` function that takes the path first";
-        LintPreferTypedCallable = "lint.prefer-typed-callable", warning, "Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature";
+        LintPreferTypedCallable = "lint.prefer-typed-callable", note, "Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature";
         LintPreferTestExpect = "lint.prefer-test-expect", warning, "State the status and output fragments of a script run with `test.expect` instead of asserting on each field of `test.run_script`";
         LintPreferIsEmpty = "lint.prefer-is-empty", warning, "Use `is_empty()` instead of comparing a length with zero";
         LintPreferNegativeIndex = "lint.prefer-negative-index", warning, "Use `list[-N]` instead of `list[list.len() - N]`";
-        LintPreferNonEmptyArgv = "lint.prefer-non-empty-argv", warning, "Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot";
+        LintPreferNonEmptyArgv = "lint.prefer-non-empty-argv", note, "Report a spliced command vector (`run @argv`) whose type is a plain `List[T]`, which may be empty; `NonEmpty[T]` cannot";
         LintPreferAsConversion = "lint.prefer-as-conversion", warning, "Use `text as Int` instead of a propagated `parse_int()?`, and likewise for the other conversions `as` names";
-        LintPreferTextPattern = "lint.prefer-text-pattern", warning, "Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in)";
-        LintPreferRelPath = "lint.prefer-rel-path", warning, "Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot";
+        LintPreferTextPattern = "lint.prefer-text-pattern", note, "Note a split whose pieces are read by position, and a prefix test with a slice at its length, where a text pattern names the pieces (opt-in)";
+        LintPreferRelPath = "lint.prefer-rel-path", note, "Report a path handed to a rooted operation (`root.write(path, data)`) whose type is a plain `Path`, which may be absolute or leave the root; a `RelPath` cannot";
         LintPreferArgumentLabel = "lint.prefer-argument-label", warning, "Write the label of an argument whose parameter is registered with one (`src.copy(to: dest)`, `text.replace(\"a\", with: \"b\")`), and call `link.symlink(to: target)` instead of `fs.symlink(target, link)`";
     }
     Format {

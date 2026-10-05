@@ -33,15 +33,20 @@ pub fn lint_files(
     runless: bool,
     only: Option<Vec<DiagnosticCode>>,
 ) -> CliOutput {
-    lint_files_timed(files, fix, runless, only, &StageTimings::start())
+    lint_files_timed(files, fix, runless, only, false, &StageTimings::start())
 }
 
 /// `xsht lint` over files or directories, recording stage times in `timings`.
+///
+/// A note is advice without a safe rewrite: it is printed and counted but
+/// leaves the status at 0, unless `deny_notes` asks for a run that fails on
+/// any finding.
 pub fn lint_files_timed(
     files: &[String],
     fix: bool,
     runless: bool,
     only: Option<Vec<DiagnosticCode>>,
+    deny_notes: bool,
     timings: &StageTimings,
 ) -> CliOutput {
     if let Some(output) = cancellation_output() {
@@ -98,6 +103,7 @@ pub fn lint_files_timed(
     results.sort_unstable_by_key(|result| result.index);
     let mut seen_diagnostics = FxHashSet::default();
     let mut written_files = FxHashSet::default();
+    let mut counts = FindingCounts::default();
     for result in results {
         match result.kind {
             LintResultKind::Clean => {}
@@ -119,6 +125,7 @@ pub fn lint_files_timed(
                 }
                 for diagnostic in diagnostics {
                     if seen_diagnostics.insert(diagnostic.key) {
+                        counts.add(diagnostic.severity);
                         stderr.push_str(&diagnostic.text);
                     }
                 }
@@ -137,6 +144,7 @@ pub fn lint_files_timed(
                 }
                 for diagnostic in diagnostics {
                     if seen_diagnostics.insert(diagnostic.key) {
+                        counts.add(diagnostic.severity);
                         stderr.push_str(&diagnostic.text);
                     }
                 }
@@ -153,6 +161,7 @@ pub fn lint_files_timed(
                 }
                 for diagnostic in diagnostics {
                     if seen_diagnostics.insert(diagnostic.key) {
+                        counts.add(diagnostic.severity);
                         stderr.push_str(&diagnostic.text);
                     }
                 }
@@ -168,12 +177,50 @@ pub fn lint_files_timed(
         }
     }
 
+    if counts.notes > 0 {
+        if deny_notes && status == 0 {
+            status = 1;
+        }
+        stderr.push_str(&counts.summary());
+    }
+
     CliOutput {
         status,
         stdout: Vec::new(),
         stderr: stderr.into_bytes(),
         trace_text: String::new(),
         syscall_summary: None,
+    }
+}
+
+/// The printed findings of one run, with notes apart from the findings that
+/// fail it.
+#[derive(Default)]
+struct FindingCounts {
+    notes: usize,
+    failing: usize,
+}
+
+impl FindingCounts {
+    fn add(&mut self, severity: Severity) {
+        if severity == Severity::Note {
+            self.notes += 1;
+        } else {
+            self.failing += 1;
+        }
+    }
+
+    /// The closing line of a run that printed a note, so a reader of a long
+    /// report sees how much of it is advice.
+    fn summary(&self) -> String {
+        let plural = |count: usize, noun: &str| {
+            format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
+        };
+        format!(
+            "xsht lint: {}, {}\n",
+            plural(self.failing, "finding"),
+            plural(self.notes, "note")
+        )
     }
 }
 
@@ -254,6 +301,7 @@ enum LintResultKind {
 
 struct RenderedDiagnostic {
     key: String,
+    severity: Severity,
     text: String,
 }
 
@@ -1562,8 +1610,6 @@ fn lint_config_for_file(
         // not also want them removed.
         prefer_inferred_proc_returns: tool_config.config.lint.prefer_inferred_proc_returns
             && !configured_return_annotations,
-        prefer_typed_callables: tool_config.config.lint.prefer_typed_callables,
-        prefer_non_empty_argv: tool_config.config.lint.prefer_non_empty_argv,
         prefer_rel_path: tool_config.config.lint.prefer_rel_path,
         return_proof: Some(crate::xsht::lint::ReturnProofContext {
             file: file.to_string(),
@@ -2000,6 +2046,7 @@ fn render_diagnostics_with_keys(
         .iter()
         .map(|diagnostic| RenderedDiagnostic {
             key: diagnostic_key(diagnostic, sources),
+            severity: diagnostic.severity,
             text: DiagnosticRenderer::new().render(std::slice::from_ref(diagnostic), sources),
         })
         .collect()
@@ -2065,10 +2112,13 @@ fn collect_fix_spans_filtered(
     non_overlapping
 }
 
+/// The status of a file's lint findings. A note never fails a file; whether
+/// notes fail the run is decided once, where they are counted.
 fn lint_diagnostics_status(diagnostics: &[Diagnostic]) -> u8 {
     if diagnostics.iter().all(|diagnostic| {
-        diagnostic.severity == Severity::Warning
-            && diagnostic.code == Some(DiagnosticCode::LintPathConstructor)
+        diagnostic.severity == Severity::Note
+            || (diagnostic.severity == Severity::Warning
+                && diagnostic.code == Some(DiagnosticCode::LintPathConstructor))
     }) {
         0
     } else {

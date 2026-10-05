@@ -479,10 +479,6 @@ pub struct LintOptions {
         Option<BTreeMap<Span, xsh::frontend::check::MessagePayloadConstructor>>,
     /// Opt in to `lint.prefer-inferred-proc-return`.
     pub prefer_inferred_proc_returns: bool,
-    /// Opt in to `lint.prefer-typed-callable`.
-    pub prefer_typed_callables: bool,
-    /// Opt in to `lint.prefer-non-empty-argv`.
-    pub prefer_non_empty_argv: bool,
     /// Opt in to `lint.prefer-text-pattern`, which has no fix: it notes
     /// where text is taken apart by position.
     pub prefer_text_pattern: bool,
@@ -556,8 +552,6 @@ impl Default for LintOptions {
             prefer_implicit_messages: false,
             message_payload_constructors: None,
             prefer_inferred_proc_returns: false,
-            prefer_typed_callables: false,
-            prefer_non_empty_argv: false,
             prefer_text_pattern: false,
             prefer_rel_path: false,
             return_proof: None,
@@ -613,7 +607,6 @@ pub struct Linter<'a> {
     prefer_inferred_variants: bool,
     prefer_positional_constructors: bool,
     prefer_inferred_proc_returns: bool,
-    prefer_typed_callables: bool,
     prefer_text_pattern: bool,
     prefer_rel_path: bool,
     return_proof: Option<ReturnProofContext>,
@@ -654,7 +647,7 @@ pub struct Linter<'a> {
     guarded_statement_depth: usize,
     propagating_statements: BTreeSet<Span>,
     redundant_condition_propagations: BTreeSet<Span>,
-    /// Empty unless `lint.prefer-non-empty-argv` was asked for.
+    /// Empty without checked facts.
     unvalidated_command_vectors: BTreeMap<Span, Type>,
     /// Inside a proc or pure body: whether `?` may replace `return Err(e)`
     /// there without changing the function's effect contract.
@@ -841,11 +834,6 @@ impl<'a> Linter<'a> {
                     only.contains(&DiagnosticCode::LintPreferRelPath)
                 }),
             prefer_inferred_proc_returns: options.prefer_inferred_proc_returns,
-            // Naming the rule in `--only` asks for it as the setting does.
-            prefer_typed_callables: options.prefer_typed_callables
-                || only.as_deref().is_some_and(|only| {
-                    only.contains(&DiagnosticCode::LintPreferTypedCallable)
-                }),
             return_proof: options.return_proof,
             proc_return_candidates: Vec::new(),
             return_removal_before: None,
@@ -879,15 +867,7 @@ impl<'a> Linter<'a> {
             guarded_statement_depth: 0,
             propagating_statements: options.propagating_statements,
             redundant_condition_propagations: options.redundant_condition_propagations,
-            // Naming the rule in `--only` asks for it as the setting does.
-            unvalidated_command_vectors: if options.prefer_non_empty_argv
-                || only.as_deref().is_some_and(|only| {
-                    only.contains(&DiagnosticCode::LintPreferNonEmptyArgv)
-                }) {
-                options.unvalidated_command_vectors
-            } else {
-                BTreeMap::new()
-            },
+            unvalidated_command_vectors: options.unvalidated_command_vectors,
             propagation_function: None,
             propagation_boundary_depth: 0,
             negated_call_spans: BTreeMap::new(),
@@ -977,7 +957,7 @@ impl<'a> Linter<'a> {
             );
             linter.diagnostics.extend(implicit_messages);
         }
-        if linter.prefer_typed_callables {
+        {
             let callable_parameters = std::mem::take(&mut linter.callable_parameters);
             let reports = callable_parameters.finish(
                 linter.arena,
@@ -1872,7 +1852,7 @@ impl<'a> Linter<'a> {
                 let entrypoint = matches!(stmt.kind, ArenaStmtKind::CliMain(_))
                     || function.test_declaration
                     || (!exported && self.scopes.len() == 1 && function.name == "main");
-                if self.prefer_typed_callables && self.scopes.len() == 1 {
+                if self.scopes.len() == 1 {
                     self.callable_parameters.define(
                         function.name,
                         def,
@@ -1894,7 +1874,7 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::PureDef(def) => {
-                if self.prefer_typed_callables && self.scopes.len() == 1 {
+                if self.scopes.len() == 1 {
                     let name = self.arena.function_def(def).name;
                     self.callable_parameters.define(name, def, true, !exported);
                 }
@@ -2093,10 +2073,8 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Command(command) => self.lint_command_stmt(command),
             ArenaStmtKind::TailBareIdent(name) => {
                 self.mark_used(name.as_str().as_str());
-                if self.prefer_typed_callables {
-                    let hidden = self.local_hides(name);
-                    self.callable_parameters.tail_value(name, hidden);
-                }
+                let hidden = self.local_hides(name);
+                self.callable_parameters.tail_value(name, hidden);
             }
             ArenaStmtKind::Expr(expr) => {
                 let span = self.arena.expr(expr).span;
@@ -12755,19 +12733,15 @@ impl LintExprVisitor<'_, '_> {
         match arena_expr.kind {
             ArenaExprKind::Ident(name) => {
                 self.linter.mark_used(name.as_str().as_str());
-                if self.linter.prefer_typed_callables {
-                    let hidden = self.linter.local_hides(name);
-                    self.linter.callable_parameters.value(expr, name, hidden);
-                }
+                let hidden = self.linter.local_hides(name);
+                self.linter.callable_parameters.value(expr, name, hidden);
             }
             ArenaExprKind::Call { callee, args } => {
-                if self.linter.prefer_typed_callables {
-                    let mut parameters = std::mem::take(&mut self.linter.callable_parameters);
-                    parameters.call(self.linter.arena, callee, args, &|name| {
-                        self.linter.local_hides(name)
-                    });
-                    self.linter.callable_parameters = parameters;
-                }
+                let mut parameters = std::mem::take(&mut self.linter.callable_parameters);
+                parameters.call(self.linter.arena, callee, args, &|name| {
+                    self.linter.local_hides(name)
+                });
+                self.linter.callable_parameters = parameters;
                 if self
                     .linter
                     .record_constructors
