@@ -4660,13 +4660,34 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         if let ArenaExprKind::Ident(binding) = self.program.arena.expr(base).kind
             && let Some(ty) = slots.binding_type(binding)
         {
+            // A slot declared as a union holds one member wherever a method
+            // is called on it, and which member is the checker's decision,
+            // published as this receiver's type. Without that fact the call
+            // is not lowered: the declared union cannot say which member's
+            // methods apply.
+            let declared_union = match ty {
+                Type::Union(_) => true,
+                Type::Optional(inner) => matches!(inner.as_ref(), Type::Union(_)),
+                _ => false,
+            };
+            if declared_union {
+                return self.checked_expr_type(base).is_some_and(|narrowed| {
+                    self.lowered_method_supported_for_type(&narrowed, name, arg_count)
+                });
+            }
             return self.lowered_method_supported_for_type(ty, name, arg_count);
         }
         let Some(ty) = self
             .checked_expr_type(base)
             .or_else(|| self.concrete_checked_type(base))
         else {
-            return true;
+            // A local without a declared slot type (a loop item, a pattern
+            // capture) may hold a union member, and only the checker's fact
+            // says which. Without it the call is not lowered.
+            return !matches!(
+                self.program.arena.expr(base).kind,
+                ArenaExprKind::Ident(binding) if slots.resolve(binding).is_some()
+            );
         };
         self.lowered_method_supported_for_type(&ty, name, arg_count)
     }
@@ -15015,11 +15036,10 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         Type::Any | Type::Unknown => lowered_method_name(&name.as_str()),
         Type::Invalid => true,
         Type::Optional(inner) => lowered_method_supported_for_type(inner, name, arg_count),
-        // A slot keeps its declared union type inside the branch where the
-        // checker narrowed it, so the call is one the narrowed member has.
-        Type::Union(members) => members
-            .iter()
-            .any(|member| lowered_method_supported_for_type(member, name, arg_count)),
+        // The checker rejects a method call on a union that has not been
+        // narrowed to one member, so no checked receiver has this type. A
+        // receiver that does is not guessed at from its members.
+        Type::Union(_) => false,
         Type::Result(ok, _) => {
             name == "context" && (arg_count == 1 || arg_count == 2)
                 || lowered_method_supported_for_type(ok, name, arg_count)

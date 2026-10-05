@@ -84,6 +84,46 @@ pure path_name_bytes(words: List[Word]) -> Int {
 
 # The motivating case: an argv word list holds text and paths, and both reach
 # the child as their own bytes with no `.display()`.
+type Payload = Union[Str, Path, List[Str], Bytes]
+
+# Each call is on the same slot, declared as the union; the member the test
+# left decides which methods it has.
+pure measure(payload: Payload) -> Str {
+  return "text " + payload.trim() when payload is Str
+  return "file " + payload.name() when payload is Path
+
+  return "list " + payload.join("+") when payload is List[Str]
+
+  f"bytes {payload.len()}"
+}
+
+pure measure_present(payload: Payload?) -> Str {
+  guard payload != null else {
+    return "absent"
+  }
+
+  return f"bytes {payload.len()}" when payload is Bytes
+
+  if payload is (Str | Path) {
+    return if payload is Path { payload.name() } else { payload.trim() }
+  }
+
+  f"list {payload.len()}"
+}
+
+test test_method_on_a_narrowed_union_slot_is_the_narrowed_member_s {
+  assert measure("  padded ") == "text padded"
+  assert measure(/srv/data.txt) == "file data.txt"
+  assert measure(["a", "b"]) == "list a+b"
+  assert measure(bytes.from_text("abc")) == "bytes 3"
+
+  assert measure_present(null) == "absent"
+  assert measure_present(bytes.from_text("abcd")) == "bytes 4"
+  assert measure_present(/srv/data.txt) == "data.txt"
+  assert measure_present(" padded ") == "padded"
+  assert measure_present(["a", "b", "c"]) == "list 3"
+}
+
 test test_union_word_list_splices_into_argv { |ctx|
   let dir = test.temp_dir(ctx, name: "union-argv")?
   let file = fp"{dir}/input file.txt"

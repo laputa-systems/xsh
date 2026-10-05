@@ -11382,6 +11382,180 @@ proc configured() [] -> Int {
         });
     }
 
+    // A slot declared as a union holds one member where a method is called on
+    // it, and the checker says which: the receiver's published type. Lowering
+    // reads that fact and nothing else, so a receiver whose fact is missing,
+    // is still the union, or names a member without the method is refused
+    // instead of being lowered on the strength of some other member.
+    #[test]
+    fn narrowed_union_receivers_are_lowered_from_the_checked_member() {
+        use crate::sema::check::CompactDeclOutput;
+        use crate::syntax::arena::{ArenaExprKind, ExprId};
+        run_with_large_stack(|| {
+            let source = r#"type Word = Union[Str, Path]
+
+pure label(word: Word) -> Str {
+  if word is Path {
+    return word.name()
+  }
+
+  word.trim()
+}
+"#;
+            let program = Arc::new(fixture("narrowed-union.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for (argument, expected) in [
+                (Value::Str(Arc::from("  padded ")), "padded"),
+                (
+                    Value::Path(PathValue::new(b"/srv/data.txt".to_vec()).unwrap()),
+                    "data.txt",
+                ),
+            ] {
+                let mut evaluator =
+                    Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "label")),
+                        LoweredFunctionKind::Pure,
+                        &[argument],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("label exists");
+                assert_eq!(result.unwrap(), Value::Str(Arc::from(expected)));
+            }
+
+            // Builds the same source after `edit` has changed the checked
+            // type of the `word` receiver of `.name()`.
+            let build = |edit: &dyn Fn(&mut CompactDeclOutput, ExprId)| {
+                let name = "narrowed-union.xsh";
+                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                    name,
+                    crate::loader::entry_source_from_text(name, source.to_string()),
+                    Vec::new(),
+                );
+                let source_id = crate::source::SourceMap::files(&sources)
+                    .first()
+                    .map(crate::source::SourceFile::id)
+                    .expect("entry source is present");
+                let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+                assert!(declarations.diagnostics.is_empty());
+                let receivers = declarations
+                    .bodies
+                    .expr_types
+                    .iter()
+                    .filter(|(id, ty)| {
+                        **ty == Type::Path
+                            && matches!(
+                                parsed.arena.arena.expr(**id).kind,
+                                ArenaExprKind::Ident(name) if name == "word"
+                            )
+                    })
+                    .map(|(id, _)| *id)
+                    .collect::<Vec<_>>();
+                assert_eq!(receivers.len(), 1, "the narrowed receiver of `.name()`");
+                edit(&mut declarations, receivers[0]);
+                FullBuilder::build_compact(
+                    &parsed.arena,
+                    &declarations,
+                    source,
+                    Arc::new(sources),
+                    source_id,
+                )
+            };
+            assert!(build(&|_, _| {}).is_ok());
+
+            let word = Type::Union(vec![Type::Str, Type::Path]);
+            // The fact names the member that has no `name` method.
+            assert!(
+                build(&|declarations, receiver| {
+                    declarations.bodies.expr_types.insert(receiver, Type::Str);
+                })
+                .is_err()
+            );
+            // The fact is the declared union: nothing was narrowed.
+            assert!(
+                build(&|declarations, receiver| {
+                    declarations
+                        .bodies
+                        .expr_types
+                        .insert(receiver, word.clone());
+                })
+                .is_err()
+            );
+            // The fact is missing.
+            assert!(
+                build(&|declarations, receiver| {
+                    declarations.bodies.expr_types.remove(&receiver);
+                })
+                .is_err()
+            );
+        });
+    }
+
+    // A loop item has no declared slot type, so the checker's fact is the
+    // only thing that says which union member a receiver is. Without the
+    // fact the method call is refused, as for a declared union slot.
+    #[test]
+    fn union_loop_item_receiver_without_a_fact_is_not_lowered() {
+        use crate::syntax::arena::ArenaExprKind;
+        run_with_large_stack(|| {
+            let source = r#"type Word = Union[Str, Path]
+
+pure names(words: List[Word]) -> Str {
+  var out = ""
+  for word in words {
+    if word is Path {
+      out = out + word.name()
+    }
+  }
+
+  out
+}
+"#;
+            let build = |keep_fact: bool| {
+                let name = "union-loop-item.xsh";
+                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+                    name,
+                    crate::loader::entry_source_from_text(name, source.to_string()),
+                    Vec::new(),
+                );
+                let source_id = crate::source::SourceMap::files(&sources)
+                    .first()
+                    .map(crate::source::SourceFile::id)
+                    .expect("entry source is present");
+                let mut declarations = Checker::check_compact_declarations(&parsed.arena);
+                assert!(declarations.diagnostics.is_empty());
+                let receivers = declarations
+                    .bodies
+                    .expr_types
+                    .iter()
+                    .filter(|(id, ty)| {
+                        **ty == Type::Path
+                            && matches!(
+                                parsed.arena.arena.expr(**id).kind,
+                                ArenaExprKind::Ident(name) if name == "word"
+                            )
+                    })
+                    .map(|(id, _)| *id)
+                    .collect::<Vec<_>>();
+                assert_eq!(receivers.len(), 1, "the narrowed receiver of `.name()`");
+                if !keep_fact {
+                    declarations.bodies.expr_types.remove(&receivers[0]);
+                }
+                FullBuilder::build_compact(
+                    &parsed.arena,
+                    &declarations,
+                    source,
+                    Arc::new(sources),
+                    source_id,
+                )
+            };
+            assert!(build(true).is_ok());
+            assert!(build(false).is_err());
+        });
+    }
+
     // A call through a callable type reaches the verified program as one row
     // that names the checked type, its kind, and one argument per parameter.
     // The executor binds those arguments by position and reads no signature,
