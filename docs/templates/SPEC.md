@@ -1431,8 +1431,13 @@ its result is made optional. Guard each hop: `config?.server?.host?.trim()`.
 The receiver's type decides what the `?` of `?.` and `?[` guards. On a
 `Result` receiver it is propagation (8.3) followed by the ordinary operation:
 `load()?.trim()` means `(load()?).trim()`, fails as that does, and its value is
-not optional. One hop is one layer, so a `Result[T?]` receiver needs both:
-`(find()?)?.trim()`; `find()?.trim()` is `check.optional-method`. On any other
+not optional. The same holds for a field and an index: `stat()?.kind` is
+`(stat()?).kind` and `list()?[0]` is `(list()?)[0]`. One hop is one layer, so
+a `Result[T?]` receiver needs both: `(find()?)?.trim()`. With one hop the
+optional it held is unguarded, and that is an error named after the access:
+`find()?.trim()` is `check.optional-method`, `find()?.name` is
+`check.null-safe-field`, and `find()?[0]` or `find()?[a..b]` is
+`check.null-safe-index`. On any other
 receiver `?.` is `check.null-safe-field`. An
 optional method that returns a `Result` produces `Result[T, E]?`; handle the
 layers separately, as in `(text?.parse_int() ?? Ok(0))?`.

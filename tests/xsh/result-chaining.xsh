@@ -59,6 +59,118 @@ test test_a_result_of_an_optional_takes_one_hop_for_each_layer { |ctx|
   )?
 }
 
+type Entry = {kind: Str, size: Int}
+
+pure entry(kind: Str) -> Result[Entry] {
+  fail "no entry" when kind == ""
+  Ok(Entry(kind:, size: kind.byte_len()))
+}
+
+pure optional_entry(kind: Str) -> Entry? {
+  if kind == "" { null } else { Entry(kind:, size: kind.byte_len()) }
+}
+
+pure entry_of_both(kind: Str) -> Result[Entry?] {
+  fail "bad entry" when kind == "bad"
+  Ok(optional_entry(kind))
+}
+
+pure names(kind: Str) -> Result[List[Str]] {
+  fail "no names" when kind == ""
+  Ok([kind, "last"])
+}
+
+pure optional_names(kind: Str) -> List[Str]? {
+  if kind == "" { null } else { [kind, "last"] }
+}
+
+pure names_of_both(kind: Str) -> Result[List[Str]?] {
+  fail "bad names" when kind == "bad"
+  Ok(optional_names(kind))
+}
+
+pure kind_after_result(kind: Str) -> Result[Str] {
+  # A field after a call's `?` is the propagation and then the field.
+  let found = entry(kind)?.kind
+  Ok(found)
+}
+
+pure first_after_result(kind: Str) -> Result[Str] {
+  let found = names(kind)?[0]
+  Ok(found)
+}
+
+pure kind_after_both(kind: Str) -> Result[Str?] {
+  let found = (entry_of_both(kind)?)?.kind
+  Ok(found)
+}
+
+pure first_after_both(kind: Str) -> Result[Str?] {
+  let found = (names_of_both(kind)?)?[0]
+  Ok(found)
+}
+
+test test_a_field_or_an_index_after_a_guarded_hop_on_a_result_is_not_optional {
+  assert kind_after_result("dir")? == "dir"
+  assert first_after_result("dir")? == "dir"
+  match kind_after_result("") {
+    Ok(value) => test.fail(f"propagation yielded {value}")
+    Err(problem) => assert problem.message == "no entry"
+  }
+
+  match first_after_result("") {
+    Ok(value) => test.fail(f"propagation yielded {value}")
+    Err(problem) => assert problem.message == "no names"
+  }
+
+  # It is the grouped spelling, and the value takes part in an expression
+  # as a present one.
+  assert (entry("ab")?).kind == entry("ab")?.kind
+  assert entry("ab")?.size + 1 == 3
+  assert names("ab")?[-1] == "last"
+  assert names("ab")?[0..1] == ["ab"]
+}
+
+test test_a_field_or_an_index_after_a_guarded_hop_on_an_optional_is_optional {
+  let present = optional_entry("file")?.kind
+  let absent = optional_entry("")?.kind
+  assert present == "file"
+  assert absent == null
+  let first = optional_names("file")?[0]
+  let none = optional_names("")?[0]
+  assert first == "file"
+  assert none == null
+}
+
+test test_a_field_or_an_index_of_a_result_of_an_optional_takes_two_hops { |ctx|
+  assert kind_after_both("file")? == "file"
+  assert kind_after_both("")? == null
+  assert first_after_both("file")? == "file"
+  assert first_after_both("")? == null
+  assert kind_after_both("bad") is Err(_)
+  assert first_after_both("bad") is Err(_)
+
+  # With one hop the optional the `Result` held is unguarded, whatever the
+  # access is.
+  let held = "Result propagation leaves an Optional receiver; guard the next hop explicitly"
+  let declarations = r"""type Entry = {kind: Str}
+pure found(kind: Str) -> Result[Entry?] {
+  Ok(Entry(kind:))
+}
+pure listed(kind: Str) -> Result[List[Str]?] {
+  Ok([kind])
+}
+"""
+  let field = "pure kind(kind: Str) -> Result[Str?] {\n  Ok(found(kind)?.kind)\n}\n"
+  let _ = test.expect(ctx, declarations + field, status: 2, stderr: [f"err[check.null-safe-field]: {held}"])?
+  let index = "pure first(kind: Str) -> Result[Str?] {\n  Ok(listed(kind)?[0])\n}\n"
+  let _ = test.expect(ctx, declarations + index, status: 2, stderr: [f"err[check.null-safe-index]: {held}"])?
+  let slice = "pure some(kind: Str) -> Result[List[Str]?] {\n  Ok(listed(kind)?[0..1])\n}\n"
+  let sliced = test.expect(ctx, declarations + slice, status: 2, stderr: [f"err[check.null-safe-index]: {held}"])?
+  # The one error is the whole report.
+  assert sliced.stderr.split("err[").len() == 2, sliced.stderr
+}
+
 proc trimmed(script: Str) -> Result[Str] {
   let text = (run.text sh -c $script)?.trim()
   Ok(text)

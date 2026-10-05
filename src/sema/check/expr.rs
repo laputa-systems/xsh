@@ -3179,6 +3179,17 @@ impl Checker {
                 return Type::Unknown;
             }
         };
+        // One `?.` is one hop. On a `Result` it is the propagation, so an
+        // optional the `Result` held is still unguarded here, as it is for a
+        // method call.
+        if !wrap_optional && matches!(inner, Type::Optional(_)) {
+            self.error(
+                span,
+                "Result propagation leaves an Optional receiver; guard the next hop explicitly",
+                DiagnosticCode::CheckNullSafeField,
+            );
+            return Type::Unknown;
+        }
         let field_ty = match &inner {
             Type::ErasedRecord => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
@@ -3275,7 +3286,20 @@ impl Checker {
                 (inner.into_unvalidated(), true)
             }
             Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
-            Type::Result(_, _) => (self.check_propagation(&ty, span), false),
+            Type::Result(_, _) => {
+                let held = self.check_propagation(&ty, span);
+                // One `?[` is one hop: the propagation. An optional the
+                // `Result` held is still unguarded.
+                if matches!(held, Type::Optional(_)) {
+                    self.error(
+                        span,
+                        "Result propagation leaves an Optional receiver; guard the next hop explicitly",
+                        DiagnosticCode::CheckNullSafeIndex,
+                    );
+                    return (Type::Unknown, false);
+                }
+                (held, false)
+            }
             _ => {
                 self.error(
                     span,

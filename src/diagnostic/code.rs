@@ -369,8 +369,8 @@ diagnostic_codes! {
         CheckNamedSpread = "check.named-spread", error, "Reject named-argument spreading that cannot be checked against the callable signature";
         CheckNestedDeclaration = "check.nested-declaration", error, "Reject a declaration nested inside a block or function body";
         CheckNonExhaustiveMatch = "check.non-exhaustive-match", error, "Reject a statement `match` that misses list lengths, enum or error family variants, or union members";
-        CheckNullSafeField = "check.null-safe-field", error, "Reject `?.` on a value that is not an `Optional` or `Result`";
-        CheckNullSafeIndex = "check.null-safe-index", error, "Reject guarded indexing on a receiver that is not a checked `Optional` or `Result`";
+        CheckNullSafeField = "check.null-safe-field", error, "Reject `?.` on a value that is not an `Optional` or `Result`, and a field read through one `?.` on a `Result` that holds an optional";
+        CheckNullSafeIndex = "check.null-safe-index", error, "Reject guarded indexing on a receiver that is not a checked `Optional` or `Result`, or through one `?[` on a `Result` that holds an optional";
         CheckOperatorType = "check.operator-type", error, "Reject an operator or compound assignment applied to operand types it does not support";
         CheckOptionalMethod = "check.optional-method", error, "Reject a method call on a nullable receiver or result without a `?.` hop";
         CheckOrphanDocComment = "check.orphan-doc-comment", error, "Reject a doc comment that does not precede an export or serve as the module `##!` doc";
