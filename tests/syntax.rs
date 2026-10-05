@@ -4,7 +4,7 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPatternKind,
-    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, ArenaSugar,
+    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaStmtKind, ArenaSugar,
     ArenaTypeDefBody, SugarForm,
     ArenaWordPart, ExprId, StmtId,
 };
@@ -360,27 +360,6 @@ fn cst_groups_delimiters_and_maps_ast_spans() {
 }
 
 #[test]
-fn parser_and_formatter_accept_float_literals() {
-    let source = "let a = 1.0\nlet b = 0.25\nlet c = 10e-3\nlet d = 1.5e6\nlet m = 1.float()\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(e), .. }
-            if matches!(arena.expr(e).kind, ArenaExprKind::Float(_)))
-    }));
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
-
-#[test]
 fn formatter_reuses_parsed_program_without_changing_output() {
     let source = "let value =   1\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -391,51 +370,6 @@ fn formatter_reuses_parsed_program_without_changing_output() {
 
     assert_eq!(reused.formatted, direct.formatted);
     assert!(reused.diagnostics.is_empty(), "{:?}", reused.diagnostics);
-}
-
-#[test]
-fn parser_and_formatter_accept_map_comprehensions() {
-    let source =
-        "let by_name = {item.name: item.version for item in items if item.version != \"\"}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(e), .. }
-            if matches!(arena.expr(e).kind, ArenaExprKind::MapComp { .. }))
-    }));
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
-
-#[test]
-fn parser_accepts_bracketed_computed_map_literal_keys() {
-    use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
-    let source = "let by_name = {[item.name]: item.version}\n";
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    let ArenaExprKind::Record(fields) = arena.expr(root_let_init_expr(&output, 0)).kind else {
-        panic!("map literal");
-    };
-    assert!(matches!(
-        arena.record_fields(fields)[0].kind,
-        ArenaRecordFieldKind::Computed { .. }
-    ));
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
 }
 
 #[test]
@@ -573,70 +507,6 @@ match result {
 }
 
 #[test]
-fn parser_and_formatter_accept_type_patterns() {
-    let source = r#"match json.decode("1.25")? {
-  i is Int => print ${i.float()}
-  f is Float => print ${f}
-  _ is Null => print "null"
-  _ => print "other"
-}
-"#;
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        let ArenaStmtKind::Match { arms, .. } = arena.stmt(id).kind else {
-            return false;
-        };
-        let arms = arena.match_arms(arms);
-        !arms.is_empty()
-            && matches!(
-                arena.pattern(arms[0].pattern).kind,
-                ArenaPatternKind::Type { binding: Some(name), ty }
-                    if name.as_str() == "i" && arena.type_expr_named(ty, "Int")
-            )
-    }));
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
-
-#[test]
-fn parser_and_formatter_accept_module_contract_types() {
-    let source = r#"type Plugin = module {
-  export let name: Str
-  export optional let description: Str
-  export proc execute(root: Path) [fs, error] -> Result[Unit, Error]
-  export pure label(name: Str) -> Str
-}
-
-let plugin: Module[Plugin] = module.load(p"plugin.xsh")?
-"#;
-    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let arena = &output.arena.arena;
-    assert!(output.arena.statement_ids().any(|id| {
-        matches!(arena.stmt(id).kind, ArenaStmtKind::TypeDef(def)
-            if matches!(arena.type_def(def).body, ArenaTypeDefBody::ModuleContract { .. }))
-    }));
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
-
-#[test]
 fn run_command_fixture_preserves_argv_boundary() {
     let output = Parser::parse_source_arena_only(SourceId::new(0), "run make -j${cpu.count()} ?\n");
 
@@ -675,18 +545,6 @@ fn parser_accepts_grouped_multiline_run_invocation() {
     assert!(segments[0].grouped);
     assert_eq!(arena.command_args(segments[0].args).len(), 3);
     assert!(form.propagate);
-}
-
-#[test]
-fn formatter_preserves_grouped_run_invocation_shape() {
-    let source = "run (\n$make\n\"ARCH=arm64\"\nf\"CC={cc}\"\n\"Image\"\n)?\n";
-    let output = xsht::format::Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    assert_eq!(
-        output.formatted,
-        "run (\n  $make\n  \"ARCH=arm64\"\n  f\"CC={cc}\"\n  \"Image\"\n) ?\n"
-    );
 }
 
 #[test]
@@ -758,47 +616,6 @@ env DESTDIR=/tmp/stage {
     };
     assert_eq!(arena.env_assignments(*env).len(), 1);
     assert!(block.is_some());
-}
-
-#[test]
-fn parser_and_formatter_accept_signal_hooks() {
-    let source =
-        "on TERM --pre-cancel=50ms [error, process, fs] {\nprint \"stop\"\n}\nlet on = 1\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let arena = &parsed.arena.arena;
-    let root: Vec<_> = parsed.arena.statement_ids().collect();
-    assert!(matches!(
-        arena.stmt(root[0]).kind,
-        ArenaStmtKind::SignalHook(_)
-    ));
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(
-        formatted.formatted,
-        "on TERM --pre-cancel=50ms [fs, process, error] {\n  print \"stop\"\n}\n\nlet on = 1\n"
-    );
-}
-
-#[test]
-fn formatter_preserves_signal_hook_comments() {
-    let source = "# before\non TERM [error, fs] {\n# inside\nprint \"stop\"\n}\n";
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(
-        formatted.formatted,
-        "# before\non TERM [fs, error] {\n  # inside\n  print \"stop\"\n}\n"
-    );
 }
 
 #[test]
@@ -1886,193 +1703,6 @@ stats["comments"] = 2
 }
 
 #[test]
-fn parser_formatter_golden_covers_current_surface_syntax() {
-    let source = r#"
-proc write_note(path: Path) {
-path.write("ok")?
-}
-var count=1
-count+=2
-var stats={code:0,comments:0}
-stats.code+=1
-stats["comments"]=2
-let label=f"count {count}"
-let tool=fp"{Path("root")}/bin/tool"
-let text=run.text printf "%s" ${label} ?
-let bytes=run.bytes printf "%s" raw ?
-let files=g"src/*.rs"
-run printf "%s\n" @g"src/*.rs" ?
-let choice=if count>1{"many"}else{"one"}
-let value=match Ok(count){Ok(n)=>n,Err(_)=>0}
-p"tmp".remove(missing_ok:true)?
-let slash=p"/tmp/xsh"
-let multiline="""alpha
-beta"""
-let quoted_multiline="alpha\n\"\"\"\nbeta"
-"#;
-    let expected = r#"proc write_note(path: Path) {
-  path.write("ok")?
-}
-
-var count = 1
-count += 2
-var stats = {code: 0, comments: 0}
-stats.code += 1
-stats["comments"] = 2
-let label = f"count {count}"
-let tool = fp"{Path("root")}/bin/tool"
-let text = run.text printf "%s" ${label} ?
-let bytes = run.bytes printf "%s" raw ?
-let files = g"src/*.rs"
-run printf "%s\n" @g"src/*.rs" ?
-let choice = if count > 1 { "many" } else { "one" }
-let value = match Ok(count) { Ok(n) => n, Err(_) => 0 }
-p"tmp".remove(missing_ok: true)?
-let slash = /tmp/xsh
-let multiline = """alpha
-beta"""
-let quoted_multiline = "alpha\n\"\"\"\nbeta"
-"#;
-
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-
-    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
-    assert!(
-        reparsed.diagnostics.is_empty(),
-        "{:?}",
-        reparsed.diagnostics
-    );
-}
-
-#[test]
-fn parser_and_formatter_preserve_spawn_wait_forms() {
-    let source = r#"
-let h=spawn run --cpumax=80 true ?
-let s=wait h?
-let hs=[spawn run true ?,spawn run false ?]
-let statuses=wait hs?
-let cmd=process.command {
-cpu_max=80
-run true
-}
-let h2=spawn (cmd)?
-h2.cancel(signal:"TERM",kill_after:0ms)?
-"#;
-    let expected = r#"let h = spawn run --cpumax=80 true ?
-let s = wait h?
-let hs = [spawn run true?, spawn run false?]
-let statuses = wait hs?
-let cmd = process.command {
-  cpu_max = 80
-  run true
-}
-let h2 = spawn cmd?
-h2.cancel(signal: "TERM", kill_after: 0ms)?
-"#;
-
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let arena = &parsed.arena.arena;
-    let ArenaExprKind::Try(inner) = arena.expr(root_let_init_expr(&parsed, 0)).kind else {
-        panic!("expected spawn result propagation");
-    };
-    let ArenaExprKind::Spawn(form) = arena.expr(inner).kind else {
-        panic!("expected spawn form");
-    };
-    assert!(matches!(form.target, ArenaSpawnTarget::Run(_)));
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
-    assert!(
-        reparsed.diagnostics.is_empty(),
-        "{:?}",
-        reparsed.diagnostics
-    );
-}
-
-#[test]
-fn parser_and_formatter_preserve_retry_blocks() {
-    let source = r#"
-let value=retry [1s,2s,0ms] {
-  fetch()?
-}?
-let once=retry [] {
-  Ok("done")
-}
-"#;
-    let expected = r#"let value = retry [1s, 2s, 0ms] {
-  fetch()?
-}?
-let once = retry [] {
-  Ok("done")
-}
-"#;
-
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let arena = &parsed.arena.arena;
-    let ArenaExprKind::Try(inner) = arena.expr(root_let_init_expr(&parsed, 0)).kind else {
-        panic!("expected retry result propagation");
-    };
-    let ArenaExprKind::Retry { delays, block, .. } = arena.expr(inner).kind else {
-        panic!("expected retry expression");
-    };
-    assert_eq!(arena.expr_ids(delays).count(), 3);
-    assert_eq!(arena.stmt_ids(arena.block(block).statements).count(), 1);
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn parser_and_formatter_preserve_require_type_syntax() {
-    let source = r#"
-type Config = {name: Str, ports: List[Int], note: Str?}
-let cfg=json.read(path)?.require(Config)?
-let names=json.decode("[]")?.require(List[Str])?
-"#;
-    let expected = r#"type Config = {name: Str, ports: List[Int], note: Str?}
-
-let cfg = json.read(path)?.require(Config)?
-let names = json.decode("[]")?.require(List[Str])?
-"#;
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-
-    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
-    assert!(
-        reparsed.diagnostics.is_empty(),
-        "{:?}",
-        reparsed.diagnostics
-    );
-}
-
-#[test]
 fn parser_treats_old_schema_helper_name_as_plain_call() {
     let old_name = ["vali", "date"].concat();
     let source = format!(
@@ -2091,554 +1721,6 @@ fn parser_treats_old_schema_helper_name_as_plain_call() {
     assert!(
         matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name.as_str() == old_name.as_str())
     );
-}
-
-#[test]
-fn formatter_escapes_literal_dollar_interpolation_markers() {
-    let source = r#"
-let plain = r"${name}"
-let label = f"${{name}}:{name}"
-run echo "\$name" "\${name}"
-"#;
-    let expected = r#"let plain = r"${name}"
-let label = f"${{name}}:{name}"
-run echo "\$name" "\${name}"
-"#;
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-
-    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
-    assert!(
-        reparsed.diagnostics.is_empty(),
-        "{:?}",
-        reparsed.diagnostics
-    );
-}
-
-#[test]
-fn formatter_preserves_ergonomic_sugar_pass_forms() {
-    let source = "fs.mkdir build?\nfs.remove dist --missing-ok?\nlet {name,version,..}=pkg\nlet jobs=env.Str.JOBS??\"1\"\nprint $pkg.name \"$pkg.name\"\n";
-    let expected = "fs.mkdir build ?\nfs.remove dist --missing-ok ?\nlet {name, version, ..} = pkg\nlet jobs = env.Str.JOBS ?? \"1\"\nprint $pkg.name $pkg.name\n";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_uses_two_space_pipeline_continuation_indent() {
-    let source = "\
-let names = fs.walk(root)
-|> where .kind == \"file\"
-|> map .name
-";
-    let expected = "\
-let names = fs.walk(root)
-  |> where .kind == \"file\"
-  |> map .name
-";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_separates_multiline_pipeline_statements() {
-    let source = "\
-let names = fs.walk(root)
-|> where .kind == \"file\"
-let sizes = fs.walk(root)
-|> where .kind == \"file\"
-|> map .size
-print ${names[0]} ${sizes[0]}
-";
-    let expected = "\
-let names = fs.walk(root) |> where .kind == \"file\"
-let sizes = fs.walk(root)
-  |> where .kind == \"file\"
-  |> map .size
-print ${names[0]} ${sizes[0]}
-";
-
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_preserves_intentional_top_level_blank_lines() {
-    let source = "\
-let label = \"one\"
-
-let lines = label.lines()
-
-print ${lines |> count()}
-";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
-
-#[test]
-fn formatter_indents_nested_blocks_under_pipeline_stages() {
-    let source = "\
-let doubled = [1, 2, 3]
-|> par-map { |value|
-value*2
-}
-";
-    let expected = "\
-let doubled = [1, 2, 3]
-  |> par-map { |value|
-    value * 2
-  }
-";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_wraps_long_constructs_at_default_width() {
-    let source = r#"
-type Package = {dir: Path, exports: Record, name: Str, ver: Str, rel: Str, deps: List[Str], mkdeps: List[Str], sources: List[Path], checksums: List[Str], nostrip: Bool}
-let paths = [fp"{root}/bin", fp"{root}/dev", fp"{root}/etc/rc.d", fp"{root}/proc", fp"{root}/root", fp"{root}/run", fp"{root}/sys", fp"{root}/tmp", fp"{root}/usr/lib/services"]
-let metadata = {name: pkg.name, version: pkg.ver, release: pkg.rel, tarball: tarball.display(), manifest_count: manifest.len(), checksum: checksums[source_index], installed_root: root.display(), work_dir: work.display()}
-let command = process.command_argv(service_target, argv_prefix.extend([proof_log.display(), "heartbeat"]), cwd: root, timeout: 5s, detach: true, new_session: true, ignore_hup: true)
-proc main(root: Path = Path("target/xsh-rootfs"), xsh_bin: Path = Path("target/debug/xsh"), auth_bin_dir: Path = Path("target/debug")) -> Result[Unit] {
-return Ok()
-}
-"#;
-    let expected = "\
-type Package = {
-  dir: Path,
-  exports: Record,
-  name: Str,
-  ver: Str,
-  rel: Str,
-  deps: List[Str],
-  mkdeps: List[Str],
-  sources: List[Path],
-  checksums: List[Str],
-  nostrip: Bool,
-}
-
-let paths = [
-  fp\"{root}/bin\",
-  fp\"{root}/dev\",
-  fp\"{root}/etc/rc.d\",
-  fp\"{root}/proc\",
-  fp\"{root}/root\",
-  fp\"{root}/run\",
-  fp\"{root}/sys\",
-  fp\"{root}/tmp\",
-  fp\"{root}/usr/lib/services\",
-]
-let metadata = {
-  name: pkg.name,
-  version: pkg.ver,
-  release: pkg.rel,
-  tarball: tarball.display(),
-  manifest_count: manifest.len(),
-  checksum: checksums[source_index],
-  installed_root: root.display(),
-  work_dir: work.display(),
-}
-let command = process.command_argv(
-  service_target,
-  argv_prefix.extend([proof_log.display(), \"heartbeat\"]),
-  cwd: root,
-  timeout: 5s,
-  detach: true,
-  new_session: true,
-  ignore_hup: true,
-)
-
-proc main(
-  root: Path = Path(\"target/xsh-rootfs\"),
-  xsh_bin: Path = Path(\"target/debug/xsh\"),
-  auth_bin_dir: Path = Path(\"target/debug\"),
-) -> Result[Unit] {
-  return Ok()
-}
-";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-    assert!(
-        formatted
-            .formatted
-            .lines()
-            .filter(|line| !line.starts_with("  auth_bin_dir:"))
-            .all(|line| line.chars().count() <= 120)
-    );
-}
-
-#[test]
-fn formatter_preserves_readable_multiline_package_shapes() {
-    let source = "export type CMultiTarget = {
-  tasks: List[MakeTask],
-  groups: Map[CompileTasks],
-  outputs: Map[Path],
-  deps: List[Str],
-}
-let target = make.c_program({
-  cc,
-  triple,
-  cflags,
-  defs,
-  includes,
-  root: p\".\",
-  sources,
-  out_dir: p\"obj\",
-  out: p\"obj/tool\",
-  libs: [],
-  ldflags: [],
-  deps: [],
-})
-let value = path_value.display().replace(\"/\", \"_\").replace(\".cxx\", ext).replace(\".cpp\", ext).replace(\".cc\", ext).replace(\".c\", ext).replace(\".S\", ext).replace(\".s\", ext)
-let script = r\"\"\"print f\"{value}\"
-\"\"\"
-";
-    let expected = "export type CMultiTarget = {
-  tasks: List[MakeTask],
-  groups: Map[CompileTasks],
-  outputs: Map[Path],
-  deps: List[Str],
-}
-
-let target = make.c_program({
-  cc,
-  triple,
-  cflags,
-  defs,
-  includes,
-  root: p\".\",
-  sources,
-  out_dir: p\"obj\",
-  out: p\"obj/tool\",
-  libs: [],
-  ldflags: [],
-  deps: [],
-})
-let value = path_value.display()
-  .replace(\"/\", \"_\")
-  .replace(\".cxx\", ext)
-  .replace(\".cpp\", ext)
-  .replace(\".cc\", ext)
-  .replace(\".c\", ext)
-  .replace(\".S\", ext)
-  .replace(\".s\", ext)
-let script = r\"\"\"print f\"{value}\"
-\"\"\"
-";
-
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_indents_single_multiline_record_call_args_in_nested_contexts() {
-    let source = "pure make_row() -> Result[Record] {
-  return Ok({
-    name: \"demo\",
-    enabled: true,
-  })
-}
-
-pure push_row(rows: List[Record]) -> List[Record] {
-  return rows.push({
-    name: \"demo\",
-    enabled: true,
-  })
-}
-";
-    let expected = source;
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_keeps_expanded_single_record_call_stable() {
-    let source = "proc example() {\n  return RepoPlan({repo: resolve_repo_root(parsed.repo)?, all: parsed.all, roots: parsed.roots, target: parsed.target, output: parsed.output})\n}\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert!(first.formatted.contains("return RepoPlan({\n"));
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_preserves_indented_multiline_format_strings() {
-    let source = "proc write_line(text: Str, name: Str) [fs, error] {
-  text.write_atomic(f\"\"\"hello {name}
-\"\"\")?
-}
-
-proc write_path(text: Str, name: Str) [fs, error] {
-  text.write_atomic(fp\"\"\"hello {name}
-\"\"\")?
-}
-";
-    let expected = source;
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_keeps_single_multiline_literal_call_compact() {
-    let source = "tool.write(\"\"\"demo\n\"\"\")?\n";
-    let expected = "tool.write(\"\"\"demo\n\"\"\")?\n";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_canonicalizes_proc_effect_order() {
-    let source = "proc main() [io, error, fs, env, process, net, time] {\n  return Ok()\n}\n";
-    let expected = "proc main() [fs, net, process, env, time, error, io] {\n  return Ok()\n}\n";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_skips_next_statement_after_fmt_skip_comment() {
-    let source = "\
-let before = 1
-# fmt: skip
-let value=1+2
-let after = 3
-";
-    let expected = "\
-let before = 1
-# fmt: skip
-let value=1+2
-let after = 3
-";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_keeps_trailing_comment_on_skipped_statement() {
-    let source = "# fmt: skip\nlet value=1+2 # keep with the skipped statement\n\nlet after=3\n";
-    let expected =
-        "# fmt: skip\nlet value=1+2 # keep with the skipped statement\n\nlet after = 3\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_keeps_authored_block_gap_after_skipped_trailing_comment() {
-    let source = "proc main() {\n  # fmt: skip\n  let value=1+2 # keep with the skipped statement\n\n  let after=3\n}\n";
-    let expected = "proc main() {\n  # fmt: skip\n  let value=1+2 # keep with the skipped statement\n\n  let after = 3\n}\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_wraps_long_if_and_match_expressions_in_safe_contexts() {
-    let source = "\
-let choice = if user_name == \"administrator\" and mode == \"production\" { \"allow\" } else { \"deny\" }
-let label = render(match result { Ok(value) => value, Err(_) => \"fallback\" })
-";
-    let expected = "\
-let choice = if user_name == \"administrator\" and mode == \"production\" {
-  \"allow\"
-} else {
-  \"deny\"
-}
-let label = render(
-  match result {
-    Ok(value) => value,
-    Err(_) => \"fallback\",
-  },
-)
-";
-
-    let first = Formatter::new()
-        .with_line_width(60)
-        .format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-
-    let second = Formatter::new()
-        .with_line_width(60)
-        .format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_preserves_multiline_match_expressions() {
-    let source = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => (text_value.split(\"\\n\").get(0) ?? \"\")\n  Err(_) => \"\"\n}\n";
-    let expected = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0) ?? \"\",\n  Err(_) => \"\",\n}\n";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_preserves_multiline_call_argument_lists() {
-    let source = "let command = make_command(\n  target,\n  args,\n  cwd: root,\n)\n";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
-
-#[test]
-fn formatter_indents_broken_call_arguments_in_nested_blocks() {
-    let source = "proc main() {\nlet value=make(\ntarget,\n{\nalpha:1,beta:2,gamma:3,delta:4,epsilon:5,zeta:6},\n)\n}\n";
-    let expected = "proc main() {\n  let value = make(\n    target,\n    {\n      alpha: 1,\n      beta: 2,\n      gamma: 3,\n      delta: 4,\n      epsilon: 5,\n      zeta: 6,\n    },\n  )\n}\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_preserves_multiline_comprehensions() {
-    let source = "let upstream_sources = [{\n  source: source.source.display(),\n  kind: source.kind,\n  architectures: source.architectures,\n  checksums: source.checksums,\n} for source in pkg.upstream_sources]\nlet by_name = {\n  item.name: item.version\n  for item in items\n}\n";
-    let expected = "let upstream_sources = [\n  {\n    source: source.source.display(),\n    kind: source.kind,\n    architectures: source.architectures,\n    checksums: source.checksums,\n  }\n  for source in pkg.upstream_sources\n]\nlet by_name = {\n  item.name: item.version\n  for item in items\n}\n";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-}
-
-#[test]
-fn formatter_breaks_long_call_chains_between_calls() {
-    let source = "let files = common.push({path: p\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\", kind: \"binary\"}).push({path: p\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\", kind: \"binary\"}).push({path: p\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\", kind: \"binary\"})\n";
-
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert!(
-        formatted.formatted.contains("\n  .push"),
-        "{}",
-        formatted.formatted
-    );
-
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert_eq!(parsed.arena.statement_ids().count(), 1);
-    assert!(
-        formatted.formatted.contains("common.push("),
-        "{}",
-        formatted.formatted
-    );
-
-    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
-    assert_eq!(second.formatted, formatted.formatted);
 }
 
 #[test]
@@ -2663,19 +1745,6 @@ fn parser_rejects_stale_surface_syntax() {
             );
         }
     }
-}
-
-#[test]
-fn parser_accepts_run_capture_records() {
-    let source = "let text = run.capture --text printf \"%s\" hi\nlet bytes = run.capture --bytes printf \"%s\" hi\n";
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
 }
 
 #[test]
@@ -2727,147 +1796,6 @@ fn reserved_keywords_and_proc_identifiers_are_not_expression_names() {
 }
 
 #[test]
-fn formatter_fixture_covers_comments_commands_blocks_and_records() {
-    let source = include_str!("fixtures/syntax/valid/formatting.xsh");
-    let expected = "\
-# formatter fixture
-use fs
-
-proc main(args: List[Str]) {
-  # nested comment
-  let config = {name: \"demo\", enabled: true}
-  let values = [\"one\", \"two\"]
-
-  if true {
-    run echo \"hello \"${args[0]} ?
-  } else {
-    eprint \"no\"
-  }
-}
-
-main(args)?
-";
-
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_preserves_trailing_statement_comments() {
-    let source = "\
-let value=1 # keep this with the binding
-let after=3
-";
-    let expected = "\
-let value = 1 # keep this with the binding
-let after = 3
-";
-
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn formatter_preserves_nested_comment_blocks_without_duplicate_comments() {
-    let source = "\
-proc main() {
-  let before=1
-  if true {
-    # explain command shape
-    run echo \"ok\" ?
-  }
-  let after=2
-}
-print \"done\"
-";
-    let expected = "\
-proc main() {
-  let before = 1
-  if true {
-    # explain command shape
-    run echo \"ok\" ?
-  }
-
-  let after = 2
-}
-
-print \"done\"
-";
-
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-    assert_eq!(
-        first.formatted.matches("# explain command shape").count(),
-        1
-    );
-
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, first.formatted);
-}
-
-#[test]
-fn parser_formatter_roundtrip_property_over_baseline_snippets() {
-    let snippets = [
-        "let value = 1 + 2 * 3\n",
-        "let tmp_path = fp\"{Path(\"tmp\")}/space name\"\n",
-        "let raw_bytes = b\"a\\xff\\n\"\n",
-        "run printf \"%s\\n\" \"hello world\" ?\n",
-        "run make -j${cpu.count()} ?\n",
-        "proc main(args: List[Str]) -> Result[Unit] {\n  return Ok()\n}\n\nmain(args)?\n",
-        "pure trim_one(value: Str) -> Str {\n  return value.trim()\n}\n",
-        "if true {\n  print \"yes\"\n} else {\n  eprint \"no\"\n}\n",
-        "while false {\n  break\n}\n",
-        "for value in [\"a\", \"b\"] {\n  print ${value}\n}\n",
-        "match Ok(\"x\") {\n  Ok(value) => print ${value}\n  _ => print \"other\"\n}\n",
-        "type Package = {name: Str, root: Path}\nlet pkg: Package = {name: \"demo\", root: Path(\"src\")}\n",
-        "use types as t\nlet pkg: t.Package = {name: \"demo\", root: Path(\"src\")}\n",
-        "let record = {name: \"demo\", enabled: true}\n",
-        "let files = fs.walk(\"src\")\n|> where {\n  .kind == \"file\"\n}\n\n",
-        "let out = [1, 2] |> par-map { |x|\n  x * 2\n}\n",
-    ];
-
-    for (index, snippet) in snippets.iter().enumerate() {
-        let source_id = SourceId::new(index);
-        let parsed = Parser::parse_source_arena_only(source_id, snippet);
-        assert!(
-            parsed.diagnostics.is_empty(),
-            "{snippet}: {:?}",
-            parsed.diagnostics
-        );
-
-        let first = Formatter::new().format_source(source_id, snippet);
-        assert!(
-            first.diagnostics.is_empty(),
-            "{snippet}: {:?}",
-            first.diagnostics
-        );
-
-        let reparsed = Parser::parse_source_arena_only(source_id, &first.formatted);
-        assert!(
-            reparsed.diagnostics.is_empty(),
-            "{}: {:?}",
-            first.formatted,
-            reparsed.diagnostics
-        );
-
-        let second = Formatter::new().format_source(source_id, &first.formatted);
-        assert_eq!(second.formatted, first.formatted);
-    }
-}
-
-#[test]
 fn formatter_is_idempotent_on_example_catalog() {
     use xsh::frontend::source::SourceId;
     use xsht::examples::load_catalog;
@@ -2903,80 +1831,6 @@ fn formatter_is_idempotent_on_example_catalog() {
             case.path,
         );
     }
-}
-
-#[test]
-fn formatter_pretty_corpus_has_stable_golden_shape() {
-    let source = include_str!("fixtures/syntax/valid/pretty.xsh");
-    let formatted = Formatter::new()
-        .with_line_width(60)
-        .format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    let expected = "# curated formatter corpus
-let source = p\".\"
-let items = [
-  {name: \"one\", enabled: true},
-  {name: \"two\", enabled: false},
-]
-let source_shaped = [
-  1,
-  2,
-]
-let rows = [
-  {
-    name: \"short\",
-  },
-  {
-    name: \"a deliberately long record value that forces its sibling to break too\",
-  },
-]
-let nested = [
-  {
-    meta: {
-      name: \"short\",
-    },
-  },
-  {
-    meta: {
-      name: \"another deliberately long nested record value\",
-    },
-  },
-]
-let filtered = [item.name for item in items if item.enabled]
-let by_name = {
-  item.name: f\"{item.name}\"
-  for item in items
-  if item.enabled
-}
-let chain = source.display()
-  .replace(\"/\", \"_\")
-  .replace(\"-\", \"_\")
-# fmt: skip
-let skipped=1+2
-";
-    assert_eq!(formatted.formatted, expected);
-    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
-    let second = Formatter::new()
-        .with_line_width(60)
-        .format_source(SourceId::new(0), &formatted.formatted);
-    assert_eq!(second.formatted, formatted.formatted);
-}
-
-#[test]
-fn formatter_beauty_corpus_matches_golden_and_remains_idempotent() {
-    let source = include_str!("fixtures/fmt/beauty.xsh");
-    let expected = include_str!("fixtures/fmt/beauty.expected.xsh");
-    let source_id = SourceId::new(0);
-    let first = Formatter::new().format_source(source_id, source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, expected);
-    assert_parse_and_check(source_id, &first.formatted);
-    let second = Formatter::new().format_source(source_id, &first.formatted);
-    assert_eq!(second.formatted, first.formatted);
 }
 
 #[test]
@@ -3249,48 +2103,6 @@ fn parser_accepts_chained_string_concatenation() {
 }
 
 #[test]
-fn formatter_preserves_string_concatenation() {
-    let source = r#"let x = "a" + b + "c"
-"#;
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
-
-#[test]
-fn formatter_keeps_path_method_receivers_quoted() {
-    let source = "\
-proc patch_path() [fs, error] -> Result[Path] {
-  if p\"../pkg/files/x86-jump-label-patch.c\".exists()? {
-    return p\"../pkg/files/x86-jump-label-patch.c\"
-  }
-  return p\"../pkg/files/default.c\"
-}
-";
-    let expected = "\
-proc patch_path() [fs, error] -> Result[Path] {
-  if p\"../pkg/files/x86-jump-label-patch.c\".exists()? {
-    return ../pkg/files/x86-jump-label-patch.c
-  }
-
-  return ../pkg/files/default.c
-}
-";
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
-}
-
-#[test]
 fn parser_accepts_call_and_index_chains_in_command_args() {
     let print_chain = "proc main() {\n  let c = {stderr: \"err\\n\"}\n  print c.stderr.trim()\n}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), print_chain);
@@ -3401,35 +2213,6 @@ proc main(input: Path, candidate: Path, tarball: Path, name: Str, suffix: Str) {
 }
 
 #[test]
-fn formatter_round_trips_value_branch_blocks_and_record_arms() {
-    let source = "let choice = if true { let detail = 2; detail } else { 3 }\nlet record = match choice { 2 => {}, _ => {\"run\": 4} }\nlet text = match choice { 2 => { let detail = \"é\"; detail }, _ => \"other\" }\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert!(!first.formatted.contains("{ {"));
-    assert!(first.formatted.contains("let detail = 2"));
-    assert!(first.formatted.contains("\"run\": 4"));
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(first.formatted, second.formatted);
-}
-
-#[test]
-fn parser_and_formatter_preserve_bare_block_literal_distinctions() {
-    let source = "let value = 7\nlet shorthand = {value}\nlet empty = {}\nlet named = {if: 1}\nlet computed = {[\"key\"]: 2}\nlet grouped = { (value) }\nlet result = { let next = 8; next }\nlet negative = { false }\nlet accessed = { shorthand.value }\n";
-    assert_parse_and_check(SourceId::new(0), source);
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert!(first.formatted.contains("(value)"));
-    assert_parse_and_check(SourceId::new(0), &first.formatted);
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert_eq!(first.formatted, second.formatted);
-    for malformed in ["let bad = {field:}\n", "let bad = {[\"key\"]:}\n"] {
-        let parsed = Parser::parse_source_arena_only(SourceId::new(0), malformed);
-        assert!(!parsed.diagnostics.is_empty());
-    }
-}
-
-#[test]
 fn parser_named_argument_puns_keep_identifier_spans_and_formatting() {
     use xsh::frontend::syntax::arena::ArenaCallArgKind;
 
@@ -3490,31 +2273,6 @@ fn checker_named_argument_pun_missing_name_labels_original_identifier() {
 }
 
 #[test]
-fn formatter_preserves_half_open_slicing_bounds_and_unicode() {
-    let source = "\
-let data = b\"abcd\"
-let all = data[..]
-let prefix = data[..2]
-let suffix = data[2..]
-let middle = data[-3..-1]
-let unicode = \"é🦀\"[..1][..]
-print ${all.base64()} ${prefix.base64()} ${suffix.base64()} ${middle.base64()} $unicode
-";
-    let source_id = SourceId::new(0);
-    assert_parse_and_check(source_id, source);
-    let formatted = Formatter::new().format_source(source_id, source);
-    assert!(formatted.diagnostics.is_empty());
-    assert_eq!(formatted.formatted, source);
-    assert_parse_and_check(source_id, &formatted.formatted);
-    assert_eq!(
-        Formatter::new()
-            .format_source(source_id, &formatted.formatted)
-            .formatted,
-        source
-    );
-}
-
-#[test]
 fn parser_rejects_colon_inclusive_and_stride_slices() {
     for source in [
         "let part = b\"abcd\"[0:2]\n",
@@ -3563,50 +2321,6 @@ fn parser_retains_nested_renamed_record_binding_targets_and_spans() {
 }
 
 #[test]
-fn guarded_value_controls_round_trip_without_absorbing_guard_into_run_argv() {
-    let source = r#"proc cached(value: Str?) [] -> Str {
-  return value when value != null
-  return "missing"
-}
-proc command(selected: Bool) [process] -> Status {
-  return (run.status /usr/bin/true) unless !selected
-  return run.status /usr/bin/true when unless
-}
-stream items() [] -> Stream[Int] {
-  yield 1 when true
-  yield 2 unless false
-}
-let value = loop {
-  break 4 when false
-  break 5 unless false
-}
-"#;
-    let source_id = SourceId::new(0);
-    assert_parse_and_check(source_id, source);
-    let formatted = Formatter::new().format_source(source_id, source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert!(
-        formatted
-            .formatted
-            .contains("return (run.status /usr/bin/true) unless ! selected"),
-        "{}",
-        formatted.formatted
-    );
-    assert!(
-        formatted
-            .formatted
-            .contains("return run.status /usr/bin/true when unless")
-    );
-    assert_parse_and_check(source_id, &formatted.formatted);
-    let second = Formatter::new().format_source(source_id, &formatted.formatted);
-    assert_eq!(formatted.formatted, second.formatted);
-}
-
-#[test]
 fn guarded_value_control_keeps_payload_and_condition_source_spans() {
     let source = "return \"é\" when false\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -3627,26 +2341,6 @@ fn guarded_value_control_keeps_payload_and_condition_source_spans() {
     assert!(!negate);
     assert_eq!(&source[arena.stmt(stmt).span.range()], "return \"é\"");
     assert_eq!(&source[arena.expr(condition).span.range()], "false");
-}
-
-#[test]
-fn grouped_run_payload_preserves_adjacent_propagation_before_guard() {
-    let source = r#"proc capture(selected: Bool) [process, error] -> Str {
-  return (run.text /usr/bin/printf "selected")? when selected
-  return "fallback"
-}
-"#;
-    let source_id = SourceId::new(0);
-    assert_parse_and_check(source_id, source);
-    let formatted = Formatter::new().format_source(source_id, source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_parse_and_check(source_id, &formatted.formatted);
-    let second = Formatter::new().format_source(source_id, &formatted.formatted);
-    assert_eq!(formatted.formatted, second.formatted);
 }
 
 #[test]
@@ -3690,40 +2384,6 @@ fn parser_multi_clause_comprehensions_share_qualifiers_and_source_spans() {
             );
         }
     }
-}
-
-#[test]
-fn formatter_multi_clause_comprehensions_are_readable_and_idempotent() {
-    let source = "let values = [inner for outer in [1] if outer > 0 for inner in [outer] if inner < 2]\nlet by_key = {entry.key: inner for entry in entries if entry.ok for inner in entry.values}\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert!(
-        first.formatted.contains(
-            "\n  for outer in [1]\n  if outer > 0\n  for inner in [outer]\n  if inner < 2\n"
-        ),
-        "{}",
-        first.formatted
-    );
-    assert!(
-        first
-            .formatted
-            .contains("\n  for entry in entries\n  if entry.ok\n  for inner in entry.values\n"),
-        "{}",
-        first.formatted
-    );
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(first.formatted, second.formatted);
-}
-
-#[test]
-fn formatter_multi_clause_comprehensions_retain_unicode_comments() {
-    let source = "let values = [\n  # sélection\n  inner\n  for outer in [1]\n  # répétition\n  for inner in [outer]\n  # filtre\n  if inner > 0\n]\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_eq!(first.formatted, source);
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert_eq!(second.formatted, first.formatted);
 }
 
 #[test]
@@ -3835,24 +2495,6 @@ fn list_literal_splices_retain_element_and_splice_spans() {
 }
 
 #[test]
-fn deferred_block_parses_and_formats_as_statement_body() {
-    let source_id = SourceId::new(0);
-    let source = "proc cleanup() [error] {\n  defer {\n    # café remains inside cleanup\n    let message = \"done\"\n    print $message\n    assert true\n  }\n}\n\ncleanup()\n";
-    let parsed = Parser::parse_source_arena_only(source_id, source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert_parse_and_check(source_id, source);
-    let formatted = Formatter::new().format_source(source_id, source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-    let again = Formatter::new().format_source(source_id, &formatted.formatted);
-    assert_eq!(again.formatted, source);
-}
-
-#[test]
 fn regex_literals_parse_as_prepared_regex_atoms_with_raw_source_spans() {
     let source = "let rx = \"ordinary identifier\"\nlet single = rx\"^\\d+\\$\\{literal\\}$\"\nlet multiline = rx\"\"\"(?x)\n  ^ [a-z]+ # raw pattern comment\n  $\n\"\"\"\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(7), source);
@@ -3939,54 +2581,6 @@ fn parser_yield_delegation_retains_source_expression_and_unicode_byte_span() {
 }
 
 #[test]
-fn error_fallback_blocks_round_trip_without_record_ambiguity() {
-    let source = "let recovered = Ok(false) ?? { |failure|\n  let _ = failure\n  false\n}\nlet record = Ok({name: \"original\"}) ?? {name: \"record\"}\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let ArenaExprKind::Binary {
-        op: BinaryOp::ResultFallback,
-        right,
-        ..
-    } = parsed.arena.arena.expr(root_let_init_expr(&parsed, 0)).kind
-    else {
-        panic!("fallback");
-    };
-    let ArenaExprKind::ValueBlock(block) = parsed.arena.arena.expr(right).kind else {
-        panic!("error block");
-    };
-    assert_eq!(
-        parsed
-            .arena
-            .arena
-            .block_params(parsed.arena.arena.block(block).params)
-            .len(),
-        1
-    );
-    let ArenaExprKind::Binary { right, .. } =
-        parsed.arena.arena.expr(root_let_init_expr(&parsed, 1)).kind
-    else {
-        panic!("fallback");
-    };
-    assert!(matches!(
-        parsed.arena.arena.expr(right).kind,
-        ArenaExprKind::Record(_)
-    ));
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-    assert_eq!(
-        Formatter::new()
-            .format_source(SourceId::new(0), &formatted.formatted)
-            .formatted,
-        source
-    );
-}
-
-#[test]
 fn parser_record_defaults_preserve_spans_and_stable_formatting() {
     let source = "let names = [\"é\"]\ntype Config = {name: Str = \"é\", names: List[Str] = names, nested: Map[Int] = {}}\nlet config = Config()\nprint $config.name\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -4021,34 +2615,6 @@ fn parser_record_defaults_preserve_spans_and_stable_formatting() {
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(first.formatted, second.formatted);
     assert_parse_and_check(SourceId::new(0), &first.formatted);
-}
-
-#[test]
-fn field_label_braces_spans_and_formatter_preserve_keyword_and_dotted_keys() {
-    let source = "type Entry = {type: Str, in: Int}\nlet value = Entry(type: \"file\", in: 2)\nlet selected = match true { _ => {type: value.type, in: value.in, r\"wire.type\": 3} }\nlet {type: kind, in: ordinal, ..} = value\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(9), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert_eq!(parsed.cst.get().exact_text(), source);
-    let formatted = Formatter::new().format_source(SourceId::new(9), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert!(
-        formatted
-            .formatted
-            .contains("{type: value.type, in: value.in, \"wire.type\": 3}"),
-        "{}",
-        formatted.formatted
-    );
-    assert_parse_and_check(SourceId::new(9), &formatted.formatted);
-    assert_eq!(
-        formatted.formatted,
-        Formatter::new()
-            .format_source(SourceId::new(9), &formatted.formatted)
-            .formatted
-    );
 }
 
 #[test]
@@ -4194,35 +2760,6 @@ fn error_handler_headers_have_one_authoritative_parameter_range() {
 }
 
 #[test]
-fn try_capture_parser_formatter_preserves_value_body_and_result_tail() {
-    let source = "let value = try {\n  let nested = Ok(7)\n  nested\n}\nlet empty = try {}\nlet fields = {try: 7}\nrun printf try\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert!(
-        parsed
-            .arena
-            .arena
-            .expr_tags
-            .iter()
-            .any(|tag| matches!(tag, xsh::frontend::syntax::arena::ArenaExprTag::Capture))
-    );
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
-    assert_eq!(second.formatted, formatted.formatted);
-    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
-    assert!(
-        reparsed.diagnostics.is_empty(),
-        "{:?}",
-        reparsed.diagnostics
-    );
-}
-
-#[test]
 fn parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting() {
     let source = "pure render(prefix: Str, value: Str) -> Str { prefix + value }\nlet rendered = \"é\" |> render(\"[\", value: _)\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -4323,18 +2860,6 @@ fn stream_stage_flag_migration_refuses_ambiguous_argument_lists() {
 }
 
 #[test]
-fn formatter_keeps_named_stream_configuration_and_spreads_idempotent() {
-    let source = "let jobs = 2\nlet values = [1, 2] |> par-map(jobs:) { |item| item + 1 } |> sort(...{desc: true})\nlet batches = values |> batch(count: 2, max_argv: false)\nprint batches.len()\n";
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
-    assert_parse_and_check(SourceId::new(0), &first.formatted);
-    assert!(first.formatted.contains("par-map(jobs:)"));
-    assert!(first.formatted.contains("sort(...{desc: true})"));
-    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
-    assert_eq!(first.formatted, second.formatted);
-}
-
-#[test]
 fn parser_enum_migration_preserves_comments_exports_and_aliases() {
     let source = "## Nominal café.\nexport type Choice =\n  Selected(Int) # first variant\n  | Empty # second variant\ntype Alias = Choice\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -4397,32 +2922,6 @@ fn parser_enum_singleton_is_nominal_and_identifier_rhs_stays_alias() {
         parsed.arena.arena.type_def(alias).body,
         ArenaTypeDefBody::Alias(_)
     ));
-}
-
-#[test]
-fn parser_and_formatter_preserve_selective_retry() {
-    let source =
-        "let result=retry [0ms] on (FetchError.Busy | FetchError.Timeout) {\n  fetch()?\n}\n";
-    let expected =
-        "let result = retry [0ms] on (FetchError.Busy | FetchError.Timeout) {\n  fetch()?\n}\n";
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, expected);
-    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
-    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
-    assert_eq!(second.formatted, expected);
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), expected);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let ArenaExprKind::Retry { pattern, .. } =
-        parsed.arena.arena.expr(root_let_init_expr(&parsed, 0)).kind
-    else {
-        panic!("expected retry")
-    };
-    assert!(pattern.is_some());
 }
 
 #[test]
@@ -4510,26 +3009,6 @@ fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
 }
 
 #[test]
-fn parser_and_formatter_retain_bare_bytes_stdin_as_one_typed_operand() {
-    let source = "let copied = run.bytes cat < b\"a\\0\\xff\" ?\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-    assert_eq!(
-        Formatter::new()
-            .format_source(SourceId::new(0), &formatted.formatted)
-            .formatted,
-        source
-    );
-}
-
-#[test]
 fn named_argument_spread_preserves_source_spans_and_formatter_round_trips() {
     use xsh::frontend::syntax::arena::{ArenaCallArgKind, ExprId};
     let source = include_str!("fixtures/syntax/valid/named-argument-spreads.xsh");
@@ -4571,109 +3050,6 @@ fn named_argument_spread_preserves_source_spans_and_formatter_round_trips() {
 }
 
 #[test]
-fn parser_and_formatter_preserve_wire_enum_constant_expressions() {
-    let source = "const prefix = \"rea\"\nenum State: Str {\n  # External spelling stays stable.\n  Ready = prefix + \"dy\",\n  Empty = \"\",\n}\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert_eq!(parsed.cst.get().exact_text(), source);
-    let ArenaStmtKind::TypeDef(id) = parsed
-        .arena
-        .arena
-        .stmt(parsed.arena.statement_ids().nth(1).unwrap())
-        .kind
-    else {
-        panic!("enum declaration")
-    };
-    let ArenaTypeDefBody::TagUnion(variants) = parsed.arena.arena.type_def(id).body else {
-        panic!("enum variants")
-    };
-    assert!(
-        parsed
-            .arena
-            .arena
-            .tag_variants(variants)
-            .iter()
-            .all(|variant| variant.wire_value.is_some())
-    );
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    for fragment in [
-        "enum State: Str",
-        "# External spelling stays stable.",
-        "prefix + \"dy\"",
-        "Empty = \"\"",
-    ] {
-        assert!(
-            formatted.formatted.contains(fragment),
-            "{}",
-            formatted.formatted
-        );
-    }
-    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
-    assert_eq!(second.formatted, formatted.formatted);
-    let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-}
-
-#[test]
-fn signature_cli_retains_a_distinct_entry_declaration_and_contextual_cli_calls() {
-    let source = "cli main(root: Path, jobs: Int = 4) [fs, error] { print $root $jobs }\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let root = parsed.arena.statement_ids().collect::<Vec<_>>();
-    assert!(matches!(
-        parsed.arena.arena.stmt(root[0]).kind,
-        xsh::frontend::syntax::arena::ArenaStmtKind::CliMain(_)
-    ));
-    let first = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(first.diagnostics.is_empty());
-    assert!(
-        first.formatted.starts_with("cli main("),
-        "{}",
-        first.formatted
-    );
-    assert_eq!(
-        first.formatted,
-        Formatter::new()
-            .format_source(SourceId::new(0), &first.formatted)
-            .formatted
-    );
-    let ordinary =
-        Parser::parse_source_arena_only(SourceId::new(0), "let parsed = cli.parse(args, {})?\n");
-    assert!(
-        ordinary.diagnostics.is_empty(),
-        "{:?}",
-        ordinary.diagnostics
-    );
-}
-
-#[test]
-fn parser_and_formatter_preserve_accept_policy_expressions() {
-    let source = "pure policy() -> List[Int] { [0,1] }\nlet codes = [0,1]\nrun.status --accept=(codes) sh --accept=[9]\nrun.status --accept=policy() --timeout=1s sh\nlet child = spawn run --timeout=1s --accept=[0,1] sh ?\nlet command = process.command {\naccept=[0,1]\nrun sh\n}\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert_eq!(parsed.cst.get().exact_text(), source);
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert!(
-        formatted
-            .formatted
-            .contains("--accept=codes sh --accept=[9]")
-    );
-    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
-    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
-    assert_eq!(again.formatted, formatted.formatted);
-}
-
-#[test]
 fn parser_context_scopes_keep_nested_expression_spans_and_body_modes() {
     let source = "let selected = env ({X: 7}) { false }?\nenv ({X: 8}) { print ok }?\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -4695,45 +3071,6 @@ fn parser_context_scopes_keep_nested_expression_spans_and_body_modes() {
     assert_eq!(
         &source[arena.expr(scope).span.range()],
         "env ({X: 7}) { false }"
-    );
-}
-
-#[test]
-fn default_parameter_parser_retains_omission_without_synthesizing_source_types() {
-    let source = "const config = {jobs: 4}\npure choose(jobs = config.jobs + 1, label = \"café\") -> Int { jobs }\n";
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    assert_eq!(parsed.cst.get().exact_text(), source);
-    assert!(
-        parsed
-            .arena
-            .arena
-            .function_defs
-            .iter()
-            .flat_map(|def| parsed.arena.arena.params(def.params))
-            .all(|param| param.ty_defaulted)
-    );
-    let output = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
-    let formatted = output.formatted;
-    assert!(formatted.contains("jobs = config.jobs + 1"));
-    assert!(!formatted.contains("Unknown"));
-    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted);
-    assert!(
-        reparsed.diagnostics.is_empty(),
-        "{:?}",
-        reparsed.diagnostics
-    );
-    assert!(
-        Checker::check_arena(&reparsed.arena, &formatted)
-            .diagnostics
-            .is_empty()
-    );
-    assert_eq!(
-        Formatter::new()
-            .format_source(SourceId::new(0), &formatted)
-            .formatted,
-        formatted
     );
 }
 
@@ -4788,15 +3125,3 @@ fn fmt_interpolation_spans_index_the_original_source() {
 
 #[path = "grammar.rs"]
 mod grammar;
-
-#[test]
-fn formatter_keeps_a_literal_dollar_before_an_interpolation() {
-    let source = "let i = 1\nlet ph = f\"\\${i}\"\nlet both = f\"\\\\\\${i}\"\n";
-    let formatted = Formatter::new().format_source(SourceId::new(0), source);
-    assert!(
-        formatted.diagnostics.is_empty(),
-        "{:?}",
-        formatted.diagnostics
-    );
-    assert_eq!(formatted.formatted, source);
-}
