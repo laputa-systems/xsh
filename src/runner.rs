@@ -1434,15 +1434,17 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
         }
     }
 
-    // A call that spreads a record into named arguments binds one slot per
-    // field, each binding nested in the one before, and the lowered program
-    // is built and verified by walking that nesting. The preparing thread is
-    // given a fixed stack here, so the bound holds whatever limit the host
-    // gives a main thread: 250 fields fit in 3 MiB of an unoptimized build,
-    // where the walk once took about 100 KiB of stack for each field.
+    // A call that spreads a record into named arguments binds the record
+    // once and reads each field where it is passed, so the stack it takes to
+    // prepare and run does not grow with the record's width. It once bound a
+    // slot per field, each binding nested in the one before, and every pass
+    // over the lowered program recursed through that nesting: a few thousand
+    // fields overflowed the stack. The preparing thread is given a fixed
+    // stack here, so the bound holds whatever limit the host gives a main
+    // thread.
     #[test]
     fn a_wide_named_spread_is_prepared_within_a_fixed_stack() {
-        const FIELDS: usize = 250;
+        const FIELDS: usize = 4000;
         let declared = (0..FIELDS)
             .map(|index| format!("f{index}: Int"))
             .collect::<Vec<_>>()

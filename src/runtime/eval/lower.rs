@@ -1232,6 +1232,7 @@ pub(super) fn probe_compact_lower_constructed_bodies(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
+        spread_programs: Rc::default(),
     };
     probe.probe_program();
     probe.output
@@ -1267,6 +1268,7 @@ pub(super) fn lower_compact_function_units_into(
         .map(|function| function.key)
         .collect::<Vec<_>>();
     let function_defs = Rc::new(RefCell::new(Some(Rc::clone(&index))));
+    let spread_programs = Rc::default();
     let empty_pures = FxHashSet::default();
     let empty_procs = FxHashSet::default();
     let empty_qualified_pures = FxHashSet::default();
@@ -1297,6 +1299,7 @@ pub(super) fn lower_compact_function_units_into(
         stdlib_linkage,
         function_defs: Rc::clone(&function_defs),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
+        spread_programs: Rc::clone(&spread_programs),
     };
     let mut prefixes: FxHashMap<Option<Name>, CompactTopLevelPrefix> = FxHashMap::default();
     for function in index.defs.iter().copied() {
@@ -1319,6 +1322,7 @@ pub(super) fn lower_compact_function_units_into(
             stdlib_linkage,
             function_defs: Rc::clone(&function_defs),
             scratch: Rc::new(RefCell::new(BuildScratch::default())),
+            spread_programs: Rc::clone(&spread_programs),
         };
         let (scc_member_count, scc_group) = index.scc_metadata(&function);
         let unit = probe.lower_function_unit(
@@ -1360,6 +1364,7 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
+        spread_programs: Rc::default(),
     };
     let root = program.statement_ids().collect::<Vec<_>>();
     let lowered = probe.lower_program_statements(&root);
@@ -1397,6 +1402,7 @@ fn compact_top_level_known(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
+        spread_programs: Rc::default(),
     };
     probe.collect_top_level_known(&statements)
 }
@@ -1428,6 +1434,7 @@ fn compact_function_top_level_known(
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
+        spread_programs: Rc::default(),
     };
     let mut prefix = CompactTopLevelPrefix::for_namespace(program, namespace);
     prefix.advance_to_recording(&probe, function_id);
@@ -2119,6 +2126,29 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     /// rebuilding it per function makes preparation quadratic in program size.
     function_defs: Rc<RefCell<Option<Rc<CompactFunctionIndex>>>>,
     scratch: Rc<RefCell<BuildScratch>>,
+    /// A copy of `program` and `bodies` that named-spread calls append their
+    /// argument projections to, shared by every probe over the same two.
+    ///
+    /// The projections of a call are synthetic nodes, which need a program
+    /// that can grow. Copying the program for each call is work proportional
+    /// to the whole program per call; this copy is made for the first call of
+    /// a pass and extended by the later ones.
+    spread_programs: Rc<RefCell<Option<Box<SpreadPrograms>>>>,
+}
+
+/// A program and its body facts with the argument projections of
+/// named-spread calls appended. Nothing is removed or renumbered, so every
+/// node of the original has the same identity here.
+struct SpreadPrograms {
+    program: ArenaProgram,
+    bodies: CompactBodyFacts,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread copied a whole program for a named-spread
+    /// call.
+    static SPREAD_PROGRAM_COPIES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -3837,6 +3867,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         stdlib_linkage: StdlibLowerLinkage::Local,
                         function_defs: Rc::new(RefCell::new(None)),
                         scratch: self.scratch.clone(),
+                        spread_programs: Rc::clone(&self.spread_programs),
                     };
                     probe.lower_program_statements(&module_statement_ids)
                 };
@@ -9216,7 +9247,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             value
                         }
                     };
-                    push_build_row!(
+                    // The record is bound where the spread is written, which
+                    // fixes when it is evaluated. Reading a field of the
+                    // bound record has no effect and cannot fail, so the
+                    // field is read where it is passed: a binding of its own
+                    // would nest one level per field, and every pass over
+                    // the lowered program recurses through that nesting.
+                    values.push(push_build_row!(
                         self,
                         expr,
                         BuildExprRow::Field {
@@ -9224,7 +9261,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             name: field.as_str(),
                             span: arg.span
                         }
-                    )
+                    ));
+                    continue;
                 }
             };
             let slot = slots.reserve("call argument");
@@ -9343,9 +9381,22 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 ));
             }
             // Synthetic projections exist only during static lowering. Existing
-            // expression IDs and source argument ranges remain unchanged.
-            let mut temporary = self.program.clone();
-            let mut bodies = self.bodies.clone();
+            // expression IDs and source argument ranges remain unchanged. The
+            // copy they are appended to is taken out of the cell while this
+            // call is lowered over it and put back afterwards.
+            let taken = self.spread_programs.borrow_mut().take();
+            let mut extended = taken.unwrap_or_else(|| {
+                #[cfg(test)]
+                SPREAD_PROGRAM_COPIES.with(|copies| copies.set(copies.get() + 1));
+                Box::new(SpreadPrograms {
+                    program: self.program.clone(),
+                    bodies: self.bodies.clone(),
+                })
+            });
+            let SpreadPrograms {
+                program: temporary,
+                bodies,
+            } = &mut *extended;
             let mut inputs = Vec::new();
             for (arg, bound) in expanded.iter().zip(lowered.values) {
                 let expr = match arg.value {
@@ -9376,9 +9427,10 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 });
             }
             let args = temporary.arena.append_call_arguments(&inputs);
+            let (temporary, bodies) = (&*temporary, &*bodies);
             let mut child = CompactLowerConstructProbe {
-                program: &temporary,
-                bodies: &bodies,
+                program: temporary,
+                bodies,
                 declarations: self.declarations,
                 source: self.source,
                 sources: self.sources,
@@ -9390,10 +9442,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 stdlib_linkage: self.stdlib_linkage,
                 function_defs: Rc::clone(&self.function_defs),
                 scratch: Rc::clone(&self.scratch),
+                // The child's program is the extended copy itself.
+                spread_programs: Rc::default(),
             };
             let value = child.lower_call(id, callee, args, slots, current_function, item_slot);
             self.output = child.output;
             self.last_blocker_detail = child.last_blocker_detail;
+            *self.spread_programs.borrow_mut() = Some(extended);
             value.map(|value| {
                 self.wrap_argument_bindings(value, bindings, self.program.arena.expr(id).span)
             })
@@ -12249,6 +12304,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 stdlib_linkage: self.stdlib_linkage,
                 function_defs: Rc::clone(&self.function_defs),
                 scratch: Rc::clone(&self.scratch),
+                // The child's program is this stage's own copy.
+                spread_programs: Rc::default(),
             };
             let result = child.lower_pipeline_stage(&normalized, slots, current_function, item_ty);
             self.output = child.output;
@@ -17740,6 +17797,67 @@ pub(super) fn cleanup_pipeline_stage_item_slot(
 ) {
     if let Some(name) = cleanup {
         slots.retire(name, slot, "pipeline.item");
+    }
+}
+
+#[cfg(test)]
+mod named_spread_tests {
+    /// Builds `source` and returns how many whole-program copies its
+    /// named-spread calls made.
+    fn program_copies(source: &str) -> u64 {
+        let name = "named-spread.xsh";
+        let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only(
+            name,
+            crate::loader::entry_source_from_text(name, source.to_string()),
+            Vec::new(),
+        );
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
+        assert!(
+            declarations.diagnostics.is_empty(),
+            "{:?}",
+            declarations.diagnostics
+        );
+        let source_id = sources.files()[0].id();
+        let before = super::SPREAD_PROGRAM_COPIES.with(std::cell::Cell::get);
+        let built = super::super::FullBuilder::build_compact(
+            &parsed.arena,
+            &declarations,
+            source,
+            std::sync::Arc::new(sources),
+            source_id,
+        );
+        assert!(built.is_ok(), "the program lowers");
+        super::SPREAD_PROGRAM_COPIES.with(std::cell::Cell::get) - before
+    }
+
+    // The projections of a named-spread call are appended to a copy of the
+    // program. Each call once made its own copy, which is work proportional
+    // to the whole program per call; the calls of one pass now share one.
+    #[test]
+    fn named_spread_calls_share_one_program_copy_per_pass() {
+        const CALLS: usize = 40;
+        let mut source = String::from(
+            "type Point = {x: Int, y: Int}\n\nproc sum(x: Int, y: Int) -> Int {\n  x + y\n}\n\n",
+        );
+        for index in 0..CALLS {
+            source.push_str(&format!(
+                "proc call{index}(point: Point) -> Int {{\n  sum(...point)\n}}\n\n"
+            ));
+        }
+        source.push_str("let origin: Point = {x: 1, y: 2}\n");
+        for index in 0..CALLS {
+            source.push_str(&format!("print f\"{{sum(...origin) + call{index}(origin)}}\"\n"));
+        }
+        let copies = std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(move || program_copies(&source))
+            .expect("spawn the lowering thread")
+            .join()
+            .expect("the program lowers");
+        // The functions are one pass and the top-level statements another;
+        // 80 calls once made 80 copies or more.
+        assert!((1..=4).contains(&copies), "{copies} program copies");
     }
 }
 
