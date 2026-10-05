@@ -627,13 +627,37 @@ impl Checker {
                         DiagnosticCode::CheckPureEffect,
                     );
                 }
-                self.require_effect(
-                    crate::syntax::node::Effect::Env,
-                    expr.span,
-                    "context scopes",
-                );
-                let input_type = self.check_expr_arena(arena, source, *input, None);
                 match kind {
+                    ContextScopeKind::Cwd | ContextScopeKind::Env => self.require_effect(
+                        crate::syntax::node::Effect::Env,
+                        expr.span,
+                        "context scopes",
+                    ),
+                    ContextScopeKind::Within => self.require_effect(
+                        crate::syntax::node::Effect::Time,
+                        expr.span,
+                        "`within` scopes",
+                    ),
+                }
+                let input_type = self.check_expr_arena(
+                    arena,
+                    source,
+                    *input,
+                    matches!(kind, ContextScopeKind::Within).then_some(&Type::Duration),
+                );
+                match kind {
+                    ContextScopeKind::Within => {
+                        if !matches!(
+                            input_type,
+                            Type::Duration | Type::Unknown | Type::Invalid
+                        ) {
+                            self.error(
+                                arena.arena.expr(*input).span,
+                                "`within` requires a Duration",
+                                DiagnosticCode::CheckContextScopeInput,
+                            );
+                        }
+                    }
                     ContextScopeKind::Cwd => {
                         if !matches!(
                             input_type,
@@ -677,6 +701,8 @@ impl Checker {
                 }
                 self.context_scope_depths.push(self.scopes.len());
                 self.push_scope();
+                let within = usize::from(matches!(kind, ContextScopeKind::Within));
+                self.within_block_depth += within;
                 let body_type = if *value_body
                     || tail_value
                     || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit)
@@ -690,6 +716,7 @@ impl Checker {
                     self.check_block_arena(arena, source, *block);
                     Type::Unit
                 };
+                self.within_block_depth -= within;
                 self.pop_scope();
                 self.context_scope_depths.pop();
                 if !body_type.can_escape_context_scope() {

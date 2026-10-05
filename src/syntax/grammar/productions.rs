@@ -706,6 +706,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 ]),
                 seq([r("context_scope"), opt(t(T::Question))]),
                 seq([r("tempdir_scope"), opt(t(T::Question))]),
+                seq([r("within_scope"), opt(t(T::Question))]),
                 seq([r("named_command"), opt(t(T::Question))]),
                 r("expression_statement"),
                 r("exit_statement"),
@@ -1836,6 +1837,20 @@ pub(super) fn rules() -> Vec<super::Rule> {
             ]),
         ),
         // The name before the brace is the block's parameter.
+        // `within` is contextual: it opens a scope only before a duration
+        // literal or a dotted name that the block follows on the same line.
+        rule(
+            Expressions,
+            "within_scope",
+            seq([
+                w("within"),
+                alt([
+                    t(T::Duration),
+                    seq([ident(), star(seq([t(T::Dot), ident()]))]),
+                ]),
+                block(),
+            ]),
+        ),
         rule(
             Expressions,
             "tempdir_scope",

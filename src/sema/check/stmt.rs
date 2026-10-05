@@ -3072,6 +3072,15 @@ impl Checker {
                 DiagnosticCode::CheckYield,
             );
         }
+        // A producer suspended inside the block would keep its deadline open
+        // while its consumer runs.
+        if self.within_block_depth > 0 {
+            self.error(
+                span,
+                "`yield` is not allowed inside a `within` block",
+                DiagnosticCode::CheckYield,
+            );
+        }
     }
 
     fn check_yield_arena(

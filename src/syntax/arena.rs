@@ -4670,15 +4670,22 @@ impl AstArena {
             ArenaExprTag::CdScope
             | ArenaExprTag::EnvScope
             | ArenaExprTag::CdStatementScope
-            | ArenaExprTag::EnvStatementScope => ArenaExprKind::ContextScope {
-                kind: if matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::CdStatementScope) {
-                    ContextScopeKind::Cwd
-                } else {
-                    ContextScopeKind::Env
+            | ArenaExprTag::EnvStatementScope
+            | ArenaExprTag::WithinScope
+            | ArenaExprTag::WithinStatementScope => ArenaExprKind::ContextScope {
+                kind: match tag {
+                    ArenaExprTag::CdScope | ArenaExprTag::CdStatementScope => ContextScopeKind::Cwd,
+                    ArenaExprTag::EnvScope | ArenaExprTag::EnvStatementScope => {
+                        ContextScopeKind::Env
+                    }
+                    _ => ContextScopeKind::Within,
                 },
                 input: ExprId::new(data.lhs as usize),
                 block: BlockId::new(data.rhs as usize),
-                value_body: matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::EnvScope),
+                value_body: matches!(
+                    tag,
+                    ArenaExprTag::CdScope | ArenaExprTag::EnvScope | ArenaExprTag::WithinScope
+                ),
             },
             ArenaExprTag::TempDirScope | ArenaExprTag::TempDirStatementScope => {
                 ArenaExprKind::TempDirScope {
@@ -6203,6 +6210,8 @@ pub enum ArenaExprTag {
     EnvStatementScope,
     TempDirScope,
     TempDirStatementScope,
+    WithinScope,
+    WithinStatementScope,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -6257,6 +6266,8 @@ impl ArenaCompQualifier {
 pub enum ContextScopeKind {
     Cwd,
     Env,
+    /// `within DURATION { ... }`: the input is the time the body may take.
+    Within,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -7625,6 +7636,8 @@ impl ArenaLowerer<'_> {
                     (ContextScopeKind::Env, true) => ArenaExprTag::EnvScope,
                     (ContextScopeKind::Cwd, false) => ArenaExprTag::CdStatementScope,
                     (ContextScopeKind::Env, false) => ArenaExprTag::EnvStatementScope,
+                    (ContextScopeKind::Within, true) => ArenaExprTag::WithinScope,
+                    (ContextScopeKind::Within, false) => ArenaExprTag::WithinStatementScope,
                 },
                 ArenaExprData::new(raw_expr_id(input), raw_block_id(block)),
             ),

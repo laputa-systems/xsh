@@ -471,7 +471,7 @@ diagnostic_codes! {
         CheckUnsupportedApi = "check.unsupported-api", error, "Reject an unsupported or removed standard API such as `env.get_path` or `path.display`";
         CheckWaitTarget = "check.wait-target", error, "Reject `wait` on a value that is not a `ProcessHandle` or list of them";
         CheckWhileCondition = "check.while-condition", error, "Reject a `while` condition that is not `Bool` or `Status`";
-        CheckYield = "check.yield", error, "Reject `yield` outside a stream producer or inside a `retry` attempt";
+        CheckYield = "check.yield", error, "Reject `yield` outside a stream producer, inside a `retry` attempt, or inside a `within` block";
         CheckYieldDelegation = "check.yield-delegation", error, "Reject `yield @` of a value that is not a `List` or `Stream`";
         CheckYieldStream = "check.yield-stream", error, "Reject `yield` of a stream value; use `yield @stream`";
         CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
@@ -594,6 +594,7 @@ diagnostic_codes! {
         LintPreferTempdir = "lint.prefer-tempdir", warning, "Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit";
         LintPreferTryCapture = "lint.prefer-try-capture", warning, "Replace a single-use closed helper with a local `try` block capture";
         LintPreferValuePipeline = "lint.prefer-value-pipeline", warning, "Use a value pipeline for nested calls or a single-use temporary";
+        LintPreferWithin = "lint.prefer-within", warning, "Note a block whose `run` forms all carry the same `--timeout`, which one `within` scope would state once";
         LintPreferWriteLines = "lint.prefer-write-lines", warning, "Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline";
         LintPreferYieldDelegation = "lint.prefer-yield-delegation", warning, "Replace a transparent forwarding loop with `yield @iterable`";
         LintPublicResultError = "lint.public-result-error", warning, "Spell the error type of each Result in an exported signature or module contract";

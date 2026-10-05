@@ -443,6 +443,11 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     {
         return Kind::Keyword;
     }
+    // `within DURATION { ... }` opens a scope wherever an expression may
+    // start; the duration is a literal or a dotted name.
+    if text == "within" && !after_dot && within_head(tokens, at) {
+        return Kind::Keyword;
+    }
     // `tempdir NAME { ... }` opens a scope wherever an expression may start.
     if text == "tempdir"
         && !after_dot
@@ -668,6 +673,22 @@ fn atomically_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
         .map_or(0, |newline| newline + 1);
     // The destination sits between `replace` and this word.
     ends_head && at >= line_start + 3 && is_head(line_start)
+}
+
+/// Whether `tokens[at]` is the `within` of `within DURATION {`.
+fn within_head(tokens: &[Token], at: usize) -> bool {
+    let tag = |index: usize| tokens.get(index).map(|token| token.tag);
+    let mut next = match tag(at + 1) {
+        Some(TokenTag::Duration) => at + 2,
+        Some(TokenTag::Ident) => at + 2,
+        _ => return false,
+    };
+    if tag(at + 1) == Some(TokenTag::Ident) {
+        while tag(next) == Some(TokenTag::Dot) && tag(next + 1) == Some(TokenTag::Ident) {
+            next += 2;
+        }
+    }
+    tag(next) == Some(TokenTag::LBrace)
 }
 
 /// Whether the token after `previous` starts a statement.
@@ -1026,6 +1047,15 @@ mod tests {
         assert_eq!(kind_of(source, "LC_ALL"), Kind::Property);
         assert_eq!(kind_of(source, "env.get_or"), Kind::Plain);
         assert_eq!(kind_of(source, "get_or"), Kind::Function);
+    }
+
+    #[test]
+    fn within_is_a_keyword_only_before_a_duration_and_block() {
+        let source = "let r = within 5s { 1 }\nwithin cfg.limit { }\nlet within = 2\nif within (x) { }\n";
+        assert_eq!(kind_of(source, "within 5s"), Kind::Keyword);
+        assert_eq!(kind_of(source, "within cfg"), Kind::Keyword);
+        assert_eq!(kind_of(source, "within = 2"), Kind::Plain);
+        assert_ne!(kind_of(source, "within (x)"), Kind::Keyword);
     }
 
     #[test]

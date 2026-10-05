@@ -992,6 +992,8 @@ enum ContextScopeRestore {
         span: Span,
     },
     Env(super::super::RuntimeEnv),
+    /// The identity of the deadline the scope opened.
+    Within { id: u64 },
 }
 
 #[derive(Clone)]
@@ -1139,6 +1141,11 @@ impl Evaluator {
                 self.env.extend(overlay);
                 Ok(ContextScopeRestore::Env(previous))
             }
+            crate::syntax::arena::ContextScopeKind::Within => {
+                let limit = lowered_duration_arg(Some(value), "within", span)?;
+                let id = self.open_within_deadline(Duration::from_millis(limit.millis), span);
+                Ok(ContextScopeRestore::Within { id })
+            }
         }
     }
 
@@ -1203,6 +1210,7 @@ impl Evaluator {
             ContextScopeRestore::Env(previous) => {
                 self.env = previous;
             }
+            ContextScopeRestore::Within { id } => self.close_within_deadline(id),
         }
     }
 
@@ -1440,17 +1448,30 @@ impl Evaluator {
             let stop_on_error =
                 |_: &RuntimeError| stopped.store(true, std::sync::atomic::Ordering::Relaxed);
             let mut remaining = workers.len();
+            // A `within` deadline stops the stage, but only once the workers
+            // are back: they obey the same deadline and are about to report,
+            // and they report on this channel.
+            let mut timed_out = None;
+            let mut checkpoint = |evaluator: &mut Self| match evaluator.service_pending_signal(span) {
+                Ok(()) => Ok(()),
+                Err(error) => {
+                    stop_on_error(&error);
+                    if error.within.is_none() {
+                        return Err(error);
+                    }
+                    timed_out.get_or_insert(error);
+                    Ok(())
+                }
+            };
             while remaining > 0 {
                 match receiver.recv_timeout(std::time::Duration::from_millis(1)) {
                     Ok((chunk_index, results, worker_stderr)) => {
                         completed[chunk_index] = Some((results, worker_stderr));
                         remaining -= 1;
-                        self.service_pending_signal(span)
-                            .inspect_err(stop_on_error)?;
+                        checkpoint(self)?;
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        self.service_pending_signal(span)
-                            .inspect_err(stop_on_error)?;
+                        checkpoint(self)?;
                     }
                     Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                         return Err(RuntimeError::new(
@@ -1465,6 +1486,9 @@ impl Evaluator {
                 worker
                     .join()
                     .expect("lowered par-map worker thread panicked");
+            }
+            if let Some(error) = timed_out {
+                return Err(error);
             }
             let mut ordered: Vec<Option<ParMapItemOutcome>> =
                 (0..item_count).map(|_| None).collect();
@@ -8361,7 +8385,13 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         span: Span,
     ) -> Result<(), RuntimeError> {
+        // Cleanup is never cut short by a `within` deadline: the scopes that
+        // are open are set aside while the action runs, and a deadline that
+        // passes meanwhile is delivered at the first checkpoint after it. A
+        // scope the action opens itself applies to it as usual.
+        let shielded = self.shield_within_deadlines();
         let result = self.eval_indexed_expr(execution, value, slots, span);
+        self.unshield_within_deadlines(shielded);
         let pending = self.pending_value_block_flow.take();
         let value = match (result?, pending) {
             (_, Some(StmtFlow::Propagate(value) | StmtFlow::Return(value))) => value,

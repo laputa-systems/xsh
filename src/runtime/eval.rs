@@ -2966,6 +2966,21 @@ fn lowered_method_name(name: &str) -> bool {
     LOWERED_METHOD_NAMES.contains(&name)
 }
 
+/// One open `within DURATION { ... }` scope.
+///
+/// The deadline is a point on the monotonic clock, fixed when the scope is
+/// entered. It is delivered once: the checkpoint that first finds it passed
+/// raises an error marked with `id`, which unwinds through the body's cleanup
+/// to the scope.
+#[derive(Clone, Debug)]
+pub(super) struct WithinDeadline {
+    id: u64,
+    at: Instant,
+    limit: Duration,
+    span: Span,
+    delivered: bool,
+}
+
 /// A suspended producer's evaluator context is reattached only while it runs.
 #[derive(Clone)]
 pub(crate) struct ScopedProducerContext {
@@ -3116,6 +3131,9 @@ pub struct Evaluator {
     net_jobs: BTreeMap<u64, LiveNetJob>,
     net_job_reserved_response_bytes: u64,
     network_wait_depth: u32,
+    /// The open `within` scopes, outermost first.
+    within_deadlines: Vec<WithinDeadline>,
+    next_within_id: u64,
     scope_ids: Vec<u64>,
     next_runtime_scope_id: u64,
     signal_state: EvaluatorSignalState,
@@ -3165,6 +3183,10 @@ impl Drop for Evaluator {
 }
 
 struct LoweredSharedState {
+    /// The `within` scopes open where the workers were started. A worker
+    /// obeys them too, and its timeout error unwinds in the evaluator that
+    /// owns the scope.
+    within_deadlines: Vec<WithinDeadline>,
     sources: Arc<SourceMap>,
     command_name: String,
     exe_path: String,
@@ -3367,6 +3389,8 @@ impl Evaluator {
             net_jobs: BTreeMap::new(),
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
+            within_deadlines: Vec::new(),
+            next_within_id: 1,
             scope_ids: vec![0],
             next_runtime_scope_id: 1,
             signal_state: EvaluatorSignalState::default(),
@@ -3495,6 +3519,7 @@ impl Evaluator {
 
     fn lowered_shared_state(&self) -> Arc<LoweredSharedState> {
         Arc::new(LoweredSharedState {
+            within_deadlines: self.within_deadlines.clone(),
             sources: self.sources.clone(),
             command_name: self.command_name.clone(),
             exe_path: self.exe_path.clone(),
@@ -3579,6 +3604,15 @@ impl Evaluator {
             net_jobs: BTreeMap::new(),
             net_job_reserved_response_bytes: 0,
             network_wait_depth: 0,
+            within_deadlines: shared.within_deadlines.clone(),
+            // Scopes a worker opens never share an identity with the ones it
+            // inherited.
+            next_within_id: shared
+                .within_deadlines
+                .iter()
+                .map(|deadline| deadline.id + 1)
+                .max()
+                .unwrap_or(1),
             scope_ids: (0..shared.scopes.len() as u64).collect(),
             next_runtime_scope_id: shared.scopes.len() as u64,
             signal_state: EvaluatorSignalState::default(),
@@ -3654,7 +3688,94 @@ impl Evaluator {
         Err(RuntimeError::new("canceled", "the test harness canceled this test").with_span(span))
     }
 
+    /// Enters a `within` scope that allows its body `limit` from now, and
+    /// returns the identity its timeout error will carry.
+    pub(super) fn open_within_deadline(&mut self, limit: Duration, span: Span) -> u64 {
+        let id = self.next_within_id;
+        self.next_within_id += 1;
+        let now = Instant::now();
+        self.within_deadlines.push(WithinDeadline {
+            id,
+            // A limit too long for the clock never expires.
+            at: now.checked_add(limit).unwrap_or(now + Duration::from_secs(u32::MAX as u64)),
+            limit,
+            span,
+            delivered: false,
+        });
+        id
+    }
+
+    /// Leaves the `within` scope `id`, whose body finished or was unwound.
+    pub(super) fn close_within_deadline(&mut self, id: u64) {
+        self.within_deadlines.retain(|deadline| deadline.id != id);
+    }
+
+    /// The open scope whose deadline has passed and has not been delivered:
+    /// the earliest deadline, and of equal ones the outermost scope.
+    fn due_within_deadline(&self) -> Option<usize> {
+        if self.within_deadlines.is_empty() {
+            return None;
+        }
+        let now = Instant::now();
+        self.within_deadlines
+            .iter()
+            .enumerate()
+            .filter(|(_, deadline)| !deadline.delivered && now >= deadline.at)
+            .min_by_key(|(index, deadline)| (deadline.at, *index))
+            .map(|(index, _)| index)
+    }
+
+    /// A cancellation checkpoint for `within`: fails with the error that
+    /// unwinds to the scope whose deadline has passed.
+    pub(super) fn check_within_deadline(&mut self, span: Span) -> Result<(), RuntimeError> {
+        let Some(index) = self.due_within_deadline() else {
+            return Ok(());
+        };
+        let deadline = &mut self.within_deadlines[index];
+        deadline.delivered = true;
+        let mut error = RuntimeError::new(
+            "within-deadline",
+            format!("the block did not finish within {}", within_limit_text(deadline.limit)),
+        )
+        .with_span(span);
+        error.within = Some(deadline.id);
+        Err(error)
+    }
+
+    /// Sets the open `within` scopes aside for the length of a deferred
+    /// action. `unshield_within_deadlines` takes what this returns.
+    pub(super) fn shield_within_deadlines(&mut self) -> Vec<WithinDeadline> {
+        std::mem::take(&mut self.within_deadlines)
+    }
+
+    pub(super) fn unshield_within_deadlines(&mut self, shielded: Vec<WithinDeadline>) {
+        // Scopes the action opened have closed with it.
+        self.within_deadlines = shielded;
+    }
+
+    /// Ends the scope `id` by its deadline and returns the error its `Result`
+    /// carries, which implements `Timeout`.
+    pub(super) fn finish_within_timeout(&mut self, id: u64) -> RuntimeError {
+        let closed = self
+            .within_deadlines
+            .iter()
+            .position(|deadline| deadline.id == id)
+            .map(|index| self.within_deadlines.remove(index));
+        let (limit, span) = closed.map_or((Duration::ZERO, zero_span()), |deadline| {
+            (deadline.limit, deadline.span)
+        });
+        RuntimeError::host(
+            "timeout",
+            &std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("the block did not finish within {}", within_limit_text(limit)),
+            ),
+        )
+        .with_span(span)
+    }
+
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
+        self.check_within_deadline(span)?;
         for live in self.process_handles.values_mut() {
             // Delivery failures remain owned by the handle and surface through
             // its wait or cleanup result, alongside other process I/O failures.
@@ -6105,6 +6226,12 @@ impl CancellationPolicy for Evaluator {
 
     fn check_process_group(&mut self, group: ProcessGroup) -> CancellationDecision {
         self.track_process_group(group);
+        // A foreground child that outlives a `within` deadline is stopped the
+        // way an unhooked SIGTERM stops it; the checkpoint after it delivers
+        // the timeout.
+        if self.due_within_deadline().is_some() {
+            return CancellationDecision::Forward(libc::SIGTERM);
+        }
         match self.test_cancel_request() {
             TestCancelRequest::None => {}
             TestCancelRequest::Cancel => {
@@ -6458,6 +6585,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 contexts: error.contexts,
                 cause: error.cause,
                 abort: None,
+                within: None,
                 propagated: false,
                 propagated_run_error: Some(original),
                 family_name: Name::PROCESS_ERROR,
@@ -7791,4 +7919,15 @@ fn map_key_matches_type(key: &MapKey, ty: &Type) -> bool {
             | (MapKey::Duration(_), Type::Duration)
     ) || matches!((key, ty), (MapKey::Int(value), Type::UInt) if *value >= 0)
         || matches!(ty, Type::Unknown | Type::Invalid | Type::Any)
+}
+
+/// A `within` limit as a duration literal reads: whole seconds when it is
+/// one, milliseconds otherwise.
+fn within_limit_text(limit: Duration) -> String {
+    let millis = limit.as_millis();
+    if millis % 1000 == 0 {
+        format!("{}s", millis / 1000)
+    } else {
+        format!("{millis}ms")
+    }
 }

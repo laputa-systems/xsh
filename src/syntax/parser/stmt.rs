@@ -108,6 +108,17 @@ impl<'a> Parser<'a> {
                     arena.push_expr_statement(value, self.span(start, end));
                     return Some(());
                 }
+                if self.lookahead_is_within_scope() {
+                    let scope = self.parse_within_scope_arena_only(arena, false)?;
+                    let value = if self.consume(TokenKindMatch::Question).is_some() {
+                        arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
+                    } else {
+                        scope.id
+                    };
+                    let end = self.expect_terminator();
+                    arena.push_expr_statement(value, self.span(start, end));
+                    return Some(());
+                }
                 if self.current_name().is_some_and(|name| name == "cli")
                     && self.peek_tag(1) == Some(TokenTag::Ident)
                     && self.peek_tag(2) == Some(TokenTag::LParen)

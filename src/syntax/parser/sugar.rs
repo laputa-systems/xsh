@@ -848,6 +848,34 @@ mod tests {
         assert!(sentences > 100, "only {sentences} sentences");
     }
 
+    /// `within DURATION {` is recognized by its whole head, so every
+    /// sentence of the production must parse, as the scope and nothing else.
+    #[test]
+    fn every_within_sentence_of_the_grammar_parses_as_a_within_scope() {
+        use crate::syntax::arena::{ArenaExprKind, ContextScopeKind};
+        let mut sentences = 0;
+        for (depth, seed, source) in sentences_of("within_scope") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            let first = parsed.arena.statement_ids().next().expect("one statement");
+            let arena = &parsed.arena.arena;
+            let is_scope = matches!(
+                arena.stmt(first).kind,
+                ArenaStmtKind::Expr(expr) if matches!(
+                    arena.expr(expr).kind,
+                    ArenaExprKind::ContextScope { kind: ContextScopeKind::Within, .. }
+                )
+            );
+            assert!(is_scope, "depth {depth} seed {seed} is not a within scope:\n{source}");
+        }
+        assert!(sentences > 100, "only {sentences} sentences");
+    }
+
     fn first_statement_is(program: &ArenaProgram, expected: SugarForm) -> bool {
         let first = program.statement_ids().next().expect("one statement");
         matches!(

@@ -761,6 +761,8 @@ pub struct Checker {
     /// `retry` attempt blocks being checked (a subset of the error
     /// boundaries counted by `retry_attempt_depth`).
     retry_block_depth: usize,
+    /// How many `within` bodies enclose the code being checked.
+    within_block_depth: usize,
     error_boundary_errors: Vec<Vec<(Type, Span)>>,
     module_depth: usize,
     in_signal_hook: bool,
@@ -1153,6 +1155,7 @@ impl Checker {
             result_unit_function_tail: None,
             retry_attempt_depth: 0,
             retry_block_depth: 0,
+            within_block_depth: 0,
             error_boundary_errors: Vec::new(),
             module_depth: 0,
             in_signal_hook: false,

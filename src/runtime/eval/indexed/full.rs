@@ -4781,10 +4781,12 @@ impl_word_codec!(
     |value: &crate::syntax::arena::ContextScopeKind| Ok(match value {
         crate::syntax::arena::ContextScopeKind::Cwd => 0,
         crate::syntax::arena::ContextScopeKind::Env => 1,
+        crate::syntax::arena::ContextScopeKind::Within => 2,
     }),
     |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| match raw {
         0 => Ok(crate::syntax::arena::ContextScopeKind::Cwd),
         1 => Ok(crate::syntax::arena::ContextScopeKind::Env),
+        2 => Ok(crate::syntax::arena::ContextScopeKind::Within),
         _ => Err(IrVerifyError::new("context scope kind is invalid")),
     })
 );
@@ -12313,6 +12315,59 @@ proc local() [env, error] -> Int {
         });
     }
 
+    /// A `within` scope is a context scope of its own kind. The lowered
+    /// program is valid as lowered, is rejected before it runs when its kind
+    /// or its limit is corrupted, and reports its deadline as an `Err` that
+    /// implements `Timeout` while leaving no deadline open behind it.
+    #[test]
+    fn within_scope_verifies_its_kind_and_closes_its_deadline() {
+        run_with_large_stack(|| {
+            let source = "proc limited(limit: Duration, pause: Duration) [time, error] -> Result[Int] {\n  within limit {\n    time.sleep(pause)\n    7\n  }\n}\n";
+            let program = fixture("within-scope.xsh", source);
+            FullVerifier::verify(&program).expect("the lowered scope is valid");
+            let instruction = program
+                .store
+                .tags
+                .iter()
+                .position(|tag| *tag == FullTag::ExprContextScope)
+                .expect("scope instruction");
+            let payload = program.store.data[instruction]
+                .range()
+                .bounds(program.store.extra.len())
+                .unwrap();
+            assert_eq!(program.store.extra[payload.start], 2, "the scope's kind");
+            let mut bad_kind = program.clone();
+            bad_kind.store.extra[payload.start] = 3;
+            assert!(FullVerifier::verify(&bad_kind).is_err());
+            let mut bad_limit = program.clone();
+            bad_limit.store.extra[payload.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_limit).is_err());
+
+            let program = Arc::new(program);
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let millis = |millis| Value::Duration(crate::runtime::value::DurationValue { millis });
+            let mut call = |limit, pause| {
+                let result = evaluator
+                    .call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, "limited")),
+                        LoweredFunctionKind::Proc,
+                        &[millis(limit), millis(pause)],
+                        Span::new(program.store.source_id, 0, 0),
+                    )
+                    .expect("scope function exists");
+                assert!(evaluator.within_deadlines.is_empty());
+                result
+            };
+            // The scope's `Result` is the function's value either way.
+            assert_eq!(format!("{:?}", call(60_000, 0).unwrap()), "Result(Ok(Int(7)))");
+            let timeout = format!("{:?}", call(20, 60_000).unwrap());
+            assert!(timeout.starts_with("Result(Err("), "{timeout}");
+            assert!(timeout.contains("\"Timeout\""), "{timeout}");
+            assert!(timeout.contains("did not finish within 20ms"), "{timeout}");
+        });
+    }
+
     #[test]
     fn context_scope_verifies_payload_and_preserves_native_environment_bytes() {
         run_with_large_stack(|| {
@@ -12329,7 +12384,7 @@ proc local() [env, error] -> Int {
                 .bounds(program.store.extra.len())
                 .unwrap();
             let mut bad_kind = program.clone();
-            bad_kind.store.extra[payload.start] = 2;
+            bad_kind.store.extra[payload.start] = 3;
             assert!(FullVerifier::verify(&bad_kind).is_err());
             let mut bad_input = program.clone();
             bad_input.store.extra[payload.start + 1] = u32::MAX;

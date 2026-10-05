@@ -24,6 +24,8 @@ mod prefer_repeat;
 mod prefer_tempdir;
 #[path = "lint_prefer_atomically.rs"]
 mod prefer_atomically;
+#[path = "lint_prefer_within.rs"]
+mod prefer_within;
 #[path = "lint_redundant_use_alias.rs"]
 mod redundant_use_alias;
 
@@ -1097,6 +1099,7 @@ impl<'a> Linter<'a> {
         self.lint_stream_producer_suggestions(statements);
         prefer_tempdir::lint_scratch_directories(self, statements, None);
         prefer_atomically::lint_published_files(self, statements, None);
+        prefer_within::lint_repeated_timeouts(self, statements);
         self.lint_statement_sequence(statements);
         self.lint_implicit_main(statements);
         self.lint_unused_types();
@@ -5409,6 +5412,7 @@ impl<'a> Linter<'a> {
         prefer_tempdir::lint_scratch_directories(self, &stmts, Some(block));
         prefer_atomically::lint_published_files(self, &stmts, Some(block));
         lint_prefer_for_index::lint_counter_loops(self, &stmts, Some(block));
+        prefer_within::lint_repeated_timeouts(self, &stmts);
         self.lint_statement_sequence(&stmts);
     }
 

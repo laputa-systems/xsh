@@ -1467,6 +1467,9 @@ pub struct RuntimeError {
     pub contexts: Vec<ErrorContext>,
     pub cause: Option<ErrorCause>,
     pub abort: Option<AbortSignal>,
+    // The `within` scope whose deadline raised this error. Only that scope
+    // stops it: `try` does not capture it and no other scope reports it.
+    pub(crate) within: Option<u64>,
     // Checked propagation may cross runtime-error transport before local capture.
     pub(crate) propagated: bool,
     // Retain process payloads that the diagnostic error representation cannot hold.
@@ -1492,6 +1495,7 @@ impl RuntimeError {
             contexts: Vec::new(),
             cause: None,
             abort: None,
+            within: None,
             propagated: false,
             propagated_run_error: None,
             family_name: Name::ERROR,
@@ -1530,6 +1534,7 @@ impl RuntimeError {
             contexts: Vec::new(),
             cause: None,
             abort: None,
+            within: None,
             propagated: false,
             propagated_run_error: None,
             family_name,
@@ -1567,6 +1572,7 @@ impl RuntimeError {
             propagated_run_error: None,
             cause: None,
             abort: Some(AbortSignal { status, force }),
+            within: None,
             family_name: Name::ERROR,
             variant_name: symbols.intern("Abort"),
             _symbols: symbols,

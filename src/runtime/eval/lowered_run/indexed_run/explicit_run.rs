@@ -1260,11 +1260,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         ProducerStep::Finished(self.result.take().expect("indexed frame result"))
     }
 
-    fn begin_error_unwind(&mut self, error: RuntimeError) {
+    fn begin_error_unwind(&mut self, mut error: RuntimeError) {
         if error.abort.as_ref().is_some_and(|signal| signal.force) {
             self.discard_calls();
             self.result = Some(Err(error));
             return;
+        }
+        // A failure that starts to unwind is a `within` checkpoint: what
+        // fails after the deadline, such as the child the deadline stopped,
+        // leaves as the scope's timeout.
+        if error.abort.is_none() && error.within.is_none() && self.pending_error.is_none() {
+            let span = self
+                .calls
+                .last()
+                .map(|call| call.call_span)
+                .unwrap_or_else(crate::runtime::eval::zero_span);
+            if let Err(timeout) = self.evaluator.check_within_deadline(span) {
+                error = timeout;
+            }
         }
         if self.pending_error.is_some() {
             self.evaluator.report_cleanup_error(
@@ -1297,6 +1310,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     policy: ExpressionBoundaryPolicy::Capture,
                     ..
                 }
+            )
+        })
+    }
+
+    /// The boundary of the `within` scope `id` in this frame.
+    fn within_boundary(&self, index: usize, id: u64) -> Option<usize> {
+        self.calls[index].work.iter().rposition(|work| {
+            matches!(
+                work,
+                FrameWork::ExpressionBoundary {
+                    policy: ExpressionBoundaryPolicy::Scope(super::ContextScopeRestore::Within {
+                        id: scope,
+                    }),
+                    ..
+                } if *scope == id
             )
         })
     }
@@ -1343,11 +1371,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     // Callee cleanup completes before searching its caller for a local capture.
     // The selected boundary remains live while its inner lexical scopes unwind.
     fn unwind_error_frame(&mut self, index: usize) -> Result<(), RuntimeError> {
-        let mut boundary = self
-            .pending_error
-            .as_ref()
-            .filter(|error| error.abort.is_none() && error.propagated)
-            .and_then(|_| self.capture_boundary(index));
+        // A `within` timeout stops at its own scope and nowhere before it.
+        let timeout = self.pending_error.as_ref().and_then(|error| error.within);
+        let mut boundary = match timeout {
+            Some(id) => self.within_boundary(index, id),
+            None => self
+                .pending_error
+                .as_ref()
+                .filter(|error| error.abort.is_none() && error.propagated)
+                .and_then(|_| self.capture_boundary(index)),
+        };
         let mut keep = boundary.map_or(0, |boundary| boundary + 1);
         if self.crosses_context_scope(index, keep)
             && self
@@ -1387,7 +1420,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .report_cleanup_error(&error, self.calls[index].call_span);
         }
         if boundary.is_some() {
-            let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop()
+            let Some(FrameWork::ExpressionBoundary { policy, next }) =
+                self.calls[index].work.pop()
             else {
                 unreachable!()
             };
@@ -1395,7 +1429,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .pending_error
                 .take()
                 .expect("checked indexed frame failure");
-            let value = capture_checked_error(error)?;
+            let value = match policy {
+                ExpressionBoundaryPolicy::Scope(super::ContextScopeRestore::Within { id }) => {
+                    lowered_result_err_value(self.evaluator.finish_within_timeout(id))
+                }
+                _ => capture_checked_error(error)?,
+            };
             self.evaluator.pending_traceback = None;
             self.push_value(index, FrameValue::Value(value), next);
         } else {
@@ -4690,6 +4729,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
+        // A failure that starts to propagate is a `within` checkpoint, as one
+        // that starts to unwind is.
+        if matches!(flow, StmtFlow::Propagate(_)) {
+            self.evaluator
+                .check_within_deadline(self.calls[index].call_span)?;
+        }
         // A body that ran to its end, or returned with nothing left on its work
         // stack, has no boundaries, contexts, or block scopes to unwind.
         if self.calls[index].work.is_empty() && !matches!(flow, StmtFlow::Propagate(_)) {

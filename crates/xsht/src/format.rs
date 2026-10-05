@@ -2823,13 +2823,18 @@ impl<'a> Writer<'a> {
             ArenaExprKind::ContextScope {
                 kind, input, block, ..
             } => {
-                output.push_str(match kind {
-                    xsh::frontend::syntax::arena::ContextScopeKind::Cwd => "cd (",
-                    xsh::frontend::syntax::arena::ContextScopeKind::Env => "env (",
-                });
+                use xsh::frontend::syntax::arena::ContextScopeKind;
+                // Indentation is that of the line the head starts.
+                let indent = indent_for_expr(output);
+                let (open, close) = match kind {
+                    ContextScopeKind::Cwd => ("cd (", ") "),
+                    ContextScopeKind::Env => ("env (", ") "),
+                    ContextScopeKind::Within => ("within ", " "),
+                };
+                output.push_str(open);
                 self.write_expr(*input, child(*input), output);
-                output.push_str(") ");
-                self.write_block(*block, indent_for_expr(output), output);
+                output.push_str(close);
+                self.write_block(*block, indent, output);
             }
             ArenaExprKind::TempDirScope { block, .. } => {
                 output.push_str("tempdir ");

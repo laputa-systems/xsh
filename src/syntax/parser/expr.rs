@@ -1110,6 +1110,54 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `within DURATION {` on one line, where the duration is a duration
+    /// literal or a name with any `.field`s. `within` is contextual: it starts
+    /// a scope only before that operand and a block, so a name spelled
+    /// `within` stays usable everywhere else, a condition included.
+    pub(super) fn lookahead_is_within_scope(&self) -> bool {
+        if self.current_tag() != TokenTag::Ident
+            || !self.current_name().is_some_and(|name| name == "within")
+        {
+            return false;
+        }
+        let mut after = 2;
+        match self.peek_tag(1) {
+            Some(TokenTag::Duration) => {}
+            Some(TokenTag::Ident) => {
+                while self.peek_tag(after) == Some(TokenTag::Dot)
+                    && self.peek_tag(after + 1) == Some(TokenTag::Ident)
+                {
+                    after += 2;
+                }
+            }
+            _ => return false,
+        }
+        self.peek_tag(after) == Some(TokenTag::LBrace)
+    }
+
+    pub(super) fn parse_within_scope_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+        value_body: bool,
+    ) -> Option<ArenaOnlyExpr> {
+        let start = self.current_start();
+        self.bump();
+        let limit = self.parse_head_expr_arena_only(arena)?.id;
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        Some(ArenaOnlyExpr {
+            id: arena.push_context_scope_expr(
+                crate::syntax::arena::ContextScopeKind::Within,
+                limit,
+                block,
+                value_body,
+                span,
+            ),
+            span,
+            bare_ident: None,
+        })
+    }
+
     pub(super) fn parse_context_scope_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
@@ -1236,6 +1284,9 @@ impl<'a> Parser<'a> {
         }
         if self.lookahead_is_tempdir_scope() {
             return self.parse_tempdir_scope_arena_only(arena, true);
+        }
+        if self.lookahead_is_within_scope() {
+            return self.parse_within_scope_arena_only(arena, true);
         }
         if let Some(form) = self.current_keyword().and_then(grammar::primary_form) {
             return self.parse_keyword_primary_arena_only(form, span, arena);
