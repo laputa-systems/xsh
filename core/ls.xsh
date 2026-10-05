@@ -329,7 +329,7 @@ pure parse_block_size(text: Str) -> Block {
   let base = if parts[3] == "B" { 1000 } else { 1024 }
 
   if unit != "" {
-    for _ in range("KMGTPEZYRQ".find(unit) ?? 0 + 1) {
+    for _ in range(("KMGTPEZYRQ".find(unit) ?? 0) + 1) {
       size *= base
     }
   }
@@ -1878,8 +1878,8 @@ pure sort_files(ctx: Ctx, files: List[File]) -> List[File] {
   var sorted = by_name(files)
 
   match ctx.sort {
-    "size" => sorted = sorted |> sort-by(desc: true) .st.size
-    "time" => sorted = sorted |> sort-by(desc: true) { |f| file_time(ctx, f) }
+    "size" => sorted = sorted |> sort-by { |f| 0 - f.st.size }
+    "time" => sorted = sorted |> sort-by { |f| 0 - file_time(ctx, f) }
     "extension" => sorted = sorted |> sort-by { |f| extension_of(f.name) }
     "width" => sorted = sorted |> sort-by { |f| f.name.count_chars() }
     "version" => sorted = merge_version(sorted)
@@ -2199,8 +2199,9 @@ type NamePiece = {pre: Bytes, name: Bytes, post: Bytes, used: Bool, w: Int}
 # GNU print_name_with_quoting: the color start, an alignment space, the
 # hyperlink, the quoted name, and the closing sequences. `col` is where the
 # name starts on its line.
-pure name_piece(ctx: Ctx, f: File, target: Bool, pad: Bool, used0: Bool, col: Int) -> NamePiece {
+pure name_piece(ctx: Ctx, f: File, target: Bool, pad0: Bool, used0: Bool, col: Int) -> NamePiece {
   let shown = if target { quote_name(ctx, f.link ?? b"", ctx.qs) } else { Shown(f.q, f.qw, f.quoted) }
+  let pad = pad0 and (target or ! f.quoted)
   let colors = ctx.colors
   var used = used0
   var pre = ""
@@ -2278,7 +2279,7 @@ pure indicator_for(ctx: Ctx, f: File) -> Str {
 
 # The width of a name with its inode, block count, and type indicator.
 pure name_len(ctx: Ctx, f: File, wd: Widths, pad: Bool) -> Int {
-  frills_text(ctx, f, wd).byte_len() + f.qw + (if pad { 1 } else { 0 }) + indicator_for(ctx, f).byte_len()
+  frills_text(ctx, f, wd).byte_len() + f.qw + (if pad and ! f.quoted { 1 } else { 0 }) + indicator_for(ctx, f).byte_len()
 }
 
 type FilePiece = {bytes: Bytes, used: Bool}
@@ -2401,7 +2402,7 @@ pure print_grid(ctx: Ctx, files: List[File], wd: Widths, pad: Bool, used0: Bool,
         pos += max_length
       }
 
-      chunks += [bytes.from_text("\n")]
+      chunks += [bytes.from_text(ctx.eol)]
     }
   } else {
     var pos = 0
@@ -2415,7 +2416,7 @@ pure print_grid(ctx: Ctx, files: List[File], wd: Widths, pad: Bool, used0: Bool,
       let col = filesno % cols
 
       if col == 0 {
-        chunks += [bytes.from_text("\n")]
+        chunks += [bytes.from_text(ctx.eol)]
         pos = 0
       } else {
         chunks += [bytes.from_text(indent_text(pos + name_length, pos + max_length, ctx.tabsize))]
@@ -2429,7 +2430,7 @@ pure print_grid(ctx: Ctx, files: List[File], wd: Widths, pad: Bool, used0: Bool,
       max_length = widths[col]
     }
 
-    chunks += [bytes.from_text("\n")]
+    chunks += [bytes.from_text(ctx.eol)]
   }
 
   {bytes: bytes.concat(chunks), used: used}
