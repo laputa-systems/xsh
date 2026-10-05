@@ -11596,19 +11596,14 @@ impl Evaluator {
                 }
             };
             let kill_after = kill_after.unwrap_or_else(|| Duration::from_secs(2));
+            // Cancelling is idempotent: a handle whose child was already
+            // waited for, cancelled, or released by its owning scope has
+            // nothing left to stop, which is what the caller asked for. A
+            // cleanup action can therefore cancel a handle without knowing
+            // whether the scope got to it first.
             let Some(live) = self.process_handles.remove(&handle.id) else {
-                let error = super::process_handle::invalid_process_handle_error(handle.id, *span);
-                self.trace_spawn_cancel(
-                    *span,
-                    handle.id,
-                    None,
-                    &signal.name,
-                    kill_after,
-                    Some(&error),
-                );
-                return Ok(ControlFlow::Continue(lowered_result_err_value(
-                    run_error_to_runtime(error, *span),
-                )));
+                self.trace_spawn_cancel(*span, handle.id, None, &signal.name, kill_after, None);
+                return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)));
             };
             let pid = Some(live.child.pid);
             let value = match cancel_managed(live.child, signal.number, kill_after) {

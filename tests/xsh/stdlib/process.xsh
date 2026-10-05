@@ -671,3 +671,56 @@ in_block(Path("ROOT/block"))?
 """
   test.expect(ctx, source.replace("ROOT", with: root.display()), status: 0, stdout: ["true\ntrue\n"])?
 }
+
+# Cancelling is idempotent: a handle whose child is already gone has nothing
+# left to stop, whoever consumed it. Waiting on it afterwards still fails.
+test test_cancel_of_a_cancelled_handle_is_a_successful_no_op {
+  let child = spawn run sh -c "sleep 10" ?
+  child.cancel(kill_after: 0ms)
+  assert child.cancel() == Ok()
+  assert child.cancel(signal: "KILL", kill_after: 0ms) == Ok()
+  assert wait child is Err(_), "a cancelled handle has no status left to wait for"
+}
+
+test test_cancel_of_a_waited_handle_is_a_successful_no_op {
+  let child = spawn run sh -c "exit 3" ?
+  let status = wait child?
+  assert status.exit_code()? == 3
+  assert child.cancel() == Ok()
+  assert wait child is Err(_), "a second wait still fails"
+}
+
+test test_cancel_of_a_handle_with_an_unknown_signal_still_fails {
+  let child = spawn run sh -c "exit 0" ?
+  let _ = wait child?
+  assert child.cancel(signal: "NOT-A-SIGNAL") is Err(_)
+}
+
+# A scope releases the handles it owns before its deferred actions run, so a
+# deferred cancel of such a handle finds it already reaped and succeeds.
+test test_deferred_cancel_of_a_handle_its_scope_released_succeeds { |ctx|
+  let source = r"""proc in_call() [process, error] -> Result[Unit] {
+  let child = spawn run sh -c "sleep 10" ?
+  defer child.cancel(signal: "TERM", kill_after: 0ms)
+  print "call"
+  return Ok()
+}
+
+proc in_block() [process, error] -> Result[Unit] {
+  if true {
+    let child = spawn run sh -c "sleep 10" ?
+    defer child.cancel()
+    print "block"
+  }
+
+  return Ok()
+}
+
+in_call()?
+in_block()?
+let top = spawn run sh -c "sleep 10" ?
+defer top.cancel()
+print "top"
+"""
+  test.expect(ctx, source, status: 0, stdout: ["call\nblock\ntop\n"], stderr: [])?
+}

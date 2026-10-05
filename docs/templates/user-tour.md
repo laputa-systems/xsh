@@ -794,8 +794,10 @@ just its leader. A spawned handle can be stopped on purpose with
 `handle.cancel(signal:, kill_after:)`, which signals the group, escalates to
 `SIGKILL` after the grace period, and reaps the child. A child that dies from a
 signal is `Status` data for `run.status` and a `ProcessError.Signal` for the
-forms that fail on a bad exit. A handle still running when its scope ends is
-cancelled and reaped before that scope's defers run:
+forms that fail on a bad exit. Cancelling a handle that is already finished,
+waited for, or cancelled does nothing and succeeds, so `defer handle.cancel()`
+is always safe. A handle still running when its scope ends is cancelled and
+reaped before that scope's defers run:
 
 ```xsh
 {{.tour.cancel.source}}

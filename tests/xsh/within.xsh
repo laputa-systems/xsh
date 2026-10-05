@@ -422,13 +422,13 @@ test test_within_stops_a_network_wait_on_a_silent_server {
   }
 
   # One listener per request: the listener leaves with its first connection.
-  # This scope owns both handles and cancels them when it exits.
   let port = 20000 + process.current_pid()? % 20000
   let listen = f"sleep 30 | nc -l -p {port} > /dev/null 2>&1"
   let first = spawn run sh -c $listen ?
+  defer first.cancel()
   let listen_again = f"sleep 30 | nc -l -p {port + 1} > /dev/null 2>&1"
   let second = spawn run sh -c $listen_again ?
-  assert first.pid > 0 and second.pid > 0
+  defer second.cancel()
   time.sleep(300ms)
 
   let started = time.now()

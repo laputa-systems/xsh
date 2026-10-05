@@ -3656,13 +3656,18 @@ strings.
   then returns the first error without partial statuses.
 - `handle.cancel(signal: "TERM", kill_after: 2s)` signals the child's process
   group, sends `SIGKILL` after `kill_after` if needed, reaps it, and returns
-  `Result[Unit, ProcessError]`.
+  `Result[Unit, ProcessError]`. Cancelling is idempotent: on a handle whose
+  child has already exited, or that a `wait`, an earlier `cancel`, or its
+  owning scope (11.8) has already consumed, it does nothing and returns
+  `Ok()`, so `defer handle.cancel()` is safe in the scope that owns the
+  handle. An unknown `signal` name is still an error.
 - Nonzero exits and signal deaths are `Status` data. Setup failures, timeouts,
   cancellation, and invalid handles are `ProcessError`. A trailing `?` applies
   to the whole `spawn`, `wait`, or `cancel` expression.
 - A handle exposes `pid`, `command`, `argv`, and `detached`, which stay
   readable after the child is gone. The first `wait` or `cancel` consumes the
-  child, and later use of any alias fails with `ProcessError.Unknown`.
+  child; a later `wait` through any alias fails with `ProcessError.Unknown`,
+  and a later `cancel` is the no-op above.
 - `wait until` begins the polling statement of 8.6, so the handle of a `wait`
   cannot be the bare name `until`; write `wait (until)`.
 
@@ -3674,8 +3679,10 @@ it into an outer binding, or breaking it out of a loop transfers ownership
 outward. When a scope exits, its owned non-detached handles are cancelled and
 reaped and its owned network jobs are cancelled and drained, before the scope's
 defers run. Detached handles are released to a background reaper instead. A
-`NetJob` is consumed by its first `wait()` or `cancel()`, like a process
-handle. These are process and transfer fan-out, not an async runtime: there
+`NetJob` is consumed by its first `wait()` or `cancel()`, and either one fails
+on a consumed job (`net-job-not-live`): only a process handle's `cancel` is
+idempotent. `process.kill(pid)` names a pid, not an owned handle, and fails
+with `process-missing` once the child is reaped. These are process and transfer fan-out, not an async runtime: there
 are no futures, callbacks, channels, `await`, or wait-any.
 
 An `FsRoot` and an `fs.lock` lock are not owned this way: nothing releases
