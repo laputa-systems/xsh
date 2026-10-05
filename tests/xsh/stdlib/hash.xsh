@@ -255,3 +255,27 @@ test test_parse_check_line_rejects_malformed_lines {
   )
   assert check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17e7g  readme.txt")) == hex_message
 }
+
+# Independent known vectors cover digest selection, variable BLAKE2b output,
+# and numeric checksums whose lengths include bytes rather than text characters.
+test test_hash_streaming_algorithm_vectors { |ctx|
+  let data = test.temp_file(ctx, name: "checksums.bin", contents: b"abc")?
+  assert hash.digest_file(data, "sha224")?.hex() == "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"
+  assert hash.digest_file(data, "sha384")?.hex() == "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"
+  assert hash.digest_file(data, "blake2b")?.hex() == "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923"
+  let crc = hash.checksum(data, "crc")?
+  assert crc.checksum == 1219131554
+  assert crc.size == 3
+  assert hash.checksum(data, "bsd")?.checksum == 16556
+  assert hash.checksum(data, "sysv")?.checksum == 294
+  let foobar = test.temp_file(ctx, name: "blake-variable", contents: b"foobar\n")?
+  assert hash.digest_file(foobar, "blake2b", length: 8)?.hex() == "6a"
+  assert hash.digest_file(foobar, "blake2b", length: 128)?.hex() == "d6d45901dec53e65d2b55fb6e2ab67b0"
+  test.error_kind(hash.digest_file(data, "blake2b", length: 9), "hash-length")
+  test.error_kind(hash.digest_file(data, "crc"), "hash-algorithm")
+  test.error_kind(hash.checksum(data, "md5"), "hash-algorithm")
+  let empty = test.temp_file(ctx, name: "checksum-empty", contents: b"")?
+  assert hash.checksum(empty, "crc")?.checksum == 4294967295
+  assert hash.checksum(empty, "bsd")?.size == 0
+  assert hash.digest_file(empty, "blake2b")?.hex() == "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce"
+}

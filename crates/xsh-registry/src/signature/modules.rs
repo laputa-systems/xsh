@@ -1893,7 +1893,30 @@ fn group_module() -> ModuleSig {
 }
 
 fn hash_module() -> ModuleSig {
+    let checksum_type = Type::Record(btree_map(vec![
+        ("checksum", Type::Int), ("size", Type::Int),
+    ]));
     module_sig(vec![
+        (
+            "digest_file",
+            sig(vec![param("path", Type::Path), param("algorithm", Type::Str), default_param("length", Type::Int)],
+                result(Type::Digest), false, RuntimeOp::HashDigestFile),
+        ),
+        (
+            "digest_stdin",
+            sig(vec![param("algorithm", Type::Str), default_param("length", Type::Int)],
+                result(Type::Digest), false, RuntimeOp::HashDigestStdin),
+        ),
+        (
+            "checksum",
+            sig(vec![param("path", Type::Path), param("algorithm", Type::Str)],
+                result(checksum_type.clone()), false, RuntimeOp::HashChecksum),
+        ),
+        (
+            "checksum_stdin",
+            sig(vec![param("algorithm", Type::Str)],
+                result(checksum_type), false, RuntimeOp::HashChecksumStdin),
+        ),
         (
             "md5",
             sig(

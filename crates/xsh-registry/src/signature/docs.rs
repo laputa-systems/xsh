@@ -376,6 +376,16 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Runtime-loaded modules must have a ##! module doc and ## docs on every export before they are checked or lowered.",
             &["module", "dynamic", "documentation"],
         )),
+        ("hash", "checksum" | "checksum_stdin") => Some((
+            "Calculates a bounded streaming checksum and content byte count.",
+            "Algorithms are crc (POSIX length-inclusive CRC), bsd, and sysv. The returned record contains checksum and size in bytes. File and remaining stdin reads use at most 64 KiB of input buffering; errors and invalid algorithms are returned explicitly.",
+            &["hash", "checksum", "streaming"],
+        )),
+        ("hash", "digest_file" | "digest_stdin") => Some((
+            "Calculates a digest using bounded file or remaining stdin reads.",
+            "Algorithms are md5, sha1, sha224, sha256, sha384, sha512, and blake2b. BLAKE2b length defaults to 512 bits and must be a multiple of 8 from 8 through 512; it selects algorithm parameters rather than truncating a 512-bit digest. Reads use at most 64 KiB of input buffering. Invalid algorithms, lengths and I/O errors return explicit errors.",
+            &["hash", "digest", "streaming"],
+        )),
         ("hash", "sha256" | "sha512" | "sha1" | "md5") => Some((
             "Calculates a digest from bytes or a file path.",
             "Hash bytes at the content boundary; format the digest only for storage, display, or comparison.",
