@@ -19,7 +19,7 @@ let command = process.command_argv(Path({}), [\"xsh-test-helper\", \"session\", 
 env XSH_UNIX_TTY_DIR=(tty_dir) {{
   let child = unix.spawn_with_tty(command, tty: \"tty-test\")?
   var tries = 0
-  while ! fs.exists(marker)? and tries < 100 {{
+  while ! marker.exists()? and tries < 100 {{
     time.sleep(10ms)?
     tries += 1
   }}

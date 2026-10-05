@@ -235,8 +235,8 @@ for {name, ..} in [pkg] {
   print $name
 }
 let jobs = env.Str.JOBS ?? "1"
-fs.mkdir build ?
-fs.remove build --missing-ok ?
+fs.fsync build ?
+fs.install tool build/tool 493 --parents ?
 json.write manifest ({name, version}) ?
 """,
     [
@@ -256,7 +256,7 @@ test test_checker_rejects_ergonomic_sugar_pass_errors { |ctx|
   for case in [
     {source: "fs.nope out ?\n", code: "check.unknown-module-api"},
     {source: "fs.read out ?\n", code: "check.unknown-module-api"},
-    {source: "fs.remove out --unknown ?\n", code: "check.module-command-flag"},
+    {source: "fs.install tool out 493 --unknown ?\n", code: "check.module-command-flag"},
     {source: "let {name, name} = {name: \"demo\"}\n", code: "check.destructure-field"},
     {source: "let {name} = 1\n", code: "check.destructure-type"},
     {source: "let pkg = {name: \"demo\"}\nlet {version} = pkg\n", code: "check.destructure-field"},

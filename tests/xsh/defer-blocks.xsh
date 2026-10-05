@@ -184,7 +184,7 @@ test test_defer_blocks_reject_escaping_control_and_check_unselected_effects { |c
 """,
     """proc bad() [] { defer { print $later }; let later = 1 }
 """,
-    """proc bad() [] { if false { defer { fs.remove(p"unused")? } } }
+    """proc bad() [] { if false { defer { p"unused".remove()? } } }
 """,
   ] {
     let output = test.run_script(ctx, source)?

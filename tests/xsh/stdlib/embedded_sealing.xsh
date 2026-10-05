@@ -245,7 +245,7 @@ test pure_user_functions_still_cannot_perform_io { |ctx|
     "purity",
     {
   "impure.xsh": """pure read_it(target: Path) -> Str {
-  return fs.read_text(target)?
+  return target.read_text()?
 }
 
 proc main() [io] {

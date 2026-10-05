@@ -159,7 +159,7 @@ A submitted line is shell input unless it is lexically XSH. Always XSH:
 declaration and control starts (`let var proc pure use if for while match
 return defer guard`), `run`, `print`, `eprint`, `type NAME = …`, `export
 let|var|proc|pure|stream|type …` and `export name: Type`, module-qualified
-starts (`fs.write …`), and expression starts (`{`, `(`, a `[` not followed by
+starts (`json.write …`), and expression starts (`{`, `(`, a `[` not followed by
 a space, string/path/format literals, `null`, digits). Ambiguous words go to the
 shell form: `export NAME=v`, `type ls`, `set …`, `source f`, `alias name cmd`.
 `true` and `false` are shell builtins unless the line is an expression

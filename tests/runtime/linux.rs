@@ -225,16 +225,16 @@ fn linux_real_read_only_surfaces_work_in_container() {
         "linux-real-read-only",
         r#"
 let root = fp"/tmp/xsh-linux-real-{process.current_pid()?}"
-fs.mkdir(root)?
+root.mkdir()?
 let source = fp"{root}/source.bin"
 let dest = fp"{root}/dest.bin"
 let copy = fp"{root}/copy.bin"
 defer root.remove_dir()
-defer fs.remove(copy, missing_ok: true)
-defer fs.remove(dest, missing_ok: true)
-defer fs.remove(source, missing_ok: true)
-fs.write(source, b"abcdef")?
-fs.write(copy, b"------")?
+defer copy.remove(missing_ok: true)
+defer dest.remove(missing_ok: true)
+defer source.remove(missing_ok: true)
+source.write(b"abcdef")?
+copy.write(b"------")?
 
   linux.read_device(source, dest, bytes: 3)?
   linux.write_device(copy, source)?

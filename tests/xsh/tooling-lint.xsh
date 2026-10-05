@@ -76,7 +76,7 @@ test test_lint_reports_warnings_with_spans { |ctx|
   let root = Path("target/lint")
   let unused = 1
   let p = Path(src)
-  fs.mkdir(fp"{root}/src/lib", parents: true)?
+  fp"{root}/src/lib".mkdir(parents: true)?
   run grep (input) haystack ?
   if true {
     let src = "other"

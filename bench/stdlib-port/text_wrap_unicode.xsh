@@ -1,7 +1,7 @@
 proc main() [io, fs, error] {
   # A large Unicode-containing fixture, read once and wrapped in a bounded
   # number of passes so the per-line cost is what the workload measures.
-  let text = fs.read_text(p"fixtures/unicode.txt")?
+  let text = p"fixtures/unicode.txt".read_text()?
   var sink = 0
   var round = 0
   while round < 6 {

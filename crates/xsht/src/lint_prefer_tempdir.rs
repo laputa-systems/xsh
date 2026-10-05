@@ -14,12 +14,13 @@ use xsh::frontend::check::{StatementPosition, Type};
 /// mean:
 ///
 /// ```text
-/// fs.remove(NAME, missing_ok: true)
-/// fs.mkdir(NAME)
-/// defer fs.remove(NAME, missing_ok: true)
+/// NAME.remove(missing_ok: true)
+/// NAME.mkdir()
+/// defer NAME.remove(missing_ok: true)
 /// ```
 ///
-/// Each may carry a `?`, which says again what statement position already
+/// Each call may be written `NAME.OP(...)` or `fs.OP(NAME, ...)`, and may
+/// carry a `?`, which says again what statement position already
 /// does. `block` is the block whose statements these are; the statements of a
 /// file have none and are never rewritten, because a declaration or binding
 /// moved into a block would stop being a top-level one.
@@ -30,19 +31,33 @@ pub(super) fn lint_scratch_directories(
 ) {
     let arena = linter.arena;
     for index in 0..stmts.len().saturating_sub(2) {
-        let Some(name) = cleared_path(arena, stmts[index]) else {
+        let Some(cleared) = cleared_path(arena, stmts[index]) else {
             continue;
         };
-        if created_path(arena, stmts[index + 1]) != Some(name)
-            || deferred_removal(arena, stmts[index + 2]) != Some(name)
-        {
+        let name = cleared.name;
+        let (Some(created), Some(removed)) = (
+            created_path(arena, stmts[index + 1]),
+            deferred_removal(arena, stmts[index + 2]),
+        ) else {
+            continue;
+        };
+        if created.name != name || removed.name != name {
             continue;
         }
-        // A local named `fs` makes these calls something else.
-        if linter.scopes.iter().any(|scope| scope.contains_key("fs"))
-            || stmts[..index]
-                .iter()
-                .any(|stmt| binds(arena, *stmt, |bound| bound == "fs"))
+        let calls = [cleared, created, removed];
+        // A method named `remove` or `mkdir` on anything but a `Path` is
+        // another operation.
+        if calls.iter().any(|call| {
+            !call.through_module && linter.expr_types.get(&call.span) != Some(&Type::Path)
+        }) {
+            continue;
+        }
+        // A local named `fs` makes the function calls something else.
+        if calls.iter().any(|call| call.through_module)
+            && (linter.scopes.iter().any(|scope| scope.contains_key("fs"))
+                || stmts[..index]
+                    .iter()
+                    .any(|stmt| binds(arena, *stmt, |bound| bound == "fs")))
         {
             continue;
         }
@@ -66,8 +81,20 @@ pub(super) fn lint_scratch_directories(
     }
 }
 
-/// The call `fs.FUNCTION(...)` under an optional `?`.
-fn fs_call(arena: &AstArena, expr: ExprId, function: &str) -> Option<Vec<ArenaCallArgKind>> {
+/// One of the three calls, in either spelling of the operation.
+struct PathCall {
+    /// The path operand: the method's receiver or the function's first
+    /// argument.
+    path: ExprId,
+    /// The arguments after the path.
+    arguments: Vec<ArenaCallArgKind>,
+    /// Whether the call is written `fs.OPERATION(path, ...)`, which a local
+    /// named `fs` turns into something else.
+    through_module: bool,
+}
+
+/// `path.OPERATION(...)` or `fs.OPERATION(path, ...)`, under an optional `?`.
+fn path_call(arena: &AstArena, expr: ExprId, operation: &str) -> Option<PathCall> {
     let expr = match arena.expr(expr).kind {
         ArenaExprKind::Try(inner) => inner,
         _ => expr,
@@ -78,64 +105,90 @@ fn fs_call(arena: &AstArena, expr: ExprId, function: &str) -> Option<Vec<ArenaCa
     let ArenaExprKind::Field { base, name } = arena.expr(callee).kind else {
         return None;
     };
-    if name != function
-        || !matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "fs")
-    {
+    if name != operation {
         return None;
     }
-    Some(
-        arena
-            .call_args(args)
-            .iter()
-            .map(|argument| argument.kind.clone())
-            .collect(),
-    )
-}
-
-fn local(arena: &AstArena, argument: &ArenaCallArgKind) -> Option<Name> {
-    let ArenaCallArgKind::Positional(value) = *argument else {
+    let mut arguments = arena
+        .call_args(args)
+        .iter()
+        .map(|argument| argument.kind.clone())
+        .collect::<Vec<_>>();
+    if !matches!(arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "fs") {
+        return Some(PathCall {
+            path: base,
+            arguments,
+            through_module: false,
+        });
+    }
+    if arguments.is_empty() {
+        return None;
+    }
+    let ArenaCallArgKind::Positional(path) = arguments.remove(0) else {
         return None;
     };
-    match arena.expr(value).kind {
-        ArenaExprKind::Ident(name) => Some(name),
+    Some(PathCall {
+        path,
+        arguments,
+        through_module: true,
+    })
+}
+
+/// A local operand of one of the three calls.
+#[derive(Clone, Copy)]
+struct Operand {
+    name: Name,
+    /// The span of the name where the call reads it.
+    span: Span,
+    through_module: bool,
+}
+
+fn local(arena: &AstArena, call: &PathCall) -> Option<Operand> {
+    match arena.expr(call.path).kind {
+        ArenaExprKind::Ident(name) => Some(Operand {
+            name,
+            span: arena.expr(call.path).span,
+            through_module: call.through_module,
+        }),
         _ => None,
     }
 }
 
-/// The local in `fs.remove(NAME)` or `fs.remove(NAME, missing_ok: true)`,
-/// which are the same call: a missing path is accepted by default.
-fn removed_path(arena: &AstArena, expr: ExprId) -> Option<Name> {
-    match &fs_call(arena, expr, "remove")?[..] {
-        [path] => local(arena, path),
-        [path, ArenaCallArgKind::Named { name, value, .. }]
+/// The local in `NAME.remove()` or `NAME.remove(missing_ok: true)`, which are
+/// the same call: a missing path is accepted by default.
+fn removed_path(arena: &AstArena, expr: ExprId) -> Option<Operand> {
+    let call = path_call(arena, expr, "remove")?;
+    match &call.arguments[..] {
+        [] => local(arena, &call),
+        [ArenaCallArgKind::Named { name, value, .. }]
             if *name == "missing_ok"
                 && matches!(arena.expr(*value).kind, ArenaExprKind::Bool(true)) =>
         {
-            local(arena, path)
+            local(arena, &call)
         }
         _ => None,
     }
 }
 
-fn cleared_path(arena: &AstArena, stmt: StmtId) -> Option<Name> {
+fn cleared_path(arena: &AstArena, stmt: StmtId) -> Option<Operand> {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Expr(expr) => removed_path(arena, expr),
         _ => None,
     }
 }
 
-/// The local in `fs.mkdir(NAME)`.
-fn created_path(arena: &AstArena, stmt: StmtId) -> Option<Name> {
+/// The local in `NAME.mkdir()`.
+fn created_path(arena: &AstArena, stmt: StmtId) -> Option<Operand> {
     let ArenaStmtKind::Expr(expr) = arena.stmt(stmt).kind else {
         return None;
     };
-    let [path] = &fs_call(arena, expr, "mkdir")?[..] else {
+    let call = path_call(arena, expr, "mkdir")?;
+    if !call.arguments.is_empty() {
         return None;
-    };
-    local(arena, path)
+    }
+    local(arena, &call)
 }
 
-fn deferred_removal(arena: &AstArena, stmt: StmtId) -> Option<Name> {
+fn deferred_removal(arena: &AstArena, stmt: StmtId) -> Option<Operand> {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Defer(ArenaExprOrRun::Expr(expr), DeferTrigger::Exit) => {
             removed_path(arena, expr)
@@ -575,13 +628,13 @@ mod tests {
 
     #[test]
     fn a_scratch_directory_becomes_tempdir_around_the_rest_of_the_block() {
-        let source = "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let label = \"stage\"\n  fs.mkdir(root)?\n  let scratch = fp\"{root}/{label}\"\n  fs.remove(scratch, missing_ok: true)?\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: true)?\n\n  let stamp = fp\"{scratch}/stamp\"\n  stamp.write(label)? # mark\n  stamp.read_text()?\n}\n";
+        let source = "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let label = \"stage\"\n  root.mkdir()?\n  let scratch = fp\"{root}/{label}\"\n  scratch.remove(missing_ok: true)?\n  scratch.mkdir()\n  defer scratch.remove(missing_ok: true)?\n\n  let stamp = fp\"{scratch}/stamp\"\n  stamp.write(label)? # mark\n  stamp.read_text()?\n}\n";
         let diagnostics = scratch_directories(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let label = \"stage\"\n  fs.mkdir(root)?\n  tempdir scratch at fp\"{root}/{label}\" {\n\n    let stamp = fp\"{scratch}/stamp\"\n    stamp.write(label)? # mark\n    stamp.read_text()?\n  }\n}\n"
+            "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let label = \"stage\"\n  root.mkdir()?\n  tempdir scratch at fp\"{root}/{label}\" {\n\n    let stamp = fp\"{scratch}/stamp\"\n    stamp.write(label)? # mark\n    stamp.read_text()?\n  }\n}\n"
         );
         // The fixed program checks and is not reported again.
         assert!(scratch_directories(&fixed).is_empty());
@@ -590,7 +643,7 @@ mod tests {
     /// A tail that is only a statement moves into the scope from any block.
     #[test]
     fn a_statement_tail_moves_from_a_nested_block() {
-        let source = "proc stage(roots: List[Path]) [fs, error] {\n  for root in roots {\n    let scratch = fp\"{root}/s\"\n    fs.remove(scratch, missing_ok: true)\n    fs.mkdir(scratch)\n    defer fs.remove(scratch, missing_ok: true)\n    fp\"{scratch}/stamp\".write(\"x\")\n  }\n}\n";
+        let source = "proc stage(roots: List[Path]) [fs, error] {\n  for root in roots {\n    let scratch = fp\"{root}/s\"\n    scratch.remove(missing_ok: true)\n    scratch.mkdir()\n    defer scratch.remove(missing_ok: true)\n    fp\"{scratch}/stamp\".write(\"x\")\n  }\n}\n";
         let diagnostics = scratch_directories(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
@@ -603,7 +656,7 @@ mod tests {
 
     #[test]
     fn an_annotated_path_and_an_empty_rest_are_rewritten() {
-        let source = "proc stage(root: Path) [fs, error] {\n  if root.exists()? {\n    let scratch: Path = root\n    fs.remove(scratch, missing_ok: true)\n    fs.mkdir(scratch)\n    defer fs.remove(scratch, missing_ok: true)\n  }\n}\n";
+        let source = "proc stage(root: Path) [fs, error] {\n  if root.exists()? {\n    let scratch: Path = root\n    scratch.remove(missing_ok: true)\n    scratch.mkdir()\n    defer scratch.remove(missing_ok: true)\n  }\n}\n";
         let diagnostics = scratch_directories(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert_eq!(
@@ -616,7 +669,7 @@ mod tests {
     /// of the margin a block string is read against, so it stays where it is.
     #[test]
     fn lines_inside_a_multi_line_string_are_not_indented() {
-        let source = "proc stage(root: Path) [fs, error] -> Result[Unit] {\n  let scratch = fp\"{root}/s\"\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: true)\n  fp\"{scratch}/exact\".write(\"\"\"first\n  second\n\"\"\")?\n  fp\"{scratch}/block\".write(\n    \"\"\"\n    first\n      second\n    \"\"\",\n  )?\n}\n";
+        let source = "proc stage(root: Path) [fs, error] -> Result[Unit] {\n  let scratch = fp\"{root}/s\"\n  scratch.remove(missing_ok: true)\n  scratch.mkdir()\n  defer scratch.remove(missing_ok: true)\n  fp\"{scratch}/exact\".write(\"\"\"first\n  second\n\"\"\")?\n  fp\"{scratch}/block\".write(\n    \"\"\"\n    first\n      second\n    \"\"\",\n  )?\n}\n";
         let diagnostics = scratch_directories(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
@@ -635,7 +688,7 @@ mod tests {
 
     #[test]
     fn a_rewrite_that_is_not_provably_the_same_program_is_only_reported() {
-        let triple = "  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: true)\n";
+        let triple = "  scratch.remove(missing_ok: true)\n  scratch.mkdir()\n  defer scratch.remove(missing_ok: true)\n";
         for source in [
             // A parameter: there is no binding to fold into the head.
             format!("proc stage(scratch: Path) [fs, error] {{\n{triple}}}\n"),
@@ -653,7 +706,7 @@ mod tests {
             ),
             // The value of a block that is not a function's body would become
             // a `Result` of it.
-            "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let text = {\n    let scratch = fp\"{root}/s\"\n    fs.remove(scratch, missing_ok: true)\n    fs.mkdir(scratch)\n    defer fs.remove(scratch, missing_ok: true)\n    fp\"{scratch}/stamp\".read_text()?\n  }\n  text\n}\n".to_owned(),
+            "proc stage(root: Path) [fs, error] -> Result[Str] {\n  let text = {\n    let scratch = fp\"{root}/s\"\n    scratch.remove(missing_ok: true)\n    scratch.mkdir()\n    defer scratch.remove(missing_ok: true)\n    fp\"{scratch}/stamp\".read_text()?\n  }\n  text\n}\n".to_owned(),
             // A comment among the replaced statements would be dropped.
             format!(
                 "proc stage(root: Path) [fs, error] {{\n  let scratch = fp\"{{root}}/s\" # where\n{triple}}}\n"
@@ -663,7 +716,7 @@ mod tests {
         }
         // The statements of a file are never moved into a block.
         reported_without_a_fix(
-            "let scratch = p\"/tmp/s\"\nfs.remove(scratch, missing_ok: true)\nfs.mkdir(scratch)\ndefer fs.remove(scratch, missing_ok: true)\n",
+            "let scratch = p\"/tmp/s\"\nscratch.remove(missing_ok: true)\nscratch.mkdir()\ndefer scratch.remove(missing_ok: true)\n",
         );
     }
 
@@ -671,11 +724,11 @@ mod tests {
     fn other_cleanup_shapes_are_left_alone() {
         for source in [
             // The removal is registered before the directory exists.
-            "proc stage(scratch: Path) [fs, error] {\n  fs.remove(scratch, missing_ok: true)\n  defer fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n}\n",
+            "proc stage(scratch: Path) [fs, error] {\n  scratch.remove(missing_ok: true)\n  defer scratch.remove(missing_ok: true)\n  scratch.mkdir()\n}\n",
             // A missing directory is an error for one of the removals.
-            "proc stage(scratch: Path) [fs, error] {\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: false)\n}\n",
+            "proc stage(scratch: Path) [fs, error] {\n  scratch.remove(missing_ok: true)\n  scratch.mkdir()\n  defer scratch.remove(missing_ok: false)\n}\n",
             // Two different paths.
-            "proc stage(scratch: Path, other: Path) [fs, error] {\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(other)\n  defer fs.remove(scratch, missing_ok: true)\n}\n",
+            "proc stage(scratch: Path, other: Path) [fs, error] {\n  scratch.remove(missing_ok: true)\n  other.mkdir()\n  defer scratch.remove(missing_ok: true)\n}\n",
             "proc stage(root: Path) [fs, error] {\n  tempdir scratch at root {\n    print $scratch\n  }\n}\n",
         ] {
             assert!(scratch_directories(source).is_empty(), "{source}");
@@ -686,7 +739,29 @@ mod tests {
     // statement's own removals do.
     #[test]
     fn a_removal_without_missing_ok_is_the_same_removal() {
-        let source = "proc stage(scratch: Path) [fs, error] {\n  fs.remove(scratch)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch)\n  print $scratch\n}\n";
+        let source = "proc stage(scratch: Path) [fs, error] {\n  scratch.remove()\n  scratch.mkdir()\n  defer scratch.remove()\n  print $scratch\n}\n";
         assert_eq!(scratch_directories(source).len(), 1, "{source}");
+    }
+
+    // Each of the three calls may still be written through the `fs` module,
+    // in any mix with the method; the statement is the same one.
+    #[test]
+    fn the_function_spelling_is_the_same_sequence() {
+        let methods = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  scratch.remove(missing_ok: true)\n  scratch.mkdir()\n  defer scratch.remove(missing_ok: true)\n  print $scratch\n}\n";
+        let functions = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  fs.remove(scratch, missing_ok: true)\n  fs.mkdir(scratch)\n  defer fs.remove(scratch, missing_ok: true)\n  print $scratch\n}\n";
+        let mixed = "proc stage(root: Path) [fs, error] {\n  let scratch = fp\"{root}/s\"\n  fs.remove(scratch)\n  scratch.mkdir()\n  defer scratch.remove()\n  print $scratch\n}\n";
+        let expected = "proc stage(root: Path) [fs, error] {\n  tempdir scratch at fp\"{root}/s\" {\n    print $scratch\n  }\n}\n";
+        for source in [methods, functions, mixed] {
+            let diagnostics = scratch_directories(source);
+            assert_eq!(diagnostics.len(), 1, "{source}");
+            assert_eq!(apply(&diagnostics, source), expected, "{source}");
+        }
+    }
+
+    // `mkdir` with a parent policy is not the bare creation the form does.
+    #[test]
+    fn a_creation_with_an_argument_is_left_alone() {
+        let source = "proc stage(scratch: Path) [fs, error] {\n  scratch.remove()\n  scratch.mkdir(parents: false)\n  defer scratch.remove()\n}\n";
+        assert!(scratch_directories(source).is_empty(), "{source}");
     }
 }

@@ -1273,8 +1273,8 @@ fn nested_command_word_interpolation_is_accepted() {
 #[test]
 fn parser_accepts_ergonomic_sugar_pass_forms() {
     let source = r#"
-fs.mkdir build ?
-fs.remove dist --missing-ok ?
+fs.fsync build ?
+fs.install tool dist/tool 493 --parents ?
 json.write out (metadata) ?
 let {name, version, ..} = pkg
 var {path, kind, ..} = entry
@@ -1294,7 +1294,7 @@ let jobs = env.Str.JOBS ?? "1"
     let ArenaCommand::Proc { name, .. } = &arena.command_stmt(cmd0).command else {
         panic!("expected module command surface");
     };
-    assert_eq!(name.as_str(), "fs.mkdir");
+    assert_eq!(name.as_str(), "fs.fsync");
 
     let ArenaStmtKind::Let { target, .. } = arena.stmt(root[3]).kind else {
         panic!("expected let destructuring");

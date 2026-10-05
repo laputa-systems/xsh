@@ -29,7 +29,7 @@ stream counted(text: Str, dir: Path, tag: Str) [fs, error] -> Stream[Int] {
 # A wrapper in the shape of the ported Linux entries: the text is read when the
 # call is made, and the rows are interpreted when the stream is consumed.
 proc open_rows(dir: Path, tag: Str) [fs, error] -> Result[Stream[Int]] {
-  let text = fs.read_text(fp"{dir}/input.txt")?
+  let text = fp"{dir}/input.txt".read_text()?
   return Ok(counted(text, dir, tag))
 }
 
@@ -44,7 +44,7 @@ stream checked(text: Str, dir: Path, tag: Str) [fs, error] -> Stream[Int] {
 }
 
 proc open_checked(dir: Path, tag: Str) [fs, error] -> Result[Stream[Int]] {
-  let text = fs.read_text(fp"{dir}/input.txt")?
+  let text = fp"{dir}/input.txt".read_text()?
   return Ok(checked(text, dir, tag))
 }
 
@@ -81,21 +81,21 @@ proc consume_checked(dir: Path, tag: Str) [fs, error] -> Result[Int] {
 
 proc main() [io, fs, env, error] {
   let root = Path(env.get("XSH_LAZY_STREAM_DIR")?)
-  fs.mkdir(root)?
+  root.mkdir()?
 
   # 1. The call reads the text but does not run the producer body.
-  fs.write(fp"{root}/input.txt", "one\ntwo\nthree")?
+  fp"{root}/input.txt".write("one\ntwo\nthree")?
   var numbers = open_rows(root, "call")?
   print f"body started at call={exists(fp"{root}/row-call-one")}"
   # The rows are interpreted from the text the call retained, so removing the
   # file cannot change the stream.
-  fs.remove(fp"{root}/input.txt")?
+  fp"{root}/input.txt".remove()?
   let collected = numbers.collect()
   print f"rows={collected.len()} values={collected.get(0) ?? -1}"
 
   # 2. An early stop does not reach later rows, and an unconsumed producer is
   #    still stopped once the program can no longer reach it.
-  fs.write(fp"{root}/input.txt", "one\ntwo\nthree")?
+  fp"{root}/input.txt".write("one\ntwo\nthree")?
   let first = open_rows(root, "stop")? |> first()
   print f"first={first ?? -1} rows={count_present(root, "row-stop-")} closed={exists(fp"{root}/closed-stop")}"
   # A producer whose body never started has nothing to clean up: dropping it
@@ -123,7 +123,7 @@ proc main() [io, fs, env, error] {
 
   # 5. A malformed later row is not reached by an early stop, and consuming
   #    past it reports the failure the row declared.
-  fs.write(fp"{root}/input.txt", "one\nbad\nthree")?
+  fp"{root}/input.txt".write("one\nbad\nthree")?
   let head = open_checked(root, "checked")? |> first()
   print f"checked first={head ?? -1} rows={count_present(root, "row-checked-")}"
   let expect_failure = env.get_or("XSH_LAZY_STREAM_EXPECT_FAILURE", "")? == "1"
@@ -131,14 +131,14 @@ proc main() [io, fs, env, error] {
     # Consuming past the malformed row aborts the consumer with the failure the
     # row declared; the run's exit status and the closed marker are what the
     # Rust test asserts.
-    fs.write(fp"{root}/input.txt", "one\nbad\nthree")?
+    fp"{root}/input.txt".write("one\nbad\nthree")?
     let failing = open_checked(root, "failing")?
     let all = failing.collect()
     print f"malformed row accepted={all.len()}"
   }
 
   # 6. Unreadable text fails the call, before any row is interpreted.
-  fs.remove(fp"{root}/input.txt")?
+  fp"{root}/input.txt".remove()?
   match open_rows(root, "missing") {
     Ok(_) => { print "missing input accepted" }
     Err(_) => { print "missing input rejected" }

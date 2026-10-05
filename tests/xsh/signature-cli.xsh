@@ -227,7 +227,7 @@ test test_signature_cli_preflight_precedes_imported_and_entry_initializers { |ct
     r"""##! Initializer marker module.
 ## An unsigned worker count.
 export type WorkerCount = UInt
-proc initialize() [fs, error] -> Int { fs.write(p"IMPORTED_MARKER", "ran")?; 1 }
+proc initialize() [fs, error] -> Int { p"IMPORTED_MARKER".write("ran")?; 1 }
 let initialized_marker = initialize()
 ## A callable exported value.
 export pure value() -> Int { initialized_marker }
@@ -237,7 +237,7 @@ export pure value() -> Int { initialized_marker }
   script.write(
     r"""##! A checked signature CLI.
 use marker
-proc initialize() [fs, error] -> Int { fs.write(p"ENTRY_MARKER", "ran")?; 1 }
+proc initialize() [fs, error] -> Int { p"ENTRY_MARKER".write("ran")?; 1 }
 let initialized = initialize()
 cli main(root: Path, jobs: marker.WorkerCount = 4) [error] { print ${marker.value()} $initialized $jobs }
 """.replace("ENTRY_MARKER", with: entry_marker.display()),
@@ -293,7 +293,7 @@ cli main(root: Root, jobs: Int = 4, ...paths: List[Path]) [error] { guard jobs >
   )?
   let _ = test.expect(
     ctx,
-    "cli main() [] { fs.read_text(p\"file\")? }\n",
+    "cli main() [] { p\"file\".read_text()? }\n",
     status: 2,
     stderr: ["[check.effect-violation]"],
   )?

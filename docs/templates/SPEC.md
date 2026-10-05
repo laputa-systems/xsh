@@ -2076,7 +2076,7 @@ argument, a separated `?` belongs to the whole command or run form: write
 `expr?` or `(expr?)` to propagate inside one argument.
 
 A statement-position `Result[Unit]` propagates without `?` (8.1), so
-`fs.mkdir(tmp)?` as a statement says it twice. The statement form has no `?`:
+`tmp.mkdir()?` as a statement says it twice. The statement form has no `?`:
 `lint.redundant-propagation` removes it from a call, and
 `lint.redundant-scope-propagation` from a `cd`, `env`, `try`, or `retry` block.
 Both leave a `?` whose operand would otherwise be the value of its body, such
@@ -2645,7 +2645,7 @@ leaves its temporary file behind; a later run neither publishes nor removes
 it, because it never uses that name.
 
 The rename is the last step and runs only when the body ran to its end: it
-replaces an existing destination (`overwrite: true`) and fails, as `fs.rename`
+replaces an existing destination (`overwrite: true`) and fails, as `Path.rename`
 does, when the body produced nothing at the path or the destination's
 directory does not exist. The deferred removal runs however control leaves the
 statement, after the body's own defers, and follows the `defer` rules above;
@@ -3153,7 +3153,7 @@ at a path the program names:
 ```
 
 `PATH` is a `Path`, evaluated once, before `NAME` is in scope. Whatever is at
-the path is removed first, as `fs.remove` with `missing_ok: true` removes it:
+the path is removed first, as `Path.remove` removes it:
 a file, a symlink (itself, never its target), or a directory with everything
 below it, and nothing being there is not an error. Then the directory is
 created, with any missing parents.
@@ -3189,8 +3189,8 @@ name and then `{` or the word `at` follow on the same line; the path after
 Two lints lead to the scope. `lint.prefer-tempdir-scope` reports
 `let root = fs.tempdir()?` with its `defer root.close()?` where the handle is
 used only for its path, and `lint.prefer-tempdir` reports
-`fs.remove(NAME, missing_ok: true)`, `fs.mkdir(NAME)`, and
-`defer fs.remove(NAME, missing_ok: true)` in a row. Each offers the rewrite
+`NAME.remove()`, `NAME.mkdir()`, and `defer NAME.remove()` in a row, in
+either spelling of each call. Each offers the rewrite
 of the rest of the block into the scope's body only where that is the same
 program; in particular a last statement that is the block's value moves only
 out of the body of a function that returns `Result[T]`, as a `T`.

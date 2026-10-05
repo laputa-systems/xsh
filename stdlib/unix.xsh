@@ -108,7 +108,7 @@ pure uptime_from_text(text: Str) -> Int {
 ## outside `Int` range — reads as zero. A read failure is reported with
 ## `unix-uptime` and the operating system's message.
 export proc uptime_seconds() [fs, error] -> Result[Int] {
-  match fs.read_text(/proc/uptime) {
+  match p"/proc/uptime".read_text() {
     Ok(text) => return Ok(uptime_from_text(text))
     Err(failure) => return Err(UnixTextError.Failure(kind: "unix-uptime", message: failure.message))
   }

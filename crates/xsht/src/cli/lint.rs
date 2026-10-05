@@ -3150,7 +3150,7 @@ pure empty() -> List[Str] {
     fn lint_fix_repairs_missing_effect_annotations_after_check_error() {
         let source = "\
 proc load() [fs] {
-  let _ = fs.read_text(Path(\"x\"))?
+  let _ = Path(\"x\").read_text()?
 }
 ";
         let config = repair_config();
@@ -3166,7 +3166,7 @@ proc load() [fs] {
     fn lint_fix_converges_a_too_narrow_private_clause_to_inference() {
         let source = "\
 proc load() [fs] {
-  let _ = fs.read_text(Path(\"x\"))?
+  let _ = Path(\"x\").read_text()?
 }
 ";
         let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());

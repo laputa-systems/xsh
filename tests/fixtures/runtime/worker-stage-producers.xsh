@@ -66,7 +66,7 @@ proc exists(target: Path) [fs] -> Bool {
 
 proc main() [io, fs, env, error] {
   let root = Path(env.get("XSH_WORKER_STAGE_DIR")?)
-  fs.mkdir(root)?
+  root.mkdir()?
 
   # A worker stage over a producer: the mapped values are the producer's rows,
   # every row was produced exactly once, and the defer ran once.

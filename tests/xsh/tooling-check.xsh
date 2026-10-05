@@ -490,7 +490,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
 
 test test_check_match_ok_binding_allows_str_methods { |ctx|
   let source = r"""proc read_summary(candidate: Path) [fs, error] -> Result[Str] {
-  match fs.read_text(candidate) {
+  match candidate.read_text() {
     Ok(text_value) => {
       let lines = text_value.lines().collect()
       let summary = lines[1].trim()

@@ -420,7 +420,7 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
     Err(failure) => { print f\"missing={failure.message}\" }
   }
   linux.depmod(\"\")?
-  print fs.read_text(p\"{ROOT_DIR}/modules.dep\")?
+  print p\"{ROOT_DIR}/modules.dep\".read_text()?
 }
 """
   let source = nested_template.replace("{ROOT_DIR}", with: f"{root}")

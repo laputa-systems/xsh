@@ -357,10 +357,10 @@ test test_tempdir_removal_failure_on_exit { |ctx|
   let root = test.temp_dir(ctx, name: "tempdir-exit")?
   let script = f"""proc stage(fail: Bool) [fs, error] -> Result[Unit] {{
   let parent = p"{root}/locked"
-  fs.mkdir(parent)
-  defer fs.chmod(parent, 0o755)
+  parent.mkdir()
+  defer parent.chmod(0o755)
   tempdir scratch at fp"{{parent}}/scratch" {{
-    fs.chmod(parent, 0o555)
+    parent.chmod(0o555)
     print "body"
     return error.fail("body failed") when fail
   }}
@@ -389,9 +389,9 @@ test test_tempdir_formats_and_lints_as_written { |ctx|
   let root = test.temp_dir(ctx, name: "tempdir-fmt")?
   let source = f"""proc stage(root: Path) [fs, error] -> Result[Str] {{
   let second = fp"{{root}}/second"
-  fs.remove(second, missing_ok: true)?
-  fs.mkdir(second)?
-  defer fs.remove(second, missing_ok: true)?
+  second.remove(missing_ok: true)?
+  second.mkdir()?
+  defer second.remove(missing_ok: true)?
   tempdir   first   at   fp"{{second}}/first"{{
     fp"{{first}}/stamp".write("one")?
   }}
@@ -434,18 +434,18 @@ print stage(p"{root}")?
   assert after.stdout == before.stdout
 }
 
-# The scope calls nothing a pattern over `fs` calls could match.
-test test_tempdir_scope_is_no_fs_call_to_grep { |ctx|
+# The scope calls nothing a pattern over `mkdir` calls could match.
+test test_tempdir_scope_is_no_mkdir_call_to_grep { |ctx|
   let candidate = test.temp_file(
     ctx,
     name: "tempdir-grep.xsh",
     contents: bytes.from_text("""tempdir scratch at p"/tmp/never" {
   print "in"
 }
-fs.mkdir(p"/tmp/other")
+p"/tmp/other".mkdir()
 """),
   )?
-  let found = run.capture --text "xsht" grep "fs.mkdir(P)" $candidate
-  assert found.stdout.split("fs.mkdir(").len() == 2, found.stdout
+  let found = run.capture --text "xsht" grep "P.mkdir()" $candidate
+  assert found.stdout.split(".mkdir(").len() == 2, found.stdout
   assert ":4:" in found.stdout
 }

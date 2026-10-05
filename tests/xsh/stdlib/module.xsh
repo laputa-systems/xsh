@@ -19,7 +19,7 @@ export let description: Str = "loaded module"
 
 ## Writes the plugin name into the requested root.
 export proc execute(root: Path) [fs, error] -> Result[Unit, Error] {
-  fs.write(fp"{root}/out.txt", name)?
+  fp"{root}/out.txt".write(name)?
 }
 """,
   )
@@ -1033,7 +1033,7 @@ test test_module_proc_call_preserves_runtime_cwd { |ctx|
 ##! CWD writer module.
 ## Writes the active runtime working directory.
 export proc write_cwd(out: Path) [fs, error] -> Result[Unit, Error] {
-  fs.write(out, fs.cwd()?.display())?
+  out.write(fs.cwd()?.display())?
 }
 """)
   fp"{root}/caller.xsh".write(f"""
@@ -1201,8 +1201,8 @@ export let name = "demo"
 
 ## Writes the package marker into the destination.
 export proc build(dest: Path) [fs, error] -> Result[Unit, Error] {
-  fs.mkdir(dest)?
-  fs.write(fp"{dest}/ok", f"{name}:{fs.cwd()?.name()}\n")?
+  dest.mkdir()?
+  fp"{dest}/ok".write(f"{name}:{fs.cwd()?.name()}\n")?
 }
 """)
 
@@ -1231,8 +1231,8 @@ pkg.build(p"{dynamic_out}")?
     r"""
 use PKGBUILD
 proc main(src: Path, dest: Path) [fs, process, env, error] -> Result[Unit] {
-  fs.remove(dest, missing_ok: true)?
-  fs.mkdir(dest)?
+  dest.remove(missing_ok: true)?
+  dest.mkdir()?
   cd src {
     PKGBUILD.build(dest)?
   } ?

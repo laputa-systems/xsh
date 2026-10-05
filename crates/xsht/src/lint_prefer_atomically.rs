@@ -16,10 +16,10 @@ use super::prefer_tempdir::{binds, expr_owns_nothing, text_end_of, tokens_spanni
 ///
 /// ```text
 /// let NAME = fp"{DEST}.tmp"
-/// fs.remove(NAME, missing_ok: true)
-/// defer fs.remove(NAME, missing_ok: true)
+/// NAME.remove(missing_ok: true)
+/// defer NAME.remove(missing_ok: true)
 /// ...
-/// fs.rename(NAME, DEST, overwrite: true)
+/// NAME.rename(to: DEST, overwrite: true)
 /// ```
 ///
 /// A statement list is reported when it binds a `Path`, clears it, and later
@@ -653,13 +653,13 @@ mod tests {
 
     #[test]
     fn a_publication_becomes_atomically_replace_around_what_produces_the_file() {
-        let source = "proc publish(source: Path, cached: Path) [fs, error] {\n  fs.mkdir(cached.parent())\n  let temporary = fp\"{cached}.tmp\"\n  fs.remove(temporary, missing_ok: true)\n  defer fs.remove(temporary, missing_ok: true)?\n\n  fs.copy(source, temporary)\n  if temporary.read_text()? == \"\" {\n    return error.fail(\"empty\")\n  }\n\n  fs.rename(temporary, cached, overwrite: true)\n}\n";
+        let source = "proc publish(source: Path, cached: Path) [fs, error] {\n  cached.parent().mkdir()\n  let temporary = fp\"{cached}.tmp\"\n  temporary.remove(missing_ok: true)\n  defer temporary.remove(missing_ok: true)?\n\n  source.copy(to: temporary)\n  if temporary.read_text()? == \"\" {\n    return error.fail(\"empty\")\n  }\n\n  temporary.rename(to: cached, overwrite: true)\n}\n";
         let diagnostics = published_files(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "proc publish(source: Path, cached: Path) [fs, error] {\n  fs.mkdir(cached.parent())\n  atomically replace cached as temporary {\n    fs.copy(source, temporary)\n    if temporary.read_text()? == \"\" {\n      return error.fail(\"empty\")\n    }\n  }\n}\n"
+            "proc publish(source: Path, cached: Path) [fs, error] {\n  cached.parent().mkdir()\n  atomically replace cached as temporary {\n    source.copy(to: temporary)\n    if temporary.read_text()? == \"\" {\n      return error.fail(\"empty\")\n    }\n  }\n}\n"
         );
         // The fixed program checks, and its expansion is not reported again.
         assert!(published_files(&fixed).is_empty());
@@ -681,13 +681,13 @@ mod tests {
     /// sibling the form itself would choose.
     #[test]
     fn statements_before_the_removal_stay_before_the_statement() {
-        let source = "proc publish(source: Path, dest: Path) [fs, error] {\n  let partial = fp\"{dest.parent}/.{dest.name}.tmp\"\n  fs.mkdir(dest.parent)\n\n  print \"publishing\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)?\n  fs.copy(source, partial)\n\n  fs.fsync(partial)\n  fs.rename(partial, dest, overwrite: true)\n}\n";
+        let source = "proc publish(source: Path, dest: Path) [fs, error] {\n  let partial = fp\"{dest.parent}/.{dest.name}.tmp\"\n  dest.parent.mkdir()\n\n  print \"publishing\"\n  partial.remove(missing_ok: true)\n  defer partial.remove(missing_ok: true)?\n  source.copy(to: partial)\n\n  fs.fsync(partial)\n  partial.rename(to: dest, overwrite: true)\n}\n";
         let diagnostics = published_files(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert_eq!(
             fixed,
-            "proc publish(source: Path, dest: Path) [fs, error] {\n  fs.mkdir(dest.parent)\n\n  print \"publishing\"\n  atomically replace dest as partial {\n    fs.copy(source, partial)\n\n    fs.fsync(partial)\n  }\n}\n"
+            "proc publish(source: Path, dest: Path) [fs, error] {\n  dest.parent.mkdir()\n\n  print \"publishing\"\n  atomically replace dest as partial {\n    source.copy(to: partial)\n\n    fs.fsync(partial)\n  }\n}\n"
         );
         assert!(published_files(&fixed).is_empty());
 
@@ -698,7 +698,7 @@ mod tests {
     /// A line that begins inside a multi-line string is part of its value.
     #[test]
     fn lines_inside_a_multi_line_string_are_not_indented() {
-        let source = "proc publish(dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n  partial.write(\"\"\"first\n  second\n\"\"\")\n  fs.rename(partial, dest, overwrite: true)\n}\n";
+        let source = "proc publish(dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  partial.remove(missing_ok: true)\n  defer partial.remove(missing_ok: true)\n  partial.write(\"\"\"first\n  second\n\"\"\")\n  partial.rename(to: dest, overwrite: true)\n}\n";
         let diagnostics = published_files(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert_eq!(
@@ -712,25 +712,25 @@ mod tests {
         let publish = |opening: &str, body: &str, closing: &str| {
             format!("proc publish(source: Path, dest: Path) [fs, process, error] {{\n{opening}{body}{closing}}}\n")
         };
-        let opening = "  let partial = fp\"{dest}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n";
-        let body = "  fs.copy(source, partial)\n";
-        let closing = "  fs.rename(partial, dest, overwrite: true)\n";
+        let opening = "  let partial = fp\"{dest}.tmp\"\n  partial.remove(missing_ok: true)\n  defer partial.remove(missing_ok: true)\n";
+        let body = "  source.copy(to: partial)\n";
+        let closing = "  partial.rename(to: dest, overwrite: true)\n";
         assert_eq!(published_files(&publish(opening, body, closing)).len(), 1);
         assert!(!published_files(&publish(opening, body, closing))[0].fix_hints.is_empty());
 
         for (source, reason) in [
             // No deferred removal: a failure used to leave the file behind.
             (
-                publish("  let partial = fp\"{dest}.tmp\"\n  fs.remove(partial, missing_ok: true)\n", body, closing),
+                publish("  let partial = fp\"{dest}.tmp\"\n  partial.remove(missing_ok: true)\n", body, closing),
                 "two adjacent statements",
             ),
             // The rename fails when the destination exists.
             (
-                publish(opening, body, "  fs.rename(partial, dest)\n"),
+                publish(opening, body, "  partial.rename(to: dest)\n"),
                 "does not pass `overwrite: true`",
             ),
             (
-                publish(opening, body, "  fs.rename(partial, dest, overwrite: true)\n  print \"published\"\n"),
+                publish(opening, body, "  partial.rename(to: dest, overwrite: true)\n  print \"published\"\n"),
                 "statements follow the rename",
             ),
             // The temporary path is in another directory.
@@ -751,23 +751,23 @@ mod tests {
             ),
             // The body's defer used to run after the rename.
             (
-                publish(opening, "  defer { print \"done\" }\n  fs.copy(source, partial)\n", closing),
+                publish(opening, "  defer { print \"done\" }\n  source.copy(to: partial)\n", closing),
                 "registers a defer or may own a handle",
             ),
             (
-                publish(opening, "  let child = spawn run sleep 1 ?\n  print $child.pid\n  fs.copy(source, partial)\n", closing),
+                publish(opening, "  let child = spawn run sleep 1 ?\n  print $child.pid\n  source.copy(to: partial)\n", closing),
                 "registers a defer or may own a handle",
             ),
             (
-                publish(opening, "  let dest = source\n  fs.copy(source, partial)\n", closing),
+                publish(opening, "  let dest = source\n  source.copy(to: partial)\n", closing),
                 "rebinds it",
             ),
             (
-                publish(opening, "  # copy first\n  fs.copy(source, partial)\n", closing),
+                publish(opening, "  # copy first\n  source.copy(to: partial)\n", closing),
                 "a comment sits among them",
             ),
             (
-                publish(opening, body, "  # publish\n  fs.rename(partial, dest, overwrite: true)\n"),
+                publish(opening, body, "  # publish\n  partial.rename(to: dest, overwrite: true)\n"),
                 "a comment sits among them",
             ),
             (
@@ -781,15 +781,15 @@ mod tests {
 
         // The rename ends a block whose value is its `Result`: a failure is
         // data there, and the form would propagate it.
-        let captured = "proc publish(source: Path, dest: Path) [fs, error] -> Result[Bool] {\n  let outcome = try {\n    let partial = fp\"{dest}.tmp\"\n    fs.remove(partial, missing_ok: true)\n    defer fs.remove(partial, missing_ok: true)\n    fs.copy(source, partial)\n    fs.rename(partial, dest, overwrite: true)\n  }\n  outcome is Ok(Ok(_))\n}\n";
+        let captured = "proc publish(source: Path, dest: Path) [fs, error] -> Result[Bool] {\n  let outcome = try {\n    let partial = fp\"{dest}.tmp\"\n    partial.remove(missing_ok: true)\n    defer partial.remove(missing_ok: true)\n    source.copy(to: partial)\n    partial.rename(to: dest, overwrite: true)\n  }\n  outcome is Ok(Ok(_))\n}\n";
         assert!(difference(captured).contains("is the value of its block"));
 
         // A destination that can change between the binding and the rename.
-        let reassigned = "proc publish(source: Path, first: Path) [fs, error] {\n  var dest = first\n  let partial = fp\"{dest}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n  fs.copy(source, partial)\n  fs.rename(partial, dest, overwrite: true)\n}\n";
+        let reassigned = "proc publish(source: Path, first: Path) [fs, error] {\n  var dest = first\n  let partial = fp\"{dest}.tmp\"\n  partial.remove(missing_ok: true)\n  defer partial.remove(missing_ok: true)\n  source.copy(to: partial)\n  partial.rename(to: dest, overwrite: true)\n}\n";
         assert!(difference(reassigned).contains("not an immutable local"));
 
         // At the top level of a file the binding stays where it is.
-        let top_level = "let dest = p\"/tmp/never/dest\"\nlet partial = fp\"{dest}.tmp\"\nfs.remove(partial, missing_ok: true)\ndefer fs.remove(partial, missing_ok: true)\npartial.write(\"x\")\nfs.rename(partial, dest, overwrite: true)\n";
+        let top_level = "let dest = p\"/tmp/never/dest\"\nlet partial = fp\"{dest}.tmp\"\npartial.remove(missing_ok: true)\ndefer partial.remove(missing_ok: true)\npartial.write(\"x\")\npartial.rename(to: dest, overwrite: true)\n";
         assert!(difference(top_level).contains("statements of a file"));
     }
 
@@ -840,11 +840,11 @@ mod tests {
     fn other_renames_and_removals_are_not_reported() {
         for source in [
             // Nothing clears the path first.
-            "proc publish(source: Path, dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  fs.copy(source, partial)\n  fs.rename(partial, dest, overwrite: true)\n}\n",
+            "proc publish(source: Path, dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  source.copy(to: partial)\n  partial.rename(to: dest, overwrite: true)\n}\n",
             // The renamed path is not a local of this block.
-            "proc rotate(current: Path, older: Path) [fs, error] {\n  fs.remove(older, missing_ok: true)\n  fs.rename(current, older)\n}\n",
+            "proc rotate(current: Path, older: Path) [fs, error] {\n  older.remove(missing_ok: true)\n  current.rename(to: older)\n}\n",
             // The path is not an immutable binding of this block.
-            "proc publish(source: Path, dest: Path) [fs, error] {\n  var partial = fp\"{dest}.tmp\"\n  partial = fp\"{dest}.new\"\n  fs.remove(partial, missing_ok: true)\n  fs.copy(source, partial)\n  fs.rename(partial, dest, overwrite: true)\n}\n",
+            "proc publish(source: Path, dest: Path) [fs, error] {\n  var partial = fp\"{dest}.tmp\"\n  partial = fp\"{dest}.new\"\n  partial.remove(missing_ok: true)\n  source.copy(to: partial)\n  partial.rename(to: dest, overwrite: true)\n}\n",
         ] {
             assert!(published_files(source).is_empty(), "{source}");
         }
@@ -856,5 +856,17 @@ mod tests {
     fn a_removal_without_missing_ok_is_the_same_removal() {
         let source = "proc publish(dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  partial.remove()\n  defer partial.remove()\n  partial.write(\"text\")\n  partial.rename(dest, overwrite: true)\n}\n";
         assert_eq!(published_files(source).len(), 1, "{source}");
+    }
+
+    // Each call may still be written through the `fs` module.
+    #[test]
+    fn the_function_spelling_is_the_same_sequence() {
+        let source = "proc publish(source: Path, dest: Path) [fs, error] {\n  let partial = fp\"{dest}.tmp\"\n  fs.remove(partial, missing_ok: true)\n  defer fs.remove(partial, missing_ok: true)\n  fs.copy(source, partial)\n  fs.rename(partial, dest, overwrite: true)\n}\n";
+        let diagnostics = published_files(source);
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(
+            apply(&diagnostics, source),
+            "proc publish(source: Path, dest: Path) [fs, error] {\n  atomically replace dest as partial {\n    fs.copy(source, partial)\n  }\n}\n"
+        );
     }
 }

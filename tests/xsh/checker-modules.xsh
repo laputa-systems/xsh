@@ -388,7 +388,7 @@ test test_checker_rejects_fs_path_contract_errors { |ctx|
       code: "check.type-mismatch",
     },
     {
-      source: "use fs\nlet _written = fs.write(Path(\"out\"), 1) ?\n",
+      source: "use fs\nlet _written = Path(\"out\").write(1) ?\n",
       code: "check.type-mismatch",
     },
     {
@@ -554,7 +554,7 @@ test test_checker_handles_implicit_standard_modules_and_pipe_shorthand { |ctx|
     ctx,
     r"""
 let p = p"build.log"
-let file_text = fs.read_text(p) ?
+let file_text = p.read_text() ?
 let file_bytes = p.read_bytes() ?
 let decoded = file_bytes.utf8() ?
 let warnings = decoded |> text.lines() |> where { "warn" in . }
@@ -626,7 +626,7 @@ test test_checker_handles_standard_module_signatures_and_status_methods { |ctx|
     ctx,
     r"""
 let p = Path("tmp")
-let exists = fs.exists(p) ?
+let exists = p.exists() ?
 let listing = fs.children(p)
 fs.children(p) |> sort-by { .size } |> table.print(columns: ["name", "size"])
 let processes = process.list() |> where { "xsh" in .command } |> count()
@@ -677,21 +677,21 @@ let current_group = group.current()?
 let group_again = group.by_gid(current_group.gid)?
 let named_group = group.lookup(current_group.name)?
 let usage = p.du() ?
-let meta = fs.metadata(p) ?
+let meta = p.metadata() ?
 let cwd = fs.cwd()?
 let file = fp"{p}/file"
 let copy = fp"{p}/copy"
 let renamed_path = fp"{p}/renamed"
-let _atomic = fs.write_atomic(file, "data") ?
-let _copy = fs.copy(file, copy) ?
+let _atomic = file.write_atomic("data") ?
+let _copy = file.copy(to: copy) ?
 let copied_tree = fs.copy_tree(p, fp"{p}/tree", parents: true)?
 let copied_files: Int = copied_tree.files
-let _renamed = fs.rename(copy, renamed_path, overwrite: true) ?
+let _renamed = copy.rename(to: renamed_path, overwrite: true) ?
 let _touched = fp"{p}/stamp".touch() ?
 let _truncated = renamed_path.truncate(0) ?
 let _installed = fs.install(file, fp"{p}/bin/tool", 0o755, parents: true) ?
 let _installed_as = fs.install_as(file, fp"{p}/bin/owned", 0o755, me, current_group, parents: true) ?
-let _mode = fs.chmod(file, 384) ?
+let _mode = file.chmod(384) ?
 let _owner = fs.chown(file, me) ?
 let _group = fs.chgrp(file, current_group) ?
 let lock = fs.lock(fp"{p}/pm.lock") ?

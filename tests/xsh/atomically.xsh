@@ -471,15 +471,15 @@ test test_atomically_formats_and_lints_as_written { |ctx|
   let root = test.temp_dir(ctx, name: "atomically-fmt")?
   let source = f"""proc publish(dest: Path, text: Str) [fs, error] {{
   let partial = fp"{{dest}}.tmp"
-  fs.remove(partial, missing_ok: true)?
-  defer fs.remove(partial, missing_ok: true)?
+  partial.remove(missing_ok: true)?
+  defer partial.remove(missing_ok: true)?
 
   partial.write(text)
   if partial.read_text()? == "" {{
     return error.fail("empty")
   }}
 
-  fs.rename(partial, dest, overwrite: true)?
+  partial.rename(to: dest, overwrite: true)?
 }}
 
 proc stamp(dest: Path) [fs, error] {{
@@ -523,7 +523,7 @@ print \${{fs.children(p"{root}")? |> count()}}
   }
 }
 """ in rewritten, rewritten
-  assert "fs.rename" not in rewritten
+  assert ".rename(" not in rewritten
 
   let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
@@ -536,9 +536,9 @@ print \${{fs.children(p"{root}")? |> count()}}
 test test_atomically_lint_explains_a_sequence_it_does_not_rewrite { |ctx|
   let source = """proc publish(source: Path, dest: Path) [fs, error] {
   let partial = fp"{dest}.tmp"
-  fs.remove(partial, missing_ok: true)
-  fs.copy(source, partial)
-  fs.rename(partial, dest)
+  partial.remove(missing_ok: true)
+  source.copy(to: partial)
+  partial.rename(to: dest)
 }
 """
   let candidate = test.temp_file(ctx, name: "atomically-note.xsh", contents: bytes.from_text(source))?
@@ -559,10 +559,10 @@ test test_atomically_expansion_is_invisible_to_grep { |ctx|
     contents: bytes.from_text("""atomically replace p"/tmp/never/out" as partial {
   print "in"
 }
-fs.rename(p"/tmp/never/a", p"/tmp/never/b")
+p"/tmp/never/a".rename(to: p"/tmp/never/b")
 """),
   )?
-  let found = run.capture --text "xsht" grep "fs.rename(A, B)" $candidate
-  assert found.stdout.split("fs.rename(").len() == 2, found.stdout
+  let found = run.capture --text "xsht" grep "A.rename(to: B)" $candidate
+  assert found.stdout.split(".rename(").len() == 2, found.stdout
   assert ":4:" in found.stdout
 }

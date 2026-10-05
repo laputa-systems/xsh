@@ -49,7 +49,7 @@ fn target_paths(
 /// The cases, as one script. Every line prints something whose bytes depend on
 /// a newline, a non-ASCII scalar, a path, or an error the port composes.
 const SCRIPT: &str = r#"proc main() [io, error, time] {
-  fs.write(p"parity.txt", "abc")?
+  p"parity.txt".write("abc")?
   print shlex.quote("two words")
   print shlex.quote("""a
 b""")
@@ -99,7 +99,7 @@ b""")
     Err(failure) => { print f"{failure.message}" }
   }
   print env.get_or("XSH_PARITY_UNSET_VARIABLE", "fallback")?
-  fs.remove(p"parity.txt")?
+  p"parity.txt".remove()?
 }
 "#;
 

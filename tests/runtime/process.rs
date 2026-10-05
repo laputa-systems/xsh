@@ -92,7 +92,7 @@ let job = net.start({{
 while ! request_started.exists()? {{
   time.sleep(1ms)?
 }}
-fs.write(ready, \"ready\")?
+ready.write(\"ready\")?
 while true {{
   time.sleep(20ms)?
 }}
@@ -135,8 +135,8 @@ let hook_started = Path({})
 let hook_ran = Path({})
 let ready = Path({})
 on TERM [fs, time, error] {{
-  fs.write(hook_started, \"started\")?
-  fs.write(hook_ran, \"ran\")?
+  hook_started.write(\"started\")?
+  hook_ran.write(\"ran\")?
   time.sleep(100ms)?
 }}
 let job = net.start({{
@@ -146,7 +146,7 @@ let job = net.start({{
 while ! request_started.exists()? {{
   time.sleep(1ms)?
 }}
-fs.write(ready, \"ready\")?
+ready.write(\"ready\")?
 while true {{
   time.sleep(20ms)?
 }}
@@ -212,7 +212,7 @@ while attempts < 8 {{
   let _ = process.run(process.command_argv(\"true\", [\"true\"], new_session: true))?
   attempts += 1
 }}
-fs.write(ready, \"ready\")?
+ready.write(\"ready\")?
 while true {{
   time.sleep(20ms)?
 }}
@@ -263,9 +263,9 @@ while ! request_started.exists()? or ! process_ready.exists()? {{
   time.sleep(1ms)?
 }}
 let values = [1, 2] |> par-map(jobs: 2) {{ |value|
-  fs.write(stream_ready, \"ready\")?
+  stream_ready.write(\"ready\")?
   time.sleep(2s)?
-  fs.write(worker_leaked, \"leaked\")?
+  worker_leaked.write(\"leaked\")?
   value
 }} |> collect()
 print ${{values.len()}}

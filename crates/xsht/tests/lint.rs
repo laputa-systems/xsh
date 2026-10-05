@@ -539,7 +539,7 @@ proc main(argv: List[Str]) {
   let root = Path(\"target/lint\")
   let unused = 1
   let p = Path(src)
-  fs.mkdir(fp\"{root}/src/lib\", parents: true)?
+  fp\"{root}/src/lib\".mkdir(parents: true)?
   run grep ${input} haystack ?
 
   if true {
@@ -585,7 +585,7 @@ main(args)?
 fn linter_reports_missing_declared_effects_with_fix() {
     let source = "\
 proc load() [fs] {
-  let _ = fs.read_text(Path(\"x\"))?
+  let _ = Path(\"x\").read_text()?
 }
 ";
     let parsed = parse_lint_source(source);
@@ -2752,8 +2752,8 @@ proc main() {
 fn linter_diagnoses_unsafe_membership_inside_conditions_without_hoisting() {
     let diagnostics = membership_lints(
         r#"proc main(source_path: Path, names: List[Str]) [fs, error] {
-  if fs.read_text(source_path)?.contains("needle") {}
-  if names.contains(fs.read_text(source_path)?) {}
+  if source_path.read_text()?.contains("needle") {}
+  if names.contains(source_path.read_text()?) {}
 }
 "#,
     );
@@ -2834,20 +2834,20 @@ fn linter_migrates_package_nested_assertions_and_multiline_match_membership() {
 fn linter_migrates_explicitly_propagated_read_membership_without_null_safe_guessing() {
     let fixed = membership_fixed(
         r#"proc main(source_path: Path) [fs, error] {
-  test.contains(fs.read_text(source_path)?, "needle")?
-  if (fs.read_text(source_path)?).contains("needle") {}
+  test.contains(source_path.read_text()?, "needle")?
+  if (source_path.read_text()?).contains("needle") {}
 }
 "#,
     );
     assert!(!fixed.contains(".contains("), "{fixed}");
     assert_eq!(
-        fixed.matches("fs.read_text(source_path)?").count(),
+        fixed.matches("source_path.read_text()?").count(),
         2,
         "{fixed}"
     );
     let diagnostics = membership_lints(
         r#"proc main(source_path: Path) [fs, error] {
-  if fs.read_text(source_path)?.contains("needle") {}
+  if source_path.read_text()?.contains("needle") {}
 }
 "#,
     );

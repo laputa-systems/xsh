@@ -156,9 +156,9 @@ struct AtomicallyOperands {
 /// {
 ///   let %dest: Path = DEST
 ///   let NAME: Path = fs.temp_sibling(%dest)?
-///   defer fs.remove(NAME, missing_ok: true)
+///   defer NAME.remove(missing_ok: true)
 ///   { BODY }
-///   fs.rename(NAME, %dest, overwrite: true)?
+///   NAME.rename(to: %dest, overwrite: true)?
 /// }
 /// ```
 ///
@@ -171,7 +171,7 @@ struct AtomicallyOperands {
 /// behind either, and after a rename there is nothing at the path, which
 /// `missing_ok` accepts.
 ///
-/// The expansion adds nineteen expressions over a head of five parts, and
+/// The expansion adds seventeen expressions over a head of five parts, and
 /// each needs a span no other expression has. The nodes a diagnostic can
 /// name sit on the part of the head that says what they do: the call that
 /// names the temporary path on `atomically replace` and its propagation on
@@ -234,12 +234,12 @@ fn expand_atomically(
         temporary_span,
     );
 
-    let module = arena.push_ident_expr(Name::intern("fs"), prefix(3));
-    let callee = arena.push_field_expr(module, Name::intern("remove"), suffix(2));
+    // Both operations are methods of the temporary path, which is declared
+    // a `Path` above, so no name the body's file binds can change them.
     let removed = arena.push_ident_expr(name, suffix(3));
+    let callee = arena.push_field_expr(removed, Name::intern("remove"), suffix(2));
     let missing_ok = arena.push_bool_expr(true, suffix(4));
     arena.begin_call_args();
-    arena.push_call_arg_input(ArenaCallArgInput::Positional(removed));
     // A named argument starts before its value, as a written `name: value`
     // does; one that starts where its value starts is the shorthand `name:`.
     arena.push_call_arg_input(ArenaCallArgInput::Named {
@@ -254,14 +254,16 @@ fn expand_atomically(
     let inner = arena.push_value_block_expr(body, body_span);
     arena.push_expr_statement(inner, body_span);
 
-    let module = arena.push_ident_expr(Name::intern("fs"), suffix(5));
-    let callee = arena.push_field_expr(module, Name::intern("rename"), replace);
     let source = arena.push_ident_expr(name, suffix(6));
+    let callee = arena.push_field_expr(source, Name::intern("rename"), replace);
     let destination = arena.push_ident_expr(dest_local, suffix(7));
     let overwrite = arena.push_bool_expr(true, suffix(8));
     arena.begin_call_args();
-    arena.push_call_arg_input(ArenaCallArgInput::Positional(source));
-    arena.push_call_arg_input(ArenaCallArgInput::Positional(destination));
+    arena.push_call_arg_input(ArenaCallArgInput::Named {
+        name: Name::intern("to"),
+        value: destination,
+        span: keyword,
+    });
     arena.push_call_arg_input(ArenaCallArgInput::Named {
         name: Name::intern("overwrite"),
         value: overwrite,

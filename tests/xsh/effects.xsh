@@ -65,7 +65,7 @@ test test_question_mark_requires_error_effect { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
-    contents: b"proc bad() [fs] -> Result[Str] {\n  return fs.read_text(p\"x\")?\n}\n",
+    contents: b"proc bad() [fs] -> Result[Str] {\n  return p\"x\".read_text()?\n}\n",
   )?
 
   let result = run_check(src)?
@@ -110,7 +110,7 @@ test test_proc_to_proc_subset_passes { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
-    contents: b"proc reader() [fs, error] -> Result[Str] {\n  return fs.read_text(p\"x\")?\n}\nproc caller() [fs, error] -> Result[Str] {\n  return reader()?\n}\n",
+    contents: b"proc reader() [fs, error] -> Result[Str] {\n  return p\"x\".read_text()?\n}\nproc caller() [fs, error] -> Result[Str] {\n  return reader()?\n}\n",
   )?
 
   let result = run_check(src)?
@@ -121,7 +121,7 @@ test test_annotated_proc_not_flagged_by_linter { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
-    contents: b"proc main() [fs, error] {\n  let _ = fs.read_text(p\"x\")?\n}\n",
+    contents: b"proc main() [fs, error] {\n  let _ = p\"x\".read_text()?\n}\n",
   )?
 
   let out = run_lint(src)?
