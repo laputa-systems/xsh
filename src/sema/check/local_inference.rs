@@ -328,6 +328,7 @@ impl Checker {
         let terminating_call_spans = std::mem::take(&mut self.terminating_call_spans);
         let assertion_effect_spans = std::mem::take(&mut self.assertion_effect_spans);
         let statement_expression_spans = std::mem::take(&mut self.statement_expression_spans);
+        let propagating_statements = std::mem::take(&mut self.propagating_statements);
         let membership_migration_spans = std::mem::take(&mut self.membership_migration_spans);
         let standard_call_spans = std::mem::take(&mut self.standard_call_spans);
         let statically_resolved_call_spans =
@@ -356,6 +357,7 @@ impl Checker {
         self.terminating_call_spans = terminating_call_spans;
         self.assertion_effect_spans = assertion_effect_spans;
         self.statement_expression_spans = statement_expression_spans;
+        self.propagating_statements = propagating_statements;
         self.membership_migration_spans = membership_migration_spans;
         self.standard_call_spans = standard_call_spans;
         self.statically_resolved_call_spans = statically_resolved_call_spans;

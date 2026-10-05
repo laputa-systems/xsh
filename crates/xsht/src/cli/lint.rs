@@ -714,6 +714,7 @@ fn set_checked_lint_facts_for_source(
     options.assertion_effect_spans = source_checked_set(&checked.assertion_effect_spans, source_id);
     options.statement_expression_spans =
         source_checked_set(&checked.statement_expression_spans, source_id);
+    options.propagating_statements = source_checked_set(&checked.propagating_statements, source_id);
     options.membership_migration_spans =
         source_checked_set(&checked.membership_migration_spans, source_id);
     options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
@@ -1500,6 +1501,7 @@ fn lint_config_for_file(
         terminating_call_spans: Default::default(),
         assertion_effect_spans: Default::default(),
         statement_expression_spans: Default::default(),
+        propagating_statements: Default::default(),
         membership_migration_spans: Default::default(),
         standard_call_spans: Default::default(),
         statically_resolved_call_spans: Default::default(),
@@ -1577,6 +1579,7 @@ fn lint_one_file_with_fixes(
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
     lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
+    lint_options.propagating_statements = checked.propagating_statements.clone();
     lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
     lint_options.standard_call_spans = checked.standard_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
@@ -1845,6 +1848,7 @@ fn apply_cst_fixes(
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.assertion_effect_spans = checked.assertion_effect_spans.clone();
         options.statement_expression_spans = checked.statement_expression_spans.clone();
+        options.propagating_statements = checked.propagating_statements.clone();
         options.membership_migration_spans = checked.membership_migration_spans.clone();
         options.standard_call_spans = checked.standard_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
@@ -2184,6 +2188,7 @@ mod tests {
             xsh::frontend::check::StatementPosition::Statement,
         );
         checked.proven_nonnull_fallback_receivers.insert(local_span);
+        checked.propagating_statements.insert(local_span);
         for offset in 0..100 {
             let span = Span::new(foreign, offset, offset + 1);
             checked
@@ -2193,6 +2198,7 @@ mod tests {
                 .statement_positions
                 .insert(span, xsh::frontend::check::StatementPosition::Value);
             checked.proven_nonnull_fallback_receivers.insert(span);
+            checked.propagating_statements.insert(span);
         }
         let mut options = LintOptions::default();
         super::set_checked_lint_facts_for_source(&mut options, &checked, local);
@@ -2203,6 +2209,8 @@ mod tests {
         );
         assert_eq!(options.statement_positions.len(), 1);
         assert_eq!(options.proven_nonnull_fallback_receivers.len(), 1);
+        assert!(options.propagating_statements.contains(&local_span));
+        assert_eq!(options.propagating_statements.len(), 1);
         assert!(options.function_effect_facts_checked);
     }
 

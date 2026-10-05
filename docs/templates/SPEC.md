@@ -1397,6 +1397,12 @@ requires the `error` effect.
 argument, a separated `?` belongs to the whole command or run form: write
 `expr?` or `(expr?)` to propagate inside one argument.
 
+A statement-position `Result[Unit]` propagates without `?` (8.1), so
+`fs.mkdir(tmp)?` as a statement says it twice. The statement form has no `?`:
+`lint.redundant-propagation` removes it from a call. It leaves a `?` whose
+operand would otherwise be the value of its body, such as the tail of a `try`
+block that is bound.
+
 ### 8.4 Fallback with `??`
 
 `left ?? fallback` yields the `Ok` payload of a `Result`, or a non-null

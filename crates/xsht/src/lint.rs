@@ -56,6 +56,8 @@ mod lint_run_argv;
 
 #[path = "lint_exit.rs"]
 mod lint_exit;
+#[path = "lint_redundant_propagation.rs"]
+mod lint_redundant_propagation;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -365,6 +367,9 @@ pub struct LintOptions {
     pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
+    /// Expression statements whose `Result[Unit]` value propagates instead of
+    /// becoming a body's value; empty without checked facts.
+    pub propagating_statements: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
 
@@ -413,6 +418,7 @@ impl Default for LintOptions {
             terminating_call_spans: BTreeSet::default(),
             assertion_effect_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
+            propagating_statements: BTreeSet::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
             statically_resolved_call_spans: BTreeSet::default(),
@@ -479,6 +485,7 @@ pub struct Linter<'a> {
     whole_statement_call_spans: BTreeMap<Span, Span>,
     whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
     guarded_statement_depth: usize,
+    propagating_statements: BTreeSet<Span>,
     negated_call_spans: BTreeMap<Span, Span>,
     size_products: lint_size_literal::SizeProducts,
     exit_statements: lint_exit::ExitStatements,
@@ -654,6 +661,7 @@ impl<'a> Linter<'a> {
             whole_statement_call_spans: BTreeMap::new(),
             whole_statement_values: std::sync::OnceLock::new(),
             guarded_statement_depth: 0,
+            propagating_statements: options.propagating_statements,
             negated_call_spans: BTreeMap::new(),
             size_products: lint_size_literal::SizeProducts::default(),
             exit_statements: lint_exit::ExitStatements::default(),
@@ -1420,8 +1428,28 @@ impl<'a> Linter<'a> {
         );
     }
 
+    // Propagation spellings, each matched in its own file against the one
+    // statement being visited.
+    fn lint_propagation(&mut self, statement: StmtId) {
+        let facts = lint_redundant_propagation::PropagationFacts {
+            expr_types: &self.expr_types,
+            statement_positions: &self.statement_positions,
+            propagating_statements: &self.propagating_statements,
+        };
+        let found = [
+            lint_redundant_propagation::redundant_propagation(
+                self.arena,
+                self.source,
+                &facts,
+                statement,
+            ),
+        ];
+        self.diagnostics.extend(found.into_iter().flatten());
+    }
+
     fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
         let stmt = self.arena.stmt(stmt_id);
+        self.lint_propagation(stmt_id);
         match stmt.kind {
             ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Export(inner) => self.lint_stmt(inner, true),

@@ -603,6 +603,7 @@ diagnostic_codes! {
         LintRedundantPathInterpolation = "lint.redundant-path-interpolation", warning, "Remove a single-value path interpolation that wraps one value";
         LintRedundantPathParse = "lint.redundant-path-parse", warning, "Remove a Path display then parse round trip on a value already a Path";
         LintRedundantPipelineStage = "lint.redundant-pipeline-stage", warning, "Remove no-op `where true` and `map .` pipeline stages";
+        LintRedundantPropagation = "lint.redundant-propagation", warning, "Remove `?` from a statement-position `Result[Unit]` call, which already propagates";
         LintRedundantRequire = "lint.redundant-require", warning, "Remove a schema `require` on an expression that already has the required type";
         LintRedundantResultUnit = "lint.redundant-result-unit", warning, "Remove a `Result[Unit]` return annotation that a proc without a value tail infers";
         LintRedundantStringInterpolation = "lint.redundant-string-interpolation", warning, "Remove a string interpolation containing only a single value";

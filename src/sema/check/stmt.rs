@@ -889,6 +889,7 @@ impl Checker {
             ArenaStmtKind::Expr(expr_id) => {
                 self.statement_expression_spans
                     .insert(arena.arena.expr(expr_id).span);
+                self.propagating_statements.insert(stmt.span);
                 let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
                     self.check_block_arena(arena, source, block);
                     self.expr_types
@@ -3381,6 +3382,7 @@ impl Checker {
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             self.statement_expression_spans
                 .insert(arena.arena.expr(expr_id).span);
+            self.propagating_statements.insert(stmt.span);
             let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
                 self.check_block_arena(arena, source, block);
                 self.expr_types
@@ -3423,6 +3425,13 @@ impl Checker {
         let stmt = arena.arena.stmt(id);
         self.statement_positions
             .insert(stmt.span, super::StatementPosition::Value);
+        // Only a `Unit` body leaves a `Result[Unit]` tail nothing to become:
+        // against any other result type, or none, the tail is the body's value.
+        if matches!(stmt.kind, ArenaStmtKind::Expr(_)) && expected == Some(&Type::Unit) {
+            self.propagating_statements.insert(stmt.span);
+        } else {
+            self.propagating_statements.remove(&stmt.span);
+        }
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit())
             && !(expected.is_some_and(Type::is_result_unit)
                 && tail_stmt_uses_result_context_arena(arena, id))

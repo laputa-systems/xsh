@@ -147,6 +147,10 @@ pub struct CheckOutput {
     pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
+    /// Expression statements whose `Result[Unit]` value propagates its failure
+    /// instead of becoming a body's value: every statement outside a tail, and
+    /// a tail whose body yields `Unit`.
+    pub propagating_statements: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
@@ -636,6 +640,7 @@ pub struct Checker {
     terminating_call_spans: BTreeSet<Span>,
     assertion_effect_spans: BTreeSet<Span>,
     statement_expression_spans: BTreeSet<Span>,
+    propagating_statements: BTreeSet<Span>,
     membership_migration_spans: BTreeSet<Span>,
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
@@ -771,6 +776,7 @@ impl Checker {
                 terminating_call_spans: checker.terminating_call_spans,
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
+                propagating_statements: checker.propagating_statements,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -917,6 +923,7 @@ impl Checker {
                 terminating_call_spans: checker.terminating_call_spans,
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
+                propagating_statements: checker.propagating_statements,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -987,6 +994,7 @@ impl Checker {
             terminating_call_spans: BTreeSet::new(),
             assertion_effect_spans: BTreeSet::new(),
             statement_expression_spans: BTreeSet::new(),
+            propagating_statements: BTreeSet::new(),
             membership_migration_spans: BTreeSet::new(),
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
