@@ -3,7 +3,7 @@ name = "xsht"
 version = "0.0.1"
 edition = "2024"
 publish = false
-# Keep cli, desugar, and lint in one integration binary instead of one per file.
+# Keep api, cli, desugar, and lint in one integration binary instead of one per file.
 autotests = false
 
 [features]
@@ -31,10 +31,6 @@ syscalls = { version = "0.8.1", default-features = false, features = ["aarch64",
 # The individual suites are included as modules by this single test binary.
 name = "integration"
 path = "tests/integration.rs"
-
-[[test]]
-name = "api"
-path = "tests/api.rs"
 
 [[test]]
 # Needs both the debug and the release `xsh` binary, so it is its own target.

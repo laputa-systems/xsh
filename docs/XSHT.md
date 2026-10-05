@@ -159,7 +159,7 @@ as a failure, and the run continues (`--fail-fast` stops it). Covered by
 ## API queries
 
 `xsht api` is the first-contact language reference. With no selector it prints
-an onboarding guide whose script is itself checked by `crates/xsht/tests/api.rs`.
+an onboarding guide whose script is itself checked by `tests/xsh/api-tool.xsh`.
 Selectors are `summary`, `module:NAME`, `api:MODULE.FUNCTION`,
 `method:RECEIVER[.METHOD]`, `record:NAME`, `language:ID` (exact or prefix), and
 `search:TERMS`; batches preserve order. Options: `--format text|jsonl`,

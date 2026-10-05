@@ -22,6 +22,8 @@ fn stderr_before_timing_line<'a>(command: &str, stderr: &'a [u8]) -> &'a str {
     diagnostics
 }
 
+#[path = "api.rs"]
+mod api;
 #[path = "cli.rs"]
 mod cli;
 #[path = "desugar.rs"]

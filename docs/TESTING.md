@@ -26,7 +26,7 @@ adjacent comment explaining why a native test cannot express it.
 | native XSH | `tests/xsh`, `core/tests`, `dev/tests`, `showcase/tests` (the `test_roots` in `xsht-config.ini`) |
 | root integration | `tests/integration.rs` aggregates `tests/syntax.rs`, `tests/sema.rs`, `tests/runtime/`, `tests/cli.rs`, and the rest |
 | separate root targets | `tests/ambient_fs_policy.rs`, `tests/symbol_plateau.rs`, `tests/linux_priv.rs` (`linux-priv-tests` feature) |
-| tooling | `crates/xsht/tests/` (`integration`, `api`, `profile_parity` targets) |
+| tooling | `crates/xsht/tests/` (`integration`, `profile_parity` targets) |
 | interactive | `crates/xshi/tests/`, `tests/runtime/interactive.rs`, `tests/runtime/interactive/parity/` |
 | fixtures | `tests/fixtures/{syntax,sema,runtime,fmt,frontend-indexed}` |
 
@@ -79,13 +79,15 @@ debug builds for compile checks, and build only the package you need
 | runtime | native module, then `cargo test --release --test integration runtime::NAME` | `cargo test --release --test integration runtime:: -- --skip runtime::coverage:: --skip runtime::examples::` |
 | frames, stack depth | `cargo test --release --test integration runtime::stack_depth` | runtime gate |
 | lint, tooling | `cargo test --release -p xsht --test integration lint::NAME` | `cargo test --release -p xsht` |
-| API, registry, docs | `cargo test --release -p xsht --test api` | API gate below |
+| API, registry, docs | `target/release/xsht test tests/xsh/api-tool.xsh`; `cargo test --release -p xsht --test integration api::` | API gate below |
 | standard modules | `target/release/xsht test tests/xsh/stdlib/NAME.xsh` | `target/release/xsht test tests/xsh/stdlib` |
 | retained frontend memory | `cargo test -p xsh --lib frontend_stats::tests` | `target/release/xsht frontend-stats --json tests/fixtures/frontend-indexed` |
 
 API gate: `cargo test --release --test integration libxsh_api`,
 `cargo test -p xsh-registry`, `cargo test -p xsh --lib modules::signature`,
-`cargo test --release -p xsht --test api`, and `target/release/xsht check docs/snippets/api`.
+`cargo test --release -p xsht --test integration api::`,
+`target/release/xsht test tests/xsh/api-tool.xsh`, and
+`target/release/xsht check docs/snippets/api`.
 
 Repository gates (owner-run unless the task asks for them):
 
