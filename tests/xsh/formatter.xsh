@@ -145,3 +145,34 @@ test test_fmt_error_families_choose_the_form_by_width { |ctx|
   let after = test.expect(ctx, p"tests/fixtures/fmt/error-families.expected.xsh".read_text()?, status: 0)?
   assert after.stdout == before.stdout
 }
+
+test test_fmt_keeps_the_dollar_escapes_an_ordinary_string_was_written_with { |ctx|
+  # `$name` in an ordinary string is literal text that
+  # `lint.dollar-in-expression-string` questions, and `\$name` is how an author
+  # answers it. Formatting keeps each spelling, so the value and the lint's
+  # findings stay the same.
+  let source = r"""let split = "x"
+let name = "y"
+
+proc show() {
+  let nested = "env X=\$split {\n  print \"entered\"\n}\n"
+  let mixed = "kept \$name, flagged $name, hex \x24name, price \$5"
+  print $nested $mixed
+}
+
+show()
+"""
+  let expected = source.replace(r"hex \x24name, price \$5", r"hex \$name, price $5")
+  let before = test.expect(ctx, source, status: 0)?
+  let candidate = test.temp_file(ctx, name: "dollar-escapes.xsh", contents: bytes.from_text(source))?
+  let flagged = run.capture --text "xsht" lint --only lint.dollar-in-expression-string $candidate ?
+  assert flagged.stderr.split("warn[lint.dollar-in-expression-string]").len() == 2, flagged.stderr
+  let formatted = run.capture --text "xsht" fmt $candidate ?
+  assert formatted.status.exited_with(0), formatted.stderr
+  assert candidate.read_text()? == expected
+  let after = test.expect(ctx, expected, status: 0)?
+  assert after.stdout == before.stdout
+  let still_flagged = run.capture --text "xsht" lint --only lint.dollar-in-expression-string $candidate ?
+  assert still_flagged.stderr.split("warn[lint.dollar-in-expression-string]").len() == 2, still_flagged.stderr
+  assert "flagged $name" in still_flagged.stderr, still_flagged.stderr
+}

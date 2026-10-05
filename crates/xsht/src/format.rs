@@ -2562,7 +2562,20 @@ impl<'a> Writer<'a> {
                 if let Some(original) = original_preserved_string_literal(&self.source, span) {
                     output.push_str(original);
                 } else {
-                    write_quoted(self.arena.string_literal(*value), output);
+                    let text = self.arena.string_literal(*value);
+                    // `$name` in an ordinary string draws a lint that `\$name`
+                    // answers, so each dollar keeps the spelling it has.
+                    match self
+                        .source
+                        .get(span.range())
+                        .filter(|original| is_one_quoted_string(original))
+                        .map(escaped_dollars)
+                    {
+                        Some(escaped) if escaped.len() == text.matches('$').count() => {
+                            write_quoted_with(text, &escaped, false, output);
+                        }
+                        _ => write_quoted(text, output),
+                    }
                 }
             }
             ArenaExprKind::PathStr(value) => {
@@ -5038,14 +5051,65 @@ fn write_command_quoted(value: &str, output: &mut String) {
     write_quoted_with_dollar(value, true, output);
 }
 
+/// For each `$` of a `"..."` literal's value, in order, whether the source
+/// wrote it as an escape: `\$`, `\x24`, or `\u{24}`.
+fn escaped_dollars(literal: &str) -> Vec<bool> {
+    let mut escaped = Vec::new();
+    let mut rest = literal;
+    while let Some(at) = rest.find(['\\', '$']) {
+        if rest[at..].starts_with('$') {
+            escaped.push(false);
+            rest = &rest[at + 1..];
+            continue;
+        }
+        let escape = &rest[at + 1..];
+        let code = if let Some(hex) = escape.strip_prefix('x') {
+            hex.get(..2)
+        } else {
+            escape
+                .strip_prefix("u{")
+                .and_then(|hex| hex.split_once('}'))
+                .map(|(hex, _)| hex)
+        };
+        if escape.starts_with('$')
+            || code.is_some_and(|hex| u32::from_str_radix(hex, 16) == Ok(u32::from('$')))
+        {
+            escaped.push(true);
+        }
+        // The character after a backslash is never a dollar of its own.
+        rest = &escape[escape.chars().next().map_or(0, char::len_utf8)..];
+    }
+    escaped
+}
+
 fn write_quoted_with_dollar(value: &str, command_shorthand: bool, output: &mut String) {
+    write_quoted_with(value, &[], command_shorthand, output);
+}
+
+/// Writes a `"..."` literal for `value`. `written_escapes[n]` says the
+/// source escaped the n-th `$`; a `$` before a name keeps that escape, and
+/// one past the end of the list had none.
+fn write_quoted_with(
+    value: &str,
+    written_escapes: &[bool],
+    command_shorthand: bool,
+    output: &mut String,
+) {
     output.push('"');
+    let mut dollars = 0;
     let mut chars = value.chars().peekable();
     while let Some(ch) = chars.next() {
+        let written_escape = ch == '$' && {
+            dollars += 1;
+            written_escapes.get(dollars - 1).copied().unwrap_or(false)
+                && chars.peek().copied().is_some_and(is_identifier_start)
+        };
         match ch {
             '\\' => output.push_str("\\\\"),
             '"' => output.push_str("\\\""),
-            '$' if should_escape_dollar(chars.peek().copied(), command_shorthand) => {
+            '$' if written_escape
+                || should_escape_dollar(chars.peek().copied(), command_shorthand) =>
+            {
                 output.push_str("\\$");
             }
             '\n' => output.push_str("\\n"),
