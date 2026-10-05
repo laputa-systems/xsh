@@ -125,10 +125,10 @@ pure line_rows(line: Bytes, cols: Int, logical: Bool) -> Int {
 
   var width = 0
 
-  for char in line_text(line).split("") {
+  for char in line_text(line) {
     if char == "\t" {
       width = (width / 8 + 1) * 8
-    } else if char != "" {
+    } else {
       width += 1
     }
   }
@@ -175,9 +175,7 @@ pure build_screen(opts: MoreOptions, lines: List[Bytes], top: Int, capacity: Int
     chunks += [shown, end]
     used += line_rows(line, cols, opts.logical)
 
-    if ! opts.no_pause and line_text(line).find("\u{c}") != null {
-      break
-    }
+    break when ! opts.no_pause and line_text(line).find("\u{c}") != null
   }
 
   {text: bytes.concat(chunks), next: index}
@@ -298,16 +296,12 @@ proc page(opts: MoreOptions, source: Source, next_name: Str?, geometry: Geometry
         gnu.write_text("\n")
         return {quit: true}
       } else if typed == "" or key == "j" {
-        if eof {
-          return {quit: false}
-        }
+        return {quit: false} when eof
 
         top += 1
         redraw = true
       } else if key == " " or key == "f" or key == "z" {
-        if eof {
-          return {quit: false}
-        }
+        return {quit: false} when eof
 
         top = screen.next
         redraw = true
@@ -464,9 +458,7 @@ proc main(...argv: List[Str]) [process, env, error, io, fs] {
       let next_name: Str? = if index + 1 < names.len() { names[index + 1] } else { null }
       let outcome = page(opts, source, next_name, geometry, several, index + 1 == names.len())
 
-      if outcome.quit {
-        break
-      }
+      break when outcome.quit
     } else {
       dump(opts, source, several)
     }
