@@ -37,6 +37,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.path-constructor` | Prefer a `p` string literal or path interpolation over `Path(...)` |
 | `lint.path-text-query` | Test a Path for a root component instead of testing its display text for a leading `/` |
 | `lint.pattern-conditional` | Use `if let` for a two-arm match with a complementary pattern |
+| `lint.positional-error-arguments` | Name error constructor arguments that follow a named one or fill fields a single value fits two of |
 | `lint.prefer-bare-field-label` | Write identifier-shaped record field labels without quotes |
 | `lint.prefer-block-string` | Use a block string for a constant multiline string concatenation |
 | `lint.prefer-callable-alias` | Use an immutable alias for a callable that exactly forwards to another |
@@ -85,6 +86,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-value-pipeline` | Use a value pipeline for nested calls or a single-use temporary |
 | `lint.prefer-write-lines` | Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline |
 | `lint.prefer-yield-delegation` | Replace a transparent forwarding loop with `yield @iterable` |
+| `lint.public-result-error` | Spell the error type of each Result in an exported signature or module contract |
 | `lint.redundant-bare-return` | Remove a bare `return` at the end of a `Result[Unit]` function |
 | `lint.redundant-command-fmt` | Use command value syntax directly for a single-value command f-string |
 | `lint.redundant-command-interpolation` | Use expression syntax directly for a single interpolation in command args |

@@ -3,7 +3,7 @@ use context
 use stage as stages
 
 ## Computes the Docker image name from the supported environment override.
-export proc image_name() [env, error] -> Result[Str] {
+export proc image_name() [env, error] -> Result[Str, Error] {
   let image = env.get_or("XSH_TEST_IMAGE", "xsh-test")?.trim()
   if image == "" {
     "xsh-test"
@@ -13,7 +13,7 @@ export proc image_name() [env, error] -> Result[Str] {
 }
 
 ## Computes the Docker platform while allowing the explicit environment override.
-export proc platform(ctx: context.Context) [env, error] -> Result[Str] {
+export proc platform(ctx: context.Context) [env, error] -> Result[Str, Error] {
   let override_value = env.get_or("DOCKER_PLATFORM", "")?.trim()
   if override_value == "" {
     ctx.target.docker_platform
@@ -23,7 +23,7 @@ export proc platform(ctx: context.Context) [env, error] -> Result[Str] {
 }
 
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.
-export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Result[Str] {
+export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Result[Str, Error] {
   let image = image_name()?
   let selected_platform = platform(ctx)?
   let build_image = env.get_or("XSH_TEST_IMAGE_BUILD", "1")?.trim()
@@ -134,7 +134,7 @@ export proc run_internal(
   operation: Str,
   privileged: Bool,
   extra: List[Str],
-) [process, env, error, io] -> Result[Unit] {
+) [process, env, error, io] -> Result[Unit, Error] {
   let image = ensure_image(ctx)?
   let selected_platform = platform(ctx)?
   let identity = unix.id()?

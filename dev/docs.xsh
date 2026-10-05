@@ -521,7 +521,7 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
 }
 
 ## Regenerates every generated document under `docs/`, rewriting only files that changed.
-export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit] {
+export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit, Error] {
   for doc in render(root, tools)? {
     let target = fp"{root}/docs/{doc.rel}"
     if ! target.exists()? or target.read_text()? != doc.text {
@@ -535,7 +535,7 @@ export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] 
 ## Fails when committed generated docs differ from a fresh render, when a
 ## snippet's check diagnostics differ from its `# error: CODE` comments, or when
 ## the tour project's tests fail.
-export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit] {
+export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit, Error] {
   let stale = [
     f"docs/{doc.rel}"
     for doc in render(root, tools)?
@@ -568,7 +568,7 @@ export pure release_tools(ctx: context.Context) -> DocTools {
 }
 
 ## Builds the release `xsh` and `xsht` that render the docs.
-export proc build_release(ctx: context.Context) [process, error, io] -> Result[Unit] {
+export proc build_release(ctx: context.Context) [process, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "docs-build",

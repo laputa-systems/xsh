@@ -24,7 +24,7 @@ export pure command(
 }
 
 ## Resolves a required external program with a named diagnostic on absence.
-export proc require_tool(name: Str) [process, error] -> Result[Path] {
+export proc require_tool(name: Str) [process, error] -> Result[Path, Error] {
   if let Ok(tool_path) = process.which(name) {
     tool_path
   } else {
@@ -33,14 +33,14 @@ export proc require_tool(name: Str) [process, error] -> Result[Path] {
 }
 
 ## Creates a lifecycle directory when it does not already exist.
-export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit] {
+export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit, Error] {
   if ! directory.exists()? {
     directory.mkdir()?
   }
 }
 
 ## Executes one visible direct process boundary and classifies failed status.
-export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[Unit] {
+export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[Unit, Error] {
   print f"[{spec.stage} target={spec.target}] {spec.argv.join(" ")}"
   let status = process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))?
   return when status.ok

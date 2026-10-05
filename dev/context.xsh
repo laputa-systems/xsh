@@ -25,7 +25,7 @@ export pure repo_path(root: Path, value: Str) -> Path {
 }
 
 ## Validates that the current directory is the XSH repository root.
-export proc require_root() [fs, error] -> Result[Path] {
+export proc require_root() [fs, error] -> Result[Path, Error] {
   let root = fs.cwd()?
   let required = [fp"{root}/Cargo.toml", fp"{root}/rust-toolchain.toml", fp"{root}/xsht-config.ini"]
 
@@ -39,7 +39,7 @@ export proc require_root() [fs, error] -> Result[Path] {
 }
 
 ## Reads host and environment policy into one lifecycle context.
-export proc create() [fs, env, error] -> Result[Context] {
+export proc create() [fs, env, error] -> Result[Context, Error] {
   let root = require_root()?
   let uname = system.uname()?
   let host_os = target_policy.host_os_tag(uname.sysname)?

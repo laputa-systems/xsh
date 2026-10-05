@@ -21,7 +21,7 @@ export proc require_capture_metadata_unchanged(
   bundle: FsRoot,
   expected: Bytes,
   max_bytes: Int = 2097152,
-) [fs, error] -> Result[Unit] {
+) [fs, error] -> Result[Unit, Error] {
   guard capture_metadata_bytes(bundle, max_bytes:)? == expected else {
     return Err(check_failure("capture metadata changed during replay"))
   }
@@ -2313,10 +2313,10 @@ type SmbiosUtilityRun = {
 }
 
 type SmbiosReferenceModule = module {
-  export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, error, io] -> Result[SmbiosLiveResult]
-  export proc capture_smbios_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[SmbiosCapturedRun]
-  export proc replay_smbios_bundle(bundle: FsRoot) [fs, time, error] -> Result[SmbiosReplayComparison]
-  export proc corroborate_smbios_bundle(bundle: FsRoot, executable: Str) [fs, process, time, error] -> Result[SmbiosUtilityRun]
+  export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, error, io] -> Result[SmbiosLiveResult, Error]
+  export proc capture_smbios_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[SmbiosCapturedRun, Error]
+  export proc replay_smbios_bundle(bundle: FsRoot) [fs, time, error] -> Result[SmbiosReplayComparison, Error]
+  export proc corroborate_smbios_bundle(bundle: FsRoot, executable: Str) [fs, process, time, error] -> Result[SmbiosUtilityRun, Error]
 }
 
 type SensorsJsonComparison = {reference_count: Int, compared: Int, mismatches: List[Str], partial: List[Str]}
@@ -2333,7 +2333,7 @@ type SensorsJsonRun = {
 }
 
 type SensorsReferenceModule = module {
-  export proc compare_live_sensors_json(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[SensorsJsonRun]
+  export proc compare_live_sensors_json(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[SensorsJsonRun, Error]
 }
 
 type CpupowerComparison = {matched_fields: Int, mismatches: List[Str], partial: List[Str]}
@@ -2350,7 +2350,7 @@ type CpupowerRun = {
 }
 
 type CpupowerReferenceModule = module {
-  export proc compare_live_cpupower(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[CpupowerRun]
+  export proc compare_live_cpupower(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[CpupowerRun, Error]
 }
 
 type LsusbComparison = {
@@ -2373,7 +2373,7 @@ type LsusbRun = {
 }
 
 type LsusbReferenceModule = module {
-  export proc compare_live_lsusb(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[LsusbRun]
+  export proc compare_live_lsusb(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[LsusbRun, Error]
 }
 
 type ThermalLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
@@ -2536,11 +2536,11 @@ type PressureCapture = {
 }
 
 type SystemReportLiveCollector = module {
-  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[Record]
+  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[Record, Error]
 }
 
 type SystemReportModelEncoder = module {
-  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
+  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str, Error]
 }
 
 proc encode_replayed_report(candidate: Record, sensitive: Bool) [fs, error] -> Result[Str] {
@@ -2579,7 +2579,7 @@ export pure summary(assertions: List[CoverageAssertion]) -> Str {
 }
 
 ## Reads CPU identities from util-linux's explicit-column JSON output.
-export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int]] {
+export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int], Error] {
   let raw = json.decode(output)?
 
   # Reject malformed utility booleans at the JSON boundary before typed row conversion.
@@ -2611,7 +2611,7 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int]] {
 }
 
 ## Parses explicit-column util-linux topology output without treating its IDs as kernel IDs.
-export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu]] {
+export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu], Error] {
   let data = json.decode(output)?.require(LscpuTopology)?
   var seen = set.empty()
   var rows: List[LscpuTopologyCpu] = []
@@ -2634,7 +2634,7 @@ export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu]] 
 export pure select_present_lscpu_topology(
   rows: List[LscpuTopologyCpu],
   present: List[Int],
-) -> Result[List[LscpuTopologyCpu]] {
+) -> Result[List[LscpuTopologyCpu], Error] {
   var present_set = set.empty()
   for id in present {
     let key = f"{id}"
@@ -2709,7 +2709,7 @@ export pure compare_lscpu_topology(
   candidate_json: Str,
   before: List[LscpuTopologyCpu],
   after: List[LscpuTopologyCpu],
-) -> Result[LscpuTopologyComparison] {
+) -> Result[LscpuTopologyComparison, Error] {
   guard before == after else {
     return Err(check_failure("lscpu topology changed around candidate collection"))
   }
@@ -2874,7 +2874,7 @@ export pure compare_cpu_cache_sharing(
   candidate_json: Str,
   before: List[CpuCacheReference],
   after: List[CpuCacheReference],
-) -> Result[CpuCacheComparison] {
+) -> Result[CpuCacheComparison, Error] {
   let first_sources = cache_reference_sources(before)?
   let last_sources = cache_reference_sources(after)?
   if first_sources.keys().len() != last_sources.keys().len() {
@@ -3051,7 +3051,7 @@ export pure compare_cpu_cache_sharing(
 }
 
 ## Parses the kernel cacheinfo byte or binary-size value within JSON's exact integer range.
-export pure parse_cpu_cache_size_reference(source: Str) -> Result[Int] {
+export pure parse_cpu_cache_size_reference(source: Str) -> Result[Int, Error] {
   if source == "" or source.trim() != source {
     return Err(check_failure("cache size reference is empty or padded"))
   }
@@ -3116,7 +3116,7 @@ proc reference_cache_optional_number(root: FsRoot, source_path: Path) [fs, error
 }
 
 ## Reads each present CPU's cacheinfo entries without using candidate cache identities.
-export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[CpuCacheReference]] {
+export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[CpuCacheReference], Error] {
   let present_text = reference_cache_text(root, p"sys/devices/system/cpu/present", true, max_bytes: 65536)?
   let present = parse_reference_cpu_list(present_text ?? "", false)?
   var rows: List[CpuCacheReference] = []
@@ -3185,7 +3185,7 @@ pure reference_cpu_number(value: Str) -> Result[Int] {
 }
 
 ## Parses independent sysfs CPU-set references without using the report parser.
-export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[List[Int]] {
+export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[List[Int], Error] {
   let source = output.trim()
   if source == "" {
     return Ok([]) when allow_empty
@@ -3230,7 +3230,7 @@ export pure compare_cpufreq_policies(
   candidate_json: Str,
   before: List[CpuFreqPolicyReference],
   after: List[CpuFreqPolicyReference],
-) -> Result[CpuFreqPolicyComparison] {
+) -> Result[CpuFreqPolicyComparison, Error] {
   var before_by_name: Map[Int] = {}
   var after_by_name: Map[Int] = {}
   for index in range(before.len()) {
@@ -3482,7 +3482,7 @@ pure usb_topology_decimal(value: Str) -> Result[Int] {
 }
 
 ## Parses only kernel USB device names; interface names carry a colon and are not devices.
-export pure parse_usb_topology_name(name: Str) -> Result[UsbTopologyName] {
+export pure parse_usb_topology_name(name: Str) -> Result[UsbTopologyName, Error] {
   if name.starts_with("usb") {
     let bus = usb_topology_decimal(name.split("") |> drop(3).join(""))?
     return Ok({parent_name: null, port_path: null, bus_number: bus, is_root_hub: true})
@@ -3506,7 +3506,7 @@ export pure compare_usb_topology(
   candidate_json: Str,
   before: List[UsbTopologyReference],
   after: List[UsbTopologyReference],
-) -> Result[UsbTopologyComparison] {
+) -> Result[UsbTopologyComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["usb"])?.require(CandidateUsbTopologySection)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -3691,7 +3691,7 @@ proc reference_usb_number(root: FsRoot, source_path: Path) [fs, error] -> Result
 }
 
 ## Reads bounded USB device attributes without using the report collector or its parent joins.
-export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List[UsbTopologyReference]] {
+export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List[UsbTopologyReference], Error] {
   let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   return Ok([]) when listing.state == "absent"
 
@@ -3736,7 +3736,7 @@ export pure compare_usb_ids(
   candidate_json: Str,
   before: List[UsbIdsReference],
   after: List[UsbIdsReference],
-) -> Result[UsbIdsComparison] {
+) -> Result[UsbIdsComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["usb"])?.require(CandidateUsbIdsSection)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -3961,7 +3961,7 @@ proc reference_usb_hex_attribute(
 }
 
 ## Reads fixed-width USB device IDs and optional labels through bounded rooted sysfs sources.
-export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbIdsReference]] {
+export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbIdsReference], Error] {
   let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   return Ok([]) when listing.state == "absent"
 
@@ -4004,7 +4004,7 @@ export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbI
 }
 
 ## Parses exact JSON-safe decimal values while retaining negative autosuspend delays.
-export pure parse_usb_power_number(value: Str, allow_negative: Bool) -> Result[Int] {
+export pure parse_usb_power_number(value: Str, allow_negative: Bool) -> Result[Int, Error] {
   let negative = value.starts_with("-")
   if negative and ! allow_negative {
     return Err(check_failure("USB power value cannot be negative"))
@@ -4044,7 +4044,7 @@ proc reference_usb_power_number(
 }
 
 ## Reads USB runtime status, autosuspend policy, and active configuration independently.
-export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[UsbPowerReference]] {
+export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[UsbPowerReference], Error] {
   let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   return Ok([]) when listing.state == "absent"
 
@@ -4079,7 +4079,7 @@ export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[Us
 }
 
 ## Decodes only configuration, interface, and endpoint ownership from exported USB bytes.
-export pure parse_usb_interface_descriptors(data: Bytes) -> Result[List[UsbInterfaceSettingReference]] {
+export pure parse_usb_interface_descriptors(data: Bytes) -> Result[List[UsbInterfaceSettingReference], Error] {
   var settings: List[UsbInterfaceSettingReference] = []
   var current: UsbInterfaceSettingReference? = null
   var configuration: Int? = null
@@ -4257,7 +4257,7 @@ proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, err
 }
 
 ## Reads live USB interface attributes and the device's bounded raw descriptors independently.
-export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[List[UsbInterfaceReference]] {
+export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[List[UsbInterfaceReference], Error] {
   let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   return Ok([]) when listing.state == "absent"
 
@@ -4364,7 +4364,7 @@ export pure compare_usb_interfaces(
   candidate_json: Str,
   before: List[UsbInterfaceReference],
   after: List[UsbInterfaceReference],
-) -> Result[UsbInterfaceComparison] {
+) -> Result[UsbInterfaceComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["usb"])?.require(CandidateUsbInterfaceSection)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -4555,7 +4555,7 @@ export pure compare_usb_interfaces(
 }
 
 ## Parses signed or unsigned sysfs power values without losing exact JSON integers.
-export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int] {
+export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int, Error] {
   let negative = value.starts_with("-")
   if negative and ! signed {
     return Err(check_failure("power supply quantity cannot be negative"))
@@ -4617,7 +4617,7 @@ proc reference_power_number(
 }
 
 ## Reads bounded power-supply class attributes without calling the report collector.
-export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List[PowerSupplyReference]] {
+export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List[PowerSupplyReference], Error] {
   let listing = root.children(p"sys/class/power_supply", max_entries: 1024)?
   return Ok([]) when listing.state == "absent"
 
@@ -4764,7 +4764,11 @@ proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyB
 }
 
 ## Saves bounded power supply class links, values, source states, and digests.
-export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_power_supply_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("power supply capture origin is invalid"))
   }
@@ -4866,7 +4870,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
 }
 
 ## Rejects changed power supply links, source bytes, absences, and references.
-export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[PowerSupplyBundleCapture] {
+export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[PowerSupplyBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "power-supply-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -4926,7 +4930,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
 }
 
 ## Runs the production power collector over validated saved supply sources.
-export proc replay_power_supply_bundle(bundle: FsRoot) [fs, time, error] -> Result[PowerSupplyComparison] {
+export proc replay_power_supply_bundle(bundle: FsRoot) [fs, time, error] -> Result[PowerSupplyComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 4194304)?
   let capture = validate_power_supply_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -4954,7 +4958,7 @@ export pure compare_power_supplies(
   candidate_json: Str,
   before: List[PowerSupplyReference],
   after: List[PowerSupplyReference],
-) -> Result[PowerSupplyComparison] {
+) -> Result[PowerSupplyComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["power"])?.require(CandidatePowerSupplySection)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -5186,7 +5190,7 @@ proc reference_powercap_parent(
 }
 
 ## Reads visible powercap zones and constraints by their class entry and numeric index.
-export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference]] {
+export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference], Error] {
   let listing = root.children(p"sys/class/powercap", max_entries: 1024)?
   return Ok([]) when listing.state == "absent"
 
@@ -5359,7 +5363,11 @@ proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLa
 }
 
 ## Saves raw powercap attributes and their independent typed interpretation.
-export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_powercap_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("powercap capture origin must be synthetic_fixture or live_capture"))
   }
@@ -5452,7 +5460,7 @@ export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
 }
 
 ## Rejects altered source identities, link topology, and raw bytes before replay.
-export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference]] {
+export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference], Error] {
   let metadata = capture_metadata_bytes(bundle)?
   let capture = json.decode(metadata.utf8()?)?.require(PowerCapCapture)?
   if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or capture.reference_adapter != "powercap-raw-v1" or ! capture.scoreable or capture.reference == null or ! capture.layout.complete {
@@ -5501,7 +5509,7 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
 }
 
 ## Runs the production power collector against the captured source tree.
-export proc replay_powercap_bundle(bundle: FsRoot) [fs, time, error] -> Result[PowerCapComparison] {
+export proc replay_powercap_bundle(bundle: FsRoot) [fs, time, error] -> Result[PowerCapComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_powercap_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -5532,7 +5540,7 @@ export pure compare_powercap(
   candidate_json: Str,
   before: List[PowerCapZoneReference],
   after: List[PowerCapZoneReference],
-) -> Result[PowerCapComparison] {
+) -> Result[PowerCapComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["power"])?.require(CandidatePowerCapSection)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -5815,7 +5823,7 @@ proc device_class_reference_parent(root: FsRoot, entry: Path) [fs, error] -> Res
 }
 
 ## Reads class identities, display labels, and physical-device links from bounded sysfs paths.
-export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List[DeviceClassReference]] {
+export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List[DeviceClassReference], Error] {
   var records: List[DeviceClassReference] = []
   for source in [
     {
@@ -5938,7 +5946,7 @@ export pure compare_device_classes(
   candidate_json: Str,
   before: List[DeviceClassReference],
   after: List[DeviceClassReference],
-) -> Result[DeviceClassComparison] {
+) -> Result[DeviceClassComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["devices"])?.require(CandidateDeviceClassSection)?
   let pci = json.get(data, ["pci"])?.require(CandidateDeviceClassPciSection)?
@@ -6191,7 +6199,7 @@ proc reference_hwmon_number(
 }
 
 ## Reads only hwmon names and the informational attributes of exported input channels.
-export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonReference]] {
+export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonReference], Error] {
   let chips = root.children(p"sys/class/hwmon", max_entries: 1024)?
   return Ok([]) when chips.state == "absent"
 
@@ -6362,7 +6370,7 @@ proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] 
 }
 
 ## Saves bounded hwmon source bytes with class links and an independent channel reference.
-export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("hwmon capture origin is invalid"))
   }
@@ -6467,7 +6475,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 }
 
 ## Rejects changed class links, source bytes, absences, and independently decoded channels.
-export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBundleCapture] {
+export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(HwmonBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "hwmon-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -6526,7 +6534,7 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
 }
 
 ## Runs the production sensor collector over a validated hwmon source tree.
-export proc replay_hwmon_bundle(bundle: FsRoot) [fs, time, error] -> Result[HwmonComparison] {
+export proc replay_hwmon_bundle(bundle: FsRoot) [fs, time, error] -> Result[HwmonComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
   let capture = validate_hwmon_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -6565,7 +6573,7 @@ export pure compare_hwmon(
   candidate_json: Str,
   before: List[HwmonReference],
   after: List[HwmonReference],
-) -> Result[HwmonComparison] {
+) -> Result[HwmonComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["sensors"])?.require(CandidateHwmonSection)?
   let pci = json.get(data, ["pci"])?.require(CandidateDeviceClassPciSection)?
@@ -6801,7 +6809,7 @@ export pure compare_usb_power(
   candidate_json: Str,
   before: List[UsbPowerReference],
   after: List[UsbPowerReference],
-) -> Result[UsbPowerComparison] {
+) -> Result[UsbPowerComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["usb"])?.require(CandidateUsbPowerSection)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -6959,7 +6967,7 @@ export pure compare_cpuidle(
   candidate_json: Str,
   before: CpuIdleReference,
   after: CpuIdleReference,
-) -> Result[CpuIdleComparison] {
+) -> Result[CpuIdleComparison, Error] {
   var before_by_key: Map[Int] = {}
   var after_by_key: Map[Int] = {}
   for index in range(before.states.len()) {
@@ -7189,7 +7197,7 @@ pure reference_cpuidle_words(value: Str) -> List[Str] {
 }
 
 ## Reads global CPUIdle metadata and indexed states for every present CPU through bounded sysfs sources.
-export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleReference] {
+export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleReference, Error] {
   let present_text = reference_cpuidle_text(root, p"sys/devices/system/cpu/present", true, max_bytes: 65536)?
   let present = parse_reference_cpu_list(present_text ?? "", false)?
   let driver = reference_cpuidle_text(root, p"sys/devices/system/cpu/cpuidle/current_driver", false)?
@@ -7277,7 +7285,10 @@ pure reference_cpufreq_words(value: Str) -> List[Str] {
 }
 
 ## Interprets the generic boost control before the inverted Intel-specific control.
-export pure parse_cpufreq_boost_reference(boost_text: Str?, no_turbo_text: Str?) -> Result[CpuFreqBoostReference] {
+export pure parse_cpufreq_boost_reference(
+  boost_text: Str?,
+  no_turbo_text: Str?,
+) -> Result[CpuFreqBoostReference, Error] {
   guard boost_text == null else {
     if boost_text != "0" and boost_text != "1" {
       return Err(check_failure("CPUFreq boost control is invalid"))
@@ -7349,7 +7360,7 @@ proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Res
 }
 
 ## Reads every visible policy through bounded sysfs sources, independent of candidate output.
-export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[List[CpuFreqPolicyReference]] {
+export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[List[CpuFreqPolicyReference], Error] {
   let listing = root.children(p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
   return Ok([]) when listing.state == "absent"
 
@@ -7416,7 +7427,7 @@ export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[Li
 }
 
 ## Reads the process-visible affinity from a complete proc status snapshot.
-export pure parse_proc_status_affinity(output: Str) -> Result[List[Int]] {
+export pure parse_proc_status_affinity(output: Str) -> Result[List[Int], Error] {
   var affinity: Str? = null
   for line in output.lines() {
     if line.starts_with("Cpus_allowed_list:") {
@@ -7458,7 +7469,11 @@ proc captured_cpu_set_reference(root: FsRoot) [fs, error] -> Result[CpuSetRefere
 }
 
 ## Saves bounded raw CPU-set sources and an independently parsed oracle for collector replay.
-export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_cpu_set_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin != "synthetic_fixture" and origin != "live_capture" {
     return Err(check_failure("CPU set capture origin must be synthetic_fixture or live_capture"))
   }
@@ -7539,7 +7554,7 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
 }
 
 ## Validates captured bytes and independently reparses the saved CPU-set reference.
-export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSetReference] {
+export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSetReference, Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 65536)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("CPU set capture metadata is missing or incomplete"))
@@ -7585,7 +7600,7 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
 }
 
 ## Re-runs the production collector on captured raw files and checks an independent oracle.
-export proc replay_cpu_set_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuSetComparison] {
+export proc replay_cpu_set_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuSetComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_cpu_set_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -7701,7 +7716,11 @@ proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayo
 }
 
 ## Saves bounded CPU sets and policy sources with independently parsed references.
-export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_cpufreq_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("CPUFreq capture origin is invalid"))
   }
@@ -7804,7 +7823,7 @@ export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
 }
 
 ## Rejects changed policy directories, raw bytes, absence, and decoded references.
-export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFreqBundleCapture] {
+export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFreqBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(CpuFreqBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "cpufreq-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -7865,7 +7884,7 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
 }
 
 ## Runs the production CPU collector against a validated policy capture.
-export proc replay_cpufreq_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuFreqBundleComparison] {
+export proc replay_cpufreq_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuFreqBundleComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
   let capture = validate_cpufreq_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -7965,7 +7984,7 @@ proc cpu_topology_reference_number(root: FsRoot, relative: Str, required: Bool) 
 }
 
 ## Reads per CPU topology values without using the production collector's decoder or joins.
-export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[List[CpuTopologyRawReference]] {
+export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[List[CpuTopologyRawReference], Error] {
   let sets = captured_cpu_set_reference(root)?
   let layout = cpu_topology_bundle_layout(root)?
   if ! layout.complete or sets.present != layout.cpu_ids {
@@ -8010,7 +8029,7 @@ export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[
 export pure compare_cpu_topology_raw(
   candidate_json: Str,
   reference: List[CpuTopologyRawReference],
-) -> Result[CpuTopologyRawComparison] {
+) -> Result[CpuTopologyRawComparison, Error] {
   let data = json.decode(candidate_json)?
   let status = json.get(data, ["cpu", "status"])?.require(CandidateCpuSectionStatus)?
   let candidate = json.get(data, ["cpu", "cpus"])?.require(List[CandidateCpuTopologyRaw])?
@@ -8087,7 +8106,11 @@ export pure compare_cpu_topology_raw(
 }
 
 ## Saves bounded CPU topology files and NUMA links with an independently parsed reference.
-export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_cpu_topology_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("CPU topology capture origin is invalid"))
   }
@@ -8193,7 +8216,7 @@ export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: 
 }
 
 ## Validates CPU set bytes, topology values, and NUMA link targets before replay.
-export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[CpuTopologyBundleCapture] {
+export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[CpuTopologyBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(CpuTopologyBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "cpu-topology-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -8252,7 +8275,7 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
 }
 
 ## Runs the production CPU collector against the validated topology capture.
-export proc replay_cpu_topology_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuTopologyBundleComparison] {
+export proc replay_cpu_topology_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuTopologyBundleComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
   let capture = validate_cpu_topology_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -8304,7 +8327,11 @@ proc memory_bundle_reference(bundle: FsRoot) [fs, error] -> Result[MemoryBundleR
 }
 
 ## Captures bounded raw memory sources with exact digests and an independent oracle.
-export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_memory_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("memory capture origin must be synthetic_fixture or live_capture"))
   }
@@ -8391,7 +8418,7 @@ export proc capture_memory_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
 }
 
 ## Requires captured bytes and the saved independent memory oracle to agree.
-export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryBundleReference] {
+export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryBundleReference, Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 2097152)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("memory capture metadata is missing or incomplete"))
@@ -8445,7 +8472,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
 }
 
 ## Runs the production memory collector on captured sources and checks both oracles.
-export proc replay_memory_bundle(bundle: FsRoot) [fs, time, error] -> Result[MemoryBundleComparison] {
+export proc replay_memory_bundle(bundle: FsRoot) [fs, time, error] -> Result[MemoryBundleComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_memory_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -8506,7 +8533,7 @@ export pure compare_cpu_scope_affinity(
   candidate_json: Str,
   before_status: Str,
   after_status: Str,
-) -> Result[CpuIdSetComparison] {
+) -> Result[CpuIdSetComparison, Error] {
   let before = parse_proc_status_affinity(before_status)?
   let after = parse_proc_status_affinity(after_status)?
   if before != after {
@@ -8519,7 +8546,7 @@ export pure compare_cpu_scope_affinity(
 }
 
 ## Compares the independently observed online CPU identities as sets.
-export pure compare_cpu_online_ids(candidate_json: Str, reference_json: Str) -> Result[CpuIdSetComparison] {
+export pure compare_cpu_online_ids(candidate_json: Str, reference_json: Str) -> Result[CpuIdSetComparison, Error] {
   let reference = parse_lscpu_online_cpu_ids(reference_json)?
   let candidate_data = json.decode(candidate_json)?
   let candidate = json.get(candidate_data, ["cpu", "online"])?.require(List[Int])?
@@ -8527,7 +8554,7 @@ export pure compare_cpu_online_ids(candidate_json: Str, reference_json: Str) -> 
 }
 
 ## Compares all four CPU identity sets without consulting candidate status flags.
-export pure compare_cpu_sets(candidate_json: Str, reference: CpuSetReference) -> Result[CpuSetComparison] {
+export pure compare_cpu_sets(candidate_json: Str, reference: CpuSetReference) -> Result[CpuSetComparison, Error] {
   let data = json.decode(candidate_json)?
   let possible = compare_cpu_id_sets(json.get(data, ["cpu", "possible"])?.require()?, reference.possible)?
   let present = compare_cpu_id_sets(json.get(data, ["cpu", "present"])?.require()?, reference.present)?
@@ -8582,7 +8609,7 @@ pure meminfo_byte_field(name: Str) -> Bool {
 }
 
 ## Parses bounded procfs memory rows without borrowing the collector's parser.
-export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReferenceCounter]] {
+export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReferenceCounter], Error] {
   var counters: List[MeminfoReferenceCounter] = []
   var seen = set.empty()
   for line in output.lines() {
@@ -8648,7 +8675,7 @@ export pure compare_meminfo(
   candidate_json: Str,
   before: List[MeminfoReferenceCounter],
   after: List[MeminfoReferenceCounter],
-) -> Result[MeminfoReferenceComparison] {
+) -> Result[MeminfoReferenceComparison, Error] {
   let data = json.decode(candidate_json)?
   let candidates = json.get(data, ["memory", "host", "counters"])?.require(List[MeminfoReferenceCounter])?
   var before_by_name: Map[Int] = {}
@@ -8754,7 +8781,7 @@ export pure compare_meminfo(
 }
 
 ## Validates a raw sysfs policy line without assuming a fixed policy vocabulary.
-export pure parse_thp_reference(output: Str) -> Result[Str] {
+export pure parse_thp_reference(output: Str) -> Result[Str, Error] {
   guard output.lines().len() == 1 else {
     return Err(check_failure("THP reference must contain one policy line"))
   }
@@ -8796,7 +8823,7 @@ export pure compare_thp(
   candidate_json: Str,
   before: List[ThpReferencePolicy],
   after: List[ThpReferencePolicy],
-) -> Result[ThpReferenceComparison] {
+) -> Result[ThpReferenceComparison, Error] {
   var before_by_name: Map[Int] = {}
   var after_by_name: Map[Int] = {}
   for index in range(before.len()) {
@@ -8881,7 +8908,7 @@ export pure compare_vulnerabilities(
   candidate_json: Str,
   before: List[VulnerabilityReference],
   after: List[VulnerabilityReference],
-) -> Result[VulnerabilityReferenceComparison] {
+) -> Result[VulnerabilityReferenceComparison, Error] {
   var before_by_name: Map[Str] = {}
   var after_by_name: Map[Str] = {}
   for item in before {
@@ -8960,7 +8987,7 @@ export proc capture_vulnerabilities_bundle(
   source: FsRoot,
   bundle: FsRoot,
   origin: Str,
-) [fs, time, error] -> Result[Unit] {
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("vulnerability capture has an invalid origin"))
   }
@@ -9061,7 +9088,7 @@ export proc capture_vulnerabilities_bundle(
 }
 
 ## Checks the captured file set, source states, digests, and decoded descriptions.
-export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Result[List[VulnerabilityReference]] {
+export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Result[List[VulnerabilityReference], Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 2097152)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("vulnerability capture metadata is missing or incomplete"))
@@ -9119,7 +9146,7 @@ export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Resul
 ## Runs the production CPU collector against the saved vulnerability files.
 export proc replay_vulnerabilities_bundle(
   bundle: FsRoot,
-) [fs, time, error] -> Result[VulnerabilityReferenceComparison] {
+) [fs, time, error] -> Result[VulnerabilityReferenceComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_vulnerabilities_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -9147,7 +9174,7 @@ export pure compare_huge_pages(
   candidate_json: Str,
   before: List[HugePageReferencePool],
   after: List[HugePageReferencePool],
-) -> Result[HugePageReferenceComparison] {
+) -> Result[HugePageReferenceComparison, Error] {
   var before_by_key: Map[Int] = {}
   var after_by_key: Map[Int] = {}
   for index in range(before.len()) {
@@ -9319,7 +9346,7 @@ pure psi_reference_total(value: Str) -> Result[Int] {
 }
 
 ## Parses complete raw PSI rows independently of the production collector.
-export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiReferenceRow]] {
+export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiReferenceRow], Error] {
   if resource not in ["cpu", "memory", "io"] or output.trim() == "" {
     return Err(check_failure("PSI reference has an invalid resource or empty source"))
   }
@@ -9391,7 +9418,7 @@ export pure compare_psi(
   candidate_json: Str,
   before: List[PsiReferenceRow],
   after: List[PsiReferenceRow],
-) -> Result[PsiReferenceComparison] {
+) -> Result[PsiReferenceComparison, Error] {
   var before_by_key: Map[Int] = {}
   var after_by_key: Map[Int] = {}
   for index in range(before.len()) {
@@ -9533,7 +9560,11 @@ proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiRef
 }
 
 ## Saves bounded pressure-stall source bytes and an independently parsed snapshot.
-export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_pressure_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("pressure capture has an invalid origin"))
   }
@@ -9600,7 +9631,7 @@ export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str)
 }
 
 ## Verifies each saved pressure source and reparses its independently saved rows.
-export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
+export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow], Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("pressure capture metadata is missing or incomplete"))
@@ -9649,7 +9680,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
 }
 
 ## Runs the memory collector on saved pressure sources and checks the parsed snapshot.
-export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[PsiReferenceComparison] {
+export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[PsiReferenceComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_pressure_bundle(bundle)?
   let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
@@ -9699,7 +9730,7 @@ pure reference_swap_number(value: Str, signed: Bool) -> Result[Int] {
 }
 
 ## Parses util-linux's raw byte-valued swap table and rejects rows without unambiguous columns.
-export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice]] {
+export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice], Error] {
   let lines = output.trim().split("\n")
   if lines.len() == 0 or lines[0].trim() != "NAME TYPE SIZE USED PRIO" {
     return Err(check_failure("swapon reference has an unexpected header"))
@@ -9736,7 +9767,7 @@ pure proc_swap_name(value: Str) -> Str {
 }
 
 ## Decodes the kernel's KiB-valued swap table independently of the report collector.
-export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenceDevice]] {
+export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenceDevice], Error] {
   let lines = raw.trim().split("\n")
   if lines.len() == 0 or proc_swap_words(lines[0]) != ["Filename", "Type", "Size", "Used", "Priority"] {
     return Err(check_failure("proc swap reference has an unexpected header"))
@@ -9778,7 +9809,11 @@ export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenc
 }
 
 ## Retains one bounded procfs swap table and its independently parsed device oracle.
-export proc capture_proc_swaps_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_proc_swaps_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("proc swap capture has an invalid origin"))
   }
@@ -9828,7 +9863,7 @@ export proc capture_proc_swaps_bundle(source: FsRoot, bundle: FsRoot, origin: St
 }
 
 ## Requires saved bytes, source state, and the parsed device oracle to agree.
-export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[List[SwapReferenceDevice]] {
+export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[List[SwapReferenceDevice], Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("proc swap capture metadata is missing or incomplete"))
@@ -9863,7 +9898,7 @@ export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[Lis
 }
 
 ## Recollects swap areas from saved procfs bytes before comparing the device set.
-export proc replay_proc_swaps_bundle(bundle: FsRoot) [fs, time, error] -> Result[SwapReferenceComparison] {
+export proc replay_proc_swaps_bundle(bundle: FsRoot) [fs, time, error] -> Result[SwapReferenceComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_proc_swaps_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -9880,7 +9915,7 @@ export proc replay_proc_swaps_bundle(bundle: FsRoot) [fs, time, error] -> Result
 export pure compare_swap_devices(
   candidate_json: Str,
   reference: List[SwapReferenceDevice],
-) -> Result[SwapReferenceComparison] {
+) -> Result[SwapReferenceComparison, Error] {
   let data = json.decode(candidate_json)?
   var reference_seen = set.empty()
   for device in reference {
@@ -10054,7 +10089,7 @@ pure pci_reference_argv() -> List[Str] {
 }
 
 ## Parses numeric lspci -D -vmm -n -k records without using the collector's PCI decoder.
-export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
+export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference], Error] {
   if output.byte_len() > 16777216 {
     return Err(check_failure("lspci reference exceeds the bounded output size"))
   }
@@ -10176,7 +10211,7 @@ export pure pci_reference_stable(before: List[PciReference], after: List[PciRefe
 export pure compare_lspci_identity(
   candidate_json: Str,
   reference: List[PciReference],
-) -> Result[PciReferenceComparison] {
+) -> Result[PciReferenceComparison, Error] {
   let candidate_data = json.decode(candidate_json)?
   let section = json.get(candidate_data, ["pci"])?.require(CandidatePciSection)?
   var candidate_field_missing = section.status.state != "complete" or ! section.status.enumeration_succeeded
@@ -10294,7 +10329,7 @@ export pure compare_pci_links(
   candidate_json: Str,
   before: List[PciLinkReference],
   after: List[PciLinkReference],
-) -> Result[PciLinkComparison] {
+) -> Result[PciLinkComparison, Error] {
   var before_by_address: Map[Int] = {}
   var after_by_address: Map[Int] = {}
   for index in range(before.len()) {
@@ -10442,7 +10477,7 @@ export pure compare_pci_bindings(
   candidate_json: Str,
   before: List[PciBindingReference],
   after: List[PciBindingReference],
-) -> Result[PciBindingComparison] {
+) -> Result[PciBindingComparison, Error] {
   var before_by_address: Map[Int] = {}
   var after_by_address: Map[Int] = {}
   for index in range(before.len()) {
@@ -10583,7 +10618,7 @@ export pure compare_thermal_zones(
   candidate_json: Str,
   before: List[ThermalZoneReference],
   after: List[ThermalZoneReference],
-) -> Result[ThermalZoneComparison] {
+) -> Result[ThermalZoneComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["sensors"])?.require(CandidateThermalSection)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -10820,7 +10855,7 @@ pure reference_thermal_index(value: Str) -> Result[Int] {
 }
 
 ## Reads every visible thermal zone and indexed trip through bounded sysfs sources.
-export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List[ThermalZoneReference]] {
+export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List[ThermalZoneReference], Error] {
   let listing = root.children(p"sys/class/thermal", max_entries: 1024)?
   return Ok([]) when listing.state == "absent"
 
@@ -10932,7 +10967,11 @@ proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayo
 }
 
 ## Saves a bounded thermal source tree and an independent parsed reference.
-export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_thermal_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("thermal capture origin must be synthetic_fixture or live_capture"))
   }
@@ -11017,7 +11056,7 @@ export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
 }
 
 ## Validates source identities, presence, byte digests, and the saved reference.
-export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[ThermalZoneReference]] {
+export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[ThermalZoneReference], Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 2097152)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("thermal capture metadata is missing or incomplete"))
@@ -11070,7 +11109,7 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
 }
 
 ## Runs the production sensors collector on the captured thermal tree.
-export proc replay_thermal_bundle(bundle: FsRoot) [fs, time, error] -> Result[ThermalZoneComparison] {
+export proc replay_thermal_bundle(bundle: FsRoot) [fs, time, error] -> Result[ThermalZoneComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_thermal_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -11084,7 +11123,7 @@ export proc replay_thermal_bundle(bundle: FsRoot) [fs, time, error] -> Result[Th
 }
 
 ## Interprets the bus-entry symlink's real device path as a PCI parent chain.
-export pure pci_binding_parent_from_target(target: Path, address: Str) -> Result[Str?] {
+export pure pci_binding_parent_from_target(target: Path, address: Str) -> Result[Str?, Error] {
   var preceding: Str? = null
   var last_bdf: Str? = null
   for component in target.display().split("/") {
@@ -11129,7 +11168,7 @@ proc reference_pci_numa_node(root: FsRoot, source_path: Path) [fs, error] -> Res
 }
 
 ## Reads the PCI binding links and NUMA sentinel independently for every visible function.
-export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[PciBindingReference]] {
+export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[PciBindingReference], Error] {
   let listing = root.children(p"sys/bus/pci/devices", max_entries: 65536)?
   return Ok([]) when listing.state == "absent"
 
@@ -11206,7 +11245,7 @@ proc reference_pci_link_width(root: FsRoot, source_path: Path) [fs, error] -> Re
 }
 
 ## Reads PCIe link speeds and widths for every visible BDF without parsing candidate output.
-export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[PciLinkReference]] {
+export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[PciLinkReference], Error] {
   let listing = root.children(p"sys/bus/pci/devices", max_entries: 65536)?
   return Ok([]) when listing.state == "absent"
 
@@ -11245,7 +11284,7 @@ proc pci_raw_hex(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Res
 }
 
 ## Interprets fixed-width sysfs numbers independently from the collector's decoder.
-export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciReference]] {
+export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciReference], Error] {
   let bindings = read_pci_binding_reference(root)?
   var rows: List[PciReference] = []
   for binding in bindings {
@@ -11372,7 +11411,7 @@ proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
 }
 
 ## Saves PCI bus topology, raw attributes, and independently decoded references.
-export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("PCI capture origin is invalid"))
   }
@@ -11480,7 +11519,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
 }
 
 ## Rejects changed PCI links, source absence, raw bytes, and decoded identities.
-export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleCapture] {
+export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(PciBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "pci-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -11533,7 +11572,7 @@ export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleC
 }
 
 ## Runs the production PCI collector over the captured sysfs tree.
-export proc replay_pci_bundle(bundle: FsRoot) [fs, time, error] -> Result[PciBundleComparison] {
+export proc replay_pci_bundle(bundle: FsRoot) [fs, time, error] -> Result[PciBundleComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
   let capture = validate_pci_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -11698,7 +11737,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
 }
 
 ## Saves bounded USB attributes and raw descriptors with independent reference interpretations.
-export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("USB capture origin is invalid"))
   }
@@ -11818,7 +11857,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
 }
 
 ## Rejects changed USB links, source absence, descriptors, attributes, and reference values.
-export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleCapture] {
+export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(UsbBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "usb-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -11870,7 +11909,7 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
 }
 
 ## Runs the production USB collector against a validated raw sysfs capture.
-export proc replay_usb_bundle(bundle: FsRoot) [fs, time, error] -> Result[UsbBundleComparison] {
+export proc replay_usb_bundle(bundle: FsRoot) [fs, time, error] -> Result[UsbBundleComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
   let capture = validate_usb_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -11903,7 +11942,7 @@ pure ip_link_operstate(value: Str) -> Result[Str] {
 }
 
 ## Parses the ifindex-scoped static facts from iproute2 link JSON.
-export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
+export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference], Error] {
   let rows = json.decode(output)?.require(List[Record])?
   var links: List[IpLinkReference] = []
   var ids = set.empty()
@@ -11982,7 +12021,7 @@ pure network_candidate_enumerated(state: Str, enumeration_succeeded: Bool) -> Bo
 }
 
 ## Compares the stable, independently available link fields by interface index.
-export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReference]) -> Result[IpLinkComparison] {
+export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReference]) -> Result[IpLinkComparison, Error] {
   let candidate_data = json.decode(candidate_json)?
   let state = json.get(candidate_data, ["network", "status", "state"])?.require(Str)?
   let enumeration_succeeded = json.get(candidate_data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
@@ -12197,7 +12236,7 @@ proc network_raw_number(
 }
 
 ## Reads independently exported kernel link facts through bounded rooted sysfs access.
-export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[List[NetworkLinkRawReference]] {
+export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[List[NetworkLinkRawReference], Error] {
   let listing = root.children(p"sys/class/net", max_entries: 65536)?
   return Ok([]) when listing.state == "absent"
 
@@ -12251,7 +12290,7 @@ export pure compare_network_link_raw(
   candidate_json: Str,
   before: List[NetworkLinkRawReference],
   after: List[NetworkLinkRawReference],
-) -> Result[NetworkLinkRawComparison] {
+) -> Result[NetworkLinkRawComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["network"])?.require(CandidateNetworkRawSection)?
   var before_by_index: Map[Int] = {}
@@ -12422,7 +12461,7 @@ pure ip_address_key(ifindex: Int, family: Str, address: Str, prefix_length: Int)
 }
 
 ## Parses the interface-indexed IPv4 and IPv6 address inventory from iproute2 JSON.
-export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference]] {
+export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference], Error] {
   let rows = json.decode(output)?.require(List[Record])?
   var addresses: List[IpAddressReference] = []
   var interfaces = set.empty()
@@ -12522,7 +12561,7 @@ export pure ip_address_reference_stable(before: List[IpAddressReference], after:
 export pure compare_ip_addresses(
   candidate_json: Str,
   reference: List[IpAddressReference],
-) -> Result[IpAddressComparison] {
+) -> Result[IpAddressComparison, Error] {
   let candidate_data = json.decode(candidate_json)?
   let state = json.get(candidate_data, ["network", "status", "state"])?.require(Str)?
   let enumeration_succeeded = json.get(candidate_data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
@@ -12603,7 +12642,7 @@ export pure compare_ip_address_lifetimes(
   candidate_json: Str,
   before: List[IpAddressReference],
   after: List[IpAddressReference],
-) -> Result[IpAddressLifetimeComparison] {
+) -> Result[IpAddressLifetimeComparison, Error] {
   let data = json.decode(candidate_json)?
   let state = json.get(data, ["network", "status", "state"])?.require(Str)?
   let enumerated = json.get(data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
@@ -12843,7 +12882,7 @@ pure network_route_argv(family: Str) -> List[Str] {
 }
 
 ## Parses one family at a time because iproute2 rule JSON omits the address family.
-export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleReference]] {
+export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleReference], Error] {
   if family != "ipv4" and family != "ipv6" {
     return Err(check_failure("ip rule reference needs an explicit IPv4 or IPv6 family"))
   }
@@ -12940,14 +12979,17 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
 }
 
 ## Requires the static rule tuple to be unchanged across the capture bracket.
-export pure ip_rule_reference_stable(before: List[IpRuleReference], after: List[IpRuleReference]) -> Result[Bool] {
+export pure ip_rule_reference_stable(
+  before: List[IpRuleReference],
+  after: List[IpRuleReference],
+) -> Result[Bool, Error] {
   var before_keys = [ip_rule_key(rule)? for rule in before]
   var after_keys = [ip_rule_key(rule)? for rule in after]
   (before_keys |> sort-by .) == (after_keys |> sort-by .)
 }
 
 ## Resolves interface names and scores only rules whose selectors and raw attributes are represented.
-export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReference]) -> Result[IpRuleComparison] {
+export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReference]) -> Result[IpRuleComparison, Error] {
   let candidate_data = json.decode(candidate_json)?
   let state = json.get(candidate_data, ["network", "status", "state"])?.require(Str)?
   let enumeration_succeeded = json.get(candidate_data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
@@ -13383,7 +13425,7 @@ pure ip_route_key(route: IpRouteReference) -> Result[Str] {
 }
 
 ## Parses one family at a time because iproute2 route JSON omits the address family.
-export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRouteReference]] {
+export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRouteReference], Error] {
   if family != "ipv4" and family != "ipv6" {
     return Err(check_failure("ip route reference needs an explicit IPv4 or IPv6 family"))
   }
@@ -13514,14 +13556,20 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
 }
 
 ## Requires route identity and selected static fields to be unchanged across the bracket.
-export pure ip_route_reference_stable(before: List[IpRouteReference], after: List[IpRouteReference]) -> Result[Bool] {
+export pure ip_route_reference_stable(
+  before: List[IpRouteReference],
+  after: List[IpRouteReference],
+) -> Result[Bool, Error] {
   var before_keys = [ip_route_key(route)? for route in before]
   var after_keys = [ip_route_key(route)? for route in after]
   (before_keys |> sort-by .) == (after_keys |> sort-by .)
 }
 
 ## Compares selected static routes after resolving interface indices to names.
-export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteReference]) -> Result[IpRouteComparison] {
+export pure compare_ip_routes(
+  candidate_json: Str,
+  reference: List[IpRouteReference],
+) -> Result[IpRouteComparison, Error] {
   let candidate_data = json.decode(candidate_json)?
   let state = json.get(candidate_data, ["network", "status", "state"])?.require(Str)?
   let enumeration_succeeded = json.get(candidate_data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
@@ -13736,7 +13784,7 @@ pure block_edge_key(edge: BlockReferenceEdge) -> Str {
 }
 
 ## Parses explicit-column lsblk JSON without losing repeated tree nodes or their relationships.
-export pure parse_lsblk_json(output: Str) -> Result[BlockReference] {
+export pure parse_lsblk_json(output: Str) -> Result[BlockReference, Error] {
   let data = json.decode(output)?
   let roots = json.get(data, ["blockdevices"], null)
   guard roots != null else {
@@ -13842,7 +13890,10 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference] {
 }
 
 ## Compares observed block identities and tree edges by kernel name, independent of row order.
-export pure compare_block_devices(candidate_json: Str, reference: BlockReference) -> Result[BlockReferenceComparison] {
+export pure compare_block_devices(
+  candidate_json: Str,
+  reference: BlockReference,
+) -> Result[BlockReferenceComparison, Error] {
   let data = json.decode(candidate_json)?
   let raw = json.get(data, ["storage", "devices"], null)
   if raw == null {
@@ -14060,7 +14111,7 @@ export pure block_reference_stable(before: BlockReference, after: BlockReference
 }
 
 ## Parses the lsblk columns that correspond directly to static queue attributes.
-export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReference]] {
+export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReference], Error] {
   let data = json.decode(output)?
   let raw = json.get(data, ["blockdevices"], null)
   guard raw != null else {
@@ -14107,7 +14158,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
 export pure compare_block_queue_fields(
   candidate_json: Str,
   reference: List[BlockQueueReference],
-) -> Result[BlockQueueFieldComparison] {
+) -> Result[BlockQueueFieldComparison, Error] {
   let data = json.decode(candidate_json)?
   let raw = json.get(data, ["storage", "devices"], null)
   if raw == null {
@@ -14310,7 +14361,7 @@ proc bounded_block_reference_text(root: FsRoot, source_path: Path) [fs, error] -
 export proc read_block_queue_sources(
   root: FsRoot,
   queue: List[BlockQueueReference],
-) [fs, error] -> Result[List[BlockQueueSources]] {
+) [fs, error] -> Result[List[BlockQueueSources], Error] {
   var sources: List[BlockQueueSources] = []
   var seen = set.empty()
   for device in queue {
@@ -14599,7 +14650,7 @@ pure block_raw_scheduler(raw: Str?) -> Result[Str?] {
 }
 
 ## Decodes block identities and relationships independently from the saved sysfs tree.
-export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRawReference] {
+export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRawReference, Error] {
   let layout = block_bundle_layout(root)?
   if layout.listing_state != "complete" or ! layout.complete {
     return Err(check_failure("block raw source enumeration is incomplete"))
@@ -14766,7 +14817,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
 }
 
 ## Checks exact raw sysfs identities and graph edges without partition queue projection.
-export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference) -> Result[BlockRawComparison] {
+export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference) -> Result[BlockRawComparison, Error] {
   let data = json.decode(candidate_json)?
   let raw = json.get(data, ["storage", "devices"], null)
   if raw == null {
@@ -14971,7 +15022,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
 }
 
 ## Saves bounded block sysfs bytes, class links, and layer relationships.
-export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("block capture origin is invalid"))
   }
@@ -15111,7 +15162,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 }
 
 ## Rejects altered block links, source bytes, absences, and independent references.
-export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBundleCapture] {
+export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(BlockBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "block-sysfs-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -15174,7 +15225,7 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
 }
 
 ## Runs the production storage collector over the validated block tree.
-export proc replay_block_bundle(bundle: FsRoot) [fs, time, error] -> Result[BlockBundleComparison] {
+export proc replay_block_bundle(bundle: FsRoot) [fs, time, error] -> Result[BlockBundleComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
   let capture = validate_block_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -15198,7 +15249,7 @@ export pure compare_block_queue_sources(
   candidate_json: Str,
   before: List[BlockQueueSources],
   after: List[BlockQueueSources],
-) -> Result[BlockQueueSourceComparison] {
+) -> Result[BlockQueueSourceComparison, Error] {
   let data = json.decode(candidate_json)?
   let raw = json.get(data, ["storage", "devices"], null)
   if raw == null {
@@ -15502,7 +15553,7 @@ pure decode_mountinfo_reference_field(value: Str) -> Result[Str] {
 }
 
 ## Independently decodes the bounded procfs mount table by mount ID.
-export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountReference]] {
+export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountReference], Error] {
   if source.byte_len() > 4194304 {
     return Err(check_failure("mountinfo reference exceeds the source byte bound"))
   }
@@ -15580,7 +15631,11 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
 }
 
 ## Saves one bounded mount namespace snapshot with an independently parsed oracle.
-export proc capture_mountinfo_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_mountinfo_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("mountinfo capture has an invalid origin"))
   }
@@ -15639,7 +15694,7 @@ export proc capture_mountinfo_bundle(source: FsRoot, bundle: FsRoot, origin: Str
 }
 
 ## Recomputes the mount oracle from digest-checked saved procfs bytes.
-export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List[MountReference]] {
+export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List[MountReference], Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 16777216)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("mountinfo capture metadata is missing or incomplete"))
@@ -15668,7 +15723,7 @@ export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List
 }
 
 ## Recollects mounts from the saved procfs file without querying mount capacity.
-export proc replay_mountinfo_bundle(bundle: FsRoot) [fs, time, error] -> Result[MountComparison] {
+export proc replay_mountinfo_bundle(bundle: FsRoot) [fs, time, error] -> Result[MountComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
   let reference = validate_mountinfo_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -15682,7 +15737,7 @@ export proc replay_mountinfo_bundle(bundle: FsRoot) [fs, time, error] -> Result[
 }
 
 ## Parses every flat findmnt row by mount ID, retaining mounts that share a target or source.
-export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
+export pure parse_findmnt_json(output: Str) -> Result[List[MountReference], Error] {
   let data = json.decode(output)?
   let raw = json.get(data, ["filesystems"], null)
   guard raw != null else {
@@ -15756,7 +15811,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
 }
 
 ## Scores mount IDs and fields without using a target or device path as the identity.
-export pure compare_mounts(candidate_json: Str, reference: List[MountReference]) -> Result[MountComparison] {
+export pure compare_mounts(candidate_json: Str, reference: List[MountReference]) -> Result[MountComparison, Error] {
   let data = json.decode(candidate_json)?
   let raw = json.get(data, ["storage", "mounts"], null)
   if raw == null {
@@ -15959,7 +16014,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
 }
 
 ## Parses a single ID-filtered df observation and rejects missing or unsafe byte counts.
-export pure parse_findmnt_usage_json(output: Str, mount_id: Int) -> Result[MountUsageReference] {
+export pure parse_findmnt_usage_json(output: Str, mount_id: Int) -> Result[MountUsageReference, Error] {
   let data = json.decode(output)?
   let raw = json.get(data, ["filesystems"], null)
   guard raw != null else {
@@ -16003,7 +16058,7 @@ export pure compare_mount_usage(
   mounts: List[MountReference],
   before: List[MountUsageReference],
   after: List[MountUsageReference],
-) -> Result[MountUsageComparison] {
+) -> Result[MountUsageComparison, Error] {
   let eligible = mount_usage_eligible_ids(mounts)
   var before_by_id: Map[Int] = {}
   var after_by_id: Map[Int] = {}
@@ -16121,7 +16176,7 @@ pure module_reference_words(line: Str) -> List[Str] {
 }
 
 ## Decodes the complete procfs row set independently of the report collector.
-export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModuleReference]] {
+export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModuleReference], Error] {
   return [] when raw == ""
 
   var modules: List[KernelModuleReference] = []
@@ -16144,7 +16199,7 @@ export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModu
 }
 
 ## Joins lsmod's size and use count with the state exposed by the same procfs snapshot.
-export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[KernelModuleReference]] {
+export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[KernelModuleReference], Error] {
   let lines = formatted.trim().split("\n")
   if lines.len() == 0 or module_reference_words(lines[0]) != ["Module", "Size", "Used", "by"] {
     return Err(check_failure("lsmod reference has an unexpected header"))
@@ -16195,7 +16250,7 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
 export pure compare_kernel_modules(
   candidate_json: Str,
   reference: List[KernelModuleReference],
-) -> Result[KernelModuleComparison] {
+) -> Result[KernelModuleComparison, Error] {
   let data = json.decode(candidate_json)?
   let raw = json.get(data, ["kernel", "modules"], null)
   let raw_state = json.get(data, ["kernel", "status", "state"], null)
@@ -16319,7 +16374,7 @@ export proc capture_kernel_modules_bundle(
   source: FsRoot,
   bundle: FsRoot,
   origin: Str,
-) [fs, time, error] -> Result[Unit] {
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("kernel module capture has an invalid origin"))
   }
@@ -16369,7 +16424,7 @@ export proc capture_kernel_modules_bundle(
 }
 
 ## Validates saved procfs bytes before returning the independently parsed module set.
-export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result[List[KernelModuleReference]] {
+export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result[List[KernelModuleReference], Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("kernel module capture metadata is missing or incomplete"))
@@ -16404,7 +16459,7 @@ export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result
 }
 
 ## Recollects modules from saved procfs bytes and compares the resulting report.
-export proc replay_kernel_modules_bundle(bundle: FsRoot) [fs, time, error] -> Result[KernelModuleComparison] {
+export proc replay_kernel_modules_bundle(bundle: FsRoot) [fs, time, error] -> Result[KernelModuleComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_kernel_modules_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -16422,7 +16477,7 @@ export pure compare_kernel_command_line(
   sensitive_json: Str,
   redacted_json: Str,
   reference: Bytes,
-) -> Result[KernelCommandLineComparison] {
+) -> Result[KernelCommandLineComparison, Error] {
   let sensitive_data = json.decode(sensitive_json)?
   let redacted_data = json.decode(redacted_json)?
   let sensitive_raw = json.get(sensitive_data, ["kernel", "command_line"], null)
@@ -16452,7 +16507,7 @@ export proc capture_kernel_command_line_bundle(
   source: FsRoot,
   bundle: FsRoot,
   origin: Str,
-) [fs, time, error] -> Result[Unit] {
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("kernel command-line capture has an invalid origin"))
   }
@@ -16497,7 +16552,7 @@ export proc capture_kernel_command_line_bundle(
 }
 
 ## Requires the saved bytes to match the capture digest and exact byte reference.
-export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> Result[Bytes] {
+export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> Result[Bytes, Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("kernel command-line capture metadata is missing or incomplete"))
@@ -16520,7 +16575,9 @@ export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> R
 }
 
 ## Runs the kernel collector twice over saved bytes to check raw output and default redaction.
-export proc replay_kernel_command_line_bundle(bundle: FsRoot) [fs, time, error] -> Result[KernelCommandLineComparison] {
+export proc replay_kernel_command_line_bundle(
+  bundle: FsRoot,
+) [fs, time, error] -> Result[KernelCommandLineComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_kernel_command_line_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -16542,7 +16599,7 @@ export proc replay_kernel_command_line_bundle(bundle: FsRoot) [fs, time, error] 
 export pure compare_kernel_parameters(
   candidate_json: Str,
   reference: List[KernelParameterReference],
-) -> Result[KernelParameterComparison] {
+) -> Result[KernelParameterComparison, Error] {
   var reference_by_key: Map[Int] = {}
   for index in range(reference.len()) {
     let source = reference[index]
@@ -16682,7 +16739,7 @@ export proc capture_kernel_parameters_bundle(
   source: FsRoot,
   bundle: FsRoot,
   origin: Str,
-) [fs, time, error] -> Result[Unit] {
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("kernel parameter capture has an invalid origin"))
   }
@@ -16767,7 +16824,9 @@ export proc capture_kernel_parameters_bundle(
 }
 
 ## Validates every saved source before returning the independently decoded nine-key oracle.
-export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Result[List[KernelParameterReference]] {
+export proc validate_kernel_parameters_bundle(
+  bundle: FsRoot,
+) [fs, error] -> Result[List[KernelParameterReference], Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("kernel parameter capture metadata is missing or incomplete"))
@@ -16816,7 +16875,9 @@ export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Res
 }
 
 ## Recollects the fixed parameter set from the validated raw bundle.
-export proc replay_kernel_parameters_bundle(bundle: FsRoot) [fs, time, error] -> Result[KernelParameterComparison] {
+export proc replay_kernel_parameters_bundle(
+  bundle: FsRoot,
+) [fs, time, error] -> Result[KernelParameterComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_kernel_parameters_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -16834,7 +16895,7 @@ export pure compare_identity(
   candidate_json: Str,
   reference_release: Str,
   reference_architecture: Str,
-) -> Result[IdentityComparison] {
+) -> Result[IdentityComparison, Error] {
   let data = json.decode(candidate_json)?
   let release = json.get(data, ["identity", "kernel_release"])?.require(Str?)?
   let architecture = json.get(data, ["identity", "architecture"])?.require(Str?)?
@@ -16924,7 +16985,7 @@ pure reference_os_release_id(value: Str) -> Bool {
 }
 
 ## Parses ID and VERSION_ID as data; neither variable nor command syntax is evaluated.
-export pure parse_reference_os_release(source: Str) -> Result[OsReleaseReference] {
+export pure parse_reference_os_release(source: Str) -> Result[OsReleaseReference, Error] {
   var id: Str? = null
   var version_id: Str? = null
   for line in source.lines() {
@@ -16964,7 +17025,10 @@ export pure parse_reference_os_release(source: Str) -> Result[OsReleaseReference
 }
 
 ## Compares candidate OS identity to the decoded source values, including absent versions.
-export pure compare_os_release(candidate_json: Str, reference: OsReleaseReference) -> Result[OsReleaseComparison] {
+export pure compare_os_release(
+  candidate_json: Str,
+  reference: OsReleaseReference,
+) -> Result[OsReleaseComparison, Error] {
   let data = json.decode(candidate_json)?
   let candidate_id = json.get(data, ["identity", "os_release", "id"], null).require(Str?)?
   let candidate_version_id = json.get(data, ["identity", "os_release", "version_id"], null).require(Str?)?
@@ -16984,7 +17048,11 @@ pure os_release_bundle_paths() -> List[Str] {
 }
 
 ## Captures both release sources so replay can verify local-file precedence over vendor data.
-export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_os_release_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("os-release capture has an invalid origin"))
   }
@@ -17070,7 +17138,7 @@ export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: St
 }
 
 ## Verifies every saved source before using its independently parsed release identity.
-export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsReleaseReference] {
+export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsReleaseReference, Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("os-release capture metadata is missing or incomplete"))
@@ -17140,7 +17208,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
 }
 
 ## Reruns the production identity collector from the verified release source files.
-export proc replay_os_release_bundle(bundle: FsRoot) [fs, time, error] -> Result[OsReleaseComparison] {
+export proc replay_os_release_bundle(bundle: FsRoot) [fs, time, error] -> Result[OsReleaseComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_os_release_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -17154,7 +17222,7 @@ export proc replay_os_release_bundle(bundle: FsRoot) [fs, time, error] -> Result
 }
 
 ## Decodes fixed-width od output and rejects non-byte tokens and oversized sources.
-export pure parse_reference_od_bytes(output: Str, max_bytes: Int) -> Result[Bytes] {
+export pure parse_reference_od_bytes(output: Str, max_bytes: Int) -> Result[Bytes, Error] {
   guard max_bytes > 0 else {
     return Err(check_failure("device-tree reference has an invalid byte bound"))
   }
@@ -17236,7 +17304,10 @@ pure parse_reference_device_tree_strings(raw: Bytes) -> Result[List[Str]] {
 }
 
 ## Parses a single model and ordered compatible values without using the collector decoder.
-export pure parse_reference_device_tree(model_raw: Bytes?, compatible_raw: Bytes?) -> Result[DeviceTreeReference] {
+export pure parse_reference_device_tree(
+  model_raw: Bytes?,
+  compatible_raw: Bytes?,
+) -> Result[DeviceTreeReference, Error] {
   if model_raw == null and compatible_raw == null {
     return Err(check_failure("device-tree reference has no source files"))
   }
@@ -17264,7 +17335,7 @@ export pure compare_device_tree(
   candidate_json: Str,
   reference: DeviceTreeReference,
   dmi_identity_present: Bool,
-) -> Result[DeviceTreeComparison] {
+) -> Result[DeviceTreeComparison, Error] {
   let data = json.decode(candidate_json)?
   let candidate_source = json.get(data, ["identity", "firmware", "source"], null).require(Str?)?
   let vendor = json.get(data, ["identity", "firmware", "vendor"], null).require(Str?)?
@@ -17319,7 +17390,11 @@ pure device_tree_bundle_paths() -> List[Str] {
 }
 
 ## Saves bounded raw device-tree identity strings and an independently decoded reference.
-export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_device_tree_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("device-tree capture has an invalid origin"))
   }
@@ -17401,7 +17476,7 @@ export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: S
 }
 
 ## Verifies saved source states, digests, and the decoded device-tree reference.
-export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[DeviceTreeReference] {
+export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[DeviceTreeReference, Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 65536)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("device-tree capture metadata is missing or incomplete"))
@@ -17455,7 +17530,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
 }
 
 ## Reruns identity collection on the saved device-tree sources.
-export proc replay_device_tree_bundle(bundle: FsRoot) [fs, time, error] -> Result[DeviceTreeComparison] {
+export proc replay_device_tree_bundle(bundle: FsRoot) [fs, time, error] -> Result[DeviceTreeComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_device_tree_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -17484,7 +17559,7 @@ proc reference_dmi_text(root: FsRoot, source_path: Path) [fs, error] -> Result[D
 }
 
 ## Reads DMI identity fields from bounded class attributes independently of collection.
-export proc read_dmi_identity_reference(root: FsRoot) [fs, error] -> Result[DmiIdentityReference] {
+export proc read_dmi_identity_reference(root: FsRoot) [fs, error] -> Result[DmiIdentityReference, Error] {
   Ok({
     vendor: reference_dmi_text(root, p"sys/class/dmi/id/sys_vendor")?,
     product: reference_dmi_text(root, p"sys/class/dmi/id/product_name")?,
@@ -17515,7 +17590,11 @@ pure dmi_identity_reference_scoreable(reference: DmiIdentityReference) -> Bool {
 }
 
 ## Saves bounded DMI class attributes and an independent raw-value reference.
-export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_dmi_identity_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("DMI identity capture has an invalid origin"))
   }
@@ -17595,7 +17674,7 @@ export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: 
 }
 
 ## Checks DMI class source states, digests, and the saved raw-value reference.
-export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[DmiIdentityReference] {
+export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[DmiIdentityReference, Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 262144)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("DMI identity capture metadata is missing or incomplete"))
@@ -17644,7 +17723,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
 }
 
 ## Reruns sensitive and default identity collection on saved DMI class attributes.
-export proc replay_dmi_identity_bundle(bundle: FsRoot) [fs, time, error] -> Result[DmiIdentityBundleComparison] {
+export proc replay_dmi_identity_bundle(bundle: FsRoot) [fs, time, error] -> Result[DmiIdentityBundleComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_dmi_identity_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -17673,7 +17752,7 @@ export pure compare_dmi_identity(
   candidate_json: Str,
   before: DmiIdentityReference,
   after: DmiIdentityReference,
-) -> Result[DmiIdentityComparison] {
+) -> Result[DmiIdentityComparison, Error] {
   let data = json.decode(candidate_json)?
   let actual = json.get(data, ["identity", "firmware"])?.require(CandidateDmiIdentity)?
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
@@ -17781,7 +17860,7 @@ export pure compare_dmi_identity(
 }
 
 ## Requires default output to withhold present DMI serial and UUID values.
-export pure dmi_identity_redacted(candidate_json: Str, reference: DmiIdentityReference) -> Result[Bool] {
+export pure dmi_identity_redacted(candidate_json: Str, reference: DmiIdentityReference) -> Result[Bool, Error] {
   guard dmi_identity_reference_scoreable(reference) else {
     return Err(check_failure("DMI redaction reference has no complete identity"))
   }
@@ -17806,7 +17885,7 @@ pure uptime_reference_digits(value: Str) -> Bool {
 }
 
 ## Parses the uptime gauge from the kernel's two-column decimal source.
-export pure parse_reference_uptime_seconds(output: Str) -> Result[Int] {
+export pure parse_reference_uptime_seconds(output: Str) -> Result[Int, Error] {
   let columns = output.trim().replace("\t", " ").split(" ") |> where .trim() != ""
   if columns.len() != 2 {
     return Err(check_failure("/proc/uptime requires exactly two decimal columns"))
@@ -17845,7 +17924,11 @@ export pure parse_reference_uptime_seconds(output: Str) -> Result[Int] {
 }
 
 ## Saves one bounded uptime reading and its independently parsed whole seconds.
-export proc capture_uptime_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_uptime_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("uptime capture has an invalid origin"))
   }
@@ -17891,7 +17974,7 @@ export proc capture_uptime_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [
 }
 
 ## Verifies saved uptime bytes before using the parsed whole-second oracle.
-export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int] {
+export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int, Error] {
   let metadata = bundle.read_result(p"capture.json", max_bytes: 65536)?
   if metadata.state != "observed" or metadata.truncated or metadata.data == null {
     return Err(check_failure("uptime capture metadata is missing or incomplete"))
@@ -17926,7 +18009,7 @@ export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int] {
 }
 
 ## Recollects uptime from saved procfs bytes and compares the whole second exactly.
-export proc replay_uptime_bundle(bundle: FsRoot) [fs, time, error] -> Result[UptimeComparison] {
+export proc replay_uptime_bundle(bundle: FsRoot) [fs, time, error] -> Result[UptimeComparison, Error] {
   let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_uptime_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -17995,12 +18078,12 @@ pure process_reference_stat_fields(output: Str) -> Result[ProcStatReferenceField
 }
 
 ## Parses mandatory procfs stat identity even when optional resource counters are unsafe.
-export pure parse_proc_stat_identity_reference(output: Str) -> Result[ProcStatIdentityReference] {
+export pure parse_proc_stat_identity_reference(output: Str) -> Result[ProcStatIdentityReference, Error] {
   process_reference_stat_fields(output)?.identity
 }
 
 ## Parses threads without requiring the stat virtual and resident counters to fit JSON.
-export pure parse_proc_stat_thread_reference(output: Str) -> Result[ProcStatThreadReference] {
+export pure parse_proc_stat_thread_reference(output: Str) -> Result[ProcStatThreadReference, Error] {
   let parsed = process_reference_stat_fields(output)?
   let thread_count = process_reference_number(parsed.fields[17])?
   if thread_count == 0 {
@@ -18011,7 +18094,7 @@ export pure parse_proc_stat_thread_reference(output: Str) -> Result[ProcStatThre
 }
 
 ## Reads the real numeric UID from the one complete status row.
-export pure parse_proc_status_uid_reference(output: Str) -> Result[Int] {
+export pure parse_proc_status_uid_reference(output: Str) -> Result[Int, Error] {
   var found: Int? = null
   for line in output.lines() {
     continue unless line.starts_with("Uid:")
@@ -18036,7 +18119,7 @@ export pure parse_proc_status_uid_reference(output: Str) -> Result[Int] {
 }
 
 ## Converts the two required statm gauges using the process-visible page size.
-export pure parse_proc_statm_reference(output: Str, page_size_bytes: Int) -> Result[ProcStatmReference] {
+export pure parse_proc_statm_reference(output: Str, page_size_bytes: Int) -> Result[ProcStatmReference, Error] {
   if page_size_bytes <= 0 or page_size_bytes > 9007199254740991 {
     return Err(check_failure("process page size is outside the exact byte range"))
   }
@@ -18069,7 +18152,7 @@ export pure parse_proc_statm_reference(output: Str, page_size_bytes: Int) -> Res
 }
 
 ## Selects the unified cgroup path without treating v1 membership as a v2 path.
-export pure parse_proc_cgroup_reference(output: Str) -> Result[Str?] {
+export pure parse_proc_cgroup_reference(output: Str) -> Result[Str?, Error] {
   return Err(check_failure("process cgroup reference is empty")) when output == ""
 
   var unified_path: Str? = null
@@ -18320,7 +18403,7 @@ pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[Vi
 }
 
 ## Resolves the current unified cgroup against the most specific visible mount root.
-export pure resolve_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[VisibleCgroup2Location] {
+export pure resolve_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[VisibleCgroup2Location, Error] {
   let selected = find_visible_cgroup2_location(membership, mountinfo)?
   return Ok(selected) when selected != null
 
@@ -18328,7 +18411,7 @@ export pure resolve_visible_cgroup2_location(membership: Str, mountinfo: Str) ->
 }
 
 ## Enumerates only ancestors visible through the selected cgroup2 mount.
-export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Result[List[VisibleCgroup2Ancestor]] {
+export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Result[List[VisibleCgroup2Ancestor], Error] {
   var ancestors: List[VisibleCgroup2Ancestor] = []
   var visible = location.visible_path
   var source = location.source_path
@@ -18366,7 +18449,7 @@ export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Resul
 }
 
 ## Decodes the kernel's two-field cpu.max value with exact integer bounds.
-export pure parse_cpu_scope_quota(output: Str) -> Result[CpuScopeQuota] {
+export pure parse_cpu_scope_quota(output: Str) -> Result[CpuScopeQuota, Error] {
   let fields = output.trim().replace("\t", " ").split(" ") |> where .trim() != ""
   if fields.len() != 2 {
     return Err(check_failure("CPU scope quota reference requires two fields"))
@@ -18405,7 +18488,7 @@ pure cgroup2_reference_words(value: Str) -> List[Str] {
 }
 
 ## Parses a single unlimited or exact decimal cgroup limit.
-export pure parse_cgroup2_limit(output: Str) -> Result[Cgroup2LimitReference] {
+export pure parse_cgroup2_limit(output: Str) -> Result[Cgroup2LimitReference, Error] {
   let fields = cgroup2_reference_words(output.trim())
   if fields.len() != 1 {
     return Err(check_failure("cgroup2 limit reference needs one value"))
@@ -18417,7 +18500,7 @@ export pure parse_cgroup2_limit(output: Str) -> Result[Cgroup2LimitReference] {
 }
 
 ## Decodes the named CPU counters the report exports from a complete cpu.stat source.
-export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterReference]] {
+export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterReference], Error] {
   var counters: List[Cgroup2CounterReference] = []
   var seen = set.empty()
   for line in output.lines() {
@@ -18456,7 +18539,7 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
 }
 
 ## Decodes per-device I/O counters while rejecting ambiguous device and field identities.
-export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterReference]] {
+export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterReference], Error] {
   var counters: List[Cgroup2CounterReference] = []
   var devices = set.empty()
   for line in output.lines() {
@@ -18596,7 +18679,9 @@ proc visible_cgroup2_reference_paths(root: FsRoot) [fs, error] -> Result[List[Vi
 }
 
 ## Reads all exported cgroup2 resource families for the current group and visible ancestors.
-export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> Result[Cgroup2ResourceObservation] {
+export proc read_cgroup2_resource_reference(
+  root: FsRoot,
+) [fs, time, error] -> Result[Cgroup2ResourceObservation, Error] {
   let started = time.now()
   let paths = visible_cgroup2_reference_paths(root)?
   var ancestors: List[Str] = []
@@ -18834,7 +18919,11 @@ proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayo
 }
 
 ## Captures source bytes privately while separating static drift from live counters.
-export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+export proc capture_cgroup2_bundle(
+  source: FsRoot,
+  bundle: FsRoot,
+  origin: Str,
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("cgroup2 capture origin is invalid"))
   }
@@ -18936,7 +19025,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
 }
 
 ## Requires saved cgroup2 bytes, path selection, and decoded resources to agree.
-export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cgroup2BundleCapture] {
+export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cgroup2BundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "cgroup2-rooted-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -18997,7 +19086,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
 }
 
 ## Runs the production memory collector over validated cgroup2 sources.
-export proc replay_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cgroup2ResourceComparison] {
+export proc replay_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cgroup2ResourceComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 1048576)?
   let capture = validate_cgroup2_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -19022,7 +19111,7 @@ export pure compare_cgroup2_resources(
   candidate_json: Str,
   before: Cgroup2ResourceObservation,
   after: Cgroup2ResourceObservation,
-) -> Result[Cgroup2ResourceComparison] {
+) -> Result[Cgroup2ResourceComparison, Error] {
   guard before.ancestors == after.ancestors else {
     return Err(check_failure("cgroup2 visible ancestor set changed around collection"))
   }
@@ -19128,7 +19217,9 @@ export pure compare_cgroup2_resources(
 }
 
 ## Reads the current cgroup and visible ancestors through bounded raw kernel sources.
-export proc read_cpu_scope_cgroup_reference(root: FsRoot) [fs, time, error] -> Result[CpuScopeCgroupObservation] {
+export proc read_cpu_scope_cgroup_reference(
+  root: FsRoot,
+) [fs, time, error] -> Result[CpuScopeCgroupObservation, Error] {
   let started = time.now()
   let paths = visible_cgroup2_reference_paths(root)?
   var ancestors: List[CpuScopeAncestorReference] = []
@@ -19150,7 +19241,7 @@ export pure compare_cpu_scope_cgroup(
   candidate_json: Str,
   before: CpuScopeCgroupObservation,
   after: CpuScopeCgroupObservation,
-) -> Result[CpuScopeCgroupComparison] {
+) -> Result[CpuScopeCgroupComparison, Error] {
   guard before.ancestors == after.ancestors else {
     return Err(check_failure("CPU scope cgroup reference changed around collection"))
   }
@@ -19255,7 +19346,7 @@ proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs
 }
 
 ## Captures only complete per-process sources whose PID/start identity survives both stat reads.
-export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[ProcessIdentitySnapshot] {
+export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[ProcessIdentitySnapshot, Error] {
   let listing = root.children(p"proc", max_entries: 8192)?
   if listing.state != "complete" {
     return Err(check_failure("process reference enumeration is incomplete"))
@@ -19342,7 +19433,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
 export proc read_process_resource_snapshot(
   root: FsRoot,
   page_size_bytes: Int,
-) [fs, error] -> Result[ProcessResourceSnapshot] {
+) [fs, error] -> Result[ProcessResourceSnapshot, Error] {
   if page_size_bytes <= 0 or page_size_bytes > 9007199254740991 {
     return Err(check_failure("process resource reference has an invalid page size"))
   }
@@ -19451,7 +19542,7 @@ export proc capture_process_bundle(
   bundle: FsRoot,
   origin: Str,
   page_size_bytes: Int,
-) [fs, time, error] -> Result[Unit] {
+) [fs, time, error] -> Result[Unit, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(check_failure("process capture origin is invalid"))
   }
@@ -19700,7 +19791,7 @@ export proc capture_process_bundle(
 }
 
 ## Rejects changed saved process bytes, PID membership, and decoded references.
-export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[ProcessBundleCapture] {
+export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[ProcessBundleCapture, Error] {
   let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
   if capture.schema_version != 1 or capture.reference_adapter != "procfs-process-raw-v1" or capture.origin not in [
     "synthetic_fixture",
@@ -19809,7 +19900,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
 }
 
 ## Runs the production process collector over stable saved procfs sources.
-export proc replay_process_bundle(bundle: FsRoot) [fs, time, error] -> Result[ProcessBundleComparison] {
+export proc replay_process_bundle(bundle: FsRoot) [fs, time, error] -> Result[ProcessBundleComparison, Error] {
   let metadata = capture_metadata_bytes(bundle, max_bytes: 8388608)?
   let capture = validate_process_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
@@ -19841,7 +19932,7 @@ export pure compare_process_identity(
   candidate_json: Str,
   before: List[ProcessIdentityReference],
   after: List[ProcessIdentityReference],
-) -> Result[ProcessIdentityComparison] {
+) -> Result[ProcessIdentityComparison, Error] {
   let data = json.decode(candidate_json)?
   let candidates = json.get(data, ["processes", "processes"])?.require(List[CandidateProcessIdentity])?
   var before_by_pid: Map[Int] = {}
@@ -19935,7 +20026,7 @@ export pure compare_process_resources(
   candidate_json: Str,
   before: List[ProcessResourceReference],
   after: List[ProcessResourceReference],
-) -> Result[ProcessResourceComparison] {
+) -> Result[ProcessResourceComparison, Error] {
   let data = json.decode(candidate_json)?
   let candidates = json.get(data, ["processes", "processes"])?.require(List[CandidateProcessResource])?
   var before_by_pid: Map[Int] = {}
@@ -20045,7 +20136,11 @@ export pure compare_process_resources(
 }
 
 ## Preserves a missing candidate uptime separately from a value outside its source bracket.
-export pure compare_uptime(candidate_json: Str, before_seconds: Int, after_seconds: Int) -> Result[UptimeComparison] {
+export pure compare_uptime(
+  candidate_json: Str,
+  before_seconds: Int,
+  after_seconds: Int,
+) -> Result[UptimeComparison, Error] {
   if before_seconds < 0 or after_seconds < before_seconds {
     return Err(check_failure("reference uptime bracket is invalid"))
   }
@@ -20067,7 +20162,7 @@ export pure compare_uptime(candidate_json: Str, before_seconds: Int, after_secon
 export pure compare_namespace_scope(
   candidate_json: Str,
   references: List[NamespaceReference],
-) -> Result[NamespaceComparison] {
+) -> Result[NamespaceComparison, Error] {
   if references.len() == 0 {
     return Err(check_failure("namespace comparison has no reference identities"))
   }
@@ -20104,7 +20199,7 @@ export pure compare_namespace_scope(
 }
 
 ## Keeps live differential scores tied to a real Linux collection mode.
-export pure require_live_linux_report(candidate_json: Str) -> Result[Unit] {
+export pure require_live_linux_report(candidate_json: Str) -> Result[Unit, Error] {
   let data = json.decode(candidate_json)?
   let source_mode = json.get(data, ["source_mode"])?.require(Str?)?
   if source_mode != "live_linux" {
@@ -20132,7 +20227,7 @@ pure trace_audit_argv(binary: Str, trace_file: Str, xsh_bin: Str, script: Str, a
 }
 
 ## Rejects a manifest whose expected denominator can be accidentally reduced.
-export pure validate(manifest: CoverageManifest) -> Result[Unit] {
+export pure validate(manifest: CoverageManifest) -> Result[Unit, Error] {
   guard manifest.schema_version == 4 else {
     return Err(check_failure("unsupported coverage manifest schema"))
   }
@@ -21115,7 +21210,7 @@ export pure forbidden_process_read_violations(trace: Str) -> List[Str] {
 }
 
 ## Rejects process details that disclose environment, command-line, memory, or open-path data.
-export pure forbidden_process_field_violations(candidate_json: Str) -> Result[List[Str]] {
+export pure forbidden_process_field_violations(candidate_json: Str) -> Result[List[Str], Error] {
   let data = json.decode(candidate_json)?
   let processes = json.get(data, ["processes", "processes"])?.require(List[Record])?
   let violations = [
@@ -21279,7 +21374,7 @@ proc audit_no_subprocess_case(
 }
 
 ## Traces live, saved-report, and failure paths with an unusable command search path.
-export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit] {
+export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] -> Result[Unit, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") {
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
@@ -21436,7 +21531,7 @@ export proc read_device_tree_raw_reference(
   source_path: Path,
   max_bytes: Int,
   name: Str,
-) [fs, process, time, error] -> Result[DeviceTreeRawObservation] {
+) [fs, process, time, error] -> Result[DeviceTreeRawObservation, Error] {
   let started = time.now()
   if ! source_path.exists()? {
     return {data: null, state: "absent", started: started, ended: time.now()}
@@ -22078,7 +22173,7 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
 }
 
 ## Parses one complete decimal sysfs counter within the JSON exact-integer range.
-export pure parse_huge_page_counter_reference(source: Str) -> Result[Int] {
+export pure parse_huge_page_counter_reference(source: Str) -> Result[Int, Error] {
   let value = source.trim()
   return Err(check_failure("huge-page reference counter is empty")) when value == ""
 
@@ -22170,7 +22265,7 @@ proc read_huge_page_pool_reference(
 }
 
 ## Reads global and visible NUMA huge-page pools through an independent bounded parser.
-export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[HugePageObservation] {
+export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[HugePageObservation, Error] {
   let started = time.now()
   var pools: List[HugePageReferencePool] = []
   let global = root.children(p"sys/kernel/mm/hugepages", max_entries: 1024)?
@@ -25333,12 +25428,12 @@ export pure fixture_failure_summary(output: Str, stderr_output: Str) -> Str {
 }
 
 ## Selects one Rust host-boundary test without running unrelated tests.
-export pure rust_fixture_argv(cargo_bin: Str, test_name: Str) -> Result[List[Str]] {
+export pure rust_fixture_argv(cargo_bin: Str, test_name: Str) -> Result[List[Str], Error] {
   rust_fixture_argv_for_target(cargo_bin, test_name, "aarch64-unknown-linux-musl")
 }
 
 ## Carries the selected Linux target into isolated Rust fixture invocations.
-export pure rust_fixture_argv_for_target(cargo_bin: Str, test_name: Str, target: Str) -> Result[List[Str]] {
+export pure rust_fixture_argv_for_target(cargo_bin: Str, test_name: Str, target: Str) -> Result[List[Str], Error] {
   let parts = test_name.split("::")
   if parts.len() != 2 or parts[1] == "" {
     return Err(check_failure("Rust fixture has an invalid test name"))
@@ -25507,7 +25602,7 @@ proc run_fixture_cases(
 export proc validate_and_run(
   ctx: context.Context,
   args: List[Str],
-) [fs, process, env, time, error, io] -> Result[Unit] {
+) [fs, process, env, time, error, io] -> Result[Unit, Error] {
   let parsed = cli.parse(
     args,
     {

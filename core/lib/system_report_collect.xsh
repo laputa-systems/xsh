@@ -65,7 +65,7 @@ error SystemReportSourceError {
 }
 
 ## Parses a canonical kernel state directory without publishing an inexact JSON integer.
-export pure parse_idle_state_index(name: Str) -> Result[Int] {
+export pure parse_idle_state_index(name: Str) -> Result[Int, Error] {
   guard name.starts_with("state") else {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle directory does not start with state"))
   }
@@ -102,7 +102,7 @@ export pure parse_idle_state_index(name: Str) -> Result[Int] {
 }
 
 ## Requires an unambiguous CPU list before a cache can claim shared ownership.
-export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int]] {
+export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int], Error] {
   if let Ok(ids) = report.parse_cpu_list(value) {
     Ok(ids)
   } else {
@@ -111,7 +111,7 @@ export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int]] {
 }
 
 ## Parses the space-separated CPU identifiers exported by CPUFreq policy membership files.
-export pure parse_cpufreq_members(value: Str) -> Result[List[Int]] {
+export pure parse_cpufreq_members(value: Str) -> Result[List[Int], Error] {
   if value == "" or value.trim() != value {
     return Err(
       SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty or has surrounding whitespace"),
@@ -208,7 +208,7 @@ pure parse_hex_component(value: Str) -> Result[Int] {
 }
 
 ## Parses the complete domain:bus:device.function sysfs identity.
-export pure parse_pci_address(value: Str) -> Result[PciAddress] {
+export pure parse_pci_address(value: Str) -> Result[PciAddress, Error] {
   let parts = value.split(":")
   if parts.len() != 3 or ! is_hex_component(parts[0], 4) or ! is_hex_component(parts[1], 2) {
     return Err(SystemReportSourceError.InvalidPciAddress(message: "PCI address has invalid domain or bus syntax"))
@@ -234,7 +234,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress] {
 }
 
 ## Parses one hexadecimal PCI sysfs identifier without converting it to text labels.
-export pure parse_pci_hex_value(value: Str) -> Result[Int] {
+export pure parse_pci_hex_value(value: Str) -> Result[Int, Error] {
   let text = value.trim()
   let digits = if text.starts_with("0x") or text.starts_with("0X") {
     text.split("") |> drop(2).join("")
@@ -255,7 +255,7 @@ export pure parse_pci_hex_value(value: Str) -> Result[Int] {
 }
 
 ## Parses a nonnegative PCI decimal attribute within JSON's exact integer range.
-export pure parse_pci_decimal_value(value: Str) -> Result[Int] {
+export pure parse_pci_decimal_value(value: Str) -> Result[Int, Error] {
   if value == "" {
     return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is empty"))
   }
@@ -277,7 +277,7 @@ export pure parse_pci_decimal_value(value: Str) -> Result[Int] {
 }
 
 ## Parses USB descriptor framing while preserving unknown descriptor payloads.
-export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord]] {
+export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord], Error] {
   let max_bytes = 1048576
   let max_descriptors = 65536
   if data.len() > max_bytes {
@@ -438,7 +438,7 @@ export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
 }
 
 ## Chooses the most specific visible cgroup mount whose root contains the membership path.
-export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?] {
+export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?, Error] {
   guard group_path.starts_with("/") else {
     return Err(SystemReportSourceError.InvalidCgroupMount(message: "cgroup membership path is not absolute"))
   }
@@ -475,7 +475,7 @@ export pure valid_psi_average(value: Str) -> Bool {
 }
 
 ## Parses the bracketed selected value without assuming a fixed policy vocabulary.
-export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy] {
+export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Error] {
   guard value.lines().len() == 1 else {
     return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy must contain one line"))
   }

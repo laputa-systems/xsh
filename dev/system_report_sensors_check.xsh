@@ -38,7 +38,7 @@ pure sensors_json_number(value: Any) -> Result[Float] {
 }
 
 ## Reads bounded `sensors -j -c /dev/null` output without treating feature labels as identities.
-export pure parse_sensors_json(output: Str) -> Result[List[SensorsJsonReading]] {
+export pure parse_sensors_json(output: Str) -> Result[List[SensorsJsonReading], Error] {
   if output.count_chars() > 8388608 {
     return Err(sensors_check_failure("sensors JSON output exceeds its bound"))
   }
@@ -126,7 +126,7 @@ export pure compare_sensors_json(
   candidate_json: Str,
   before: List[SensorsJsonReading],
   after: List[SensorsJsonReading],
-) -> Result[SensorsJsonComparison] {
+) -> Result[SensorsJsonComparison, Error] {
   let document = json.decode(candidate_json)?
   let candidate = json.get(document, ["sensors"])?.require(CandidateSensorSection)?
   var mismatches: List[Str] = []
@@ -209,7 +209,7 @@ export proc compare_live_sensors_json(
   xsh_bin: Str,
   script: Str,
   executable: Str,
-) [fs, process, time, error] -> Result[SensorsJsonRun] {
+) [fs, process, time, error] -> Result[SensorsJsonRun, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") or ! executable.starts_with("/") {
     return Err(sensors_check_failure("sensor comparison requires absolute executable and script paths"))
   }

@@ -821,7 +821,7 @@ pure proc_optional_number(raw: Str, positive: Bool = false) -> ProcOptionalNumbe
 }
 
 ## Parses a process stat record while preserving the command's parentheses.
-export pure parse_proc_stat(text: Str) -> Result[ProcStat] {
+export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error] {
   let pieces = text.trim().split(") ")
   if pieces.len() < 2 {
     return Err(proc_stat_error("process stat record has no command terminator"))
@@ -2907,7 +2907,7 @@ pure smbios_fields(record_type: Int, data: Bytes, offset: Int, length: Int) -> R
 }
 
 ## Parses kernel-exported SMBIOS records without reading physical memory.
-export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult] {
+export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error] {
   var records: List[report.FirmwareRecord] = []
   var issues: List[Str] = []
   if data.len() > 1048576 {
@@ -3019,7 +3019,7 @@ export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult] {
 }
 
 ## Parses interface settings and endpoints without joining identical numbers across configurations.
-export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternate]] {
+export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternate], Error] {
   let records = collectors.parse_usb_descriptor_stream(data)?
   var alternates: List[UsbDescriptorAlternate] = []
   var current_configuration: Int? = null
@@ -6565,7 +6565,7 @@ export proc collect_from_root(
   selected: Str = "",
   sensitive: Bool = false,
   include_local_mount_usage: Bool = false,
-) [fs, time, error] -> Result[report.SystemReport] {
+) [fs, time, error] -> Result[report.SystemReport, Error] {
   if page_size_bytes <= 0 or clock_ticks_per_second <= 0 {
     return Err(
       report.SystemReportError.InvalidExecutionUnits(message: "page size and clock ticks per second must be positive"),
@@ -6835,8 +6835,8 @@ pure mark_unsupported(value: report.SystemReport, name: Str) -> report.SystemRep
 
 ## Exposes fixture-root and live Linux collection through the same typed report.
 export type SystemReportLiveCollector = module {
-  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report.SystemReport]
-  export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report.SystemReport]
+  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report.SystemReport, Error]
+  export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report.SystemReport, Error]
   export proc link_network_device_sources(root: FsRoot, assembled: NetworkCollection, pci_functions: List[report.PciFunction], usb_devices: List[report.UsbDevice]) [fs, error] -> NetworkCollection
   export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> collectors.SourceRead
   export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation
@@ -6847,7 +6847,7 @@ export type SystemReportLiveCollector = module {
 export proc collect_live(
   selected: Str = "",
   sensitive: Bool = false,
-) [fs, process, env, time, error] -> Result[report.SystemReport] {
+) [fs, process, env, time, error] -> Result[report.SystemReport, Error] {
   let uname = system.uname()?
   if uname.sysname != "Linux" {
     return Err(

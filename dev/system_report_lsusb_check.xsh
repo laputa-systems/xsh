@@ -126,7 +126,7 @@ pure words(value: Str) -> List[Str] {
 }
 
 ## Parses stable `Bus NNN Device NNN: ID VVVV:PPPP` prefixes only.
-export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
+export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice], Error] {
   if output.byte_len() > 1048576 {
     return Err(lsusb_failure("lsusb list output exceeds its bound"))
   }
@@ -166,7 +166,7 @@ pure field_after(fields: List[Str], name: Str) -> Str? {
 }
 
 ## Keeps the current root bus while parsing child interface rows.
-export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow]] {
+export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow], Error] {
   if output.byte_len() > 1048576 {
     return Err(lsusb_failure("lsusb tree output exceeds its bound"))
   }
@@ -246,7 +246,7 @@ pure verbose_number(output: Str, key: Str, hex: Bool) -> Result[Int] {
 }
 
 ## Reads one device descriptor without interpreting configuration or interface text tables.
-export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[LsusbDescriptor] {
+export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[LsusbDescriptor, Error] {
   if output.byte_len() > 1048576 {
     return Err(lsusb_failure("lsusb verbose output exceeds its bound"))
   }
@@ -284,7 +284,7 @@ export pure compare_lsusb(
   devices: List[LsusbDevice],
   tree: List[LsusbTreeRow],
   descriptor: LsusbDescriptor,
-) -> Result[LsusbComparison] {
+) -> Result[LsusbComparison, Error] {
   let report = json.decode(candidate_json)?.require(CandidateReport)?
   var candidate_by_key: Map[Int] = {}
   var mismatches = []
@@ -443,7 +443,7 @@ export proc compare_live_lsusb(
   xsh_bin: Str,
   script: Str,
   executable: Str,
-) [fs, process, time, error] -> Result[LsusbRun] {
+) [fs, process, time, error] -> Result[LsusbRun, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") or ! executable.starts_with("/") {
     return Err(lsusb_failure("lsusb comparison requires absolute paths"))
   }

@@ -13,7 +13,7 @@ enum DockerPolicy {
 }
 
 ## Decodes the CLI Docker policy before distribution dispatch.
-export pure parse_docker_policy(value: Str) -> Result[DockerPolicy] {
+export pure parse_docker_policy(value: Str) -> Result[DockerPolicy, Error] {
   match value {
     "auto" => Auto
     "always" => Always
@@ -29,7 +29,7 @@ export pure parse_docker_policy(value: Str) -> Result[DockerPolicy] {
 }
 
 ## Parses a whitespace-delimited Cargo override without using a shell boundary.
-export proc cargo_words(value: Str) [process, error] -> Result[List[Str]] {
+export proc cargo_words(value: Str) [process, error] -> Result[List[Str], Error] {
   return [] when value.trim() == ""
 
   process.argv_words(value)?
@@ -46,7 +46,7 @@ export pure distribution_product_path(target_dir: Path, triple: Str, product: St
 }
 
 ## Copies non-dist profile output into the stable distribution artifact directory.
-export proc normalize(ctx: context.Context) [fs, error] -> Result[Unit] {
+export proc normalize(ctx: context.Context) [fs, error] -> Result[Unit, Error] {
   let profile_dir = targets.profile_directory(ctx.profile)
   let dist_dir = fp"{ctx.target_dir}/{ctx.target.triple}/dist"
 
@@ -62,7 +62,10 @@ export proc normalize(ctx: context.Context) [fs, error] -> Result[Unit] {
 }
 
 ## Executes the native Cargo distribution build with scoped target-specific environment.
-export proc native_dist(ctx: context.Context, build_std_variable: Str) [fs, process, env, error, io] -> Result[Unit] {
+export proc native_dist(
+  ctx: context.Context,
+  build_std_variable: Str,
+) [fs, process, env, error, io] -> Result[Unit, Error] {
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let cflags_name = targets.cflags_variable(ctx.target.triple)?
   let inherited_cflags = env.get_or(cflags_name, "")?
@@ -117,7 +120,7 @@ export proc build_distribution(
   ctx: context.Context,
   docker_policy: DockerPolicy,
   ci: Bool,
-) [fs, process, env, error, io] -> Result[Unit] {
+) [fs, process, env, error, io] -> Result[Unit, Error] {
   let native_possible = targets.native_execution(ctx.target, ctx.host_os, ctx.host_arch)
   let use_docker = match docker_policy {
     Always => true,

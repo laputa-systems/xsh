@@ -56,7 +56,7 @@ export type SmbiosComparison = {
 type SmbiosFieldSpec = {name: Str, offset: Int, width: Int, unit: Str}
 
 ## Reads only the kernel-exported DMI structure table within the collector's bound.
-export proc read_smbios_reference(root: FsRoot) [fs, error] -> Result[SmbiosSourceReference] {
+export proc read_smbios_reference(root: FsRoot) [fs, error] -> Result[SmbiosSourceReference, Error] {
   let source = root.read_result(p"sys/firmware/dmi/tables/DMI", max_bytes: 1048576)?
   return Ok({data: null, complete: true, absent: true}) when source.state == "absent"
 
@@ -297,7 +297,7 @@ pure smbios_reference_fields(
 }
 
 ## Independently walks bounded SMBIOS structures by their length and double-null terminator.
-export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
+export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference, Error] {
   var records: List[SmbiosRecordReference] = []
   var invalid_indices: List[Str] = []
   if data.len() > 1048576 {
@@ -375,7 +375,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
 }
 
 ## Compares every stable raw SMBIOS record, including unknown types and string bytes.
-export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> Result[SmbiosComparison] {
+export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> Result[SmbiosComparison, Error] {
   let data = json.decode(candidate_json)?
   let section = json.get(data, ["firmware"])?.require(CandidateSmbiosSection)?
   let reference = parse_smbios_reference(before)?
@@ -528,11 +528,11 @@ type ValidatedSmbiosBundle = {
 export type SmbiosCaptureSummary = {origin: Str, captured_unix_ms: Int, stable: Bool, scoreable: Bool}
 
 type SmbiosCollector = module {
-  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[Record]
+  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[Record, Error]
 }
 
 type SmbiosReportEncoder = module {
-  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
+  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str, Error]
 }
 
 ## Saves one bounded kernel-exported DMI table and an independently parsed reference.
@@ -540,7 +540,7 @@ export proc capture_smbios_bundle(
   source: FsRoot,
   bundle: FsRoot,
   origin: Str,
-) [fs, time, error] -> Result[SmbiosCaptureSummary] {
+) [fs, time, error] -> Result[SmbiosCaptureSummary, Error] {
   if origin not in ["synthetic_fixture", "live_capture"] {
     return Err(smbios_check_failure("SMBIOS capture origin must identify a fixture or live capture"))
   }
@@ -676,7 +676,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
 }
 
 ## Checks saved raw bytes, capture metadata, and the independent SMBIOS oracle.
-export proc validate_smbios_bundle(bundle: FsRoot) [fs, error] -> Result[SmbiosReference] {
+export proc validate_smbios_bundle(bundle: FsRoot) [fs, error] -> Result[SmbiosReference, Error] {
   validate_smbios_bundle_data(bundle)?.reference
 }
 
@@ -692,7 +692,7 @@ pure smbios_checksum_is_zero(data: Bytes, offset: Int, length: Int) -> Bool {
 }
 
 ## Places a captured DMI table at the offset expected by dmidecode's saved-dump reader.
-export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Bytes] {
+export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Bytes, Error] {
   if entry_point.len() > 32 or table.len() == 0 or table.len() > 1048576 {
     return Err(smbios_check_failure("SMBIOS dump inputs exceed their bounds or lack a table"))
   }
@@ -808,7 +808,7 @@ pure dmidecode_record_from_output(
 }
 
 ## Parses bounded hexadecimal rows without trusting human-readable field labels.
-export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexRecord]] {
+export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexRecord], Error] {
   if output.count_chars() > 8388608 {
     return Err(smbios_check_failure("dmidecode output exceeds the 8 MiB bound"))
   }
@@ -949,7 +949,10 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
 }
 
 ## Corroborates exact raw fields and string bytes with a separate SMBIOS decoder.
-export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str) -> Result[DmidecodeComparison] {
+export pure compare_dmidecode_hex_output(
+  reference: SmbiosReference,
+  output: Str,
+) -> Result[DmidecodeComparison, Error] {
   if ! reference.complete or reference.invalid_indices.len() > 0 {
     return Err(smbios_check_failure("incomplete raw SMBIOS tables cannot be corroborated"))
   }
@@ -1105,7 +1108,7 @@ export type DmidecodeCorroboration = {
 export proc corroborate_smbios_bundle(
   bundle: FsRoot,
   executable: Str,
-) [fs, process, time, error] -> Result[DmidecodeCorroboration] {
+) [fs, process, time, error] -> Result[DmidecodeCorroboration, Error] {
   guard executable.starts_with("/") else {
     return Err(smbios_check_failure("dmidecode executable must be an absolute path"))
   }
@@ -1256,7 +1259,7 @@ export proc corroborate_smbios_bundle(
 }
 
 ## Re-runs the production firmware collector on the saved raw table.
-export proc replay_smbios_bundle(bundle: FsRoot) [fs, time, error] -> Result[SmbiosComparison] {
+export proc replay_smbios_bundle(bundle: FsRoot) [fs, time, error] -> Result[SmbiosComparison, Error] {
   let validated = validate_smbios_bundle_data(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SmbiosCollector)?
   let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "firmware", true)?
@@ -1287,7 +1290,10 @@ pure smbios_require_live_report(candidate_json: Str) -> Result[Unit] {
 }
 
 ## Brackets the kernel-exported DMI table around a sensitive firmware report.
-export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, error, io] -> Result[SmbiosLiveOutcome] {
+export proc compare_live_smbios(
+  xsh_bin: Str,
+  script: Str,
+) [fs, process, time, error, io] -> Result[SmbiosLiveOutcome, Error] {
   if ! xsh_bin.starts_with("/") or ! script.starts_with("/") {
     return Err(smbios_check_failure("--xsh-bin and --script must be absolute paths"))
   }

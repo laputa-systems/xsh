@@ -4,8 +4,8 @@ const service_path = p"services/cache.xsh"
 type Service = exact module {
   export let name: Str
   export optional let description: Str
-  export proc start() [process, error] -> Result[Unit]
-  export proc stop() [process, error] -> Result[Unit]
+  export proc start() [process, error] -> Result[Unit, Error]
+  export proc stop() [process, error] -> Result[Unit, Error]
 }
 
 # end example

@@ -51,11 +51,11 @@ type FixturePciFunction = {
 type SystemReportModel = module {
   export pure frequency_policies_for_cpu(policies: List[FixtureCpuFreqPolicy], cpu_id: Int) -> List[FixtureCpuFreqPolicy]
   export pure pci_parent_function(functions: List[FixturePciFunction], child: FixturePciFunction) -> FixturePciFunction?
-  export pure parse_cpu_list(text: Str) -> Result[List[Int]]
-  export pure select_report_section(report: Record, selected: Str) -> Result[Record]
-  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
-  export pure decode_report_json(text: Str) -> Result[report_model.SystemReport]
-  export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str]
+  export pure parse_cpu_list(text: Str) -> Result[List[Int], Error]
+  export pure select_report_section(report: Record, selected: Str) -> Result[Record, Error]
+  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str, Error]
+  export pure decode_report_json(text: Str) -> Result[report_model.SystemReport, Error]
+  export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str, Error]
 }
 
 type PciAddress = {domain: Int, bus: Int, device: Int, function: Int}
@@ -113,16 +113,16 @@ type UsbDescriptorAlternateFixture = {
 }
 
 type SystemReportCollectors = module {
-  export pure parse_pci_address(value: Str) -> Result[PciAddress]
-  export pure parse_pci_hex_value(value: Str) -> Result[Int]
+  export pure parse_pci_address(value: Str) -> Result[PciAddress, Error]
+  export pure parse_pci_hex_value(value: Str) -> Result[Int, Error]
   export pure pci_parent_address(target: Path, child_address: Str) -> Str?
-  export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord]]
+  export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescriptorRecord], Error]
   export proc read_source_text(root: FsRoot, path: Path, max_bytes: Int = 65536, preserve_whitespace: Bool = false) [fs, error] -> SourceRead
   export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumericObservation
   export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumericObservation
   export pure bounded_size_bytes(source: SourceRead) -> BoundedNumericObservation
   export pure valid_psi_average(value: Str) -> Bool
-  export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy]
+  export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy, Error]
   export pure decode_os_release_value(raw: Str) -> Str?
   export pure valid_os_release_key(key: Str) -> Bool
   export pure valid_os_release_id(value: Str) -> Bool
@@ -134,16 +134,16 @@ type SystemReportCollectors = module {
 type BlockScheduler = {active: Str, available: List[Str]}
 
 type SystemReportLiveCollector = module {
-  export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternateFixture]]
-  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report_model.SystemReport]
-  export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report_model.SystemReport]
+  export proc parse_usb_alternates(data: Bytes) [error] -> Result[List[UsbDescriptorAlternateFixture], Error]
+  export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[report_model.SystemReport, Error]
+  export proc collect_live(selected: Str = "", sensitive: Bool = false) [fs, process, env, time, error] -> Result[report_model.SystemReport, Error]
   export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection
   export proc link_network_device_sources(root: FsRoot, assembled: NetworkCollection, pci_functions: List[report_model.PciFunction], usb_devices: List[report_model.UsbDevice]) [fs, error] -> NetworkCollection
   export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead
   export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation
   export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation
-  export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult]
-  export pure parse_proc_stat(text: Str) -> Result[ProcStat]
+  export pure parse_smbios_table(data: Bytes) -> Result[SmbiosParseResult, Error]
+  export pure parse_proc_stat(text: Str) -> Result[ProcStat, Error]
   export pure usb_parent_address(target: Path) -> Str?
   export pure pci_address_in_target(target: Path) -> Str?
   export pure link_usb_parents(devices: List[report_model.UsbDevice]) -> List[report_model.UsbDevice]

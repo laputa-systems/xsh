@@ -1,7 +1,7 @@
 use core.lib.auth as auth_types
 
 type AuthModule = module {
-  export pure parse_passwd(text: Str) -> Result[List[auth_types.PasswdEntry]]
+  export pure parse_passwd(text: Str) -> Result[List[auth_types.PasswdEntry], Error]
   export pure parse_shadow(text: Str) -> List[auth_types.ShadowRecord]
   export pure render_shadow(records: List[auth_types.ShadowRecord]) -> Str
 }

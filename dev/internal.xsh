@@ -6,7 +6,7 @@ use stage as stages
 use targets
 
 ## Repairs the mounted target tree ownership after a container lifecycle operation.
-export proc repair_target(ctx: context.Context) [process, env, error, io] -> Result[Unit] {
+export proc repair_target(ctx: context.Context) [process, env, error, io] -> Result[Unit, Error] {
   let uid = env.get_or("HOST_UID", "")?.trim()
   let gid = env.get_or("HOST_GID", "")?.trim()
 
@@ -25,7 +25,7 @@ export proc repair_target(ctx: context.Context) [process, env, error, io] -> Res
 }
 
 ## Builds and verifies distribution products inside the selected Linux container.
-export proc container_dist(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc container_dist(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.ensure_dir(ctx.target_dir)?
   defer repair_target(ctx)?
   build.prepare_native_musl(ctx)?
@@ -34,7 +34,7 @@ export proc container_dist(ctx: context.Context) [fs, process, env, error, io] -
 
 ## Runs the privileged developer Linux test sequence inside the container on
 ## release binaries, as every test does.
-export proc linux_developer_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc linux_developer_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.execute(
     stages.command(
       "linux-git-safe-directory",
@@ -120,7 +120,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
 }
 
 ## Runs the selected Linux CI test contract and always repairs mounted output ownership.
-export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.ensure_dir(ctx.target_dir)?
   defer repair_target(ctx)?
   stages.execute(
@@ -202,7 +202,7 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
 }
 
 ## Repairs the bind-mounted coverage result directory after container work completes.
-export proc repair_coverage(ctx: context.Context) [process, env, error, io] -> Result[Unit] {
+export proc repair_coverage(ctx: context.Context) [process, env, error, io] -> Result[Unit, Error] {
   let uid = env.get_or("HOST_UID", "")?.trim()
   let gid = env.get_or("HOST_GID", "")?.trim()
 
@@ -221,7 +221,7 @@ export proc repair_coverage(ctx: context.Context) [process, env, error, io] -> R
 }
 
 ## Runs the existing coverage program from the privileged coverage container.
-export proc container_coverage(ctx: context.Context) [process, env, error, io] -> Result[Unit] {
+export proc container_coverage(ctx: context.Context) [process, env, error, io] -> Result[Unit, Error] {
   defer repair_coverage(ctx)?
   stages.execute(
     stages.command(

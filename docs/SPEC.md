@@ -674,7 +674,7 @@ strings. Ordinary enums cannot be JSON-encoded.
 type BuildPlugin = module {
   export let name: Str
   export optional let description: Str
-  export proc build(root: Path) [fs, process, error] -> Result[Unit]
+  export proc build(root: Path) [fs, process, error] -> Result[Unit, Error]
   export pure label(name: Str) -> Str
 }
 
@@ -720,8 +720,8 @@ are not contract members and are not counted.
 type Service = exact module {
   export let name: Str
   export optional let description: Str
-  export proc start() [process, error] -> Result[Unit]
-  export proc stop() [process, error] -> Result[Unit]
+  export proc start() [process, error] -> Result[Unit, Error]
+  export proc stop() [process, error] -> Result[Unit, Error]
 }
 match module.load(service_path)?.require(Service) {
   Ok(service) => {
@@ -753,7 +753,7 @@ error FetchError {
 }
 
 pure check(text: Str, file: Path) -> Result[Unit, ConfigError] {
-  return Err(ConfigError.Invalid(file, "empty")) when text == ""
+  return Err(ConfigError.Invalid(file:, message: "empty")) when text == ""
 }
 
 pure parse_url(url: Str) -> Result[Str, FetchError] {
@@ -1023,7 +1023,7 @@ const linked: Kind? = .Symlink
 
 Where the expected type of an expression is known, a leading-dot name selects
 a variant of that type: `.Symlink` is a payload-free variant and
-`.Failed(kind, message)` constructs a payload variant with the arguments the
+`.Missing(file:)` constructs a payload variant with the arguments the
 qualified constructor takes. The expected type comes from an annotated binding
 or constant, a parameter, a declared return type (through `return`, a tail,
 and `Ok` or `Err`), a field of a known record schema or constructor, an element

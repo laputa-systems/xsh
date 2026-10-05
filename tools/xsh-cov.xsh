@@ -125,7 +125,7 @@ proc run_suites(
   }
 
   if failed {
-    return Err(ScriptError.Failed("coverage", "one or more coverage suites failed"))
+    return Err(ScriptError.Failed(kind: "coverage", message: "one or more coverage suites failed"))
   }
 
   outputs

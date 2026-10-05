@@ -1,7 +1,7 @@
 type Plugin = module {
   export let name: Str
   export optional let description: Str
-  export proc execute(root: Path) [fs, error] -> Result[Unit]
+  export proc execute(root: Path) [fs, error] -> Result[Unit, Error]
 }
 
 test test_module_load { |ctx|
@@ -37,7 +37,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
 
 type Builder = module {
   export pure label(value: Str) -> Str
-  export proc build(root: Path) [fs, error] -> Result[Path]
+  export proc build(root: Path) [fs, error] -> Result[Path, Error]
 }
 
 # A callable export is called the same way on a contract-checked module
@@ -78,11 +78,11 @@ type MissingOnly = module {
 type MismatchedOnly = module {
   export let name: Int
   export pure label(value: Str, suffix: Str) -> Str
-  export proc build(root: Str) [fs, error] -> Result[Path]
+  export proc build(root: Str) [fs, error] -> Result[Path, Error]
 }
 
 type EffectsAndReturn = module {
-  export proc build(root: Path) [fs, process, error] -> Result[Path]
+  export proc build(root: Path) [fs, process, error] -> Result[Path, Error]
   export pure label(value: Str) -> Int
 }
 
@@ -188,7 +188,7 @@ type ExactFixture = exact module {
   export let name: Str
   export optional let description: Str
   export pure label(value: Str) -> Str
-  export proc build(root: Path) [fs, error] -> Result[Path]
+  export proc build(root: Path) [fs, error] -> Result[Path, Error]
 }
 
 type ExactTooSmall = exact module {

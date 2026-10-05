@@ -43,7 +43,7 @@ impl Checker {
                 ArenaStmtKind::TypeDef(id) => {
                     let contract = matches!(
                         arena.type_def(id).body,
-                        ArenaTypeDefBody::ModuleContract(_)
+                        ArenaTypeDefBody::ModuleContract { .. }
                     );
                     if exported || contract {
                         public.push(inner.span.range());

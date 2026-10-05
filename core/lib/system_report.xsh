@@ -255,7 +255,7 @@ pure parse_cpu_list_integer(value: Str, decimal: Regex) -> Result[Int] {
 }
 
 ## Parses Linux cpulist syntax with sparse IDs and a bounded expanded size.
-export pure parse_cpu_list(text: Str) -> Result[List[Int]] {
+export pure parse_cpu_list(text: Str) -> Result[List[Int], Error] {
   if text == "" or text.trim() != text {
     return Err(cpu_list_error("CPU list is empty or contains surrounding whitespace"))
   }
@@ -844,7 +844,7 @@ pure report_section_name(section: ReportSection) -> Str {
 }
 
 ## Converts the command's section spelling into its closed report selector.
-export pure parse_report_section(value: Str) -> Result[ReportSection] {
+export pure parse_report_section(value: Str) -> Result[ReportSection, Error] {
   match value {
     "identity" => Ok(ReportIdentity)
     "cpu" => Ok(ReportCpu)
@@ -1022,7 +1022,7 @@ pure select_report_domain(report: SystemReport, selected: ReportSection) -> Syst
 }
 
 ## Keeps identity and one named domain, marking every excluded domain.
-export pure select_report_section(report: Record, selected: Str) -> Result[Record] {
+export pure select_report_section(report: Record, selected: Str) -> Result[Record, Error] {
   let typed = report.require(SystemReport)?
   select_report_domain(typed, parse_report_section(selected)?)
 }
@@ -2313,12 +2313,12 @@ pure encode_typed_report_json(report: SystemReport, sensitive: Bool, pretty: Boo
 }
 
 ## Validates a dynamic report at the JSON boundary and emits one document.
-export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str] {
+export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str, Error] {
   encode_typed_report_json(report.require()?, sensitive, pretty)
 }
 
 ## Validates the JSON v1 wire schema and restores its typed tag unions.
-export pure decode_report_json(text: Str) -> Result[SystemReport] {
+export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
   guard let raw = json.decode(text) else { |error|
     return Err(SystemReportError.InvalidJson(message: error.message))
   }
@@ -3281,7 +3281,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
 }
 
 ## Validates a dynamic report and renders terminal-safe text.
-export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str] {
+export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str, Error] {
   render_typed_text(report.require()?, full, sensitive)
 }
 

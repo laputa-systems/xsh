@@ -15,7 +15,7 @@ enum CoverageRequest {
 }
 
 ## Decodes the CLI coverage request before workflow dispatch.
-export pure parse_request(value: Str) -> Result[CoverageRequest] {
+export pure parse_request(value: Str) -> Result[CoverageRequest, Error] {
   match value {
     "" => Automatic
     "native" => NativeRequest
@@ -65,7 +65,7 @@ export pure docker_target_triple(host_arch: targets.HostArch, selected: Str) -> 
 }
 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
-export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[CoverageBackend] {
+export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[CoverageBackend, Error] {
   let alpine_linux = p"/etc/alpine-release".exists()?
   let cargo_available = process.which("cargo") is Ok(_)
   var linker_available = false
@@ -83,7 +83,7 @@ export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Resu
 }
 
 ## Resolves the native linker without hiding an unavailable tool.
-export proc native_linker() [process, env, error] -> Result[Path] {
+export proc native_linker() [process, env, error] -> Result[Path, Error] {
   let configured = env.get_or("COV_NATIVE_LINKER", "")?.trim()
 
   return fp"{configured}" when configured != ""
@@ -98,7 +98,7 @@ export proc native_linker() [process, env, error] -> Result[Path] {
 }
 
 ## Runs the retained native combined Rust LLVM and XSH API coverage program.
-export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.ensure_dir(ctx.coverage_dir)?
   let cargo_value = env.get_or("COV_CARGO", "")?.trim()
   let cargo = if cargo_value == "" { process.which("cargo")?.display() } else { cargo_value }
@@ -135,7 +135,7 @@ export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] 
 }
 
 ## Runs retained coverage logic inside a privileged Docker boundary.
-export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.ensure_dir(ctx.coverage_dir)?
   let image = docker.ensure_image(ctx)?
   let identity = unix.id()?
@@ -187,7 +187,10 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
 }
 
 ## Dispatches the public coverage backend policy.
-export proc coverage(ctx: context.Context, request: CoverageRequest) [fs, process, env, error, io] -> Result[Unit] {
+export proc coverage(
+  ctx: context.Context,
+  request: CoverageRequest,
+) [fs, process, env, error, io] -> Result[Unit, Error] {
   let backend = match request {
     Automatic => automatic_backend(ctx)?,
     NativeRequest => NativeBackend,
