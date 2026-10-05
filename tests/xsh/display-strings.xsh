@@ -190,12 +190,12 @@ print f"{ {a: 2}.a }"
 2
 """
   let candidate = test.temp_file(ctx, name: "display-strings.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == expected
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
-  let linted = run.capture --text "xsht" lint $candidate ?
+  let linted = run.capture --text "xsht" lint $candidate
   let report = linted.stdout + linted.stderr
   assert "err[" not in report, report
   assert "redundant-parens" not in report, report
@@ -212,10 +212,10 @@ let braces = "{{ name }} {unbound}"
 print $called $plain $joined $braces
 """
   let candidate = test.temp_file(ctx, name: "missing-f.xsh", contents: bytes.from_text(source))?
-  let linted = run.capture --text "xsht" lint $candidate ?
+  let linted = run.capture --text "xsht" lint $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("[lint.missing-f-prefix]").len() == 3, report
-  let fixed = run.capture --text "xsht" lint --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix $candidate
   assert fixed.status.exited_with(0), fixed.stdout + fixed.stderr
   let text = candidate.read_text()?
   assert "let plain = f\"hello {name}\"" in text, text

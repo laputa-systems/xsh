@@ -237,7 +237,7 @@ test test_path_display_lint_fixes_drop_needless_text_conversions { |ctx|
 show(p"m", "n")
 """
   let candidate = test.temp_file(ctx, name: "path-display.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -265,7 +265,7 @@ show(p"m", "n")
 m
 m /tmp/m/y n m
 """
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated = run.capture --text "xsht" lint --fix $candidate
   let repeated_succeeded = repeated.status.exited_with(0)
   let repeated_details = repeated.stderr
   assert repeated_succeeded, repeated_details

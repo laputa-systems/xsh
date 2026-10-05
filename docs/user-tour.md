@@ -204,7 +204,7 @@ are never split, globbed, or expanded:
 ```xsh
 const file = "quarterly report.pdf"
 const flags = ["-l", "-a"]
-let argv = run.text printf "<%s>\n" $file @flags "*.log" ?
+let argv = run.text printf "<%s>\n" $file @flags "*.log"
 print argv.trim()
 ```
 
@@ -229,10 +229,11 @@ The `run` family chooses what you get back:
 |---|---|
 | `run cmd ...` | statement: fails the script on nonzero exit; value: `Status` |
 | `run.status cmd ...` | `Status`, never fails on exit code |
-| `run.text cmd ...` | `Result[Str]`: captured stdout |
-| `run.bytes cmd ...` | `Result[Bytes]` |
-| `run.capture --text cmd ...` | `Result[{status, stdout, stderr}]` |
-| `run.stream --text cmd ...` | `Result[Stream[Str]]`: lines as they arrive |
+| `run.text cmd ...` | `Str`: captured stdout; fails on nonzero exit |
+| `run.bytes cmd ...` | `Bytes`; fails on nonzero exit |
+| `run.capture --text cmd ...` | `{status, stdout, stderr}`; fails only if the command cannot run |
+| `run.stream --text cmd ...` | `Stream[Str]`: lines as they arrive |
+| `try run.text cmd ...` | `Result[Str]`: the failure as a value, for any form above |
 
 Byte pipelines and redirections look the way you expect:
 `run tar -cf - $dir | run zstd -q > $archive`. Environment and working
@@ -245,13 +246,13 @@ ends:
 tempdir dir {
   cd $dir {
     p"notes.txt".write("hi\n")
-    let listing = run.text ls ?
+    let listing = run.text ls
     print f"inside: {listing.trim()}"
   }
 }
 
 env LC_ALL=C GREETING="hello world" {
-  let said = run.text printenv GREETING ?
+  let said = run.text printenv GREETING
   print f"child saw: {said.trim()}"
 }
 
@@ -342,12 +343,12 @@ acceptable. `grep` exits 1 for "no matches":
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let log = fp"{scratch.host_path()?}/app.log"
 log.write("ok\nERROR disk full\nok\nERROR link down\n")
 
-let errors = run.text --accept=[0, 1] grep -c ERROR $log ?
-let panics = run.text --accept=[0, 1] grep -c PANIC $log ?
+let errors = run.text --accept=[0, 1] grep -c ERROR $log
+let panics = run.text --accept=[0, 1] grep -c PANIC $log
 print f"errors={errors.trim()} panics={panics.trim()}"
 ```
 
@@ -380,7 +381,7 @@ proc read_port(file: Path) -> Result[Int] {
 }
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let dir = scratch.host_path()?
 fp"{dir}/good".write("8080\n")
 fp"{dir}/bad".write("eighty\n")
@@ -480,19 +481,19 @@ e"STAGE" = "build" # set for the rest of the script
 env LC_ALL=C {
   e"STAGE" = "test" # undone when this scope ends
   e"RETRIES" = 3 # converted like an argv item
-  let stage = run.text printenv STAGE ?
-  let retries = run.text printenv RETRIES ?
+  let stage = run.text printenv STAGE
+  let retries = run.text printenv RETRIES
   print f"child sees: {stage.trim()} {retries.trim()}"
 }
 
 print f"after the scope: STAGE={e"STAGE"?} RETRIES={e"RETRIES" ?? "(unset)"}"
 
 # `NAME=value` before a command sets it for that one child.
-let once = run.text STAGE=deploy printenv STAGE ?
+let once = run.text STAGE=deploy printenv STAGE
 print f"one command saw {once.trim()}; the script still has {e"STAGE"?}"
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let tools = scratch.host_path()?
 let tool = fp"{tools}/hello-tool"
 tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n", mode: 0o755)
@@ -668,7 +669,7 @@ const sample = """
   """
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let log = fp"{scratch.host_path()?}/access.log"
 log.write(sample)
 
@@ -925,7 +926,7 @@ them down. `disk_used_kb` runs a process and can fail, so its effects are
 
 ```xsh
 proc disk_used_kb(root: Path) -> Result[Int] {
-  let out = run.text du -sk $root ?
+  let out = run.text du -sk $root
   out.fields()[0] as Int
 }
 
@@ -936,7 +937,7 @@ pure percent(part: Int, whole: Int) -> Int {
 # This script may touch files and run processes, and nothing else.
 proc main() [fs, process, error] {
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let dir = scratch.host_path()?
   fp"{dir}/data".write("hello\n")
 
@@ -1040,7 +1041,7 @@ returns results in input order:
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let root = scratch.host_path()?
 
 for file in [
@@ -1179,7 +1180,7 @@ itself, whose rooted operations cannot leave the directory:
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 
 scratch.mkdir(p"logs")
 scratch.write(p"logs/app.log", "ok\n")
@@ -1236,7 +1237,7 @@ proc edit_config(file: Path, key: Str, value: Str) {
 }
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let config = fp"{scratch.host_path()?}/sshd_config"
 config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")
 
@@ -1320,7 +1321,7 @@ Combine the two for the common case of a flaky network command:
 ```xsh
 const url = "https://mirror.example.org/releases/index.json"
 let body = retry [1s, 2s, 4s] {
-  run.text --timeout=10s curl -fsS $url ?
+  run.text --timeout=10s curl -fsS $url
 }
 
 match body {
@@ -1454,7 +1455,7 @@ root, and rejects member paths that would escape the destination:
 
 ```xsh
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let dir = scratch.host_path()?
 
 let release = fp"{dir}/app-1.4"

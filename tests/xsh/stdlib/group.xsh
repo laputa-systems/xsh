@@ -17,7 +17,7 @@ test test_group_lookup_and_mutation_contracts { |ctx|
     contents: b"let added_group = group.add(\"builders\", gid: 2000)?\nprint ${added_group.name} ${added_group.gid}\ngroup.remove(\"builders\")?\n",
   )?
 
-  let output = run.text XSH_GROUP_FILE=$group_file "xsh" $script ?
+  let output = run.text XSH_GROUP_FILE=$group_file "xsh" $script
   assert "builders 2000" in output
   test.error_kind(group.lookup("definitely-missing-xsh-group"), "group-not-found")
   test.error_kind(group.add("-bad"), "group-name")

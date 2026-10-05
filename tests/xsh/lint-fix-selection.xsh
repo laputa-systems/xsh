@@ -23,7 +23,7 @@ show(A)
 print ${pick(B)}
 """
   let file = test.temp_file(ctx, name: "selected-fix.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-match-else $file ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-match-else $file
   assert fixed.status.exited_with(0), fixed.stderr
   # Only the selected code is reported, and only its edit is applied.
   assert "check.non-exhaustive-match" not in fixed.stderr, fixed.stderr
@@ -47,10 +47,10 @@ proc show(t: Tok) {
 show(A)
 """
   let file = test.temp_file(ctx, name: "selected-check-fix.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text "xsht" lint --fix --only check.bool-statement $file ?
+  let fixed = run.capture --text "xsht" lint --fix --only check.bool-statement $file
   assert fixed.status.exited_with(0), fixed.stderr
   assert file.read_text()? == source.replace("  t == A", with: "  assert t == A")
-  let all = run.capture --text "xsht" lint $file ?
+  let all = run.capture --text "xsht" lint $file
   assert "check.non-exhaustive-match" in all.stderr, all.stderr
 }
 
@@ -80,11 +80,11 @@ show(A)
 print pick(B)
 """
   let file = test.temp_file(ctx, name: "check-warning.xsh", contents: bytes.from_text(source))?
-  let all = run.capture --text "xsht" lint $file ?
+  let all = run.capture --text "xsht" lint $file
   assert "warn[check.unreachable-match-arm]" in all.stderr, all.stderr
   assert "warn[lint.prefer-match-else]" in all.stderr, all.stderr
   assert all.status.exited_with(2), all.stderr
-  let selected = run.capture --text "xsht" lint --only lint.prefer-match-else $file ?
+  let selected = run.capture --text "xsht" lint --only lint.prefer-match-else $file
   assert "warn[lint.prefer-match-else]" in selected.stderr, selected.stderr
   assert "check.unreachable-match-arm" not in selected.stderr, selected.stderr
   assert selected.status.exited_with(1), selected.stderr

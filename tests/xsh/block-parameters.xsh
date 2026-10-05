@@ -229,18 +229,18 @@ test test_block_header_migration_preserves_comments_and_converges { |ctx|
 print recover()
 """
   let candidate = test.temp_file(ctx, name: "legacy-header.xsh", contents: bytes.from_text(source))?
-  let guidance = run.capture --text "xsht" lint $candidate ?
+  let guidance = run.capture --text "xsht" lint $candidate
   assert "lint.block-header" in guidance.stderr
-  let fixed = run.capture --text "xsht" lint --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert rewritten == source.replace("else |failure| {", with: "else { |failure|")
-  let again = run.capture --text "xsht" lint --fix $candidate ?
+  let again = run.capture --text "xsht" lint --fix $candidate
   assert again.status.exited_with(0), again.stderr
   assert candidate.read_text()? == rewritten
-  let checked = run.capture --text "xsht" check $candidate ?
+  let checked = run.capture --text "xsht" check $candidate
   assert checked.status.exited_with(0), checked.stderr
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert "else { |failure|" in candidate.read_text()?
 }
@@ -262,7 +262,7 @@ let broken: Int = "wrong"
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "unsafe-header.xsh", contents: bytes.from_text(source))?
-    let attempted = run.capture --text "xsht" lint --fix $candidate ?
+    let attempted = run.capture --text "xsht" lint --fix $candidate
     assert ! attempted.status.exited_with(0), attempted.stderr
     assert candidate.read_text()? == source
   }
@@ -339,11 +339,11 @@ print recover()
 """)
   }
 
-  let fixed = run.capture --text "xsht" lint --fix $directory ?
+  let fixed = run.capture --text "xsht" lint --fix $directory
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = shared.read_text()?
   assert rewritten == shared_source.replace("else |failure| {", with: "else { |failure|")
-  let again = run.capture --text "xsht" lint --fix $directory ?
+  let again = run.capture --text "xsht" lint --fix $directory
   assert again.status.exited_with(0), again.stderr
   assert shared.read_text()? == rewritten
 }

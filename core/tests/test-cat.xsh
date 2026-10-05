@@ -1,12 +1,12 @@
 test test_cat_file_and_stdin { |ctx|
   let input = test.temp_file(ctx, name: "input.txt", contents: b"file\n")?
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cat.xsh" -- $input ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cat.xsh" -- $input
 
   assert output == """file
 """
 
   let stdin = test.temp_file(ctx, name: "stdin.txt", contents: b"stdin\n")?
-  let stdin_output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cat.xsh" < ${stdin} ?
+  let stdin_output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cat.xsh" < ${stdin}
 
   assert stdin_output == """stdin
 """

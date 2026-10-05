@@ -1,6 +1,6 @@
 test test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"nested", parents: true)
   root.symlink(p"target", p"nested/link")
   root.write(p"nested/regular", "data")

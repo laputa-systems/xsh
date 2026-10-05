@@ -5,5 +5,5 @@ run (
   "ARCH=arm64"
   "-j${jobs}"
   Image
-) ?
+)
 # end example

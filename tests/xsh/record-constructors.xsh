@@ -205,7 +205,7 @@ test test_record_constructor_tooling_preserves_behavior_and_converges { |ctx|
     assert assertion_condition, assertion_message
   }
   let candidate = test.temp_file(ctx, name: "record-constructor-fix.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = applied.status.exited_with(0)
     let assertion_message = applied.stderr
@@ -220,7 +220,7 @@ test test_record_constructor_tooling_preserves_behavior_and_converges { |ctx|
     assert assertion_condition, assertion_message
   }
   assert after.stdout == before.stdout
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = repeated.status.exited_with(1)
     let assertion_message = repeated.stderr
@@ -434,12 +434,12 @@ print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
   let root = test.temp_dir(ctx, name: "positional-constructor-lint")?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
-  let ignored = run.capture --text "xsht" lint $candidate ?
+  let ignored = run.capture --text "xsht" lint $candidate
   assert "lint.prefer-positional-constructor" not in ignored.stderr, "the rule is opt-in"
   # Naming the rule asks for it as its setting does.
-  let first = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate
   assert first.status.exited_with(1), first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-positional-constructor $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-positional-constructor $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "Entry(marked(p\"usr/bin/xsh\"), Binary, 493)" in fixed, fixed
@@ -448,8 +448,8 @@ print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
   assert "Pair(first: 1, second: 2)" in fixed, fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let second = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
+  let second = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate
   assert second.status.exited_with(0), second.stderr
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
 }

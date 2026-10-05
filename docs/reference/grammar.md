@@ -173,7 +173,10 @@ simple_statement = binding
                  | tempdir_scope "?"?
                  | within_scope "?"?
                  | named_command "?"?
+                 | print_statement
                  | expression_statement
+                 | guarded_expression_statement
+                 | guard_fail_statement
                  | exit_statement
                  | fail_statement ;
 ```
@@ -208,8 +211,8 @@ signal_hook = "on" ( NAME | INT ) ( "-" ~"-" ( ~"pre-cancel" ) ~"=" ~DURATION )*
 ## Statements
 
 ```ebnf
-assignment = IDENT ( "." MEMBER | "[" expression "]" )* ( "=" | ( "+" | "-" | "*" | "/" | "%" ) ~"=" ) expression_or_run
-           | ENV_STRING "=" expression_or_run ;
+assignment = IDENT ( "." MEMBER | "[" expression "]" )* ( "=" | ( "+" | "-" | "*" | "/" | "%" ) ~"=" ) guarded_value
+           | ENV_STRING "=" guarded_value ;
 postfix_guard = ( "when" | "unless" ) expression ;
 guarded_value = expression_item postfix_guard? | run_form ( "?" postfix_guard? )? ;
 return_statement = "return" ( postfix_guard | guarded_value )? ;
@@ -221,6 +224,8 @@ continue_statement = "continue" postfix_guard? ;
 defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
 expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "process" ~"." ~"command" "{" ) expression "?"? ;
+guarded_expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "process" ~"." ~"command" "{" | NAME "when" | NAME "unless" | "within" DURATION | "within" NAME | "tempdir" IDENT "{" ) expression postfix_guard ;
+guard_fail_statement = "guard" !"let" guard_condition "else" "fail" line(expression ( "because" expression )?) ;
 if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
 while_statement = "while" condition block ;
@@ -462,14 +467,14 @@ type_arguments = "[" ( type_expr ( "," type_expr )* )? "]" ;
 
 ```ebnf
 run_statement = run_form "?"? ( "|>" pipe_stage )* ;
-named_command = ( "print" | "eprint" ) ( lead_argument command_argument* )?
-              | "cd" !"=" command_argument block
+named_command = "cd" !"=" command_argument block
               | "env" line(env_assignment+) block
               | !( "print" | "eprint" | "cd" | "env" | "tempdir" IDENT "at" | "atomically" "replace" ) NAME ( lead_argument command_argument* )?
               | NAME ( ~"." ~NAME )+ dotted_lead_argument command_argument* ;
+print_statement = ( "print" | "eprint" ) ( !( "when" | "unless" ) lead_argument ( !( "when" | "unless" ) command_argument )* )? "?"? postfix_guard? ;
 lead_argument = !( "??" | "or" | "and" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not" | "+" | "-" | "*" | "/" | "%" | "is" | "|>" | "=" | "." ) command_argument
               | "-" !~"=" ( ~WORD_PART | ~STRING | ~DOLLAR_NAME dollar_suffix* | ~"${" expression "}" )+ ;
-dotted_lead_argument = !( "??" | "or" | "and" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "+" | "-" | "*" | "/" | "%" | "is" | "|>" | "not" "in" | "=" | "." ) command_argument ;
+dotted_lead_argument = !( "??" | "or" | "and" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "+" | "-" | "*" | "/" | "%" | "is" | "|>" | "not" "in" | "=" | "." | "when" | "unless" ) command_argument ;
 env_assignment = IDENT "=" command_argument ;
 command_argument = call_argument_chain
                  | "@" ( ~IDENT | ~GLOB | ~"(" expression ")" )

@@ -129,15 +129,15 @@ test test_union_word_list_splices_into_argv { |ctx|
   let file = fp"{dir}/input file.txt"
   file.write("payload\n")
   let words: List[Word] = ["--", file, "literal"]
-  let listed = run.capture --text printf "%s\n" @words ?
+  let listed = run.capture --text printf "%s\n" @words
   assert listed.stdout == f"--\n{file}\nliteral\n"
 
   let files = [word for word in words if word is Path]
-  let read = run.capture --text cat @files ?
+  let read = run.capture --text cat @files
   assert read.stdout == "payload\n"
 
   let first: Word = file
-  let one = run.capture --text printf "%s" $first ?
+  let one = run.capture --text printf "%s" $first
   assert one.stdout == f"{file}"
 }
 
@@ -429,11 +429,11 @@ print ${consume("a")?}
 test test_lint_names_the_union_of_a_list_any_filled_from_typed_literals { |ctx|
   let source = "proc compile(cc: Path, flags: List[Str]) [process, error] {\n  var argv: List[Any] = [\"-c\", cc]\n  argv = [@argv, @flags]\n  argv += [\"-o\", /dev/null]\n  print f\"{argv.len()}\"\n}\n\ncompile(/usr/bin/cc, [\"-O2\"])?\n"
   let file = test.temp_file(ctx, name: "argv.xsh", contents: bytes.from_text(source))?
-  let reported = run.capture --text "xsht" lint --only lint.list-any-union $file ?
+  let reported = run.capture --text "xsht" lint --only lint.list-any-union $file
   assert count(reported.stderr, "warn[lint.list-any-union]") == 1, reported.stderr
   assert "the closed type is `List[Union[Str, Path]]`" in reported.stderr, reported.stderr
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.list-any-union $file ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.list-any-union $file
   assert file.read_text()? == source, fixed.stderr
 
   let migrated = source.replace("List[Any]", with: "List[Union[Str, Path]]")

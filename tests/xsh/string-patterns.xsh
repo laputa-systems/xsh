@@ -214,12 +214,12 @@ match   line {
 }
 """
   let candidate = test.temp_file(ctx, name: "text.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let text = candidate.read_text()?
   assert "  f\"{key}={value}\\t{n:d}\" => print $key $value $n\n" in text, text
   assert "  f\"{{{_}}}\" => print \"braced\"\n" in text, text
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let output = test.expect(ctx, text, status: 0)?
   assert output.stdout == "k v 1\n"
@@ -241,16 +241,16 @@ test test_lint_notes_text_taken_apart_by_position { |ctx|
 print ${probe("a=b")}
 """
   let candidate = test.temp_file(ctx, name: "positions.xsh", contents: bytes.from_text(source))?
-  let quiet = run.capture --text --accept=[0, 1] "xsht" lint $candidate ?
+  let quiet = run.capture --text --accept=[0, 1] "xsht" lint $candidate
   assert "lint.prefer-text-pattern" not in quiet.stdout + quiet.stderr, quiet.stderr
 
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-text-pattern $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-text-pattern $candidate
   let report = linted.stdout + linted.stderr
   assert count(report, "warn[lint.prefer-text-pattern]") == 2, report
   assert "if let f\"{a}={b}\" = ..." in report, report
   assert "if let f\"#define {rest}\" = line" in report, report
 
-  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.prefer-text-pattern $candidate ?
+  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.prefer-text-pattern $candidate
   assert fixed.status.exited_with(0) or fixed.status.exited_with(1), fixed.stderr
   assert candidate.read_text()? == source
 }

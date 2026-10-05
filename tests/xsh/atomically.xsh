@@ -224,7 +224,7 @@ test test_atomically_lint_reports_a_body_that_always_leaves { |ctx|
 }
 """
   let candidate = test.temp_file(ctx, name: "atomically-never.xsh", contents: bytes.from_text(source))?
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.atomically-never-replaces $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.atomically-never-replaces $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("lint.atomically-never-replaces").len() == 2, report
   assert ":8:5" in report, report
@@ -499,7 +499,7 @@ print \${{fs.children(p"{root}")? |> count()}}
   assert before.stdout == "one\nstamp\n1\n"
   let candidate = test.temp_file(ctx, name: "atomically.xsh", contents: bytes.from_text(source))?
 
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert """  atomically replace dest as partial {
     partial.write("stamp")
@@ -508,10 +508,10 @@ print \${{fs.children(p"{root}")? |> count()}}
 
   # The lint reports the written statements, never the expansion of an
   # `atomically replace`.
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-atomically-replace $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-atomically-replace $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("lint.prefer-atomically-replace").len() == 2, report
-  let fixed = run.capture --text "xsht" lint --only lint.prefer-atomically-replace --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --only lint.prefer-atomically-replace --fix $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert """proc publish(dest: Path, text: Str) [fs, error] {
@@ -525,7 +525,7 @@ print \${{fs.children(p"{root}")? |> count()}}
 """ in rewritten, rewritten
   assert "fs.rename" not in rewritten
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
@@ -542,12 +542,12 @@ test test_atomically_lint_explains_a_sequence_it_does_not_rewrite { |ctx|
 }
 """
   let candidate = test.temp_file(ctx, name: "atomically-note.xsh", contents: bytes.from_text(source))?
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-atomically-replace $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-atomically-replace $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("lint.prefer-atomically-replace").len() == 2, report
   assert "no automatic rewrite" in report, report
   assert "two adjacent statements" in report, report
-  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-atomically-replace --fix $candidate ?
+  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-atomically-replace --fix $candidate
   assert fixed.stdout + fixed.stderr != ""
   assert candidate.read_text()? == source
 }
@@ -562,7 +562,7 @@ test test_atomically_expansion_is_invisible_to_grep { |ctx|
 fs.rename(p"/tmp/never/a", p"/tmp/never/b")
 """),
   )?
-  let found = run.capture --text "xsht" grep "fs.rename(A, B)" $candidate ?
+  let found = run.capture --text "xsht" grep "fs.rename(A, B)" $candidate
   assert found.stdout.split("fs.rename(").len() == 2, found.stdout
   assert ":4:" in found.stdout
 }

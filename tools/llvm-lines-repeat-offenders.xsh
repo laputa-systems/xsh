@@ -307,7 +307,7 @@ pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {
 }
 
 proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io] -> Result[InputText] {
-  let captured = run.capture --text cargo llvm-lines --release --no-default-features --features tools --lib ?
+  let captured = run.capture --text cargo llvm-lines --release --no-default-features --features tools --lib
 
   if captured.stderr != "" {
     io.write_stdout(captured.stderr)

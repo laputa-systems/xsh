@@ -107,20 +107,20 @@ test test_error_failure_is_the_error_fail_wraps {
 test test_fmt_desugar_and_highlight_know_the_fail_statement { |ctx|
   let source = "proc load(ready: Bool) -> Result[Int] {\n  fail   \"not ready\"   unless ready\n  Ok(1)\n}\n"
   let file = test.temp_file(ctx, name: "fails.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $file ?
+  let formatted = run.capture --text "xsht" fmt $file
   assert formatted.status.exited_with(0), formatted.stderr
   assert file.read_text()? == "proc load(ready: Bool) -> Result[Int] {\n  fail \"not ready\" unless ready\n  Ok(1)\n}\n"
-  let shown = run.capture --text "xsht" highlight $file ?
+  let shown = run.capture --text "xsht" highlight $file
   assert r"""{"kind":"keyword","text":"fail"}""" in shown.stdout, shown.stdout
   let arms = test.temp_file(
     ctx,
     name: "arms.xsh",
     contents: bytes.from_text("match code {\n  0 => exit 3\n  else => fail \"odd\"\n}\n"),
   )?
-  let painted = run.capture --text "xsht" highlight $arms ?
+  let painted = run.capture --text "xsht" highlight $arms
   assert r"""{"kind":"keyword","text":"exit"}""" in painted.stdout, painted.stdout
   assert r"""{"kind":"keyword","text":"fail"}""" in painted.stdout, painted.stdout
-  let expanded = run.capture --text "xsht" desugar $file ?
+  let expanded = run.capture --text "xsht" desugar $file
   assert expanded.status.exited_with(0), expanded.stderr
   assert "    return Err(error.failure(\"not ready\"))" in expanded.stdout, expanded.stdout
 }
@@ -150,13 +150,13 @@ for name in ["", "-v", "ok"] {
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "stage.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
   assert first.status.exited_with(1), first.stderr
   assert "`StageError.Failed` only carries a message; report it with `fail`" in first.stderr, first.stderr
   # One report for each constructor; the declaration is reported once they
   # are gone, and one `--fix` runs both steps.
   assert first.stderr.split("warn[lint.prefer-fail]").len() == 3, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert fixed.starts_with(
@@ -166,16 +166,16 @@ for name in ["", "-v", "ok"] {
   assert "StageError" not in fixed, fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
-  let second = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
+  let second = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
   assert second.status.exited_with(0), second.stderr
 }
 
 test test_prefer_fail_leaves_a_matched_family_alone { |ctx|
   let source = "error StageError = Failed(message: Str)\n\nproc stage() -> Result[Str, StageError] {\n  return Err(StageError.Failed(\"no\"))\n}\n\nmatch stage() {\n  Ok(value) => print $value\n  Err(StageError.Failed {message}) => print $message\n}\n"
   let candidate = test.temp_file(ctx, name: "matched.xsh", contents: bytes.from_text(source))?
-  let linted = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
+  let linted = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
   assert linted.status.exited_with(0), linted.stderr
 }
 
@@ -283,30 +283,30 @@ test test_fail_variant_needs_a_declared_family_and_a_cause_an_error { |ctx|
 test test_because_is_a_word_only_after_a_failure { |ctx|
   let source = "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail   because.message   because   because unless fail.because == 2\n  Ok(1)\n}\n"
   let file = test.temp_file(ctx, name: "because.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $file ?
+  let formatted = run.capture --text "xsht" fmt $file
   assert formatted.status.exited_with(0), formatted.stderr
   assert file.read_text()? == "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail because.message because because unless fail.because == 2\n  Ok(1)\n}\n"
-  let expanded = run.capture --text "xsht" desugar $file ?
+  let expanded = run.capture --text "xsht" desugar $file
   assert expanded.status.exited_with(0), expanded.stderr
   assert "return Err(error.failure(because.message), cause: because)" in expanded.stdout, expanded.stdout
-  let checked = run.capture --text "xsht" check $file ?
+  let checked = run.capture --text "xsht" check $file
   assert checked.status.exited_with(0), checked.stderr
 }
 
 test test_prefer_fail_respells_a_returned_leading_dot_error { |ctx|
   let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  return Err(.Busy()) when target.display() == \"\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(.Missing(path: target), cause: problem)\n  }\n}\n"
   let candidate = test.temp_file(ctx, name: "load.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate
   assert first.status.exited_with(1), first.stderr
   assert "return an error written `.Variant(...)` with `fail`" in first.stderr, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "  fail .Busy() when target.display() == \"\"\n" in fixed, fixed
   assert "    Err(problem) => fail .Missing(path: target) because problem\n" in fixed, fixed
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
-  let checked = run.capture --text "xsht" check $candidate ?
+  let checked = run.capture --text "xsht" check $candidate
   assert checked.status.exited_with(0), checked.stderr
 }
 
@@ -345,9 +345,9 @@ match validate(["a", "", "c"]) {
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "validate.xsh", contents: bytes.from_text(source))?
-  let fixing = run.capture --text "xsht" lint --fix $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix $candidate
   let fixed = candidate.read_text()?
-  let checked = run.capture --text "xsht" check $candidate ?
+  let checked = run.capture --text "xsht" check $candidate
   assert checked.status.exited_with(0), fixed + checked.stderr
   assert fixing.status.exited_with(0), fixing.stderr
   assert "AppError" not in fixed, fixed

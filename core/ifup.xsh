@@ -496,7 +496,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
   let xid = time.now() % 4294967296
   let none = []
   let fd = linux.dhcp_socket(physical)?
-  defer linux.dhcp_close(fd)?
+  defer linux.dhcp_close(fd)
   var offer = empty_lease()
   var attempt = 0
 

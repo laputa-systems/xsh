@@ -29,12 +29,12 @@ proc project(ctx: TestContext, files: Map[Str, Str]) [fs, error] -> Result[Path]
 # Runs `xsht` with `arguments` in `root`.
 proc xsht(root: Path, arguments: List[Str]) [process, env, error] -> Result[Captured] {
   cd (root) {
-    run.capture --text "xsht" @arguments ?
+    run.capture --text "xsht" @arguments
   }
 }
 
 test test_runner_lists_and_filters_native_tests {
-  let listed = run.capture --text "xsht" test --list test_dns ?
+  let listed = run.capture --text "xsht" test --list test_dns
   assert listed.status.exited_with(0), listed.stderr
   assert listed.stdout == """tests/xsh/basic.xsh::test_dns_mock
 tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport
@@ -42,7 +42,7 @@ tests/xsh/stdlib/dns.xsh::test_dns_module_rejects_invalid_arguments
 tests/xsh/stdlib/dns.xsh::test_dns_module_with_mocks
 """
 
-  let exact = run.capture --text "xsht" test --exact tests/xsh/basic.xsh::test_pass ?
+  let exact = run.capture --text "xsht" test --exact tests/xsh/basic.xsh::test_pass
   assert exact.status.exited_with(0), exact.stderr
   assert "running 1 tests" in exact.stdout, exact.stdout
   assert "tests/xsh/basic.xsh::test_pass ... ok" in exact.stdout, exact.stdout
@@ -174,21 +174,21 @@ test test_process_output [process, error] {
 }
 
 test test_runner_cov_list_does_not_execute_tests {
-  let listed = run.capture --text "xsht" test --cov --list --exact tests/xsh/basic.xsh::test_pass ?
+  let listed = run.capture --text "xsht" test --cov --list --exact tests/xsh/basic.xsh::test_pass
   assert listed.status.exited_with(0), listed.stderr
   assert listed.stdout == "tests/xsh/basic.xsh::test_pass\n"
   assert listed.stderr == ""
 }
 
 test test_runner_api_requires_coverage_report {
-  let rejected = run.capture --text "xsht" test --api --list tests/xsh/basic.xsh::test_pass ?
+  let rejected = run.capture --text "xsht" test --api --list tests/xsh/basic.xsh::test_pass
   assert rejected.status.exited_with(2), rejected.stderr
   assert rejected.stdout == ""
   assert rejected.stderr == "xsht: `--api` requires `--cov`\n"
 }
 
 test test_runner_cov_exact_prints_coverage_sections {
-  let ran = run.capture --text "xsht" test --cov --exact tests/xsh/basic.xsh::test_pass ?
+  let ran = run.capture --text "xsht" test --cov --exact tests/xsh/basic.xsh::test_pass
   assert ran.status.exited_with(0), ran.stdout + ran.stderr
   assert "running 1 tests" in ran.stdout, ran.stdout
   assert "tests/xsh/basic.xsh::test_pass ... ok" in ran.stdout, ran.stdout
@@ -199,7 +199,7 @@ test test_runner_cov_exact_prints_coverage_sections {
 }
 
 test test_runner_cov_api_opt_in_prints_api_sections {
-  let ran = run.capture --text "xsht" test --cov --api --exact tests/xsh/basic.xsh::test_pass ?
+  let ran = run.capture --text "xsht" test --cov --api --exact tests/xsh/basic.xsh::test_pass
   assert ran.status.exited_with(0), ran.stdout + ran.stderr
   assert "API coverage" in ran.stdout, ran.stdout
   assert "uncovered standard APIs" in ran.stdout, ran.stdout
@@ -208,7 +208,7 @@ test test_runner_cov_api_opt_in_prints_api_sections {
 
 test test_runner_cov_json_out_writes_structured_report { |ctx|
   let report = fp"{test.temp_dir(ctx, name: "cov-json")?}/coverage.json"
-  let ran = run.capture --text "xsht" test --exact tests/xsh/basic.xsh::test_pass --cov-json $report ?
+  let ran = run.capture --text "xsht" test --exact tests/xsh/basic.xsh::test_pass --cov-json $report
   assert ran.status.exited_with(0), ran.stdout + ran.stderr
   assert "running 1 tests" in ran.stdout, ran.stdout
   assert "coverage report" not in ran.stdout, ran.stdout

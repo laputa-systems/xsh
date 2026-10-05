@@ -18,7 +18,7 @@ proc project(ctx: TestContext, files: Map[Str, Str]) [fs, error] -> Result[Path]
 # Runs `xsht` with `arguments` in `root`.
 proc xsht(root: Path, arguments: List[Str]) [process, env, error] -> Result[Captured] {
   cd (root) {
-    run.capture --text "xsht" @arguments ?
+    run.capture --text "xsht" @arguments
   }
 }
 

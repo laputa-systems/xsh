@@ -30,7 +30,7 @@ test test_user_lookup_and_mutation_contracts { |ctx|
   )?
 
   let output = run.text XSH_PASSWD_FILE=$passwd_file XSH_SHADOW_FILE=$shadow_file XSH_GROUP_FILE=$group_file "xsh" \
-    $script ?
+    $script
   assert "demo /home/demo" in output
   test.error_kind(user.lookup("definitely-missing-xsh-user"), "user-not-found")
   test.error_kind(user.add("-bad"), "user-name")

@@ -107,7 +107,7 @@ proc run_suites(
     print f"coverage suite {suite.name}"
 
     cd suite.path {
-      let captured = run.capture --text $xsht @(suite_test_args(suite.name, suite_json)) ?
+      let captured = run.capture --text $xsht @(suite_test_args(suite.name, suite_json))
       io.write_stdout(captured.stdout)
 
       if captured.stderr != "" {

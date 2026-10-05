@@ -80,7 +80,7 @@ save(p"ROOT/out.txt", ["a", "b"])?
 save(p"ROOT/out.txt", [])?
 """.replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "write-lines.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.prefer-write-lines --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-write-lines --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -100,7 +100,7 @@ save(p"ROOT/out.txt", [])?
   assert after.stdout == before.stdout
   assert after.stdout == "header\na\nb\n\n4\nheader\n\n1\n"
 
-  let remaining = run.capture --text "xsht" lint --only lint.prefer-write-lines $candidate ?
+  let remaining = run.capture --text "xsht" lint --only lint.prefer-write-lines $candidate
   assert "lint.prefer-write-lines" in remaining.stderr
   assert "an empty list" in remaining.stderr
   assert candidate.read_text()? == fixed
@@ -187,7 +187,7 @@ print (describe(p"ROOT/missing.txt"))
 print (describe(p"ROOT/binary"))
 """.replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "read-lines.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.prefer-read-lines --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-read-lines --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -208,7 +208,7 @@ print (describe(p"ROOT/binary"))
   assert "missing.txt" in reported[1]
   assert "not valid UTF-8 at byte 3" in reported[2]
 
-  let repeated = run.capture --text "xsht" lint --only lint.prefer-read-lines $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.prefer-read-lines $candidate
   assert repeated.status.exited_with(0)
   assert "lint.prefer-read-lines" not in repeated.stderr
 }
@@ -221,7 +221,7 @@ test test_line_loop_is_reported_once_for_lazy_lines_and_not_rewritten { |ctx|
 }
 """
   let candidate = test.temp_file(ctx, name: "line-loop.xsh", contents: bytes.from_text(source))?
-  let reported = run.capture --text "xsht" lint --only lint.prefer-file-lines,lint.prefer-read-lines --fix $candidate ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-file-lines,lint.prefer-read-lines --fix $candidate
   assert "lint.prefer-file-lines" in reported.stderr, reported.stderr
   assert "lint.prefer-read-lines" not in reported.stderr, reported.stderr
   assert reported.stderr.split("warn[").len() == 2, reported.stderr

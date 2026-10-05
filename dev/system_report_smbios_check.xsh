@@ -1135,7 +1135,7 @@ export proc corroborate_smbios_bundle(
   let entry_point = validated.entry_point
   let dump = craft_dmidecode_dump(entry_point, validated.data)?
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   scratch.write(p"dump.bin", dump)
   scratch.write(p"version", "")
   scratch.write(p"version-error", "")
@@ -1299,9 +1299,9 @@ export proc compare_live_smbios(
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_smbios_reference(source)?
   let before_ended = time.now()

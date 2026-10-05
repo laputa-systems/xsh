@@ -33,24 +33,24 @@ test test_excludes_are_relative_to_the_config_for_a_directory_argument { |ctx|
   # The config's patterns name paths below the config, whichever directory
   # the tool is pointed at.
   cd $root {
-    let everything = run.capture --text "xsht" check ?
+    let everything = run.capture --text "xsht" check
     assert checked_files(everything.stderr) == "4", everything.stderr
-    let tests = run.capture --text "xsht" check tests ?
+    let tests = run.capture --text "xsht" check tests
     assert checked_files(tests.stderr) == "3", tests.stderr
-    let nested = run.capture --text "xsht" check tests/stdlib ?
+    let nested = run.capture --text "xsht" check tests/stdlib
     assert checked_files(nested.stderr) == "1", nested.stderr
-    let excluded = run.capture --text "xsht" check stdlib generated ?
+    let excluded = run.capture --text "xsht" check stdlib generated
     # Nothing is left to check, so there is no report at all.
     assert excluded.status.exited_with(0) and excluded.stderr == "", excluded.stderr
-    let linted = run.capture --text "xsht" lint tests ?
+    let linted = run.capture --text "xsht" lint tests
     assert checked_files(linted.stderr) == "3", linted.stderr
-    let unformatted = run.capture --text "xsht" fmt --check tests ?
+    let unformatted = run.capture --text "xsht" fmt --check tests
     assert unformatted.stdout.split("needs formatting").len() == 4, unformatted.stdout
     assert "tests/stdlib/kept.xsh: needs formatting" in unformatted.stdout, unformatted.stdout
-    let all_unformatted = run.capture --text "xsht" fmt --check ?
+    let all_unformatted = run.capture --text "xsht" fmt --check
     assert all_unformatted.stdout.split("needs formatting").len() == 5, all_unformatted.stdout
   }
 
-  let absolute = run.capture --text "xsht" check fp"{root}/tests" ?
+  let absolute = run.capture --text "xsht" check fp"{root}/tests"
   assert checked_files(absolute.stderr) == "3", absolute.stderr
 }

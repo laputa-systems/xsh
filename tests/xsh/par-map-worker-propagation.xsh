@@ -16,7 +16,7 @@ proc check_payload(name: Str) [error] -> Result[Unit, ProofError] {
 
 proc prove(root: Path, name: Str) [fs, process, env, error] {
   let cleaned = fp"{root}/{name}.proof-cleaned"
-  defer cleaned.write("")?
+  defer cleaned.write("")
   return when name == "skip"
   env ({PROOF_TARGET: name}) {
     check_payload(name)
@@ -30,7 +30,7 @@ proc prove(root: Path, name: Str) [fs, process, env, error] {
 
 proc build_with_propagation(root: Path, name: Str) [fs, process, env, error] -> Result[Str] {
   let cleaned = fp"{root}/{name}.build-cleaned"
-  defer cleaned.write("")?
+  defer cleaned.write("")
   prove(root, name)
   fp"{root}/{name}.committed".write("")
   f"{name} receipt"
@@ -77,7 +77,7 @@ test test_par_map_worker_keeps_a_propagated_callee_failure_as_data { |ctx|
 # build with `try` and when the stage runs under an enclosing function that
 # has cleanup of its own.
 proc run_stage(root: Path, names: List[Str]) [fs, process, env, error] -> Result[List[Result[Str]]] {
-  defer fp"{root}/stage-cleaned".write("")?
+  defer fp"{root}/stage-cleaned".write("")
   let outcomes = names |> par-map(jobs: 2) { |name|
     let outcome = try { build_with_propagation(root, name)? }
     fp"{root}/{name}.status".write(if outcome is Ok(_) { "built" } else { "failed" })

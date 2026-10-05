@@ -250,7 +250,7 @@ type PstreeOptions = {
 
 proc main(...argv: List[Str]) [fs, process, error] {
   if host.sysname == "Darwin" and argv.is_empty() {
-    let tree = run.text pstree -w ?
+    let tree = run.text pstree -w
     print $tree
     return
   }

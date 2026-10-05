@@ -4,8 +4,8 @@ const log = p"build.log"
 run muon setup \
   -Ddefault_library=shared \
   -Dtests=false \
-  build ?
+  build
 
 run make "ARCH=arm64" -j${jobs} Image \
-  > $log ?
+  > $log
 # end example

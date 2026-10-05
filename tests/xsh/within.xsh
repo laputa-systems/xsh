@@ -56,7 +56,7 @@ test test_within_stops_a_running_child_process {
   assert time.now() - started < 10000
 
   let captured = within 100ms {
-    let text = run.text sh -c "sleep 30; echo late" ?
+    let text = run.text sh -c "sleep 30; echo late"
     text.byte_len()
   }
   assert timed_out(captured)
@@ -356,7 +356,7 @@ within limits.short   {
 }?
 """
   let candidate = test.temp_file(ctx, name: "within.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == """let limits = {short: 5s}
 let slow = within 5s {
@@ -367,7 +367,7 @@ within limits.short {
   print "x"
 }?
 """
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
 }
 
@@ -415,7 +415,7 @@ test test_within_passes_a_mocked_network_call_through { |ctx|
 # request open. The deadline stops the wait, whether the body propagates the
 # interrupted request's error or handles it and tries to go on.
 test test_within_stops_a_network_wait_on_a_silent_server {
-  let probe = run.capture --text --accept=[0, 1, 2, 127] sh -c "nc --help 2>&1" ?
+  let probe = run.capture --text --accept=[0, 1, 2, 127] sh -c "nc --help 2>&1"
   if "BusyBox" not in probe.stdout + probe.stderr {
     test.skip("needs BusyBox nc to hold a connection open")
     return

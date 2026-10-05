@@ -1,5 +1,5 @@
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let dir = scratch.host_path()?
 
 let release = fp"{dir}/app-1.4"

@@ -180,12 +180,12 @@ print \${json.encode(text)?} \${json.encode(leading)?} \${json.encode(formatted)
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "block-string-format.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let fixed = candidate.read_text()?
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let repeated = run.capture --text "xsht" fmt $candidate ?
+  let repeated = run.capture --text "xsht" fmt $candidate
   assert repeated.status.exited_with(0), repeated.stderr
   assert candidate.read_text()? == fixed
 }
@@ -196,14 +196,14 @@ print \${json.encode(value)?}
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "block-string-fix.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   assert """value = \"""
 """ in fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated = run.capture --text "xsht" lint --fix $candidate
   assert repeated.status.exited_with(0), repeated.stderr
   assert candidate.read_text()? == fixed
 }

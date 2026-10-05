@@ -135,14 +135,14 @@ for   i ,  {name,size}   in entries {
 }
 """
   let candidate = test.temp_file(ctx, name: "for-index.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let text = candidate.read_text()?
   assert "\nfor i, {name, size} in entries {\n" in text, text
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
 
-  let desugared = run.capture --text "xsht" desugar $candidate ?
+  let desugared = run.capture --text "xsht" desugar $candidate
   assert desugared.status.exited_with(0), desugared.stderr
   assert "\nfor {index: i, value: {name, size}} in entries |> enumerate() {\n" in desugared.stdout, desugared.stdout
 
@@ -193,13 +193,13 @@ show(["a", "b"])
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "counter-loops.xsh", contents: bytes.from_text(source))?
 
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-for-index $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-for-index $candidate
   let report = linted.stdout + linted.stderr
   assert count(report, "warn[lint.prefer-for-index]") == 2, report
   assert "write `for i, name in names { ... }`" in report, report
   assert "write `for name in names[1..] { ... }`" in report, report
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-for-index $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-for-index $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert "  for i, name in names {\n    print f\"{i}: {name}\"\n  }\n" in rewritten, rewritten
@@ -208,7 +208,7 @@ show(["a", "b"])
   assert "var i = 0" not in rewritten, rewritten
   assert "var at = 1" not in rewritten, rewritten
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
@@ -237,19 +237,19 @@ repeat 2 times {
 }
 """),
   )?
-  let plain = run.capture --text "xsht" grep "for NAME in ITER" $candidate ?
+  let plain = run.capture --text "xsht" grep "for NAME in ITER" $candidate
   assert plain.stdout == f"{candidate}:3:for entry in entries {{\n1 match\n", plain.stdout
 
-  let indexed = run.capture --text "xsht" grep "for INDEX, NAME in ITER" $candidate ?
+  let indexed = run.capture --text "xsht" grep "for INDEX, NAME in ITER" $candidate
   assert ":6:for i, {name, size} in entries {" in indexed.stdout, indexed.stdout
   assert ":9:for row, n in range(3) {" in indexed.stdout, indexed.stdout
   assert indexed.stdout.ends_with("2 matches\n"), indexed.stdout
 
   # A lowercase name matches only itself, and the source is an expression
   # pattern like any other.
-  let named = run.capture --text "xsht" grep "for row, NAME in range(COUNT)" $candidate ?
+  let named = run.capture --text "xsht" grep "for row, NAME in range(COUNT)" $candidate
   assert named.stdout == f"{candidate}:9:for row, n in range(3) {{\n1 match\n", named.stdout
 
-  let rejected = run.capture --text --accept=[2] "xsht" grep "for {name}, ITEM in ITER" $candidate ?
+  let rejected = run.capture --text --accept=[2] "xsht" grep "for {name}, ITEM in ITER" $candidate
   assert "failed to parse pattern" in rejected.stderr, rejected.stderr
 }

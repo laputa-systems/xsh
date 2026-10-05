@@ -39,12 +39,12 @@ test xsh_resolves_use_through_the_project_module_path { |ctx|
   let entry = fp"{root}/bin/entry.xsh"
 
   # No `XSH_MODULE_PATH` entry names the project; only its config does.
-  let run_output = run.capture --text "xsh" $entry ?
+  let run_output = run.capture --text "xsh" $entry
   assert run_output.status.exited_with(0), run_output.stderr
   assert run_output.stdout == "42\n", run_output.stdout
 
   # The same entry checks with the same roots.
-  let check_output = run.capture --text "xsht" check $entry ?
+  let check_output = run.capture --text "xsht" check $entry
   assert check_output.status.exited_with(0), check_output.stderr
 }
 
@@ -57,7 +57,7 @@ test xsh_reads_the_nearest_config_and_defaults_to_its_directory { |ctx|
   fp"{root}/bin/shared/answers.xsh".write(answers_module.replace("42", with: "7"))
   fp"{root}/bin/nested/entry.xsh".write(entry_script)
 
-  let output = run.capture --text "xsh" fp"{root}/bin/nested/entry.xsh" ?
+  let output = run.capture --text "xsh" fp"{root}/bin/nested/entry.xsh"
   assert output.status.exited_with(0), output.stderr
   assert output.stdout == "7\n", output.stdout
 }
@@ -78,7 +78,7 @@ export let value: Int = answers.answer()
 print ${{module.load(p"{root}/plugins/plugin.xsh")?.require(AnswerPlugin)?.value}}
 """)
 
-  let output = run.capture --text "xsh" fp"{root}/bin/load.xsh" ?
+  let output = run.capture --text "xsh" fp"{root}/bin/load.xsh"
   assert output.status.exited_with(0), output.stderr
   assert output.stdout == "42\n", output.stdout
 }
@@ -98,17 +98,17 @@ print ${origin.root}
 """)
   let env_root = from_env.display()
 
-  let project_only = run.capture --text "xsh" $entry ?
+  let project_only = run.capture --text "xsh" $entry
   assert project_only.status.exited_with(0), project_only.stderr
   assert project_only.stdout == "project\n", project_only.stdout
 
   env XSH_MODULE_PATH=$env_root {
-    let with_env = run.capture --text "xsh" $entry ?
+    let with_env = run.capture --text "xsh" $entry
     assert with_env.status.exited_with(0), with_env.stderr
     assert with_env.stdout == "environment\n", with_env.stdout
 
     fp"{root}/bin/origin.xsh".write(origin_module("file"))
-    let beside = run.capture --text "xsh" $entry ?
+    let beside = run.capture --text "xsh" $entry
     assert beside.status.exited_with(0), beside.stderr
     assert beside.stdout == "file\n", beside.stdout
   }
@@ -120,18 +120,18 @@ test a_malformed_project_config_stops_the_run { |ctx|
   # The entry needs nothing from the config; the run still refuses to start.
   entry.write("print started\n")
 
-  let undecodable = run.capture --text "xsh" $entry ?
+  let undecodable = run.capture --text "xsh" $entry
   assert undecodable.status.exited_with(2), undecodable.stderr
   assert "xsh: invalid xsht-config.ini" in undecodable.stderr, undecodable.stderr
   assert undecodable.stdout == "", undecodable.stdout
 
   fp"{root}/xsht-config.ini".write("[module_path]\nroot = lib\n")
-  let section = run.capture --text "xsh" $entry ?
+  let section = run.capture --text "xsh" $entry
   assert section.status.exited_with(2), section.stderr
   assert "module_path: expected a list of directories" in section.stderr, section.stderr
   assert section.stdout == "", section.stdout
 
-  let checked = run.capture --text "xsht" check $entry ?
+  let checked = run.capture --text "xsht" check $entry
   assert checked.status.exited_with(2), checked.stderr
   assert "module_path: expected a list of directories" in checked.stderr, checked.stderr
 }
@@ -140,7 +140,7 @@ test a_script_without_a_project_config_has_no_project_roots { |ctx|
   let root = project(ctx, "no-config", "module_path = lib\n")?
   fp"{root}/xsht-config.ini".remove(missing_ok: false)
 
-  let output = run.capture --text "xsh" fp"{root}/bin/entry.xsh" ?
+  let output = run.capture --text "xsh" fp"{root}/bin/entry.xsh"
   assert ! output.status.ok, output.stdout
   assert "failed to read module" in output.stderr, output.stderr
   assert "`module_path` in the project's xsht-config.ini" in output.stderr, output.stderr
@@ -152,14 +152,14 @@ test the_project_config_is_found_from_any_starting_directory { |ctx|
   let root = project(ctx, "any-cwd", "module_path = lib\n")?
 
   cd fp"{root}/bin" {
-    let run_output = run.capture --text "xsh" entry.xsh ?
+    let run_output = run.capture --text "xsh" entry.xsh
     assert run_output.status.exited_with(0), run_output.stderr
     assert run_output.stdout == "42\n", run_output.stdout
 
-    let check_output = run.capture --text "xsht" check entry.xsh ?
+    let check_output = run.capture --text "xsht" check entry.xsh
     assert check_output.status.exited_with(0), check_output.stderr
 
-    let through_parent = run.capture --text "xsh" "../bin/entry.xsh" ?
+    let through_parent = run.capture --text "xsh" "../bin/entry.xsh"
     assert through_parent.status.exited_with(0), through_parent.stderr
   }
 }
@@ -174,15 +174,15 @@ test the_starting_directory_is_not_a_module_root { |ctx|
   fp"{root}/sub/entry.xsh".write(entry_script)
 
   cd root {
-    let run_output = run.capture --text "xsh" "sub/entry.xsh" ?
+    let run_output = run.capture --text "xsh" "sub/entry.xsh"
     assert ! run_output.status.ok, run_output.stdout
     assert "failed to read module" in run_output.stderr, run_output.stderr
 
-    let check_output = run.capture --text "xsht" check "sub/entry.xsh" ?
+    let check_output = run.capture --text "xsht" check "sub/entry.xsh"
     assert ! check_output.status.ok, check_output.stderr
     assert "failed to read module" in check_output.stderr, check_output.stderr
 
-    let lint_output = run.capture --text "xsht" lint "sub/entry.xsh" ?
+    let lint_output = run.capture --text "xsht" lint "sub/entry.xsh"
     assert "failed to read module" in lint_output.stderr, lint_output.stderr
   }
 }
@@ -205,11 +205,11 @@ test answers_resolve_through_the_nearest_config {
 """)
 
   cd outer {
-    let tested = run.capture --text "xsht" test "project/tests/test-answers.xsh" ?
+    let tested = run.capture --text "xsht" test "project/tests/test-answers.xsh"
     assert tested.status.exited_with(0), f"{tested.stdout}{tested.stderr}"
     assert "1 passed" in tested.stdout, tested.stdout
 
-    let tree = run.capture --text "xsht" ast "project/tests/test-answers.xsh" ?
+    let tree = run.capture --text "xsht" ast "project/tests/test-answers.xsh"
     assert tree.status.exited_with(0), tree.stderr
   }
 }

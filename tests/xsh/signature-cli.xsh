@@ -210,7 +210,7 @@ cli main(name: Str = "world") [io] {
   }
 
   let linted = cd (root) {
-    run.capture --text "xsht" lint ?
+    run.capture --text "xsht" lint
   }?
   assert linted.status.exited_with(0), linted.stderr
   assert "check.cli-entry" not in linted.stderr, linted.stderr
@@ -248,7 +248,7 @@ cli main(root: Path, jobs: marker.WorkerCount = 4) [error] { print ${marker.valu
     {arguments: ["operand", "--jobs=nope"], status: 2},
     {arguments: ["operand", "--jobs=-1"], status: 2},
   ] {
-    let output = run.capture --text ${ctx.xsh_bin} $script @arguments ?
+    let output = run.capture --text ${ctx.xsh_bin} $script @arguments
     assert output.status.exited_with(status), output.stderr
     assert ! imported_marker.exists()?
     assert ! entry_marker.exists()?
@@ -256,7 +256,7 @@ cli main(root: Path, jobs: marker.WorkerCount = 4) [error] { print ${marker.valu
     assert "usage:" in usage, usage
   }
 
-  let output = run.capture --text ${ctx.xsh_bin} $script missing-path-is-allowed --jobs=8 ?
+  let output = run.capture --text ${ctx.xsh_bin} $script missing-path-is-allowed --jobs=8
   assert output.status.exited_with(0), output.stderr
   assert output.stdout == "1 1 8\n"
   assert imported_marker.exists()?

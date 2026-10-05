@@ -80,7 +80,7 @@ show(p"lib")
 show(p"")
 """
   let candidate = test.temp_file(ctx, name: "path-text-query.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.path-text-query --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.path-text-query --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -110,7 +110,7 @@ false true true
 false false false
 false false false
 """
-  let repeated = run.capture --text "xsht" lint --only lint.path-text-query $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.path-text-query $candidate
   assert repeated.status.exited_with(0)
   assert "lint.path-text-query" not in repeated.stderr
 }

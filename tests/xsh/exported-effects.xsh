@@ -30,7 +30,7 @@ proc run_tool(ctx: TestContext, tool: Str, args: List[Str], main: Str) [fs, proc
   fp"{root}/helper.xsh".write(HELPER)
   let entry = fp"{root}/main.xsh"
   entry.write(main.replace("@ROOT@", with: root.display()))
-  let out = run.capture --text $tool @args $entry ?
+  let out = run.capture --text $tool @args $entry
   {ok: out.status.exited_with(0), out: out.stdout + out.stderr}
 }
 

@@ -84,7 +84,7 @@ bNumConfigurations 1
 
 test test_system_report_lsusb_live_reference_uses_bounded_selected_descriptor {
   let tools_root = fs.tempdir()?
-  defer tools_root.close()?
+  defer tools_root.close()
   tools_root.write(
     p"lsusb",
     """#!/bin/sh

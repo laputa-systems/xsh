@@ -8,14 +8,14 @@ const print_arguments = r"""for arg in args {
 
 test test_xsh_passes_script_arguments_without_a_separator { |ctx|
   let script = test.temp_file(ctx, name: "argv-no-separator.xsh", contents: bytes.from_text(print_arguments))?
-  let output = run.capture --text ${ctx.xsh_bin} $script -f needle ?
+  let output = run.capture --text ${ctx.xsh_bin} $script -f needle
   assert output.status.exited_with(0), output.stderr
   assert output.stdout == "-f\nneedle\n"
 }
 
 test test_xsh_drops_a_separator_before_script_arguments { |ctx|
   let script = test.temp_file(ctx, name: "argv-with-separator.xsh", contents: bytes.from_text(print_arguments))?
-  let output = run.capture --text ${ctx.xsh_bin} $script -- -f needle ?
+  let output = run.capture --text ${ctx.xsh_bin} $script -- -f needle
   assert output.status.exited_with(0), output.stderr
   assert output.stdout == "-f\nneedle\n"
 }
@@ -41,7 +41,7 @@ test test_xsh_runs_dynamic_record_methods_by_default { |ctx|
 }
 
 test test_xsh_rejects_the_removed_strict_lower_option { |ctx|
-  let output = run.capture --text ${ctx.xsh_bin} --strict-lower ?
+  let output = run.capture --text ${ctx.xsh_bin} --strict-lower
   assert ! output.status.exited_with(0), output.stdout
   assert "unknown xsh option '--strict-lower'" in output.stderr, output.stderr
 }

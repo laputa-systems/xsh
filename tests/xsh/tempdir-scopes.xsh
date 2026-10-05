@@ -112,7 +112,7 @@ test test_tempdir_and_item_blocks_format_stably { |ctx|
     print $count
     """
   let candidate = test.temp_file(ctx, name: "tempdir-format.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   # A braced item block and the unbraced stage argument are one form.
   assert candidate.read_text()?.trim() == r"""
@@ -124,7 +124,7 @@ test test_tempdir_and_item_blocks_format_stably { |ctx|
     let count = tempdir work { fs.files(work)? |> count() }?
     print $count
     """
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == "1\n0\n"

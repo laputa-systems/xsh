@@ -1,5 +1,5 @@
 test test_printenv_named { |ctx|
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/printenv.xsh" -- PATH ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/printenv.xsh" -- PATH
   assert output.trim() != ""
 }
 

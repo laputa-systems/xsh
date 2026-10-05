@@ -13,7 +13,7 @@ proc publish(output: Path) {
 # end example
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let output = fp"{scratch.host_path()?}/report"
 publish(output)
 print output.read_text()?.trim()

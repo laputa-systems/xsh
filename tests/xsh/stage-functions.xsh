@@ -340,13 +340,13 @@ proc main() [error] {
 }
 """
   let candidate = test.temp_file(ctx, name: "stage-function-fix.xsh", contents: bytes.from_text(source))?
-  let diagnosed = run.capture --text "xsht" lint $candidate ?
+  let diagnosed = run.capture --text "xsht" lint $candidate
   {
     let assertion_condition = "lint.stage-callable" in diagnosed.stderr
     let assertion_message = diagnosed.stderr
     assert assertion_condition, assertion_message
   }
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = applied.status.exited_with(0)
     let assertion_message = applied.stderr
@@ -385,12 +385,12 @@ proc main() [error] {
   }
   assert output.stdout == """2
 """
-  let _ = run.capture --text "xsht" lint --fix $candidate ?
+  let _ = run.capture --text "xsht" lint --fix $candidate
   assert candidate.read_text()? == fixed
   let broken = source + """missing_name()
 """
   let invalid = test.temp_file(ctx, name: "stage-function-invalid.xsh", contents: bytes.from_text(broken))?
-  let refused = run.capture --text "xsht" lint --fix $invalid ?
+  let refused = run.capture --text "xsht" lint --fix $invalid
   {
     let assertion_condition = ! refused.status.exited_with(0)
     let assertion_message = refused.stderr

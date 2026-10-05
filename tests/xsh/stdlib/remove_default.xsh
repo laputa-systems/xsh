@@ -64,7 +64,7 @@ print (clean(present)?)
 """.replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "remove-redundant.xsh", contents: bytes.from_text(source))?
 
-  let applied = run.capture --text "xsht" lint --only lint.redundant-default --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.redundant-default --fix $candidate
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   assert fixed == source.replace("stale.remove(missing_ok: true)", with: "stale.remove()")
@@ -77,7 +77,7 @@ print (clean(present)?)
   assert after.stdout == before.stdout
   assert after.status == before.status
 
-  let repeated = run.capture --text "xsht" lint --only lint.redundant-default $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.redundant-default $candidate
   assert repeated.status.exited_with(0)
   assert "lint.redundant-default" not in repeated.stderr
 }

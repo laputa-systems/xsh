@@ -35,8 +35,8 @@ composition model and replaces its semantics.
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
   leaves a function only through a form that is visible at the site: the `?`
-  operator; an `assert`, a `fail`, or a plain `run` whose command fails; a
-  conversion `value as T` that fails; and
+  operator; an `assert`, a `fail`, or a `run` form whose command fails, unless
+  `try` or `run.status` captures it; a conversion `value as T` that fails; and
   a `Result` in a control position, where it cannot be a value, which is a
   statement-position `Result[Unit]` or a `Result[Bool]` condition. Nothing
   else propagates: a `Result` in a binding, an argument, an operand, or a
@@ -184,10 +184,10 @@ line.
 run muon setup \
   -Ddefault_library=shared \
   -Dtests=false \
-  build ?
+  build
 
 run make "ARCH=arm64" -j${jobs} Image \
-  > $log ?
+  > $log
 ```
 
 A comment runs to the end of its line, so only the last line of a continued
@@ -986,7 +986,7 @@ pure describe(word: Word) -> Str {
 
 proc build(root: Path) [process, error] {
   let task = Task(tool: "make", args: ["-C", root, "all"])
-  run $task.tool @(task.args) ?
+  run $task.tool @(task.args)
 
   for word in task.args {
     if word is Path {
@@ -2264,6 +2264,17 @@ A statement-position `Result[Unit]` propagates without `?` (8.1), so
 Both leave a `?` whose operand would otherwise be the value of its body, such
 as the tail of a `try` block that is bound.
 
+Two more statements fail without `?` and are written without it: a plain
+`run` statement, which fails with its command (11.1), and `defer call()` or
+`errdefer call()` whose call is a `Result[Unit]`, which fails its action
+(8.7). `run make ?` and `defer root.close()?` behave exactly as the bare
+forms do, with the same error, traceback, and cleanup order, and
+`lint.redundant-propagation` removes the `?` from each. A plain `run` that is
+the value of its body is a `Status`, and there `?` is its propagation. A
+capturing run form (`run.text`, `run.bytes`, `run.capture`, `run.stream`)
+fails with its command in every position, so a `?` after one is removed the
+same way (11.1).
+
 A `Result` propagates without `?` only in a control position, where it
 cannot be a value. There are two. A statement-position `Result[Unit]` is one
 (8.1). A `Result[Bool]` condition is the other:
@@ -2487,6 +2498,36 @@ block the following statements may rely on the opposite of the condition, as
 after the `if`. Group a run payload: `return (run.status make) when ready`;
 without parentheses `when ready` would become argv words.
 
+An expression statement, an assignment, and a `print` or `eprint` statement
+accept the same guard, with the same expansion:
+
+```xsh
+print f"copying {src}" when verbose
+tmp.remove() when tmp.exists()
+copied = 1 unless src == tmp
+```
+
+means exactly
+
+```xsh
+if verbose { print f"copying {src}" }
+
+if tmp.exists() { tmp.remove() }
+if src == tmp {} else {
+  copied = 1
+}
+```
+
+No other statement takes one. A binding is not guarded because its name would
+be bound inside the branch, and a command other than `print` and `eprint`
+reads `when` and `unless` as argument words, as a run form does. In a `print`
+or `eprint` statement a bare word `when` or `unless` always begins the guard;
+quote the word to print it. An assignment whose value is a run form is
+guarded after the form's `?` or with the form in parentheses. A statement
+that begins with a bare or dotted name followed by a space is a command, so
+`cleanup when done` passes two words to `cleanup`; write the call
+`cleanup() when done`.
+
 `guard cond else { ... }` continues when `cond` holds and otherwise runs the
 block. It is sugar too:
 
@@ -2509,6 +2550,23 @@ continuation on every path (by `return`, `break`, `continue`, or `exit`), or
 the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
+
+When the block would hold one `fail`, the braces may be left out:
+
+```xsh
+guard raw > 0 else fail f"port {raw} is not positive"
+```
+
+means exactly
+
+```xsh
+if raw > 0 {} else {
+  return Err(error.failure(f"port {raw} is not positive"))
+}
+```
+
+which is also what `fail ... unless cond` means. Only `fail` may follow
+`else` without braces, and that `fail` takes no postfix guard of its own.
 
 `fail message` returns from the enclosing function with an error that carries
 `message`. It is sugar:
@@ -2663,7 +2721,9 @@ runtime failure, `return`, `break`, `continue`, or cancellation.
 
 A deferred block resolves names at registration but reads their values when it
 runs; snapshot an earlier value with `let`. Its statements are in statement
-position, so a failing `Result[Unit]` stops that action. Other actions still
+position, so a failing `Result[Unit]` stops that action, and a deferred
+expression that is a `Result[Unit]` fails its action the same way, with or
+without `?`. Other actions still
 run. The original failure stays primary; if there was none, the first cleanup
 failure becomes primary, and later cleanup failures are reported with their
 locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
@@ -2824,7 +2884,9 @@ when the body succeeded. The error type is the narrowest common family, or
 type.
 
 `try` directly before a run form captures that one form: `try run.text cmd`
-is the form's `Result` as a value (11.1).
+is the form's `Result` as a value (11.1). A run form inside a `try` block
+fails into the block like any other failure, so `try { run.text cmd }` is a
+`Result[Str]` and not a nested one.
 
 `retry [delays] { ... }` re-runs a block on failure:
 
@@ -3286,7 +3348,7 @@ env CC=clang CFLAGS="-O2 -pipe" {
   run make
 }
 
-let version = cd (repo) { run.text git describe ? }?
+let version = cd (repo) { run.text git describe }?
 let report = env (overlay) { collect_report()? }?
 ```
 
@@ -3422,7 +3484,7 @@ the moment the scope is entered:
 
 ```xsh
 let page = within limit {
-  run.text curl --silent $url ?
+  run.text curl --silent $url
 }
 match page {
   Ok(text) => text
@@ -3539,33 +3601,51 @@ call and never searches `PATH`.
 |---|---|---|
 | `run cmd ...` | `Status` | asserts success; propagates `ProcessError` |
 | `run.status cmd ...` | `Status`, never fails on exit status | status discarded |
-| `run.text cmd ...` | `Result[Str, ProcessError]` (stdout) | |
-| `run.bytes cmd ...` | `Result[Bytes, ProcessError]` (stdout) | |
-| `run.capture --text cmd ...` | `Result[{status, stdout: Str, stderr: Str}, ProcessError]` | |
-| `run.capture --bytes cmd ...` | `Result[{status, stdout: Bytes, stderr: Bytes}, ProcessError]` | |
-| `run.stream --text cmd ...` | `Result[Stream[Str], ProcessError]` (stdout lines) | |
-| `run.stream --bytes cmd ...` | `Result[Stream[Bytes], ProcessError]` | |
+| `run.text cmd ...` | `Str` (stdout); propagates `ProcessError` | output discarded |
+| `run.bytes cmd ...` | `Bytes` (stdout); propagates `ProcessError` | output discarded |
+| `run.capture --text cmd ...` | `{status, stdout: Str, stderr: Str}`; propagates `ProcessError` | output discarded |
+| `run.capture --bytes cmd ...` | `{status, stdout: Bytes, stderr: Bytes}`; propagates `ProcessError` | output discarded |
+| `run.stream --text cmd ...` | `Stream[Str]` (stdout lines); propagates `ProcessError` | |
+| `run.stream --bytes cmd ...` | `Stream[Bytes]`; propagates `ProcessError` | |
 
-A run form whose value is a `Result` either keeps it or propagates it, and
-says which. `try` before the form keeps the `Result` as its value:
+A capturing form, which is every form but plain `run` and `run.status`,
+fails the enclosing function on a failed command, exactly as the same form
+followed by `?` does: the function must be able to fail (`check.try-context`),
+the propagation needs the `error` effect, and the error is the
+`ProcessError`.
+
+```xsh
+proc head_commit() -> Result[Str] {
+  let text = run.text sh -c "echo abc123"
+  Ok(text.trim())
+}
+```
+
+`try` before the form keeps the failure as a value instead:
 
 ```xsh
 let described = try run.text sh -c "exit 3"
 let label = if let Ok(text) = described { text.trim() } else { "unknown" }
 ```
 
-`try run...` has the type and value of the same form written without `try`,
-reads its words to the same end, and takes the place of a `?`: writing both
-is a parse error. It applies to `run.text`, `run.bytes`, `run.capture`, and
-`run.stream`; plain `run` and `run.status` yield a `Status`, so `try` before
-them is `check.try-result`. `lint.explicit-run-capture` writes the `try` on a
-value-position run form that keeps its `Result` without one.
+`try run...` is a `Result` of what the form yields and a `ProcessError`. It
+reads its words to the same end as the form, and writing a `?` after it is a
+parse error. It applies to the capturing forms; plain `run` and `run.status`
+yield a `Status`, so `try` before them is `check.try-result`.
 
-A trailing `?` applies to the whole run form: `run.text git rev-parse HEAD ?`.
+A trailing `?` applies to the whole run form and is still accepted after a
+capturing form, where it says nothing more: `run.text git rev-parse HEAD ?`
+is `run.text git rev-parse HEAD`, and `lint.redundant-propagation` removes
+it. A run form reads its words to the end of its line, a `;`, a `}`, a `|>`,
+a `?`, or the `)` of the parentheses that group it. Before anything else,
+such as the `,` or `)` of a call's arguments, an operator, or a postfix
+guard, the `?` is also what ends the form, and there it stays:
+`render(run.text git describe?, width)`. A postfix `?`, `?.`, or `?[` on a
+grouped form is the form's propagation: `(run.text cmd)?` is
+`(run.text cmd)`.
 A run form followed by `|>` heads a value pipeline wherever it is written,
-including at the start of a statement or initializer, and a `?` before the
-`|>` propagates the run form's failure:
-`let rows = run.stream --text git log ? |> take(5)`.
+including at the start of a statement or initializer:
+`let rows = run.stream --text git log |> take(5)`.
 The target is resolved as follows: a bare word with no `/` is looked up in
 `PATH`; a target containing `/` is a relative or absolute path; a `Path` value
 uses its native bytes; a `Str` value is UTF-8 and may not contain NUL. Failure
@@ -3579,10 +3659,10 @@ pipeline, `spawn run`, and the `run` entry of `process.command`.
 
 ```xsh
 let compile = ["cc", "-O2", "-c", "main.c"]
-run @compile @extra ?
+run @compile @extra
 
 let status = run.status @compile -fsyntax-only
-let version = run.text @(["cc", "--version"]) ?
+let version = run.text @(["cc", "--version"])
 let job = spawn run @compile ?
 let plan = process.command {
   cwd = p"build"
@@ -3607,7 +3687,7 @@ run (
   "ARCH=arm64"
   "-j${jobs}"
   Image
-) ?
+)
 ```
 
 ### 11.2 Success and failure
@@ -3626,7 +3706,7 @@ killed by `SIGPIPE`. In value position plain `run` and `run.status` yield the
 segment failed under the same rule, and `status.segments` holds each segment.
 A pipeline whose first segment is `run.status` discards the status in
 statement position. `run.text`, `run.bytes`, and
-`run.stream` fail on an unsuccessful exit. `run.capture` returns `Ok(record)`
+`run.stream` fail on an unsuccessful exit. `run.capture` yields its record
 even for a nonzero exit, and fails only on setup, timeout, cancellation,
 capture-limit, and decoding errors.
 
@@ -3726,8 +3806,8 @@ segment may name a form other than plain `run` or `run.status`. A
 stdout, and every later segment must be plain `run`:
 
 ```xsh
-let head = run.text git log --oneline | run head -n 5 ?
-let report = run.capture --text make check | run tee $log ?
+let head = run.text git log --oneline | run head -n 5
+let report = run.capture --text make check | run tee $log
 ```
 
 A capturing pipeline fails under the same pipefail rule as a statement

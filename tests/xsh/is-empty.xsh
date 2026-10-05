@@ -67,11 +67,11 @@ show(" x ", b"x", [1], {a: 1})
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "lengths.xsh", contents: bytes.from_text(source))?
 
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-is-empty $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-is-empty $candidate
   let report = linted.stdout + linted.stderr
   assert count(report, "warn[lint.prefer-is-empty]") == 7, report
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-is-empty $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-is-empty $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert "  if items.is_empty() or raw.is_empty() {\n" in rewritten, rewritten
@@ -80,7 +80,7 @@ show(" x ", b"x", [1], {a: 1})
   assert "  let agree = ! items.is_empty() == single\n" in rewritten, rewritten
   assert "  let single = items.len() == 1\n" in rewritten, rewritten
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout

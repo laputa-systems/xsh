@@ -95,7 +95,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
         {},
       ),
     )
-    let xattr = run.capture --text xattr -d com.apple.quarantine $destination ?
+    let xattr = run.capture --text xattr -d com.apple.quarantine $destination
 
     if ! xattr.status.ok and "No such xattr" not in xattr.stderr {
       return Err(

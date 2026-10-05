@@ -3,7 +3,7 @@ test test_env_overlay_joins_a_path_list_and_reads_it_back {
   let dirs = [/opt/stage/usr/bin, raw, /bin]
   env ({XSH_PATH_LIST: dirs}) {
     assert env.PathList.XSH_PATH_LIST? == dirs
-    let child = run.bytes printenv XSH_PATH_LIST ?
+    let child = run.bytes printenv XSH_PATH_LIST
     assert child == b"/opt/stage/usr/bin:/opt/bad\xffname/bin:/bin\n"
   }
 
@@ -38,7 +38,7 @@ test test_every_environment_value_position_joins_a_path_list { |ctx|
     assert e"XSH_PATH_LIST_EXPR"? == "/one:/two"
   }
 
-  let by_word = run.text XSH_PATH_LIST=$dirs $sh -c $script ?
+  let by_word = run.text XSH_PATH_LIST=$dirs $sh -c $script
   assert by_word == "/one:/two"
 
   env XSH_PATH_LIST_SCOPE=1 {
@@ -141,7 +141,7 @@ show(p"/stage")?
 """
   let source = program.replace("VALUE", with: "f\"{root}/usr/bin:/opt/bin:{e\"XSH_PATH_LIST\" ?? \"\"}\"")
   let candidate = test.temp_file(ctx, name: "env-path-list.xsh", contents: bytes.from_text(source))?
-  let reported = run.capture --text "xsht" lint --only lint.prefer-env-path-list --fix $candidate ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-env-path-list --fix $candidate
   assert "lint.prefer-env-path-list" in reported.stderr, reported.stderr
   let rewrite = r"""[fp"{root}/usr/bin", p"/opt/bin", @env.PathList.XSH_PATH_LIST ?? []]"""
   assert rewrite in reported.stderr, reported.stderr

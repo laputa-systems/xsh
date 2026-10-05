@@ -51,7 +51,6 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-defer-block` | Replace a single-use literal cleanup helper with a `defer` block |
 | `lint.prefer-empty-map-literal` | Use `{}` for an empty map in map-typed contexts |
 | `lint.prefer-env-string` | Read an environment variable with a literal identifier name as `e"NAME"` |
-| `lint.explicit-run-capture` | Write `try` on a value-position run form whose `Result` is kept as a value |
 | `lint.prefer-fail` | Return a failure that only carries a message with `fail MESSAGE` instead of a one-variant error family |
 | `lint.prefer-file-lines` | Use `path.lines()?` instead of `read_text()?.lines()` in a loop |
 | `lint.prefer-fs-files` | Use `fs.files()` instead of `fs.walk()` filtered to `kind == file` |
@@ -116,7 +115,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.redundant-path-interpolation` | Remove a single-value path interpolation that wraps one value |
 | `lint.redundant-path-parse` | Remove a Path display then parse round trip on a value already a Path |
 | `lint.redundant-pipeline-stage` | Remove no-op `where true` and `map .` pipeline stages |
-| `lint.redundant-propagation` | Remove `?` from a statement-position `Result[Unit]` call, which already propagates |
+| `lint.redundant-propagation` | Remove `?` from a statement-position `Result[Unit]` call, a plain `run` statement, or a deferred `Result[Unit]` call, which already propagate |
 | `lint.redundant-require` | Remove a schema `require` on an expression that already has the required type |
 | `lint.redundant-result-unit` | Remove a `Result[Unit]` return annotation that a proc without a value tail infers |
 | `lint.redundant-scope-propagation` | Remove `?` from a statement-position `cd`, `env`, `try`, or `retry` block, which already propagates |

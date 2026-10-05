@@ -191,16 +191,16 @@ test test_union_member_is_decided_by_the_validation {
 test test_run_accepts_a_non_empty_command_vector {
   let argv: Argv = ["printf", "%s:%s", "a", "b"]
   let short: Argv = ["printf", "%s:%s", "a"]
-  let text = run.text @argv ?
+  let text = run.text @argv
   assert text == "a:b"
-  let more = run.text @short "b" ?
+  let more = run.text @short "b"
   assert more == "a:b"
   # The remaining runs print nothing: their output is not captured, and the
   # test runner's own report shares that stream.
   let quiet: Argv = ["true"]
   let status = run.status @quiet
   assert status.success
-  let piped = run.text @argv | run tr a-z A-Z ?
+  let piped = run.text @argv | run tr a-z A-Z
   assert piped == "A:B"
   let planned = process.run(process.command_argv(quiet.first(), quiet))?
   assert planned.success

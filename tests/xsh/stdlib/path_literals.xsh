@@ -145,7 +145,7 @@ show(/repo/y)
 show(Path.parse_bytes(b"bad\xffname")?)
 """
   let candidate = test.temp_file(ctx, name: "path-display-equality.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.path-display-equality --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.path-display-equality --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -173,7 +173,7 @@ show(Path.parse_bytes(b"bad\xffname")?)
 false false false
 false true true
 """
-  let repeated = run.capture --text "xsht" lint --only lint.path-display-equality $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.path-display-equality $candidate
   assert repeated.status.exited_with(0)
   assert "lint.path-display-equality" not in repeated.stderr
 }

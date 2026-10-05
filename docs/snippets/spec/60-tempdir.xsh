@@ -13,5 +13,5 @@ proc stage(root: Path) [fs, error] -> Result[Str] {
 }
 
 let root = fs.tempdir()?
-defer root.close()?
+defer root.close()
 print stage(root.host_path()?)?.trim()

@@ -12,7 +12,7 @@ pure describe(word: Word) -> Str {
 
 proc build(root: Path) [process, error] {
   let task = Task(tool: "make", args: ["-C", root, "all"])
-  run $task.tool @(task.args) ?
+  run $task.tool @(task.args)
 
   for word in task.args {
     if word is Path {

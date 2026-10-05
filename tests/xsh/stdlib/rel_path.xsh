@@ -123,7 +123,7 @@ test test_other_operations_read_the_value_as_its_path {
   assert f"{rel}" == "usr/lib/libc.so"
   assert rel.display() == "usr/lib/libc.so"
   assert rel.bytes().len() == 15
-  let printed = run.text printf "%s" $rel ?
+  let printed = run.text printf "%s" $rel
   assert printed == "usr/lib/libc.so"
 
   let kind = match rel {
@@ -214,7 +214,7 @@ pure prefix_failure(whole: Path, prefix: Path) -> Str {
 test test_fs_root_takes_a_rel_path { |ctx|
   let dir = test.temp_dir(ctx, name: "rel-path-root")?
   let root = fs.open_root(dir)?
-  defer root.close()?
+  defer root.close()
   let entry = Entry(rel: "etc/app/config", mode: 0o600)
   root.mkdir(entry.rel.parent(), parents: true)
   root.write(entry.rel, "key = 1\n")

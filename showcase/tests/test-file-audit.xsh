@@ -15,7 +15,7 @@ test test_file_audit_findings { |ctx|
   fp"{root}/broken".symlink(to: p"missing-target")
   fp"{root}/absolute".symlink(to: fp"{root}/world.txt")
   fp"{root}/escape".symlink(to: fp"{outside}/target.txt")
-  let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root ?
+  let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root
   assert "broken-symlink broken" in output
   assert "absolute-symlink absolute" in output
   assert "escaping-symlink escape" in output
@@ -48,6 +48,6 @@ test test_file_audit_distinguishes_non_utf8_sibling_paths { |ctx|
   target.write("outside")
   link.symlink(to: target)
 
-  let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root_alias ?
+  let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root_alias
   assert "escaping-symlink escape" in output
 }

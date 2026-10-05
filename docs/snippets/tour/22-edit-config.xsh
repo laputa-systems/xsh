@@ -33,7 +33,7 @@ proc edit_config(file: Path, key: Str, value: Str) {
 }
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let config = fp"{scratch.host_path()?}/sshd_config"
 config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")
 

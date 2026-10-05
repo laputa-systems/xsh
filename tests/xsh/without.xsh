@@ -9,7 +9,7 @@ proc record(log: Path, line: Str) [fs, error] {
 proc offline_steps(log: Path) [fs, net, error] {
   record(log, "before")
   without net {
-    defer record(log, "cleanup")?
+    defer record(log, "cleanup")
 
     record(log, "inside")
   }
@@ -277,7 +277,7 @@ test test_without_formats_and_checks_through_the_tools { |ctx|
   }
 }
 """)
-  let formatted = run.capture --text "xsht" fmt $script ?
+  let formatted = run.capture --text "xsht" fmt $script
   assert formatted.status.exited_with(0), formatted.stderr
   assert script.read_text()? == """proc main() [fs, net, error] {
   without net, process {
@@ -286,9 +286,9 @@ test test_without_formats_and_checks_through_the_tools { |ctx|
 }
 """
 
-  let checked = run.capture --text "xsht" check $script ?
+  let checked = run.capture --text "xsht" check $script
   assert checked.status.exited_with(0), checked.stderr
-  let ran = run.capture --text "xsh" $script ?
+  let ran = run.capture --text "xsh" $script
   assert ran.status.exited_with(0), ran.stderr
   assert ran.stdout == "offline\n", ran.stdout
 }

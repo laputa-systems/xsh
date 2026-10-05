@@ -112,7 +112,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   }
 
   let root_handle = fs.tempdir()?
-  defer root_handle.close()?
+  defer root_handle.close()
   let stage = root_handle.host_path()?
   let core = fp"{ctx.root}/core"
   let sources = core_sources(ctx)?

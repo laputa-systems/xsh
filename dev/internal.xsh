@@ -27,7 +27,7 @@ export proc repair_target(ctx: context.Context) [process, env, error, io] -> Res
 ## Builds and verifies distribution products inside the selected Linux container.
 export proc container_dist(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.ensure_dir(ctx.target_dir)
-  defer repair_target(ctx)?
+  defer repair_target(ctx)
   build.prepare_native_musl(ctx)
   dist.native_dist(ctx, "DIST_DOCKER_BUILD_STD_FLAGS")
 }
@@ -122,7 +122,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
 ## Runs the selected Linux CI test contract and always repairs mounted output ownership.
 export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
   stages.ensure_dir(ctx.target_dir)
-  defer repair_target(ctx)?
+  defer repair_target(ctx)
   stages.execute(
     stages.command(
       "linux-git-safe-directory",
@@ -222,7 +222,7 @@ export proc repair_coverage(ctx: context.Context) [process, env, error, io] -> R
 
 ## Runs the existing coverage program from the privileged coverage container.
 export proc container_coverage(ctx: context.Context) [process, env, error, io] -> Result[Unit, Error] {
-  defer repair_coverage(ctx)?
+  defer repair_coverage(ctx)
   stages.execute(
     stages.command(
       "coverage-container",

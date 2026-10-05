@@ -401,7 +401,7 @@ test test_errdefer_formats_as_written { |ctx|
 }
 """),
   )?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == """proc step(target: Path) -> Result[Unit] {
   errdefer fs.remove(target, missing_ok: true)

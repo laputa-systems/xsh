@@ -206,7 +206,7 @@ print $label $row.in ${row["wire.type"]}
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "field-label-fix.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   assert "{type: \"file\", in: 2, \"wire.type\": 3}" in fixed
@@ -214,7 +214,7 @@ print $label $row.in ${row["wire.type"]}
   assert "# Keep the wire explanation." in fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated = run.capture --text "xsht" lint --fix $candidate
   assert repeated.status.exited_with(0), repeated.stderr
   assert candidate.read_text()? == fixed
 }

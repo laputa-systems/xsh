@@ -109,13 +109,13 @@ print first_label().byte_len() second_label().byte_len() third_label().byte_len(
 """)
 
   let help = "help: validate the existing named schema -> PackageName(name: \"demo\").require(PackageName)"
-  let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main ?
+  let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main
   assert "check.removed-record-require" in reported.stderr, reported.stderr
   assert help in reported.stderr, reported.stderr
-  let offered = run.capture --text "xsht" lint --only lint.removed-record-require $module_file ?
+  let offered = run.capture --text "xsht" lint --only lint.removed-record-require $module_file
   assert help in offered.stderr, offered.stderr
 
-  let under_importer = run.capture --text "xsht" lint --fix --only lint.removed-record-require $main ?
+  let under_importer = run.capture --text "xsht" lint --fix --only lint.removed-record-require $main
   assert under_importer.status.exited_with(0), under_importer.stderr
   let fixed = module_file.read_text()?
   assert fixed == module_source.replace(
@@ -149,10 +149,10 @@ export proc demo() [error] -> Result[Str, Error] {
   let main = fp"{root}/main.xsh"
   main.write_atomic("use names\n\nprint names.demo()?\n")
 
-  let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main ?
+  let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main
   assert "check.removed-record-require" in reported.stderr, reported.stderr
   assert "help: validate the existing named schema" not in reported.stderr, reported.stderr
-  let under_importer = run.capture --text "xsht" lint --fix --only lint.removed-record-require $main ?
+  let under_importer = run.capture --text "xsht" lint --fix --only lint.removed-record-require $main
   assert ! under_importer.status.exited_with(0), under_importer.stderr
   assert module_file.read_text()? == module_source
 }

@@ -10,7 +10,7 @@ proc read_port(file: Path) -> Result[Int] {
 }
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let dir = scratch.host_path()?
 fp"{dir}/good".write("8080\n")
 fp"{dir}/bad".write("eighty\n")

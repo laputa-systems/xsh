@@ -18,7 +18,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let range = f"{opts.base}..HEAD"
 
   # Commit summary
-  let log_out = run.text "git" "log" "--oneline" $range ?
+  let log_out = run.text "git" "log" "--oneline" $range
   let commits = log_out.lines() |> where . != ""
   let commit_count = commits.len()
 
@@ -31,7 +31,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print ""
 
   # Author breakdown
-  let shortlog_out = run.text "git" "shortlog" "-sn" $range ?
+  let shortlog_out = run.text "git" "shortlog" "-sn" $range
 
   let authors = shortlog_out.lines()
     |> where .trim() != ""
@@ -46,7 +46,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print ""
 
   # Per-file insertion/deletion counts from numstat
-  let numstat_out = run.text "git" "-c" "core.quotePath=true" "diff" "--numstat" $range ?
+  let numstat_out = run.text "git" "-c" "core.quotePath=true" "diff" "--numstat" $range
 
   let file_stats: List[FileStats] = numstat_out.lines()
     |> where .trim() != ""

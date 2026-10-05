@@ -29,12 +29,12 @@ proc stage(root: FsRoot, tree: Path, file: Path) [fs, error] {
 # end example
 
 let scratch = fs.tempdir()?
-defer scratch.close()?
+defer scratch.close()
 let tree = fp"{scratch.host_path()?}/tree"
 fp"{tree}/share/doc".mkdir()
 fp"{tree}/share/doc/README".write("read me\n")
 scratch.mkdir("dest")
 let dest = scratch.open_root("dest")?
-defer dest.close()?
+defer dest.close()
 stage(dest, tree, fp"{tree}/share/doc/README")
 print dest.read_text("share/doc/README")?.trim() (dest.exists("etc/app/backup/etc/app/config.toml")?)

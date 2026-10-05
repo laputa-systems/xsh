@@ -111,13 +111,13 @@ stage(p"ROOT", "a-b")
 stage(p"ROOT", "a-b")
 """
   let candidate = test.temp_file(ctx, name: "argument-label.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.prefer-argument-label --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-argument-label --fix $candidate
   assert applied.status.exited_with(0), applied.stderr
   assert candidate.read_text()? == expected
 
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
-  let repeated = run.capture --text "xsht" lint --only lint.prefer-argument-label $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.prefer-argument-label $candidate
   assert repeated.status.exited_with(0)
   assert "lint.prefer-argument-label" not in repeated.stderr
 
@@ -142,7 +142,7 @@ proc stage(root: Path, target: Path) [io, fs, error] {
 }
 """
   let candidate = test.temp_file(ctx, name: "argument-label-order.xsh", contents: bytes.from_text(source))?
-  let reported = run.capture --text "xsht" lint --only lint.prefer-argument-label --fix $candidate ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-argument-label --fix $candidate
   assert ! reported.status.exited_with(0)
   assert "lint.prefer-argument-label" in reported.stderr, reported.stderr
   assert candidate.read_text()? == source

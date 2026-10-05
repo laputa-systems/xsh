@@ -49,11 +49,11 @@ print \$input_count \$byte_count \$child_count
 print \$capture.stdout
 """
   let candidate = test.temp_file(ctx, name: "compatibility-migration.xsh", contents: bytes.from_text(source))?
-  let diagnosed = run.capture --text "xsht" lint $candidate ?
+  let diagnosed = run.capture --text "xsht" lint $candidate
   let diagnosed_migration = "lint.compatibility-vocabulary" in diagnosed.stderr
   let diagnosis_details = diagnosed.stderr
   assert diagnosed_migration, diagnosis_details
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -71,7 +71,7 @@ print \$capture.stdout
   assert output.stdout == """0 6 1
 external ARGV run.builtin fs.ls count_bytes
 """
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated = run.capture --text "xsht" lint --fix $candidate
   let repeated_succeeded = repeated.status.exited_with(0)
   let repeated_details = repeated.stderr
   assert repeated_succeeded, repeated_details
@@ -86,7 +86,7 @@ print $ARGV.len()
 print ${count(ARGV:)}
 """
   let candidate = test.temp_file(ctx, name: "argv-shorthand-migration.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -132,7 +132,7 @@ let unrelated = missing
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "compatibility-no-fix.xsh", contents: bytes.from_text(rejected))?
-    let refused = run.capture --text "xsht" lint --fix $candidate ?
+    let refused = run.capture --text "xsht" lint --fix $candidate
     let declined = ! refused.status.exited_with(0)
     let refusal_details = refused.stderr
     assert declined, refusal_details
@@ -167,7 +167,7 @@ for line in output { print \${line.len()} }
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "run-qualifier-migration.xsh", contents: bytes.from_text(source))?
-    let applied = run.capture --text "xsht" lint --fix $candidate ?
+    let applied = run.capture --text "xsht" lint --fix $candidate
     let applied_succeeded = applied.status.exited_with(0)
     let applied_details = applied.stderr
     assert applied_succeeded, applied_details
@@ -183,12 +183,12 @@ for line in output { print \${line.len()} }
 }
 
 test test_compatibility_vocabulary_public_inventory_is_canonical {
-  let removed = run.capture --text "xsht" api --format jsonl --strict api:fs.ls method:Str.count_bytes ?
+  let removed = run.capture --text "xsht" api --format jsonl --strict api:fs.ls method:Str.count_bytes
   let removed_absent = ! removed.status.exited_with(0)
   let removed_details = removed.stdout
   assert removed_absent, removed_details
   assert "\"status\":\"missing\"" in removed.stdout
-  let canonical = run.capture --text "xsht" api --format jsonl --strict api:fs.children method:Str.byte_len ?
+  let canonical = run.capture --text "xsht" api --format jsonl --strict api:fs.children method:Str.byte_len
   let canonical_succeeded = canonical.status.exited_with(0)
   let canonical_details = canonical.stderr
   assert canonical_succeeded, canonical_details
@@ -210,14 +210,14 @@ print \${byte_count == 2}
 """
   let candidate = fp"{root}/entry.xsh"
   candidate.write(source)
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
   assert "custom.count_bytes()" in fixed
   assert "value?.byte_len()" in fixed
-  let output = run.capture --text "xsh" $candidate ?
+  let output = run.capture --text "xsh" $candidate
   let succeeded = output.status.exited_with(0)
   let failure_details = output.stderr
   assert succeeded, failure_details
@@ -268,7 +268,7 @@ let direct_size = byte_count("é")
 print $direct_size $second_size $captured
 """
   let candidate = test.temp_file(ctx, name: "compatibility-inference-migration.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -289,13 +289,13 @@ let width = "é🍃".count_bytes() # keep\r
 print $width\r
 """
   let candidate = test.temp_file(ctx, name: "checked-vocabulary-layout.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
   assert fixed == source.replace(".count_bytes()", with: ".byte_len()")
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated = run.capture --text "xsht" lint --fix $candidate
   let repeated_succeeded = repeated.status.exited_with(0)
   let repeated_details = repeated.stderr
   assert repeated_succeeded, repeated_details

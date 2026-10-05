@@ -29,7 +29,7 @@ proc cargo_bin_dir(root: Path) [process, env, error] -> Result[Path] {
 }
 
 proc rust_host() [process, error] -> Result[Str] {
-  let version: Str = run.text rustc -vV ?
+  let version: Str = run.text rustc -vV
 
   for line in version.lines() {
     return line.split(": ")[1] when line.starts_with("host: ")
@@ -39,7 +39,7 @@ proc rust_host() [process, error] -> Result[Str] {
 }
 
 proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
-  let sysroot_raw: Str = run.text rustc --print sysroot ?
+  let sysroot_raw: Str = run.text rustc --print sysroot
   let sysroot = fp"{sysroot_raw.trim()}"
   let host = rust_host()?
   let candidates = [fp"{sysroot}/lib/rustlib/{host}/bin/{tool}", fp"{sysroot}/bin/{tool}"]
@@ -150,18 +150,18 @@ proc main() [fs, process, env, error, io] {
 
   env CARGO_TARGET_DIR=$target_dir CARGO_INCREMENTAL=0 LLVM_PROFILE_FILE=fp"{raw_dir}/%m-%p.profraw" PATH=$child_path \
       RUSTFLAGS=$rustflags TZ=UTC XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1 {
-    run cargo test --release --test integration --test ambient_fs_policy --test symbol_plateau -- --test-threads=1 ?
-    run cargo test --lib -- --test-threads=1 ?
-    run cargo test --release --features linux-priv-tests --test linux_priv -- --test-threads=1 ?
-    run cargo build --release --bin xsh ?
-    run cargo build --release -p xsht ?
-    run cargo build --release -p xshi ?
+    run cargo test --release --test integration --test ambient_fs_policy --test symbol_plateau -- --test-threads=1
+    run cargo test --lib -- --test-threads=1
+    run cargo test --release --features linux-priv-tests --test linux_priv -- --test-threads=1
+    run cargo build --release --bin xsh
+    run cargo build --release -p xsht
+    run cargo build --release -p xshi
     run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"{api_dir}/coverage.json" \
-      XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh ?
+      XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh
   }
 
   let profraws = collect_profraw(raw_dir)?
-  run $llvm_profdata merge -sparse -o $profdata @profraws ?
+  run $llvm_profdata merge -sparse -o $profdata @profraws
   var objects = []
   for dir in [release_dir, fp"{release_dir}/deps", debug_dir, fp"{debug_dir}/deps"] {
     objects += collect_objects(dir)?
@@ -179,11 +179,11 @@ proc main() [fs, process, env, error, io] {
   )
 
   let llvm_args = cov_args(profdata, objects)
-  run $llvm_cov report @llvm_args > report_file ?
+  run $llvm_cov report @llvm_args > report_file
   io.write_stdout(report_file.read_text()?)
   let html_output_arg = f"--output-dir={html_dir}"
-  run $llvm_cov show @llvm_args --format=html $html_output_arg --show-instantiations --show-line-counts-or-regions ?
-  run $llvm_cov export @llvm_args --format=lcov > lcov_file ?
+  run $llvm_cov show @llvm_args --format=html $html_output_arg --show-instantiations --show-line-counts-or-regions
+  run $llvm_cov export @llvm_args --format=lcov > lcov_file
   print ""
   print "coverage reports:"
   print f"  LLVM summary: {report_file.strip_prefix(root)?.display()}"

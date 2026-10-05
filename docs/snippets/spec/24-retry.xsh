@@ -1,5 +1,5 @@
 proc fetch_index() [process, error] -> Result[Str] {
-  run.text --timeout=10s curl -fsS https://example.com/index.json ?
+  run.text --timeout=10s curl -fsS https://example.com/index.json
 }
 
 # begin example

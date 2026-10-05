@@ -93,7 +93,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     return Err(SystemReportCliError.InvalidInput(f"system-report: cannot open replay file parent: {error.message}"))
   }
 
-  defer input_root.close()?
+  defer input_root.close()
   guard let input = input_root.read_result(
     fp"{input_path.name()}",
     max_bytes: 16777216,

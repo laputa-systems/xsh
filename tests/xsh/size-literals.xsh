@@ -98,10 +98,10 @@ test test_size_spelling_in_a_command_word_stays_text { |ctx|
 test test_fmt_and_highlight_keep_the_literal { |ctx|
   let source = "let size   =  64MiB\nprint f\"{size}\"\n"
   let file = test.temp_file(ctx, name: "sizes.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $file ?
+  let formatted = run.capture --text "xsht" fmt $file
   assert formatted.status.exited_with(0), formatted.stderr
   assert file.read_text()? == "let size = 64MiB\nprint f\"{size}\"\n"
-  let shown = run.capture --text "xsht" highlight $file ?
+  let shown = run.capture --text "xsht" highlight $file
   assert shown.status.exited_with(0), shown.stderr
   assert r"""{"kind":"number","text":"64MiB"}""" in shown.stdout, shown.stdout
 }
@@ -109,9 +109,9 @@ test test_fmt_and_highlight_keep_the_literal { |ctx|
 test test_lint_rewrites_literal_products_of_1024 { |ctx|
   let source = "let size: UInt = 3 * 1024 * 1024\nassert size < (4 * 1024 * 1024)\nlet chunk = 64 * 1024\nprint f\"{size} {chunk}\"\n"
   let file = test.temp_file(ctx, name: "products.xsh", contents: bytes.from_text(source))?
-  let reported = run.capture --text "xsht" lint --only lint.prefer-size-literal $file ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-size-literal $file
   assert reported.stderr.split("warn[lint.prefer-size-literal]").len() == 4, reported.stderr
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-size-literal $file ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-size-literal $file
   # The untyped binding would become `UInt`, so it is reported and left alone.
   assert file.read_text()? == "let size: UInt = 3MiB\nassert size < 4MiB\nlet chunk = 64 * 1024\nprint f\"{size} {chunk}\"\n", fixed.stderr
   let output = test.expect(ctx, file.read_text()?, status: 0)?

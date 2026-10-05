@@ -1,5 +1,5 @@
 test test_run_retry {
-  let ok = run.text "xsh" "showcase/run-retry.xsh" -- true ?
+  let ok = run.text "xsh" "showcase/run-retry.xsh" -- true
   assert "ok (try 1)" in ok
 }
 

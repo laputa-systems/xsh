@@ -3,14 +3,14 @@ proc assert_fmt_fixture(ctx: TestContext, source_path: Path, expected_path: Path
   let expected = expected_path.read_text()?
   let candidate = test.temp_file(ctx, name:, contents: bytes.from_text(source))?
 
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == expected
 
-  let checked = run.capture --text "xsht" check $candidate ?
+  let checked = run.capture --text "xsht" check $candidate
   assert checked.status.exited_with(0), checked.stderr
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
 }
 
@@ -49,11 +49,11 @@ test test_fmt_nested_multiline_string_preserves_value { |ctx|
   let source = p"tests/fixtures/fmt/nested-multiline-string.xsh".read_text()?
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "nested-string.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
 }
 
@@ -92,7 +92,7 @@ test test_fmt_command_continuation { |ctx|
 test test_fmt_keeps_a_trailing_comment_on_a_command { |ctx|
   let source = "print one two # said\nrun true # ran\nlet text = run.text printf x ? # captured\nprint $text \\\n  again # continued\n\nif true {\n  print inside # nested\n}\n"
   let file = test.temp_file(ctx, name: "trailing.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $file ?
+  let formatted = run.capture --text "xsht" fmt $file
   assert formatted.status.exited_with(0), formatted.stderr
   assert file.read_text()? == source
 }
@@ -101,11 +101,11 @@ test test_fmt_path_format_specs_preserve_value { |ctx|
   let source = p"tests/fixtures/fmt/path-format-specs.xsh".read_text()?
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "path-format-specs.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
 }
 
@@ -113,11 +113,11 @@ test test_fmt_multiline_comprehension_pipelines_preserve_value { |ctx|
   let source = p"tests/fixtures/fmt/comprehension-pipelines.xsh".read_text()?
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "comprehension-pipelines.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
 }
 
@@ -125,11 +125,11 @@ test test_fmt_match_arm_nested_blocks_preserve_value { |ctx|
   let source = p"tests/fixtures/fmt/match-arm-nested-blocks.xsh".read_text()?
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "match-arm-nested-blocks.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
 }
 
@@ -165,14 +165,14 @@ show()
   let expected = source.replace(r"hex \x24name, price \$5", with: r"hex \$name, price $5")
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "dollar-escapes.xsh", contents: bytes.from_text(source))?
-  let flagged = run.capture --text "xsht" lint --only lint.dollar-in-expression-string $candidate ?
+  let flagged = run.capture --text "xsht" lint --only lint.dollar-in-expression-string $candidate
   assert flagged.stderr.split("warn[lint.dollar-in-expression-string]").len() == 2, flagged.stderr
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == expected
   let after = test.expect(ctx, expected, status: 0)?
   assert after.stdout == before.stdout
-  let still_flagged = run.capture --text "xsht" lint --only lint.dollar-in-expression-string $candidate ?
+  let still_flagged = run.capture --text "xsht" lint --only lint.dollar-in-expression-string $candidate
   assert still_flagged.stderr.split("warn[lint.dollar-in-expression-string]").len() == 2, still_flagged.stderr
   assert "flagged $name" in still_flagged.stderr, still_flagged.stderr
 }

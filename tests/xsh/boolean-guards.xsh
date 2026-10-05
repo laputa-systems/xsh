@@ -222,7 +222,7 @@ proc never() -> Int {
 print ${always() + never()}
 """
   let file = test.temp_file(ctx, name: "literal-guards.xsh", contents: bytes.from_text(source))?
-  let report = run.capture --text "xsht" lint --only "lint.dead-code" $file ?
+  let report = run.capture --text "xsht" lint --only "lint.dead-code" $file
   let findings = report.stdout + report.stderr
 
   # `guard false` always leaves through its else block, so what follows it is

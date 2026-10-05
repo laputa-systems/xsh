@@ -620,7 +620,7 @@ let items: List[Int] = raw.xs
 print ${items.len() + count}
 """
   let candidate = test.temp_file(ctx, name: "dynamic-boundary-fix.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text "xsht" lint --only check.dynamic-boundary --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --only check.dynamic-boundary --fix $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   assert candidate.read_text()? == r"""let raw: Any = {a: 1, ok: true, name: "n", xs: [3]}
 pure takes(name: Str) -> Str { name }
@@ -656,7 +656,7 @@ let sum = raw.a + raw.b
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "dynamic-boundary-no-fix.xsh", contents: bytes.from_text(source))?
-    let fixed = run.capture --text "xsht" lint --only check.dynamic-boundary --fix $candidate ?
+    let fixed = run.capture --text "xsht" lint --only check.dynamic-boundary --fix $candidate
     assert ! fixed.status.exited_with(0), source
     assert "check.dynamic-boundary" in fixed.stderr, fixed.stderr
     assert candidate.read_text()? == source

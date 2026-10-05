@@ -1,5 +1,5 @@
 let root_handle = fs.tempdir()?
-defer root_handle.close()?
+defer root_handle.close()
 let root = root_handle.host_path()?
 let source = fp"{root}/source"
 let bin = fp"{source}/usr/bin"

@@ -11,7 +11,7 @@ proc stale(cache: Path, src: Path) -> Result[Bool] {
 }
 
 let root = fs.tempdir()?
-defer root.close()?
+defer root.close()
 let src = fp"{root.host_path()?}/src"
 src.write("v1\n")
 print f"{stale(fp"{root.host_path()?}/cache", src)?}"

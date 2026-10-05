@@ -71,7 +71,7 @@ test test_path_display_sink_lint_passes_the_path_itself { |ctx|
 show(process.which("sh")?, p"ROOT/a marker", p"ROOT/out.txt")?
 """.replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-display-sink.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.path-display-sink --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.path-display-sink --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -92,7 +92,7 @@ show(process.which("sh")?, p"ROOT/a marker", p"ROOT/out.txt")?
   assert after.stdout == before.stdout
   assert f"{root}/a marker|{root}/a marker|" in after.stdout
 
-  let repeated = run.capture --text "xsht" lint --only lint.path-display-sink $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.path-display-sink $candidate
   assert repeated.status.exited_with(0)
   assert "lint.path-display-sink" not in repeated.stderr
 }

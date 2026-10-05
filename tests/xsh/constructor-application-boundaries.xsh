@@ -12,7 +12,7 @@ let count = forwarded(7)
 let word = text("word")
 """),
   )?
-  let checked = run.capture --text "xsht" check $file ?
+  let checked = run.capture --text "xsht" check $file
   assert checked.status.exited_with(0), checked.stderr
   assert checked.stdout == ""
 }

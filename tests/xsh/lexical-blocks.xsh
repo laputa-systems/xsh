@@ -189,7 +189,7 @@ print $selected
   let {success: before_succeeded, stderr: before_failure_details, ..} = before
   assert before_succeeded, before_failure_details
   let candidate = test.temp_file(ctx, name: "lexical-block-fix.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_failure_details = applied.stderr
   assert applied_succeeded, applied_failure_details
@@ -203,7 +203,7 @@ print $selected
   let {success: after_succeeded, stderr: after_failure_details, ..} = after
   assert after_succeeded, after_failure_details
   assert after.stdout == before.stdout
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  let repeated = run.capture --text "xsht" lint --fix $candidate
   let repeated_succeeded = repeated.status.exited_with(0)
   let repeated_failure_details = repeated.stderr
   assert repeated_succeeded, repeated_failure_details
@@ -222,11 +222,11 @@ print $value
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "lexical-block-no-fix.xsh", contents: bytes.from_text(source))?
-    let inspected = run.capture --text "xsht" lint $candidate ?
+    let inspected = run.capture --text "xsht" lint $candidate
     let declined = "lint.lexical-block" not in inspected.stderr
     let inspection_details = inspected.stderr
     assert declined, inspection_details
-    let _ = run.capture --text "xsht" lint --fix $candidate ?
+    let _ = run.capture --text "xsht" lint --fix $candidate
     let fixed = candidate.read_text()?
     assert "if true" in fixed
   }
@@ -366,7 +366,7 @@ false
 }
 
 test test_bare_block_grep_and_refactor_preserve_literal_distinctions { |ctx|
-  let reference = run.capture --text "xsht" api "language:core.bare-blocks" ?
+  let reference = run.capture --text "xsht" api "language:core.bare-blocks"
   let reference_succeeded = reference.status.exited_with(0)
   let reference_failure_details = reference.stderr
   assert reference_succeeded, reference_failure_details
@@ -379,7 +379,7 @@ let row = {answer}
 print $answer ${row.answer}
 """
   let candidate = test.temp_file(ctx, name: "lexical-block-refactor.xsh", contents: bytes.from_text(source))?
-  let found = run.capture --text "xsht" grep "{ (EXPR) }" $candidate ?
+  let found = run.capture --text "xsht" grep "{ (EXPR) }" $candidate
   let found_succeeded = found.status.exited_with(0)
   let found_failure_details = found.stderr
   assert found_succeeded, found_failure_details
@@ -387,7 +387,7 @@ print $answer ${row.answer}
   let row_absent = "let row" not in found.stdout
   let found_text = found.stdout
   assert row_absent, found_text
-  let rewritten = run.capture --text "xsht" refactor "{ (EXPR) }" "{ (EXPR) }" $candidate ?
+  let rewritten = run.capture --text "xsht" refactor "{ (EXPR) }" "{ (EXPR) }" $candidate
   let rewritten_succeeded = rewritten.status.exited_with(0)
   let rewritten_failure_details = rewritten.stderr
   assert rewritten_succeeded, rewritten_failure_details

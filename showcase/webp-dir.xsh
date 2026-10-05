@@ -36,7 +36,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   )?.require()?
 
   let tmp = fs.tempdir()?
-  defer tmp.close()?
+  defer tmp.close()
   let tmp_dir = tmp.host_path()?
 
   let entries = fs.files(opts.root, gitignore: false)

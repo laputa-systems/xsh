@@ -70,14 +70,14 @@ proc project(ctx: TestContext, config: Str) [fs, error] -> Result[Path, Error] {
 test test_inferred_proc_returns_are_dropped_only_where_proved { |ctx|
   let root = project(ctx, "module_path = lib\n\n[lint]\nprefer-inferred-proc-returns = true\n")?
   let report = fp"{root}/bin/report.xsh"
-  let before = run.capture --text "xsh" $report ?
+  let before = run.capture --text "xsh" $report
   assert before.status.exited_with(0), before.stderr
   assert before.stdout == "1 2 3 0\n", before.stdout
 
-  let reported = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report
   assert reported.stderr.split("warn[lint.prefer-inferred-proc-return]").len() == 3, reported.stderr
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-proc-return $report ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-proc-return $report
   assert fixed.status.exited_with(0), fixed.stderr
   let text = report.read_text()?
   # Proved through the imported module's types.
@@ -89,19 +89,19 @@ test test_inferred_proc_returns_are_dropped_only_where_proved { |ctx|
   assert "proc refuse(n: Int) -> Result[Unit, PickError] {" in text, text
   assert "proc names() -> Result[List[Str]] {" in text, text
 
-  let checked = run.capture --text "xsht" check $report ?
+  let checked = run.capture --text "xsht" check $report
   assert checked.status.exited_with(0), checked.stderr
-  let after = run.capture --text "xsh" $report ?
+  let after = run.capture --text "xsh" $report
   assert after.stdout == before.stdout, after.stdout
 
-  let again = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report ?
+  let again = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report
   assert "lint.prefer-inferred-proc-return" not in again.stderr, again.stderr
 }
 
 test test_inferred_proc_return_lint_is_opt_in { |ctx|
   let root = project(ctx, "module_path = lib\n")?
   let report = fp"{root}/bin/report.xsh"
-  let reported = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-inferred-proc-return $report
   assert "lint.prefer-inferred-proc-return" not in reported.stderr, reported.stderr
 }
 
@@ -110,9 +110,9 @@ test test_inferred_proc_return_lint_is_opt_in { |ctx|
 test test_redundant_result_unit_keeps_a_family_typed_annotation { |ctx|
   let root = project(ctx, "module_path = lib\n")?
   let report = fp"{root}/bin/report.xsh"
-  let reported = run.capture --text "xsht" lint --only lint.redundant-result-unit $report ?
+  let reported = run.capture --text "xsht" lint --only lint.redundant-result-unit $report
   assert "lint.redundant-result-unit" not in reported.stderr, reported.stderr
-  let fixed = run.capture --text "xsht" lint --fix $report ?
+  let fixed = run.capture --text "xsht" lint --fix $report
   assert "check.inferred-variant" not in fixed.stderr, fixed.stderr
   let text = report.read_text()?
   assert "proc refuse(n: Int) -> Result[Unit, PickError] {" in text, text

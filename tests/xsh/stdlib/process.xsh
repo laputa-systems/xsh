@@ -447,7 +447,7 @@ print \${status.exit_code()?}
 
 test test_bytes_stdin_redirection_is_exact_and_explicit {
   let payload = b"a\0\xff\n"
-  let echoed = run.bytes cat < $payload ?
+  let echoed = run.bytes cat < $payload
   assert echoed == payload
   assert (run.bytes cat < b"")? == b""
   let text = "text without a newline"

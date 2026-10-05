@@ -180,10 +180,10 @@ print $picked
 """
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "pick.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.redundant-propagation $candidate
   assert first.status.exited_with(1), first.stderr
   assert first.stderr.split("`?` on a condition that already propagates its failure").len() == 6, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.redundant-propagation $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.redundant-propagation $candidate
   let fixed = candidate.read_text()?
   assert "  if known(name) {\n" in fixed, fixed
   # An operand of a comparison keeps its `?`.
@@ -195,6 +195,6 @@ print $picked
   assert fixing.status.exited_with(0), fixing.stderr
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   assert formatted.status.exited_with(0), formatted.stderr
 }

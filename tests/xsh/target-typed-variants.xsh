@@ -258,10 +258,10 @@ for entry in entries {
   let before = test.expect(ctx, source, status: 0, args: [], env: module_env)?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
-  let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate
   assert first.status.exited_with(1), first.stderr
   assert "lint.prefer-inferred-variant" in first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-variant $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-variant $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "Err(.Failed(kind: \"proof\"" in fixed, fixed
@@ -271,7 +271,7 @@ for entry in entries {
   assert "kind: kinds.Kind}" in fixed, fixed
   let after = test.expect(ctx, fixed, status: 0, args: [], env: module_env)?
   assert after.stdout == before.stdout
-  let second = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
+  let second = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate
   assert second.status.exited_with(0), second.stderr
 }
 
@@ -298,7 +298,7 @@ let rebuilt = entries |> map { |entry| Entry(kind: kinds.File) }
 print ${rebuilt.len()}
 print ${[inferred].len()}
 """)
-  let linted = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
+  let linted = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate
   assert linted.status.exited_with(0), linted.stderr
 }
 
@@ -554,10 +554,10 @@ for step in range(4) {
   let before = test.expect(ctx, source, status: 0, args: [], env: module_env)?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
-  let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate
   assert first.status.exited_with(1), first.stderr
   assert "the matched value's type already selects this variant" in first.stderr, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-variant $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-variant $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   # An arm head keeps its qualifier, while a later alternative needs none.
@@ -577,7 +577,7 @@ for step in range(4) {
 
   let after = test.expect(ctx, fixed, status: 0, args: [], env: module_env)?
   assert after.stdout == before.stdout
-  let second = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
+  let second = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate
   assert second.status.exited_with(0), second.stderr
 }
 

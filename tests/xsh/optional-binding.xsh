@@ -218,7 +218,7 @@ test test_optional_guard_let_rejects_a_failure_parameter { |ctx|
 print \${label(null)}
 """),
   )?
-  let checked = run.capture --text --accept=[0, 1, 2] "xsht" check $candidate ?
+  let checked = run.capture --text --accept=[0, 1, 2] "xsht" check $candidate
   let report = checked.stdout + checked.stderr
   assert ! checked.status.ok, report
   assert "check.block-params" in report, report
@@ -240,7 +240,7 @@ test test_optional_guard_let_must_leave_the_continuation { |ctx|
 print \${label(null)}
 """),
   )?
-  let checked = run.capture --text --accept=[0, 1, 2] "xsht" check $candidate ?
+  let checked = run.capture --text --accept=[0, 1, 2] "xsht" check $candidate
   let report = checked.stdout + checked.stderr
   assert ! checked.status.ok, report
   assert "check.guard-fallthrough" in report, report
@@ -257,7 +257,7 @@ guard let value = count else {
 print \$value
 """),
   )?
-  let guarded = run.capture --text --accept=[0, 1, 2] "xsht" check $guard_source ?
+  let guarded = run.capture --text --accept=[0, 1, 2] "xsht" check $guard_source
   let guard_report = guarded.stdout + guarded.stderr
   assert "check.guard-binding" in guard_report, guard_report
   assert "must produce a Result or an optional value" in guard_report, guard_report
@@ -271,7 +271,7 @@ if let value = count {
 }
 """),
   )?
-  let conditional = run.capture --text --accept=[0, 1, 2] "xsht" check $if_source ?
+  let conditional = run.capture --text --accept=[0, 1, 2] "xsht" check $if_source
   let if_report = conditional.stdout + conditional.stderr
   assert "check.irrefutable-pattern-condition" in if_report, if_report
 }
@@ -327,11 +327,11 @@ print \${widened({executor: null, retries: 2, label: null, mode: null}) is Int}
   assert before.stdout == "x0 fast\na/2 slow\nzero\nnone\nmodeless\ntrue\n"
   let candidate = test.temp_file(ctx, name: "null-tests.xsh", contents: bytes.from_text(source))?
 
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-optional-binding $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-optional-binding $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("warn[lint.prefer-optional-binding]").len() == 6, report
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-optional-binding $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-optional-binding $candidate
   assert fixed.status.exited_with(0), fixed.stdout + fixed.stderr
   let rewritten = candidate.read_text()?
 
@@ -359,7 +359,7 @@ print \${widened({executor: null, retries: 2, label: null, mode: null}) is Int}
   assert "!= null" not in rewritten, rewritten
   assert "== null" not in rewritten, rewritten
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout
@@ -409,7 +409,7 @@ proc untouched(context: Context) -> Int {
 print \${untouched({retries: 1, limit: 2, first: 3, second: 4, count: 5})}
 """),
   )?
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-optional-binding $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-optional-binding $candidate
   let report = linted.stdout + linted.stderr
   assert linted.status.exited_with(0), report
   assert "lint.prefer-optional-binding" not in report, report
@@ -427,7 +427,7 @@ pure attempts(context: Context) -> Int {
 print \${attempts({retries: 2})}
 """
   let candidate = test.temp_file(ctx, name: "commented-null-test.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.prefer-optional-binding $candidate ?
+  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only lint.prefer-optional-binding $candidate
   let report = fixed.stdout + fixed.stderr
   assert "lint.prefer-optional-binding" in report, report
   assert "needs a manual rewrite" in report, report

@@ -1,5 +1,5 @@
 test test_which_finds_shell { |ctx|
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/which.xsh" -- sh ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/which.xsh" -- sh
   assert "sh" in output
 }
 

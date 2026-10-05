@@ -125,7 +125,7 @@ pure unique_ints(items: List[Int]) -> List[Int] {
 
 proc macos_stats() [process, error] -> Result[Map[ProcessStats]] {
   var stats: Map[ProcessStats] = {}
-  let text = run.text ps -axo pid=,%cpu=,vsz=,rss=,time= ?
+  let text = run.text ps -axo pid=,%cpu=,vsz=,rss=,time=
 
   for line in text.lines() {
     let fields = line.fields()

@@ -753,7 +753,7 @@ pure ini_line(line: Str) -> Str {
 proc xsh_html(hl: Highlighter, source: Str) [fs, process, error] -> Result[Str] {
   let file = fp"{hl.scratch}/block.xsh"
   file.write(source)
-  let lines = run.text $hl.xsht highlight $file ?
+  let lines = run.text $hl.xsht highlight $file
   var parts = []
   for line in lines.lines() {
     let found = json.decode(line)?.require(HighlightRun)?
@@ -945,6 +945,6 @@ proc page_html(hl: Highlighter, blocks: List[Block]) [fs, process, error] -> Res
 export proc render(markdown: Str, xsht: Path) [fs, process, error] -> Result[Str, Error] {
   let blocks = parse_blocks(markdown.lines())?
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   page_html(Highlighter(xsht:, scratch: scratch.host_path()?), blocks)?
 }

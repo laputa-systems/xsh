@@ -29,7 +29,7 @@ proc publish(root: Path) [fs, error] {
 publish(p"ROOT")
 """.replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-method.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.prefer-path-method --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-path-method --fix $candidate
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   assert fixed != source
@@ -57,7 +57,7 @@ publish(p"ROOT")
   assert before.stdout == "path\ndata\n order.log\n false file 384 false\n"
   assert after.stdout == before.stdout
 
-  let repeated = run.capture --text "xsht" lint --only lint.prefer-path-method $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.prefer-path-method $candidate
   assert repeated.status.exited_with(0)
   assert "lint.prefer-path-method" not in repeated.stderr
 }
@@ -76,7 +76,7 @@ test test_prefer_path_method_lint_keeps_the_escapes_of_a_string_operand { |ctx|
 publish()
 """.replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-method-escape.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.prefer-path-method --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-path-method --fix $candidate
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   assert r"""/a\tb \"c\" \\ \u{e9}.txt".write("kept")""" in fixed, fixed

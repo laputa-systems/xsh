@@ -2,7 +2,7 @@ const repo = p"."
 const overlay = {CC: "clang"}
 
 proc collect_report() [process, error] -> Result[Str] {
-  run.text cc --version ?
+  run.text cc --version
 }
 
 # begin example
@@ -14,6 +14,6 @@ env CC=clang CFLAGS="-O2 -pipe" {
   run make
 }
 
-let version = cd (repo) { run.text git describe ? }?
+let version = cd (repo) { run.text git describe }?
 let report = env (overlay) { collect_report()? }?
 # end example

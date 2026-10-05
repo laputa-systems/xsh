@@ -3,7 +3,7 @@ test test_release_pack { |ctx|
   let out = test.temp_path(ctx, name: "release-out")
   fp"{root}/bin".mkdir()
   fp"{root}/bin/tool".write("tool")
-  let output = run.text "xsh" "showcase/release-pack.xsh" -- $root $out --dry-run=false ?
+  let output = run.text "xsh" "showcase/release-pack.xsh" -- $root $out --dry-run=false
   assert "archive " in output
   assert fp"{out}/release.tar".exists()?
   assert ! fp"{out.parent}/.{out.name()}.xsh-stage".exists()?

@@ -21,5 +21,5 @@ proc staged_line(root: Path) [fs, error] -> Result[Str] {
 # end example
 
 let root = fs.tempdir()?
-defer root.close()?
+defer root.close()
 print ${stamp_line(root.host_path()?)?} ${staged_line(root.host_path()?)?}

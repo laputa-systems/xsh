@@ -2,7 +2,7 @@ test fs_root_methods_keep_child_independent_after_parent_close { |ctx|
   let root = fs.open_root(test.temp_dir(ctx, name: "root-methods")?)?
   root.mkdir(p"child")
   let child = root.open_root(p"child")?
-  defer child.close()?
+  defer child.close()
   let erased: Any = root
   let validated = erased.require(FsRoot)?
   validated.close()
@@ -15,7 +15,7 @@ test fs_root_methods_keep_child_independent_after_parent_close { |ctx|
 
 test fs_root_methods_preserve_bounded_observations_and_raw_names {
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   let raw = b"raw-name" as Path
   root.write(raw, b"abc\0def")
   root.write_atomic(p"text", "atomic")
@@ -42,7 +42,7 @@ test fs_root_methods_preserve_bounded_observations_and_raw_names {
 
 test fs_root_methods_keep_mutation_defaults_and_symlink_confinement { |ctx|
   let root = fs.tempdir()?
-  defer root.close()?
+  defer root.close()
   root.mkdir(p"nested/child", parents: true)
   root.mkdir(p"restricted", mode: 0o700)
   assert root.metadata(p"restricted")?.mode % 512 == 0o700
@@ -136,7 +136,7 @@ test fs_root_methods_optional_receiver_keeps_arguments_lazy {
   let missing = absent?.read_bytes(optional_root_path())
   assert missing == null
   let present: FsRoot? = fs.tempdir()?
-  defer present.require(FsRoot)?.close()?
+  defer present.require(FsRoot)?.close()
   assert present?.children(p".") != null
 }
 

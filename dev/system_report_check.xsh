@@ -21375,7 +21375,7 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   scratch.write(p"malformed.json", "{invalid")
   scratch.write(p"unsupported.json", "{\"schema_version\":2}")
   scratch.write(p"invalid-utf8.json", b"\xff")
@@ -21650,9 +21650,9 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     ""
   }
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let before_release = read_uname_reference("-r", scratch, "release-before")?
   let before_architecture = read_uname_reference("-m", scratch, "architecture-before")?
   let before_uptime = read_uptime_reference(scratch, "uptime-before")?
@@ -21910,7 +21910,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
     },
   ]
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   var before: List[NamespaceReference] = []
   var reference_argv: List[List[Str]] = []
   let before_started = time.now()
@@ -22023,7 +22023,7 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_meminfo_reference(scratch, "meminfo-before")?
   let scratch_path = scratch.host_path()?
   scratch.write(p"candidate", "")
@@ -22117,7 +22117,7 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   return Err(check_failure("THP comparison needs /bin/cat")) unless p"/bin/cat".exists()
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_thp_reference(scratch, "before")?
   let scratch_path = scratch.host_path()?
   scratch.write(p"candidate", "")
@@ -22305,9 +22305,9 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_huge_page_reference(source)?
   let scratch_path = scratch.host_path()?
   scratch.write(p"candidate", "")
@@ -22420,7 +22420,7 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   return Err(check_failure("PSI comparison needs /bin/cat")) unless p"/bin/cat".exists()
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_psi_reference(scratch, "before")?
   let scratch_path = scratch.host_path()?
   scratch.write(p"candidate", "")
@@ -22497,7 +22497,7 @@ proc read_vulnerability_reference(
   label: Str,
 ) [fs, process, time, error] -> Result[VulnerabilityObservation] {
   let source_root = fs.open_root(/sys/devices/system/cpu)?
-  defer source_root.close()?
+  defer source_root.close()
   let started = time.now()
   let listing = source_root.children(p"vulnerabilities", max_entries: 256)?
   if listing.state == "absent" {
@@ -22563,7 +22563,7 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_vulnerability_reference(scratch, "before")?
   let scratch_path = scratch.host_path()?
   scratch.write(p"candidate", "")
@@ -22636,7 +22636,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
   let argv = ["swapon", "--show=NAME,TYPE,SIZE,USED,PRIO", "--raw", "--bytes"]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
@@ -22760,7 +22760,7 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
   let argv = pci_reference_argv()
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let version_status = process.run(
     process.command_argv(
@@ -22853,9 +22853,9 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_pci_link_reference(source)?
   let before_ended = time.now()
@@ -22903,9 +22903,9 @@ proc compare_live_usb_topology(
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_usb_topology_reference(source)?
   let before_ended = time.now()
@@ -22959,9 +22959,9 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_usb_ids_reference(source)?
   let before_ended = time.now()
@@ -23006,9 +23006,9 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_usb_power_reference(source)?
   let before_ended = time.now()
@@ -23056,9 +23056,9 @@ proc compare_live_usb_interfaces(
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_usb_interface_reference(source)?
   let before_ended = time.now()
@@ -23106,9 +23106,9 @@ proc compare_live_power_supplies(
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_power_supply_reference(source)?
   let before_ended = time.now()
@@ -23153,9 +23153,9 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_powercap_reference(source)?
   let before_ended = time.now()
@@ -23203,9 +23203,9 @@ proc compare_live_device_classes(
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   guard let before = read_device_class_reference(source) else { |_|
     print "devices.graphics-audio-input: reference enumeration incomplete; comparison remains partial"
@@ -23258,9 +23258,9 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   guard let before = read_hwmon_reference(source) else { |_|
     print "sensors.hwmon: reference enumeration incomplete; comparison remains partial"
@@ -23316,9 +23316,9 @@ proc compare_live_pci_bindings(
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_pci_binding_reference(source)?
   let before_ended = time.now()
@@ -23363,9 +23363,9 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_thermal_zone_reference(source)?
   let before_ended = time.now()
@@ -23472,9 +23472,9 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
   let argv = ["ip", "-json", "-details", "link", "show"]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
 
@@ -23583,7 +23583,7 @@ proc compare_live_ip_addresses(
   let argv = ["ip", "-json", "address", "show"]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
 
@@ -23705,7 +23705,7 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
 
   let binary = ip_reference_binary()?
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
   let before_started = time.now()
@@ -23798,7 +23798,7 @@ proc compare_live_ip_routes(
 
   let binary = ip_reference_binary()?
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let version = ip_reference_version(binary, scratch)?
   let before_started = time.now()
@@ -23883,7 +23883,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
@@ -23998,9 +23998,9 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
@@ -24131,7 +24131,7 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
@@ -24297,7 +24297,7 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
   ]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let before_started = time.now()
   let before_status = process.run(
@@ -24445,7 +24445,7 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_kernel_module_reference(binary, scratch, "modules-before")?
   let scratch_path = scratch.host_path()?
   let candidate_started = time.now()
@@ -24534,7 +24534,7 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let before = read_kernel_command_line_reference(scratch, "cmdline-before")?
   let sensitive_started = time.now()
@@ -24712,7 +24712,7 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_kernel_parameter_reference(sysctl_binary, scratch, "parameters-before")?
   let scratch_path = scratch.host_path()?
   let candidate_started = time.now()
@@ -24804,9 +24804,9 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let affinity_before = read_proc_status_affinity_reference(scratch, "cpu-scope-before")?
   let cgroup_before = read_cpu_scope_cgroup_reference(source)?
   let scratch_path = scratch.host_path()?
@@ -24869,9 +24869,9 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before = read_cgroup2_resource_reference(source)?
   let scratch_path = scratch.host_path()?
   scratch.write(p"candidate", "")
@@ -24934,9 +24934,9 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_cpu_cache_reference(source)?
   let before_ended = time.now()
@@ -24998,7 +24998,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let argv = ["lscpu", "--json", "--extended=CPU,ONLINE,SOCKET,CORE,NODE", "--all"]
   let reference_env = {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"}
@@ -25087,9 +25087,9 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_cpufreq_policy_reference(source)?
   let before_ended = time.now()
@@ -25154,9 +25154,9 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let before_started = time.now()
   let before = read_cpuidle_reference(source)?
   let before_ended = time.now()
@@ -25218,7 +25218,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
     scratch.write(fp"{name}", "")
   }
@@ -25331,9 +25331,9 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
   }
 
   let source = fs.open_root(/)?
-  defer source.close()?
+  defer source.close()
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let units = system.execution_units()?
   let before_started = time.now()
@@ -25510,7 +25510,7 @@ proc run_fixture_cases(
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let scratch_path = scratch.host_path()?
   let stdout_path = fp"{scratch_path}/stdout"
   let stderr_path = fp"{scratch_path}/stderr"
@@ -26171,7 +26171,7 @@ export proc validate_and_run(
   if options.capture_cpu_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpu_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("CPU set capture destination already exists"))
@@ -26179,9 +26179,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_cpu_set_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26192,7 +26192,7 @@ export proc validate_and_run(
 
   if options.replay_cpu_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_cpu_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_cpu_set_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26211,7 +26211,7 @@ export proc validate_and_run(
   if options.capture_cpufreq_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpufreq_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("CPUFreq capture destination already exists"))
@@ -26219,9 +26219,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_cpufreq_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuFreqBundleCapture)?
     print f"CPUFreq raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; policies={capture.layout.policies.len()}; changing_gauges={capture.changing_gauges.len()}"
@@ -26231,7 +26231,7 @@ export proc validate_and_run(
 
   if options.replay_cpufreq_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_cpufreq_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_cpufreq_bundle(bundle)?
     let bounds_state = if result.policies.exact_bounds {
       "exact"
@@ -26258,7 +26258,7 @@ export proc validate_and_run(
   if options.capture_cpu_topology_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cpu_topology_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("CPU topology capture destination already exists"))
@@ -26266,9 +26266,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_cpu_topology_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuTopologyBundleCapture)?
     print f"CPU topology raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; CPUs={capture.layout.cpu_ids.len()}; node_links={capture.layout.node_links.len()}"
@@ -26278,7 +26278,7 @@ export proc validate_and_run(
 
   if options.replay_cpu_topology_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_cpu_topology_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_cpu_topology_bundle(bundle)?
     print f"CPU topology raw replay: sets={result.sets.exact}; topology={result.topology.exact}; CPUs={result.topology.reference_count}; mismatches={result.topology.field_mismatches.len()}"
     if ! result.sets.exact or ! result.topology.exact {
@@ -26291,7 +26291,7 @@ export proc validate_and_run(
   if options.capture_memory_bundle != "" {
     let destination = path.absolute(fp"{options.capture_memory_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("memory capture destination already exists"))
@@ -26299,9 +26299,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_memory_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26312,7 +26312,7 @@ export proc validate_and_run(
 
   if options.replay_memory_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_memory_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_memory_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
     let meminfo_state = if result.meminfo.exact_scored { "exact" } else { "mismatch" }
@@ -26334,7 +26334,7 @@ export proc validate_and_run(
   if options.capture_cgroup2_bundle != "" {
     let destination = path.absolute(fp"{options.capture_cgroup2_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("cgroup2 capture destination already exists"))
@@ -26342,9 +26342,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_cgroup2_bundle(source, bundle, "live_capture")
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
     print f"cgroup2 raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; ancestors={capture.layout.ancestors.len()}; resources={capture.reference_resources.len()}; changing_sources={capture.changing_sources.len()}"
@@ -26354,7 +26354,7 @@ export proc validate_and_run(
 
   if options.replay_cgroup2_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_cgroup2_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_cgroup2_bundle(bundle)?
     let state = if result.exact_scored { "exact" } else if result.exact_stable { "partial" } else { "mismatch" }
     print f"cgroup2 raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; matched={result.matched_count}; mismatched={result.field_mismatches.len()}"
@@ -26368,7 +26368,7 @@ export proc validate_and_run(
   if options.capture_process_bundle != "" {
     let destination = path.absolute(fp"{options.capture_process_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("process capture destination already exists"))
@@ -26376,9 +26376,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     let units = system.execution_units()?
     capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
@@ -26389,7 +26389,7 @@ export proc validate_and_run(
 
   if options.replay_process_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_process_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_process_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"process raw replay: {state}; identity={result.identity.matched_count}; resource_fields={result.resources.scored_fields}; candidate={result.identity.candidate_count}"
@@ -26403,7 +26403,7 @@ export proc validate_and_run(
   if options.capture_power_supply_bundle != "" {
     let destination = path.absolute(fp"{options.capture_power_supply_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("power supply capture destination already exists"))
@@ -26411,9 +26411,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_power_supply_bundle(source, bundle, "live_capture")
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
     print f"power supply raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; supplies={capture.layout.entries.len()}; changing_sources={capture.changing_sources.len()}"
@@ -26426,7 +26426,7 @@ export proc validate_and_run(
 
   if options.replay_power_supply_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_power_supply_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_power_supply_bundle(bundle)?
     let mismatch = ! result.missing_names.is_empty() or ! result.unexpected_names.is_empty() or ! result.field_mismatches.is_empty()
     let state = if result.exact { "exact" } else if mismatch { "mismatch" } else { "partial" }
@@ -26441,7 +26441,7 @@ export proc validate_and_run(
   if options.capture_pressure_bundle != "" {
     let destination = path.absolute(fp"{options.capture_pressure_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("pressure capture destination already exists"))
@@ -26449,9 +26449,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_pressure_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26462,7 +26462,7 @@ export proc validate_and_run(
 
   if options.replay_pressure_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_pressure_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_pressure_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
     let state = if result.exact_scored { "exact" } else { "mismatch" }
@@ -26477,7 +26477,7 @@ export proc validate_and_run(
   if options.capture_swaps_bundle != "" {
     let destination = path.absolute(fp"{options.capture_swaps_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("swap capture destination already exists"))
@@ -26485,9 +26485,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_proc_swaps_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26498,7 +26498,7 @@ export proc validate_and_run(
 
   if options.replay_swaps_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_swaps_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_proc_swaps_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26513,7 +26513,7 @@ export proc validate_and_run(
   if options.capture_os_release_bundle != "" {
     let destination = path.absolute(fp"{options.capture_os_release_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("os-release capture destination already exists"))
@@ -26521,9 +26521,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_os_release_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
@@ -26534,7 +26534,7 @@ export proc validate_and_run(
 
   if options.replay_os_release_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_os_release_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_os_release_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26549,7 +26549,7 @@ export proc validate_and_run(
   if options.capture_uptime_bundle != "" {
     let destination = path.absolute(fp"{options.capture_uptime_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("uptime capture destination already exists"))
@@ -26557,9 +26557,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_uptime_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
     let scoreable = if capture.reference_seconds != null { "yes" } else { "no" }
@@ -26570,7 +26570,7 @@ export proc validate_and_run(
 
   if options.replay_uptime_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_uptime_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_uptime_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
     let state = if result.bracketed { "exact" } else { "mismatch" }
@@ -26586,7 +26586,7 @@ export proc validate_and_run(
   if options.capture_dmi_identity_bundle != "" {
     let destination = path.absolute(fp"{options.capture_dmi_identity_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("DMI identity capture destination already exists"))
@@ -26594,9 +26594,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_dmi_identity_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
@@ -26607,7 +26607,7 @@ export proc validate_and_run(
 
   if options.replay_dmi_identity_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_dmi_identity_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_dmi_identity_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26622,7 +26622,7 @@ export proc validate_and_run(
   if options.capture_device_tree_bundle != "" {
     let destination = path.absolute(fp"{options.capture_device_tree_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("device-tree capture destination already exists"))
@@ -26630,9 +26630,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_device_tree_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
@@ -26643,7 +26643,7 @@ export proc validate_and_run(
 
   if options.replay_device_tree_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_device_tree_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_device_tree_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26658,7 +26658,7 @@ export proc validate_and_run(
   if options.capture_kernel_command_line_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_command_line_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("kernel command-line capture destination already exists"))
@@ -26666,9 +26666,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_kernel_command_line_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
     let scoreable = if capture.stable and capture.reference_base64 != null { "yes" } else { "no" }
@@ -26679,7 +26679,7 @@ export proc validate_and_run(
 
   if options.replay_kernel_command_line_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_kernel_command_line_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_kernel_command_line_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26694,7 +26694,7 @@ export proc validate_and_run(
   if options.capture_kernel_modules_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_modules_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("kernel module capture destination already exists"))
@@ -26702,9 +26702,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_kernel_modules_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26715,7 +26715,7 @@ export proc validate_and_run(
 
   if options.replay_kernel_modules_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_kernel_modules_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_kernel_modules_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26730,7 +26730,7 @@ export proc validate_and_run(
   if options.capture_vulnerabilities_bundle != "" {
     let destination = path.absolute(fp"{options.capture_vulnerabilities_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("vulnerability capture destination already exists"))
@@ -26738,9 +26738,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_vulnerabilities_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26751,7 +26751,7 @@ export proc validate_and_run(
 
   if options.replay_vulnerabilities_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_vulnerabilities_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_vulnerabilities_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26766,7 +26766,7 @@ export proc validate_and_run(
   if options.capture_mountinfo_bundle != "" {
     let destination = path.absolute(fp"{options.capture_mountinfo_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("mountinfo capture destination already exists"))
@@ -26774,9 +26774,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_mountinfo_bundle(source, bundle, "live_capture")
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26787,7 +26787,7 @@ export proc validate_and_run(
 
   if options.replay_mountinfo_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_mountinfo_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_mountinfo_bundle(bundle)?
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26802,7 +26802,7 @@ export proc validate_and_run(
   if options.capture_kernel_parameters_bundle != "" {
     let destination = path.absolute(fp"{options.capture_kernel_parameters_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("kernel parameter capture destination already exists"))
@@ -26810,9 +26810,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_kernel_parameters_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
@@ -26823,7 +26823,7 @@ export proc validate_and_run(
 
   if options.replay_kernel_parameters_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_kernel_parameters_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_kernel_parameters_bundle(bundle)?
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -26838,7 +26838,7 @@ export proc validate_and_run(
   if options.capture_thermal_bundle != "" {
     let destination = path.absolute(fp"{options.capture_thermal_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("thermal capture destination already exists"))
@@ -26846,9 +26846,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_thermal_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ThermalCapture)?
     print f"thermal raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26858,7 +26858,7 @@ export proc validate_and_run(
 
   if options.replay_thermal_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_thermal_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_thermal_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"thermal raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}; partial={result.unstable_fields.len()}"
@@ -26872,7 +26872,7 @@ export proc validate_and_run(
   if options.capture_hwmon_bundle != "" {
     let destination = path.absolute(fp"{options.capture_hwmon_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("hwmon capture destination already exists"))
@@ -26880,9 +26880,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_hwmon_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(HwmonBundleCapture)?
     print f"hwmon raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; chips={capture.layout.chips.len()}; changing_gauges={capture.changing_gauges.len()}"
@@ -26892,7 +26892,7 @@ export proc validate_and_run(
 
   if options.replay_hwmon_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_hwmon_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_hwmon_bundle(bundle)?
     let mismatch = ! result.field_mismatches.is_empty() or ! result.missing_names.is_empty() or ! result.unexpected_names.is_empty()
     let state = if result.exact {
@@ -26915,7 +26915,7 @@ export proc validate_and_run(
   if options.capture_block_bundle != "" {
     let destination = path.absolute(fp"{options.capture_block_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("block capture destination already exists"))
@@ -26923,9 +26923,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_block_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(BlockBundleCapture)?
     print f"block raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; devices={capture.layout.entries.len()}; changing_stats={capture.changing_stats.len()}"
@@ -26935,7 +26935,7 @@ export proc validate_and_run(
 
   if options.replay_block_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_block_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_block_bundle(bundle)?
     let identity = if result.identity.exact { "exact" } else { "mismatch" }
     let queue = if result.queue.exact { "exact" } else { "mismatch" }
@@ -26951,7 +26951,7 @@ export proc validate_and_run(
   if options.capture_powercap_bundle != "" {
     let destination = path.absolute(fp"{options.capture_powercap_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("powercap capture destination already exists"))
@@ -26959,9 +26959,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_powercap_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PowerCapCapture)?
     print f"powercap raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26971,7 +26971,7 @@ export proc validate_and_run(
 
   if options.replay_powercap_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_powercap_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_powercap_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"powercap raw replay: {state}; reference={result.reference_count}; candidate={result.candidate_count}; mismatched={result.field_mismatches.len()}; partial={result.unstable_fields.len()}"
@@ -26985,7 +26985,7 @@ export proc validate_and_run(
   if options.capture_pci_bundle != "" {
     let destination = path.absolute(fp"{options.capture_pci_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("PCI capture destination already exists"))
@@ -26993,9 +26993,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_pci_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PciBundleCapture)?
     print f"PCI raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; functions={capture.layout.functions.len()}"
@@ -27005,7 +27005,7 @@ export proc validate_and_run(
 
   if options.replay_pci_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_pci_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_pci_bundle(bundle)?
     let binding_state = if ! result.binding.eligible {
       "unavailable"
@@ -27027,7 +27027,7 @@ export proc validate_and_run(
   if options.capture_usb_bundle != "" {
     let destination = path.absolute(fp"{options.capture_usb_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("USB capture destination already exists"))
@@ -27035,9 +27035,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     capture_usb_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UsbBundleCapture)?
     print f"USB raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; entries={capture.layout.entries.len()}"
@@ -27047,7 +27047,7 @@ export proc validate_and_run(
 
   if options.replay_usb_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_usb_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let result = replay_usb_bundle(bundle)?
     let power_unavailable = ! result.power.eligible and result.power.missing_names.is_empty() and result.power.unexpected_names.is_empty() and result.power.field_mismatches.is_empty() and result.power.unstable_fields.is_empty()
     let interface_unavailable = ! result.interface.eligible and result.interface.missing_names.is_empty() and result.interface.unexpected_names.is_empty() and result.interface.field_mismatches.is_empty() and result.interface.unstable_fields.is_empty()
@@ -27070,7 +27070,7 @@ export proc validate_and_run(
   if options.capture_smbios_bundle != "" {
     let destination = path.absolute(fp"{options.capture_smbios_bundle}")?
     let parent = fs.open_root(destination.parent())?
-    defer parent.close()?
+    defer parent.close()
     let leaf = fp"{destination.name()}"
     if parent.exists(leaf) {
       return Err(check_failure("SMBIOS capture destination already exists"))
@@ -27078,9 +27078,9 @@ export proc validate_and_run(
 
     parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
-    defer bundle.close()?
+    defer bundle.close()
     let source = fs.open_root(/)?
-    defer source.close()?
+    defer source.close()
     let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let captured = smbios_module.capture_smbios_bundle(source, bundle, "live_capture")?
     print f"SMBIOS raw capture saved at {destination}; origin={captured.origin}; stable={captured.stable}; scoreable={captured.scoreable}; captured={captured.captured_unix_ms} ms"
@@ -27090,7 +27090,7 @@ export proc validate_and_run(
 
   if options.replay_smbios_bundle != "" {
     let bundle = fs.open_root(fp"{options.replay_smbios_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let result = smbios_module.replay_smbios_bundle(bundle)?
     let state = if result.exact { "exact" } else { "mismatch" }
@@ -27108,7 +27108,7 @@ export proc validate_and_run(
     }
 
     let bundle = fs.open_root(fp"{options.corroborate_smbios_bundle}")?
-    defer bundle.close()?
+    defer bundle.close()
     let smbios_module = module.load(fp"{ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
     let result = smbios_module.corroborate_smbios_bundle(bundle, options.dmidecode_bin)?
     let compared = result.comparison

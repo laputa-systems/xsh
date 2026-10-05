@@ -27,7 +27,7 @@ proc project(ctx: TestContext, files: Map[Str, Str]) [fs, error] -> Result[Path]
 # Runs `xsht` with `arguments` in `root`.
 proc xsht(root: Path, arguments: List[Str]) [process, env, error] -> Result[Captured] {
   cd (root) {
-    run.capture --text "xsht" @arguments ?
+    run.capture --text "xsht" @arguments
   }
 }
 
@@ -56,7 +56,7 @@ test test_lint_accepts_documented_path_constructor_warning { |ctx|
     name: "path-constructor.xsh",
     contents: bytes.from_text("let root = Path(args[0])\nprint $root\n"),
   )?
-  let linted = run.capture --text "xsht" lint $file ?
+  let linted = run.capture --text "xsht" lint $file
   assert linted.status.exited_with(0), linted.stderr
   assert linted.stdout == ""
   assert "warn[lint.path-constructor]" in linted.stderr, linted.stderr
@@ -83,7 +83,7 @@ test test_lint_reports_warnings_with_spans { |ctx|
 main(args)?
 """),
   )?
-  let linted = run.capture --text "xsht" lint $file ?
+  let linted = run.capture --text "xsht" lint $file
   assert linted.status.exited_with(1), linted.stderr
   assert linted.stdout == ""
   for code in ["lint.unused-local", "lint.path-constructor", "lint.command-value", "lint.redundant-default"] {
@@ -114,7 +114,7 @@ test test_lint_mixed_parse_and_lint_failures_exit_with_parse_status { |ctx|
 
 test test_lint_reports_check_errors_with_spans { |ctx|
   let file = test.temp_file(ctx, name: "reassign-let.xsh", contents: bytes.from_text("let x = 1\nx = 2\n"))?
-  let linted = run.capture --text "xsht" lint $file ?
+  let linted = run.capture --text "xsht" lint $file
   assert linted.status.exited_with(2), linted.stderr
   assert linted.stdout == ""
   assert "err[check.assign-let]" in linted.stderr, linted.stderr
@@ -130,7 +130,7 @@ test test_lint_reports_imported_check_errors_once { |ctx|
       "second.xsh": "use lib.shared\nlet two = shared.bad()\n",
     },
   )?
-  let linted = run.capture --text "xsht" lint fp"{root}/first.xsh" fp"{root}/second.xsh" ?
+  let linted = run.capture --text "xsht" lint fp"{root}/first.xsh" fp"{root}/second.xsh"
   assert linted.status.exited_with(2), linted.stderr
   assert linted.stderr.split("err[check.type-mismatch]").len() == 2, linted.stderr
   assert fp"{root}/lib/shared.xsh".display() in linted.stderr, linted.stderr
@@ -150,7 +150,7 @@ run.status $target --flag $opts.tool
 print ${label}
 """),
   )?
-  let linted = run.capture --text "xsht" lint $file ?
+  let linted = run.capture --text "xsht" lint $file
   assert linted.status.exited_with(0), linted.stderr
   assert linted.stdout == ""
   assert diagnostics(linted.stderr) == "", linted.stderr
@@ -166,7 +166,7 @@ test test_lint_accepts_a_cli_main_entry_beside_other_entry_files { |ctx|
 }
 
 test test_lint_list_jsonl_names_every_selectable_code_with_a_summary {
-  let listed = run.capture --text "xsht" lint --list --format jsonl ?
+  let listed = run.capture --text "xsht" lint --list --format jsonl
   assert listed.status.exited_with(0), listed.stderr
   let lines = listed.stdout.lines().collect()
   assert lines.len() > 50, listed.stdout
@@ -177,7 +177,7 @@ test test_lint_list_jsonl_names_every_selectable_code_with_a_summary {
   assert "{\"code\":\"lint.prefer-guard\",\"summary\":" in listed.stdout, listed.stdout
   assert "{\"code\":\"check.bool-statement\",\"summary\":" in listed.stdout, listed.stdout
 
-  let rejected = run.capture --text "xsht" lint --list --fix ?
+  let rejected = run.capture --text "xsht" lint --list --fix
   assert rejected.status.exited_with(2), rejected.stderr
 }
 

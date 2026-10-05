@@ -5,7 +5,7 @@ test test_secret_scan { |ctx|
 api_key = 'abcdefghijklmnop'
 """)
 
-  let output = run.text "xsh" "showcase/secret-scan.xsh" -- --root $root ?
+  let output = run.text "xsh" "showcase/secret-scan.xsh" -- --root $root
   assert "[aws-key]" in output
   assert "[api-key]" in output
   assert "scanned" in output

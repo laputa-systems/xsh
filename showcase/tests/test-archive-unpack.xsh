@@ -3,13 +3,13 @@ test test_archive_unpack { |ctx|
   fp"{src}/a.txt".write("alpha")
   fp"{src}/b.txt".write("beta")
   let tarball = test.temp_path(ctx, name: "test.tar.gz")
-  run.text "tar" "czf" $tarball "-C" $src "." ?
+  run.text "tar" "czf" $tarball "-C" $src "."
   let out = test.temp_path(ctx, name: "arc-out")
-  let extract_out = run.text "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false ?
+  let extract_out = run.text "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false
   assert "entries in test.tar.gz" in extract_out
   assert "extracted to" in extract_out
   assert fp"{out}/a.txt".exists()?
-  let usage = run.text "xsh" "showcase/archive-unpack.xsh" -- --help ?
+  let usage = run.text "xsh" "showcase/archive-unpack.xsh" -- --help
   assert "usage:" in usage
 }
 
@@ -46,11 +46,11 @@ test test_archive_unpack_cleans_partial_staging_after_unsafe_member { |ctx|
 
 test test_archive_unpack_compress_and_decompress_publish_files { |ctx|
   let source = test.temp_file(ctx, name: "compress.txt", contents: b"round trip")?
-  run.text "xsh" "showcase/archive-unpack.xsh" -- --compress $source --dry-run=false ?
+  run.text "xsh" "showcase/archive-unpack.xsh" -- --compress $source --dry-run=false
   let compressed = fp"{source}.gz"
   assert compressed.exists()?
   let restored = test.temp_path(ctx, name: "restored.txt")
-  run.text "xsh" "showcase/archive-unpack.xsh" -- --decompress $compressed --out $restored --dry-run=false ?
+  run.text "xsh" "showcase/archive-unpack.xsh" -- --decompress $compressed --out $restored --dry-run=false
   assert restored.read_text()? == "round trip"
   assert ! fp"{restored.parent}/.{restored.name()}.xsh-stage".exists()?
 }

@@ -1346,7 +1346,7 @@ test loads_plugin_with_configured_roots {
 """)
 
   cd project {
-    let output = run.capture --text "xsht" test tests/loader.xsh ?
+    let output = run.capture --text "xsht" test tests/loader.xsh
     assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
   }
 }
@@ -1395,7 +1395,7 @@ test plain_run_child_finds_configured_roots { |ctx|
   let inherited_root = inherited.display()
   env XSH_MODULE_PATH=$inherited_root {
     cd project {
-      let output = run.capture --text "xsht" test tests/children.xsh ?
+      let output = run.capture --text "xsht" test tests/children.xsh
       assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
       assert "2 passed" in output.stdout, output.stdout
     }
@@ -1421,15 +1421,15 @@ use checks.disk as usage
 print ${disk.threshold()} ${usage.threshold()}
 """)
 
-  let before = run.capture --text "xsh" $script ?
+  let before = run.capture --text "xsh" $script
   assert before.status.exited_with(0), before.stderr
 
-  let reported = run.capture --text "xsht" lint --only lint.redundant-use-alias $script ?
+  let reported = run.capture --text "xsht" lint --only lint.redundant-use-alias $script
   assert "lint.redundant-use-alias" in reported.stderr, reported.stderr
   assert "`as disk` repeats the name this `use` already binds" in reported.stderr, reported.stderr
   assert "as usage" not in reported.stderr, reported.stderr
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.redundant-use-alias $script ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.redundant-use-alias $script
   assert fixed.status.exited_with(0), fixed.stderr
   assert script.read_text()? == r"""use checks.disk
 use checks.disk as usage
@@ -1437,7 +1437,7 @@ use checks.disk as usage
 print ${disk.threshold()} ${usage.threshold()}
 """
 
-  let after = run.capture --text "xsh" $script ?
+  let after = run.capture --text "xsh" $script
   assert after.status.exited_with(0), after.stderr
   assert after.stdout == before.stdout
   assert after.stdout == "90 90\n", after.stdout

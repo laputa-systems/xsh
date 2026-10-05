@@ -235,9 +235,9 @@ let f = try { (field as Int) }
 print $a $b $c $d $e ${f ?? 0}
 """
   let candidate = test.temp_file(ctx, name: "as.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only check.redundant-parens $candidate ?
+  let fixed = run.capture --text --accept=[0, 1] "xsht" lint --fix --only check.redundant-parens $candidate
   assert fixed.status.exited_with(0), fixed.stderr
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let text = candidate.read_text()?
   assert text == r"""let field = "4"
@@ -274,11 +274,11 @@ show("x:8080: 1.5 :4", b"etc", 2)?
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "conversions.xsh", contents: bytes.from_text(source))?
 
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-as-conversion $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-as-conversion $candidate
   let report = linted.stdout + linted.stderr
   assert count(report, "warn[lint.prefer-as-conversion]") == 8, report
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-as-conversion $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-as-conversion $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert "  let port = fields[1] as UInt\n" in rewritten, rewritten
@@ -290,9 +290,9 @@ show("x:8080: 1.5 :4", b"etc", 2)?
   assert "  let captured = try { (spec as Int) }\n" in rewritten, rewritten
   assert " (fields[3] as Int)\n" in rewritten, rewritten
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
-  let clean = run.capture --text "xsht" lint --only lint.prefer-as-conversion $candidate ?
+  let clean = run.capture --text "xsht" lint --only lint.prefer-as-conversion $candidate
   assert clean.status.exited_with(0), clean.stdout + clean.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout

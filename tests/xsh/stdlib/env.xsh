@@ -256,7 +256,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     assert env.PATH.pop()? == extra_dir
     assert env.Path.XSH_STDLIB_PATH? == root
     assert e"DESTDIR"? == "/tmp/xsh-stdlib-env"
-    let output = run.text xsh-env-helper ?
+    let output = run.text xsh-env-helper
     assert "yes|/tmp/xsh-stdlib-env|" in output
   }
 
@@ -308,7 +308,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     assert truthy == false
     assert count == 7
     assert fallback_path == root
-    let line = run.text CC=cc CFLAGS="-O2 -pipe" env-scope-tool ?
+    let line = run.text CC=cc CFLAGS="-O2 -pipe" env-scope-tool
     assert line == "cc|-O2 -pipe|/tmp/xsh-env-scope|block"
   }
 
@@ -344,7 +344,7 @@ beta """.trim()
     assert decoded == b"abc"
     assert lines[1] == "beta"
     assert b"abc".compare(b"abd").byte == 3
-    let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";" ?
+    let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";"
     assert line == f"{root}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"
   }?
 }
@@ -460,11 +460,11 @@ test test_env_string_assignment_lasts_until_the_enclosing_env_scope_ends { |ctx|
 test test_env_string_assignment_reaches_child_processes {
   env XSH_ESTR_CHILD_SCOPE=1 {
     e"XSH_ESTR_CHILD" = "seen by child"
-    let said = run.text printenv XSH_ESTR_CHILD ?
+    let said = run.text printenv XSH_ESTR_CHILD
     assert said == "seen by child\n"
 
     # A per-command `NAME=value` word still overrides it for that child only.
-    let overridden = run.text XSH_ESTR_CHILD=override printenv XSH_ESTR_CHILD ?
+    let overridden = run.text XSH_ESTR_CHILD=override printenv XSH_ESTR_CHILD
     assert overridden == "override\n"
     assert e"XSH_ESTR_CHILD"? == "seen by child"
   }
@@ -479,7 +479,7 @@ test test_env_string_keeps_non_utf8_bytes_for_paths_and_children {
     test.error_kind(e"XSH_ESTR_RAW", "invalid-utf8")
     assert (e"XSH_ESTR_RAW" ?? "fallback") == "fallback"
     assert env.Path.XSH_ESTR_RAW? == raw
-    let child = run.bytes printenv XSH_ESTR_RAW ?
+    let child = run.bytes printenv XSH_ESTR_RAW
     assert child == b"/tmp/xsh-estr-\xff\n"
   }
 }

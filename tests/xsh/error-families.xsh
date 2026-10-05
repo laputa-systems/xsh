@@ -294,13 +294,13 @@ print ${StageError.Broken("detail").message}
   let before = test.expect(ctx, source, status: 0)?
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(source)
-  let first = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate
   assert first.status.exited_with(1), first.stderr
   assert "lint.prefer-implicit-message" in first.stderr
   assert "`Usage` takes its message positionally" in first.stderr, first.stderr
   assert "variant `Missing` restates the message every error carries" in first.stderr, first.stderr
   assert "first pass the message positionally at each `Usage(message: ...)` call" in first.stderr, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "error ProofError = Usage | Failed(kind: Str, message: Str) | Missing : NotFound" in fixed, fixed
@@ -310,7 +310,7 @@ print ${StageError.Broken("detail").message}
   assert "ProofError.Failed(kind: \"kind\", message:)" in fixed, fixed
   let after = test.expect(ctx, fixed, status: 0)?
   assert after.stdout == before.stdout
-  let second = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
+  let second = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate
   assert second.status.exited_with(0), second.stderr
 }
 
@@ -339,7 +339,7 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   let importer = fp"{root}/main.xsh"
   importer.write_atomic(importer_source)
 
-  let reported = run.capture --text "xsht" lint --only lint.prefer-implicit-message $module_file ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-implicit-message $module_file
   assert reported.status.exited_with(1), reported.stderr
   assert "`FetchError` is exported" in reported.stderr, reported.stderr
   assert "delete `(message: Str)` here" in reported.stderr, reported.stderr
@@ -347,16 +347,16 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   assert "help: declare the variant without a payload" not in reported.stderr, reported.stderr
 
   # Each call is fixed where it is written; the exported declaration is not.
-  let fixing_module = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $module_file ?
+  let fixing_module = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $module_file
   assert ! fixing_module.status.exited_with(2), fixing_module.stderr
   let fixed_module = module_file.read_text()?
   assert "export error FetchError = Usage(message: Str) | Rejected(url: Str, status: Int)" in fixed_module, fixed_module
   assert "Err(FetchError.Usage(reason))" in fixed_module, fixed_module
-  let remaining = run.capture --text "xsht" lint --only lint.prefer-implicit-message $module_file ?
+  let remaining = run.capture --text "xsht" lint --only lint.prefer-implicit-message $module_file
   assert remaining.status.exited_with(1), remaining.stderr
   assert "`FetchError` is exported" in remaining.stderr, remaining.stderr
   assert "takes its message positionally" not in remaining.stderr, remaining.stderr
-  let fixing_importer = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $importer ?
+  let fixing_importer = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $importer
   assert ! fixing_importer.status.exited_with(2), fixing_importer.stderr
   let fixed_importer = importer.read_text()?
   assert "fetch.FetchError.Usage(\"imported\")" in fixed_importer, fixed_importer
@@ -382,10 +382,10 @@ test test_prefer_implicit_message_is_opt_in_and_named_by_only { |ctx|
 print ${ProofError.Usage(message: "named").message}
 print ${ProofError.Other(code: 2).message}
 """)
-  let linted = run.capture --text "xsht" lint $candidate ?
+  let linted = run.capture --text "xsht" lint $candidate
   assert "lint.prefer-implicit-message" not in linted.stderr, linted.stderr
   # Naming the rule asks for it as its setting does.
-  let named = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
+  let named = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate
   assert named.status.exited_with(1), named.stderr
   assert "`Usage` takes its message positionally" in named.stderr, named.stderr
 }
@@ -423,13 +423,13 @@ print ${StepError.Broken(code: 2).message}
 
   # The module's calls are positional, so its declaration is fixed at once;
   # the root's waits for its named call.
-  let first = run.capture --text "xsht" lint --only lint.prefer-implicit-message $main ?
+  let first = run.capture --text "xsht" lint --only lint.prefer-implicit-message $main
   assert first.status.exited_with(1), first.stderr
   assert count_of(first.stderr, "help: declare the variant without a payload") == 1, first.stderr
   assert count_of(first.stderr, "first pass the message positionally") == 1, first.stderr
   assert count_of(first.stderr, "help: pass the message positionally") == 1, first.stderr
 
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $main ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $main
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = main.read_text()?
   assert "error StepError = Skipped | Broken(code: Int)" in fixed, fixed
@@ -437,7 +437,7 @@ print ${StepError.Broken(code: 2).message}
   assert "error StepError = Skipped | Broken(code: Int)" in module_file.read_text()?
   let after = test.expect(ctx, fixed, status: 0, args: [], env: module_env)?
   assert after.stdout == before.stdout
-  let second = run.capture --text "xsht" lint --only lint.prefer-implicit-message $main ?
+  let second = run.capture --text "xsht" lint --only lint.prefer-implicit-message $main
   assert second.status.exited_with(0), second.stderr
 }
 
@@ -474,14 +474,14 @@ match parse("") {
   Ok(size) => print $size
 }
 """)
-  let both = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate ?
+  let both = run.capture --text "xsht" lint --only lint.prefer-fail,lint.prefer-implicit-message $candidate
   assert both.status.exited_with(1), both.stderr
   assert "`LoadError.Unreadable` only carries a message; report it with `fail`" in both.stderr, both.stderr
   assert "`Failed` takes its message positionally" in both.stderr, both.stderr
   assert count_of(both.stderr, "warn[lint.prefer-implicit-message]") == 2, both.stderr
   assert count_of(both.stderr, "warn[lint.prefer-fail]") == 1, both.stderr
 
-  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-implicit-message $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "error LoadError = Unreadable(message: Str)\n" in fixed, fixed
@@ -514,11 +514,11 @@ for kind in ["a", "b", "c", "d", "e"] {
 }
 """,
   )
-  let first = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate ?
+  let first = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate
   assert ! first.status.exited_with(0), first.stderr
   assert "fields `kind` and `message` can hold the same value" in first.stderr, first.stderr
   assert "positional error constructor arguments must come before named ones" in first.stderr, first.stderr
-  let fixing = run.capture --text "xsht" lint --fix --only lint.positional-error-arguments $candidate ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.positional-error-arguments $candidate
   assert fixing.status.exited_with(0), fixing.stderr
   let fixed = candidate.read_text()?
   assert "ScriptError.Failed(kind:, message:)" in fixed, fixed
@@ -532,7 +532,7 @@ usage: b again
 3 distinct 4
 ok
 """
-  let second = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate ?
+  let second = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate
   assert second.status.exited_with(0), second.stderr
 }
 
@@ -573,12 +573,12 @@ for package in ["a", "b", "c"] {
 }
 """)
   let module_env = {XSH_MODULE_PATH: root.display()}
-  let fixing = run.capture --text "xsht" lint --fix --only lint.positional-error-arguments $main ?
+  let fixing = run.capture --text "xsht" lint --fix --only lint.positional-error-arguments $main
   assert ! fixing.status.exited_with(2), fixing.stderr
   let fixed = module_file.read_text()?
   assert "Err(ProofError.Failed(kind:, message:))" in fixed, fixed
   assert "Err(.Failed(kind: \"missing\", message: f\"{package} is not installed\"))" in fixed, fixed
-  let results = run.capture --text "xsht" lint --fix --only lint.public-result-error $main ?
+  let results = run.capture --text "xsht" lint --fix --only lint.public-result-error $main
   assert ! results.status.exited_with(2), results.stderr
   let spelled = module_file.read_text()?
   assert "detail: Result[Int, Error]}" in spelled, spelled
@@ -589,7 +589,7 @@ for package in ["a", "b", "c"] {
 missing: b is not installed
 ok
 """
-  let remaining = run.capture --text "xsht" check $main ?
+  let remaining = run.capture --text "xsht" check $main
   assert "check.positional-error-arguments" not in remaining.stderr, remaining.stderr
   assert "check.public-result-error" not in remaining.stderr, remaining.stderr
 }

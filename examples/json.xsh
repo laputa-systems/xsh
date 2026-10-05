@@ -5,7 +5,7 @@ type Event = {service: Str, event: Str}
 type Summary = {name: Str, events: Int, complete: Bool}
 
 let root_handle = fs.tempdir()?
-defer root_handle.close()?
+defer root_handle.close()
 let root = root_handle.host_path()?
 let out = fp"{root}/metadata.json"
 let lines = fp"{root}/events.jsonl"

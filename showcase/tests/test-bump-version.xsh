@@ -1,5 +1,5 @@
 test test_bump_version_usage {
-  let output = run.text "xsh" "showcase/bump-version.xsh" -- --help ?
+  let output = run.text "xsh" "showcase/bump-version.xsh" -- --help
   assert "usage:" in output
   assert "major | minor | patch" in output
 }

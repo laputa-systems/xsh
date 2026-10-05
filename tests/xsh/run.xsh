@@ -125,11 +125,11 @@ test test_script_stdout_can_emit_invalid_utf8_bytes {
 }
 
 test test_run_capture_record_captures_status_stdout_and_stderr {
-  let text_capture = run.capture --text sh -c "printf out; printf err >&2; exit 7" ?
+  let text_capture = run.capture --text sh -c "printf out; printf err >&2; exit 7"
   assert text_capture.status.exited_with(7)
   assert text_capture.stdout == "out"
   assert text_capture.stderr == "err"
-  let byte_capture = run.capture --bytes sh -c "head -c 1 /dev/zero >&2; printf ok" ?
+  let byte_capture = run.capture --bytes sh -c "head -c 1 /dev/zero >&2; printf ok"
   assert byte_capture.stdout.len() == 2
   assert byte_capture.stderr.len() == 1
 }
@@ -152,9 +152,9 @@ print ${out}
 test test_run_forms_preserve_status_text_and_capture {
   let status = run.status false
   assert status.exited_with(1)
-  let text = run.text echo hello ?
+  let text = run.text echo hello
   assert text.trim() == "hello"
-  let capture = run.capture --text printf "out" ?
+  let capture = run.capture --text printf "out"
   assert capture.status.ok
   assert capture.stdout == "out"
 }
@@ -403,7 +403,7 @@ witness()
 
 test test_byte_pipeline_executes_without_shell_and_redirects_stdout { |ctx|
   let out = test.temp_path(ctx)
-  run printf "%s\n" "hello" | run tr a-z A-Z > $out ?
+  run printf "%s\n" "hello" | run tr a-z A-Z > $out
   assert out.read_bytes()? == b"HELLO\n"
 }
 
@@ -417,7 +417,7 @@ test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
 """)
 
   cd root {
-    run tar cf - src | run gzip -9 > $tarball ?
+    run tar cf - src | run gzip -9 > $tarball
   }
 
   assert tarball.metadata()?.size > 0
@@ -441,13 +441,13 @@ name"""
 
   let dashed = fp"{root}/-leading"
   let errlog = fp"{root}/err log"
-  run printf "a" > $spaced ?
-  run printf "b" >> $spaced ?
-  run cat < $spaced > $lined ?
-  run cat < $lined > $dashed ?
-  run sh -c "printf err >&2" 2> $errlog ?
-  run sh -c "printf more >&2" 2>> $errlog ?
-  run true <& 0 ?
+  run printf "a" > $spaced
+  run printf "b" >> $spaced
+  run cat < $spaced > $lined
+  run cat < $lined > $dashed
+  run sh -c "printf err >&2" 2> $errlog
+  run sh -c "printf more >&2" 2>> $errlog
+  run true <& 0
   assert spaced.read_bytes()? == b"ab"
   assert lined.read_bytes()? == b"ab"
   assert dashed.read_bytes()? == b"ab"
@@ -476,7 +476,7 @@ test test_signaled_status_exposes_total_signal_helpers {
 }
 
 test test_large_stdout_capture_drains_and_limit_is_error {
-  let out = run.bytes head -c 131072 /dev/zero ?
+  let out = run.bytes head -c 131072 /dev/zero
   assert out.len() == 131072
   let too_large = try run.bytes head -c 16777217 /dev/zero
   test.error_kind(too_large, "capture-limit")
@@ -770,11 +770,11 @@ print "after"
 }
 
 test test_pipeline_capture_takes_last_stdout_and_fails_on_any_segment {
-  let upper = run.text printf "%s\n" "hello" | run tr a-z A-Z ?
+  let upper = run.text printf "%s\n" "hello" | run tr a-z A-Z
   assert upper == "HELLO\n"
-  let raw = run.bytes printf "a\\377" | run cat | run cat ?
+  let raw = run.bytes printf "a\\377" | run cat | run cat
   assert raw == b"a\xff"
-  let head = run.text yes | run head -n 2 ?
+  let head = run.text yes | run head -n 2
   assert head == "y\ny\n"
 
   let late = try run.text true | run false
@@ -794,19 +794,19 @@ test test_pipeline_capture_takes_last_stdout_and_fails_on_any_segment {
   test.error_kind(invalid, "invalid-utf8")
   let too_large = try run.bytes head -c 16777217 /dev/zero | run cat
   test.error_kind(too_large, "capture-limit")
-  let accepted = run.text true | run --accept=[0, 1] sh -c "echo kept; exit 1" ?
+  let accepted = run.text true | run --accept=[0, 1] sh -c "echo kept; exit 1"
   assert accepted == "kept\n"
 }
 
 test test_pipeline_capture_record_merges_stderr_and_reports_status {
-  let record = run.capture --text sh -c "echo out0; echo err0 >&2" | run sh -c "cat; echo err1 >&2; exit 3" ?
+  let record = run.capture --text sh -c "echo out0; echo err0 >&2" | run sh -c "cat; echo err1 >&2; exit 3"
   assert record.stdout == "out0\n"
   assert "err0\n" in record.stderr
   assert "err1\n" in record.stderr
   assert ! record.status.success
   assert record.status.segments[1].code == 3
 
-  let raw_record = run.capture --bytes printf "x" | run cat ?
+  let raw_record = run.capture --bytes printf "x" | run cat
   assert raw_record.stdout == b"x"
   assert raw_record.stderr == b""
   assert raw_record.status.success
@@ -970,9 +970,9 @@ test test_run_fixture_behaviors { |ctx|
   )?
   let status = run.status false
   assert status.exited_with(1)
-  let text = run.text printf "%s" "hello" ?
+  let text = run.text printf "%s" "hello"
   assert text == "hello"
-  let raw = run.bytes head -c 1 /dev/zero ?
+  let raw = run.bytes head -c 1 /dev/zero
   assert raw == b"\0"
 }
 
@@ -1020,7 +1020,7 @@ main(args)?
 test test_foundation_literals_defers_streams_and_builders { |ctx|
   let root = test.temp_dir(ctx, name: "foundation")?
   let marker = fp"{root}/marker"
-  defer marker.write("cleaned")?
+  defer marker.write("cleaned")
   let file = fp"{root}/note.txt"
   file.write("""alpha
 beta
@@ -1087,7 +1087,7 @@ proc run_capture_match_assignments(ok_cmd: Str) [process] -> Str {
 }
 
 proc run_capture_propagated_method(value: Str) [process, error] -> Result[Str] {
-  let body = run.text printf "%s " $value ?
+  let body = run.text printf "%s " $value
   body.trim()
 }
 

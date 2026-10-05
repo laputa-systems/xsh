@@ -7,25 +7,25 @@ proc script(ctx: TestContext, name: Str, source: Str) [fs, error] -> Result[Path
 }
 
 proc found(pattern: Str, file: Path) [process, error] -> Result[Str] {
-  let output = run.capture --text "xsht" grep $pattern $file ?
+  let output = run.capture --text "xsht" grep $pattern $file
   assert output.status.exited_with(0), f"{pattern}: {output.stdout}{output.stderr}"
   output.stdout
 }
 
 proc absent(pattern: Str, file: Path) [process, error] -> Result[Str] {
-  let output = run.capture --text "xsht" grep $pattern $file ?
+  let output = run.capture --text "xsht" grep $pattern $file
   assert output.status.exited_with(1), f"{pattern}: {output.stdout}{output.stderr}"
   output.stdout
 }
 
 proc rewritten(pattern: Str, replacement: Str, file: Path) [fs, process, error] -> Result[Str] {
-  let output = run.capture --text "xsht" refactor $pattern $replacement $file ?
+  let output = run.capture --text "xsht" refactor $pattern $replacement $file
   assert output.status.exited_with(0), f"{pattern}: {output.stdout}{output.stderr}"
   file.read_text()
 }
 
 proc unchanged(pattern: Str, replacement: Str, file: Path) [fs, process, error] -> Result[Str] {
-  let output = run.capture --text "xsht" refactor $pattern $replacement $file ?
+  let output = run.capture --text "xsht" refactor $pattern $replacement $file
   assert output.status.exited_with(1), f"{pattern}: {output.stdout}{output.stderr}"
   file.read_text()
 }
@@ -34,13 +34,13 @@ proc unchanged(pattern: Str, replacement: Str, file: Path) [fs, process, error] 
 # diagnostic and nothing else, so it accepts sources that name helpers the
 # fixture does not declare.
 proc assert_parses(file: Path) [process, error] {
-  let output = run.capture --text "xsht" desugar $file ?
+  let output = run.capture --text "xsht" desugar $file
   assert output.status.exited_with(0), output.stderr
   assert output.stderr == "", output.stderr
 }
 
 proc assert_checks(file: Path) [process, error] {
-  let output = run.capture --text "xsht" check $file ?
+  let output = run.capture --text "xsht" check $file
   assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
 }
 
@@ -62,7 +62,7 @@ test test_grep_without_paths_uses_configured_includes { |ctx|
   scripts.mkdir()
   fp"{root}/xsht-config.ini".write("include = .github/scripts\n")
   fp"{scripts}/release.xsh".write("let items = [1]\nlet count = list.len(items)\n")
-  let output = cd (root) { run.capture --text "xsht" grep "list.len(EXPR)" ? }?
+  let output = cd (root) { run.capture --text "xsht" grep "list.len(EXPR)" }?
   assert output.status.exited_with(0), output.stdout
   assert ".github/scripts/release.xsh" in output.stdout, output.stdout
   assert "list.len(items)" in output.stdout, output.stdout
@@ -117,7 +117,7 @@ test test_refactor_rewrites_the_matched_call { |ctx|
 test test_refactor_dry_run_leaves_the_file_unchanged { |ctx|
   let source = "let n = list.len(xs)\n"
   let file = script(ctx, "refactor-dry-run.xsh", source)?
-  let output = run.capture --text "xsht" refactor --dry-run "list.len(X)" "X.len()" $file ?
+  let output = run.capture --text "xsht" refactor --dry-run "list.len(X)" "X.len()" $file
   assert output.status.exited_with(0), output.stderr
   assert "dry run" in output.stdout, output.stdout
   assert file.read_text()? == source

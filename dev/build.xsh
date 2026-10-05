@@ -13,7 +13,7 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
 
   return when ! libc.exists() or ! libgcc.exists()
 
-  let sysroot_text: Str = run.text rustc --print sysroot ?
+  let sysroot_text: Str = run.text rustc --print sysroot
   let sysroot = fp"{sysroot_text.trim()}/lib/rustlib/{ctx.target.triple}/lib"
   fp"{sysroot}/libgcc_s.so".remove()
   fp"{sysroot}/libgcc_s.so.1".remove()
@@ -42,7 +42,7 @@ export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit,
 export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Result[Unit, Error] {
   let pattern = "xsh::(source|symbol|syntax|sema|loader|runner|runtime|modules|parse_script_with_module_roots)"
   let result = run.capture --text rg -n $pattern crates/xshi/src crates/xsht/src crates/xsht/tests tests \
-    src/entrypoints --glob "*.rs" ?
+    src/entrypoints --glob "*.rs"
 
   if result.stdout.trim() != "" {
     return Err(

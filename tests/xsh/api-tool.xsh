@@ -9,7 +9,7 @@ type Summary = {modules: List[Any], method_receivers: List[Any], records: List[A
 
 # The stdout of a successful `xsht api ARGS...` run that printed no diagnostics.
 proc api(arguments: List[Str]) [process, error] -> Result[Str] {
-  let output = run.capture --text "xsht" api @arguments ?
+  let output = run.capture --text "xsht" api @arguments
   assert output.status.exited_with(0), f"{arguments.join(" ")}: {output.stdout}{output.stderr}"
   assert output.stderr == "", output.stderr
   output.stdout
@@ -134,7 +134,7 @@ test test_api_onboarding_script_passes_xsht_check { |ctx|
     name: "hello.xsh",
     contents: bytes.from_text(stdout.byte_slice(start, end - start)),
   )?
-  let checked = run.capture --text "xsht" check $script ?
+  let checked = run.capture --text "xsht" check $script
   assert checked.status.exited_with(0), checked.stderr
 }
 
@@ -198,7 +198,7 @@ test test_api_print_builtin_is_found_by_output_and_builtin_terms {
 }
 
 test test_api_summary_jsonl_is_one_structured_response {
-  let output = run.capture --text "xsht" api summary --format jsonl ?
+  let output = run.capture --text "xsht" api summary --format jsonl
   assert output.status.exited_with(0), output.stderr
   let stdout = output.stdout
   assert stdout.lines().len() == 1, stdout
@@ -219,7 +219,7 @@ test test_api_summary_jsonl_is_one_structured_response {
 }
 
 test test_api_summary_rejects_selectors {
-  let output = run.capture --text "xsht" api summary "api:json.read" ?
+  let output = run.capture --text "xsht" api summary "api:json.read"
   assert output.status.exited_with(2), output.stdout
   assert "cannot be combined with selectors" in output.stderr, output.stderr
 }
@@ -238,7 +238,7 @@ test test_api_jsonl_has_one_response_per_selector {
 }
 
 test test_api_strict_renders_all_queries_before_failing {
-  let output = run.capture --text "xsht" api --strict "api:json.read" "api:json.missing" ?
+  let output = run.capture --text "xsht" api --strict "api:json.read" "api:json.missing"
   assert output.status.exited_with(1), output.stderr
   assert_contains(
     output.stdout,
@@ -253,19 +253,19 @@ test test_api_combines_query_file_and_argv_queries { |ctx|
     name: "queries.txt",
     contents: bytes.from_text("api:json.read\nlanguage:effect.fs\n"),
   )?
-  let output = run.capture --text "xsht" api --query-file $queries "record:FsEntry" ?
+  let output = run.capture --text "xsht" api --query-file $queries "record:FsEntry"
   assert output.status.exited_with(0), output.stderr
   assert_ordered(output.stdout, ["query: record:FsEntry", "query: api:json.read", "query: language:effect.fs"])
 }
 
 test test_api_stdin_queries_join_argv_batch_in_request_order {
-  let output = run.capture --text "xsht" api "record:FsEntry" --stdin < b"api:json.read\nlanguage:effect.fs\n" ?
+  let output = run.capture --text "xsht" api "record:FsEntry" --stdin < b"api:json.read\nlanguage:effect.fs\n"
   assert output.status.exited_with(0), output.stderr
   assert_ordered(output.stdout, ["query: record:FsEntry", "query: api:json.read", "query: language:effect.fs"])
 }
 
 test test_api_search_is_local_and_deterministic {
-  let output = run.capture --text "xsht" api "search:rooted" ?
+  let output = run.capture --text "xsht" api "search:rooted"
   assert output.status.exited_with(0), output.stderr
   assert_contains(
     output.stdout,
@@ -391,7 +391,7 @@ test test_api_core_bindings_names_var_and_let_immutability {
 # of those entries is covered separately; this test guards the public surface.
 test test_api_surface_matches_the_recorded_reference {
   let expected = p"tests/fixtures/modules/standard-api-surface.jsonl".read_text()?
-  let output = run.capture --text "xsht" api summary --format jsonl ?
+  let output = run.capture --text "xsht" api summary --format jsonl
   assert output.status.exited_with(0), output.stderr
   assert output.stdout.trim() == expected.trim(), "the public API surface changed; regenerate the fixture only when the change is intended"
 }

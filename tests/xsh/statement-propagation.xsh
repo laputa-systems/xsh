@@ -442,7 +442,7 @@ test test_propagation_lints_fix_only_the_redundant_spellings { |ctx|
     .replace("<value-match>", with: "  let _ = count()?")
   let rules = "lint.redundant-propagation,lint.redundant-scope-propagation,lint.prefer-propagation"
   let candidate = test.temp_file(ctx, name: "propagation-lints.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only $rules --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only $rules --fix $candidate
   let applied_succeeded = applied.status.exited_with(0)
   let applied_details = applied.stderr
   assert applied_succeeded, applied_details
@@ -456,7 +456,7 @@ test test_propagation_lints_fix_only_the_redundant_spellings { |ctx|
   assert before.stdout == "false\n2\ntrue\ntrue\n"
   assert after.stdout == before.stdout
 
-  let repeated = run.capture --text "xsht" lint --only $rules $candidate ?
+  let repeated = run.capture --text "xsht" lint --only $rules $candidate
   assert repeated.status.exited_with(0)
   assert "lint." not in repeated.stderr
 }

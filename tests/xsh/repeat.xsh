@@ -212,7 +212,7 @@ print \$total
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "repeat.xsh", contents: bytes.from_text(source))?
 
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == """var total = 0
 
@@ -226,15 +226,15 @@ print \$total
 """
 
   # The lint reports the written `for`, never the expansion of a `repeat`.
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("lint.prefer-repeat").len() == 2, report
-  let fixed = run.capture --text "xsht" lint --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   assert "repeat total times { total += 1 }" in candidate.read_text()?
   assert "range" not in candidate.read_text()?
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
@@ -252,7 +252,7 @@ for _ in range(3) {
 }
 """),
   )?
-  let found = run.capture --text "xsht" grep "range(N)" $candidate ?
+  let found = run.capture --text "xsht" grep "range(N)" $candidate
   assert found.stdout.split("range(").len() == 2, found.stdout
   assert ":4:" in found.stdout
 }

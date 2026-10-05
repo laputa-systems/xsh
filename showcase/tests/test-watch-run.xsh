@@ -1,7 +1,7 @@
 test test_watch_run_once { |ctx|
   let root = test.temp_dir(ctx, name: "watch")?
   fp"{root}/input.txt".write("hello")
-  let output = run.text "xsh" "showcase/watch-run.xsh" -- --root $root --once true ?
+  let output = run.text "xsh" "showcase/watch-run.xsh" -- --root $root --once true
   assert "watching " in output
   assert "[run 1]" in output
 }

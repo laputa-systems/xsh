@@ -1,14 +1,14 @@
 test test_spliced_target_runs_the_vector {
   let argv = ["printf", "%s|%s|%s", "one"]
-  let trailing = run.text @argv two three ?
+  let trailing = run.text @argv two three
   assert trailing == "one|two|three"
-  let inline = run.text @(["printf", "%s", "inline"]) ?
+  let inline = run.text @(["printf", "%s", "inline"])
   assert inline == "inline"
   let more = ["four", "five"]
-  let spliced = run.text @argv @more ?
+  let spliced = run.text @argv @more
   assert spliced == "one|four|five"
   let paths = [/bin/sh, p"-c", p"printf path"]
-  let from_paths = run.text @paths ?
+  let from_paths = run.text @paths
   assert from_paths == "path"
 }
 
@@ -16,11 +16,11 @@ test test_spliced_target_in_every_run_form {
   let quiet = ["sh", "-c", "exit 3"]
   let status = run.status @quiet
   assert status.exited_with(3)
-  let captured = run.capture --text @(["sh", "-c", "printf out; printf err >&2"]) ?
+  let captured = run.capture --text @(["sh", "-c", "printf out; printf err >&2"])
   assert captured.stdout == "out" and captured.stderr == "err"
   let lines = (run.stream --text @(["printf", "a\nb\n"]))? |> collect()
   assert lines == ["a", "b"]
-  let upper = run.text @(["printf", "piped"]) | run @(["tr", "a-z", "A-Z"]) ?
+  let upper = run.text @(["printf", "piped"]) | run @(["tr", "a-z", "A-Z"])
   assert upper == "PIPED"
   let job = spawn run @(["true"]) ?
   let waited = wait job?
@@ -35,10 +35,10 @@ test test_spliced_target_in_every_run_form {
 test test_spliced_target_matches_a_written_command {
   # The first element is the program; the rest are its arguments, in order.
   let argv = ["sh", "-c", "printf %s \"$0\"", "named"]
-  let named = run.text @argv ?
+  let named = run.text @argv
   assert named == "named"
-  let spliced = run.text @(["sh", "-c", "printf %s \"$0\""]) ?
-  let written = run.text sh -c "printf %s \"$0\"" ?
+  let spliced = run.text @(["sh", "-c", "printf %s \"$0\""])
+  let written = run.text sh -c "printf %s \"$0\""
   assert spliced == written
 }
 
@@ -78,9 +78,9 @@ test test_lint_rewrites_a_rebuilt_command_vector { |ctx|
   let source = "proc launch(argv: List[Str]) [process, error] -> Result[Status, ProcessError] {\n  let status = process.run(process.command_argv(argv[0], argv))?\n  Ok(status)\n}\n\nlet status = launch([\"sh\", \"-c\", \"exit 4\"])?\nprint f\"{status.exited_with(4)}\"\n"
   let file = test.temp_file(ctx, name: "launch.xsh", contents: bytes.from_text(source))?
   let before = test.expect(ctx, source, status: 0)?
-  let reported = run.capture --text "xsht" lint --only lint.prefer-run-argv $file ?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-run-argv $file
   assert reported.stderr.split("warn[lint.prefer-run-argv]").len() == 2, reported.stderr
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-run-argv $file ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-run-argv $file
   assert "  let status = run.status @argv ?\n" in file.read_text()?, fixed.stderr
   let after = test.expect(ctx, file.read_text()?, status: 0)?
   assert after.stdout == before.stdout

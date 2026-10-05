@@ -50,13 +50,13 @@ print "unreachable"
 """
   # The bare form and the form with `?` are one program: the same output,
   # the same error, and the same failing span.
-  let written = bare.replace("exit {code}\"\n", "exit {code}\" ?\n").replace("exit 7\"\n", "exit 7\" ?\n")
+  let written = bare.replace("exit {code}\"\n", with: "exit {code}\" ?\n").replace("exit 7\"\n", with: "exit 7\" ?\n")
   assert written.split(" ?\n").len() == 3, written
   let ran = test.expect(ctx, bare, status: 3, stderr: ["`sh` exited 7", ":21:1-"])?
   assert ran.stdout == "cleanup\ntrue\nafter\ncleanup\nout\ntrue\nfalse\ncaptured true\n2\n", ran.stdout
   let propagated = test.expect(ctx, written, status: 3)?
   assert propagated.stdout == ran.stdout
-  assert propagated.stderr.replace("script.xsh-2", "script.xsh-1") == ran.stderr, propagated.stderr
+  assert propagated.stderr.replace("script.xsh-2", with: "script.xsh-1") == ran.stderr, propagated.stderr
 }
 
 test test_a_bare_capturing_run_form_needs_a_function_that_can_fail { |ctx|

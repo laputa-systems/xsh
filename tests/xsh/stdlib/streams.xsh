@@ -845,7 +845,7 @@ test test_core_commands_and_byte_pipeline { |ctx|
 
   assert fp"{root}/inside.txt".read_text()? == "cwd"
   eprint "covered stderr"
-  run printf "%s" "abc" | run tr a-z A-Z > output ?
+  run printf "%s" "abc" | run tr a-z A-Z > output
   assert output.read_text()? == "ABC"
 }
 
@@ -2008,7 +2008,7 @@ test test_count_and_group_by_preserve_large_group_counts_and_order {
 }
 
 test test_stream_adapters_bridge_text_bytes_and_json_lines {
-  let captured = run.text printf "%s\n" "a.txt" "b.log" ?
+  let captured = run.text printf "%s\n" "a.txt" "b.log"
 
   let paths = captured
     |> text.lines
@@ -2372,7 +2372,7 @@ test test_structured_stream_batch_count_and_argv_limits {
   [p"one", p"two"]
     |> batch(max_argv: true)
     |> each { |files|
-      run true @files ?
+      run true @files
     }
 
   assert ([1]

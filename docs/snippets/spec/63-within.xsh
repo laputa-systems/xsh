@@ -1,7 +1,7 @@
 proc fetch(url: Str, limit: Duration) [process, time, error] -> Result[Str] {
   # begin example
   let page = within limit {
-    run.text curl --silent $url ?
+    run.text curl --silent $url
   }
   match page {
     Ok(text) => text

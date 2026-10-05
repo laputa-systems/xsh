@@ -405,7 +405,7 @@ print stage(p"{root}")?
   assert before.stdout == "two\n"
   let candidate = test.temp_file(ctx, name: "tempdir.xsh", contents: bytes.from_text(source))?
 
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert """  tempdir first at fp"{second}/first" {
     fp"{first}/stamp".write("one")?
@@ -413,10 +413,10 @@ print stage(p"{root}")?
 """ in candidate.read_text()?
 
   # The lint reports the written statements, never a `tempdir` scope.
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("lint.prefer-tempdir").len() == 2, report
-  let fixed = run.capture --text "xsht" lint --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert """  tempdir second at fp"{root}/second" {
@@ -428,7 +428,7 @@ print stage(p"{root}")?
 """ in rewritten, rewritten
   assert "defer" not in candidate.read_text()?
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, candidate.read_text()?, status: 0)?
   assert after.stdout == before.stdout
@@ -445,7 +445,7 @@ test test_tempdir_scope_is_no_fs_call_to_grep { |ctx|
 fs.mkdir(p"/tmp/other")
 """),
   )?
-  let found = run.capture --text "xsht" grep "fs.mkdir(P)" $candidate ?
+  let found = run.capture --text "xsht" grep "fs.mkdir(P)" $candidate
   assert found.stdout.split("fs.mkdir(").len() == 2, found.stdout
   assert ":4:" in found.stdout
 }

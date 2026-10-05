@@ -74,7 +74,7 @@ fn main() {
 comment */
 """)
 
-  let output = run.text "xsh" "showcase/tokei.xsh" -- --json $root ?
+  let output = run.text "xsh" "showcase/tokei.xsh" -- --json $root
   let data = json.decode(output)?
   assert data["BASH"]["code"].require(Int)? == 1
   assert data["Shell"]["blanks"].require(Int)? == 1
@@ -94,7 +94,7 @@ comment */
   assert data["Total"]["blanks"].require(Int)? == 5
   assert ".hidden" not in data["Total"]["children"]["JSON"][0]["name"].require(Str)?
   assert data["Rust"]["reports"].require(List[Any])?.len() == 1
-  let table = run.text "xsh" "showcase/tokei.xsh" -- $root ?
+  let table = run.text "xsh" "showcase/tokei.xsh" -- $root
 
   # tokei-format table: heavy rules, capitalized header, embedded ("|-") child rows,
   # per-language "(Total)" subtotals, and the grand "Total".

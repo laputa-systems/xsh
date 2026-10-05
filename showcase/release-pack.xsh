@@ -54,7 +54,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let pending = fp"{parent}/.{opts.output.name()}.xsh-stage"
   pending.mkdir(parents: false)
-  defer pending.remove()?
+  defer pending.remove()
   let stage = fp"{pending}/stage"
   let payload = fp"{stage}/payload"
   let copied = fs.copy_tree(absolute_source, payload)?

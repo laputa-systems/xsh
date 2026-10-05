@@ -116,7 +116,7 @@ test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent { |ctx
     assert assertion_condition, assertion_message
   }
   let candidate = test.temp_file(ctx, name: "named-pun-fix.xsh", contents: bytes.from_text(source))?
-  let first = run.capture --text "xsht" lint --fix $candidate ?
+  let first = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = first.status.exited_with(0)
     let assertion_message = first.stderr
@@ -131,7 +131,7 @@ test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent { |ctx
     assert assertion_condition, assertion_message
   }
   assert after.stdout == before.stdout
-  let second = run.capture --text "xsht" lint --fix $candidate ?
+  let second = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = second.status.exited_with(1)
     let assertion_message = second.stderr
@@ -139,7 +139,7 @@ test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent { |ctx
   }
   assert "lint.prefer-named-argument-pun" in second.stderr
   assert candidate.read_text()? == fixed
-  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  let formatted = run.capture --text "xsht" fmt --check $candidate
   {
     let assertion_condition = formatted.status.exited_with(0)
     let assertion_message = formatted.stderr
@@ -159,7 +159,7 @@ print ${helper.relay(1)}
   second_entry.write_atomic(r"""use helper
 print ${helper.relay(2)}
 """)
-  let applied = run.capture --text "xsht" lint --fix $root ?
+  let applied = run.capture --text "xsht" lint --fix $root
   {
     let assertion_condition = applied.status.exited_with(0)
     let assertion_message = applied.stderr
@@ -167,14 +167,14 @@ print ${helper.relay(2)}
   }
   let fixed = helper.read_text()?
   assert "accept(value:)" in fixed
-  let repeated = run.capture --text "xsht" lint --fix $root ?
+  let repeated = run.capture --text "xsht" lint --fix $root
   {
     let assertion_condition = repeated.status.exited_with(0)
     let assertion_message = repeated.stderr
     assert assertion_condition, assertion_message
   }
   assert helper.read_text()? == fixed
-  let checked = run.capture --text "xsht" check $root ?
+  let checked = run.capture --text "xsht" check $root
   {
     let assertion_condition = checked.status.exited_with(0)
     let assertion_message = checked.stderr

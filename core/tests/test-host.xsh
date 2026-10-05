@@ -3,7 +3,7 @@ test test_host_localhost { |ctx|
     test.skip("net feature disabled")
   }
 
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/host.xsh" -- localhost ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/host.xsh" -- localhost
   assert "localhost" in output
 }
 
@@ -12,7 +12,7 @@ test test_host_type_and_usage { |ctx|
     test.skip("net feature disabled")
   }
 
-  let typed = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/host.xsh" -- -t A localhost ?
+  let typed = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/host.xsh" -- -t A localhost
   assert "localhost" in typed
   assert "A" in typed
   let err = test.temp_path(ctx, name: "host.err")

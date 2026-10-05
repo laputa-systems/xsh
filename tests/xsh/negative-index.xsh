@@ -124,11 +124,11 @@ show([1, 2, 3], {rows: [[4], [5]]})
   let before = test.expect(ctx, source, status: 0)?
   let candidate = test.temp_file(ctx, name: "end-index.xsh", contents: bytes.from_text(source))?
 
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-negative-index $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint --only lint.prefer-negative-index $candidate
   let report = linted.stdout + linted.stderr
   assert count(report, "warn[lint.prefer-negative-index]") == 3, report
 
-  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-negative-index $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix --only lint.prefer-negative-index $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert "  let last = items[-1]\n" in rewritten, rewritten
@@ -136,7 +136,7 @@ show([1, 2, 3], {rows: [[4], [5]]})
   assert "  copy[copy.len() - 1] = 0\n" in rewritten, rewritten
   assert "  let zeroed = copy[-1]\n" in rewritten, rewritten
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout

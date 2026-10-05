@@ -1,5 +1,5 @@
 proc disk_used_kb(root: Path) -> Result[Int] {
-  let out = run.text du -sk $root ?
+  let out = run.text du -sk $root
   out.fields()[0] as Int
 }
 
@@ -10,7 +10,7 @@ pure percent(part: Int, whole: Int) -> Int {
 # This script may touch files and run processes, and nothing else.
 proc main() [fs, process, error] {
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let dir = scratch.host_path()?
   fp"{dir}/data".write("hello\n")
 

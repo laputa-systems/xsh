@@ -327,7 +327,7 @@ test test_cli_applet_last_scalar_occurrence_wins {
 
 test test_cli_parse_advanced_descriptors {
   let root_handle = fs.tempdir()?
-  defer root_handle.close()?
+  defer root_handle.close()
   let root = root_handle.host_path()?
   let config = fp"{root}/config.toml"
   config.write("ready")

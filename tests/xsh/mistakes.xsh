@@ -6,7 +6,7 @@ type Mistake = {name: Str, source: Str, code: Str, cause: Str, fix: Str}
 
 proc assert_one_diagnostic(ctx: TestContext, mistake: Mistake) [fs, process, error] {
   let file = test.temp_file(ctx, name: mistake.name + ".xsh", contents: bytes.from_text(mistake.source))?
-  let checked = run.capture --text "xsht" check $file ?
+  let checked = run.capture --text "xsht" check $file
   let report = mistake.name + ":\n" + checked.stderr
   assert ! checked.status.exited_with(0), report
   let headers = [line for line in checked.stderr.lines() if line.starts_with("err[") or line.starts_with("warn[")]

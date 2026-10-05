@@ -172,7 +172,7 @@ let selected = match value { Ok(_) => true, Err(_) => false }
 print ${selected}
 """
   let candidate = test.temp_file(ctx, name: "pattern-test-lint.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text "xsht" lint --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = fixed.status.exited_with(0)
     let assertion_message = fixed.stderr
@@ -180,21 +180,21 @@ print ${selected}
   }
   let first = candidate.read_text()?
   assert " is Ok(_)" in first
-  let second = run.capture --text "xsht" lint --fix $candidate ?
+  let second = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = second.status.exited_with(0)
     let assertion_message = second.stderr
     assert assertion_condition, assertion_message
   }
   assert candidate.read_text()? == first
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   {
     let assertion_condition = formatted.status.exited_with(0)
     let assertion_message = formatted.stderr
     assert assertion_condition, assertion_message
   }
   assert " is Ok(_)" in candidate.read_text()?
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   {
     let assertion_condition = stable.status.exited_with(0)
     let assertion_message = stable.stderr
@@ -225,7 +225,7 @@ print done
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "pattern-test-no-fix.xsh", contents: bytes.from_text(source))?
-    let fixed = run.capture --text "xsht" lint --fix $candidate ?
+    let fixed = run.capture --text "xsht" lint --fix $candidate
     assert candidate.read_text()? == source
     assert "lint.boolean-pattern-test" in fixed.stderr
   }
@@ -252,9 +252,9 @@ let selected = match value {
 print done
 """
   let candidate = test.temp_file(ctx, name: "pattern-test-declined-fix.xsh", contents: bytes.from_text(source))?
-  let _ = run.capture --text "xsht" lint --fix $candidate ?
+  let _ = run.capture --text "xsht" lint --fix $candidate
   assert candidate.read_text()? == expected
-  let second = run.capture --text "xsht" lint --fix $candidate ?
+  let second = run.capture --text "xsht" lint --fix $candidate
   assert candidate.read_text()? == expected
   assert "lint.boolean-pattern-test" in second.stderr
 }
@@ -290,7 +290,7 @@ test test_formatter_keeps_comments_with_their_match_arms { |ctx|
 print ${pick(1, true)}
 """
   let candidate = test.temp_file(ctx, name: "match-arm-comments.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   assert candidate.read_text()? == source
 }
@@ -370,14 +370,14 @@ let selected = subject() is List[Int]
 print ${selected}
 """
   let candidate = test.temp_file(ctx, name: "parameterized-predicate.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   {
     let assertion_condition = formatted.status.exited_with(0)
     let assertion_message = formatted.stderr
     assert assertion_condition, assertion_message
   }
   assert " is List[Int]" in candidate.read_text()?
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   {
     let assertion_condition = stable.status.exited_with(0)
     let assertion_message = stable.stderr

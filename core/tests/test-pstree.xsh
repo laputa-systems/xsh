@@ -27,7 +27,7 @@ proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
 test test_pstree_renders_tree_with_pid_labels { |ctx|
   let child = spawn run sleep 30 ?
   let parent_pid = parent_for(child.pid)?
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" -- -p $parent_pid
   assert f"[{parent_pid}]" in output
   assert f"sleep [{child.pid}]" in output
   assert "├─" in output or "└─" in output or "|-" in output or "`-" in output
@@ -49,7 +49,7 @@ test test_pstree_default_prints_visible_root { |ctx|
     }
   }
 
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh"
   assert output.trim() != ""
 
   if system.uname()?.sysname == "Darwin" {

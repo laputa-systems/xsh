@@ -220,7 +220,7 @@ print $selected
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "pattern-conditional-fix.xsh", contents: bytes.from_text(source))?
-    let fixed = run.capture --text "xsht" lint --fix $candidate ?
+    let fixed = run.capture --text "xsht" lint --fix $candidate
     {
       let assertion_condition = fixed.status.exited_with(0)
       let assertion_message = fixed.stderr
@@ -229,20 +229,20 @@ print $selected
     let first = candidate.read_text()?
     assert "if let Ok(value)" in first
     assert "else" in first
-    let stable = run.capture --text "xsht" lint --fix $candidate ?
+    let stable = run.capture --text "xsht" lint --fix $candidate
     {
       let assertion_condition = stable.status.exited_with(0)
       let assertion_message = stable.stderr
       assert assertion_condition, assertion_message
     }
     assert candidate.read_text()? == first
-    let formatted = run.capture --text "xsht" fmt $candidate ?
+    let formatted = run.capture --text "xsht" fmt $candidate
     {
       let assertion_condition = formatted.status.exited_with(0)
       let assertion_message = formatted.stderr
       assert assertion_condition, assertion_message
     }
-    let checked = run.capture --text "xsht" fmt --check $candidate ?
+    let checked = run.capture --text "xsht" fmt --check $candidate
     {
       let assertion_condition = checked.status.exited_with(0)
       let assertion_message = checked.stderr
@@ -272,7 +272,7 @@ match outcome { Ok(value) => { print $value }, Err(error) => { print $error } }
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "pattern-conditional-no-fix.xsh", contents: bytes.from_text(source))?
-    let _ = run.capture --text "xsht" lint --fix $candidate ?
+    let _ = run.capture --text "xsht" lint --fix $candidate
     assert candidate.read_text()? == source
   }
 }
@@ -287,7 +287,7 @@ while let
 }
 """
   let candidate = test.temp_file(ctx, name: "pattern-loop-format.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   {
     let assertion_condition = formatted.status.exited_with(0)
     let assertion_message = formatted.stderr
@@ -295,7 +295,7 @@ while let
   }
   let first = candidate.read_text()?
   assert "while let Ok(value) = outcome" in first
-  let checked = run.capture --text "xsht" fmt --check $candidate ?
+  let checked = run.capture --text "xsht" fmt --check $candidate
   {
     let assertion_condition = checked.status.exited_with(0)
     let assertion_message = checked.stderr

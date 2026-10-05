@@ -71,7 +71,7 @@ let label = match level { Info => "info", else => "other" }
 print \$label
 """),
   )?
-  let checked = run.capture --text --accept=[0, 1] "xsht" check $candidate ?
+  let checked = run.capture --text --accept=[0, 1] "xsht" check $candidate
   let report = checked.stdout + checked.stderr
   assert checked.status.exited_with(0), report
   assert "check.non-exhaustive-match" not in report, report
@@ -155,7 +155,7 @@ print \$label
   let candidate = test.temp_file(ctx, name: "match-else.xsh", contents: bytes.from_text(source))?
 
   # The formatter keeps whichever catch-all spelling was written.
-  let formatted = run.capture --text "xsht" fmt $candidate ?
+  let formatted = run.capture --text "xsht" fmt $candidate
   assert formatted.status.exited_with(0), formatted.stderr
   let text = candidate.read_text()?
   assert "  else => print \"else\"\n" in text, text
@@ -163,10 +163,10 @@ print \$label
   assert "_ => \"other\"" in text, text
 
   # The lint reports each last `_ =>` arm and never a wildcard inside a pattern.
-  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate ?
+  let linted = run.capture --text --accept=[0, 1] "xsht" lint $candidate
   let report = linted.stdout + linted.stderr
   assert report.split("lint.prefer-match-else").len() == 3, report
-  let fixed = run.capture --text "xsht" lint --fix $candidate ?
+  let fixed = run.capture --text "xsht" lint --fix $candidate
   assert fixed.status.exited_with(0), fixed.stderr
   let rewritten = candidate.read_text()?
   assert "  else => print \"wildcard\"\n" in rewritten, rewritten
@@ -174,7 +174,7 @@ print \$label
   assert "Fault(_) =>" in rewritten, rewritten
   assert "_ =>" not in rewritten, rewritten
 
-  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  let stable = run.capture --text "xsht" fmt --check $candidate
   assert stable.status.exited_with(0), stable.stderr
   let after = test.expect(ctx, rewritten, status: 0)?
   assert after.stdout == before.stdout

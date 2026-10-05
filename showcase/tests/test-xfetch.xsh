@@ -1,5 +1,5 @@
 test test_xfetch_summary {
-  let output = run.text "xsh" "showcase/xfetch.xsh" ?
+  let output = run.text "xsh" "showcase/xfetch.xsh"
   assert "OS" in output
   assert "Kernel" in output
   assert "Arch" in output

@@ -18,7 +18,7 @@ conf.missing when false
   # The condition runs first, and the payload only if it is selected. A
   # dotted name before the guard is an expression, not a command.
   let _ = test.expect(ctx, source, status: 2, stderr: ["unresolved name `conf`"])?
-  let kept = source.replace("conf.missing when false\n", "")
+  let kept = source.replace("conf.missing when false\n", with: "")
   let output = test.expect(ctx, kept, status: 0)?
   assert output.stdout == "when true\nunless false\ncondition\npayload\n", output.stdout
 }

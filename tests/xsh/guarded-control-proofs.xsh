@@ -17,7 +17,7 @@ print ${read(" ready ")}
 """
   for source in [before, after] {
     let file = test.temp_file(ctx, name: "guarded-proof.xsh", contents: bytes.from_text(source))?
-    let checked = run.capture --text "xsht" check $file ?
+    let checked = run.capture --text "xsht" check $file
     let {status: checked_status, stderr: checked_diagnostics, ..} = checked
     assert checked_status.exited_with(0), checked_diagnostics
     let result = test.run_script(ctx, source)?
@@ -42,7 +42,7 @@ print ${read({raw: null})}
 print ${read({raw: " ready "})}
 """
   let file = test.temp_file(ctx, name: "guarded-proof.xsh", contents: bytes.from_text(source))?
-  let checked = run.capture --text "xsht" check $file ?
+  let checked = run.capture --text "xsht" check $file
   let {status: checked_status, stderr: checked_diagnostics, ..} = checked
   assert checked_status.exited_with(0), checked_diagnostics
   let result = test.run_script(ctx, source)?
@@ -68,7 +68,7 @@ for raw in stopped {
 }
 """
   let file = test.temp_file(ctx, name: "guarded-proof.xsh", contents: bytes.from_text(source))?
-  let checked = run.capture --text "xsht" check $file ?
+  let checked = run.capture --text "xsht" check $file
   let {status: checked_status, stderr: checked_diagnostics, ..} = checked
   assert checked_status.exited_with(0), checked_diagnostics
   let result = test.run_script(ctx, source)?
@@ -98,7 +98,7 @@ let selected: Str = raw
 """,
   ] {
     let file = test.temp_file(ctx, name: "invalid-guarded-proof.xsh", contents: bytes.from_text(source))?
-    let checked = run.capture --text "xsht" check $file ?
+    let checked = run.capture --text "xsht" check $file
     let {status: checked_status, stderr: diagnostics, ..} = checked
     assert ! checked_status.exited_with(0), source
     let rejected_receiver = "Str?" in diagnostics
@@ -118,7 +118,7 @@ print ${read()}
 print ${raw ?? "missing"}
 """
   let file = test.temp_file(ctx, name: "guarded-proof.xsh", contents: bytes.from_text(source))?
-  let checked = run.capture --text "xsht" check $file ?
+  let checked = run.capture --text "xsht" check $file
   let {status: checked_status, stderr: checked_diagnostics, ..} = checked
   assert checked_status.exited_with(0), checked_diagnostics
   let result = test.run_script(ctx, source)?

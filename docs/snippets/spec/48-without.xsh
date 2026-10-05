@@ -5,7 +5,7 @@ proc fetch_sources(index: Str, staged: Path) [fs, net, error] {
 
 proc build_from_staged_sources(staged: Path) [fs, process, error] {
   fp"{staged}/out".mkdir()
-  run make -C $staged ?
+  run make -C $staged
 }
 
 # begin example

@@ -1,12 +1,12 @@
 # The report of an uncaught failure without the path of the script it names,
 # which differs between two runs of one test.
 pure without_paths(report: Str) -> Str {
-  rx"/[^ \n]*/script\.xsh-[0-9]+".replace(report, "script")
+  rx"/[^ \n]*/script\.xsh-[0-9]+".replace(report, with: "script")
 }
 
 test test_a_plain_run_statement_fails_the_same_with_and_without_propagation { |ctx|
   let written = "proc build() -> Result[Int] {\n  defer { print \"cleanup\" }\n  run sh -c \"echo out; exit 3\" ?\n  print \"after\"\n  Ok(1)\n}\n\nlet built = build()?\n"
-  let bare = written.replace(" ?\n", "\n")
+  let bare = written.replace(" ?\n", with: "\n")
   assert bare != written
   let with_propagation = test.run_script(ctx, written)?
   let without = test.run_script(ctx, bare)?
@@ -23,7 +23,7 @@ test test_a_plain_run_statement_fails_the_same_with_and_without_propagation { |c
 test test_a_captured_plain_run_statement_is_the_same_error { |ctx|
   let written = "let outcome = try {\n  run sh -c \"exit 4\" | run cat ?\n  print \"after\"\n}\nmatch outcome {\n  Ok(_) => print \"ok\"\n  Err(problem) => print f\"{problem is ProcessError} {problem.message}\"\n}\n"
   let with_propagation = test.run_script(ctx, written)?
-  let without = test.run_script(ctx, written.replace(" ?\n", "\n"))?
+  let without = test.run_script(ctx, written.replace(" ?\n", with: "\n"))?
   assert with_propagation.success and without.success, with_propagation.stderr + without.stderr
   assert "pipeline segment 0 `sh` exited with status 4" in with_propagation.stdout, with_propagation.stdout
   assert without.stdout == with_propagation.stdout
@@ -113,7 +113,7 @@ proc work(bad: Bool) -> Result[Int] {
 print ${work(false)?}
 let failed = work(true)?
 """
-  let bare = written.replace(")?\n  ", ")\n  ")
+  let bare = written.replace(")?\n  ", with: ")\n  ")
   assert bare.split("?").len() == 3, bare
   let with_propagation = test.run_script(ctx, written)?
   let without = test.run_script(ctx, bare)?

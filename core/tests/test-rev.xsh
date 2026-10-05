@@ -1,6 +1,6 @@
 test test_rev_lines_files_and_stdin { |ctx|
   let input = test.temp_file(ctx, name: "rev.txt", contents: b"abc\ncaf\xc3\xa9\n")?
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/rev.xsh" -- $input ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/rev.xsh" -- $input
 
   assert output == """cba
 éfac
@@ -12,7 +12,7 @@ test test_rev_lines_files_and_stdin { |ctx|
 two
 ' | {ctx.xsh_bin} {script}"""
 
-  let stdin_output = run.text sh -c $command ?
+  let stdin_output = run.text sh -c $command
 
   assert stdin_output == """eno
 owt

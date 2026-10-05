@@ -249,9 +249,9 @@ pure shown_source(name: Str, source: Str) -> Result[Str] {
 # `cd` scope, which would serialize the `par-map` workers.
 proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -> Result[Str] {
   let sandbox = fs.tempdir()?
-  defer sandbox.close()?
+  defer sandbox.close()
   let capture = fs.tempdir()?
-  defer capture.close()?
+  defer capture.close()
   let stdout = fp"{capture.host_path()?}/stdout"
   let stderr = fp"{capture.host_path()?}/stderr"
   let argv = ["-i", f"PATH={search_path}", xsh.display(), file.display()]
@@ -266,7 +266,7 @@ proc run_snippet(xsh: Path, file: Path, search_path: Str) [fs, process, error] -
 # The example regions of a snippet as `xsht desugar` prints the whole file.
 # Comments stay on the statements they lead, so the region markers survive.
 proc desugared_source(xsht: Path, file: SnippetFile) [process, error] -> Result[Str] {
-  let result = run.capture --text $xsht desugar $file.path ?
+  let result = run.capture --text $xsht desugar $file.path
   guard result.status.ok else {
     return Err(DocsError.Snippet(f"xsht desugar {file.name} failed: {result.stderr.trim()}"))
   }
@@ -388,7 +388,7 @@ proc check_snippet_diagnostics(dir: Path, xsht: Path) [fs, process, error] {
   let failures = snippet_files(dir)?
     |> par-map(jobs: 4) { |file|
       let expected = expected_diagnostics(file.path.read_text()?)
-      let result = run.capture --text $xsht check $file.path ?
+      let result = run.capture --text $xsht check $file.path
       let reported = reported_diagnostics(result.stderr)
       let missing = [d for d in expected if d not in reported]
       let unexpected = [d for d in reported if d not in expected]
@@ -441,7 +441,7 @@ proc stdlib(xsht: Path) [process, error] -> Result[Record] {
   queries += [f"record:{name}" for name in summary.records]
 
   var answers: Map[Str, List[ApiMatch]] = {}
-  let described = run.text $xsht api --strict --format jsonl @queries ?
+  let described = run.text $xsht api --strict --format jsonl @queries
   for line in described.lines() {
     let answer = json.decode(line)?.require(ApiAnswer)?
     answers[answer.query] = answer.matches
@@ -516,7 +516,7 @@ proc cli_reference(tools: DocTools) [process, error] -> Result[Record] {
 }
 
 proc lints(xsht: Path) [process, error] -> Result[List[LintCode]] {
-  let listed = run.text $xsht lint --list --format jsonl ?
+  let listed = run.text $xsht lint --list --format jsonl
   [json.decode(line)?.require(LintCode)? for line in listed.lines()]
 }
 

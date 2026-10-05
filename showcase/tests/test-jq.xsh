@@ -9,7 +9,7 @@ proc run_jq(ctx: TestContext, program: Str, input: Str) [fs, process, error] -> 
     "-c"
     $program
     < $infile
-  ) ?
+  )
 }
 
 test test_jq_identity { |ctx|

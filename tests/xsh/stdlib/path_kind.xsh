@@ -87,7 +87,7 @@ print (classify(p"ROOT")?) (classify(p"ROOT/link")?) (classify(p"ROOT/file")?)
 print (classify(p"ROOT/absent")?)
 """.replace("ROOT", with: root.display())
   let candidate = test.temp_file(ctx, name: "path-kind.xsh", contents: bytes.from_text(source))?
-  let applied = run.capture --text "xsht" lint --only lint.prefer-path-kind --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-path-kind --fix $candidate
   assert applied.status.exited_with(0), applied.stderr
   let fixed = candidate.read_text()?
   let expected = source.replace("out.metadata()?.kind == \"symlink\"", with: "out.is_symlink()?")
@@ -105,7 +105,7 @@ print (classify(p"ROOT/absent")?)
   assert "fs-metadata" in before.stderr, before.stderr
   assert "fs-metadata" in after.stderr, after.stderr
 
-  let repeated = run.capture --text "xsht" lint --only lint.prefer-path-kind $candidate ?
+  let repeated = run.capture --text "xsht" lint --only lint.prefer-path-kind $candidate
   assert repeated.status.exited_with(0)
   assert "lint.prefer-path-kind" not in repeated.stderr
 }

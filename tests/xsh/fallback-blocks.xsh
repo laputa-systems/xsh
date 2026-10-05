@@ -255,7 +255,7 @@ pure recover(outcome: Result[Choice]) -> Str {
 """
   for layout in [source, source.replace("Text(\"fallback\")", with: "Text(\n    \"fallback\",\n  )")] {
     let candidate = test.temp_file(ctx, name: "fallback-lint.xsh", contents: bytes.from_text(layout))?
-    let diagnosed = run.capture --text "xsht" lint --only lint.error-fallback-block $candidate ?
+    let diagnosed = run.capture --text "xsht" lint --only lint.error-fallback-block $candidate
     assert "err[" not in diagnosed.stderr, diagnosed.stderr
     assert diagnosed.stderr.split("[lint.error-fallback-block]").len() == 2, diagnosed.stderr
   }

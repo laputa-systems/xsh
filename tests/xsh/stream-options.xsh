@@ -341,13 +341,13 @@ print values.len()
   assert rejected.stdout == ""
   assert "parse.stream-option-migration" in rejected.stderr
   let candidate = test.temp_file(ctx, name: "stage-option-migration.xsh", contents: bytes.from_text(source))?
-  let diagnosed = run.capture --text "xsht" lint $candidate ?
+  let diagnosed = run.capture --text "xsht" lint $candidate
   {
     let assertion_condition = "lint.stream-options" in diagnosed.stderr
     let assertion_message = diagnosed.stderr
     assert assertion_condition, assertion_message
   }
-  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  let applied = run.capture --text "xsht" lint --fix $candidate
   {
     let assertion_condition = applied.status.exited_with(0)
     let assertion_message = applied.stderr
@@ -362,7 +362,7 @@ print values.len()
   }
   assert output.stdout == """2
 """
-  let _ = run.capture --text "xsht" lint --fix $candidate ?
+  let _ = run.capture --text "xsht" lint --fix $candidate
   assert candidate.read_text()? == fixed
   let external = test.run_script(
     ctx,
@@ -394,7 +394,7 @@ let broken = (
 """,
   ] {
     let candidate = test.temp_file(ctx, name: "stage-option-no-fix.xsh", contents: bytes.from_text(source))?
-    let refused = run.capture --text "xsht" lint --fix $candidate ?
+    let refused = run.capture --text "xsht" lint --fix $candidate
     {
       let assertion_condition = ! refused.status.exited_with(0)
       let assertion_message = refused.stderr

@@ -223,7 +223,7 @@ proc cleanup_cause_child() [process, error] {
 
 test test_primary_defer_error_retains_child_after_exhausted_block {
   let captured = try {
-    defer cleanup_error_child()?
+    defer cleanup_error_child()
   }
   match captured {
     Err(ChildError.Owned {child: child}) => {
@@ -238,7 +238,7 @@ test test_primary_defer_error_retains_child_after_exhausted_block {
 test test_primary_defer_cause_retains_child {
   let captured = try {
     {
-      defer cleanup_cause_child()?
+      defer cleanup_cause_child()
     }
   }
   match captured {
@@ -260,7 +260,7 @@ proc cleanup_marked_error_child(marker: Path) [fs, process, error] {
 test test_secondary_defer_failure_releases_its_child { |ctx|
   let marker = test.temp_path(ctx, name: "secondary-child-pid")
   let captured: Result[Unit] = try {
-    defer cleanup_marked_error_child(marker)?
+    defer cleanup_marked_error_child(marker)
     Err(WrapperError.Failed("primary"))?
   }
   match captured {
@@ -311,7 +311,7 @@ print "unreachable"
 test test_inner_try_primary_defer_can_retain_resource_inside_context {
   let _ = env ({X: "inner"}) {
     let captured = try {
-      defer cleanup_error_child()?
+      defer cleanup_error_child()
     }
     match captured {
       Err(ChildError.Owned {child: child}) => {

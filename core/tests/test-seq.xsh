@@ -1,5 +1,5 @@
 test test_seq_range { |ctx|
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- 2 2 6 ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- 2 2 6
 
   assert output == """2
 4
@@ -8,19 +8,19 @@ test test_seq_range { |ctx|
 }
 
 test test_seq_descending_negative_separator_and_width { |ctx|
-  let descending = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- 3 -2 -1 ?
+  let descending = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- 3 -2 -1
 
   assert descending == """3
 1
 -1
 """
 
-  let separated = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- -s, 1 3 ?
+  let separated = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- -s, 1 3
 
   assert separated == """1,2,3
 """
 
-  let padded = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- -w 8 10 ?
+  let padded = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/seq.xsh" -- -w 8 10
 
   assert padded == """08
 09

@@ -33,7 +33,7 @@ test test_exit_leaves_its_block { |ctx|
 
 test test_desugar_keeps_exit_as_written { |ctx|
   let file = test.temp_file(ctx, name: "guarded.xsh", contents: bytes.from_text("exit 4 when true\n"))?
-  let shown = run.capture --text "xsht" desugar $file ?
+  let shown = run.capture --text "xsht" desugar $file
   assert shown.status.exited_with(0), shown.stderr
   assert "exit 4" in shown.stdout and "abort" not in shown.stdout, shown.stdout
 }
@@ -70,7 +70,7 @@ proc pick(code: Int) -> Int {
 stop(pick(5))
 """
   let file = test.temp_file(ctx, name: "stops.xsh", contents: bytes.from_text(source))?
-  let fixed = run.capture --text "xsht" lint --fix --only "check.removed-abort" $file ?
+  let fixed = run.capture --text "xsht" lint --fix --only "check.removed-abort" $file
   assert fixed.status.exited_with(0), fixed.stderr
   assert file.read_text()? == source.replace("abort(code + 1)", with: "exit code + 1")
     .replace("abort(2)", with: "exit 2")
@@ -119,9 +119,9 @@ test test_exit_status_is_checked { |ctx|
 test test_fmt_and_highlight_know_the_exit_statement { |ctx|
   let source = "let ok = false\nif ! ok {\n  exit   2\n}\n"
   let file = test.temp_file(ctx, name: "exits.xsh", contents: bytes.from_text(source))?
-  let formatted = run.capture --text "xsht" fmt $file ?
+  let formatted = run.capture --text "xsht" fmt $file
   assert formatted.status.exited_with(0), formatted.stderr
   assert file.read_text()? == "let ok = false\n\nif ! ok {\n  exit 2\n}\n"
-  let shown = run.capture --text "xsht" highlight $file ?
+  let shown = run.capture --text "xsht" highlight $file
   assert r"""{"kind":"keyword","text":"exit"}""" in shown.stdout, shown.stdout
 }

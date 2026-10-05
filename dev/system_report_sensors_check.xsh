@@ -215,7 +215,7 @@ export proc compare_live_sensors_json(
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
     scratch.write(fp"{name}", "")
   }

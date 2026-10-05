@@ -781,7 +781,7 @@ test test_fs_walk_and_files_iteration_failures_are_catchable { |ctx|
   fp"{locked}/inside.txt".write("x")
   fp"{root}/b.txt".write("x")
   locked.chmod(0o000)
-  defer locked.chmod(0o755)?
+  defer locked.chmod(0o755)
 
   let walked: Result[Int] = try {
     var count = 0

@@ -51,7 +51,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       )
     }
 
-    let header = run.capture --text readelf -h $product ?
+    let header = run.capture --text readelf -h $product
 
     if ! header.status.ok or ctx.target.elf_machine not in header.stdout {
       return Err(
@@ -63,7 +63,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       )
     }
 
-    let dynamic = run.capture --text readelf -d $product ?
+    let dynamic = run.capture --text readelf -d $product
 
     if ! dynamic.status.ok or "NEEDED" in dynamic.stdout {
       return Err(
@@ -75,7 +75,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
       )
     }
   } else {
-    let description = run.capture --text file -b $product ?
+    let description = run.capture --text file -b $product
 
     if ! description.status.ok or ctx.target.executable_format not in description.stdout or "arm64" not in description.stdout {
       return Err(

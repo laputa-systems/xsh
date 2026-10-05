@@ -449,7 +449,7 @@ export proc compare_live_lsusb(
   }
 
   let scratch = fs.tempdir()?
-  defer scratch.close()?
+  defer scratch.close()
   let version = ((lsusb_output(scratch, executable, "version", [executable, "--version"])?.lines() |> collect()).get(0) ?? "").trim()
   if ! version.starts_with("lsusb ") {
     return Err(lsusb_failure("lsusb version is unsupported"))

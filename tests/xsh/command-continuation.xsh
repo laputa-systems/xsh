@@ -99,7 +99,7 @@ test test_grep_matches_inside_a_continued_command { |ctx|
     ],
   )
   let file = test.temp_file(ctx, name: "continued.xsh", contents: bytes.from_text(source))?
-  let found = run.capture --text "xsht" grep "X.len()" $file ?
+  let found = run.capture --text "xsht" grep "X.len()" $file
   assert found.status.exited_with(0), found.stderr
   assert ":3:" in found.stdout and ":4:" in found.stdout, found.stdout
   assert "2 matches" in found.stdout, found.stdout
@@ -108,7 +108,7 @@ test test_grep_matches_inside_a_continued_command { |ctx|
 test test_highlight_colors_a_continued_command { |ctx|
   let source = script([f"run printf {backslash}", "  one ?"])
   let file = test.temp_file(ctx, name: "continued.xsh", contents: bytes.from_text(source))?
-  let shown = run.capture --text "xsht" highlight $file ?
+  let shown = run.capture --text "xsht" highlight $file
   assert shown.status.exited_with(0), shown.stderr
   assert r"""{"kind":"punctuation","text":"\\"}""" in shown.stdout, shown.stdout
   assert r"""{"kind":"function","text":"printf"}""" in shown.stdout, shown.stdout

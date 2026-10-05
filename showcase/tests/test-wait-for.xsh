@@ -1,5 +1,5 @@
 test test_wait_for_usage {
-  let output = run.text "xsh" "showcase/wait-for.xsh" -- --help ?
+  let output = run.text "xsh" "showcase/wait-for.xsh" -- --help
   assert "usage:" in output
 }
 

@@ -3,7 +3,7 @@ test test_accepted_exit_codes_keep_actual_status {
   let status = run.status --accept=[0, 1] sh -c "exit 1"
   assert status.exit_code()? == 1
   assert ! status.ok
-  let copied = run.text --accept=[0, 1] sh -c "printf accepted; exit 1" ?
+  let copied = run.text --accept=[0, 1] sh -c "printf accepted; exit 1"
   assert copied == "accepted"
 }
 
@@ -12,7 +12,7 @@ test test_accept_rejections_and_capture_record_status {
   test.error_kind(rejected_1, "unexpected-exit")
   let rejected_2 = try run.bytes --accept=[1] sh -c "exit 0"
   test.error_kind(rejected_2, "unexpected-exit")
-  let captured = run.capture --text --accept=[1] sh -c "printf out; printf err >&2; exit 1" ?
+  let captured = run.capture --text --accept=[1] sh -c "printf out; printf err >&2; exit 1"
   assert captured.stdout == "out"
   assert captured.stderr == "err"
   assert captured.status.exited_with(1)
