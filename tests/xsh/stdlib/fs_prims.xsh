@@ -467,7 +467,7 @@ test test_copy_file_overwrite_truncates_and_exclusive_refuses { |ctx|
   assert dest.read_text()? == "new"
 }
 
-test test_copy_file_refuses_the_same_file_and_non_regular_sources { |ctx|
+test test_copy_file_refuses_the_same_file_and_directory_sources { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-file-refuse")?
   let source = fp"{root}/source"
   let alias = fp"{root}/alias"
@@ -568,4 +568,72 @@ test test_copy_file_never_clones_by_default { |ctx|
   source.write("data")
   assert fs.copy_file(source, fp"{root}/dest")?.method != "clone"
   assert fs.copy_file(source, fp"{root}/dest2", reflink: "never")?.method != "clone"
+}
+
+test test_copy_file_reads_zero_size_virtual_files_until_eof { |ctx|
+  let source = /proc/version
+  if ! source.exists()? {
+    test.skip("procfs is unavailable")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "fs-copy-proc")?
+  let expected = source.read_bytes()?
+  assert fs.stat(source)?.size == 0
+  assert expected.len() > 0
+  for sparse in ["auto", "always", "never"] {
+    let dest = fp"{root}/{sparse}"
+    let report = fs.copy_file(source, dest, sparse: sparse, reflink: "auto")?
+    assert report.bytes == expected.len()
+    assert dest.read_bytes()? == expected
+    assert report.method == "read_write"
+  }
+}
+
+test test_copy_file_does_not_pad_sysfs_files_to_their_reported_size { |ctx|
+  let source = /sys/kernel/uevent_seqnum
+  if ! source.exists()? {
+    test.skip("sysfs is unavailable")
+    return
+  }
+
+  let root = test.temp_dir(ctx, name: "fs-copy-sys")?
+  for sparse in ["auto", "always", "never"] {
+    let dest = fp"{root}/{sparse}"
+    let report = fs.copy_file(source, dest, sparse: sparse)?
+    let content = dest.read_bytes()?
+    assert report.bytes == content.len()
+    assert content.len() > 0
+    assert content.len() < fs.stat(source)?.size
+    assert dest.read_text()?.ends_with("\n")
+    assert ! (b"\0" in content)
+  }
+}
+
+test test_copy_file_streams_fifo_bytes_and_refuses_same_fifo_without_a_writer { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-fifo")?
+  let fifo = fp"{root}/fifo"
+  let dest = fp"{root}/dest"
+  fs.mkfifo(fifo, 0o600)
+  assert fs.copy_file(fifo, fifo) is Err(_)
+  let writer = spawn run sh -c "printf \"fifo payload\" > \"$1\"" sh $fifo ?
+  let report = fs.copy_file(fifo, dest)?
+  assert (wait writer?).ok
+  assert report.bytes == 12
+  assert report.hole_bytes == 0
+  assert report.method == "read_write"
+  assert dest.read_bytes()? == b"fifo payload"
+}
+
+test test_copy_file_streams_device_sources_and_keeps_same_inode_symlinks { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-device")?
+  let empty = fp"{root}/empty"
+  assert fs.copy_file(/dev/null, empty)?.bytes == 0
+  assert empty.read_bytes()? == b""
+  let source = fp"{root}/source"
+  let alias = fp"{root}/alias"
+  source.write("keep")
+  alias.symlink(to: p"source")
+  assert fs.copy_file(source, alias) is Err(_)
+  assert source.read_text()? == "keep"
 }

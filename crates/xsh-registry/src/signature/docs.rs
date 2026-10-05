@@ -749,6 +749,41 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The values are a point-in-time observation in fragment-size units; use fs.stat device identity to tell whether two paths share a filesystem.",
             &["filesystem", "capacity", "inspection"],
         )),
+        ("fs", "xattr_list") => Some((
+            "Lists extended attribute names in sorted order.",
+            "Available on Linux and macOS; follow_symlinks defaults to true. Names must be UTF-8; unsupported filesystems and permission failures retain the host errno.",
+            &["filesystem", "attributes", "inspection"],
+        )),
+        ("fs", "xattr_get") => Some((
+            "Reads an extended attribute as raw bytes.",
+            "Available on Linux and macOS; no ACL, SELinux, or capability payload is decoded or changed. Missing attributes return the host error rather than an empty value; follow_symlinks defaults to true.",
+            &["filesystem", "attributes", "bytes"],
+        )),
+        ("fs", "xattr_set") => Some((
+            "Writes raw extended attribute bytes.",
+            "mode defaults to upsert; create refuses an existing attribute and replace requires one. follow_symlinks defaults to true; Linux and macOS enforce namespace permissions and payload validity.",
+            &["filesystem", "attributes", "mutation"],
+        )),
+        ("fs", "xattr_remove") => Some((
+            "Removes one extended attribute.",
+            "Available on Linux and macOS; missing attributes fail with the host errno, and follow_symlinks defaults to true.",
+            &["filesystem", "attributes", "mutation"],
+        )),
+        ("fs", "sync_path") => Some((
+            "Synchronizes a file or its containing filesystem.",
+            "mode defaults to all (fsync); Linux also supports data (fdatasync) and filesystem (syncfs). The path opens nonblocking so FIFOs cannot wait for a writer; synchronization itself waits for writeback. Unsupported modes on other hosts fail with ENOTSUP.",
+            &["filesystem", "durability"],
+        )),
+        ("fs", "rename_exchange") => Some((
+            "Atomically exchanges two existing directory entries.",
+            "Linux and macOS use the kernel exchange operation, including files, symlinks, and directories. Both names must exist; unsupported filesystems and cross-filesystem exchanges fail without a temporary-name fallback.",
+            &["filesystem", "rename", "atomic"],
+        )),
+        ("fs", "path_limits") => Some((
+            "Reads the host name and path byte limits for a path.",
+            "name_max and path_max come from pathconf on Linux and macOS. A missing path, indeterminate limit, or unsupported host fails instead of inventing a bound; path_max includes the terminating NUL byte.",
+            &["filesystem", "paths", "inspection"],
+        )),
         ("fs", "rename_noreplace") => Some((
             "Renames a path atomically without replacing an existing destination.",
             "An existing destination fails with EEXIST; a filesystem without RENAME_NOREPLACE fails with its errno and never falls back to a racy check.",
@@ -760,8 +795,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["filesystem", "sparse", "inspection"],
         )),
         ("fs", "copy_file") => Some((
-            "Copies a regular file's bytes with sparse and reflink control.",
-            "The source's data is cloned, kernel-copied, or read and written; sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; the destination's metadata beyond its creation mode is the caller's to set.",
+            "Copies file, FIFO, or device bytes with sparse and reflink control.",
+            "A regular destination receives source bytes until EOF for virtual files, FIFOs, and devices, using bounded memory. bytes reports the logical length copied, including holes. sparse and reflink accept auto, always, or never; overwrite false creates the destination exclusively; creation mode is the only metadata copied. Source identity is checked before destination truncation.",
             &["filesystem", "copy", "sparse"],
         )),
         ("fs", "fsync" | "sync") => Some((
