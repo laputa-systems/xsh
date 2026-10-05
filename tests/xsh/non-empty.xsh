@@ -195,11 +195,14 @@ test test_run_accepts_a_non_empty_command_vector {
   assert text == "a:b"
   let more = run.text @short "b" ?
   assert more == "a:b"
-  let status = run.status @argv
+  # The remaining runs print nothing: their output is not captured, and the
+  # test runner's own report shares that stream.
+  let quiet: Argv = ["true"]
+  let status = run.status @quiet
   assert status.success
   let piped = run.text @argv | run tr a-z A-Z ?
   assert piped == "A:B"
-  let planned = process.run(process.command_argv(argv.first(), argv))?
+  let planned = process.run(process.command_argv(quiet.first(), quiet))?
   assert planned.success
 
   # A plain list is still accepted, and still fails at run time when empty.
