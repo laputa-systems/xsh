@@ -289,7 +289,7 @@ pure lines_pieces(data: Bytes, ends: List[Int], per: Int) -> List[Bytes] {
 
 # `-C`: whole records up to SIZE bytes per piece; a record longer than SIZE
 # starts a fresh piece and is cut every SIZE bytes, its tail staying open.
-pure line_bytes_pieces(data: Bytes, ends: List[Int], size: Int) -> List[Bytes] {
+pure line_bytes_pieces(data: Bytes, ends: List[Int], size: Int, sep: Int) -> List[Bytes] {
   var out: List[Bytes] = []
   var origin = 0
   var used = 0
@@ -298,7 +298,11 @@ pure line_bytes_pieces(data: Bytes, ends: List[Int], size: Int) -> List[Bytes] {
     let from = if index == 0 { 0 } else { ends[index - 1] }
     let width = ends[index] - from
 
-    if used > 0 and used + width > size {
+    # A final record with no separator cannot fill the piece exactly: GNU cannot
+    # tell that the line has ended, so it starts the next piece with it.
+    let open_end = data.byte_at(ends[index] - 1) != sep
+
+    if used > 0 and (used + width > size or (open_end and used + width == size)) {
       out += [data[origin..origin + used]]
       origin = from
       used = 0
@@ -484,7 +488,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let line_text = if rewritten.obsolete != "" { rewritten.obsolete } else { opts.lines }
   var ways = 0
 
-  for given in [line_text != "", opts.bytes != "", opts.line_bytes != "", opts.number != ""] {
+  for given in [opts.lines != "", rewritten.obsolete != "", opts.bytes != "", opts.line_bytes != "", opts.number != ""] {
     if given {
       ways += 1
     }
@@ -743,7 +747,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   } else if size > 0 {
     pieces = bytes_pieces(data, size)
   } else if line_size > 0 {
-    pieces = line_bytes_pieces(data, record_ends(data, sep)?, line_size)
+    pieces = line_bytes_pieces(data, record_ends(data, sep)?, line_size, sep)
   } else {
     pieces = lines_pieces(data, ends, lines)
   }
@@ -785,7 +789,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     if opts.filter != null {
       let command = opts.filter ?? ""
-      let plan = process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, piece)
+      let plan = process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, bytes.concat([piece]))
       let status = process.run(plan)?
 
       if (status.exit_code() ?? 0) != 0 {
