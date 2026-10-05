@@ -122,7 +122,8 @@ test test_boolean_guard_rejects_fallthrough_and_parameters { |ctx|
       code: "check.if-condition",
     },
     {
-      source: """guard Ok(true) else { exit 1 }
+      # A `Result[Bool]` condition propagates; any other `Result` is no condition.
+      source: """guard Ok(1) else { exit 1 }
 """,
       code: "check.if-condition",
     },

@@ -406,6 +406,10 @@ pub struct LintOptions {
     /// Expression statements whose `Result[Unit]` value propagates instead of
     /// becoming a body's value; empty without checked facts.
     pub propagating_statements: BTreeSet<Span>,
+    /// `expr?` in a control position of a condition, where the position
+    /// propagates the `Result[Bool]` without the `?`; empty without checked
+    /// facts.
+    pub redundant_condition_propagations: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
 
@@ -459,6 +463,7 @@ impl Default for LintOptions {
             assertion_effect_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
             propagating_statements: BTreeSet::default(),
+            redundant_condition_propagations: BTreeSet::default(),
             membership_migration_spans: BTreeSet::default(),
             standard_call_spans: BTreeMap::default(),
             statically_resolved_call_spans: BTreeSet::default(),
@@ -530,6 +535,7 @@ pub struct Linter<'a> {
     whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
     guarded_statement_depth: usize,
     propagating_statements: BTreeSet<Span>,
+    redundant_condition_propagations: BTreeSet<Span>,
     /// Inside a proc or pure body: whether `?` may replace `return Err(e)`
     /// there without changing the function's effect contract.
     propagation_function: Option<bool>,
@@ -723,6 +729,7 @@ impl<'a> Linter<'a> {
             whole_statement_values: std::sync::OnceLock::new(),
             guarded_statement_depth: 0,
             propagating_statements: options.propagating_statements,
+            redundant_condition_propagations: options.redundant_condition_propagations,
             propagation_function: None,
             propagation_boundary_depth: 0,
             negated_call_spans: BTreeMap::new(),
@@ -12136,6 +12143,14 @@ impl LintExprVisitor<'_, '_> {
         self.linter
             .fail_candidates
             .visit_expr(self.linter.arena, expr);
+        if let Some(diagnostic) = lint_redundant_propagation::redundant_condition_propagation(
+            self.linter.arena,
+            self.linter.source,
+            &self.linter.redundant_condition_propagations,
+            expr,
+        ) {
+            self.linter.diagnostics.push(diagnostic);
+        }
         if let ArenaExprKind::Unary {
             op: UnaryOp::Not,
             expr: inner,

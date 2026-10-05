@@ -197,7 +197,12 @@ impl Checker {
     /// does; otherwise the failure would unwind out of a function whose
     /// signature says it cannot fail. A proc is held to its `error` effect
     /// instead.
-    fn require_pure_propagation_context(&mut self, error: &Type, span: Span) {
+    fn require_pure_propagation_context(
+        &mut self,
+        error: &Type,
+        span: Span,
+        message: &'static str,
+    ) {
         if !self.in_pure || self.current_yield.is_some() {
             return;
         }
@@ -208,21 +213,45 @@ impl Checker {
             .as_ref()
             .is_some_and(|return_ty| !return_ty.is_result())
         {
-            self.error(
-                span,
-                "a statement-position `Result[Unit]` propagates its failure, which requires a Result-returning context",
-                DiagnosticCode::CheckTryContext,
-            );
+            self.error(span, message, DiagnosticCode::CheckTryContext);
         }
     }
 
     pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
+        self.record_control_error(
+            ty,
+            span,
+            "statement failure propagation",
+            "a statement-position `Result[Unit]` propagates its failure, which requires a Result-returning context",
+        );
+    }
+
+    /// A `Result[Bool]` in a control position of a condition propagates its
+    /// failure under the rules of a statement-position `Result[Unit]`.
+    pub(super) fn record_condition_error(&mut self, ty: &Type, span: Span) {
+        self.record_control_error(
+            ty,
+            span,
+            "condition failure propagation",
+            "a `Result[Bool]` condition propagates its failure, which requires a Result-returning context",
+        );
+    }
+
+    /// A `Result` in a control position cannot be a value, so its failure
+    /// leaves through the nearest capture or the function.
+    fn record_control_error(
+        &mut self,
+        ty: &Type,
+        span: Span,
+        subject: &str,
+        pure_context: &'static str,
+    ) {
         let Type::Result(_, error) = ty else {
             return;
         };
-        self.require_effect(Effect::Error, span, "statement failure propagation");
+        self.require_effect(Effect::Error, span, subject);
         if self.retry_attempt_depth == 0 {
-            self.require_pure_propagation_context(error, span);
+            self.require_pure_propagation_context(error, span, pure_context);
             return;
         }
         if let Some(errors) = self.error_boundary_errors.last_mut() {

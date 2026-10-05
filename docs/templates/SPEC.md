@@ -32,8 +32,12 @@ composition model and replaces its semantics.
 - **Types without ceremony.** Every value has a type. Locals infer their types;
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
-  can leave a function only through a visible `?`, a statement-position
-  `Result[Unit]`, an `assert`, a `fail`, or a failed plain `run`.
+  leaves a function only through a form that is visible at the site: the `?`
+  operator; an `assert`, a `fail`, or a plain `run` whose command fails; and
+  a `Result` in a control position, where it cannot be a value, which is a
+  statement-position `Result[Unit]` or a `Result[Bool]` condition. Nothing
+  else propagates: a `Result` in a binding, an argument, an operand, or a
+  return is data and needs `?`, whatever type the context expects.
 - **Effects are tracked.** Pure functions cannot touch the host. Procs infer
   which host effects they use; a declared clause is a checked upper bound.
 - **Predictable execution.** Evaluation order is source order. The concurrency
@@ -1476,6 +1480,35 @@ A statement-position `Result[Unit]` propagates without `?` (8.1), so
 `lint.redundant-scope-propagation` from a `cd`, `env`, `try`, or `retry` block.
 Both leave a `?` whose operand would otherwise be the value of its body, such
 as the tail of a `try` block that is bound.
+
+A `Result` propagates without `?` only in a control position, where it
+cannot be a value. There are two. A statement-position `Result[Unit]` is one
+(8.1). A `Result[Bool]` condition is the other:
+
+```xsh
+{{.spec.condition_propagation.source}}
+```
+
+The control positions of a condition are the condition itself, in `if`,
+`else if`, `while`, `guard cond else`, and a postfix `when` or `unless`,
+whether the `if` is a statement or a value; the operand of `!` when the `!`
+is in a control position; and each operand of `and` and `or` when that
+expression is in a control position. Parentheses change nothing. No other
+part of a condition is one: not an operand of a comparison or of any other
+operator, not a call argument or a receiver, and not the subject of `is`. A
+`Result` there is data and needs `?`, as it does in a binding, an argument, or
+a return. The conditions of `assert` (8.2) and of a `match` arm's `if` are not
+control positions either: both take a concrete `Bool`.
+
+A `Result[Bool]` in a control position evaluates exactly as it would under
+`?`. `Ok(b)` gives `b`, and `Err(e)` leaves the nearest propagation boundary
+of the table above; `and` and `or` still skip the operand they do not need,
+and an operand that is skipped does not fail. Like a statement, it requires
+the `error` effect in a restricted proc, and in a pure function whose return
+type is not a `Result` it is `check.try-context` outside a `try` or `retry`.
+A `Result` of any other type is still not a condition (`check.if-condition`).
+`lint.redundant-propagation` removes the `?` from a `Result[Bool]` in a
+control position, as it does from a statement.
 
 `?` passes on a failure that already exists. A function that detects a
 failure itself states it with `fail` (8.6), or with `assert` (8.2) when a

@@ -355,8 +355,12 @@ impl Checker {
             self.expected_schema = None;
         }
         let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
+        let control = std::mem::take(&mut self.control_condition);
+        let outer_control = std::mem::replace(&mut self.in_control_position, control);
         let actual = self.check_expr_arena_inner(arena, source, id, resolved.as_ref().or(expected));
         let actual = self.name_typed_callable(arena, id, actual, resolved.as_ref().or(expected));
+        self.in_control_position = outer_control;
+        let actual = self.propagate_condition_arena(arena, id, control, actual);
         self.expected_schema = previous;
         if actual == Type::Any {
             self.record_dynamic_require_receiver(arena, source, id, expected);
@@ -402,6 +406,40 @@ impl Checker {
             expr.span,
             super::DynamicRequireReceiver { grouped, inferred },
         );
+    }
+
+    /// A `Result[Bool]` in a control position of a condition cannot be the
+    /// condition's value, so its failure propagates and the `Bool` remains.
+    /// The decision is published for lowering; outside a control position the
+    /// type is unchanged and a `Result` stays data.
+    fn propagate_condition_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        id: ExprId,
+        control: bool,
+        actual: Type,
+    ) -> Type {
+        let expr = arena.arena.expr(id);
+        let result_bool =
+            |ty: &Type| matches!(ty, Type::Result(ok, _) if **ok == Type::Bool);
+        if control && result_bool(&actual) {
+            self.propagating_conditions.insert(expr.span);
+            self.record_condition_error(&actual, expr.span);
+            return Type::Bool;
+        }
+        self.propagating_conditions.remove(&expr.span);
+        if control
+            && let ArenaExprKind::Try(operand) = expr.kind
+            && self
+                .expr_types
+                .get(&arena.arena.expr(operand).span)
+                .is_some_and(result_bool)
+        {
+            self.redundant_condition_propagations.insert(expr.span);
+        } else {
+            self.redundant_condition_propagations.remove(&expr.span);
+        }
+        actual
     }
 
     fn check_expr_arena_inner(
@@ -2211,6 +2249,8 @@ impl Checker {
         op: UnaryOp,
         inner: ExprId,
     ) -> Type {
+        // The operand of `!` in a control position is in one too.
+        self.control_condition = op == UnaryOp::Not && self.in_control_position;
         let ty = self.check_expr_arena(arena, source, inner, None);
         let span = arena.arena.expr(inner).span;
         match op {
@@ -2427,10 +2467,15 @@ impl Checker {
                     .unwrap_or(Type::Invalid)
             }
             BinaryOp::Or => {
+                // Both operands of `and` and `or` in a control position are
+                // in one too.
+                let control = self.in_control_position;
+                self.control_condition = control;
                 let left_ty = self.check_expr_arena(arena, source, left, None);
                 let facts = self.infer_condition_narrowings_arena(arena, left);
                 self.push_scope();
                 self.apply_narrowings(&facts.when_false);
+                self.control_condition = control;
                 let right_ty = if left_ty.is_result() {
                     self.check_expr_arena(arena, source, right, None)
                 } else {
@@ -2456,6 +2501,8 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::And => {
+                let control = self.in_control_position;
+                self.control_condition = control;
                 let left_ty = self.check_expr_with_schema_arena(
                     arena,
                     source,
@@ -2466,6 +2513,7 @@ impl Checker {
                 let facts = self.infer_condition_narrowings_arena(arena, left);
                 self.push_scope();
                 self.apply_narrowings(&facts.when_true);
+                self.control_condition = control;
                 let right_ty = self.check_expr_with_schema_arena(
                     arena,
                     source,

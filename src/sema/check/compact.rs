@@ -81,6 +81,9 @@ pub struct CompactBodyFacts {
     pub projections: FxHashSet<ExprId>,
     /// Optional receivers whose checked presence proof makes their fallback unreachable.
     pub proven_nonnull_fallback_receivers: FxHashSet<ExprId>,
+    /// Condition operands whose `Result[Bool]` propagates its failure; each
+    /// lowers as the same expression under a `?`.
+    pub propagating_conditions: FxHashSet<ExprId>,
     pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
     /// Registered method and module function calls keyed by call expression;
     /// a stage callable's plan is keyed by its callee.
@@ -138,6 +141,9 @@ impl CompactBodyFacts {
             }
             if checked.proven_nonnull_fallback_receivers.contains(&span) {
                 facts.proven_nonnull_fallback_receivers.insert(id);
+            }
+            if checked.propagating_conditions.contains(&span) {
+                facts.propagating_conditions.insert(id);
             }
             if let Some(call) = checked.api_calls.get(&span) {
                 facts.api_calls.insert(id, call.clone());

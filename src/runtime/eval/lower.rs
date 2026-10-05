@@ -48,6 +48,9 @@ pub(super) struct SlotScope {
     // selected operation; exact expression IDs reuse that retained value.
     postfix_receivers: FxHashMap<ExprId, BuildExprId>,
     guarded_postfixes: FxHashSet<ExprId>,
+    // The condition operand being lowered under the propagation the checker
+    // decided for it, so the operand itself is lowered once, unwrapped.
+    propagated_condition: Option<ExprId>,
     bound_call_entries: FxHashSet<ExprId>,
     types: FxHashMap<Name, Type>,
     captures: FxHashSet<Name>,
@@ -940,6 +943,7 @@ impl SlotScope {
             pattern_capture_slots: FxHashSet::default(),
             postfix_receivers: FxHashMap::default(),
             guarded_postfixes: FxHashSet::default(),
+            propagated_condition: None,
             bound_call_entries: FxHashSet::default(),
             types: FxHashMap::default(),
             captures: FxHashSet::default(),
@@ -6955,6 +6959,17 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        // The checker decided that this condition operand's `Result[Bool]`
+        // propagates. It is the operand under a `?`, and nothing here decides
+        // that again.
+        if slots.propagated_condition != Some(id)
+            && self.bodies.propagating_conditions.contains(&id)
+        {
+            let outer = slots.propagated_condition.replace(id);
+            let operand = self.lower_expr(id, slots, current_function, item_slot);
+            slots.propagated_condition = outer;
+            return Some(push_build_row!(self, expr, BuildExprRow::Try(operand?)));
+        }
         if let Some(value) = self.declarations.prepared_constants.values.get(&id) {
             let origin = self
                 .declarations

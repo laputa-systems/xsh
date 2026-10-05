@@ -1163,6 +1163,7 @@ impl Checker {
         condition: ExprId,
         code: DiagnosticCode,
     ) -> ConditionNarrowings {
+        self.control_condition = true;
         let condition_ty = self.check_expr_with_schema_arena(
             arena,
             source,
@@ -1170,6 +1171,7 @@ impl Checker {
             Some(&Type::Bool),
             None,
         );
+        self.control_condition = false;
         let condition_span = arena.arena.expr(condition).span;
         if condition_ty == Type::Any {
             self.expect_type(&Type::Bool, &condition_ty, condition_span);

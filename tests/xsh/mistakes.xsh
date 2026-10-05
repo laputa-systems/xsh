@@ -396,12 +396,21 @@ if x > 0:
 test test_xsh_typing_mistakes_name_the_real_cause { |ctx|
   for mistake in [
     {
+      # A `Result[Bool]` condition propagates in a function that can fail,
+      # so the mistake left is writing one where nothing can.
       name: "fallible_bool_condition",
-      source: r"""if fs.exists(p"/tmp") { print yes }
+      source: r"""pure known(text: Str) -> Result[Bool] {
+  Ok(text != "")
+}
+
+pure present() -> Bool {
+  if known("tmp") { return true }
+  false
+}
 """,
-      code: "check.if-condition",
-      cause: "found Result[Bool, Error]",
-      fix: "-> ?",
+      code: "check.try-context",
+      cause: "a `Result[Bool]` condition propagates its failure",
+      fix: "",
     },
     {
       name: "fallible_int_condition",

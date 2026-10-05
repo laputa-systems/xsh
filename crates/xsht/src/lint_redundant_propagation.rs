@@ -89,6 +89,54 @@ pub(super) fn redundant_propagation(
     })
 }
 
+/// `if fs.exists(path)? { ... }` spells propagation twice: a `Result[Bool]`
+/// in a control position of a condition already propagates. The checker
+/// decided which `?` those are; this only finds the text to remove.
+///
+/// A `?` whose operand is the whole content of a pair of parentheses keeps
+/// its report and loses the fix, because the parentheses would be left
+/// around a bare operand.
+pub(super) fn redundant_condition_propagation(
+    arena: &AstArena,
+    source: &str,
+    redundant: &BTreeSet<Span>,
+    expression: ExprId,
+) -> Option<Diagnostic> {
+    if redundant.is_empty() {
+        return None;
+    }
+    let propagation = arena.expr(expression);
+    let ArenaExprKind::Try(operand) = propagation.kind else {
+        return None;
+    };
+    if !redundant.contains(&propagation.span) {
+        return None;
+    }
+    let operand_span = arena.expr(operand).span;
+    let removal = Span::new(
+        propagation.span.source_id,
+        operand_span.end(),
+        propagation.span.end().max(operand_span.end()),
+    );
+    let mut diagnostic =
+        Diagnostic::warning("`?` on a condition that already propagates its failure")
+            .with_code(DiagnosticCode::LintRedundantPropagation)
+            .with_label(Label::secondary(
+                removal,
+                "a `Result[Bool]` condition propagates without `?`",
+            ));
+    let grouped = source[..propagation.span.start()].trim_end().ends_with('(')
+        && source[propagation.span.end()..].trim_start().starts_with(')');
+    if !grouped
+        && source
+            .get(removal.range())
+            .is_some_and(|text| text.trim_matches([' ', '\t']) == "?")
+    {
+        diagnostic = diagnostic.with_fix_hint(FixHint::deletion(removal, "remove `?`"));
+    }
+    Some(diagnostic)
+}
+
 #[cfg(test)]
 pub(super) mod tests {
     use super::super::{LintOptions, Linter};
@@ -131,6 +179,7 @@ pub(super) mod tests {
                 expr_types: checked.expr_types,
                 statement_positions: checked.statement_positions,
                 propagating_statements: checked.propagating_statements,
+                redundant_condition_propagations: checked.redundant_condition_propagations,
                 function_effect_facts: checked.function_effect_facts,
                 function_effect_facts_checked: true,
                 only: Some(vec![rule]),
@@ -339,5 +388,44 @@ pub(super) mod tests {
             DiagnosticCode::LintRedundantPropagation,
         );
         assert!(diagnostics.is_empty());
+    }
+
+    const KNOWN: &str = "pure known(name: Str) -> Result[Bool] {\n  Ok(name != \"\")\n}\n\npure count(name: Str) -> Result[Int] {\n  name.parse_int()\n}\n\n";
+
+    #[test]
+    fn a_condition_in_a_control_position_loses_its_propagation() {
+        let source = format!(
+            "{KNOWN}pure pick(name: Str) -> Result[Int] {{\n  if known(name)? {{\n    return Ok(1)\n  }} else if ! known(name)? and (known(name)? or count(name)? > 1) {{\n    return Ok(2)\n  }}\n\n  while known(name)? {{\n    break\n  }}\n\n  guard known(name)? else {{\n    return Ok(3)\n  }}\n\n  return Ok(4) unless known(name)?\n  let label = if known(name)? {{ 5 }} else {{ 6 }}\n  Ok(label)\n}}\n"
+        );
+        let diagnostics = lint(&source);
+        assert_eq!(diagnostics.len(), 7, "{diagnostics:?}");
+        let after = apply(&diagnostics, &source);
+        assert_eq!(
+            after,
+            format!(
+                "{KNOWN}pure pick(name: Str) -> Result[Int] {{\n  if known(name) {{\n    return Ok(1)\n  }} else if ! known(name) and (known(name) or count(name)? > 1) {{\n    return Ok(2)\n  }}\n\n  while known(name) {{\n    break\n  }}\n\n  guard known(name) else {{\n    return Ok(3)\n  }}\n\n  return Ok(4) unless known(name)\n  let label = if known(name) {{ 5 }} else {{ 6 }}\n  Ok(label)\n}}\n"
+            )
+        );
+        // The fixed program checks and has nothing left to report.
+        assert!(lint(&after).is_empty(), "{after}");
+    }
+
+    #[test]
+    fn a_result_that_is_data_keeps_its_propagation() {
+        for body in [
+            // An operand of a comparison, a call argument, a binding, and a
+            // match arm's guard are not control positions.
+            "  if known(name)? == true {\n    return Ok(1)\n  }\n\n  Ok(0)\n",
+            "  if show(known(name)?) {\n    return Ok(1)\n  }\n\n  Ok(0)\n",
+            "  let flag = ! known(name)?\n  Ok(if flag { 1 } else { 0 })\n",
+            "  match name {\n    \"x\" if known(name)? => Ok(1)\n    else => Ok(0)\n  }\n",
+            // Another `Result` in a condition is not a `Result[Bool]`.
+            "  if count(name)? > 1 {\n    return Ok(1)\n  }\n\n  Ok(0)\n",
+        ] {
+            let source = format!(
+                "{KNOWN}pure show(flag: Bool) -> Bool {{\n  flag\n}}\n\npure pick(name: Str) -> Result[Int] {{\n{body}}}\n"
+            );
+            assert!(lint(&source).is_empty(), "{body}");
+        }
     }
 }

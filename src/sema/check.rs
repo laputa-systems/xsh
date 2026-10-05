@@ -154,6 +154,14 @@ pub struct CheckOutput {
     /// tail whose body yields `Unit`, and the direct tail of a `Result[Unit]`
     /// function.
     pub propagating_statements: BTreeSet<Span>,
+    /// Expressions in a control position of a condition whose `Result[Bool]`
+    /// propagates its failure and leaves the `Bool`: the condition itself, or
+    /// an operand of `!`, `and`, or `or` that is in a control position.
+    /// Lowering evaluates each as it evaluates the expression under a `?`.
+    pub propagating_conditions: BTreeSet<Span>,
+    /// `expr?` in a control position of a condition where `expr` is a
+    /// `Result[Bool]`: the position propagates without the `?`.
+    pub redundant_condition_propagations: BTreeSet<Span>,
     pub membership_migration_spans: BTreeSet<Span>,
     pub standard_call_spans: BTreeMap<Span, (String, String)>,
     pub statically_resolved_call_spans: BTreeSet<Span>,
@@ -686,6 +694,13 @@ pub struct Checker {
     assertion_effect_spans: BTreeSet<Span>,
     statement_expression_spans: BTreeSet<Span>,
     propagating_statements: BTreeSet<Span>,
+    propagating_conditions: BTreeSet<Span>,
+    redundant_condition_propagations: BTreeSet<Span>,
+    /// The next expression checked is in a control position of a condition.
+    control_condition: bool,
+    /// The expression being checked is in a control position of a condition,
+    /// so the operands of its `!`, `and`, or `or` are too.
+    in_control_position: bool,
     membership_migration_spans: BTreeSet<Span>,
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statically_resolved_call_spans: BTreeSet<Span>,
@@ -837,6 +852,8 @@ impl Checker {
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
                 propagating_statements: checker.propagating_statements,
+                propagating_conditions: checker.propagating_conditions,
+                redundant_condition_propagations: checker.redundant_condition_propagations,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -1009,6 +1026,8 @@ impl Checker {
                 assertion_effect_spans: checker.assertion_effect_spans,
                 statement_expression_spans: checker.statement_expression_spans,
                 propagating_statements: checker.propagating_statements,
+                propagating_conditions: checker.propagating_conditions,
+                redundant_condition_propagations: checker.redundant_condition_propagations,
                 membership_migration_spans: checker.membership_migration_spans,
                 standard_call_spans: checker.standard_call_spans,
                 statically_resolved_call_spans: checker.statically_resolved_call_spans,
@@ -1081,6 +1100,10 @@ impl Checker {
             assertion_effect_spans: BTreeSet::new(),
             statement_expression_spans: BTreeSet::new(),
             propagating_statements: BTreeSet::new(),
+            propagating_conditions: BTreeSet::new(),
+            redundant_condition_propagations: BTreeSet::new(),
+            control_condition: false,
+            in_control_position: false,
             membership_migration_spans: BTreeSet::new(),
             standard_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: BTreeSet::new(),
