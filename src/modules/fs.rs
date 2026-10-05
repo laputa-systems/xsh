@@ -565,8 +565,22 @@ fn write_path_with_mode_unnamed(
     file.set_len(0)
         .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
     file.write_all(data)
-        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))
+        .map_err(|error| RuntimeError::host("fs-write", &error).with_span(span))?;
+    // Truncating or writing a file as an unprivileged process clears its
+    // set-user-ID and set-group-ID bits, so a mode that has either is set a
+    // second time once the data is in. The first set stays: it is what keeps
+    // the file closed to anyone the mode excludes while the data is written,
+    // and the bits a write clears never widen who may open the file.
+    if mode & WRITE_CLEARED_MODE_BITS != 0 {
+        file.set_permissions(std::fs::Permissions::from_mode(mode))
+            .map_err(|error| RuntimeError::host("fs-chmod", &error).with_span(span))?;
+    }
+    Ok(())
 }
+
+/// The set-user-ID and set-group-ID bits, which the system clears from a file
+/// when an unprivileged process changes its contents.
+const WRITE_CLEARED_MODE_BITS: u32 = 0o6000;
 
 /// The permission bits of a mode argument, which must be `0..=0o7777`.
 fn permission_bits(mode: i64, span: Span) -> Result<u32, RuntimeError> {

@@ -116,3 +116,36 @@ install(p"ROOT/host.key", "secret")?
   assert repeated.status.exited_with(0)
   assert "lint.prefer-write-mode" not in repeated.stderr
 }
+
+test test_write_with_a_mode_keeps_setuid_setgid_and_sticky_bits { |ctx|
+  let root = test.temp_dir(ctx, name: "write-mode-special")?
+
+  # A write by an unprivileged process clears a file's set-user-ID and
+  # set-group-ID bits, so these modes are only exact if they outlive the data.
+  for mode in [0o4755, 0o2755, 0o6711, 0o1644] {
+    # The write and the chmod it replaces, kept apart so the lint leaves them.
+    let pair = fp"{root}/pair-{mode}"
+    pair.write("data\n")
+    assert pair.exists()?
+    pair.chmod(mode)
+    let kept = pair.metadata()?.mode % 4096
+    if kept != mode {
+      test.skip(f"the filesystem under {root} stores mode {mode} as {kept}")
+    }
+
+    let created = fp"{root}/new-{mode}"
+    created.write("data\n", mode:)
+    assert created.metadata()?.mode % 4096 == mode
+    assert created.read_text()? == "data\n"
+
+    let existing = fp"{root}/existing-{mode}"
+    existing.write("a longer first version\n", mode: 0o600)
+    existing.write(b"data\n", mode:)
+    assert existing.metadata()?.mode % 4096 == mode
+    assert existing.read_bytes()? == pair.read_bytes()?
+
+    # Writing again over bits that are already set keeps them too.
+    existing.write("again\n", mode:)
+    assert existing.metadata()?.mode % 4096 == mode
+  }
+}
