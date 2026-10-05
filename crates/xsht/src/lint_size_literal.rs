@@ -5,94 +5,68 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::source::Span;
-use xsh::frontend::syntax::arena::{
-    ArenaExprKind, ArenaExprOrRun, ArenaProgram, ArenaStmtKind, AstArena, ExprId, StmtId,
-};
+use xsh::frontend::syntax::arena::{ArenaExprKind, AstArena, ExprId};
 use xsh::frontend::syntax::node::BinaryOp;
 
 /// The binary unit for a product with this many factors of 1024.
 const BINARY_UNITS: [(&str, i64); 3] = [("KiB", 1 << 10), ("MiB", 1 << 20), ("GiB", 1 << 30)];
 
-pub(super) fn lint_size_products(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    let arena = &program.arena;
-    // The arena can also hold modules parsed from other sources, whose spans
-    // do not index `source`.
-    let Some(source_id) = program
-        .statement_ids()
-        .next()
-        .map(|id| arena.stmt(id).span.source_id)
-    else {
-        return Vec::new();
-    };
-    let expressions = || (0..arena.expr_tags.len()).map(ExprId::from_index);
+/// What the linter's traversal has seen above the products it has not reached
+/// yet. A size literal is `UInt` where the product is `Int`, and the rewrite
+/// cannot change what a program does where that type does not escape: under
+/// an arithmetic or comparison operator, whose result is the same for both,
+/// and in a binding whose type is written.
+#[derive(Default)]
+pub(super) struct SizeProducts {
+    /// The operator directly above a product.
+    operator_above: FxHashMap<ExprId, BinaryOp>,
+    /// Products that initialize a binding with a written type.
+    typed_initializers: FxHashSet<ExprId>,
+}
 
-    // A size literal is `UInt` where the product is `Int`. The rewrite cannot
-    // change what a program does where that type does not escape: under an
-    // arithmetic or comparison operator, whose result is the same for both,
-    // and in a binding whose type is written.
-    let mut operator_above: FxHashMap<ExprId, BinaryOp> = FxHashMap::default();
-    for id in expressions() {
-        if let ArenaExprKind::Binary { op, left, right } = arena.expr(id).kind {
-            operator_above.insert(left, op);
-            operator_above.insert(right, op);
-        }
-    }
-    let mut typed_initializers: FxHashSet<ExprId> = FxHashSet::default();
-    for statement in (0..arena.stmt_tags.len()).map(StmtId::from_index) {
-        if let ArenaStmtKind::Let {
-            ty: Some(_),
-            initializer: ArenaExprOrRun::Expr(value),
-            ..
-        }
-        | ArenaStmtKind::Const {
-            ty: Some(_),
-            initializer: ArenaExprOrRun::Expr(value),
-            ..
-        }
-        | ArenaStmtKind::Var {
-            ty: Some(_),
-            initializer: ArenaExprOrRun::Expr(value),
-            ..
-        } = arena.stmt(statement).kind
-        {
-            typed_initializers.insert(value);
+impl SizeProducts {
+    /// Records that `value` initializes a binding whose type is written.
+    /// Called before the traversal reaches `value`.
+    pub(super) fn typed_initializer(&mut self, arena: &AstArena, value: ExprId) {
+        if is_product(arena, value) {
+            self.typed_initializers.insert(value);
         }
     }
 
-    let mut diagnostics = Vec::new();
-    for id in expressions() {
+    /// Visits `id` before its operands, and reports it when it is a whole
+    /// product of literals that spells a byte count.
+    pub(super) fn visit(&mut self, arena: &AstArena, source: &str, id: ExprId) -> Option<Diagnostic> {
         let expr = arena.expr(id);
-        if !matches!(
-            expr.kind,
-            ArenaExprKind::Binary {
-                op: BinaryOp::Mul,
-                ..
+        let ArenaExprKind::Binary { op, left, right } = expr.kind else {
+            return None;
+        };
+        for operand in [left, right] {
+            if is_product(arena, operand) {
+                self.operator_above.insert(operand, op);
             }
-        ) {
-            continue;
         }
+        if op != BinaryOp::Mul {
+            return None;
+        }
+        let above = self.operator_above.remove(&id);
+        let typed_initializer = self.typed_initializers.remove(&id);
         // Only a whole product: `mb * 1024 * 1024` has a factor that is not
         // a literal, and its literal part is not a size on its own.
-        let above = operator_above.get(&id).copied();
-        if above == Some(BinaryOp::Mul) || expr.span.source_id != source_id {
-            continue;
+        if above == Some(BinaryOp::Mul) {
+            return None;
         }
-        let Some(text) = source.get(expr.span.range()) else {
-            continue;
-        };
+        let text = source.get(expr.span.range())?;
         let mut factors = Vec::new();
         if !literal_factors(arena, source, id, &mut factors) {
-            continue;
+            return None;
         }
-        let Some(literal) = size_literal(&factors) else {
-            continue;
-        };
-        let mut diagnostic = Diagnostic::warning(format!(
+        let literal = size_literal(&factors)?;
+        let diagnostic = Diagnostic::warning(format!(
             "a byte count written as a product is the size literal `{literal}`"
         ))
         .with_code(DiagnosticCode::LintPreferSizeLiteral)
         .with_label(Label::primary(expr.span, format!("write `{literal}`")));
-        let type_stays_local = typed_initializers.contains(&id)
+        let type_stays_local = typed_initializer
             || above.is_some_and(|op| {
                 matches!(
                     op,
@@ -108,20 +82,28 @@ pub(super) fn lint_size_products(program: &ArenaProgram, source: &str) -> Vec<Di
                         | BinaryOp::Ge
                 )
             });
-        if type_stays_local && !text.contains(['#', '\n']) {
-            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+        Some(if type_stays_local && !text.contains(['#', '\n']) {
+            diagnostic.with_fix_hint(FixHint::replacement(
                 with_grouping_parens(source, expr.span),
                 "use the size literal",
                 literal,
-            ));
+            ))
         } else {
-            diagnostic = diagnostic.with_note(
+            diagnostic.with_note(
                 "a size literal is `UInt` and the product is `Int`; this value's type is inferred where it is used, so check that nothing negative is stored there before rewriting it",
-            );
-        }
-        diagnostics.push(diagnostic);
+            )
+        })
     }
-    diagnostics
+}
+
+fn is_product(arena: &AstArena, id: ExprId) -> bool {
+    matches!(
+        arena.expr(id).kind,
+        ArenaExprKind::Binary {
+            op: BinaryOp::Mul,
+            ..
+        }
+    )
 }
 
 /// `span` widened over the parentheses that group it, if any. The product is

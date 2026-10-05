@@ -453,6 +453,7 @@ pub struct Linter<'a> {
     whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
     guarded_statement_depth: usize,
     negated_call_spans: BTreeMap<Span, Span>,
+    size_products: lint_size_literal::SizeProducts,
     statically_resolved_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
@@ -618,6 +619,7 @@ impl<'a> Linter<'a> {
             whole_statement_values: std::sync::OnceLock::new(),
             guarded_statement_depth: 0,
             negated_call_spans: BTreeMap::new(),
+            size_products: lint_size_literal::SizeProducts::default(),
             statically_resolved_call_spans: options.statically_resolved_call_spans,
             definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             redundant_variant_qualifiers: options.redundant_variant_qualifiers,
@@ -670,9 +672,6 @@ impl<'a> Linter<'a> {
             .extend(redundant_use_alias::lint_redundant_use_aliases(
                 program, source,
             ));
-        linter
-            .diagnostics
-            .extend(lint_size_literal::lint_size_products(program, source));
         linter
             .diagnostics
             .extend(lint_prefer_match_else::lint_wildcard_catch_all_arms(
@@ -1380,6 +1379,9 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
+                if let (Some(_), ArenaExprOrRun::Expr(value)) = (ty, &initializer) {
+                    self.size_products.typed_initializer(self.arena, *value);
+                }
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
                     self.lint_needless_annotation(
@@ -1424,6 +1426,9 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
+                if let (Some(_), ArenaExprOrRun::Expr(value)) = (ty, &initializer) {
+                    self.size_products.typed_initializer(self.arena, *value);
+                }
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
                     self.lint_needless_annotation(
@@ -11756,6 +11761,13 @@ impl LintExprVisitor<'_, '_> {
             );
         }
 
+        if let Some(diagnostic) =
+            self.linter
+                .size_products
+                .visit(self.linter.arena, self.linter.source, expr)
+        {
+            self.linter.diagnostics.push(diagnostic);
+        }
         if !self.suppress_expr_autofixes {
             self.linter.lint_proven_nonnull_fallback(expr);
         }

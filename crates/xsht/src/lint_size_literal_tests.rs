@@ -1,16 +1,16 @@
-use super::lint_size_products;
-use xsh::diagnostic::Diagnostic;
+use super::super::{LintOptions, Linter};
+use xsh::diagnostic::{Diagnostic, DiagnosticCode};
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
 fn lint(source: &str) -> Vec<Diagnostic> {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    parsed
-        .arena
-        .symbol_owner()
-        .clone()
-        .with_current(|| lint_size_products(&parsed.arena, source))
+    Linter::lint(&parsed.arena, source, LintOptions::default())
+        .diagnostics
+        .into_iter()
+        .filter(|diagnostic| diagnostic.code == Some(DiagnosticCode::LintPreferSizeLiteral))
+        .collect()
 }
 
 /// The source after applying every fix the lint offers.
