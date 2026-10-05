@@ -47,6 +47,9 @@ mod lint_optional_binding;
 #[path = "lint_run_argv.rs"]
 mod lint_run_argv;
 
+#[path = "lint_exit.rs"]
+mod lint_exit;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -461,6 +464,7 @@ pub struct Linter<'a> {
     guarded_statement_depth: usize,
     negated_call_spans: BTreeMap<Span, Span>,
     size_products: lint_size_literal::SizeProducts,
+    exit_statements: lint_exit::ExitStatements,
     statically_resolved_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
@@ -632,6 +636,7 @@ impl<'a> Linter<'a> {
             guarded_statement_depth: 0,
             negated_call_spans: BTreeMap::new(),
             size_products: lint_size_literal::SizeProducts::default(),
+            exit_statements: lint_exit::ExitStatements::default(),
             statically_resolved_call_spans: options.statically_resolved_call_spans,
             definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             redundant_variant_qualifiers: options.redundant_variant_qualifiers,
@@ -1030,6 +1035,7 @@ impl<'a> Linter<'a> {
             | ArenaStmtKind::Var { .. }
             | ArenaStmtKind::Return(_)
             | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Exit(_)
             | ArenaStmtKind::Yield(_)
             | ArenaStmtKind::Defer(..)
             | ArenaStmtKind::Break { .. }
@@ -1525,7 +1531,9 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::Defer(value, _) => self.lint_expr_or_run(&value),
-            ArenaStmtKind::YieldDelegate(value) => self.lint_expr(value),
+            ArenaStmtKind::YieldDelegate(value) | ArenaStmtKind::Exit(value) => {
+                self.lint_expr(value)
+            }
             ArenaStmtKind::Yield(value) => self.lint_expr_or_run(&value),
             ArenaStmtKind::If {
                 branches,
@@ -1670,6 +1678,14 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Command(command) => self.lint_command_stmt(command),
             ArenaStmtKind::TailBareIdent(name) => self.mark_used(name.as_str().as_str()),
             ArenaStmtKind::Expr(expr) => {
+                if let Some(diagnostic) = self.exit_statements.visit_statement(
+                    self.arena,
+                    self.source,
+                    &self.terminating_call_spans,
+                    expr,
+                ) {
+                    self.diagnostics.push(diagnostic);
+                }
                 let span = self.arena.expr(expr).span;
                 if self.statement_expression_spans.contains(&span) {
                     let inner = match self.arena.expr(expr).kind {
@@ -10736,7 +10752,9 @@ fn lazy_visit_stmt(
                 lazy_visit_block(arena, arm.block, out);
             }
         }
-        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
+        ArenaStmtKind::Expr(expr)
+        | ArenaStmtKind::YieldDelegate(expr)
+        | ArenaStmtKind::Exit(expr) => {
             lazy_visit_expr(arena, expr, out);
         }
         ArenaStmtKind::Command(cmd_id) => {
@@ -11844,6 +11862,13 @@ impl LintExprVisitor<'_, '_> {
                 .size_products
                 .visit(self.linter.arena, self.linter.source, expr)
         {
+            self.linter.diagnostics.push(diagnostic);
+        }
+        if let Some(diagnostic) = self.linter.exit_statements.visit_expr(
+            self.linter.arena,
+            &self.linter.terminating_call_spans,
+            expr,
+        ) {
             self.linter.diagnostics.push(diagnostic);
         }
         if let Some(diagnostic) = lint_run_argv::run_argv_diagnostic(
@@ -13396,7 +13421,9 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaStmtKind::Command(command) => self.scan_command(command),
             ArenaStmtKind::TailBareIdent(name) => self.add_direct_unqualified(name),
-            ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => self.scan_expr(expr),
+            ArenaStmtKind::Expr(expr)
+            | ArenaStmtKind::YieldDelegate(expr)
+            | ArenaStmtKind::Exit(expr) => self.scan_expr(expr),
             // Callable bodies and hooks have their own entry conditions. A
             // declaration is never executed while its containing initializer
             // runs, so only roots and graph edges scan those bodies.
@@ -14110,6 +14137,10 @@ fn stmt_flow(
         ArenaStmtKind::TailBareIdent(_) => FlowSummary::fallthrough(),
         ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
             expr_flow(arena, expr, terminating_call_spans)
+        }
+        // The status is evaluated, and then nothing after the statement runs.
+        ArenaStmtKind::Exit(status) => {
+            expr_flow(arena, status, terminating_call_spans).then(FlowSummary::terminating())
         }
         ArenaStmtKind::Use(_)
         | ArenaStmtKind::TypeDef(_)

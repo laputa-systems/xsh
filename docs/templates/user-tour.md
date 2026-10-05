@@ -788,7 +788,7 @@ Things worth noticing:
   crash. `listening` propagates, because failing to read the socket table means
   the check itself is broken.
 - The effect clauses document exactly which procs touch the network.
-- `abort(1)` exits with a chosen status without a traceback. Deferred cleanup
+- `exit 1` exits with a chosen status without a traceback. Deferred cleanup
   still runs.
 
 ## Testing

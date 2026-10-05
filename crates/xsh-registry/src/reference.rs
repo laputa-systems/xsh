@@ -257,6 +257,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "block-strings",
     "print",
     "abort",
+    "exit",
 ];
 use crate::api_docs::ApiDocs;
 use crate::errors::{ErrorFacet, builtin_error_families};
@@ -1057,10 +1058,19 @@ fn core_doc(item: &str) -> ReferenceDoc {
         }
         "abort" => {
             return reference_doc_full(
-                "Terminates the script with an explicit exit status.",
-                "`abort(status)` is a deliberate process exit, not Result error propagation: it produces the requested status without a runtime traceback on stderr. Deferred cleanup runs unless `force: true` is supplied.",
+                "Terminates the script with an explicit exit status; the older spelling of `exit`.",
+                "`abort(status)` means `exit status`: a deliberate process exit, not Result error propagation, that produces the requested status without a runtime traceback on stderr. Deferred cleanup runs unless `force: true` is supplied; a forced abort exits without unwinding.",
                 &["language", "abort", "exit-status", "validation", "builtin"],
                 "abort(status: Int, force: Bool = false)",
+                &[],
+            );
+        }
+        "exit" => {
+            return reference_doc_full(
+                "Terminates the script with an explicit exit status.",
+                "`exit STATUS` is a deliberate process exit, not Result error propagation: it produces the requested status, an Int from 0 to 255, without a runtime traceback on stderr, and `try` does not capture it. Deferred cleanup runs while the script unwinds. The statement never completes, so a block that ends with it leaves its continuation, and it accepts a postfix `when` or `unless`. `exit` is a contextual word that begins the statement where a command would be read.",
+                &["language", "exit", "exit-status", "validation", "statement"],
+                "exit STATUS",
                 &[],
             );
         }

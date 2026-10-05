@@ -2847,6 +2847,15 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
+    /// `exit STATUS`: a deliberate end of the script with `status`.
+    pub fn push_exit(&mut self, status: ExprId, span: Span) -> StmtId {
+        let id = self
+            .lowerer
+            .push_stmt_kind(ArenaStmtKind::Exit(status), span);
+        self.push_current_statement(id);
+        id
+    }
+
     pub fn push_continue(&mut self, span: Span) -> StmtId {
         let id = self.lowerer.push_stmt_kind(ArenaStmtKind::Continue, span);
         self.push_current_statement(id);
@@ -4369,6 +4378,7 @@ impl AstArena {
                 value: Some(ExprId::new(data.lhs as usize)),
             },
             ArenaStmtTag::Continue => ArenaStmtKind::Continue,
+            ArenaStmtTag::Exit => ArenaStmtKind::Exit(ExprId::new(data.lhs as usize)),
             ArenaStmtTag::Match => {
                 let raw = range_slice(&self.extra, range_from_stmt_data(data));
                 ArenaStmtKind::Match {
@@ -5437,6 +5447,7 @@ pub enum ArenaStmtTag {
     Command,
     TailBareIdent,
     Expr,
+    Exit,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -5544,6 +5555,9 @@ pub enum ArenaStmtKind {
         value: Option<ExprId>,
     },
     Continue,
+    /// `exit STATUS` ends the script with the status, running deferred
+    /// cleanup on the way out.
+    Exit(ExprId),
     Match {
         value: ExprId,
         arms: ArenaRange,
@@ -7138,6 +7152,10 @@ impl ArenaLowerer<'_> {
                 ArenaStmtData::new(raw_expr_id(value), 0),
             ),
             ArenaStmtKind::Continue => (ArenaStmtTag::Continue, ArenaStmtData::ZERO),
+            ArenaStmtKind::Exit(status) => (
+                ArenaStmtTag::Exit,
+                ArenaStmtData::new(raw_expr_id(status), 0),
+            ),
             ArenaStmtKind::Match { value, arms } => {
                 let data = self.push_stmt_extra(&[raw_expr_id(value), arms.start, arms.len]);
                 (ArenaStmtTag::Match, data)

@@ -780,6 +780,10 @@ impl Checker {
             ArenaStmtKind::YieldDelegate(value) => {
                 self.check_yield_delegation_arena(arena, source, value, stmt.span);
             }
+            ArenaStmtKind::Exit(status) => {
+                let actual = self.check_expr_arena(arena, source, status, Some(&Type::Int));
+                self.expect_type(&Type::Int, &actual, arena.arena.expr(status).span);
+            }
             ArenaStmtKind::Yield(value) => {
                 self.check_yield_arena(arena, source, value, stmt.span);
             }
@@ -1836,6 +1840,7 @@ impl Checker {
                 | ArenaStmtKind::TailBareIdent(_)
                 | ArenaStmtKind::Match { .. }
                 | ArenaStmtKind::Return(_)
+                | ArenaStmtKind::Exit(_)
                 | ArenaStmtKind::Break { .. }
                 | ArenaStmtKind::Continue => true,
                 ArenaStmtKind::If { .. } => if_stmt_may_produce_value(arena, tail),
@@ -3105,6 +3110,7 @@ impl Checker {
                 self.stmt_definitely_exits_arena(arena, expansion)
             }
             ArenaStmtKind::Return(_) => self.current_return.is_some(),
+            ArenaStmtKind::Exit(_) => true,
             ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => self.loop_depth > 0,
             ArenaStmtKind::Expr(expr) => self.expr_definitely_exits_arena(arena, expr),
             ArenaStmtKind::Let {
@@ -3240,6 +3246,7 @@ impl Checker {
                         | ArenaStmtKind::Match { .. }
                         | ArenaStmtKind::If { .. }
                         | ArenaStmtKind::Return(_)
+                        | ArenaStmtKind::Exit(_)
                         | ArenaStmtKind::Break { .. }
                         | ArenaStmtKind::Continue
                 );
@@ -3663,7 +3670,10 @@ impl Checker {
             ArenaStmtKind::Match { value, arms } => {
                 self.check_tail_match_arena(arena, source, value, arms, expected)
             }
-            ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => {
+            ArenaStmtKind::Return(_)
+            | ArenaStmtKind::Break { .. }
+            | ArenaStmtKind::Continue
+            | ArenaStmtKind::Exit(_) => {
                 self.check_stmt_arena(arena, source, id);
                 Type::Unknown
             }

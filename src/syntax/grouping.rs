@@ -1166,6 +1166,7 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
             | ArenaStmtKind::Return(Some(_))
             | ArenaStmtKind::Yield(_)
             | ArenaStmtKind::YieldDelegate(_)
+            | ArenaStmtKind::Exit(_)
             | ArenaStmtKind::Defer(..)
             | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Break { value: Some(_) }

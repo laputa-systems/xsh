@@ -595,6 +595,60 @@ mod tests {
         sentences
     }
 
+    /// `exit` is recognized where a command named `exit` would be read, so a
+    /// status that begins like an operator or an assignment leaves an
+    /// ordinary statement. Either way a sentence of the production parses,
+    /// bare or under a postfix guard.
+    #[test]
+    fn every_exit_sentence_of_the_grammar_parses() {
+        let grammar = grammar();
+        let recognizer = Recognizer::new(grammar);
+        let mut generator = Generator::new(grammar);
+        let mut sentences = 0;
+        let mut exits = 0;
+        for depth in [3, 5, 8] {
+            for seed in 0..300 {
+                let Some(source) = generator.sentence("exit_statement", seed, depth) else {
+                    continue;
+                };
+                let Some(tokens) = lex_grammar_tokens(&source) else {
+                    continue;
+                };
+                if recognizer.recognize(&tokens).is_err() {
+                    continue;
+                }
+                sentences += 1;
+                let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+                assert!(
+                    parsed.diagnostics.is_empty(),
+                    "depth {depth} seed {seed}: {}\n{source}",
+                    parsed.diagnostics[0].message
+                );
+                let first = parsed.arena.statement_ids().next().expect("one statement");
+                let arena = &parsed.arena.arena;
+                let guarded = match arena.stmt(first).kind {
+                    ArenaStmtKind::Sugar {
+                        form: SugarForm::When | SugarForm::Unless,
+                        operands,
+                        ..
+                    } => arena.sugar_operands(operands).iter().find_map(|operand| {
+                        match operand {
+                            crate::syntax::arena::ArenaSugarOperand::Stmt(inner) => Some(*inner),
+                            _ => None,
+                        }
+                    }),
+                    _ => None,
+                };
+                exits += usize::from(matches!(
+                    arena.stmt(guarded.unwrap_or(first)).kind,
+                    ArenaStmtKind::Exit(_)
+                ));
+            }
+        }
+        assert!(sentences > 300, "only {sentences} sentences");
+        assert!(exits * 2 > sentences, "only {exits} of {sentences} are exit statements");
+    }
+
     #[test]
     fn the_grammar_recognizes_written_sugar_statements() {
         let recognizer = Recognizer::new(grammar());
@@ -603,6 +657,8 @@ mod tests {
             include_str!("../../../docs/snippets/spec/45-repeat.xsh"),
             include_str!("../../../tests/xsh/tempdir.xsh"),
             include_str!("../../../docs/snippets/spec/60-tempdir.xsh"),
+            include_str!("../../../tests/xsh/exit.xsh"),
+            include_str!("../../../docs/snippets/spec/49-exit.xsh"),
         ] {
             let tokens = lex_grammar_tokens(source).expect("lexes");
             for part in top_level_parts(&tokens) {

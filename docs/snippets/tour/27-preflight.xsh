@@ -85,6 +85,6 @@ cli main(config: Path, emit_json = false) {
 
   if failed > 0 {
     eprint f"{failed} check(s) failed"
-    abort(1)
+    exit 1
   }
 }

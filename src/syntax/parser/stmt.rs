@@ -169,6 +169,8 @@ impl<'a> Parser<'a> {
                     || self.lookahead_is_expr_binary()
                 {
                     self.parse_expr_statement_arena_only(start, arena)
+                } else if self.lookahead_is_exit() {
+                    self.parse_exit_arena_only(start, arena)
                 } else {
                     self.parse_command_statement_arena_only(start, arena)
                 }
@@ -1754,6 +1756,39 @@ impl<'a> Parser<'a> {
         }
         let end = self.expect_terminator();
         arena.push_return(Some(value), self.span(start, end));
+        Some(())
+    }
+
+    /// Whether the command statement at the cursor is `exit STATUS`. `exit`
+    /// is not reserved: it begins the statement only where a command named
+    /// `exit` would be read, with its status on the same line.
+    fn lookahead_is_exit(&self) -> bool {
+        self.current_name().is_some_and(|name| name == "exit")
+            && !matches!(
+                self.peek_tag(1),
+                None | Some(
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Comment
+                        | TokenTag::Eof
+                )
+            )
+    }
+
+    fn parse_exit_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        self.bump();
+        let status = self.parse_expr_id_arena_only(arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            let inner = arena.push_exit(status, self.span(start, self.previous_end()));
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
+        let end = self.expect_terminator();
+        arena.push_exit(status, self.span(start, end));
         Some(())
     }
 

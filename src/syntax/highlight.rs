@@ -404,6 +404,36 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if matches!(text, "repeat" | "times") && repeat_head_word(source, tokens, at) {
         return Kind::Keyword;
     }
+    // `exit` is an ordinary name except where it begins `exit STATUS`: first
+    // in a statement, with the status after a space on the same line.
+    if text == "exit"
+        && statement_start(previous, source)
+        && next.is_some_and(|next| {
+            next.start > token.end
+                && !matches!(
+                    next.tag,
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Comment
+                        | TokenTag::Equals
+                        | TokenTag::PipeGt
+                        | TokenTag::Plus
+                        | TokenTag::Star
+                        | TokenTag::Slash
+                        | TokenTag::Percent
+                        | TokenTag::EqEq
+                        | TokenTag::BangEq
+                        | TokenTag::Lt
+                        | TokenTag::Le
+                        | TokenTag::Gt
+                        | TokenTag::Ge
+                        | TokenTag::QuestionQuestion
+                )
+        })
+    {
+        return Kind::Keyword;
+    }
     // `without` is an ordinary name except where it opens a
     // `without EFFECT, ... {` statement.
     if text == "without" && without_head_word(source, tokens, at, previous) {

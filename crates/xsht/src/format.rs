@@ -728,6 +728,10 @@ impl<'a> Writer<'a> {
                 output.push_str("yield @");
                 self.write_expr(*value, END, output);
             }
+            ArenaStmtKind::Exit(status) => {
+                output.push_str("exit ");
+                self.write_expr_safe_in(*status, Context::initializer(Follow::END), output);
+            }
             ArenaStmtKind::Yield(value) => {
                 output.push_str("yield ");
                 self.write_expr_or_run_safe(value, output);
@@ -1997,6 +2001,7 @@ impl<'a> Writer<'a> {
         let (keyword, value) = match self.arena.stmt(stmt).kind {
             ArenaStmtKind::Return(Some(value)) => ("return", value),
             ArenaStmtKind::YieldDelegate(value) => ("yield @", ArenaExprOrRun::Expr(value)),
+            ArenaStmtKind::Exit(status) => ("exit", ArenaExprOrRun::Expr(status)),
             ArenaStmtKind::Yield(value) => ("yield", value),
             ArenaStmtKind::Break { value: Some(value) } => ("break", ArenaExprOrRun::Expr(value)),
             _ => {

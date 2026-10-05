@@ -693,6 +693,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([r("context_scope"), opt(t(T::Question))]),
                 seq([r("named_command"), opt(t(T::Question))]),
                 r("expression_statement"),
+                r("exit_statement"),
             ])),
         ),
         // Declarations.
@@ -1054,6 +1055,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     seq([r("expression"), opt(r("postfix_guard"))]),
                 ])),
             ]),
+        ),
+        // `exit` is a contextual word: it begins the statement where a
+        // command named `exit` would be read, with its status on the line.
+        rule(
+            Statements,
+            "exit_statement",
+            seq([w("exit"), line(r("expression")), opt(r("postfix_guard"))]),
         ),
         rule(
             Statements,

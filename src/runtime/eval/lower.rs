@@ -1780,6 +1780,7 @@ fn compact_collect_stmt_call_edges(
         }
         ArenaStmtKind::Break { value: Some(value) }
         | ArenaStmtKind::Expr(value)
+        | ArenaStmtKind::Exit(value)
         | ArenaStmtKind::YieldDelegate(value) => {
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
@@ -2262,7 +2263,7 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::Match { .. } => 23,
         ArenaStmtKind::Command(_) => 24,
         ArenaStmtKind::TailBareIdent(_) => 25,
-        ArenaStmtKind::Expr(_) => 26,
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::Exit(_) => 26,
         ArenaStmtKind::Sugar { .. } => {
             unreachable!("a sugar statement is classified by its expansion")
         }
@@ -2299,7 +2300,7 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::Match { .. } => "match",
         ArenaStmtKind::Command(_) => "command",
         ArenaStmtKind::TailBareIdent(_) => "tail_bare_ident",
-        ArenaStmtKind::Expr(_) => "expr",
+        ArenaStmtKind::Expr(_) | ArenaStmtKind::Exit(_) => "expr",
         ArenaStmtKind::Sugar { .. } => {
             unreachable!("a sugar statement is classified by its expansion")
         }
@@ -3744,7 +3745,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. } => CompactTopLevelBlocker::Control,
             ArenaStmtKind::Command(_) => CompactTopLevelBlocker::Command,
-            ArenaStmtKind::Expr(_) => CompactTopLevelBlocker::Expression,
+            ArenaStmtKind::Expr(_) | ArenaStmtKind::Exit(_) => CompactTopLevelBlocker::Expression,
             ArenaStmtKind::Defer(..) => CompactTopLevelBlocker::Defer,
             ArenaStmtKind::SignalHook(_) => CompactTopLevelBlocker::Other,
             _ => CompactTopLevelBlocker::Other,
@@ -4155,6 +4156,13 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Expr(value) => {
                 let mut slots = top_level_slots(known);
                 let value = self.lower_expr(value, &mut slots, None, None)?;
+                let kind = BuildTopKind::Expr(value);
+                Some(lowered_top_level(&self.scratch, kind, known, slots))
+            }
+            ArenaStmtKind::Exit(status) => {
+                let mut slots = top_level_slots(known);
+                let span = self.program.arena.stmt(id).span;
+                let value = self.lower_exit(status, span, &mut slots, None, None)?;
                 let kind = BuildTopKind::Expr(value);
                 Some(lowered_top_level(&self.scratch, kind, known, slots))
             }
@@ -4811,6 +4819,16 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     value: self.lower_expr(expr, slots, current_function, item_slot)?,
                 }
             ),
+            ArenaStmtKind::Exit(status) => {
+                let span = self.program.arena.stmt(tail).span;
+                push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Return {
+                        value: self.lower_exit(status, span, slots, current_function, item_slot)?,
+                    }
+                )
+            }
             ArenaStmtKind::TailBareIdent(name) => {
                 let value = self
                     .lower_bare_ident_stmt(tail, name, slots)
@@ -5964,6 +5982,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
             ArenaStmtKind::Expr(value) => {
                 let span = self.program.arena.stmt(id).span;
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
+                Some(push_build_row!(
+                    self,
+                    stmt,
+                    BuildStmtRow::Expr { value, span }
+                ))
+            }
+            ArenaStmtKind::Exit(status) => {
+                let span = self.program.arena.stmt(id).span;
+                let value = self.lower_exit(status, span, slots, current_function, item_slot)?;
                 Some(push_build_row!(
                     self,
                     stmt,
@@ -12915,9 +12942,35 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let stmt = self.program.arena.core_stmt_id(stmt);
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
+            ArenaStmtKind::Exit(status) => {
+                let span = self.program.arena.stmt(stmt).span;
+                self.lower_exit(status, span, slots, current_function, item_slot)
+            }
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
             _ => None,
         }
+    }
+
+    /// Lowers `exit STATUS` to the expression that ends the script: it
+    /// evaluates the status and never yields a value, so it stands wherever
+    /// the statement does, as a statement or as the tail of a block.
+    fn lower_exit(
+        &mut self,
+        status: ExprId,
+        span: Span,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        Some(push_build_row!(
+            self,
+            expr,
+            BuildExprRow::Abort {
+                status: self.lower_expr(status, slots, current_function, item_slot)?,
+                force: None,
+                span,
+            }
+        ))
     }
 
     /// Cleanup bodies use statement position even for their final expression.
@@ -13007,6 +13060,9 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         let span = self.program.arena.stmt(stmt).span;
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
+            ArenaStmtKind::Exit(status) => {
+                self.lower_exit(status, span, slots, current_function, item_slot)
+            }
             ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
             ArenaStmtKind::Command(command)
                 if self.bodies.statement_positions.get(&stmt)

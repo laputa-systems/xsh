@@ -283,7 +283,7 @@ of a script or module; inside a callable body or any block they are
 A script's exit status is chosen as follows:
 
 - A final top-level `Int` or `UInt` value in `0..=255` becomes the exit status.
-- `abort(status)` exits immediately with `status` (see 8.9).
+- `exit status` exits immediately with `status` (see 8.9).
 - A top-level `?` on `Err`, or any uncaught runtime failure, prints a traceback
   and exits `3`.
 - Otherwise the script exits `0`.
@@ -1435,7 +1435,7 @@ statement is a `repeat` statement when it begins with the word `repeat` and,
 on the same line, its count is followed by the word `times` directly before
 `{`; neither word is reserved.
 
-`return`, `break`, `continue`, and `yield` accept a postfix guard:
+`return`, `break`, `continue`, `yield`, and `exit` accept a postfix guard:
 
 ```xsh
 {{.spec.guard_modifiers.source}}
@@ -1487,8 +1487,8 @@ means exactly
 ```
 
 with one rule the `if` does not have: the block must leave the enclosing
-continuation on every path (by `return`, `break`, `continue`, or a terminating
-call such as `abort`), or the checker reports `check.guard-fallthrough`. A
+continuation on every path (by `return`, `break`, `continue`, `exit`, or a
+terminating call such as `abort`), or the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
 
@@ -1644,7 +1644,7 @@ Normal completion yields `Ok(tail)`; an empty body yields `Ok(Unit)`. A
 failed assertions, and failed plain `run` statements inside the block become
 `Err`. `return`, `break`, and `continue` keep their ordinary targets, so
 `return Err(e)` leaves the function while `Err(e)?` stops at the `try`. Runtime
-type failures, `abort`, and cancellation are not captured. The tail value is
+type failures, `exit`, and cancellation are not captured. The tail value is
 computed before the block's defers run; a cleanup failure becomes the `Err`
 when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success
@@ -1684,11 +1684,33 @@ and `ctx` remains an ordinary identifier outside this form. Use `ctx` to add
 context to the same failure, and `Err(new, cause: old)` to translate into a
 different one.
 
-### 8.9 `abort`
+### 8.9 `exit`
 
-`abort(status: Int, force: Bool = false)` ends the script with `status` as a
-deliberate exit. It is not an error: no traceback is printed and `try` does not
-capture it. Deferred cleanup runs while unwinding unless `force` is true.
+`exit status` ends the script with `status` as a deliberate exit. It is not an
+error: no traceback is printed and `try` does not capture it. Deferred cleanup
+runs while unwinding, and the status is an `Int` expression from 0 to 255
+(12.3), evaluated once.
+
+```xsh
+{{.spec.exit.source}}
+```
+
+`exit` never completes, so a block that ends with it leaves its continuation:
+`guard ready else { exit 1 }` satisfies the guard, and the other branch of
+`if ok { value } else { exit 1 }` decides the value. It accepts a postfix
+guard (8.6): `exit 1 unless ready`.
+
+`exit` is not a reserved word. A statement is an `exit` statement when it
+begins with the word `exit` followed, on the same line, by its status, in the
+position where a command named `exit` would otherwise be read (10.1);
+`exit = 1`, `exit + 1`, and `exit(1)` are an assignment, an expression, and a
+call of a binding named `exit`.
+
+`abort(status: Int, force: Bool = false)` is the older built-in call.
+`abort(status)` means `exit status`, and `lint.prefer-exit` rewrites it.
+`abort(status, force: true)` exits without unwinding: no deferred action
+runs, including the ones still pending when it is called from a deferred
+action or a signal hook, and scoped processes are not cleaned up.
 
 ## 9. Functions
 
@@ -2239,7 +2261,7 @@ An entry script may declare one hook per signal at its top level:
   the hook itself starts is not sent the primary signal, so a hook can run
   orderly handoff commands, but it is killed on escalation.
 
-Hook exit status: `abort(status)` in the hook commits `status`, still
+Hook exit status: `exit status` in the hook commits `status`, still
 cancelling owned children (`force: true` also skips defers). A hook that
 finishes normally exits `3` for `INT` and `TERM` and `128 + signal` for other
 signals. A hook that fails exits `3` with a traceback.
@@ -2249,7 +2271,7 @@ signals. A hook that fails exits `3` with a traceback.
 | Status | Meaning |
 |---|---|
 | `0` | success |
-| script-chosen `0..=255` | a final top-level `Int`/`UInt`, or `abort(status)` |
+| script-chosen `0..=255` | a final top-level `Int`/`UInt`, or `exit status` |
 | `1` | `xsht lint` findings, `xsht fmt --check` mismatch, or `xsht test` failure |
 | `2` | usage error, or a source, parse, or check failure (including invalid arguments to `cli main`) |
 | `3` | runtime failure, top-level propagated `Err`, cancellation, or a failed hook |
