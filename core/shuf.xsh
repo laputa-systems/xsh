@@ -34,12 +34,10 @@ type ShufOptions = {
   operands: List[Str],
 }
 
-# The random source: the bytes read so far (a file, or blocks of /dev/urandom
-# when no file is given), the next unread byte, and the leftover entropy GNU's
-# `randint` recycles between draws.
-type Rng = {data: Bytes, pos: Int, state: Int, entropy: Int, device: Bool}
-
-type Draw = {value: Int, rng: Rng, ok: Bool}
+# The result of one draw: the value (when `ok`), and the position in the byte
+# window and the leftover entropy GNU's `randint` recycles between draws. A
+# draw that runs out of window bytes is not `ok` and is resumed after a refill.
+type Draw = {value: Int, pos: Int, state: Int, entropy: Int, ok: Bool}
 
 # Output stops here for an unbounded `-r`: stdout is flushed only when the
 # script ends, so endless output could never be delivered.
@@ -77,30 +75,21 @@ pure split_records(data: Bytes, sep: Int) -> List[Bytes] {
   records
 }
 
-# Up to AT_MOST drawn uniformly, with GNU's byte-at-a-time rejection sampling
-# so a `--random-source` file gives the same numbers.
-proc draw(rng: Rng, at_most: Int) [fs, error] -> Draw {
-  var data = rng.data
-  var pos = rng.pos
-  var state = rng.state
-  var entropy = rng.entropy
-  var settled = false
-  var value = 0
+# Up to AT_MOST drawn uniformly from the bytes of WINDOW, with GNU's
+# byte-at-a-time rejection sampling so a `--random-source` file gives the same
+# numbers.
+pure draw(window: Bytes, at: Int, carried: Int, kept: Int, at_most: Int) -> Draw {
+  var pos = at
+  var state = carried
+  var entropy = kept
 
-  while ! settled {
+  while true {
     while entropy < at_most {
-      if pos >= data.len() {
-        if rng.device {
-          data = bytes.read_at(p"/dev/urandom", 0, 4096) ?? b""
-          pos = 0
-        }
-
-        if pos >= data.len() {
-          return {value: 0, rng: {...rng, data: data, pos: pos, state: state, entropy: entropy}, ok: false}
-        }
+      if pos >= window.len() {
+        return {value: 0, pos: pos, state: state, entropy: entropy, ok: false}
       }
 
-      state = state * 256 + (data.byte_at(pos) ?? 0)
+      state = state * 256 + (window.byte_at(pos) ?? 0)
       entropy = entropy * 256 + 255
       pos += 1
     }
@@ -109,17 +98,14 @@ proc draw(rng: Rng, at_most: Int) [fs, error] -> Draw {
     let safe = entropy - (entropy + 1) % choices
 
     if state <= safe {
-      value = state % choices
-      state = state / choices
-      entropy = (entropy - at_most) / choices
-      settled = true
-    } else {
-      state = state % choices
-      entropy = entropy % choices
+      return {value: state % choices, pos: pos, state: state / choices, entropy: (entropy - at_most) / choices, ok: true}
     }
+
+    state = state % choices
+    entropy = entropy % choices
   }
 
-  {value: value, rng: {data: data, pos: pos, state: state, entropy: entropy, device: rng.device}, ok: true}
+  {value: 0, pos: pos, state: state, entropy: entropy, ok: false}
 }
 
 # A decimal count; values past u64 are null, values past Int clamp.
@@ -242,18 +228,25 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  var rng: Rng = {data: b"", pos: 0, state: 0, entropy: 0, device: true}
+  var source = b""
+  var device = true
 
   if opts.source != null {
     let name = opts.source ?? ""
+    let kind = if let Ok(found) = fs.stat(fp"{name}", follow_symlinks: true) { found.kind } else { "missing" }
 
-    guard let data = gnu.read_operand(name) else { |failure|
-      gnu.name_error(name, failure)
-      exit 1
+    if kind == "file" or kind == "missing" or name == "-" {
+      guard let data = gnu.read_operand(name) else { |failure|
+        gnu.name_error(name, failure)
+        exit 1
+      }
+
+      source = data
+      device = false
     }
-
-    rng = {data: data, pos: 0, state: 0, entropy: 0, device: false}
   }
+
+  let device_path = if opts.source != null { fp"{opts.source ?? ""}" } else { p"/dev/urandom" }
 
   var items: List[Bytes] = []
   var total = 0
@@ -275,109 +268,115 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     total = items.len()
   }
 
-  var out: List[Bytes] = []
-  var size = 0
-  var failed = false
-  var limited = false
-
   if total > DRAW_LIMIT {
     gnu.error("input ranges this large are not supported")
     exit 1
   }
 
-  if opts.repeat {
-    if total == 0 {
-      gnu.error("no lines to repeat")
-      exit 1
-    }
+  if opts.repeat and total == 0 {
+    gnu.error("no lines to repeat")
+    exit 1
+  }
 
-    var made = 0
+  # Each step is one draw: repeat mode picks any line, sparse mode shuffles a
+  # long input range through a map of the swapped positions, dense mode
+  # shuffles the items (or the range) in place.
+  let amount = if opts.repeat { head } else if head < total { head } else { total }
+  let ranged = opts.range.len() > 0
+  let sparse = ranged and ! opts.repeat and amount * 16 < total
+  var moved: Map[Int, Int] = map.empty()
+  var picks: List[Int] = []
 
-    while made < head and ! failed and ! limited {
-      let got = draw(rng, total - 1)
+  if ranged and ! opts.repeat and ! sparse {
+    picks = [lo + step for step in range(total)]
+  }
 
-      rng = got.rng
+  var out: List[Bytes] = []
+  var size = 0
+  var failed = false
+  var limited = false
+  var window = b""
+  var spot = 0
+  var state = 0
+  var entropy = 0
+  var offset = 0
+  var index = 0
 
-      if ! got.ok {
-        failed = true
+  while index < amount and ! failed and ! limited {
+    let at_most = if opts.repeat { total - 1 } else { total - index - 1 }
+    var value = 0
+    var settled = false
+
+    while ! settled and ! failed {
+      let got = draw(window, spot, state, entropy, at_most)
+
+      state = got.state
+      entropy = got.entropy
+      spot = got.pos
+
+      if got.ok {
+        value = got.value
+        settled = true
       } else {
-        let piece = if opts.range.len() > 0 { bytes.from_text(f"{lo + got.value}") } else { items[got.value] }
+        if device {
+          window = bytes.read_at(device_path, 0, 4096) ?? b""
+        } else {
+          let stop = if offset + 256 < source.len() { offset + 256 } else { source.len() }
 
-        out += [piece, mark]
-        size += piece.len() + 1
-        made += 1
+          window = source[offset..stop]
+          offset = stop
+        }
 
-        if size > OUTPUT_LIMIT and head == tio.MAX_COUNT {
-          limited = true
+        spot = 0
+
+        if window.len() == 0 {
+          failed = true
         }
       }
     }
-  } else {
-    let amount = if head < total { head } else { total }
 
-    if opts.range.len() > 0 and amount * 16 < total {
-      var moved: Map[Int, Int] = map.empty()
-      var index = 0
+    if failed {
+      break
+    }
 
-      while index < amount and ! failed {
-        let here = lo + index
-        let value = moved.get(here) ?? here
-        let got = draw(rng, total - index - 1)
+    if opts.repeat {
+      let piece = if ranged { bytes.from_text(f"{lo + value}") } else { items[value] }
 
-        rng = got.rng
+      out += [piece, mark]
+      size += piece.len() + 1
 
-        if ! got.ok {
-          failed = true
-        } else {
-          let there = here + got.value
-          var shown = value
-
-          if there != here {
-            shown = moved.get(there) ?? there
-            moved[there] = value
-          }
-
-          out += [bytes.from_text(f"{shown}"), mark]
-          index += 1
-        }
+      if size > OUTPUT_LIMIT and head == tio.MAX_COUNT {
+        limited = true
       }
+    } else if sparse {
+      let here = lo + index
+      let held = moved.get(here) ?? here
+      let there = here + value
+      var shown = held
+
+      if there != here {
+        shown = moved.get(there) ?? there
+        moved[there] = held
+      }
+
+      out += [bytes.from_text(f"{shown}"), mark]
+    } else if ranged {
+      let other = index + value
+      let held = picks[index]
+
+      picks[index] = picks[other]
+      picks[other] = held
+      out += [bytes.from_text(f"{picks[index]}"), mark]
     } else {
-      var picks: List[Int] = []
+      let other = index + value
+      let held = items[index]
 
-      if opts.range.len() > 0 {
-        picks = [lo + step for step in range(total)]
-      }
-
-      var index = 0
-
-      while index < amount and ! failed {
-        let got = draw(rng, total - index - 1)
-
-        rng = got.rng
-
-        if ! got.ok {
-          failed = true
-        } else {
-          let other = index + got.value
-
-          if opts.range.len() > 0 {
-            let held = picks[index]
-
-            picks[index] = picks[other]
-            picks[other] = held
-            out += [bytes.from_text(f"{picks[index]}"), mark]
-          } else {
-            let held = items[index]
-
-            items[index] = items[other]
-            items[other] = held
-            out += [items[index], mark]
-          }
-
-          index += 1
-        }
-      }
+      items[index] = items[other]
+      items[other] = held
+      out += [items[index], mark]
     }
+
+    index += 1
   }
 
   if output == "-" {
