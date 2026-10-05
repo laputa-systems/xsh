@@ -1737,7 +1737,8 @@ directory and environment between pulls.
 - Reads and assignments need the `env` effect and are rejected in `pure`
   functions.
 - `env.PATH` is a scoped mutable view with `prepend(path)`, `append(path)`,
-  `pop()`, and `in`/`not in`. Its operands must be `Path` values.
+  `pop()`, and `in`/`not in`. Its operands must be `Path` values. Its methods
+  assign the environment, so they need the `env` effect like any assignment.
 
 ## 11. Processes
 

@@ -385,7 +385,7 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             semantic_rule: sig.sig.semantic_rule,
             op: sig.sig.op,
             binding: sig.sig.binding,
-            effect: method_required_effect(receiver, sig.sig.op),
+            effect: method_required_effect(receiver, sig.sig.pure),
         },
         receiver_ty: sig.receiver_ty.as_ref().map(convert_type),
     }
@@ -457,35 +457,17 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
     }
 }
 
-fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Effect> {
+/// The effect a method call requires of its caller.
+///
+/// A Path method that is not pure reaches the filesystem; that is the only
+/// way a Path method is impure. Deriving the effect from the registry's
+/// purity flag means a new filesystem method cannot be registered without it.
+fn method_required_effect(receiver: MethodReceiver, pure: bool) -> Option<Effect> {
     match receiver {
-        MethodReceiver::Path => match op {
-            RuntimeOp::PathResolve
-            | RuntimeOp::FsExists
-            | RuntimeOp::FsExecutable
-            | RuntimeOp::FsDu
-            | RuntimeOp::FsMetadata
-            | RuntimeOp::FsRead
-            | RuntimeOp::FsReadText
-            | RuntimeOp::FsWrite
-            | RuntimeOp::FsWriteAtomic
-            | RuntimeOp::FsWriteLines
-            | RuntimeOp::FsReadLines
-            | RuntimeOp::FsCopy
-            | RuntimeOp::FsRename
-            | RuntimeOp::FsMkdir
-            | RuntimeOp::FsRemove
-            | RuntimeOp::FsRemoveDir
-            | RuntimeOp::FsTouch
-            | RuntimeOp::FsTruncate
-            | RuntimeOp::FsChmod
-            | RuntimeOp::FsHardlink
-            | RuntimeOp::FsUnlink
-            | RuntimeOp::FsReadlink
-            | RuntimeOp::FsGlob
-            | RuntimeOp::FsRglob => Some(Effect::Fs),
-            _ => None,
-        },
+        MethodReceiver::Path => (!pure).then_some(Effect::Fs),
+        // The scoped `PATH` view is environment state: every method reads or
+        // assigns it, and a view handed to another proc still does.
+        MethodReceiver::EnvPathList => Some(Effect::Env),
         MethodReceiver::ProcessHandle => Some(Effect::Process),
         MethodReceiver::NetJob => Some(Effect::Net),
         MethodReceiver::FsRoot => Some(Effect::Fs),
@@ -561,7 +543,10 @@ mod tests {
                     );
                     assert_eq!(
                         main_overload.sig.effect,
-                        super::method_required_effect(main_receiver.receiver, main_overload.sig.op,)
+                        super::method_required_effect(
+                            main_receiver.receiver,
+                            main_overload.sig.pure,
+                        )
                     );
                     assert_eq!(
                         main_overload.receiver_ty,
@@ -588,5 +573,110 @@ mod tests {
         assert_eq!(main.arg_check, registry.arg_check);
         assert_eq!(main.op, registry.op);
         assert_eq!(main.binding, registry.binding);
+    }
+
+    // An effect the checker does not demand is not an effect: a proc that
+    // declares every effect but the one a method needs must be rejected, and
+    // the same call must check once the effect is declared. The probes come
+    // from the registry, so a method added later is covered without a list.
+    #[test]
+    fn every_registry_method_effect_is_enforced_by_the_checker() {
+        use crate::diagnostic::DiagnosticCode;
+        use crate::sema::check::Checker;
+        use crate::source::SourceId;
+        use crate::syntax::node::Effect;
+        use crate::syntax::parser::Parser;
+
+        let check = |source: &str| {
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "{source}\n{:?}",
+                parsed.diagnostics
+            );
+            Checker::check_arena(&parsed.arena, source).diagnostics
+        };
+        let mut undeclared = Vec::new();
+        let mut unenforced = Vec::new();
+        let mut probed = 0;
+        for receiver in &api_spec().methods {
+            for method in &receiver.methods {
+                for overload in &method.overloads {
+                    let label = format!("{:?}.{}", receiver.receiver, method.name);
+                    let Some(effect) = overload.sig.effect.clone() else {
+                        // An impure method with no effect could run anywhere
+                        // a proc can, unseen by every effect clause.
+                        if !overload.sig.pure {
+                            undeclared.push(label);
+                        }
+                        continue;
+                    };
+                    let receiver_ty =
+                        overload
+                            .receiver_ty
+                            .clone()
+                            .unwrap_or(match receiver.receiver {
+                                super::MethodReceiver::Path => super::Type::Path,
+                                super::MethodReceiver::EnvPathList => super::Type::EnvPathList,
+                                super::MethodReceiver::ProcessHandle => super::Type::ProcessHandle,
+                                super::MethodReceiver::NetJob => super::Type::NetJob,
+                                super::MethodReceiver::FsRoot => super::Type::FsRoot,
+                                other => panic!("{label}: no probe receiver for {other:?}"),
+                            });
+                    let required = overload
+                        .sig
+                        .params
+                        .iter()
+                        .filter(|param| !param.defaulted)
+                        .collect::<Vec<_>>();
+                    let params = required
+                        .iter()
+                        .enumerate()
+                        .map(|(index, param)| format!(", a{index}: {}", param.ty))
+                        .collect::<String>();
+                    let args = (0..required.len())
+                        .map(|index| format!("a{index}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let probe = |effects: Vec<&str>| {
+                        format!(
+                            "proc probe(receiver: {receiver_ty}{params}) [{}] {{\n  let _ = receiver.{}({args})\n}}\n",
+                            effects.join(", "),
+                            method.name
+                        )
+                    };
+                    let every = Effect::ALL.iter().map(Effect::as_str).collect::<Vec<_>>();
+                    let allowed = check(&probe(every.clone()));
+                    assert!(allowed.is_empty(), "{label}: {allowed:?}");
+                    // Every effect that does not grant the required one;
+                    // `io` grants several, so the rule is asked, not assumed.
+                    let without = Effect::ALL
+                        .iter()
+                        .filter(|other| !Checker::effects_covers(&[(*other).clone()], &effect))
+                        .map(Effect::as_str)
+                        .collect();
+                    let denied = check(&probe(without));
+                    let demanded = denied.iter().any(|diagnostic| {
+                        diagnostic.code == Some(DiagnosticCode::CheckEffectViolation)
+                            && diagnostic
+                                .labels
+                                .iter()
+                                .filter_map(|label| label.message.as_deref())
+                                .chain([diagnostic.message.as_str()])
+                                .any(|text| text.contains(&format!("`{}` effect", effect.as_str())))
+                    });
+                    if !demanded {
+                        unenforced.push(label);
+                    }
+                    probed += 1;
+                }
+            }
+        }
+        assert!(probed > 40, "only {probed} effectful methods were probed");
+        assert!(unenforced.is_empty(), "effects not enforced: {unenforced:?}");
+        assert!(
+            undeclared.is_empty(),
+            "impure methods without an effect: {undeclared:?}"
+        );
     }
 }
