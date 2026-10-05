@@ -1,11 +1,6 @@
 use std::process::ExitCode;
 
-#[cfg(target_os = "linux")]
-#[global_allocator]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
-mod xshi;
-
-pub fn main() -> ExitCode {
-    xshi::app::main()
+fn main() -> ExitCode {
+    // Stub: xshi is disabled — see the comment in lib.rs.
+    xshi::stub_main()
 }

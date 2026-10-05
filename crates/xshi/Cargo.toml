@@ -4,26 +4,12 @@ version = "0.0.1"
 edition = "2024"
 publish = false
 
-[dependencies]
-libc = "0.2"
-mimalloc = "0.1.52"
-rustc-hash = "2.1.3"
-rustix = { version = "1.1.4", features = ["event", "fs", "pipe", "process", "runtime", "stdio", "system", "termios", "time"] }
-sha2 = "0.11"
-xsh = { path = "../..", default-features = false, features = ["net", "tools"] }
+# No dependencies: xshi is disabled and its crate is only a buildable stub.
+# See crates/xshi/src/lib.rs.
 
 [features]
 default = []
 benchmark = []
-
-[dev-dependencies]
-rustybench = "0.1"
-tempfile = "3"
-
-[[bench]]
-name = "bench"
-harness = false
-required-features = ["benchmark"]
 
 [lints.clippy]
 nursery = { level = "allow", priority = -2 }

@@ -2,9 +2,6 @@ macro_rules! cargo_env {
     ("CARGO_BIN_EXE_xsht") => {
         crate::runtime::common::workspace_binary("xsht")
     };
-    ("CARGO_BIN_EXE_xshi") => {
-        crate::runtime::common::workspace_binary("xshi")
-    };
     ("CARGO_MANIFEST_DIR") => {
         env!("CARGO_MANIFEST_DIR")
     };
@@ -24,8 +21,8 @@ mod coverage;
 mod examples;
 #[path = "runtime/frontend_indexed.rs"]
 mod frontend_indexed;
-#[path = "runtime/interactive.rs"]
-mod interactive;
+// The interactive runtime tests were removed together with the xshi
+// implementation (crates/xshi is now a buildable stub; see its lib.rs).
 #[path = "runtime/linux.rs"]
 mod linux;
 #[path = "runtime/modules.rs"]
