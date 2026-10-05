@@ -5474,13 +5474,23 @@ impl Evaluator {
                         error_kind: kind.clone(),
                     },
                 );
-                let traceback = self.pending_traceback.take().unwrap_or_else(|| Traceback {
-                    failing_span: Some(span),
-                    exe_path: self.exe_path_for_traceback(),
-                    operation_kind: "result.propagate".to_string(),
-                    error: TraceError::from_propagated_value(&error),
-                    frames: self.call_stack.clone(),
-                });
+                // A recorded traceback belongs to one error. The operand may
+                // have handled that `Err` and produced another without
+                // starting a statement or a call, as `(f() ?? Err(other))?`
+                // does, so the record is reused only for the error it
+                // describes; any other error starts its traceback here.
+                let propagated = TraceError::from_propagated_value(&error);
+                let traceback = self
+                    .pending_traceback
+                    .take()
+                    .filter(|recorded| recorded.error == propagated)
+                    .unwrap_or_else(|| Traceback {
+                        failing_span: Some(span),
+                        exe_path: self.exe_path_for_traceback(),
+                        operation_kind: "result.propagate".to_string(),
+                        error: propagated,
+                        frames: self.call_stack.clone(),
+                    });
                 Flow::Propagate(Propagation { error, traceback })
             }
             other => Flow::Propagate(Propagation {

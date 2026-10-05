@@ -2738,6 +2738,9 @@ re-propagates directly with `?` keeps the span and call path of the `?` that
 first propagated it. Once a caller handles the `Err` instead (matches, binds,
 tests, or replaces it with `??`), the next statement, call, or `?` operand
 discards that record, and a later failure reports its own span and call path.
+A record is kept only for the error it was made for: an `Err` that replaces a
+handled one inside the same operand or statement, as in
+`(f() ?? Err(other))?`, starts its traceback at the `?` that propagates it.
 
 ## 17. Native Tests
 
