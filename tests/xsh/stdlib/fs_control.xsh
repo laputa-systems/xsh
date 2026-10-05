@@ -55,7 +55,7 @@ test test_rename_exchange_swaps_inodes_without_following_symlinks { |ctx|
   link.symlink(to: p"left")
   fs.rename_exchange(link, right)
   assert fs.stat(right)?.kind == "symlink"
-  assert fs.readlink(right)? == p"left"
+  assert right.readlink()? == p"left"
   assert link.read_text()? == "left"
   assert left.read_text()? == "right"
 }

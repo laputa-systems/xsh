@@ -623,6 +623,14 @@ test test_copy_file_streams_fifo_bytes_and_refuses_same_fifo_without_a_writer { 
   assert report.hole_bytes == 0
   assert report.method == "read_write"
   assert dest.read_bytes()? == b"fifo payload"
+
+  let sparse = fp"{root}/sparse"
+  let zeros = spawn run sh -c "printf '\\000\\000\\000' > \"$1\"" sh $fifo ?
+  let holes = fs.copy_file(fifo, sparse, sparse: "always")?
+  assert (wait zeros?).ok
+  assert holes.bytes == 3
+  assert holes.hole_bytes == 3
+  assert sparse.read_bytes()? == bytes.zero(3)?
 }
 
 test test_copy_file_streams_device_sources_and_keeps_same_inode_symlinks { |ctx|
