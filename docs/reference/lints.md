@@ -8,6 +8,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 
 | Code | Summary |
 |---|---|
+| `lint.atomically-never-replaces` | Report an `atomically replace` whose body leaves on every path, so its destination is never replaced |
 | `lint.block-header` | Move error-handler parameters inside the block of an `else` block |
 | `lint.boolean-guard` | Rewrite a leading failure branch on a Bool condition as `guard ... else` |
 | `lint.boolean-pattern-test` | Replace a match yielding `true`/`false` per arm with a pattern test |
@@ -139,6 +140,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-for-index` | Use `for index, item in list` (or `for item in list`) instead of a counter loop that only walks a list |
 | `lint.prefer-path-kind` | Test a path's kind with `is_dir()`, `is_file()`, or `is_symlink()` instead of comparing `metadata()?.kind` |
 | `lint.prefer-path-method` | Call the `Path` method instead of the `fs` function that takes the path first |
+| `lint.prefer-typed-callable` | Name the callable type of a private function's `Proc` or `Pure` parameter when every call passes a function with one signature |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

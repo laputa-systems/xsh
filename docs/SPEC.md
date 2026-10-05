@@ -328,12 +328,12 @@ entry instead:
 
 ```xsh
 ## Copy a build artifact.
-cli main(source: Path, dest: Path, jobs: UInt = 4, verbose = false) {
+cli main(src: Path, dest: Path, jobs: UInt = 4, verbose = false) {
   if verbose {
-    print f"copying {source} to {dest} with {jobs} jobs"
+    print f"copying {src} to {dest} with {jobs} jobs"
   }
 
-  source.copy(dest)
+  src.copy(dest)
 }
 ```
 
@@ -432,6 +432,7 @@ literal configuration data (`lint.prefer-const`).
 | `Error`, error families | structured errors |
 | `Status`, `ProcessError`, `ProcessHandle`, `Command` | process values |
 | `Pure`, `Proc` | dynamic callable handles |
+| `pure(PARAMS) -> T`, `proc(PARAMS) [EFFECTS] -> T` | callables with a checked signature (9.4) |
 | `Module[T]` | runtime module values |
 | `Any` | dynamic value of unknown type |
 
@@ -980,7 +981,8 @@ deduplicates, or widens one, so each shape that would need such a rewrite is
   satisfies;
 - `Any` (it already accepts every value), `Null` or `T?` (write
   `Union[A, B]?`), another union, including one reached through an alias (list
-  its members), or a `Stream` (a type test cannot inspect a stream's items).
+  its members), a `Stream` (a type test cannot inspect a stream's items), or a
+  callable type (a type test cannot inspect a callable's signature).
 
 ```xsh
 type Word = Union[Str, Path]
@@ -1087,6 +1089,12 @@ is expected. Incompatible contributions are errors; inference never widens to
 - Enums, error families, and other nominal types match only themselves (or,
   for errors, `Error` and the facets they implement).
 - `Result[T, E]` fits `Result[T, F]` when `E` fits `F`.
+- A callable type (9.4) accepts a function, or a value of another callable
+  type, of the same kind (`pure` or `proc`) with the same parameter labels and
+  types in order and the same return type. Only effects may differ: the
+  function may need fewer effects than the type's clause allows. A value of a
+  callable type fits `Proc` or `Pure` of its kind; a `Proc`, a `Pure`, or an
+  `Any` never fits a callable type.
 - Equality may compare `T` with `T?` in either order; it yields `Bool` and does
   not narrow or validate.
 
@@ -2216,8 +2224,7 @@ means exactly
 ```xsh
 {
   let dest_1: Path = image
-  let partial: Path = fp"{dest_1.parent()}/.{dest_1.name()}.tmp"
-  fs.remove(partial, missing_ok: true)
+  let partial: Path = fs.temp_sibling(dest_1)?
   defer fs.remove(partial, missing_ok: true)
   {
     run docker save --output $partial $tag
@@ -2227,38 +2234,53 @@ means exactly
 }
 ```
 
-So the destination is a `Path` evaluated once, and `name` is the immutable
-`Path` `.NAME.tmp` in the destination's directory, where `NAME` is the
-destination's final component; it is in scope for the body only. The local
-that holds the destination has no spelling in source, and `xsht desugar`
-prints it under a fresh name. "Atomically" means visibility by rename within
-one directory: another process sees the old destination or the complete new
-one, never a partial file. It promises nothing about a crash; call `fs.fsync`
-in the body, as above, when the contents must be durable before they are
-visible. Two writers replacing the same destination at once share the
-temporary path and need a lock of their own.
+So the destination is a `Path` evaluated once, and `name` is an immutable
+`Path` in scope for the body only. `fs.temp_sibling` (15) names it:
+`.NAME.RANDOM.tmp` in the destination's directory, where `NAME` is the
+destination's final component and `RANDOM` is drawn anew each time the
+statement runs, the way `write_atomic` names its own temporary file. Nothing
+is at the path when the body starts, and nothing is created there for it, so
+the body may produce a file or a directory. The local that holds the
+destination has no spelling in source, and `xsht desugar` prints it under a
+fresh name. "Atomically" means visibility by rename within one directory:
+another process sees the old destination or the complete new one, never a
+partial file. It promises nothing about a crash; call `fs.fsync` in the body,
+as above, when the contents must be durable before they are visible.
 
-Whatever is at the temporary path is removed before the body runs, so a file
-an interrupted run left behind is not an error. The rename is the last step
-and runs only when the body ran to its end: it replaces an existing
-destination (`overwrite: true`) and fails, as `fs.rename` does, when the body
-produced nothing at the path or the destination's directory does not exist.
-The deferred removal runs however control leaves the statement, after the
-body's own defers, and follows the `defer` rules above. A body that fails, or
-leaves early by `return`, `break`, or `continue`, therefore leaves the
-destination untouched and nothing at the temporary path; after a rename there
-is nothing there to remove. The body's last statement is in statement
-position: a failed `Result[Unit]` there propagates before the rename, and any
-other value is rejected as ignored. The statement produces no value: a failed
-rename propagates like any other failure of the statement, so `try` around it
-captures one `Result[Unit]`. It needs the `fs` effect, and the `error` effect where a failure can
-leave a restricted proc. The temporary name ends in `.tmp`, so a producer
-that chooses a format by file extension must be told the format. A
-statement is an `atomically replace`
-statement when it begins with the words `atomically` and `replace` on one
-line; no word of the head is reserved, and the destination is a head
-expression like the source of a `for`. `Path.write_atomic` (15) is the same
-publication for bytes the program already holds.
+Two writers to one destination, or to two destinations in one directory, never
+share a temporary file: each runs with a name of its own, and of two that
+replace the same destination the one that renames last wins. The name is
+unused when it is drawn and is not reserved by a lock. A run that is killed
+leaves its temporary file behind; a later run neither publishes nor removes
+it, because it never uses that name.
+
+The rename is the last step and runs only when the body ran to its end: it
+replaces an existing destination (`overwrite: true`) and fails, as `fs.rename`
+does, when the body produced nothing at the path or the destination's
+directory does not exist. The deferred removal runs however control leaves the
+statement, after the body's own defers, and follows the `defer` rules above;
+after a rename there is nothing there to remove. Leaving the body early
+publishes nothing: a body that fails, or that leaves by `return`, `break`,
+`continue`, or `exit`, leaves the destination untouched and the temporary file
+removed, whether or not the early exit is an error. A body that leaves on
+every path can never replace its destination, and
+`lint.atomically-never-replaces` reports it. The body's last statement is in
+statement position: a failed `Result[Unit]` there propagates before the
+rename, and any other value is rejected as ignored. The statement produces no
+value: a failed rename propagates like any other failure of the statement, so
+`try` around it captures one `Result[Unit]`. It needs the `fs` effect, and the
+`error` effect where a failure can leave a restricted proc. The temporary name
+ends in `.tmp`, so a producer that chooses a format by file extension must be
+told the format. A statement is an `atomically replace` statement when it
+begins with the words `atomically` and `replace` on one line; no word of the
+head is reserved, and the destination is a head expression like the source of
+a `for`. It ends at the `as` that stands directly before the name and the `{`
+of the body, outside every bracket the destination opens: a pattern test
+there keeps an alias of its own only inside brackets or before that word
+(`atomically replace (kind is Image as image) as partial {`). Those two words,
+like the three that begin a `tempdir NAME at PATH` statement, never begin a
+command. `Path.write_atomic` (15) is the same publication for bytes the
+program already holds.
 
 ### 8.8 `try`, `retry`, and `ctx`
 
@@ -2308,7 +2330,7 @@ one. A non-empty delay list requires the `time` effect. Each attempt emits a
 
 ```xsh
 ctx f"installing {package.name}" {
-  source.copy(dest)
+  src.copy(dest)
 }
 ```
 
@@ -2469,6 +2491,88 @@ build(root, jobs: 4)
 A `var`, a conditional selection, or an explicit `Pure`/`Proc` annotation gives
 a dynamic callable instead. An exported alias must still state its own return
 and effect contract.
+
+A callable type gives a value that is chosen at run time the same checked
+call. `proc(PARAMS) [EFFECTS] -> T` and `pure(PARAMS) -> T` are type
+expressions; each parameter is a label and a type, and the return type is
+always written:
+
+```xsh
+type Builder = proc(root: Path) [fs, process, error] -> Result[Unit]
+
+type Step = {name: Str, build: Builder}
+
+proc run_step(step: Step, root: Path) [fs, process, error] {
+  print f"building {step.name}"
+  step.build(root)
+}
+
+let build: Builder = if debug { debug_build } else { release_build }
+build(workspace)
+run_step(Step(name: "release", build: release_build), workspace)
+```
+
+A value gets a callable type in one of two ways: a function is named where
+the type is expected (a declaration, a module export, or an alias that kept
+its signature), or a value of a fitting callable type is passed along (5.2).
+Where the type is expected, a block may end in a bare function name, so both
+branches of an `if` or the arms of a `match` can select one. A function with
+defaulted parameters fits when its labels and types match, because a call
+through the type passes every argument; one with a rest parameter does not
+fit.
+
+A call through the type is written `value(args)`, `record.field(args)` for a
+record field of a callable type, which takes precedence over a record method
+of the same name, or `module.name(args)` for a module's exported value of
+one. The callee is evaluated first and named arguments in the order written. Arguments are checked against the type's parameters, by
+position or by label, the result has the type's return type, and the type's
+effect clause is charged to the caller exactly as a named proc's clause is
+(9.6). A `proc(...)` type written without a clause is unrestricted: it accepts
+any proc, and a caller with a declared or `without` bound cannot call it. A
+call passes each argument explicitly; `@` splices and `...` spreads are
+rejected. A stream stage's callable is still a function name; a value of a
+callable type is called from the stage's block, as in `map { scale(.) }`.
+
+At run time a value of a callable type is the `Proc` or `Pure` handle it was
+made from. The handle does not carry its signature, so the type is never a
+runtime test: it cannot be the target of `.require`, of `is`, or of a type
+pattern, alone or inside a schema (`check.callable-type`), and it is not a
+union member (4.12). A callable type whose parameter has a default, a rest
+marker, a repeated label, or no type is also `check.callable-type`. A function
+that does not fit, a dynamic `Proc` or `Pure` where a callable type is
+expected, and a spliced call are `check.callable-mismatch`. `Proc` and `Pure`
+stay the types of callables whose signature is not known until run time.
+The opt-in `lint.prefer-typed-callable` reports a `Proc` or `Pure` parameter
+of a private function when every call in the module passes a function with
+one signature, and names the callable type. It offers no fix: the body's
+`.call(...)` and what it does with the dynamic result change with the type.
+
+```xsh
+type Builder = proc(root: Path) [fs, error] -> Result[Unit]
+type Defaulted = proc(root: Path = p".") -> Result[Unit] # error: check.callable-type
+
+proc fetch(root: Path) [fs, net, error] -> Result[Unit] {
+  return Ok()
+}
+
+proc build_in(dir: Path) [fs, error] -> Result[Unit] {
+  return Ok()
+}
+
+proc local_build(root: Path) [fs, error] -> Result[Unit] {
+  return Ok()
+}
+
+proc select(dynamic: Proc, raw: Any, roots: List[Path]) [fs, error] -> Result[Unit] {
+  let fetching: Builder = fetch # error: check.callable-mismatch
+  let relabeled: Builder = build_in # error: check.callable-mismatch
+  let unknown: Builder = dynamic # error: check.callable-mismatch
+  let decoded = raw.require(Builder)? # error: check.callable-type
+  let build: Builder = local_build
+  build(@roots)? # error: check.callable-mismatch
+  return build(roots[0])
+}
+```
 
 ### 9.5 Stream producers
 

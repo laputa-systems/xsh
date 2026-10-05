@@ -143,6 +143,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.sticky(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.symlink(target: Path, path: Path) -> Result[Unit, Error]` — Creates a symbolic link with explicit target and link paths.
 - `fs.sync() -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
+- `fs.temp_sibling(path: Path) -> Result[Path, Error]` — Names a hidden temporary path beside a path, for producing a file that is then renamed over it.
 - `fs.tempdir() -> Result[FsRoot, Error]` — Creates a temporary resource under XSH ownership.
 - `fs.tempfile() -> Result[{path: Path, root: FsRoot}, Error]` — Creates a temporary resource under XSH ownership.
 - `fs.unlock(lock: {id: Int, path: Path, shared: Bool}) -> Result[Unit, Error]` — Releases a filesystem lock record.

@@ -438,7 +438,8 @@ condition_test_pattern = builtin_type type_arguments? "?"?
 ## Types
 
 ```ebnf
-type_expr = ( builtin_type | named_type ) type_arguments? "?"? ;
+type_expr = callable_type | ( builtin_type | named_type ) type_arguments? "?"? ;
+callable_type = "proc" "(" parameters ")" effects? "->" type_expr | "pure" "(" parameters ")" "->" type_expr ;
 builtin_type = "List" "[" type_expr "]"
              | "Map" "[" type_expr ( "," type_expr )? "]"
              | "Stream" "[" type_expr "]"
@@ -456,7 +457,7 @@ run_statement = run_form "?"? ( "|>" pipe_stage )* ;
 named_command = ( "print" | "eprint" ) ( lead_argument command_argument* )?
               | "cd" !"=" command_argument block
               | "env" line(env_assignment+) block
-              | !( "print" | "eprint" | "cd" | "env" ) NAME ( lead_argument command_argument* )?
+              | !( "print" | "eprint" | "cd" | "env" | "tempdir" IDENT "at" | "atomically" "replace" ) NAME ( lead_argument command_argument* )?
               | NAME ( ~"." ~NAME )+ dotted_lead_argument command_argument* ;
 lead_argument = !( "??" | "or" | "and" | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not" | "+" | "-" | "*" | "/" | "%" | "is" | "|>" | "=" | "." ) command_argument
               | "-" !~"=" ( ~WORD_PART | ~STRING | ~DOLLAR_NAME dollar_suffix* | ~"${" expression "}" )+ ;
