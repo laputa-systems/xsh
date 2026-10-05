@@ -37,6 +37,47 @@ impl Parser<'_> {
             && self.peek_name(1).is_some_and(|name| name == REPLACE_WORD)
     }
 
+    /// Whether the cursor is on the `as` that ends the destination of the
+    /// `atomically replace` head being parsed.
+    pub(super) fn at_head_as(&self) -> bool {
+        self.head_as_index == Some(self.index)
+    }
+
+    /// The token index of the `as` that ends the destination which starts at
+    /// the cursor: the first `as` outside every bracket and brace the
+    /// destination opens that stands directly before a name and `{`.
+    ///
+    /// A pattern test may end in `as NAME` too (`x is Shape as s`), but never
+    /// with a `{` after the name, so outside brackets that shape is always
+    /// the end of the head. Inside brackets `as` names the pattern as usual.
+    fn head_as_index(&self) -> Option<usize> {
+        let mut depth = 0usize;
+        let mut offset = 0;
+        loop {
+            match self.peek_tag(offset)? {
+                TokenTag::Ident
+                    if depth == 0
+                        && self.peek_name(offset).is_some_and(|name| name == AS_WORD)
+                        && self.peek_tag(offset + 1) == Some(TokenTag::Ident)
+                        && self.peek_tag(offset + 2) == Some(TokenTag::LBrace) =>
+                {
+                    return Some(self.index + offset);
+                }
+                TokenTag::LParen
+                | TokenTag::LBracket
+                | TokenTag::LBrace
+                | TokenTag::DollarLBrace => depth += 1,
+                TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace => {
+                    depth = depth.checked_sub(1)?;
+                }
+                TokenTag::Semicolon if depth == 0 => return None,
+                TokenTag::Eof => return None,
+                _ => {}
+            }
+            offset += 1;
+        }
+    }
+
     pub(super) fn parse_atomically_arena_only(
         &mut self,
         start: usize,
@@ -44,7 +85,11 @@ impl Parser<'_> {
     ) -> Option<()> {
         let keyword = self.bump();
         let replace = self.bump();
-        let dest = self.parse_head_expr_arena_only(arena)?.id;
+        let ends_at = self.head_as_index();
+        let outer = std::mem::replace(&mut self.head_as_index, ends_at);
+        let dest = self.parse_head_expr_arena_only(arena);
+        self.head_as_index = outer;
+        let dest = dest?.id;
         let dest_span = arena.expr_span(dest);
         if !self.current_name().is_some_and(|name| name == AS_WORD) {
             self.diagnostic_here(
@@ -235,4 +280,73 @@ fn expand_atomically(
     let block = arena.finish_block(&[], scope);
     let outer = arena.push_value_block_expr(block, scope);
     arena.push_expr_statement(outer, span)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::source::SourceId;
+    use crate::syntax::grammar::earley::Recognizer;
+    use crate::syntax::grammar::{grammar, lex_grammar_tokens};
+    use crate::syntax::parser::Parser;
+
+    /// The grammar and the parser read the same texts as statements, and
+    /// reject the same ones. `sentence` says which.
+    fn assert_agree(cases: &[(&str, bool)]) {
+        let recognizer = Recognizer::new(grammar());
+        for (source, sentence) in cases {
+            let tokens = lex_grammar_tokens(source).expect("lexes");
+            assert_eq!(
+                recognizer.recognize(&tokens).is_ok(),
+                *sentence,
+                "grammar: {source}"
+            );
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+            assert_eq!(parsed.diagnostics.is_empty(), *sentence, "parser: {source}");
+        }
+    }
+
+    /// A pattern test may end in `as NAME`, and so does the head. The `as`
+    /// directly before a name and the `{` of the body ends the destination,
+    /// wherever the destination's own lines break; an `as` inside brackets or
+    /// before anything else names the pattern.
+    #[test]
+    fn the_destination_ends_at_the_as_before_the_name_and_the_body() {
+        assert_agree(&[
+            ("atomically replace x is Thing as b { }\n", true),
+            ("atomically replace x is Thing as y as b { }\n", true),
+            ("atomically replace y or x is Thing as b { }\n", true),
+            ("atomically replace (x is Thing as y) as b { }\n", true),
+            ("atomically replace { if v is Thing as t { print \"x\" }\nv } as b { }\n", true),
+            ("atomically replace x +\n\ny is Thing as b { }\n", true),
+            ("atomically replace x |> sort-by .size or\ny <= c as b { }\n", true),
+            ("atomically replace as as as { }\n", true),
+            ("if x is Thing as b { }\n", true),
+            // The head breaks its line before the word that would end it.
+            ("atomically replace x is Thing as y\nas b { }\n", false),
+            ("atomically replace x as b\n", false),
+            ("atomically replace x\n", false),
+        ]);
+    }
+
+    /// The parser decides that a statement is an `atomically replace` or a
+    /// `tempdir NAME at PATH` on the words that begin it, so the grammar has
+    /// no command that begins with them: what follows is the statement's
+    /// head or an error, never a command's arguments.
+    #[test]
+    fn the_words_that_begin_a_statement_never_begin_a_command() {
+        assert_agree(&[
+            ("atomically replace\n", false),
+            ("atomically replace x y\n", false),
+            ("tempdir a at\n", false),
+            ("tempdir a at b\n", false),
+            // A head that ends its line on an operator goes on, so the block
+            // of the stage is not the body.
+            ("tempdir a at b -\nc |> d |> any ( ) {\n\n| Thing | }\n", false),
+            ("atomically replace b -\nc |> d |> any ( ) {\n\n| Thing | }\n", false),
+            // Any other words are a command.
+            ("atomically x\n", true),
+            ("tempdir a b\n", true),
+            ("replace x y\n", true),
+        ]);
+    }
 }

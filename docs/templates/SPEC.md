@@ -1889,7 +1889,12 @@ ends in `.tmp`, so a producer that chooses a format by file extension must be
 told the format. A statement is an `atomically replace` statement when it
 begins with the words `atomically` and `replace` on one line; no word of the
 head is reserved, and the destination is a head expression like the source of
-a `for`. `Path.write_atomic` (15) is the same publication for bytes the
+a `for`. It ends at the `as` that stands directly before the name and the `{`
+of the body, outside every bracket the destination opens: a pattern test
+there keeps an alias of its own only inside brackets or before that word
+(`atomically replace (kind is Image as image) as partial {`). Those two words,
+like the three that begin a `tempdir NAME at PATH` statement, never begin a
+command. `Path.write_atomic` (15) is the same publication for bytes the
 program already holds.
 
 ### 8.8 `try`, `retry`, and `ctx`

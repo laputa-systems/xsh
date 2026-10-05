@@ -218,7 +218,7 @@ impl<'a> Parser<'a> {
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
     ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
         let (mut pattern, mut span) = self.parse_type_pattern_arena_only(arena)?;
-        while self.at_ident("as") {
+        while self.at_ident("as") && !self.at_head_as() {
             self.bump();
             let name_span = self.current_span();
             let name = self.expect_ident("expected a name after pattern alias `as`")?;

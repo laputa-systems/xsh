@@ -2142,8 +2142,24 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     line(plus(r("env_assignment"))),
                     block(),
                 ]),
+                // The words that begin a `tempdir NAME at PATH` or an
+                // `atomically replace` statement always begin one: the parser
+                // decides on them alone, so a command cannot start that way.
                 seq([
-                    not(CoreCommand::ALL.map(|command| vec![word_term(command.as_str(), false)])),
+                    not(CoreCommand::ALL
+                        .map(|command| vec![word_term(command.as_str(), false)])
+                        .into_iter()
+                        .chain([
+                            vec![
+                                word_term("tempdir", false),
+                                tag_term(T::Ident),
+                                word_term("at", false),
+                            ],
+                            vec![
+                                word_term("atomically", false),
+                                word_term("replace", false),
+                            ],
+                        ])),
                     name(),
                     opt(seq([r("lead_argument"), star(r("command_argument"))])),
                 ]),

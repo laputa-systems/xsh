@@ -826,25 +826,26 @@ mod tests {
         assert!(parsed_sentences > 100, "only {parsed_sentences} sentences");
     }
 
-    /// The head of `atomically replace DEST as NAME {` ends its destination
-    /// at a word, which the grammar is looser about than the parser. A
-    /// sentence the parser accepts is the sugar statement and nothing else,
-    /// because the two words that begin it decide.
+    /// `atomically replace` is recognized by its first two words, so a head
+    /// the parser read differently from the production would fail to parse.
+    /// Every sentence of the production must come out as the sugar statement.
     #[test]
-    fn every_atomically_sentence_that_parses_is_an_atomically_statement() {
-        let mut parsed_sentences = 0;
+    fn every_atomically_sentence_of_the_grammar_parses_as_an_atomically_statement() {
+        let mut sentences = 0;
         for (depth, seed, source) in sentences_of("atomically_statement") {
+            sentences += 1;
             let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
-            if !parsed.diagnostics.is_empty() {
-                continue;
-            }
-            parsed_sentences += 1;
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
             assert!(
                 first_statement_is(&parsed.arena, SugarForm::Atomically),
                 "depth {depth} seed {seed} is not an atomically statement:\n{source}"
             );
         }
-        assert!(parsed_sentences > 100, "only {parsed_sentences} sentences");
+        assert!(sentences > 100, "only {sentences} sentences");
     }
 
     fn first_statement_is(program: &ArenaProgram, expected: SugarForm) -> bool {

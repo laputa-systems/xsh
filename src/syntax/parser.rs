@@ -57,6 +57,10 @@ pub struct Parser<'a> {
     trailing_statement_try: bool,
     command_arg_expr: bool,
     condition_expr: bool,
+    /// While the destination of `atomically replace DEST as NAME {` is
+    /// parsed, the token index of the `as` that ends it. A pattern test
+    /// directly before it does not take that word as its alias.
+    head_as_index: Option<usize>,
     block_depth: usize,
     parenthesized_expr_depth: usize,
     diagnostics: Vec<Diagnostic>,
@@ -177,6 +181,7 @@ impl<'a> Parser<'a> {
             trailing_statement_try: true,
             command_arg_expr: false,
             condition_expr: false,
+            head_as_index: None,
             block_depth: 0,
             parenthesized_expr_depth: 0,
             diagnostics: Vec::new(),
