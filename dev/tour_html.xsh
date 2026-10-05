@@ -13,7 +13,7 @@
 ##! cover, get small line-based colorers below.
 
 ## A Markdown construct the renderer does not support, or a highlighter failure.
-export error TourHtmlError = Unsupported(message: Str) | Highlighter(message: Str)
+export error TourHtmlError = Unsupported | Highlighter
 
 type HeadingBlock = {level: Int, id: Str, markup: Str}
 

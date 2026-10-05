@@ -1,6 +1,6 @@
 ##! Authentication and account-file helpers for shipped core applets.
 ## Public authentication helper for shipped core applets.
-export error AuthError = Failed(message: Str) : Usage
+export error AuthError = Failed : Usage
 
 ## Public authentication helper for shipped core applets.
 export type PasswdEntry = {name: Str, password: Str, uid: Int, gid: Int, gecos: Str, home: Path, shell: Str}

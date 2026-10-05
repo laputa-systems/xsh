@@ -215,7 +215,7 @@ test test_fs_root_takes_a_rel_path { |ctx|
   let dir = test.temp_dir(ctx, name: "rel-path-root")?
   let root = fs.open_root(dir)?
   defer root.close()
-  let entry = Entry(rel: "etc/app/config", mode: 0o600)
+  let entry = Entry("etc/app/config", 0o600)
   root.mkdir(entry.rel.parent(), parents: true)
   root.write(entry.rel, "key = 1\n")
   root.chmod(entry.rel, entry.mode)

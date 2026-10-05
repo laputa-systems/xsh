@@ -34,13 +34,13 @@ export enum SectionState: Str {
 
 ## Failures returned by report parsing, selection, and schema validation.
 export error SystemReportError {
-    InvalidCpuList(message: Str)
-    InvalidSection(message: Str)
-    InvalidJson(message: Str)
+    InvalidCpuList
+    InvalidSection
+    InvalidJson
     UnsupportedSchema(version: Int, message: Str)
-    InvalidProcStat(message: Str)
-    InvalidExecutionUnits(message: Str)
-    UnsupportedPlatform(message: Str)
+    InvalidProcStat
+    InvalidExecutionUnits
+    UnsupportedPlatform
 }
 
 ## Identifies whether observations came from a live host or a replay source.

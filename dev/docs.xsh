@@ -31,7 +31,7 @@ use stage as stages
 use tour_html
 
 ## A generated-documentation failure, rendered at the development command boundary.
-export error DocsError = Stale(message: Str) | Snippet(message: Str) | Layout(message: Str)
+export error DocsError = Stale | Snippet | Layout
 
 ## The binaries that render and verify the documentation.
 export type DocTools = {xsh: Path, xsht: Path}
