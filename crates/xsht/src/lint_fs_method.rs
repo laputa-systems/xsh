@@ -306,13 +306,29 @@ mod tests {
         assert_eq!(bare_text.len(), wrapped_text.len());
     }
 
-    // A comment beside the path would be lost, and a literal with an escape
-    // has no quoted path spelling here; both are reported without a rewrite.
+    // A comment beside the path would be lost, and a string that a path
+    // literal reads differently (`${`, a triple-quoted or raw string) has no
+    // quoted path spelling here; each is reported without a rewrite.
     #[test]
     fn a_call_that_cannot_be_rewritten_in_place_is_reported_without_a_rewrite() {
-        let source = "proc publish(out: Path, text: Str) [fs, error] {\n  fs.write(\n    out, # the target\n    text,\n  )\n  fs.write(\"tab\\there.txt\", text)\n}\n";
+        let source = "proc publish(out: Path, text: Str) [fs, error] {\n  fs.write(\n    out, # the target\n    text,\n  )\n  fs.write(\"cost-$5.txt\", text)\n  fs.write(\"\"\"notes.txt\"\"\", text)\n  fs.write(r\"raw\\name.txt\", text)\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
         assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+    }
+
+    // A path literal decodes the escapes a string does, so an escaped
+    // one-line string keeps its text between the quotes.
+    #[test]
+    fn a_string_with_escapes_becomes_the_path_literal_with_the_same_escapes() {
+        let source = "proc publish(text: Str) [fs, error] {\n  fs.write(\"tab\\there.txt\", text)\n  fs.write(\"quote\\\"here \\\\ \\u{e9}.txt\", text)\n  fs.write(\"\", text)\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        assert_eq!(
+            fixed,
+            "proc publish(text: Str) [fs, error] {\n  p\"tab\\there.txt\".write(text)\n  p\"quote\\\"here \\\\ \\u{e9}.txt\".write(text)\n  p\"\".write(text)\n}\n"
+        );
+        assert!(lint(&fixed).is_empty());
     }
 }

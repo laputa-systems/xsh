@@ -61,3 +61,31 @@ publish(p"ROOT")
   assert repeated.status.exited_with(0)
   assert "lint.prefer-path-method" not in repeated.stderr
 }
+
+# A string read as a path and the path literal with the same text between the
+# quotes decode the same escapes, so the rewrite names the same file.
+test test_prefer_path_method_lint_keeps_the_escapes_of_a_string_operand { |ctx|
+  let root = test.temp_dir(ctx, name: "path-method-escape")?
+  let source = r"""proc publish() [fs, error] {
+  fs.write("ROOT/a\tb \"c\" \\ \u{e9}.txt", "kept")
+  for entry in fs.children(p"ROOT")? {
+    print $entry.name
+  }
+}
+
+publish()
+""".replace("ROOT", root.display())
+  let candidate = test.temp_file(ctx, name: "path-method-escape.xsh", contents: bytes.from_text(source))?
+  let applied = run.capture --text "xsht" lint --only lint.prefer-path-method --fix $candidate ?
+  assert applied.status.exited_with(0), applied.stderr
+  let fixed = candidate.read_text()?
+  assert r"""/a\tb \"c\" \\ \u{e9}.txt".write("kept")""" in fixed, fixed
+  assert "fs.write" not in fixed
+
+  let before = test.run_script(ctx, source)?
+  let after = test.run_script(ctx, fixed)?
+  assert before.success, before.stderr
+  assert after.success, after.stderr
+  assert before.stdout == "a\tb \"c\" \\ é.txt\n"
+  assert after.stdout == before.stdout
+}

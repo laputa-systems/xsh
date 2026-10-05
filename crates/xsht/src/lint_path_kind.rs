@@ -130,8 +130,9 @@ pub(super) fn path_kind_comparison(
 ///   path, so both are written `p"..."`, which is the same path;
 /// - any other expression is parenthesized.
 ///
-/// A literal whose text is not exactly its value (an escape, an expansion)
-/// has no such spelling here and gives `None`.
+/// A literal with no `p"..."` spelling that is certainly the same path (a
+/// bare path that needs quoting inside quotes, a `$`, a triple-quoted or raw
+/// string) gives `None`.
 pub(super) fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Option<String> {
     let operand = arena.expr(operand);
     let text = source.get(operand.span.range())?;
@@ -147,9 +148,14 @@ pub(super) fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId
         | ArenaExprKind::Try(_) => Some(text.to_owned()),
         ArenaExprKind::PathStr(_) if text.starts_with("p\"") => Some(text.to_owned()),
         ArenaExprKind::PathStr(literal) => quoted(arena.string_literal(literal), text),
-        ArenaExprKind::Str(literal) => {
+        // `p"..."` decodes the escapes `"..."` does, so a one-line string
+        // keeps its text between the quotes, escapes included. Two things
+        // differ and are left alone: `${` is an error in a path literal
+        // only, and a triple-quoted string has layout a path literal lacks.
+        ArenaExprKind::Str(_) => {
             let written = text.strip_prefix('"')?.strip_suffix('"')?;
-            quoted(arena.string_literal(literal), written)
+            (!written.starts_with('"') && !written.contains(['$', '\n']))
+                .then(|| format!("p\"{written}\""))
         }
         ArenaExprKind::PathFmtString(_) => text.starts_with("fp\"").then(|| text.to_owned()),
         // A format string would need its prefix changed, not parentheses.
