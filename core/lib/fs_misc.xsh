@@ -177,7 +177,9 @@ export pure size_value(raw: Str) -> Int? {
   var radix = 10
   if text.starts_with("0x") { at = 2; radix = 16 } else if text.starts_with("0b") { at = 2; radix = 2 }
   var digits = ""
+  let raw_bytes = bytes.from_text(text)
   while at < text.byte_len() {
+    break when (raw_bytes.byte_at(at) ?? 0) >= 128
     let ch = text.byte_slice(at, length: 1)
     let valid = if radix == 16 { rx"^[0-9A-Fa-f]$".matches(ch) } else if radix == 2 { ch in "01" } else { ch in "0123456789" }
     break when ! valid
@@ -196,6 +198,7 @@ export pure size_value(raw: Str) -> Int? {
     var valid = false
     for index in range(1, units.len()) {
       let unit = units[index]
+      return null when (bytes.from_text(suffix).byte_at(0) ?? 0) >= 128
       let first = suffix.byte_slice(0, length: 1).upper()
       let rest = suffix.byte_slice(1)
       if first == unit and rest in ["", "iB", "B", "D"] {

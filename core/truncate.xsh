@@ -25,7 +25,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var quantity = 0
   if opts.size != null {
     var value = raw.trim()
-    if value != "" and value.byte_slice(0, length: 1) in ["+", "-", "<", ">", "/", "%"] {
+    if rx"^[+<>/%-]".matches(value) {
       operation = value.byte_slice(0, length: 1)
       value = value.byte_slice(1)
     }
@@ -77,7 +77,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if metadata is Err(_) {
       if let Err(failure) = target.touch() { gnu.cannot_open(name, failure, mode: "writing"); failed = true; continue }
     }
-    if let Err(failure) = target.truncate(current) { gnu.error(f"failed to truncate {gnu.quote(name)} at {current} bytes: {gnu.strerror(failure)}"); failed = true }
+    if let Err(failure) = target.truncate(current) {
+      if (failure.errno ?? 0) in [2, 6, 13, 20, 40] { gnu.cannot_open(name, failure, mode: "writing") } else { gnu.error(f"failed to truncate {gnu.quote(name)} at {current} bytes: {gnu.strerror(failure)}") }
+      failed = true
+    }
   }
   if failed { exit 1 }
 }

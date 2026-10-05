@@ -52,3 +52,12 @@ test test_truncate_unit_only_radices_and_relative_reference_requirement { |ctx|
   assert ! fp"{root}/new".exists()?
   assert run_applet(ctx, root, ["-s", "1b", "new"])?.status == 1
 }
+
+
+test test_truncate_unicode_invalid_size_is_an_operand_error { |ctx|
+  let root = test.temp_dir(ctx, name: "truncate-unicode-size")?
+  let result = run_applet(ctx, root, ["-s", "😀", "file"])?
+  assert result.status == 1
+  assert "Invalid number" in result.stderr
+  assert ! fp"{root}/file".exists()?
+}
