@@ -79,9 +79,9 @@ error.
 Reserved keywords:
 
 ```text
-and assert break const continue defer else enum export false for guard if in
-let loop match not null or proc pure retry return run spawn stream true try
-type unless use var wait when while with yield
+and assert break const continue defer else enum errdefer export false for
+guard if in let loop match not null or proc pure retry return run spawn stream
+true try type unless use var wait when while with yield
 ```
 
 `not` appears only in the binary operator `not in`; unary negation is `!`.
@@ -89,6 +89,7 @@ type unless use var wait when while with yield
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `test`, `repeat` and `times` in the head of a `repeat` statement (8.6),
+`tempdir` and `at` in the head of a `tempdir` statement (8.7),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -1843,6 +1844,88 @@ failure becomes primary, and later cleanup failures are reported with their
 locations. A deferred block cannot `return`, `yield`, `break`, or `continue`
 out of its body. Owned process handles and network jobs are cleaned up before
 the block's defers run (11.8). `abort(status, force: true)` skips cleanup.
+
+`errdefer action` or `errdefer { ... }` registers cleanup that runs only when
+control leaves the enclosing block with an error:
+
+```xsh
+proc publish(output: Path) {
+  let partial = fp"{output}.partial"
+  errdefer fs.remove(partial, missing_ok: true)
+  render(partial)?
+  fs.rename(partial, output)
+}
+```
+
+It is registered, ordered, and checked exactly like `defer`: `defer` and
+`errdefer` actions of one block share one last-in, first-out order, and an
+`errdefer` action that is not due is skipped in its place. A block leaves with
+an error when
+
+- a failure propagates out of it: `?` on an `Err`, a failed
+  statement-position `Result[Unit]`, a failed plain `run`, a failed `assert`,
+  or a runtime failure, whether the failure then leaves the function or stops
+  at an enclosing `try` or `retry`;
+- the function returns an `Err` through it, by `return` or as the function's
+  tail value;
+- `abort` without `force`, or cancellation, unwinds through it; or
+- one of its own deferred actions, registered later, fails.
+
+It leaves without an error on normal completion, on `break` and `continue`,
+and when the function returns any other value. An `Err` that is the tail of a
+value block is that block's value, not a failure. A block inside `try` that the captured failure passes through leaves with an
+error; the block that contains the `try` does not. Each `retry` attempt is a
+block, so a failed attempt runs its `errdefer` actions before the next
+attempt. A stream producer that its consumer stops early leaves without an
+error. A failing `errdefer` action is a cleanup failure like any other: the
+failure that triggered it stays primary, the other actions still run, and the
+cleanup failure is reported with its location. At the top level, the scope is
+the script, and it leaves with an error when the script fails or aborts.
+
+`tempdir name at path { ... }` runs its block with a scratch directory at a
+path the program chooses. It is sugar, defined by its expansion:
+
+```xsh
+tempdir scratch at fp"{root}/stage" {
+  fp"{scratch}/stamp".write("staged\n")?
+  fp"{scratch}/stamp".read_text()?
+}
+```
+
+means exactly
+
+```xsh
+{
+  let scratch: Path = fp"{root}/stage"
+  fs.remove(scratch, missing_ok: true)
+  fs.mkdir(scratch)
+  defer fs.remove(scratch, missing_ok: true)
+  {
+    fp"{scratch}/stamp".write("staged\n")?
+    fp"{scratch}/stamp".read_text()?
+  }
+}
+```
+
+So the path is a `Path` evaluated once and bound to the immutable `name`,
+which is in scope for the body only. Both removals are `fs.remove` with
+`missing_ok: true`: whatever is at the path, a file, a symlink (itself, never
+its target), or a directory with everything below it, is removed, and nothing
+being there is not an error. A failure to remove what is there or to create
+the directory propagates before the body runs. The deferred removal runs
+however control leaves the statement, after the body's own defers, and follows
+the `defer` rules above: when it fails, the body's failure stays primary, and
+if the body succeeded the removal's failure is the statement's failure. The
+statement needs the `fs` effect, and the `error` effect where a failure can
+leave a restricted proc. The body is a block (6.9): as the tail of a body that
+produces a value it produces its own tail, computed before the directory is
+removed. The expansion names the standard `fs` module, so the statement is
+rejected where a local binding named `fs` hides it. A statement is a `tempdir`
+statement when it begins with the word `tempdir`, a name, and the word `at`
+on one line; neither word is reserved, and the path is a head expression like
+the source of a `for`.
+`fs.tempdir()` (15) is the other scratch directory: a private one at a path
+the runtime chooses, owned through its handle.
 
 ### 8.8 `try`, `retry`, and `ctx`
 

@@ -87,6 +87,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-slice` | Use half-open slicing where offset/count method bounds are equivalent |
 | `lint.prefer-stream-producer` | Suggest a `stream` producer with `yield` for a proc that builds a list item by item |
 | `lint.prefer-string-concat` | Use `+` instead of joining literal pieces with an empty separator |
+| `lint.prefer-tempdir` | Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit |
 | `lint.prefer-try-capture` | Replace a single-use closed helper with a local `try` block capture |
 | `lint.prefer-value-pipeline` | Use a value pipeline for nested calls or a single-use temporary |
 | `lint.prefer-write-lines` | Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline |

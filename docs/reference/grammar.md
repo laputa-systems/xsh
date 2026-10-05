@@ -67,7 +67,7 @@ a block, such as `if`, `for`, or `proc`) needs no separator after it.
 Keywords:
 
 ```text
-and assert break const continue defer else enum export false for guard if in let loop match not null or proc pure retry return run spawn stream true try type unless use var wait when while with yield
+and assert break const continue defer else enum errdefer export false for guard if in let loop match not null or proc pure retry return run spawn stream true try type unless use var wait when while with yield
 ```
 
 Every other quoted word is contextual: it is an ordinary identifier outside
@@ -152,7 +152,8 @@ compound_statement = if_statement
                    | signal_hook
                    | "export" ( proc_declaration | pure_declaration | stream_declaration | signal_hook )
                    | repeat_statement
-                   | without_statement ;
+                   | without_statement
+                   | tempdir_statement ;
 simple_statement = binding
                  | assert_statement
                  | return_statement
@@ -210,9 +211,9 @@ return_statement = "return" ( postfix_guard | guarded_value )? ;
 yield_statement = "yield" ( "@" expression postfix_guard? | guarded_value ) ;
 break_statement = "break" ( postfix_guard | expression postfix_guard? )? ;
 continue_statement = "continue" postfix_guard? ;
-defer_statement = "defer" ( block | !"{" expression_or_run ) ;
+defer_statement = ( "defer" | "errdefer" ) ( block | !"{" expression_or_run ) ;
 assert_statement = "assert" expression ( "," expression )? ;
-expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "process" ~"." ~"command" "{" ) expression "?"? ;
+expression_statement = !( "let" | "const" | "var" | "assert" | "if" | "while" | "for" | "loop" | "return" | "yield" | "defer" | "errdefer" | "break" | "continue" | "match" | "proc" | "pure" | "stream" | "use" | "guard" | "with" | "enum" | "type" | "export" | "run" | "env" "(" | "cd" | "test" NAME | "on" NAME | "on" INT | "cli" IDENT "(" | "error" NAME "=" | "error" NAME "{" | "process" ~"." ~"command" "{" ) expression "?"? ;
 if_statement = "if" condition block ( "else" "if" condition block )* ( "else" block )? ;
 condition = !( "[" DOLLAR_NAME | "[" "${" | "[" "-" ~IDENT | "[" "[" DOLLAR_NAME | "[" "[" "${" | "[" "[" "-" ~IDENT ) ( "let" NEWLINE* pattern NEWLINE* "=" NEWLINE* condition_expression | condition_expression ) ;
 while_statement = "while" condition block ;
@@ -220,6 +221,7 @@ for_statement = "for" binding_target "in" condition_expression block ;
 loop_statement = "loop" block ;
 repeat_statement = "repeat" line(condition_expression) "times" block ;
 without_statement = "without" line(( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) ( "," ( "fs" | "net" | "process" | "env" | "time" | "error" | "io" ) )*) block ;
+tempdir_statement = "tempdir" IDENT "at" condition_expression block ;
 match_statement = "match" condition_expression "{" ( separator | arm_head arm_body )* ( arm_head arm_statement | else_arm_head ( arm_body | arm_statement ) separator* )? "}" ;
 arm_head = pattern ( "if" expression )? "=>" ;
 else_arm_head = "else" "=>" ;
