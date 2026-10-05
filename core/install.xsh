@@ -49,6 +49,17 @@ pure install_mode(spec: Str, directory: Bool) -> Int? {
   mode
 }
 
+# Compare exact bytes in bounded chunks so -C does not allocate whole files.
+proc equal_contents(source: Path, dest: Path, size: Int) -> Result[Bool] {
+  var offset = 0
+  while offset < size {
+    let length = if size - offset > 65536 { 65536 } else { size - offset }
+    if bytes.read_at(source, offset, length)? != bytes.read_at(dest, offset, length)? { return false }
+    offset += length
+  }
+  true
+}
+
 proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?, gid: Int?, backup: Str) -> Result[Bool] {
   let actual = source.resolve()?
   let metadata = fs.stat(actual)?
@@ -68,12 +79,12 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   }
   if existing and opts.compare {
     let old = fs.stat(target)?
-    if old.kind == "file" and old.mode.bit_and(0o7777) == mode and
+    if old.kind == "file" and old.size == metadata.size and old.mode.bit_and(0o7777) == mode and
       mode.bit_and(0o7000) == 0 and metadata.mode.bit_and(0o7000) == 0 and
       old.mode.bit_and(0o7000) == 0 and (! opts.preserve or old.mtime_ns == metadata.mtime_ns) and
       old.uid == (uid ?? user.current()?.uid) and old.gid == (gid ?? group.current()?.gid) and
       (uid == null or old.uid == uid) and (gid == null or old.gid == gid) and
-      actual.read_bytes()? == target.read_bytes()? { return false }
+      equal_contents(actual, target, metadata.size)? { return false }
   }
   var saved: Path? = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }

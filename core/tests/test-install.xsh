@@ -75,3 +75,18 @@ test test_install_directory_continues_after_existing_file { |ctx|
   assert existing.read_text()? == "keep"
   assert later.is_dir()?
 }
+
+test test_install_compare_checks_bytes_after_first_chunk { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  let chunks = ["x"] |> repeat(65536)
+  let prefix = chunks.join("")
+  source.write(f"{prefix}a")
+  dest.write(f"{prefix}b")
+  dest.chmod(0o755)
+  let old = fs.stat(dest)?.ino
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -C $source $dest
+  assert fs.stat(dest)?.ino != old
+  assert dest.read_text()? == f"{prefix}a"
+}
