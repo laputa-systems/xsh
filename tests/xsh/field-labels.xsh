@@ -218,3 +218,126 @@ print $label $row.in ${row["wire.type"]}
   assert repeated.status.exited_with(0), repeated.stderr
   assert candidate.read_text()? == fixed
 }
+
+# The entries of one brace or parenthesis list, with the entry under test
+# first, in the middle, or last among the other two.
+pure placed(position: Int, entry: Str, before: Str, after: Str) -> Str {
+  let entries = if position == 0 {
+    [entry, before, after]
+  } else if position == 1 {
+    [before, entry, after]
+  } else {
+    [before, after, entry]
+  }
+  entries.join(", ")
+}
+
+# Every keyword spelling, including the ones that also begin an expression
+# (`null`, `true`, `false`, `if`, `match`, `not`, `try`, `run`), labels a
+# field wherever a `:` follows it directly.
+test test_every_keyword_labels_a_field_at_each_position_of_each_record_form { |ctx|
+  for label in [
+    "and",
+    "assert",
+    "break",
+    "const",
+    "continue",
+    "defer",
+    "else",
+    "enum",
+    "errdefer",
+    "export",
+    "false",
+    "for",
+    "guard",
+    "if",
+    "in",
+    "let",
+    "loop",
+    "match",
+    "not",
+    "null",
+    "or",
+    "proc",
+    "pure",
+    "retry",
+    "return",
+    "run",
+    "spawn",
+    "stream",
+    "true",
+    "try",
+    "type",
+    "unless",
+    "use",
+    "var",
+    "wait",
+    "when",
+    "while",
+    "with",
+    "yield",
+  ] {
+    var source = ""
+    for position in [0, 1, 2] {
+      let n = f"{position}"
+      let schema = placed(position, f"{label}: Int", "a: Int", "z: Int")
+      let fields = placed(position, f"{label}: 2", "a: 1", "z: 3")
+      let update = placed(position, f"{label}: 20", "a: 10", "z: 30")
+      let bound = placed(position, f"{label}: got{n}", f"a: low{n}", f"z: high{n}")
+      let matched = placed(position, f"{label}: picked", "a: left", "z: right")
+      source += "type Wire" + n + " = {" + schema + "}\n"
+      source += "let row" + n + " = {" + fields + "}\n"
+      source += "let built" + n + " = Wire" + n + "(" + fields + ")\n"
+      source += "let updated" + n + " = {...built" + n + ", " + update + "}\n"
+      source += "let {" + bound + "} = row" + n + "\n"
+      source += "if let {" + matched + "} = updated" + n + " {\n"
+      source += "  print $picked $left $right\n} else {\n  print unmatched\n}\n"
+      source += "print $built" + n + "." + label + " $got" + n
+      source += " $low" + n + " $high" + n + "\n"
+    }
+
+    let executed = test.expect(ctx, source, status: 0)?
+    let placement = "20 10 30\n2 2 1 3\n"
+    assert executed.stdout == placement + placement + placement, label + executed.stdout
+  }
+}
+
+test test_literal_word_labels_are_fields_beside_the_sets_of_those_words { |ctx|
+  let options = {
+    gnu: {status: 2},
+    null: {form: "-0 --null", default: false},
+    help: {form: "--help", default: false, stop: true},
+  }
+  assert options.null.form == "-0 --null"
+  assert options.help.stop, "the field after a literal-word label is still read"
+  let leading = {null: 1, true: 2, false: 3}
+  assert leading.null + leading.true + leading.false == 6
+  let trailing = {a: null, b: true, false: false, true: true, null: null}
+  assert trailing.true and ! trailing.false, "a literal word labels a field and is its value"
+  assert trailing.null == null
+  let counts: Map[Int] = {true: 1, a: 2, null: 3}
+  assert counts.keys() == ["a", "null", "true"]
+  let nested = {...{row: leading}, row.null: 7, row.true: 8}
+  assert nested.row.null == 7
+  assert nested.row.true == 8
+  assert nested.row.false == 3
+
+  assert {true, false}.to_list() == [false, true]
+  assert {false, true, false}.len() == 2
+  let flags: Set[Bool] = {true,}
+  assert true in flags
+  assert {"a", "b"}.to_list() == ["a", "b"]
+  let chosen = {if leading.null == 1 { "one" } else { "other" }, "two"}
+  assert chosen.to_list() == ["one", "two"]
+
+  for source in [
+    "let mixed = {1, null: 2}\n",
+    "let mixed = {true, null: 2}\n",
+    "let mixed = {null: 1, true}\n",
+    "let mixed = {a: 1, false, b: 2}\n",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    assert ! rejected.success, source
+    assert "parse.brace-literal-mixed" in rejected.stderr, source + rejected.stderr
+  }
+}

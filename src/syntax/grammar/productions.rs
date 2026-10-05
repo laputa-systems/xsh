@@ -1917,8 +1917,14 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 nl(),
                 t(T::Comma),
                 list(seq([
-                    // `[` begins a computed map key.
-                    not([vec![tag_term(T::LBracket)]]),
+                    // `[` begins a computed map key, and a label or a
+                    // quoted key with `:` after it is a field whatever the
+                    // label spells: `run: v` is not the command `run`.
+                    not([
+                        vec![tag_term(T::LBracket)],
+                        vec![term(Class::Label, false), tag_term(T::Colon)],
+                        vec![tag_term(T::String), tag_term(T::Colon)],
+                    ]),
                     r("expression_item"),
                 ])),
                 t(T::RBrace),

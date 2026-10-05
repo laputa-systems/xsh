@@ -220,6 +220,23 @@ print $first $second
   assert_checks(file)
 }
 
+test test_grep_and_refactor_literal_word_field_labels_stay_fields { |ctx|
+  let file = script(
+    ctx,
+    "literal-word-labels.xsh",
+    r"""let row = {gnu: 1, null: 2, true: 3}
+let words = {true, false}
+print $row.null ${words.len()}
+""",
+  )?
+  let stdout = found("{gnu: FIRST, null: SECOND, true: THIRD}", file)?
+  assert "1 match" in stdout, stdout
+  let text = rewritten("{gnu: FIRST, null: SECOND, true: THIRD}", "{true: THIRD, null: SECOND, gnu: FIRST}", file)?
+  assert "let row = {true: 3, null: 2, gnu: 1}\n" in text, text
+  assert "let words = {true, false}\n" in text, text
+  assert_checks(file)
+}
+
 test test_grep_and_refactor_computed_map_entries_keep_static_labels_distinct { |ctx|
   let file = script(ctx, "computed-map.xsh", "let key = \"one\"\nlet dynamic = {[key]: 1}\nlet fixed = {key: 1}\n")?
   let stdout = found("{[KEY]: VALUE}", file)?

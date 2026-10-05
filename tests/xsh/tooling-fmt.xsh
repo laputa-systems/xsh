@@ -196,3 +196,25 @@ print block.upper() f"{body}"
   let checked = run.capture --text "xsht" fmt --check $file
   assert checked.status.exited_with(0), checked.stdout + checked.stderr
 }
+
+test test_fmt_keeps_literal_word_field_labels_as_fields_and_converges { |ctx|
+  let source = r"""let row = {gnu:{status:2},  null :{form:"-0", default:false}, true:1,false : null,if:{match:true}}
+let words = { true,false }
+print $row.null.form $row.true ${words.len()}
+"""
+  let formatted = r"""let row = {gnu: {status: 2}, null: {form: "-0", default: false}, true: 1, false: null, if: {match: true}}
+let words = {true, false}
+print $row.null.form $row.true ${words.len()}
+"""
+  let file = test.temp_file(ctx, name: "literal-word-labels.xsh", contents: bytes.from_text(source))?
+  let before = run.capture --text "xsh" $file
+  assert before.status.exited_with(0), before.stderr
+  assert before.stdout == "-0 1 2\n"
+  let wrote = run.capture --text "xsht" fmt $file
+  assert wrote.status.exited_with(0), wrote.stderr
+  assert file.read_text()? == formatted
+  let after = run.capture --text "xsh" $file
+  assert after.stdout == before.stdout
+  let checked = run.capture --text "xsht" fmt --check $file
+  assert checked.status.exited_with(0), checked.stdout + checked.stderr
+}

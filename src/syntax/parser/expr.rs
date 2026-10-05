@@ -2197,13 +2197,13 @@ impl<'a> Parser<'a> {
     /// `a.b: v`) or a bare name. After a written field, an entry that starts
     /// with a name is still read as a field so that its own error is
     /// reported.
+    ///
+    /// The `:` after a label decides first, whatever the label's spelling:
+    /// `null: v`, `true: v`, and `if: v` are fields, although each word
+    /// also begins an expression. Only without the `:` are `true`, `false`,
+    /// and `null` the literals they spell, which no field can pun.
     fn brace_entry_is_element(&self, written_field: bool) -> bool {
-        let literal_word = self.current_tag() == TokenTag::Keyword
-            && matches!(
-                self.peek_keyword(0),
-                Some(Keyword::True | Keyword::False | Keyword::Null)
-            );
-        let label = !literal_word && self.peek_label_name(0).is_some();
+        let label = self.peek_label_name(0).is_some();
         if !label && self.current_tag() != TokenTag::String {
             return true;
         }
@@ -2213,8 +2213,17 @@ impl<'a> Parser<'a> {
         {
             offset += 2;
         }
+        if self.peek_tag_skip_newlines(offset) == Some(TokenTag::Colon) {
+            return false;
+        }
+        let literal_word = matches!(
+            self.peek_keyword(0),
+            Some(Keyword::True | Keyword::False | Keyword::Null)
+        );
+        if literal_word {
+            return true;
+        }
         match self.peek_tag_skip_newlines(offset) {
-            Some(TokenTag::Colon) => false,
             Some(TokenTag::Comma | TokenTag::RBrace) if label && offset == 1 => false,
             _ => !(label && written_field),
         }
