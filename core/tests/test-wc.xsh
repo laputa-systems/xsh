@@ -2,7 +2,7 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 
 # Runs core/wc.xsh by its real path inside `dir`, with `input` as standard
 # input, capturing both streams to files.
-proc wc_in(ctx: TestContext, dir: Path, args: List[Str], input: Bytes = b"", vars: Record = {LC_ALL: "C"}) [fs, process, error] -> Result[Ran] {
+proc wc_in(ctx: TestContext, dir: Path, args: List[Str], input = b"", vars: Record = {LC_ALL: "C"}) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "wc-run")?
   let stdin = test.temp_file(ctx, name: "wc-stdin", contents: input)?
   let out = fp"{root}/stdout"
@@ -14,11 +14,11 @@ proc wc_in(ctx: TestContext, dir: Path, args: List[Str], input: Bytes = b"", var
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
 
-proc wc_run(ctx: TestContext, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc wc_run(ctx: TestContext, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   wc_in(ctx, test.temp_dir(ctx, name: "wc-cwd")?, args, input)
 }
 
-proc wc_text(ctx: TestContext, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Str] {
+proc wc_text(ctx: TestContext, args: List[Str], input = b"") [fs, process, error] -> Result[Str] {
   let result = wc_run(ctx, args, input)?
   assert result.status == 0, f"wc {args.join(" ")}: {result.stderr}"
   Ok(result.stdout)
@@ -66,8 +66,8 @@ test test_wc_max_line_length_is_display_width { |ctx|
 
 test test_wc_files_width_follows_total_size { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-files")?
-  fp"{dir}/small.txt".write("a b\n")?
-  fp"{dir}/big.txt".write(["x" for n in range(600)].join("\n") + "\n")?
+  fp"{dir}/small.txt".write("a b\n")
+  fp"{dir}/big.txt".write_lines(["x" for n in range(600)])
 
   let result = wc_in(ctx, dir, ["small.txt", "big.txt"])?
   assert result.status == 0
@@ -79,8 +79,8 @@ test test_wc_files_width_follows_total_size { |ctx|
 
 test test_wc_total_modes_and_abbreviations { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-total")?
-  fp"{dir}/a".write("x y\n")?
-  fp"{dir}/b".write("z\n")?
+  fp"{dir}/a".write("x y\n")
+  fp"{dir}/b".write("z\n")
 
   assert wc_in(ctx, dir, ["a"])?.stdout == "1 2 4 a\n"
   assert wc_in(ctx, dir, ["a", "--total=always"])?.stdout == "1 2 4 a\n1 2 4 total\n"
@@ -100,9 +100,9 @@ test test_wc_total_modes_and_abbreviations { |ctx|
 
 test test_wc_files0_from { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-files0")?
-  fp"{dir}/a".write("x y\n")?
-  fp"{dir}/b".write("z\n")?
-  fp"{dir}/list".write(b"a\0b\0")?
+  fp"{dir}/a".write("x y\n")
+  fp"{dir}/b".write("z\n")
+  fp"{dir}/list".write(b"a\0b\0")
 
   let listed = wc_in(ctx, dir, ["--files0-from=list"])?
   assert listed.stdout == "1 2 4 a\n1 1 2 b\n2 3 6 total\n", listed.stdout
@@ -131,8 +131,8 @@ test test_wc_files0_from { |ctx|
 
 test test_wc_errors_are_reported_per_input_and_set_the_status { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-errors")?
-  fp"{dir}/a".write("x\n")?
-  fp"{dir}/sub".mkdir()?
+  fp"{dir}/a".write("x\n")
+  fp"{dir}/sub".mkdir()
 
   let result = wc_in(ctx, dir, ["a", "missing", "sub", "a"])?
   assert result.status == 1
@@ -145,7 +145,7 @@ test test_wc_errors_are_reported_per_input_and_set_the_status { |ctx|
 
 test test_wc_names_with_newlines_are_quoted_in_the_output { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-quote")?
-  fp"{dir}/12\n34.txt".write("")?
+  fp"{dir}/12\n34.txt".write("")
 
   assert wc_in(ctx, dir, ["12\n34.txt"])?.stdout == "0 0 0 '12'$'\\n''34.txt'\n"
 }

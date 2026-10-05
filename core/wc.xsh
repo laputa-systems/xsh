@@ -89,9 +89,8 @@ pure sequence_width(data: Bytes, at: Int) -> Int {
 # Decode `data`; each byte that does not start a valid sequence counts as a
 # word character and nothing else.
 pure decode(data: Bytes) -> Decoded {
-  match data.utf8() {
-    Ok(text) => return {clean: text, marked: text}
-    Err(_) => {}
+  if let Ok(text) = data.utf8() {
+    return {clean: text, marked: text}
   }
 
   var runs: List[Str] = []
@@ -100,7 +99,7 @@ pure decode(data: Bytes) -> Decoded {
   let total = data.len()
 
   while at < total {
-    if (data.byte_at(at) ?? 0) < 128 {
+    guard (data.byte_at(at) ?? 0) >= 128 else {
       at += 1
       continue
     }
@@ -122,13 +121,7 @@ pure decode(data: Bytes) -> Decoded {
 }
 
 pure column_width(text: Str) -> Int {
-  var total = text.count_chars()
-
-  for found in rx"[\x00-\x1f\x7f-\x9f]".find(text) {
-    total -= 1
-  }
-
-  total
+  text.count_chars() - rx"[\x00-\x1f\x7f-\x9f]".find(text).len()
 }
 
 # The longest line's display width: tabs advance to the next multiple of 8,
@@ -150,21 +143,21 @@ pure longest_line(text: Str) -> Int {
   let wide = regex.compile(WIDE) ?? rx"x"
 
   for line in flat.split("\n") {
-    var column = 0
+    var position = 0
     var first = true
 
     for piece in line.split("\t") {
       let size = column_width(piece) - zero.find(piece).len() + wide.find(piece).len()
 
       if first {
-        column = size
+        position = size
         first = false
       } else {
-        column = column - column % 8 + 8 + size
+        position = position - position % 8 + 8 + size
       }
     }
 
-    best = if column > best { column } else { best }
+    best = if position > best { position } else { best }
   }
 
   best
@@ -302,9 +295,8 @@ proc read_file(file: Path) [fs, error] -> Result[Bytes, Error] {
 
   return Ok(data) when data.len() > 0
 
-  match file.read_text() {
-    Ok(text) => return Ok(bytes.from_text(text))
-    Err(_) => {}
+  if let Ok(text) = file.read_text() {
+    return Ok(bytes.from_text(text))
   }
 
   var pieces: List[Bytes] = []

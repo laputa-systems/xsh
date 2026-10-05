@@ -3,7 +3,7 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 # Runs core/factor.xsh by its real path (so the invoked name is `factor` and
 # `lib.gnu` resolves beside it) with `input` as standard input, capturing both
 # streams to files.
-proc factor_run(ctx: TestContext, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Ran] {
+proc factor_run(ctx: TestContext, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "factor")?
   let stdin = test.temp_file(ctx, name: "factor-stdin", contents: input)?
   let out = fp"{root}/stdout"
@@ -15,7 +15,7 @@ proc factor_run(ctx: TestContext, args: List[Str], input: Bytes = b"") [fs, proc
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
 
-proc factor_text(ctx: TestContext, args: List[Str], input: Bytes = b"") [fs, process, error] -> Result[Str] {
+proc factor_text(ctx: TestContext, args: List[Str], input = b"") [fs, process, error] -> Result[Str] {
   let result = factor_run(ctx, args, input)?
   assert result.status == 0, f"factor {args.join(" ")}: {result.stderr}"
   Ok(result.stdout)

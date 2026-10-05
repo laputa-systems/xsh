@@ -3,7 +3,7 @@ type Ran = {status: Int, stdout: Str, stderr: Str}
 # Runs core/numfmt.xsh by its real path (so the invoked name is `numfmt` and
 # `lib.gnu` resolves beside it) with `input` as standard input, capturing both
 # streams to files.
-proc numfmt_run(ctx: TestContext, args: List[Str], input: Str = "", vars: Record = {LC_ALL: "C"}) [fs, process, error] -> Result[Ran] {
+proc numfmt_run(ctx: TestContext, args: List[Str], input = "", vars = {LC_ALL: "C"}) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "numfmt")?
   let stdin = test.temp_file(ctx, name: "numfmt-stdin", contents: bytes.from_text(input))?
   let out = fp"{root}/stdout"
@@ -15,7 +15,7 @@ proc numfmt_run(ctx: TestContext, args: List[Str], input: Str = "", vars: Record
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
 
-proc numfmt_text(ctx: TestContext, args: List[Str], input: Str = "") [fs, process, error] -> Result[Str] {
+proc numfmt_text(ctx: TestContext, args: List[Str], input = "") [fs, process, error] -> Result[Str] {
   let result = numfmt_run(ctx, args, input)?
   assert result.status == 0, f"numfmt {args.join(" ")}: {result.stderr}"
   Ok(result.stdout)
@@ -189,7 +189,7 @@ test test_numfmt_option_errors_are_gnu_usage_errors { |ctx|
     {args: ["--field=0", "1"], message: "range '0' was invalid: fields and positions are numbered from 1"},
   ] {
     let result = numfmt_run(ctx, case.args)?
-    assert result.status == 1, f"{case.args.join(" ")}"
+    assert result.status == 1, case.args.join(" ")
     assert result.stderr == f"numfmt: {case.message}\n", result.stderr
   }
 

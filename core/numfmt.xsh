@@ -154,22 +154,6 @@ pure big_cmp(a: List[Int], b: List[Int]) -> Int {
   0
 }
 
-pure big_add(a: List[Int], b: List[Int]) -> List[Int] {
-  var out: List[Int] = []
-  var carry = 0
-  var at = 0
-  let count = if a.len() > b.len() { a.len() } else { b.len() }
-
-  while at < count or carry > 0 {
-    let sum = (if at < a.len() { a[at] } else { 0 }) + (if at < b.len() { b[at] } else { 0 }) + carry
-    out += [sum % BASE]
-    carry = sum / BASE
-    at += 1
-  }
-
-  out
-}
-
 # A - B for A >= B.
 pure big_sub(a: List[Int], b: List[Int]) -> List[Int] {
   var out: List[Int] = []
@@ -344,7 +328,7 @@ pure scale_bases(iec: Bool) -> List[Float] {
   var out: List[Float] = []
   var current = 1.0
 
-  for index in range(11) {
+  repeat 11 times {
     out += [current]
     current = current * (if iec { 1024.0 } else { 1000.0 })
   }
@@ -509,14 +493,12 @@ pure apply_grouping(text: Str, separators: Separators) -> Str {
   let neg = text.starts_with("-")
   let rest = if neg { text.byte_slice(1) } else { text }
   let point = rest.find(separators.decimal)
-  let whole = if point == null { rest } else { rest.byte_slice(0, length: point ?? 0) }
-  let fraction = if point == null { "" } else { rest.byte_slice(point ?? 0) }
+  let whole = if let at = point { rest.byte_slice(0, length: at) } else { rest }
+  let fraction = if let at = point { rest.byte_slice(at) } else { "" }
 
   return text when whole.byte_len() < 4
 
   var out = ""
-  let first = whole.byte_len() % 3 == 0
-
   for index in range(whole.byte_len()) {
     if index > 0 and (whole.byte_len() - index) % 3 == 0 {
       out += separators.grouping
@@ -1372,7 +1354,7 @@ pure parse_range(item: Str) -> RangeParse {
   let split = item.find("-")
 
   if split == null {
-    return bound_error(item, "")
+    return bound_error(item)
   }
 
   let low = item.byte_slice(0, length: split ?? 0)
@@ -1419,7 +1401,7 @@ pure bound_value(part: Str) -> Bound {
   {value: value, err: ""}
 }
 
-pure bound_error(item: Str, rest: Str) -> RangeParse {
+pure bound_error(item: Str) -> RangeParse {
   let bound = bound_value(item)
 
   {low: bound.value, high: bound.value, err: bound.err}

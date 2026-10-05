@@ -436,45 +436,57 @@ pure rho_step(x: Int, c: Int, info: Mod) -> Int {
   (mulmod(x, x, info) + c) % info.m
 }
 
-# Pollard's rho with batched gcds for an odd composite below 2^62; 0 when this
-# constant finds nothing within `limit` steps.
+# Pollard's rho (Brent's cycle detection, batched gcds) for an odd composite
+# below 2^62; 0 when this constant finds nothing within `limit` steps.
 pure rho_int(n: Int, c: Int, limit: Int) -> Int {
   let info = mod_info(n)
-  var x = 2
   var y = 2
+  var x = 2
+  var ys = 2
+  var q = 1
+  var g = 1
+  var r = 1
   var steps = 0
 
-  while steps < limit {
-    var product = 1
-    let saved_x = x
-    let saved_y = y
+  while g == 1 and steps < limit {
+    x = y
 
-    repeat 32 times {
-      x = rho_step(x, c, info)
-      y = rho_step(rho_step(y, c, info), c, info)
-      product = mulmod(product, if x > y { x - y } else { y - x }, info)
+    repeat r times {
+      y = rho_step(y, c, info)
     }
 
-    steps += 32
+    var k = 0
 
-    if gcd_int(product, n) != 1 {
-      x = saved_x
-      y = saved_y
+    while k < r and g == 1 {
+      ys = y
 
-      loop {
-        x = rho_step(x, c, info)
-        y = rho_step(rho_step(y, c, info), c, info)
+      let count = if r - k < 32 { r - k } else { 32 }
 
-        let g = gcd_int(if x > y { x - y } else { y - x }, n)
-
-        if g != 1 {
-          return if g == n { 0 } else { g }
-        }
+      repeat count times {
+        y = rho_step(y, c, info)
+        q = mulmod(q, if x > y { x - y } else { y - x }, info)
       }
+
+      g = gcd_int(q, n)
+      k += 32
+      steps += count
+    }
+
+    r = r * 2
+  }
+
+  return 0 when g == 1
+
+  if g == n {
+    loop {
+      ys = rho_step(ys, c, info)
+      g = gcd_int(if x > ys { x - ys } else { ys - x }, n)
+
+      break when g != 1
     }
   }
 
-  0
+  if g == n { 0 } else { g }
 }
 
 pure mulmod_big(a: List[Int], b: List[Int], m: List[Int]) -> List[Int] {
@@ -558,52 +570,67 @@ pure gcd_big(a: List[Int], b: List[Int]) -> List[Int] {
   x
 }
 
-# Pollard's rho for a number of any size; the result is one factor as limbs,
-# or [] when this constant finds nothing within `limit` steps.
+pure rho_step_big(x: List[Int], c: Int, n: List[Int]) -> List[Int] {
+  let next = big_add(mulmod_big(x, x, n), [c])
+
+  if big_cmp(next, n) >= 0 { big_sub(next, n) } else { next }
+}
+
+pure distance(a: List[Int], b: List[Int]) -> List[Int] {
+  if big_cmp(a, b) > 0 { big_sub(a, b) } else { big_sub(b, a) }
+}
+
+# Pollard's rho for a number of any size (Brent's cycle detection, batched
+# gcds); the result is one factor as limbs, or [] when this constant finds
+# nothing within `limit` steps.
 pure rho_big(n: List[Int], c: Int, limit: Int) -> List[Int] {
-  var x = [2]
   var y = [2]
+  var x = [2]
+  var ys = [2]
+  var q = [1]
+  var g = [1]
+  var r = 1
   var steps = 0
 
-  while steps < limit {
-    var product = [1]
-    let saved_x = x
-    let saved_y = y
+  while big_is_one(g) and steps < limit {
+    x = y
 
-    repeat 24 times {
-      x = big_add(mulmod_big(x, x, n), [c])
-      x = if big_cmp(x, n) >= 0 { big_sub(x, n) } else { x }
-      y = big_add(mulmod_big(y, y, n), [c])
-      y = if big_cmp(y, n) >= 0 { big_sub(y, n) } else { y }
-      y = big_add(mulmod_big(y, y, n), [c])
-      y = if big_cmp(y, n) >= 0 { big_sub(y, n) } else { y }
-      product = mulmod_big(product, if big_cmp(x, y) > 0 { big_sub(x, y) } else { big_sub(y, x) }, n)
+    repeat r times {
+      y = rho_step_big(y, c, n)
     }
 
-    steps += 24
+    var k = 0
 
-    if ! big_is_one(gcd_big(product, n)) {
-      x = saved_x
-      y = saved_y
+    while k < r and big_is_one(g) {
+      ys = y
 
-      loop {
-        x = big_add(mulmod_big(x, x, n), [c])
-        x = if big_cmp(x, n) >= 0 { big_sub(x, n) } else { x }
-        y = big_add(mulmod_big(y, y, n), [c])
-        y = if big_cmp(y, n) >= 0 { big_sub(y, n) } else { y }
-        y = big_add(mulmod_big(y, y, n), [c])
-        y = if big_cmp(y, n) >= 0 { big_sub(y, n) } else { y }
+      let count = if r - k < 24 { r - k } else { 24 }
 
-        let g = gcd_big(if big_cmp(x, y) > 0 { big_sub(x, y) } else { big_sub(y, x) }, n)
-
-        if ! big_is_one(g) {
-          return if big_cmp(g, n) == 0 { [] } else { g }
-        }
+      repeat count times {
+        y = rho_step_big(y, c, n)
+        q = mulmod_big(q, distance(x, y), n)
       }
+
+      g = gcd_big(q, n)
+      k += 24
+      steps += count
+    }
+
+    r = r * 2
+  }
+
+  return [] when big_is_one(g)
+
+  if big_cmp(g, n) == 0 {
+    loop {
+      ys = rho_step_big(ys, c, n)
+      g = gcd_big(distance(x, ys), n)
+
+      break when ! big_is_one(g)
     }
   }
 
-  []
+  if big_cmp(g, n) == 0 { [] } else { g }
 }
 
 pure isqrt_int(value: Int) -> Int {
@@ -649,42 +676,43 @@ pure squfof(n: List[Int]) -> Int {
 
     let limit = 6 * isqrt_int(2 * start) + 100
     var p = start
-    var previous_p = start
     var previous_q = 1
     var q = big_to_int(big_sub(target, big_mul(big_from_int(start), big_from_int(start))))
     var root = 0
     var found = false
     var round = 2
 
+    # Each pass takes two steps and tests for a perfect square after the
+    # first, which is the even-numbered form; a perfect square has an exact
+    # float square root, so no adjustment is needed.
     while round < limit {
-      let b = (start + p) / q
+      var step = (start + p) / q
+      var next_p = step * q - p
+      var next_q = previous_q + step * (p - next_p)
 
-      p = b * q - p
+      previous_q = q
+      p = next_p
+      q = next_q
+      root = q.float().sqrt().floor() ?? 0
 
-      let old_q = q
-
-      q = previous_q + b * (previous_p - p)
-
-      if round % 2 == 0 {
-        # A perfect square has an exact float square root, so no adjustment.
-        root = q.float().sqrt().floor() ?? 0
-
-        if root * root == q {
-          found = true
-          break
-        }
+      if root * root == q {
+        found = true
+        break
       }
 
-      previous_q = old_q
-      previous_p = p
-      round += 1
+      step = (start + p) / q
+      next_p = step * q - p
+      next_q = previous_q + step * (p - next_p)
+      previous_q = q
+      p = next_p
+      q = next_q
+      round += 2
     }
 
     if found {
-      let b = (start - p) / root
+      let step = (start - p) / root
 
-      p = b * root + p
-      previous_p = p
+      p = step * root + p
       previous_q = root
 
       let rest = big_sub(target, big_mul(big_from_int(p), big_from_int(p)))
@@ -692,18 +720,17 @@ pure squfof(n: List[Int]) -> Int {
       q = big_to_int(big_div_small_or_big(rest, previous_q))
 
       loop {
-        let step = (start + p) / q
+        let leap = (start + p) / q
+        let next_p = leap * q - p
+        let next_q = previous_q + leap * (p - next_p)
 
-        previous_p = p
-        p = step * q - p
+        if next_p == p {
+          break
+        }
 
-        let old_q = q
-
-        q = previous_q + step * (previous_p - p)
-
-        break when p == previous_p
-
-        previous_q = old_q
+        previous_q = q
+        p = next_p
+        q = next_q
       }
 
       let remainder = big_to_int(big_divmod(n, big_from_int(p)).remainder)
