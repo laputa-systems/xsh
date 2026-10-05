@@ -134,3 +134,30 @@ assert remaining == b"bc"
 """, stdin: b"abc")?
   assert output.success, output.stderr
 }
+
+test test_io_flush_stdout_reports_full_device { |ctx|
+  if ! (p"/dev/full".exists() ?? false) {
+    test.skip("/dev/full is unavailable")
+  }
+  assert fs.stat(/dev/full)?.kind == "char", "/dev/full must be a device"
+  let root = test.temp_dir(ctx)?
+  let script = fp"{root}/full-stdout.xsh"
+  script.write("""
+io.write_stdout("payload")?
+match io.flush_stdout() {
+  Err(failure) => {
+    if failure.errno == 28 { exit 41 }
+    exit 40
+  }
+  Ok(_) => { exit 0 }
+}
+""")
+  let output = test.run_script(ctx, r"""
+let xsh = applet.current_exe()?
+let script = e"SCRIPT"?
+let body = "exec \"$0\" \"$1\" >/dev/full"
+let status = run.status sh -c $body $xsh $script
+assert status.exit_code()? == 41
+""", env: {SCRIPT: script})?
+  assert output.success, output.stderr
+}
