@@ -96,6 +96,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-tempdir` | Use `tempdir NAME at PATH` for a directory that is cleared, created, and removed on exit |
 | `lint.prefer-try-capture` | Replace a single-use closed helper with a local `try` block capture |
 | `lint.prefer-value-pipeline` | Use a value pipeline for nested calls or a single-use temporary |
+| `lint.prefer-with-scope` | Note `let NAME = OPEN?` directly followed by the deferred release of `NAME`, which one `with` scope would bind and release |
 | `lint.prefer-within` | Note a block whose `run` forms all carry the same `--timeout`, which one `within` scope would state once |
 | `lint.prefer-write-lines` | Write a `List[Str]` with `Path.write_lines` instead of joining it and appending a newline |
 | `lint.prefer-yield-delegation` | Replace a transparent forwarding loop with `yield @iterable` |
@@ -154,6 +155,7 @@ The `check.*` codes are checker diagnostics that carry a fix.
 | `lint.prefer-set` | Make a local `Map[K, Bool]` whose values are only ever `true` a `Set[K]`; note any other `Map[K, Bool]` when asked (opt-in) |
 | `lint.prefer-collect` | Build a list that is declared empty and then only appended to with `collect { ... }` |
 | `lint.prefer-wait-until` | Note a loop that polls with `time.sleep` and a count, where `wait until CONDITION within LIMIT` states the condition and the limit |
+| `lint.legacy-set-call` | Note a `set.empty`, `set.from`, `set.add`, or `set.remove` call in its `Map[Str, Bool]` form that `lint.prefer-set` has no fix for; a `Set[T]` has `.add` and `.remove` |
 | `check.ambiguous-grouping` | Group an `if` or `match` operand, or a pipeline that an operator applies to |
 | `check.bool-statement` | Suggest `assert` for a Bool expression used as a statement, or `let _ =` to discard |
 | `check.dynamic-boundary` | Validate an `Any` value with `.require(T)?` where the context names its concrete type |

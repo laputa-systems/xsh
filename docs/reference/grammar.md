@@ -175,6 +175,7 @@ simple_statement = binding
                  | context_scope "?"?
                  | tempdir_scope "?"?
                  | within_scope "?"?
+                 | resource_scope "?"?
                  | named_command "?"?
                  | print_statement
                  | expression_statement
@@ -193,7 +194,9 @@ binding = ( "let" | "const" | "var" ) binding_rest ;
 binding_rest = binding_target ( ":" type_expr )? "=" expression_or_run ;
 binding_target = IDENT | "{" list(destructure_field) "}" ;
 destructure_field = "." ~"." | IDENT | LABEL ":" NEWLINE* binding_target ;
-type_declaration = "type" IDENT ( "[" IDENT ( "," IDENT )* "]" )? "=" ( "exact"? "module" module_contract | record_schema | type_expr ) ;
+type_declaration = "type" IDENT ( "[" IDENT ( "," IDENT )* "]" )? "=" ( "exact"? "module" module_contract | record_schema | type_expr int_bounds? ) ;
+int_bounds = "range" int_bound "." ~"." ~"="? int_bound ;
+int_bound = "-"? INT ;
 nominal_type_declaration = "nominal" type_declaration ;
 record_schema = "{" list(schema_field) "}" ;
 schema_field = LABEL ":" type_expr ( "=" expression )? ;
@@ -320,6 +323,7 @@ primary = literal
         | context_scope
         | tempdir_scope
         | within_scope
+        | resource_scope
         | builder_call
         | item_expression
         | bare_path ;
@@ -365,6 +369,7 @@ collect_expression = "collect" block ;
 head_duration = DURATION | IDENT ( "." IDENT )* ;
 backoff_range = head_duration "." ~"." head_duration ;
 tempdir_scope = "tempdir" IDENT ( "at" condition_expression )? "{" separator* statements "}" ;
+resource_scope = "with" list1(IDENT "=" condition_expression) block ;
 builder_call = ( "process" ~"." ~"command" ) ( ~"(" call_arguments ")" )? builder_block ;
 builder_block = "{" ( separator | builder_compound_entry | builder_entry separator )* builder_entry? "}" ;
 builder_compound_entry = if_statement

@@ -99,6 +99,9 @@ true try type unless use var wait when while with yield
 ```
 
 `not` appears only in the binary operator `not in`; unary negation is `!`.
+`with` begins two forms that its `else` tells apart: with an `else` block it
+groups fallible bindings under one handler (8.6), and without one it is a
+resource scope (10.4).
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
@@ -420,11 +423,14 @@ references to that module's private types.
 
 `const NAME = expr` declares prepared, immutable data. The initializer may use
 literals, other constants (including exported constants of imported modules),
-record, list, map, and tag constructors over constants, and primitive
+record, list, map, set, and tag constructors over constants, and primitive
 operators. It may not use runtime bindings, calls, methods, blocks,
 comprehensions, or propagation. Cycles are errors, and invalid arithmetic is
 reported at check time. Empty containers need a type annotation; `Any` and
 resource values cannot be constants. Constants are bounded in size and nesting.
+A constant set is a set literal (6.4) over constants, so it has at least one
+element: the empty set is the call `set.empty()`, and the set operators
+build sets at run time.
 
 `let` at module level runs its initializer at load time. Prefer `const` for
 literal configuration data (`lint.prefer-const`).
@@ -450,6 +456,7 @@ literal configuration data (`lint.prefer-const`).
 | `List[T]`, `Map[K, V]`, `Stream[T]` | collections |
 | `NonEmpty[T]` | a `List[T]` that holds at least one element (4.13) |
 | `Set[T]` | distinct elements of one key type, in key order (4.5) |
+| `Int range A..=B`, `UInt range A..=B` | an integer between two constant bounds, declared by a `type` (4.2, 4.13) |
 | records | named schemas `{name: Str, ...}` and builtin erased `Record` |
 | enums | nominal tag unions |
 | `T?` | `null` or a `T` |
@@ -495,6 +502,82 @@ pure fits(needed: UInt, free: UInt) -> Bool {
 }
 
 print f"{size / 1MiB} MiB in {size / chunk} chunks; fits in 8GiB: {fits(size, 8GiB)}"
+```
+
+A `type` declaration bounds an integer type between two constants:
+
+```xsh
+type Port = Int range 1..=65535
+
+# `..` stops before its upper bound, as a slice does: 0 to 255.
+type Byte = UInt range 0..256
+
+type Listener = {host: Str, port: Port, backlog: Byte}
+
+pure address(target: Listener) -> Str {
+  f"{target.host}:{target.port}"
+}
+
+# Arithmetic returns an `Int`; the result is validated to be a `Port` again.
+# `.require()` takes its target, `Port`, from the return type.
+pure after(port: Port) -> Result[Port] {
+  (port + 1).require()
+}
+
+proc listener(host: Str, text: Str) [error] -> Result[Listener] {
+  # A literal is checked where it is written.
+  let backlog: Byte = 128
+
+  # Any other integer is validated once, at an explicit boundary.
+  let number = text as Int
+  let port = number as Port
+  Ok(Listener(host:, port:, backlog:))
+}
+```
+
+`type NAME = Int range LOW..=HIGH` names the `Int`s from `LOW` to `HIGH`,
+both included; `UInt` is bounded the same way. `LOW..HIGH` stops before
+`HIGH`, as a slice does (6.6), so `0..256` is `0..=255`. A bound is an integer
+literal, with `-` before it for a negative one; a size literal is one
+(`UInt range 1KiB..=1MiB`). The form is written only there: `range` is an
+ordinary name everywhere else, an annotation names the declared type, and two
+declarations with the same base and bounds are one type. A range that holds no
+value, a bound outside 64 bits, a negative bound on a `UInt`, a base that is
+not `Int` or `UInt` (another bounded type included), and a declaration with
+type parameters are `check.schema`, as is `nominal type` with a range: a
+nominal type is a record schema (4.13). There are no bounds on other types
+and no predicates: the type is a range check and nothing more. A bounded type
+is not a map key (`check.map-key-type`) or a set element
+(`check.set-element-type`): both collections order what they store, and they
+store the base, which a bounded value fits.
+
+A bounded integer is a validated type (4.13) over its base. An integer literal
+written where one is expected, with its sign, is checked against the bounds
+there, and one outside them is `check.validated-literal`. Any other integer is
+validated once, by `n.require(Port)?` or `n as Port` (6.11). Every operation
+reads the value as its base and returns what the base returns: arithmetic on a
+`Port` returns an `Int`, comparison and equality work against any integer,
+and indexing, `range`, formatting, command arguments, and JSON see an `Int`.
+The checker tracks no ranges through arithmetic, so `port + 1` is validated
+again to be a `Port`, and `+=` on a variable of a bounded type is
+`check.operator-type`.
+
+```xsh
+type Port = Int range 1..=65535
+
+pure listen(port: Port) -> Port {
+  port
+}
+
+let number = 8080
+let zero: Port = 0 # error: check.validated-literal
+let high: Port = 65536 # error: check.validated-literal
+let plain: Port = number # error: check.type-mismatch
+let sum: Port = listen(80) + 1 # error: check.type-mismatch
+var current: Port = 80
+current += 1 # error: check.operator-type
+print ${listen(number)} # error: check.type-mismatch
+print $zero $high $plain $sum $current
 ```
 
 `Float` and `Int` never mix: convert with `.float()`, or back with
@@ -633,11 +716,14 @@ elements. `.add(x)` and `.remove(x)` return a new set, and adding an element
 the set holds or removing one it does not returns an equal set. `.len()` and
 `.is_empty()` count elements, and `list.to_set()` drops a list's repeated
 elements. The operators are `in`, `not in`, `|`, `&`, and `-` (6.2); the
-literal is in 6.4. A set is not indexed, and a constant cannot be one.
+literal is in 6.4. A set is not indexed. A set literal over constants is a
+constant (3.4).
 
 ```xsh
+const KINDS = {"file", "dir"}
+
 pure allowed(kind: Str, extra: Set[Str]) -> Bool {
-  kind in {"file", "dir"} | extra
+  kind in KINDS | extra
 }
 
 proc report(words: List[Str]) [error] {
@@ -693,7 +779,8 @@ print ${joined.len()} ${numbers.len()} ${less.len()} ${none.len()} ${one.len()} 
 `xsht lint` rewrites a local `Map[K, Bool]` that only ever stores `true` and
 is read only through `in`, `not in`, `len()`, `is_empty()`, and `keys()` to a
 `Set[K]` (`lint.prefer-set`), and on request notes every other
-`Map[K, Bool]`, where a stored `false` may mean something.
+`Map[K, Bool]`, where a stored `false` may mean something. A `set` module
+call left in its `Map[Str, Bool]` form is noted (`lint.legacy-set-call`).
 
 Records are field collections. A named schema (`type T = {...}`) fixes field
 names and types. Records are width-compatible: a value with extra fields fits
@@ -1390,6 +1477,11 @@ the bytes of `p`, so `a/../b` after a prefix stays as written. A `RelPath`
 fits every `Path` parameter, so a caller that wants a plain path uses the
 result as one.
 
+A bounded integer type (4.2) is the validated type over `Int` or `UInt`
+whose values lie between its bounds. Its literal is an integer literal, with
+its sign, written where the type is expected; `.require(T)`, `as T`, a type
+test, and a type pattern are its boundaries; and no operation preserves it.
+
 The operations the property guarantees exist only on the validated type.
 `NonEmpty[T]` has `first()` and `last()`, which return `T` and cannot fail; a
 `List[T]` has neither (`check.unknown-method`), so an unvalidated list is read
@@ -1482,7 +1574,9 @@ is expected. Incompatible contributions are errors; inference never widens to
   literal or comprehension written where the union list is expected has that
   element type.
 - A validated type (4.13) fits its base and whatever its base fits:
-  `NonEmpty[T]` fits `List[T]`. The base never fits the validated type; only a
+  `NonEmpty[T]` fits `List[T]`, and a bounded integer (4.2) fits `Int`, or
+  `UInt` when that is its base. Two bounded types with different bounds are
+  different types, and neither fits the other. The base never fits the validated type; only a
   judged literal, `.require`, a type test, or a preserving operation produces
   it. The element type stays invariant (`NonEmpty[Str]` is not
   `NonEmpty[Any]`). In a `Union`, a validated
@@ -1921,9 +2015,12 @@ let merged = {...defaults, ...overrides}
   block (6.9), so a one-element set has a comma after its element: `{"a",}`.
   Writing `{}` or `{"a"}` where a set is expected is `check.type-mismatch`,
   with a fix. The first entry of a set literal is not a bare name followed by
-  a command word (that is a block whose first statement is a command) and
-  does not begin with `[`, which starts a computed map key; parenthesize such
-  an element. Elements share one type, from context when present, evaluate
+  a command word (that is a block whose first statement is a command). No
+  entry begins with `[`: after `{` or an entry's `,`, a `[` starts a computed
+  map key (`[key]: value`), and braces are told apart by how each entry
+  begins, not by what follows its closing `]`. An element that begins with a
+  list has the list in parentheses, `{([1, 2]).len(), 3}`, which
+  `check.redundant-parens` accepts and `xsht fmt` keeps. Elements share one type, from context when present, evaluate
   once in order, and a repeated element is held once. A literal that writes
   both `key: value` entries and set elements is an error
   (`parse.brace-literal-mixed`):
@@ -2348,6 +2445,11 @@ let scale = "1.5" as Float
 let attempts = try { "many" as Int } ?? 3
 let offset = -("12" as Int)
 ```
+
+An `Int` or a `UInt` also converts to a bounded integer type (4.2):
+`n as Port` is exactly `n.require(Port)?` and fails when the value is outside
+the bounds. A bounded value converts as the integer it is, and text converts
+in two steps, `(text as Int) as Port`.
 
 The pair is the value's static type and the written type, matched exactly;
 every other pair is a check error (`check.conversion`), so no conversion
@@ -3074,7 +3176,10 @@ with config = read_config()?, db = connect(config)? {
 
 Each binding sees the earlier ones. If any initializer fails, the `else` block
 runs with the error (the common nominal type, or `Error` for mixed families).
-Bindings are not visible in the handler.
+Bindings are not visible in the handler. This statement always has its `else`,
+on the line of the closing brace or a later one; the same head without an
+`else` is a resource scope (10.4). Which form a `with` is depends on that
+word only, never on the types of its values.
 
 Parameterized blocks always put the parameters inside the brace:
 `{ |name| ... }`, except a `tempdir` scope (10.4), whose name after the word
@@ -3143,7 +3248,9 @@ the script, and it leaves with an error when the script fails, is canceled,
 or exits with a nonzero status.
 
 A `tempdir` scope (10.4) removes its directory with a deferred action of this
-kind, registered before the body runs.
+kind, registered before the body runs. A `with` resource scope (10.4)
+releases each resource with one, registered as the resource is bound; it is
+the scope for `let h = OPEN?` directly followed by `defer h.close()`.
 
 `atomically replace dest as name { ... }` publishes a file that something
 other than XSH writes (an archiver, a compiler, an image builder): the block
@@ -3738,7 +3845,7 @@ Script stdout and stderr are byte streams. Text APIs write UTF-8.
 `io.write_stdout(text)` writes without a newline, and
 `io.write_stdout_bytes(data)` writes bytes exactly, with no UTF-8 requirement.
 
-### 10.4 `cd`, `env`, `tempdir`, and `within` scopes
+### 10.4 `cd`, `env`, `tempdir`, `within`, and `with` scopes
 
 ```xsh
 cd p"build" {
@@ -3943,6 +4050,95 @@ under the outer deadline.
 `wait until condition within limit` (8.6) is this scope around a polling
 loop, and `retry backoff first..cap within limit` (8.8) uses the word for a
 limit on its delays that interrupts nothing.
+`with NAME = VALUE { ... }`, without an `else`, is the scope for a resource
+that has to be released: it binds the value, runs the body, and releases the
+value however the body ends.
+
+```xsh
+with root = fs.open_root(site)?, held = fs.lock(fp"{site}/.lock")? {
+  root.write(p"index.html", page)
+  print f"published under {held.path.name()}"
+}
+
+let size = with root = fs.open_root(site)? { root.read_text(p"index.html")?.byte_len() }?
+```
+
+`VALUE` is an expression of a built-in resource type, and there are two:
+
+| Type | From | Released as |
+|---|---|---|
+| `FsRoot` | `fs.open_root`, `fs.tempdir`, `FsRoot.open_root` | `root.close()` |
+| `FsLock` | `fs.lock` | `fs.unlock(lock)` |
+
+Any other type is a check error (`check.with-resource`) that names these, and
+that includes `Any`, an unresolved type, and a `Result` that was not
+propagated:
+
+```xsh
+with text = p"notes.txt".read_text()? { # error: check.with-resource
+  print $text
+}
+```
+
+There is no protocol a program can implement; the checker knows the resource
+types and how each is released. Of the other built-in handles, a
+`ProcessHandle`, a `NetJob`, and an open stream are already released by the
+block that owns them (11.8) and have no fallible release to state; the HTTP
+pools of `net.pool` are closed by name, not through a value; and the staged
+socket functions of the `linux` and `unix` modules are sequences, not one
+value with one release.
+
+`NAME` is immutable and in scope for the body only (`_` binds nothing). The
+value is an ordinary expression: a failure in it, such as the `?` of
+`fs.open_root(path)?`, goes where it would go anywhere else, and the body
+does not run. Several bindings are separated by commas, and line breaks may
+surround each. They are entered left to right, each value evaluated with the
+names before it in scope, and released right to left. When a later value
+fails to open, the resources already bound are released before the failure
+goes on.
+
+A resource is released on every way out of the scope: the body reaching its
+end, `return`, `break`, `continue`, a failure that propagates (`?`, `fail`, a
+failed statement, a runtime failure), `exit`, cancellation, and the deadline
+of an enclosing `within`. The release runs after the body's own defers and
+after the body's owned handles are cleaned up (8.7, 11.8), as a deferred
+action registered when the resource was bound runs.
+
+The scope follows the rule of `cd` and `env`. In statement position it
+returns `Result[Unit]`, and a failure propagates as a failed statement does
+(8.1), with or without `?`. In value position it returns `Result[T]` of the
+body's tail and needs no parentheses; the tail is computed before anything is
+released. A `Result` tail stays nested, and so does the scope as the tail of
+a `try` block. As the tail of a function that returns `Result[T]`, the scope
+with a `T` tail is the function's result. In value position the scope ends
+at its body: `else` after it is a parse error, because the grouping form is
+a statement.
+
+The scope's `Err` reports only a release that failed after the body reached
+its end. Every resource is still released; the first failure, in release
+order, is the `Err`, and a later one is reported as a cleanup failure with
+its location (8.7). Failures inside the body propagate to their ordinary
+destination, and a release never replaces or hides one: when a release fails
+after the body failed or left early, the body's failure or exit stays
+primary and the release failure is reported as a cleanup failure, exactly
+as a failing `defer` is while another failure propagates.
+
+A body may release its resource early, by `root.close()` or
+`fs.unlock(lock)`. Neither operation can be repeated (a second `close` or
+`unlock` fails with "handle is not active"), so the scope's own release
+accepts a value that is already released and does nothing. It still fails
+for a value that never named a live resource.
+
+The value may leave the scope, as the tail or through an assignment, but it
+names a released resource afterwards. The scope needs the `fs` effect and is
+rejected in pure functions.
+
+`lint.prefer-with-scope`, an opt-in note (16.1; `[lint] prefer-with-scope = true`
+or `--only`), reports `let NAME = OPEN?` directly followed by
+`defer NAME.close()` or `defer fs.unlock(NAME)` where the handle stays in its
+block. It offers no rewrite: the two shapes differ where the release fails
+after the block reached its end, which a `defer` raises from the enclosing
+function and the scope returns as its `Err`.
 
 ### 10.5 Environment access
 
@@ -4276,6 +4472,11 @@ defers run. Detached handles are released to a background reaper instead. A
 `NetJob` is consumed by its first `wait()` or `cancel()`, like a process
 handle. These are process and transfer fan-out, not an async runtime: there
 are no futures, callbacks, channels, `await`, or wait-any.
+
+An `FsRoot` and an `fs.lock` lock are not owned this way: nothing releases
+one when its block ends, and it stays open until it is closed or the script
+ends. Bind it with a `with` scope (10.4), or register its release with
+`defer` (8.7).
 
 ### 11.9 Command plans and builder blocks
 
