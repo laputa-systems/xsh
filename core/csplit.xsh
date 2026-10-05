@@ -54,6 +54,9 @@ type Format = {pre: Str, post: Str, flags: Str, width: Int, precision: Int, conv
 # Where the walk through the input stands: the next unconsumed line, how many
 # of the lines from there were already examined (and so cannot match again),
 # and the finished pieces.
+# The failure of a line number pattern met after all input was consumed.
+const DISAPPEARED = "input disappeared"
+
 type Walk = {cur: Int, held: Int, pieces: List[Piece], failure: Str}
 
 pure line_value(text: Str) -> Int {
@@ -416,22 +419,30 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       var pieces = walk.pieces
 
       if item.kind == "line" {
+        if begin >= total {
+          walk = {cur: total, held: 0, pieces: pieces, failure: DISAPPEARED}
+          continue
+        }
+
         let target = item.limit * round
         let stop = if target - 1 > begin { target - 1 } else { begin }
         let from = if begin == 0 { 0 } else { spans[begin - 1] }
 
-        if stop >= total {
+        if stop == begin and walk.held > 0 and begin + walk.held >= total {
+          pieces += [{from: from, to: from}]
+          walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
+        } else if stop > total or (stop == total and ! opts.suppress) {
           pieces += [{from: from, to: if total == 0 { 0 } else { spans[total - 1] }}]
           walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
         } else {
           let upto = if stop == 0 { 0 } else { spans[stop - 1] }
           var next = stop
-          var held = 1
+          var held = if stop > begin { 0 } else { walk.held }
 
           pieces += [{from: from, to: upto}]
 
-          if stop + 1 == target and opts.suppress {
-            next = stop + 1
+          if opts.suppress {
+            next = if stop + 1 > total { total } else { stop + 1 }
             held = 0
           }
 
@@ -484,7 +495,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           pieces += [{from: first, to: first}]
         }
 
-        walk = {cur: begin, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
+        walk = {cur: begin, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range"}
         continue
       }
 
@@ -493,13 +504,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           pieces += [{from: first, to: last}]
         }
 
-        walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range{again}"}
+        walk = {cur: total, held: 0, pieces: pieces, failure: f"{gnu.quote(item.text)}: line number out of range"}
         continue
       }
 
       let upto = if target == 0 { 0 } else { spans[target - 1] }
       var next = target
-      var held = if item.offset <= 0 { found - target + 1 } else { 0 }
+      var held = if item.offset <= 0 { found - target + 1 } else { 1 }
 
       if opts.suppress {
         next = if target + 1 > total { total } else { target + 1 }
@@ -528,7 +539,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  let writing = walk.failure == "" or opts.keep
+  let writing = walk.failure == "" or walk.failure == DISAPPEARED or opts.keep
   var made: List[Str] = []
 
   for piece in pieces {
@@ -561,6 +572,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if ! opts.quiet {
       gnu.write_text(f"{size}\n")
     }
+  }
+
+  if walk.failure == DISAPPEARED {
+    # GNU dies as the next piece is opened, leaving it and the finished ones.
+    fp"{opts.prefix + suffix(spec, made.len())}".write(b"")
   }
 
   if walk.failure != "" {

@@ -158,3 +158,33 @@ test test_csplit_operand_and_format_errors { |ctx|
   let missing = csplit_run(ctx, root, ["in", "1"])?
   assert missing.stderr == "csplit: cannot open 'in' for reading: No such file or directory\n", missing.stderr
 }
+
+test test_csplit_matches_gnu_current_line_rules { |ctx|
+  let root = test.temp_dir(ctx, name: "csplit")?
+  fp"{root}/n".write(numbers(1, 21))
+
+  let after_line = csplit_run(ctx, root, ["n", "3", "/3/"])?
+  assert after_line.stdout == b"4\n0\n47\n", "a line number leaves its own line to be matched"
+  clean(root)?
+
+  let after_offset = csplit_run(ctx, root, ["n", "/^5$/+1", "/^6$/"])?
+  assert after_offset.status == 1
+  assert after_offset.stdout == b"10\n41\n"
+  assert after_offset.stderr == "csplit: '/^6$/': match not found\n", "a regexp match leaves the line after its offset unmatched"
+
+  let last = csplit_run(ctx, root, ["n", "/20/", "5"])?
+  assert last.stdout == b"48\n0\n"
+  assert last.stderr == "csplit: '5': line number out of range\n", last.stderr
+
+  let gone = csplit_run(ctx, root, ["n", "/20/+1", "5"])?
+  assert gone.status == 1
+  assert gone.stdout == b"51\n"
+  assert gone.stderr == "csplit: input disappeared\n", gone.stderr
+  assert piece(root, "xx00")? == numbers(1, 21), "finished pieces stay"
+  assert piece(root, "xx01")? == b"", "and so does the piece being opened"
+  clean(root)?
+
+  let spare = csplit_run(ctx, root, ["--suppress-matched", "n", "21"])?
+  assert spare.status == 0, "a line number one past the end is not out of range when the matched line is suppressed"
+  assert spare.stdout == b"51\n0\n"
+}
