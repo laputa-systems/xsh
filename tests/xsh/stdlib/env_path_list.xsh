@@ -74,9 +74,14 @@ test test_a_path_list_entry_with_the_separator_fails { |ctx|
   }
 
   for source in [
-    "env XSH_PATH_LIST=$split {\n  print \"entered\"\n}\n",
+    r"""env XSH_PATH_LIST=$split {
+  print "entered"
+}
+""",
     "e\"XSH_PATH_LIST\" = split\nprint \"entered\"\n",
-    "run XSH_PATH_LIST=$split true\nprint \"entered\"\n",
+    r"""run XSH_PATH_LIST=$split true
+print "entered"
+""",
     "let plan = process.command_argv(\"true\", [\"true\"], env: {XSH_PATH_LIST: split})\nprint \"entered\"\n",
   ] {
     let failed = test.run_script(ctx, "let split = [p\"/one\", p\"/two:/three\"]\n" + source)?
