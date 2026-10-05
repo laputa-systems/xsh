@@ -182,6 +182,8 @@ impl<'a> Parser<'a> {
                     self.parse_expr_statement_arena_only(start, arena)
                 } else if self.lookahead_is_exit() {
                     self.parse_exit_arena_only(start, arena)
+                } else if self.lookahead_is_fail() {
+                    self.parse_fail_arena_only(start, arena)
                 } else {
                     self.parse_command_statement_arena_only(start, arena)
                 }

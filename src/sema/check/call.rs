@@ -419,6 +419,20 @@ impl Checker {
                     self.check_function_arg_list_arena(arena, source, args, &params, span);
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
+                // `error.failure(message)` is the error value `error.fail`
+                // wraps. Like it, the call names the module function even
+                // where `error` is bound, as it is in an `Err(error)` arm.
+                if module.as_str() == "error" && name.as_str() == "failure" {
+                    let params = [super::FunctionParamSig {
+                        name: Name::intern("message"),
+                        ty: Type::Str,
+                        schema_expectation: None,
+                        defaulted: false,
+                        rest: false,
+                    }];
+                    self.check_function_arg_list_arena(arena, source, args, &params, span);
+                    return Type::Error;
+                }
                 if self.error_families.contains_key(&module) {
                     self.note_variant_qualifier(
                         span,

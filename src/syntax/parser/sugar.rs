@@ -46,6 +46,9 @@ const TIMES_WORD: &str = "times";
 const TEMPDIR_WORD: &str = "tempdir";
 /// The word between a `tempdir` statement's name and its path.
 const AT_WORD: &str = "at";
+/// The word that begins a `fail` statement. It stays an ordinary identifier
+/// everywhere else (`test.fail`, a record field named `fail`).
+const FAIL_WORD: &str = "fail";
 
 impl Parser<'_> {
     /// Whether the statement at the cursor is `repeat COUNT times {`.
@@ -497,6 +500,100 @@ struct CallSpans {
     call: Span,
 }
 
+impl Parser<'_> {
+    /// Whether the command statement at the cursor is `fail MESSAGE`. `fail`
+    /// is not reserved: it begins the statement only where a command named
+    /// `fail` would be read, with its message after a space on the same line.
+    pub(super) fn lookahead_is_fail(&self) -> bool {
+        self.current_name().is_some_and(|name| name == FAIL_WORD)
+            && self.peek_start(1).is_some_and(|next| next > self.current_end())
+            && !matches!(
+                self.peek_tag(1),
+                None | Some(
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Comment
+                        | TokenTag::Eof
+                )
+            )
+    }
+
+    pub(super) fn parse_fail_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        let keyword = self.bump();
+        let message = self.parse_expr_id_arena_only(arena)?;
+        let guarded = self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless);
+        let end = if guarded {
+            self.previous_end()
+        } else {
+            self.expect_terminator()
+        };
+        let span = self.span(start, end);
+        let operands = FailOperands {
+            keyword,
+            message,
+            message_end: arena.expr_span(message).end(),
+        };
+        let inner = arena.push_sugar(
+            SugarForm::Fail,
+            &[ArenaSugarOperand::Expr(message)],
+            span,
+            |arena| expand_fail(arena, operands, span),
+        );
+        if guarded {
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
+        Some(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct FailOperands {
+    /// The `fail` word.
+    keyword: Span,
+    message: ExprId,
+    message_end: usize,
+}
+
+/// `fail MESSAGE` is `return Err(error.failure(MESSAGE))`.
+///
+/// A call spelled `error.failure(...)` names the module function even where
+/// `error` is a local, so the expansion means the same inside an `Err(error)`
+/// arm. The `Err` call sits on the `fail` word, so a function that cannot
+/// return this error reports there; the `error.failure` call sits on the text
+/// after the word, and a message of the wrong type reports on the message
+/// itself. The three names that can carry no diagnostic of their own take
+/// distinct prefixes of the word.
+fn expand_fail(arena: &mut ArenaProgramBuilder<'_>, operands: FailOperands, span: Span) -> StmtId {
+    let FailOperands {
+        keyword,
+        message,
+        message_end,
+    } = operands;
+    let within = |start: usize, end: usize| Span::new(span.source_id, start, end);
+    // `fail` has four bytes, so these three are distinct and none is the
+    // whole word.
+    let keyword_prefix = |len: usize| within(keyword.start(), keyword.start() + len);
+
+    let module = arena.push_ident_expr(Name::intern("error"), keyword_prefix(1));
+    let constructor = arena.push_field_expr(module, Name::intern("failure"), keyword_prefix(2));
+    arena.begin_call_args();
+    arena.push_call_arg_input(ArenaCallArgInput::Positional(message));
+    let args = arena.finish_call_args();
+    let failure = arena.push_call_expr(constructor, args, within(keyword.end(), message_end));
+
+    let err = arena.push_ident_expr(Name::intern("Err"), keyword_prefix(3));
+    arena.begin_call_args();
+    arena.push_call_arg_input(ArenaCallArgInput::Positional(failure));
+    let args = arena.finish_call_args();
+    let value = arena.push_call_expr(err, args, keyword);
+    arena.push_return(Some(ArenaExprOrRun::Expr(value)), span)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::source::SourceId;
@@ -649,6 +746,50 @@ mod tests {
         assert!(exits * 2 > sentences, "only {exits} of {sentences} are exit statements");
     }
 
+    /// `fail` is recognized where a command named `fail` would be read, so a
+    /// message that begins like an operator leaves an ordinary statement.
+    /// Either way a sentence of the production parses, bare or under a
+    /// postfix guard.
+    #[test]
+    fn every_fail_sentence_of_the_grammar_parses() {
+        let mut sentences = 0;
+        let mut fails = 0;
+        for (depth, seed, source) in sentences_of("fail_statement") {
+            sentences += 1;
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(
+                parsed.diagnostics.is_empty(),
+                "depth {depth} seed {seed}: {}\n{source}",
+                parsed.diagnostics[0].message
+            );
+            let first = parsed.arena.statement_ids().next().expect("one statement");
+            let arena = &parsed.arena.arena;
+            let guarded = match arena.stmt(first).kind {
+                ArenaStmtKind::Sugar {
+                    form: SugarForm::When | SugarForm::Unless,
+                    operands,
+                    ..
+                } => arena
+                    .sugar_operands(operands)
+                    .iter()
+                    .find_map(|operand| match operand {
+                        crate::syntax::arena::ArenaSugarOperand::Stmt(inner) => Some(*inner),
+                        _ => None,
+                    }),
+                _ => None,
+            };
+            fails += usize::from(matches!(
+                arena.stmt(guarded.unwrap_or(first)).kind,
+                ArenaStmtKind::Sugar {
+                    form: SugarForm::Fail,
+                    ..
+                }
+            ));
+        }
+        assert!(sentences > 300, "only {sentences} sentences");
+        assert!(fails * 2 > sentences, "only {fails} of {sentences} are fail statements");
+    }
+
     #[test]
     fn the_grammar_recognizes_written_sugar_statements() {
         let recognizer = Recognizer::new(grammar());
@@ -659,6 +800,8 @@ mod tests {
             include_str!("../../../docs/snippets/spec/60-tempdir.xsh"),
             include_str!("../../../tests/xsh/exit.xsh"),
             include_str!("../../../docs/snippets/spec/49-exit.xsh"),
+            include_str!("../../../tests/xsh/fail.xsh"),
+            include_str!("../../../docs/snippets/spec/61-fail.xsh"),
         ] {
             let tokens = lex_grammar_tokens(source).expect("lexes");
             for part in top_level_parts(&tokens) {

@@ -867,6 +867,9 @@ impl<'a> Writer<'a> {
                         output.push(' ');
                         self.write_block(body, indent, output);
                     }
+                    ArenaSugar::Fail { message } => {
+                        self.write_fail(message, Follow::END, output);
+                    }
                 }
             }
             ArenaStmtKind::Guard {
@@ -2000,8 +2003,22 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Writes `fail MESSAGE`, with the message safe before what follows the
+    /// statement: its end, or the word of a postfix guard.
+    fn write_fail(&mut self, message: ExprId, follow: Follow, output: &mut String) {
+        output.push_str("fail ");
+        self.write_expr_safe_in(message, Context::initializer(follow), output);
+    }
+
     fn write_guarded_action(&mut self, stmt: StmtId, indent: usize, output: &mut String) {
         let (keyword, value) = match self.arena.stmt(stmt).kind {
+            ArenaStmtKind::Sugar { form, operands, .. } if form == SugarForm::Fail => {
+                let ArenaSugar::Fail { message } = self.arena.sugar(form, operands) else {
+                    unreachable!("a `fail` statement has the operands of `fail`")
+                };
+                self.write_fail(message, Follow::WORD, output);
+                return;
+            }
             ArenaStmtKind::Return(Some(value)) => ("return", value),
             ArenaStmtKind::YieldDelegate(value) => ("yield @", ArenaExprOrRun::Expr(value)),
             ArenaStmtKind::Exit(status) => ("exit", ArenaExprOrRun::Expr(status)),

@@ -171,6 +171,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/core-print.xsh")
         }
         "language.core.exit" => include_str!("../../../docs/snippets/api/core-exit.xsh"),
+        "language.core.fail" => include_str!("../../../docs/snippets/api/core-fail.xsh"),
         _ => return None,
     };
     Some(source.trim_end().to_string())

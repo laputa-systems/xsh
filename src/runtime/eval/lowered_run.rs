@@ -7979,6 +7979,10 @@ impl Evaluator {
                 let name = lowered_str_arg_owned(values.first().cloned(), "", "user.remove", span)?;
                 lowered_runtime_result(user_module::remove(&name, remove_home, span), span)?
             }
+            RuntimeOp::ErrorFailure if values.len() == 1 => {
+                let message = lowered_str_arg_owned(values.pop(), "", "error.failure", span)?;
+                lowered_runtime_value(error_constructor("validation", message), span)?
+            }
             RuntimeOp::UtilsCache if values.len() == 1 || values.len() == 2 => {
                 let callee = values.remove(0);
                 let call_args = if values.is_empty() {

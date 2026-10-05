@@ -228,6 +228,9 @@ impl CanonicalWriter<'_> {
         let stmt = self.arena.stmt(id);
         if let Some(visited) = &mut self.expanded {
             if let ArenaStmtKind::Sugar { expansion, .. } = stmt.kind {
+                // A sugar statement can be the operand of another one
+                // (`fail MESSAGE when CONDITION`), so reaching it counts.
+                visited.push(ArenaSugarOperand::Stmt(id));
                 return self.stmt(expansion);
             }
             visited.push(ArenaSugarOperand::Stmt(id));

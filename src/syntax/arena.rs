@@ -4937,6 +4937,10 @@ impl AstArena {
             (SugarForm::Tempdir, operands) => {
                 unreachable!("`tempdir` has a name, a path, and a body, found {operands:?}")
             }
+            (SugarForm::Fail, &[ArenaSugarOperand::Expr(message)]) => ArenaSugar::Fail { message },
+            (SugarForm::Fail, operands) => {
+                unreachable!("`fail` has a message, found {operands:?}")
+            }
         }
     }
 
@@ -5602,22 +5606,25 @@ pub enum SugarForm {
     /// `tempdir NAME at PATH { BODY }`: operands are the binding that names
     /// the directory, the path expression, and the body block.
     Tempdir,
+    /// `fail MESSAGE`: the operand is the message expression.
+    Fail,
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Repeat,
         Self::When,
         Self::Unless,
         Self::Guard,
         Self::Tempdir,
+        Self::Fail,
     ];
 
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
             Self::Repeat | Self::Guard | Self::Tempdir => true,
-            Self::When | Self::Unless => false,
+            Self::When | Self::Unless | Self::Fail => false,
         }
     }
 
@@ -5655,6 +5662,7 @@ pub enum ArenaSugar {
         path: ExprId,
         body: BlockId,
     },
+    Fail { message: ExprId },
 }
 
 /// The table rows one sugar expansion added.

@@ -257,6 +257,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "block-strings",
     "print",
     "exit",
+    "fail",
 ];
 use crate::api_docs::ApiDocs;
 use crate::errors::{ErrorFacet, builtin_error_families};
@@ -1061,6 +1062,15 @@ fn core_doc(item: &str) -> ReferenceDoc {
                 "`exit STATUS` is a deliberate process exit, not Result error propagation: it produces the requested status, an Int from 0 to 255, without a runtime traceback on stderr, and `try` does not capture it. Deferred cleanup runs while the script unwinds. The statement never completes, so a block that ends with it leaves its continuation, and it accepts a postfix `when` or `unless`. `exit` is a contextual word that begins the statement where a command would be read.",
                 &["language", "exit", "exit-status", "validation", "statement"],
                 "exit STATUS",
+                &[],
+            );
+        }
+        "fail" => {
+            return reference_doc_full(
+                "Returns an error that carries a message from the enclosing function.",
+                "`fail MESSAGE` means `return Err(error.failure(MESSAGE))`: it leaves the function, not an enclosing `try`, runs deferred cleanup, ends its block like `return`, and accepts a postfix `when` or `unless`. The message is a Str and the error a plain Error, so the function returns a Result whose error type is Error. Use a declared error family instead when callers match on the failure. `fail` is a contextual word that begins the statement where a command would be read.",
+                &["language", "fail", "error", "result", "statement"],
+                "fail MESSAGE",
                 &[],
             );
         }

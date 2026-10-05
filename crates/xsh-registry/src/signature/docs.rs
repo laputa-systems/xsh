@@ -528,6 +528,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "error.fail(message) returns Result[Unit, Error] with kind validation; propagating it requires the enclosing error effect.",
             &["error", "validation", "failure", "result"],
         )),
+        ("error", "failure") => Some((
+            "Constructs an expected validation failure as an Error value.",
+            "error.failure(message) is the error that error.fail(message) wraps; the `fail MESSAGE` statement returns it as `Err`. The call names this function even where `error` is a local binding.",
+            &["error", "validation", "failure", "value"],
+        )),
         ("env", "get") => Some((
             "Reads one environment variable as text.",
             "Missing variables and invalid host bytes remain distinguishable results. A literal identifier name is written `e\"NAME\"`, which reads the same way.",

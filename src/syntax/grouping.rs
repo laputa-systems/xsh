@@ -1202,7 +1202,8 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
             | ArenaStmtKind::Break { value: Some(_) }
             | ArenaStmtKind::Sugar {
                 form: crate::syntax::arena::SugarForm::When
-                    | crate::syntax::arena::SugarForm::Unless,
+                    | crate::syntax::arena::SugarForm::Unless
+                    | crate::syntax::arena::SugarForm::Fail,
                 ..
             }
             | ArenaStmtKind::Export(_)

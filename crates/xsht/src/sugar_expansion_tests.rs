@@ -99,6 +99,18 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 core: Core::Written("proc stage(at: Path, tempdir: Int) {\n  match tempdir {\n    0 => {\n      {\n        let at: Path = at\n        fs.remove(at, missing_ok: true)\n        fs.mkdir(at)\n        defer fs.remove(at, missing_ok: true)\n        { print $at }\n      }\n    }\n    _ => {\n      {\n        let tempdir: Path = at\n        fs.remove(tempdir, missing_ok: true)\n        fs.mkdir(tempdir)\n        defer fs.remove(tempdir, missing_ok: true)\n        {\n          print $tempdir\n        }\n      }\n    }\n  }\n}\n"),
             },
         ],
+        SugarForm::Fail => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/61-fail.xsh"),
+                core: Core::Desugared,
+            },
+            // Under each postfix guard, as a match arm's statement, as the
+            // block of a `guard`, and where `error` and `fail` are locals.
+            Case {
+                sugar: "proc check(fail: Int, error: Str) -> Result[Int] {\n  fail \"negative\" when fail < 0\n  fail f\"odd: {error}\" unless fail % 2 == 0\n  guard fail < 100 else { fail error }\n  match fail {\n    0 => fail \"zero\"\n    _ => Ok(fail)\n  }\n}\n",
+                core: Core::Written("proc check(fail: Int, error: Str) -> Result[Int] {\n  if fail < 0 {\n    return Err(error.failure(\"negative\"))\n  }\n  if fail % 2 == 0 {\n  } else {\n    return Err(error.failure(f\"odd: {error}\"))\n  }\n  if fail < 100 {\n  } else { return Err(error.failure(error)) }\n  match fail {\n    0 => return Err(error.failure(\"zero\"))\n    _ => Ok(fail)\n  }\n}\n"),
+            },
+        ],
     }
 }
 

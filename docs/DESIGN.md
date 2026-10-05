@@ -30,7 +30,7 @@ justify itself as a feature. The implementation takes this literally: the
 parser builds a sugar form's expansion beside its operands, the checker and
 runtime see only the expansion, and a test compares it with the expansion the
 SPEC states (`docs/ARCHITECTURE.md`, "Adding a sugar form"). Postfix `when`
-and `unless`, `guard cond else`, and `repeat` are built this way.
+and `unless`, `guard cond else`, `repeat`, and `fail` are built this way.
 
 `guard let NAME = EXPR else { ... }` reads like the others but is not sugar.
 It puts a binding in the enclosing block, and the only core statements that

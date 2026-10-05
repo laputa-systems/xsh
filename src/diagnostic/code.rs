@@ -543,6 +543,7 @@ diagnostic_codes! {
         LintPreferDeferBlock = "lint.prefer-defer-block", warning, "Replace a single-use literal cleanup helper with a `defer` block";
         LintPreferEmptyMapLiteral = "lint.prefer-empty-map-literal", warning, "Use `{}` for an empty map in map-typed contexts";
         LintPreferEnvString = "lint.prefer-env-string", warning, "Read an environment variable with a literal identifier name as `e\"NAME\"`";
+        LintPreferFail = "lint.prefer-fail", warning, "Return a failure that only carries a message with `fail MESSAGE` instead of a one-variant error family";
         LintPreferFileLines = "lint.prefer-file-lines", warning, "Use `path.lines()?` instead of `read_text()?.lines()` in a loop";
         LintPreferFsFiles = "lint.prefer-fs-files", warning, "Use `fs.files()` instead of `fs.walk()` filtered to `kind == file`";
         LintPreferGenericRecordConstructor = "lint.prefer-generic-record-constructor", warning, "Let a constructor infer its concrete schema from the supplied fields";

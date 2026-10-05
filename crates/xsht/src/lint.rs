@@ -74,6 +74,8 @@ mod lint_env_path_list;
 
 #[path = "lint_write_mode.rs"]
 mod lint_write_mode;
+#[path = "lint_prefer_fail.rs"]
+mod lint_prefer_fail;
 
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
@@ -534,6 +536,7 @@ pub struct Linter<'a> {
     assertion_capture_depth: usize,
     duration_conversion_module_unshadowed: bool,
     list_any_bindings: lint_list_any_union::ListAnyBindings,
+    fail_candidates: lint_prefer_fail::Candidates,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -713,6 +716,7 @@ impl<'a> Linter<'a> {
             regex_recovery_context: false,
             assertion_capture_depth: 0,
             list_any_bindings: lint_list_any_union::ListAnyBindings::default(),
+            fail_candidates: lint_prefer_fail::Candidates::collect(program, source),
         };
         linter.define(
             "args",
@@ -784,6 +788,10 @@ impl<'a> Linter<'a> {
             ));
         let list_any_bindings = std::mem::take(&mut linter.list_any_bindings);
         linter.diagnostics.extend(list_any_bindings.finish());
+        let fail_candidates = std::mem::take(&mut linter.fail_candidates);
+        linter
+            .diagnostics
+            .extend(fail_candidates.finish(&program.arena, source));
         linter
             .diagnostics
             .retain(|diagnostic| lint_code_selected(only.as_deref(), diagnostic.code));
@@ -1531,6 +1539,7 @@ impl<'a> Linter<'a> {
     fn lint_stmt(&mut self, stmt_id: StmtId, exported: bool) {
         let stmt = self.arena.stmt(stmt_id);
         self.lint_propagation(stmt_id);
+        self.fail_candidates.visit_stmt(self.arena, stmt_id);
         match stmt.kind {
             ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Export(inner) => self.lint_stmt(inner, true),
@@ -12011,6 +12020,9 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_expression(&mut self, expr: ExprId) {
+        self.linter
+            .fail_candidates
+            .visit_expr(self.linter.arena, expr);
         if let ArenaExprKind::Unary {
             op: UnaryOp::Not,
             expr: inner,

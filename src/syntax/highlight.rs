@@ -405,8 +405,9 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
         return Kind::Keyword;
     }
     // `exit` is an ordinary name except where it begins `exit STATUS`: first
-    // in a statement, with the status after a space on the same line.
-    if text == "exit"
+    // in a statement, with the status after a space on the same line. `fail`
+    // begins `fail MESSAGE` under the same rule.
+    if matches!(text, "exit" | "fail")
         && statement_start(previous, source)
         && next.is_some_and(|next| {
             next.start > token.end

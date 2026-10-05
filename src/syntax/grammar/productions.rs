@@ -708,6 +708,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 seq([r("named_command"), opt(t(T::Question))]),
                 r("expression_statement"),
                 r("exit_statement"),
+                r("fail_statement"),
             ])),
         ),
         // Declarations.
@@ -1076,6 +1077,13 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "exit_statement",
             seq([w("exit"), line(r("expression")), opt(r("postfix_guard"))]),
+        ),
+        // `fail` is a contextual word: it begins the statement where a
+        // command named `fail` would be read, with its message on the line.
+        rule(
+            Statements,
+            "fail_statement",
+            seq([w("fail"), line(r("expression")), opt(r("postfix_guard"))]),
         ),
         rule(
             Statements,

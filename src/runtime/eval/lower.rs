@@ -618,6 +618,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::UserAdd
             | RuntimeOp::UserRemove
             | RuntimeOp::UtilsCache
+            | RuntimeOp::ErrorFailure
     )
 }
 
@@ -9521,6 +9522,28 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                     current_function,
                                     item_slot,
                                 )?,
+                                span,
+                            }
+                        ));
+                    }
+                    if module.as_str() == "error" && name.as_str() == "failure" {
+                        // The checker bound the sole `message` parameter.
+                        let [argument] = args_vec.as_slice() else {
+                            return None;
+                        };
+                        let message = self.lower_expr(
+                            compact_call_arg_expr(argument)?,
+                            slots,
+                            current_function,
+                            item_slot,
+                        )?;
+                        return Some(push_build_row!(
+                            self,
+                            expr,
+                            BuildExprRow::ModuleCall {
+                                cli_plan: None,
+                                op: RuntimeOp::ErrorFailure,
+                                args: vec![Some(message)],
                                 span,
                             }
                         ));

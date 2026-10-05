@@ -33,7 +33,7 @@ composition model and replaces its semantics.
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
   can leave a function only through a visible `?`, a statement-position
-  `Result[Unit]`, an `assert`, or a failed plain `run`.
+  `Result[Unit]`, an `assert`, a `fail`, or a failed plain `run`.
 - **Effects are tracked.** Pure functions cannot touch the host. Procs infer
   which host effects they use; a declared clause is a checked upper bound.
 - **Predictable execution.** Evaluation order is source order. The concurrency
@@ -87,6 +87,7 @@ Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
 statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
+`fail` at the start of a `fail` statement (8.6),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -110,7 +111,8 @@ namespace cannot be shadowed. Two names are exceptions:
 - `args` is the predeclared script-argument list. Nested scopes may declare
   their own `args`; the root binding stays the script arguments.
 - `error` is the conventional name for an error payload (`Err(error)`), so it
-  may be bound anywhere. Unshadowed `error.fail(...)` still names the module.
+  may be bound anywhere. A call written `error.fail(...)` or
+  `error.failure(...)` names the module function even where `error` is bound.
 
 Record destructuring may bind fields named like modules, because standard
 records commonly have fields such as `path`.
@@ -744,8 +746,11 @@ constructor takes exactly the declared fields.
 {{.spec.error_message_argument.source}}
 ```
 
-`error.fail(message)` builds a `Result[Unit, Error]` validation failure; it is
-the shortest way to report an expected failure from a fallible function.
+`error.failure(message)` builds a plain `Error` that carries only its message,
+and `error.fail(message)` is `Err(error.failure(message))` as a
+`Result[Unit, Error]`. The `fail` statement (8.6) returns that error from a
+function with any `Ok` type and is the usual way to report an expected
+failure.
 
 `Err(outer, cause: inner)` translates one error into another and keeps the
 original as diagnostic cause. The outer error's family, payload, and Result
@@ -1437,6 +1442,10 @@ A statement-position `Result[Unit]` propagates without `?` (8.1), so
 Both leave a `?` whose operand would otherwise be the value of its body, such
 as the tail of a `try` block that is bound.
 
+`?` passes on a failure that already exists. A function that detects a
+failure itself states it with `fail` (8.6), or with `assert` (8.2) when a
+false condition is the whole report.
+
 ### 8.4 Fallback with `??`
 
 `left ?? fallback` yields the `Ok` payload of a `Result`, or a non-null
@@ -1505,7 +1514,8 @@ statement is a `repeat` statement when it begins with the word `repeat` and,
 on the same line, its count is followed by the word `times` directly before
 `{`; neither word is reserved.
 
-`return`, `break`, `continue`, `yield`, and `exit` accept a postfix guard:
+`return`, `break`, `continue`, `yield`, `exit`, and `fail` accept a postfix
+guard:
 
 ```xsh
 {{.spec.guard_modifiers.source}}
@@ -1561,6 +1571,39 @@ continuation on every path (by `return`, `break`, `continue`, or `exit`), or
 the checker reports `check.guard-fallthrough`. A
 fallible call is not termination. The block takes no parameter and creates no
 boundary.
+
+`fail message` returns from the enclosing function with an error that carries
+`message`. It is sugar:
+
+```xsh
+{{.spec.fail.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.fail.desugared}}
+```
+
+So it is a `return`: it leaves the function and not an enclosing `try` or
+`retry`, deferred cleanup runs, it ends a block the way `return` does, and it
+accepts a postfix guard (`fail "no input" unless ready`). The message is a
+`Str` evaluated once. The error is a plain `Error` (4.10), so the function
+must return a `Result` whose error type is `Error`, as `Result[T]` is; in any
+other function, and at the top level of a script
+(`check.return-outside-callable`), the diagnostics are those of the `return`.
+Use `fail` for a
+failure that callers report and do not branch on, and a declared family for
+one they match: `lint.prefer-fail` rewrites the constructors of a private
+family that has one message-only variant and that nothing in its file names
+in a pattern or a type, and then deletes the family. An uncaught failure is
+reported as `validation` where it was reported under the family's name.
+
+`fail` is not a reserved word. A statement is a `fail` statement when it
+begins with the word `fail` followed, after a space on the same line, by its
+message, in the position where a command named `fail` would otherwise be read
+(10.1); `fail = 1`, `fail(1)`, and `test.fail("...")` are an assignment and
+two calls. A proc named `fail` is called with parentheses.
 
 `guard let target = expr else { ... }` binds `target` (with an optional type
 annotation) when `expr` succeeds and otherwise runs the block. `expr`

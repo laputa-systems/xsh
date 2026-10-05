@@ -476,4 +476,5 @@ pub enum RuntimeOp {
     DigestHex,
     DigestBase64,
     UtilsCache,
+    ErrorFailure,
 }

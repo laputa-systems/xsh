@@ -192,15 +192,26 @@ fn linux_uptime_entry(
 }
 
 fn error_module() -> ModuleSig {
-    module_sig(vec![(
-        "fail",
-        sig(
-            vec![param("message", Type::Str)],
-            result(Type::Unit),
-            false,
-            RuntimeOp::ResultContext,
+    module_sig(vec![
+        (
+            "fail",
+            sig(
+                vec![param("message", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ResultContext,
+            ),
         ),
-    )])
+        (
+            "failure",
+            sig(
+                vec![param("message", Type::Str)],
+                Type::Error,
+                true,
+                RuntimeOp::ErrorFailure,
+            ),
+        ),
+    ])
 }
 
 fn applet_user_type() -> Type {
