@@ -83,6 +83,9 @@ pub(crate) fn interpolation_end(source: &str, start: usize) -> InterpolationEnd 
             _ => {}
         }
         lexer.lex_token();
+        if literal::InterpolationScan::unwinding() {
+            return InterpolationEnd::Unclosed;
+        }
         if lexer.offset == token_start {
             lexer.offset += 1;
         }
@@ -969,6 +972,52 @@ mod tests {
                 .map(|flags| (flags.has_interpolation, flags.raw_literal)),
             Some((false, false))
         );
+    }
+
+    // Strings nested in interpolations past the limit are one diagnostic,
+    // and the lexer stops where the limit is reached: every scan that
+    // encloses the refused one ends with it. Each once went on from where
+    // the refused scan started and read the rest of the input again, which
+    // took minutes for a million levels. The scans are counted, not timed,
+    // and run on the stack a binary lexes on: a main thread's at most, or
+    // the larger one an unoptimized build prepares scripts on.
+    #[test]
+    fn nesting_past_the_limit_stops_the_lexer_at_the_limit() {
+        use crate::syntax::literal::InterpolationScan;
+        const LEVELS: usize = 200_000;
+        let limit = u64::from(crate::syntax::arena::MAX_NESTING_DEPTH);
+        for (open, close) in [("f\"{", "}\""), ("\"${", "}\"")] {
+            let source = format!("let x = {}1{}\n", open.repeat(LEVELS), close.repeat(LEVELS));
+            let (asked, codes, tokens) = std::thread::Builder::new()
+                .stack_size(8 * 1024 * 1024)
+                .spawn(move || {
+                    crate::runner::on_preparation_stack(move || {
+                        let before = InterpolationScan::asked();
+                        let output = Lexer::new(SourceId::new(0), &source).lex_compact();
+                        (
+                            InterpolationScan::asked() - before,
+                            output
+                                .diagnostics
+                                .iter()
+                                .map(|diagnostic| diagnostic.code)
+                                .collect::<Vec<_>>(),
+                            output.token_table.len(),
+                        )
+                    })
+                })
+                .expect("spawn the lexing thread")
+                .join()
+                .expect("the lexer finishes");
+            assert!(
+                codes.contains(&Some(DiagnosticCode::ParseNestingDepth)),
+                "{open}: {codes:?}"
+            );
+            // One scan per level up to the limit and the one that is
+            // refused; the string's own scan and its decoding each ask once
+            // more per level they reach.
+            assert!(asked <= 4 * (limit + 1), "{open}: asked for {asked} scans");
+            assert!(tokens < 16, "{open}: {tokens} tokens");
+        }
     }
 
     #[test]

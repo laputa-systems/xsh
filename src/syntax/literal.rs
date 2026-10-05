@@ -119,6 +119,9 @@ pub(crate) fn scan_quoted_literal(
             } else {
                 1
             };
+            if InterpolationScan::unwinding() {
+                return Some(QuotedScan::Unterminated { end: bytes.len() });
+            }
             continue;
         }
         if command_string_interpolates(prefix.kind, prefix.raw)
@@ -129,6 +132,9 @@ pub(crate) fn scan_quoted_literal(
                 offset = close + 1;
             } else {
                 offset += 2;
+            }
+            if InterpolationScan::unwinding() {
+                return Some(QuotedScan::Unterminated { end: bytes.len() });
             }
             continue;
         }
@@ -154,11 +160,30 @@ fn skip_string_in_expr(source: &str, start: usize) -> Option<usize> {
     }
 }
 
+/// The interpolation scans of one thread.
+#[derive(Clone, Copy)]
+struct InterpolationScans {
+    /// How many are open.
+    open: u32,
+    /// Whether one was refused since the flag was last taken.
+    refused: bool,
+    /// Whether one was refused and a scan that encloses it is still open.
+    unwinding: bool,
+    /// How many were asked for; only tests read it.
+    #[cfg(test)]
+    asked: u64,
+}
+
 thread_local! {
-    /// How many interpolation scans are open on this thread, and whether one
-    /// was refused since the flag was last taken.
-    static INTERPOLATION_SCANS: std::cell::Cell<(u32, bool)> =
-        const { std::cell::Cell::new((0, false)) };
+    static INTERPOLATION_SCANS: std::cell::Cell<InterpolationScans> = const {
+        std::cell::Cell::new(InterpolationScans {
+            open: 0,
+            refused: false,
+            unwinding: false,
+            #[cfg(test)]
+            asked: 0,
+        })
+    };
 }
 
 /// An open scan for the end of an interpolation.
@@ -168,36 +193,68 @@ thread_local! {
 /// once per string nested in a string. They take one of these each, and are
 /// refused past the nesting limit, which keeps their stack use bounded on
 /// input of any depth.
+///
+/// A refusal ends every scan that encloses it: each scanner stops as soon as
+/// it sees `unwinding`, and no scan opens until the outermost one has
+/// closed. Otherwise each enclosing scanner would go on from where the
+/// refused one started and read the rest of the input again, once per level.
 pub(crate) struct InterpolationScan(());
 
 impl InterpolationScan {
     pub(crate) fn open() -> Option<Self> {
-        INTERPOLATION_SCANS.with(|scans| {
-            let (open, _) = scans.get();
-            if open >= crate::syntax::arena::MAX_NESTING_DEPTH {
-                scans.set((open, true));
-                return None;
+        INTERPOLATION_SCANS.with(|cell| {
+            let mut scans = cell.get();
+            #[cfg(test)]
+            {
+                scans.asked += 1;
             }
-            scans.set((open + 1, scans.get().1));
-            Some(Self(()))
+            let opened = !scans.unwinding && scans.open < crate::syntax::arena::MAX_NESTING_DEPTH;
+            if opened {
+                scans.open += 1;
+            } else {
+                // The limit is above zero, so a refused scan is always
+                // enclosed by an open one, which ends the unwinding.
+                scans.refused = true;
+                scans.unwinding = true;
+            }
+            cell.set(scans);
+            // Built only when opened: dropping one closes a scan.
+            opened.then(|| Self(()))
         })
     }
 
     /// Whether a scan was refused since this was last asked.
     pub(crate) fn take_refused() -> bool {
-        INTERPOLATION_SCANS.with(|scans| {
-            let (open, refused) = scans.get();
-            scans.set((open, false));
+        INTERPOLATION_SCANS.with(|cell| {
+            let mut scans = cell.get();
+            let refused = std::mem::take(&mut scans.refused);
+            cell.set(scans);
             refused
         })
+    }
+
+    /// Whether a scan was refused inside a scan that is still open, which
+    /// must then stop without a result.
+    pub(crate) fn unwinding() -> bool {
+        INTERPOLATION_SCANS.with(|cell| cell.get().unwinding)
+    }
+
+    /// How many scans this thread has asked for.
+    #[cfg(test)]
+    pub(crate) fn asked() -> u64 {
+        INTERPOLATION_SCANS.with(|cell| cell.get().asked)
     }
 }
 
 impl Drop for InterpolationScan {
     fn drop(&mut self) {
-        INTERPOLATION_SCANS.with(|scans| {
-            let (open, refused) = scans.get();
-            scans.set((open - 1, refused));
+        INTERPOLATION_SCANS.with(|cell| {
+            let mut scans = cell.get();
+            scans.open -= 1;
+            if scans.open == 0 {
+                scans.unwinding = false;
+            }
+            cell.set(scans);
         });
     }
 }
