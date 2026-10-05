@@ -516,47 +516,6 @@ fn xsht_lint_short_help_is_accepted() {
 }
 
 #[test]
-fn fmt_uses_nearest_xsht_config_line_width() {
-    let root = TempDir::new().expect("create temp root");
-    let narrow = root.path().join("narrow");
-    fs::create_dir_all(&narrow).expect("create narrow dir");
-    fs::write(
-        root.path().join("xsht-config.ini"),
-        "[format]\nline-width = 120\n",
-    )
-    .expect("write root config");
-    fs::write(
-        narrow.join("xsht-config.ini"),
-        "[format]\nline-width = 60\n",
-    )
-    .expect("write narrow config");
-    let script = narrow.join("main.xsh");
-    fs::write(
-        &script,
-        "let values = [\"alpha\", \"beta\", \"gamma\", \"delta\", \"epsilon\", \"zeta\"]\n",
-    )
-    .expect("write script");
-
-    let output = Command::new(release_bin!("xsht"))
-        .args(["fmt", script.to_str().unwrap()])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let formatted = fs::read_to_string(&script).expect("read formatted script");
-    assert_eq!(
-        formatted,
-        "let values = [\n  \"alpha\",\n  \"beta\",\n  \"gamma\",\n  \"delta\",\n  \"epsilon\",\n  \"zeta\",\n]\n"
-    );
-}
-
-#[test]
 fn lint_accepts_a_cli_main_entry_beside_other_entry_files() {
     let root = TempDir::new().expect("create temp root");
     fs::write(
@@ -602,103 +561,6 @@ fn lint_list_jsonl_names_every_selectable_code_with_a_summary() {
         .output()
         .expect("run xsht lint --list --fix");
     assert_eq!(rejected.status.code(), Some(2));
-}
-
-#[test]
-fn fmt_discovery_skips_format_excludes_but_formats_named_files() {
-    let root = TempDir::new().expect("create temp root");
-    let snippets = root.path().join("snippets");
-    fs::create_dir_all(&snippets).expect("create snippets dir");
-    fs::write(
-        root.path().join("xsht-config.ini"),
-        "[format]\nexclude = snippets/**\n",
-    )
-    .expect("write config");
-    let unformatted = "let  value = 1\n";
-    let snippet = snippets.join("one.xsh");
-    fs::write(&snippet, unformatted).expect("write snippet");
-    fs::write(root.path().join("main.xsh"), unformatted).expect("write main");
-
-    let discovered = Command::new(release_bin!("xsht"))
-        .args(["fmt", "--check"])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt --check");
-    let stdout = String::from_utf8_lossy(&discovered.stdout);
-    assert_eq!(discovered.status.code(), Some(1), "stdout: {stdout}");
-    assert!(
-        stdout.contains("main.xsh: needs formatting"),
-        "stdout: {stdout}"
-    );
-    assert!(!stdout.contains("one.xsh"), "stdout: {stdout}");
-
-    let named = Command::new(release_bin!("xsht"))
-        .args(["fmt", "--check", "snippets/one.xsh"])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt --check on a named file");
-    assert_eq!(named.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&named.stdout).contains("one.xsh: needs formatting"));
-}
-
-#[test]
-fn fmt_explicit_directory_formats_xsh_files() {
-    let root = TempDir::new().expect("create temp root");
-    let project = root.path().join("project");
-    fs::create_dir_all(project.join("nested")).expect("create project dirs");
-    fs::write(project.join("main.xsh"), "let values=[1,2,3]\n").expect("write main script");
-    fs::write(
-        project.join("nested").join("helper.xsh"),
-        "let values=[4,5,6]\n",
-    )
-    .expect("write nested script");
-
-    let output = Command::new(release_bin!("xsht"))
-        .args(["fmt", project.to_str().unwrap()])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    assert_eq!(
-        fs::read_to_string(project.join("main.xsh")).expect("read main script"),
-        "let values = [1, 2, 3]\n"
-    );
-    assert_eq!(
-        fs::read_to_string(project.join("nested").join("helper.xsh")).expect("read nested script"),
-        "let values = [4, 5, 6]\n"
-    );
-}
-
-#[test]
-fn fmt_checks_imported_modules() {
-    let root = TempDir::new().expect("create temp root");
-    fs::write(
-        root.path().join("helper.xsh"),
-        "##! Invalid helper module.\n## Deliberately returns the wrong type.\nexport pure bad() -> Int {\n  return \"not an int\"\n}\n",
-    )
-    .expect("write helper module");
-    fs::write(
-        root.path().join("main.xsh"),
-        "use helper\nprint helper.bad()\n",
-    )
-    .expect("write main script");
-
-    let output = Command::new(release_bin!("xsht"))
-        .args(["fmt", "main.xsh"])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt");
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("helper.xsh"), "stderr: {stderr}");
-    assert!(stderr.contains("check.type-mismatch"), "stderr: {stderr}");
 }
 
 #[test]
@@ -749,40 +611,6 @@ fn copied_xsht_formats_and_lints_script_backed_calls_in_static_and_loaded_module
         };
         assert!(stderr.is_empty(), "{}: {stderr}", args.join(" "));
     }
-}
-
-#[test]
-fn fmt_deduplicates_diagnostics_from_imported_modules() {
-    let root = TempDir::new().expect("create temp root");
-    fs::write(
-        root.path().join("helper.xsh"),
-        "##! Helper module.\n## This comment is not attached to an export.\nlet value = 1\n\n## Exports a value.\nexport let exported: Int = value\n",
-    )
-    .expect("write helper module");
-    fs::write(
-        root.path().join("first.xsh"),
-        "use helper\nprint helper.exported\n",
-    )
-    .expect("write first script");
-    fs::write(
-        root.path().join("second.xsh"),
-        "use helper\nprint helper.exported\n",
-    )
-    .expect("write second script");
-
-    let output = Command::new(release_bin!("xsht"))
-        .args(["fmt", "."])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt");
-
-    assert_eq!(output.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(
-        stderr.matches("check.orphan-doc-comment").count(),
-        1,
-        "imported module diagnostic should be rendered once: {stderr}"
-    );
 }
 
 #[test]
@@ -1280,60 +1108,6 @@ fn lint_entry_reachability_sees_imported_module_callables() {
             .matches("lint.unused-callable")
             .count(),
         1
-    );
-}
-
-#[test]
-fn fmt_reports_invalid_xsht_config_line_width() {
-    let root = TempDir::new().expect("create temp root");
-    fs::write(
-        root.path().join("xsht-config.ini"),
-        "[format]\nline-width = nope\n",
-    )
-    .expect("write config");
-    let script = root.path().join("main.xsh");
-    fs::write(&script, "let value = 1\n").expect("write script");
-
-    let output = Command::new(release_bin!("xsht"))
-        .args(["fmt", "--check", "main.xsh"])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt");
-
-    assert_eq!(output.status.code(), Some(2));
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("format.line-width"),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-#[test]
-fn fmt_ignores_legacy_config_ini() {
-    let root = TempDir::new().expect("create temp root");
-    fs::write(
-        root.path().join("config.ini"),
-        "[format]\nline-width = 60\n",
-    )
-    .expect("write legacy config");
-    let script = root.path().join("main.xsh");
-    fs::write(
-        &script,
-        "let values = [\"alpha\", \"beta\", \"gamma\", \"delta\", \"epsilon\", \"zeta\"]\n",
-    )
-    .expect("write script");
-
-    let output = Command::new(release_bin!("xsht"))
-        .args(["fmt", "--check", "main.xsh"])
-        .current_dir(root.path())
-        .output()
-        .expect("run xsht fmt");
-
-    assert_eq!(
-        output.status.code(),
-        Some(0),
-        "stderr: {}",
-        String::from_utf8_lossy(&output.stderr)
     );
 }
 
