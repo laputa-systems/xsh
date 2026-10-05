@@ -2853,6 +2853,16 @@ Contracts worth knowing without consulting the reference:
 {{.spec.path_glob.source}}
 ```
 
+- An operation on one path is a `Path` method: `out.write(text)`, not
+  `fs.write(out, text)`. Eleven operations still have both spellings, with
+  the same parameters after the path, the same result, and the same failures:
+  `chmod`, `copy`, `executable`, `exists`, `metadata`, `mkdir`, `read_text`,
+  `remove`, `rename`, `write`, and `write_atomic`. `lint.prefer-path-method`
+  rewrites the `fs` call when its first argument is statically a `Path`,
+  moving that argument in front of the call and leaving the rest as written,
+  so operands are still evaluated left to right. `fs` keeps what has no
+  single path to be a method of: the working directory and roots, traversal,
+  locks, mounts, temporary files, and installs.
 - `Path.is_dir()`, `Path.is_file()`, and `Path.is_symlink()` each return
   `Result[Bool]` and ask what the path itself is:
 

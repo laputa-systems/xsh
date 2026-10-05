@@ -633,6 +633,7 @@ diagnostic_codes! {
         LintPreferWriteMode = "lint.prefer-write-mode", warning, "Merge a write directly followed by a `chmod` of the same path into `write(..., mode: M)`";
         LintPreferForIndex = "lint.prefer-for-index", warning, "Use `for index, item in list` (or `for item in list`) instead of a counter loop that only walks a list";
         LintPreferPathKind = "lint.prefer-path-kind", warning, "Test a path's kind with `is_dir()`, `is_file()`, or `is_symlink()` instead of comparing `metadata()?.kind`";
+        LintPreferPathMethod = "lint.prefer-path-method", warning, "Call the `Path` method instead of the `fs` function that takes the path first";
     }
     Format {
         FormatEquivalence = "format-equivalence", error, "Refuse to rewrite a file when formatting would change its parse";

@@ -84,6 +84,9 @@ mod lint_prefer_fail;
 #[path = "lint_path_kind.rs"]
 mod lint_path_kind;
 
+#[path = "lint_fs_method.rs"]
+mod lint_fs_method;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -10638,6 +10641,14 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(kind);
+        let method = lint_fs_method::fs_function_with_a_path_method(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            fs_is_shadowed,
+            expr,
+        );
+        self.diagnostics.extend(method);
     }
 
     fn lint_redundant_named_bool(
