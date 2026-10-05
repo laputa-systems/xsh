@@ -816,6 +816,8 @@ proc consider_suffix(n: Float, unit: Str, method: Str, precision: Int) -> Suffix
   let tail = if unit == "iec-i" { "i" } else { "" }
 
   if scaled.abs() >= bases[1] {
+    return {value: n, suffix: "", err: "Number is too big and unsupported"} when index == 10
+
     return {value: scaled / bases[1], suffix: letters[index] + tail, err: ""}
   }
 
