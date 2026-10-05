@@ -321,7 +321,7 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
     let pid = process.current_pid()?
     let dir = fp"/tmp/xsh-llvm-lines-{pid}"
 
-    if ! dir.exists()? {
+    if ! dir.exists() {
       dir.mkdir()
     }
 

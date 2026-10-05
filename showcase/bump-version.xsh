@@ -30,7 +30,7 @@ proc main(...argv: List[Str]) [fs, error] {
     },
   )?
 
-  if ! opts.manifest.exists()? {
+  if ! opts.manifest.exists() {
     print f"error: {opts.manifest} not found"
     exit 1
   }

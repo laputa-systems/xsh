@@ -277,7 +277,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
       line_match,
       invert,
       color,
-    )? {
+    ) {
       any_match = true
 
       return when quiet

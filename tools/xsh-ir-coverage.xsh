@@ -1180,7 +1180,7 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
   var scans = []
 
   for corpus_root in default_corpus_roots(root) {
-    continue unless corpus_root.exists()?
+    continue unless corpus_root.exists()
     roots += [corpus_root.strip_prefix(display_root)?.display()]
 
     for entry in fs.walk(corpus_root)?
@@ -1231,7 +1231,7 @@ proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Res
   var scans = []
 
   for corpus_root in default_corpus_roots(root) {
-    continue unless corpus_root.exists()?
+    continue unless corpus_root.exists()
     roots += [corpus_root.strip_prefix(display_root)?.display()]
 
     for entry in fs.walk(corpus_root)?
@@ -1419,7 +1419,7 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
   var scans = []
 
   for corpus_root in default_corpus_roots(root) {
-    continue unless corpus_root.exists()?
+    continue unless corpus_root.exists()
     roots += [corpus_root.strip_prefix(display_root)?.display()]
 
     for entry in fs.walk(corpus_root)?

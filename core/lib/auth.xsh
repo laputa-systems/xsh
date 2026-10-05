@@ -155,7 +155,7 @@ export proc read_passwd_entries() [fs, env, error] -> Result[List[PasswdEntry], 
 export proc read_shadow_records() [fs, env, error] -> Result[List[ShadowRecord], Error] {
   let path_value = shadow_path()?
 
-  if ! path_value.exists()? {
+  if ! path_value.exists() {
     let empty: List[ShadowRecord] = []
     return empty
   }

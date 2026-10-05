@@ -547,9 +547,9 @@ export proc capture_smbios_bundle(
 
   let relative = p"sys/firmware/dmi/tables/DMI"
   let entry_relative = p"sys/firmware/dmi/tables/smbios_entry_point"
-  if bundle.exists(p"capture.json")? or bundle.exists(relative)? or bundle.exists(
+  if bundle.exists(p"capture.json") or bundle.exists(relative) or bundle.exists(
     entry_relative,
-  )? {
+  ) {
     return Err(smbios_check_failure("SMBIOS capture destination already contains source data"))
   }
 
@@ -640,7 +640,7 @@ proc validate_smbios_bundle_data(bundle: FsRoot) [fs, error] -> Result[Validated
   let entry_relative = p"sys/firmware/dmi/tables/smbios_entry_point"
   var entry_data: Bytes? = null
   if capture.entry_point.sha256_hex == null {
-    if capture.entry_point.byte_count != 0 or bundle.exists(entry_relative)? {
+    if capture.entry_point.byte_count != 0 or bundle.exists(entry_relative) {
       return Err(smbios_check_failure("SMBIOS entry point absence differs from metadata"))
     }
   } else {
@@ -1122,7 +1122,7 @@ export proc corroborate_smbios_bundle(
     "dmidecode-reference.json",
     "dmidecode-comparison.json",
   ] {
-    if bundle.exists(fp"{name}")? {
+    if bundle.exists(fp"{name}") {
       return Err(smbios_check_failure("SMBIOS bundle already contains dmidecode corroboration"))
     }
   }

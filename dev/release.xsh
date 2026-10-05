@@ -158,11 +158,11 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
     for product in targets.products {
       let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
       expected_files += [artifact.name, f"{artifact.name}.sha256"]
-      if artifact.exists()? {
+      if artifact.exists() {
         artifact.chmod(0o755)
       }
 
-      if ! artifact.exists()? or ! artifact.executable()? or artifact.metadata()?.size == 0 {
+      if ! artifact.exists() or ! artifact.executable() or artifact.metadata()?.size == 0 {
         return Err(
           stages.StageError.Failed(
             stage: "release-validate",
@@ -173,7 +173,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
       }
 
       let checksum = fp"{artifact}.sha256"
-      if ! checksum.exists()? {
+      if ! checksum.exists() {
         return Err(
           stages.StageError.Failed(
             stage: "release-validate",

@@ -104,7 +104,7 @@ proc main(...argv: List[Str]) [fs, process, error, io] -> Result[Int] {
     io.write_stdout(options.init_string)
   }
 
-  if ! options.no_issue and options.issue_file.exists()? {
+  if ! options.no_issue and options.issue_file.exists() {
     io.write_stdout(options.issue_file.read_text()?)
   }
 

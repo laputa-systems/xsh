@@ -6,7 +6,7 @@ use stage as stages
 export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process, error, io] -> Result[Unit, Error] {
   let product = fp"{ctx.target_dir}/{ctx.target.triple}/dist/{name}"
 
-  if ! product.exists()? {
+  if ! product.exists() {
     return Err(
       stages.StageError.Failed(
         stage: "verify-binary",
@@ -28,7 +28,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
     )
   }
 
-  if ! product.executable()? {
+  if ! product.executable() {
     return Err(
       stages.StageError.Failed(
         stage: "verify-binary",

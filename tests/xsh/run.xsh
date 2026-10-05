@@ -208,7 +208,7 @@ package.build()?
 
 test test_run_unknown_name_returns_process_error {
   env PATH="/bin:/usr/bin" {
-    let missing = run.text command-not-builtin
+    let missing = try run.text command-not-builtin
     test.error_kind(missing, "not-found")
   }
 }
@@ -485,12 +485,12 @@ test test_signaled_status_exposes_total_signal_helpers {
 test test_large_stdout_capture_drains_and_limit_is_error {
   let out = run.bytes head -c 131072 /dev/zero ?
   assert out.len() == 131072
-  let too_large = run.bytes head -c 16777217 /dev/zero
+  let too_large = try run.bytes head -c 16777217 /dev/zero
   test.error_kind(too_large, "capture-limit")
 }
 
 test test_invalid_utf8_text_capture_is_a_run_error {
-  let invalid = run.text sh -c "printf '\\377'"
+  let invalid = try run.text sh -c "printf '\\377'"
   test.error_kind(invalid, "invalid-utf8")
 }
 
@@ -796,22 +796,22 @@ test test_pipeline_capture_takes_last_stdout_and_fails_on_any_segment {
   let head = run.text yes | run head -n 2 ?
   assert head == "y\ny\n"
 
-  let late = run.text true | run false
+  let late = try run.text true | run false
   test.error_kind(late, "pipeline-failure")
   if let Err(error) = late {
     assert "pipeline segment 1 `false` exited with status 1" in error.message, error.message
   }
 
-  let early = run.bytes sh -c "echo lost; exit 2" | run cat
+  let early = try run.bytes sh -c "echo lost; exit 2" | run cat
   if let Err(error) = early {
     assert "pipeline segment 0 `sh` exited with status 2" in error.message, error.message
   } else {
     test.fail("expected a pipeline failure")
   }
 
-  let invalid = run.text printf "\\377" | run cat
+  let invalid = try run.text printf "\\377" | run cat
   test.error_kind(invalid, "invalid-utf8")
-  let too_large = run.bytes head -c 16777217 /dev/zero | run cat
+  let too_large = try run.bytes head -c 16777217 /dev/zero | run cat
   test.error_kind(too_large, "capture-limit")
   let accepted = run.text true | run --accept=[0, 1] sh -c "echo kept; exit 1" ?
   assert accepted == "kept\n"
@@ -1057,7 +1057,7 @@ beta
   let content = file.read_text()?
   let mode = 0o755
   let label = f"mode {mode}"
-  let raw_lines = run.stream --text printf "%s\n" alpha beta gamma
+  let raw_lines = try run.stream --text printf "%s\n" alpha beta gamma
   let lines = raw_lines
     |> drop(1)
     |> take(1)
@@ -1093,25 +1093,25 @@ proc run_capture_match_assignments(ok_cmd: Str) [process] -> Str {
   var size = 0
   var stdout = ""
   var failure = ""
-  match run.text printf "%s " $ok_cmd {
+  match try run.text printf "%s " $ok_cmd {
     Ok(body) => text = body.trim()
     Err(err) => text = f"text failed: {err.message}"
   }
 
-  if let Ok(body) = run.bytes printf "%s" $ok_cmd {
+  if let Ok(body) = try run.bytes printf "%s" $ok_cmd {
     size = body.len()
   }
 
-  if let Ok(captured) = run.capture --text printf "%s " $ok_cmd {
+  if let Ok(captured) = try run.capture --text printf "%s " $ok_cmd {
     stdout = captured.stdout.trim()
   }
 
-  match run.text sh -c "exit 3" {
+  match try run.text sh -c "exit 3" {
     Ok(body) => failure = body.trim()
     Err(err) => failure = f"failed {err.message != ""}"
   }
 
-  let label = if let Ok(body) = run.text printf " %s " $ok_cmd { body.trim() } else { "none" }
+  let label = if let Ok(body) = try run.text printf " %s " $ok_cmd { body.trim() } else { "none" }
   f"{text}|{size}|{stdout}|{failure}|{label}"
 }
 

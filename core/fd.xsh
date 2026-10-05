@@ -121,7 +121,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
       continue when (kind == "f" or kind == "file") and entry.kind != "file"
       continue when (kind == "d" or kind == "dir" or kind == "directory") and entry.kind != "dir"
       continue when (kind == "l" or kind == "symlink") and entry.kind != "symlink"
-      continue when (kind == "x" or kind == "executable") and ! entry.path.executable()?
+      continue when (kind == "x" or kind == "executable") and ! entry.path.executable()
       continue when ext != "" and entry.ext != ext
       continue when excludes |> any glob_match(., name)
       continue when opts.glob and ! glob_match(match_pattern, name)

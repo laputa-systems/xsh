@@ -30,7 +30,7 @@ proc main(...argv: List[Str]) [process, error] {
 
   let results: List[PingResult] = opts.hosts
     |> par-map { |host|
-      let ping_out = run.text "ping" "-c" $opts.count "-q" $host
+      let ping_out = try run.text "ping" "-c" $opts.count "-q" $host
       var result: PingResult = PingResult(host:, avg: "--", ok: false)
 
       if let Ok(output) = ping_out {

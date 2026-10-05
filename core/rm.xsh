@@ -41,12 +41,12 @@ proc main(...argv: List[Str]) [fs, error] {
   for item in targets {
     let target = fp"{item}"
 
-    if ! target.exists()? {
+    if ! target.exists() {
       continue when force
       target.remove()
     }
 
-    if target.is_dir()? {
+    if target.is_dir() {
       guard recursive else {
         return Err(AppletError.Usage(f"rm: '{target}' is a directory"))
       }

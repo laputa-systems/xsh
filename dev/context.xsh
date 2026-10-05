@@ -30,7 +30,7 @@ export proc require_root() [fs, error] -> Result[Path, Error] {
   let required = [fp"{root}/Cargo.toml", fp"{root}/rust-toolchain.toml", fp"{root}/xsht-config.ini"]
 
   for required_path in required {
-    guard required_path.exists()? else {
+    guard required_path.exists() else {
       return Err(ContextError.WrongDirectory(root:))
     }
   }

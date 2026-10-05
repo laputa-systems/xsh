@@ -11,7 +11,7 @@ other"""
 }
 
 test test_basename_runs_as_executable_shebang_script { |ctx|
-  if ! p"/bin/xsh".exists()? {
+  if ! p"/bin/xsh".exists() {
     test.skip("/bin/xsh is not installed")
   }
 

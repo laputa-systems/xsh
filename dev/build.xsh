@@ -11,7 +11,7 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
   let libc = /usr/lib/libc.so
   let libgcc = /usr/lib/libgcc_s.so.1
 
-  return when ! libc.exists()? or ! libgcc.exists()?
+  return when ! libc.exists() or ! libgcc.exists()
 
   let sysroot_text: Str = run.text rustc --print sysroot ?
   let sysroot = fp"{sysroot_text.trim()}/lib/rustlib/{ctx.target.triple}/lib"

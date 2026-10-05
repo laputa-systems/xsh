@@ -45,7 +45,7 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
   let candidates = [fp"{sysroot}/lib/rustlib/{host}/bin/{tool}", fp"{sysroot}/bin/{tool}"]
 
   for candidate in candidates {
-    return candidate when candidate.exists()? and candidate.executable()?
+    return candidate when candidate.exists() and candidate.executable()
   }
 
   for entry in fs.walk(sysroot)? {
@@ -77,7 +77,7 @@ proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
 proc collect_objects(dir: Path) [fs, error] -> Result[List[Str]] {
   var objects = []
 
-  return objects unless dir.exists()?
+  return objects unless dir.exists()
 
   for entry in fs.children(dir)?
     |> where .kind == "file" and .executable

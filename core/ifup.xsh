@@ -120,7 +120,7 @@ proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config
   let pattern = path_value.name()
   var result = config
 
-  return result unless dir.exists()?
+  return result unless dir.exists()
 
   for entry in fs.children(dir)?
     |> where .kind == "file" and glob_match(pattern, .name)
@@ -132,7 +132,7 @@ proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config
 }
 
 proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Result[Config] {
-  guard path_value.exists()? else {
+  guard path_value.exists() else {
     return config
   }
 
@@ -166,7 +166,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
 
         let dir = fp"{fields[1]}"
 
-        if dir.exists()? {
+        if dir.exists() {
           for entry in fs.children(dir)?
             |> where .kind == "file"
             |> sort-by .name {
@@ -247,13 +247,13 @@ pure state_has_iface(state: Str, physical: Str) -> Bool {
 proc mark_configured(state_path: Path, physical: Str, logical: Str) [fs, error] {
   let parent = state_path.parent()
 
-  if ! parent.exists()? {
+  if ! parent.exists() {
     parent.mkdir()
   }
 
   var text = ""
 
-  if state_path.exists()? {
+  if state_path.exists() {
     text = state_path.read_text()?
   }
 
@@ -292,7 +292,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
 }
 
 proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, process, error] {
-  guard dir.exists()? else {
+  guard dir.exists() else {
     return
   }
 
@@ -585,7 +585,7 @@ proc configure_static(physical: Str, stanza: Interface) [process, error] {
 }
 
 proc configure_interface(config: Config, state_path: Path, physical: Str, logical: Str) [fs, process, time, error] {
-  return when state_path.exists()? and state_has_iface(state_path.read_text()?, physical)
+  return when state_path.exists() and state_has_iface(state_path.read_text()?, physical)
 
   let stanza = find_stanza(config, logical)?
 

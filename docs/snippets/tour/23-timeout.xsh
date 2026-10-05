@@ -1,4 +1,4 @@
-let slow = run.capture --text --timeout=200ms sleep 5
+let slow = try run.capture --text --timeout=200ms sleep 5
 
 match slow {
   Ok(out) => print f"finished: {out.status.ok}"

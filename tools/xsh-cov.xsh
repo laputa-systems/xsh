@@ -69,14 +69,14 @@ proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
   var seen = {[root.display()]: true}
   let core = fp"{root}/core"
 
-  if fp"{core}/tests".exists()? {
+  if fp"{core}/tests".exists() {
     seen[core.display()] = true
     suites += [{name: "core", path: core}]
   }
 
   let prototypes = fp"{root}/prototypes"
 
-  if prototypes.exists()? {
+  if prototypes.exists() {
     for entry in fs.walk(prototypes)?
       |> where .kind == "dir" and .name == "tests"
       |> sort-by .path {
@@ -119,7 +119,7 @@ proc run_suites(
       }
     }
 
-    if suite_json.exists()? {
+    if suite_json.exists() {
       outputs += [{name: suite.name, path: relative_display(root, suite_json)?}]
     }
   }

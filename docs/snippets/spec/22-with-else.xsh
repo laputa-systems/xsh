@@ -5,7 +5,7 @@ proc read_config() [fs, error] -> Result[Config] {
 }
 
 proc connect(config: Config) [fs, error] -> Result[Path] {
-  guard config.path.exists()? else {
+  guard config.path.exists() else {
     error.fail(f"no database at {config.path}")
     return config.path
   }

@@ -41,7 +41,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   for item in paths {
     let target = fp"{item}"
-    continue when no_create and ! target.exists()?
+    continue when no_create and ! target.exists()
 
     if has_reference {
       target.touch_from(reference)

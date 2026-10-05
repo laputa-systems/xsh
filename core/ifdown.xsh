@@ -108,7 +108,7 @@ proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config
   let pattern = path_value.name()
   var result = config
 
-  return result unless dir.exists()?
+  return result unless dir.exists()
 
   for entry in fs.children(dir)?
     |> where .kind == "file" and glob_match(pattern, .name)
@@ -120,7 +120,7 @@ proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config
 }
 
 proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Result[Config] {
-  guard path_value.exists()? else {
+  guard path_value.exists() else {
     return config
   }
 
@@ -154,7 +154,7 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
 
         let dir = fp"{fields[1]}"
 
-        if dir.exists()? {
+        if dir.exists() {
           for entry in fs.children(dir)?
             |> where .kind == "file"
             |> sort-by .name {
@@ -253,7 +253,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
 }
 
 proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, process, error] {
-  guard dir.exists()? else {
+  guard dir.exists() else {
     return
   }
 
@@ -280,7 +280,7 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
 }
 
 proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
-  guard state_path.exists()? else {
+  guard state_path.exists() else {
     return
   }
 
@@ -347,7 +347,7 @@ proc teardown_static(physical: Str, stanza: Interface) [fs, process, error] {
 }
 
 proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logical: Str) [fs, process, error] {
-  guard state_path.exists()? else {
+  guard state_path.exists() else {
     return
   }
 
@@ -406,7 +406,7 @@ pure split_iface_arg(arg: Str) -> InterfaceSelection {
 type IfdownOptions = {all: Bool, operands: List[Str]}
 
 stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[InterfaceSelection] {
-  guard state_path.exists()? else {
+  guard state_path.exists() else {
     return
   }
 

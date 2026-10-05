@@ -66,7 +66,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
 
     let path_value = part.path
 
-    if ! path_value.exists()? {
+    if ! path_value.exists() {
       if ! opts.duplicates_only {
         dir_findings = add_dir_finding(dir_findings, 1, "missing-directory", label, "missing")
       }

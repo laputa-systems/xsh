@@ -34,7 +34,7 @@ export proc require_tool(name: Str) [process, error] -> Result[Path, Error] {
 
 ## Creates a lifecycle directory when it does not already exist.
 export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit, Error] {
-  if ! directory.exists()? {
+  if ! directory.exists() {
     directory.mkdir()
   }
 }

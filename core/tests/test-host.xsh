@@ -1,5 +1,5 @@
 test test_host_localhost { |ctx|
-  if env.bool("XSH_SKIP_NET_TESTS")? {
+  if env.bool("XSH_SKIP_NET_TESTS") {
     test.skip("net feature disabled")
   }
 
@@ -8,7 +8,7 @@ test test_host_localhost { |ctx|
 }
 
 test test_host_type_and_usage { |ctx|
-  if env.bool("XSH_SKIP_NET_TESTS")? {
+  if env.bool("XSH_SKIP_NET_TESTS") {
     test.skip("net feature disabled")
   }
 

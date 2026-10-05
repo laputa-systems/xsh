@@ -23,13 +23,13 @@ test test_df { |ctx|
 }
 
 test test_df_matches_alpine_kp { |ctx|
-  if env.bool("XSH_SKIP_LIVE_COREUTILS_COMPARISONS")? {
+  if env.bool("XSH_SKIP_LIVE_COREUTILS_COMPARISONS") {
     test.skip("live coreutils comparison disabled")
   }
 
   let alpine_release = /etc/alpine-release
 
-  if ! alpine_release.exists()? {
+  if ! alpine_release.exists() {
     test.skip("Alpine-only df comparison")
   }
 

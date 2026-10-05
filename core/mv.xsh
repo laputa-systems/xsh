@@ -65,7 +65,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let sources = if has_target_directory { paths } else { paths |> take(paths.len() - 1) }
   var target_is_dir = false
 
-  if ! no_target_directory and dest.exists()? {
+  if ! no_target_directory and dest.exists() {
     target_is_dir = dest.is_dir()?
   }
 
@@ -76,7 +76,7 @@ proc main(...argv: List[Str]) [fs, error] {
   for source_text in sources {
     let source = fp"{source_text}"
     let target = dest_for(source, dest, target_is_dir)
-    continue when no_clobber and target.exists()?
+    continue when no_clobber and target.exists()
     source.rename(target, overwrite: ! no_clobber)
   }
 }

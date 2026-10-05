@@ -56,7 +56,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
       let quality = f"{opts.quality}"
 
       if opts.apply {
-        match run.capture --text cwebp -quiet -q $quality $entry.path -o $tmp_out {
+        match try run.capture --text cwebp -quiet -q $quality $entry.path -o $tmp_out {
           Ok(captured) => {
             var ok = true
 

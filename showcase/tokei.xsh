@@ -1173,7 +1173,7 @@ pure ignored_by_patterns(rel: Str, patterns: List[Str]) -> Bool {
 proc ignored_patterns(root: Path) [fs, error] -> Result[List[Str]] {
   let ignore_file = fp"{root}/.tokeignore"
 
-  return ignore_file.lines()?.collect() when ignore_file.exists()?
+  return ignore_file.lines()?.collect() when ignore_file.exists()
 
   []
 }

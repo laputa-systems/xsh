@@ -1,7 +1,7 @@
 error PortError = Missing(file: Path) | Invalid(text: Str)
 
 proc read_port(file: Path) -> Result[Int] {
-  guard file.exists()? else {
+  guard file.exists() else {
     return Err(PortError.Missing(file:))
   }
 

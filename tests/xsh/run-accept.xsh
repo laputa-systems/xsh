@@ -8,27 +8,27 @@ test test_accepted_exit_codes_keep_actual_status {
 }
 
 test test_accept_rejections_and_capture_record_status {
-  let rejected_1 = run.text --accept=[0, 1] sh -c "exit 2"
+  let rejected_1 = try run.text --accept=[0, 1] sh -c "exit 2"
   test.error_kind(rejected_1, "unexpected-exit")
-  let rejected_2 = run.bytes --accept=[1] sh -c "exit 0"
+  let rejected_2 = try run.bytes --accept=[1] sh -c "exit 0"
   test.error_kind(rejected_2, "unexpected-exit")
   let captured = run.capture --text --accept=[1] sh -c "printf out; printf err >&2; exit 1" ?
   assert captured.stdout == "out"
   assert captured.stderr == "err"
   assert captured.status.exited_with(1)
   assert ! captured.status.ok
-  let rejected_3 = run.capture --bytes --accept=[0] sh -c "exit 1"
+  let rejected_3 = try run.capture --bytes --accept=[0] sh -c "exit 1"
   test.error_kind(rejected_3, "unexpected-exit")
 }
 
 test test_accept_never_normalizes_signals_setup_or_decode_failures {
-  let rejected_4 = run.text --accept=[0, 143] sh -c "kill -TERM $$"
+  let rejected_4 = try run.text --accept=[0, 143] sh -c "kill -TERM $$"
   test.error_kind(rejected_4, "signal")
-  let rejected_5 = run.text --accept=[0, 127] xsh-accept-definitely-missing-command
+  let rejected_5 = try run.text --accept=[0, 127] xsh-accept-definitely-missing-command
   test.error_kind(rejected_5, "not-found")
-  let rejected_6 = run.text --accept=[0, 1] sh -c "printf '\\377'; exit 1"
+  let rejected_6 = try run.text --accept=[0, 1] sh -c "printf '\\377'; exit 1"
   test.error_kind(rejected_6, "invalid-utf8")
-  let rejected_7 = run.text --timeout=10ms --accept=[0, 137] sh -c "sleep 5"
+  let rejected_7 = try run.text --timeout=10ms --accept=[0, 137] sh -c "sleep 5"
   test.error_kind(rejected_7, "timeout")
 }
 

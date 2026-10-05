@@ -469,7 +469,7 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
   )?
 
   for _ in range(0, 500) {
-    break when ready.exists()?
+    break when ready.exists()
     time.sleep(10ms)
   }
 
@@ -480,7 +480,7 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
 
   release.write("")
   for _ in range(0, 500) {
-    break when closed.exists()?
+    break when closed.exists()
     time.sleep(10ms)
   }
 

@@ -8,7 +8,7 @@ if status.signaled() {
   print f"killed by signal {status.signal_number()?}"
 }
 
-let strict = run.text sh -c "kill -TERM $$"
+let strict = try run.text sh -c "kill -TERM $$"
 
 match strict {
   Ok(_) => print "finished"

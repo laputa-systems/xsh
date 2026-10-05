@@ -441,7 +441,8 @@ proc stdlib(xsht: Path) [process, error] -> Result[Record] {
   queries += [f"record:{name}" for name in summary.records]
 
   var answers: Map[Str, List[ApiMatch]] = {}
-  for line in run.text $xsht api --strict --format jsonl @queries?.lines() {
+  let described = run.text $xsht api --strict --format jsonl @queries ?
+  for line in described.lines() {
     let answer = json.decode(line)?.require(ApiAnswer)?
     answers[answer.query] = answer.matches
   }
@@ -515,7 +516,8 @@ proc cli_reference(tools: DocTools) [process, error] -> Result[Record] {
 }
 
 proc lints(xsht: Path) [process, error] -> Result[List[LintCode]] {
-  [json.decode(line)?.require(LintCode)? for line in (run.text $xsht lint --list --format jsonl)?.lines()]
+  let listed = run.text $xsht lint --list --format jsonl ?
+  [json.decode(line)?.require(LintCode)? for line in listed.lines()]
 }
 
 # The built-in error facet vocabulary, one row per `language.facet.NAME` API item.
@@ -586,7 +588,7 @@ proc render(root: Path, tools: DocTools) [fs, process, env, error] -> Result[Lis
 export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] -> Result[Unit, Error] {
   for doc in render(root, tools)? {
     let target = fp"{root}/docs/{doc.rel}"
-    if ! target.exists()? or target.read_text()? != doc.text {
+    if ! target.exists() or target.read_text()? != doc.text {
       target.parent().mkdir()
       target.write(doc.text)
       print f"wrote docs/{doc.rel}"

@@ -4770,7 +4770,7 @@ export proc capture_power_supply_bundle(
     return Err(check_failure("power supply capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/power_supply")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/class/power_supply") {
     return Err(check_failure("power supply capture destination is not empty"))
   }
 
@@ -4779,7 +4779,7 @@ export proc capture_power_supply_bundle(
     bundle.mkdir(p"sys/class/power_supply", mode: 0o700, parents: true)
     for entry in layout.entries {
       let storage = fp"{entry.storage_path}"
-      if ! bundle.exists(storage)? {
+      if ! bundle.exists(storage) {
         bundle.mkdir(storage, mode: 0o700, parents: true)
       }
 
@@ -4899,7 +4899,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
 
     let relative = fp"{item.path}"
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"power supply absent source {item.path} differs"))
       }
 
@@ -5369,7 +5369,7 @@ export proc capture_powercap_bundle(
     return Err(check_failure("powercap capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/powercap")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/class/powercap") {
     return Err(check_failure("powercap capture destination is not empty"))
   }
 
@@ -5477,7 +5477,7 @@ export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"powercap capture absent source {relative} differs from metadata"))
       }
 
@@ -6372,7 +6372,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     return Err(check_failure("hwmon capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/hwmon")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/class/hwmon") {
     return Err(check_failure("hwmon capture destination is not empty"))
   }
 
@@ -6380,7 +6380,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/class/hwmon", mode: 0o700, parents: true)
     for chip in layout.chips {
-      if ! bundle.exists(fp"{chip.storage_path}")? {
+      if ! bundle.exists(fp"{chip.storage_path}") {
         bundle.mkdir(fp"{chip.storage_path}", mode: 0o700, parents: true)
       }
 
@@ -6503,7 +6503,7 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"hwmon absent source {relative} differs"))
       }
 
@@ -7473,12 +7473,12 @@ export proc capture_cpu_set_bundle(
     return Err(check_failure("CPU set capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if bundle.exists(p"capture.json")? {
+  if bundle.exists(p"capture.json") {
     return Err(check_failure("CPU set capture already exists"))
   }
 
   for name in ["possible", "present", "online", "offline"] {
-    if bundle.exists(fp"sys/devices/system/cpu/{name}")? {
+    if bundle.exists(fp"sys/devices/system/cpu/{name}") {
       return Err(check_failure("CPU set capture destination contains a source file"))
     }
   }
@@ -7720,7 +7720,7 @@ export proc capture_cpufreq_bundle(
     return Err(check_failure("CPUFreq capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/devices/system/cpu")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/devices/system/cpu") {
     return Err(check_failure("CPUFreq capture destination is not empty"))
   }
 
@@ -7849,7 +7849,7 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"CPUFreq absent source {relative} differs"))
       }
 
@@ -8110,7 +8110,7 @@ export proc capture_cpu_topology_bundle(
     return Err(check_failure("CPU topology capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/devices/system/cpu")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/devices/system/cpu") {
     return Err(check_failure("CPU topology capture destination is not empty"))
   }
 
@@ -8233,7 +8233,7 @@ export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[C
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"CPU topology absent source {relative} differs"))
       }
 
@@ -8331,13 +8331,13 @@ export proc capture_memory_bundle(
     return Err(check_failure("memory capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if bundle.exists(p"capture.json")? {
+  if bundle.exists(p"capture.json") {
     return Err(check_failure("memory capture already exists"))
   }
 
   let paths = memory_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}")? {
+    if bundle.exists(fp"{relative}") {
       return Err(check_failure("memory capture destination contains a source file"))
     }
   }
@@ -8433,7 +8433,7 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
     }
 
     if expected.state == "absent" and index > 0 {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"memory capture {relative} absent source differs from metadata"))
       }
 
@@ -8988,7 +8988,7 @@ export proc capture_vulnerabilities_bundle(
   }
 
   let directory = p"sys/devices/system/cpu/vulnerabilities"
-  if bundle.exists(p"capture.json")? or bundle.exists(directory)? {
+  if bundle.exists(p"capture.json") or bundle.exists(directory) {
     return Err(check_failure("vulnerability capture destination is not empty"))
   }
 
@@ -9564,12 +9564,12 @@ export proc capture_pressure_bundle(
     return Err(check_failure("pressure capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? {
+  if bundle.exists(p"capture.json") {
     return Err(check_failure("pressure capture already exists"))
   }
 
   for resource in ["cpu", "memory", "io"] {
-    if bundle.exists(fp"proc/pressure/{resource}")? {
+    if bundle.exists(fp"proc/pressure/{resource}") {
       return Err(check_failure("pressure capture destination contains a source file"))
     }
   }
@@ -9646,7 +9646,7 @@ export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"pressure capture {relative} absent source differs from metadata"))
       }
 
@@ -9813,7 +9813,7 @@ export proc capture_proc_swaps_bundle(
     return Err(check_failure("proc swap capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/swaps")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"proc/swaps") {
     return Err(check_failure("proc swap capture destination is not empty"))
   }
 
@@ -10969,7 +10969,7 @@ export proc capture_thermal_bundle(
     return Err(check_failure("thermal capture origin must be synthetic_fixture or live_capture"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/thermal")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/class/thermal") {
     return Err(check_failure("thermal capture destination is not empty"))
   }
 
@@ -11073,7 +11073,7 @@ export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[T
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"thermal capture absent source {relative} differs from metadata"))
       }
 
@@ -11409,7 +11409,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     return Err(check_failure("PCI capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/bus/pci/devices")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/bus/pci/devices") {
     return Err(check_failure("PCI capture destination is not empty"))
   }
 
@@ -11534,7 +11534,7 @@ export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleC
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"PCI absent source {relative} differs"))
       }
 
@@ -11648,7 +11648,7 @@ proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
     let name = entry.name()
     let interface = ":" in name
     if interface {
-      if ! usb_bundle_root_hub_interface(name)? {
+      if ! usb_bundle_root_hub_interface(name) {
         let _ = parse_usb_interface_name(name)?
       }
     } else {
@@ -11735,7 +11735,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     return Err(check_failure("USB capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/bus/usb/devices")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/bus/usb/devices") {
     return Err(check_failure("USB capture destination is not empty"))
   }
 
@@ -11743,12 +11743,12 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
   if layout.listing_state == "complete" {
     bundle.mkdir(p"sys/bus/usb/devices", mode: 0o700, parents: true)
     for entry in layout.entries {
-      if ! bundle.exists(fp"{entry.storage_path}")? {
+      if ! bundle.exists(fp"{entry.storage_path}") {
         bundle.mkdir(fp"{entry.storage_path}", mode: 0o700, parents: true)
       }
 
       if ":" not in entry.name {
-        if ! bundle.exists(fp"{entry.storage_path}/power")? {
+        if ! bundle.exists(fp"{entry.storage_path}/power") {
           bundle.mkdir(fp"{entry.storage_path}/power", mode: 0o700, parents: true)
         }
       }
@@ -11872,7 +11872,7 @@ export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleC
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"USB absent source {relative} differs"))
       }
 
@@ -13613,7 +13613,7 @@ export pure compare_ip_routes(
         ] or data.state != "observed" {
           fully_represented = false
         } else if kind.bit_and(16383) == 9 {
-          if data.value == null or ! route_multipath_representable(data.value.base64_decode()?)? {
+          if data.value == null or ! route_multipath_representable(data.value.base64_decode()?) {
             fully_represented = false
           }
         }
@@ -15015,7 +15015,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     return Err(check_failure("block capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"sys/class/block")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"sys/class/block") {
     return Err(check_failure("block capture destination is not empty"))
   }
 
@@ -15024,12 +15024,12 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     bundle.mkdir(p"sys/class/block", mode: 0o700, parents: true)
     for entry in layout.entries {
       let storage = fp"{entry.storage_path}"
-      if ! bundle.exists(storage)? {
+      if ! bundle.exists(storage) {
         bundle.mkdir(storage, mode: 0o700, parents: true)
       }
 
       for nested in ["queue", "device"] {
-        if ! bundle.exists(fp"{storage}/{nested}")? {
+        if ! bundle.exists(fp"{storage}/{nested}") {
           bundle.mkdir(fp"{storage}/{nested}", mode: 0o700, parents: true)
         }
       }
@@ -15181,7 +15181,7 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"block absent source {relative} differs"))
       }
 
@@ -15629,7 +15629,7 @@ export proc capture_mountinfo_bundle(
   }
 
   let relative = p"proc/self/mountinfo"
-  if bundle.exists(p"capture.json")? or bundle.exists(relative)? {
+  if bundle.exists(p"capture.json") or bundle.exists(relative) {
     return Err(check_failure("mountinfo capture destination is not empty"))
   }
 
@@ -16367,7 +16367,7 @@ export proc capture_kernel_modules_bundle(
     return Err(check_failure("kernel module capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/modules")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"proc/modules") {
     return Err(check_failure("kernel module capture destination is not empty"))
   }
 
@@ -16500,7 +16500,7 @@ export proc capture_kernel_command_line_bundle(
     return Err(check_failure("kernel command-line capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/cmdline")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"proc/cmdline") {
     return Err(check_failure("kernel command-line capture destination is not empty"))
   }
 
@@ -16732,14 +16732,14 @@ export proc capture_kernel_parameters_bundle(
     return Err(check_failure("kernel parameter capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? {
+  if bundle.exists(p"capture.json") {
     return Err(check_failure("kernel parameter capture destination already has metadata"))
   }
 
   let sources = kernel_parameter_sources()
   for item in sources {
     let relative = item.path.strip_prefix(/)?
-    if bundle.exists(relative)? {
+    if bundle.exists(relative) {
       return Err(check_failure("kernel parameter capture destination contains a source file"))
     }
   }
@@ -16758,7 +16758,7 @@ export proc capture_kernel_parameters_bundle(
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data
-      if ! bundle.exists(relative.parent())? {
+      if ! bundle.exists(relative.parent()) {
         bundle.mkdir(relative.parent(), mode: 0o700, parents: true)
       }
 
@@ -16834,7 +16834,7 @@ export proc validate_kernel_parameters_bundle(
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"kernel parameter capture absent {sources[index].name} differs from metadata"))
       }
 
@@ -17045,13 +17045,13 @@ export proc capture_os_release_bundle(
     return Err(check_failure("os-release capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? {
+  if bundle.exists(p"capture.json") {
     return Err(check_failure("os-release capture already exists"))
   }
 
   let paths = os_release_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}")? {
+    if bundle.exists(fp"{relative}") {
       return Err(check_failure("os-release capture destination contains a source file"))
     }
   }
@@ -17149,7 +17149,7 @@ export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsR
       "read_failure",
       "permission_denied",
     ] and expected.sha256_hex == null) {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"os-release unavailable source {relative} differs from metadata"))
       }
 
@@ -17387,13 +17387,13 @@ export proc capture_device_tree_bundle(
     return Err(check_failure("device-tree capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? {
+  if bundle.exists(p"capture.json") {
     return Err(check_failure("device-tree capture already exists"))
   }
 
   let paths = device_tree_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}")? {
+    if bundle.exists(fp"{relative}") {
       return Err(check_failure("device-tree capture destination contains a source file"))
     }
   }
@@ -17485,7 +17485,7 @@ export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[De
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"device-tree absent source {relative} differs from metadata"))
       }
 
@@ -17587,13 +17587,13 @@ export proc capture_dmi_identity_bundle(
     return Err(check_failure("DMI identity capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? {
+  if bundle.exists(p"capture.json") {
     return Err(check_failure("DMI identity capture already exists"))
   }
 
   let paths = dmi_identity_bundle_paths()
   for relative in paths {
-    if bundle.exists(fp"{relative}")? {
+    if bundle.exists(fp"{relative}") {
       return Err(check_failure("DMI identity capture destination contains a source file"))
     }
   }
@@ -17682,7 +17682,7 @@ export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[D
     }
 
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}")? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(fp"{relative}") {
         return Err(check_failure(f"DMI identity absent source {relative} differs from metadata"))
       }
 
@@ -17921,7 +17921,7 @@ export proc capture_uptime_bundle(
     return Err(check_failure("uptime capture has an invalid origin"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/uptime")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"proc/uptime") {
     return Err(check_failure("uptime capture destination is not empty"))
   }
 
@@ -18913,7 +18913,7 @@ export proc capture_cgroup2_bundle(
     return Err(check_failure("cgroup2 capture origin is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"proc/self")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"proc/self") {
     return Err(check_failure("cgroup2 capture destination is not empty"))
   }
 
@@ -18929,7 +18929,7 @@ export proc capture_cgroup2_bundle(
     if raw.data != null {
       let data = raw.data
       let parent = relative.parent()
-      if ! bundle.exists(parent)? {
+      if ! bundle.exists(parent) {
         bundle.mkdir(parent, mode: 0o700, parents: true)
       }
 
@@ -19042,7 +19042,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
 
     let relative = fp"{item.path}"
     if expected.state == "absent" {
-      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative)? {
+      if expected.byte_count != 0 or expected.sha256_hex != null or bundle.exists(relative) {
         return Err(check_failure(f"cgroup2 absent source {item.path} differs"))
       }
 
@@ -19536,7 +19536,7 @@ export proc capture_process_bundle(
     return Err(check_failure("process capture page size is invalid"))
   }
 
-  if bundle.exists(p"capture.json")? or bundle.exists(p"proc")? {
+  if bundle.exists(p"capture.json") or bundle.exists(p"proc") {
     return Err(check_failure("process capture destination is not empty"))
   }
 
@@ -21518,11 +21518,11 @@ export proc read_device_tree_raw_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[DeviceTreeRawObservation, Error] {
   let started = time.now()
-  if ! source_path.exists()? {
+  if ! source_path.exists() {
     return {data: null, state: "absent", started: started, ended: time.now()}
   }
 
-  if ! p"/usr/bin/od".exists()? {
+  if ! p"/usr/bin/od".exists() {
     return Err(check_failure("device-tree comparison needs /usr/bin/od"))
   }
 
@@ -21624,17 +21624,17 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/bin/uname".exists()? {
+  if ! p"/bin/uname".exists() {
     return Err(check_failure("identity comparison needs /bin/uname"))
   }
 
-  if ! p"/bin/cat".exists()? or ! p"/proc/uptime".exists()? {
+  if ! p"/bin/cat".exists() or ! p"/proc/uptime".exists() {
     return Err(check_failure("identity comparison needs /bin/cat and /proc/uptime"))
   }
 
-  let os_release_path = if p"/etc/os-release".exists()? {
+  let os_release_path = if p"/etc/os-release".exists() {
     "/etc/os-release"
-  } else if p"/usr/lib/os-release".exists()? {
+  } else if p"/usr/lib/os-release".exists() {
     "/usr/lib/os-release"
   } else {
     ""
@@ -21861,7 +21861,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/usr/bin/readlink".exists()? {
+  if ! p"/usr/bin/readlink".exists() {
     return Err(check_failure("namespace comparison needs /usr/bin/readlink"))
   }
 
@@ -22008,7 +22008,7 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/bin/cat".exists()? or ! p"/proc/meminfo".exists()? {
+  if ! p"/bin/cat".exists() or ! p"/proc/meminfo".exists() {
     return Err(check_failure("meminfo comparison needs /bin/cat and /proc/meminfo"))
   }
 
@@ -22062,7 +22062,7 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
   let started = time.now()
   for name in ["enabled", "defrag"] {
     let source_path = fp"/sys/kernel/mm/transparent_hugepage/{name}"
-    continue unless source_path.exists()?
+    continue unless source_path.exists()
     let output_name = f"thp-{label}-{name}"
     scratch.write(fp"{output_name}", "")
     scratch.write(fp"{output_name}-error", "")
@@ -22104,7 +22104,7 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  return Err(check_failure("THP comparison needs /bin/cat")) unless p"/bin/cat".exists()?
+  return Err(check_failure("THP comparison needs /bin/cat")) unless p"/bin/cat".exists()
 
   let scratch = fs.tempdir()?
   defer scratch.close()?
@@ -22364,7 +22364,7 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
   var available_resources: List[Str] = []
   for resource in ["cpu", "memory", "io"] {
     let source_path = fp"/proc/pressure/{resource}"
-    continue unless source_path.exists()?
+    continue unless source_path.exists()
     available_resources += [resource]
     let output_name = f"psi-{label}-{resource}"
     scratch.write(fp"{output_name}", "")
@@ -22407,7 +22407,7 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  return Err(check_failure("PSI comparison needs /bin/cat")) unless p"/bin/cat".exists()?
+  return Err(check_failure("PSI comparison needs /bin/cat")) unless p"/bin/cat".exists()
 
   let scratch = fs.tempdir()?
   defer scratch.close()?
@@ -22548,7 +22548,7 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/bin/cat".exists()? {
+  if ! p"/bin/cat".exists() {
     return Err(check_failure("vulnerability comparison needs /bin/cat"))
   }
 
@@ -22611,9 +22611,9 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let binary = if p"/sbin/swapon".exists()? {
+  let binary = if p"/sbin/swapon".exists() {
     "/sbin/swapon"
-  } else if p"/usr/sbin/swapon".exists()? {
+  } else if p"/usr/sbin/swapon".exists() {
     "/usr/sbin/swapon"
   } else {
     ""
@@ -22711,13 +22711,13 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
 }
 
 proc lspci_reference_binary() [fs, error] -> Result[Str] {
-  let binary = if p"/usr/sbin/lspci".exists()? {
+  let binary = if p"/usr/sbin/lspci".exists() {
     "/usr/sbin/lspci"
-  } else if p"/sbin/lspci".exists()? {
+  } else if p"/sbin/lspci".exists() {
     "/sbin/lspci"
-  } else if p"/usr/bin/lspci".exists()? {
+  } else if p"/usr/bin/lspci".exists() {
     "/usr/bin/lspci"
-  } else if p"/bin/lspci".exists()? {
+  } else if p"/bin/lspci".exists() {
     "/bin/lspci"
   } else {
     ""
@@ -23409,13 +23409,13 @@ proc read_ip_json_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Re
 }
 
 proc ip_reference_binary() [fs, error] -> Result[Str] {
-  let binary = if p"/usr/sbin/ip".exists()? {
+  let binary = if p"/usr/sbin/ip".exists() {
     "/usr/sbin/ip"
-  } else if p"/sbin/ip".exists()? {
+  } else if p"/sbin/ip".exists() {
     "/sbin/ip"
-  } else if p"/usr/bin/ip".exists()? {
+  } else if p"/usr/bin/ip".exists() {
     "/usr/bin/ip"
-  } else if p"/bin/ip".exists()? {
+  } else if p"/bin/ip".exists() {
     "/bin/ip"
   } else {
     ""
@@ -23724,7 +23724,7 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
   let after_ipv4 = read_ip_rule_family(binary, scratch, "ip-rule-ipv4-after", "ipv4")?
   let after_ipv6 = read_ip_rule_family(binary, scratch, "ip-rule-ipv6-after", "ipv6")?
   let after_ended = time.now()
-  if ! ip_rule_reference_stable(before, after_ipv4.extend(after_ipv6))? {
+  if ! ip_rule_reference_stable(before, after_ipv4.extend(after_ipv6)) {
     return Err(check_failure("network rules changed during reference capture"))
   }
 
@@ -23817,7 +23817,7 @@ proc compare_live_ip_routes(
   let after_ipv4 = read_ip_route_family(binary, scratch, "ip-route-ipv4-after", "ipv4")?
   let after_ipv6 = read_ip_route_family(binary, scratch, "ip-route-ipv6-after", "ipv6")?
   let after_ended = time.now()
-  if ! ip_route_reference_stable(before, after_ipv4.extend(after_ipv6))? {
+  if ! ip_route_reference_stable(before, after_ipv4.extend(after_ipv6)) {
     return Err(check_failure("network routes changed during reference capture"))
   }
 
@@ -23848,9 +23848,9 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let binary = if p"/usr/bin/lsblk".exists()? {
+  let binary = if p"/usr/bin/lsblk".exists() {
     "/usr/bin/lsblk"
-  } else if p"/bin/lsblk".exists()? {
+  } else if p"/bin/lsblk".exists() {
     "/bin/lsblk"
   } else {
     ""
@@ -23860,7 +23860,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("storage comparison needs util-linux lsblk"))
   }
 
-  if ! p"/sys/class/block".exists()? {
+  if ! p"/sys/class/block".exists() {
     return Err(check_failure("storage comparison needs mounted block sysfs"))
   }
 
@@ -23966,14 +23966,14 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let binary = if p"/usr/bin/lsblk".exists()? {
+  let binary = if p"/usr/bin/lsblk".exists() {
     "/usr/bin/lsblk"
-  } else if p"/bin/lsblk".exists()? {
+  } else if p"/bin/lsblk".exists() {
     "/bin/lsblk"
   } else {
     ""
   }
-  if binary == "" or ! p"/sys/class/block".exists()? {
+  if binary == "" or ! p"/sys/class/block".exists() {
     print "storage.queue: reference unavailable (lsblk or block sysfs is absent)"
     return Err(check_failure("queue comparison needs lsblk and mounted block sysfs"))
   }
@@ -24096,14 +24096,14 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let binary = if p"/usr/bin/findmnt".exists()? {
+  let binary = if p"/usr/bin/findmnt".exists() {
     "/usr/bin/findmnt"
-  } else if p"/bin/findmnt".exists()? {
+  } else if p"/bin/findmnt".exists() {
     "/bin/findmnt"
   } else {
     ""
   }
-  if binary == "" or ! p"/proc/self/mountinfo".exists()? {
+  if binary == "" or ! p"/proc/self/mountinfo".exists() {
     print "storage.mountinfo: reference unavailable (findmnt or mountinfo is absent)"
     return Err(check_failure("mount comparison needs findmnt and readable mountinfo"))
   }
@@ -24250,14 +24250,14 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let binary = if p"/usr/bin/findmnt".exists()? {
+  let binary = if p"/usr/bin/findmnt".exists() {
     "/usr/bin/findmnt"
-  } else if p"/bin/findmnt".exists()? {
+  } else if p"/bin/findmnt".exists() {
     "/bin/findmnt"
   } else {
     ""
   }
-  if binary == "" or ! p"/proc/self/mountinfo".exists()? {
+  if binary == "" or ! p"/proc/self/mountinfo".exists() {
     print "storage.mount-usage: reference unavailable (findmnt or mountinfo is absent)"
     return Err(check_failure("mount usage comparison needs findmnt and readable mountinfo"))
   }
@@ -24422,14 +24422,14 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let binary = if p"/sbin/lsmod".exists()? {
+  let binary = if p"/sbin/lsmod".exists() {
     "/sbin/lsmod"
-  } else if p"/usr/sbin/lsmod".exists()? {
+  } else if p"/usr/sbin/lsmod".exists() {
     "/usr/sbin/lsmod"
   } else {
     ""
   }
-  if binary == "" or ! p"/bin/cat".exists()? or ! p"/proc/modules".exists()? {
+  if binary == "" or ! p"/bin/cat".exists() or ! p"/proc/modules".exists() {
     print "kernel.modules: reference unavailable (lsmod, cat, or /proc/modules is absent)"
     return Err(check_failure("module comparison needs lsmod and readable /proc/modules"))
   }
@@ -24518,7 +24518,7 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/bin/cat".exists()? or ! p"/proc/cmdline".exists()? {
+  if ! p"/bin/cat".exists() or ! p"/proc/cmdline".exists() {
     print "kernel.command-line: reference unavailable (cat or /proc/cmdline is absent)"
     return Err(check_failure("kernel command-line comparison needs cat and readable /proc/cmdline"))
   }
@@ -24641,7 +24641,7 @@ proc read_kernel_parameter_reference(
   var values: List[KernelParameterReference] = []
   for item in kernel_parameter_sources() |> enumerate() {
     let source = item.value
-    if ! source.path.exists()? {
+    if ! source.path.exists() {
       values += [{name: source.name, source: source.source, state: "absent", value: null, raw_bytes_base64: null}]
       continue
     }
@@ -24689,14 +24689,14 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  let sysctl_binary = if p"/sbin/sysctl".exists()? {
+  let sysctl_binary = if p"/sbin/sysctl".exists() {
     "/sbin/sysctl"
-  } else if p"/usr/sbin/sysctl".exists()? {
+  } else if p"/usr/sbin/sysctl".exists() {
     "/usr/sbin/sysctl"
   } else {
     ""
   }
-  if sysctl_binary == "" or ! p"/bin/cat".exists()? {
+  if sysctl_binary == "" or ! p"/bin/cat".exists() {
     print "kernel.parameters: reference unavailable (sysctl or cat is absent)"
     return Err(check_failure("kernel parameter comparison needs sysctl and cat"))
   }
@@ -24789,7 +24789,7 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/bin/cat".exists()? or ! p"/proc/self/status".exists()? {
+  if ! p"/bin/cat".exists() or ! p"/proc/self/status".exists() {
     return Err(check_failure("CPU scope affinity comparison needs /bin/cat and /proc/self/status"))
   }
 
@@ -24982,7 +24982,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/usr/bin/lscpu".exists()? {
+  if ! p"/usr/bin/lscpu".exists() {
     print "cpu.topology: reference unavailable (/usr/bin/lscpu is absent)"
     return Ok(false)
   }
@@ -25190,7 +25190,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
 
-  if ! p"/usr/bin/lscpu".exists()? {
+  if ! p"/usr/bin/lscpu".exists() {
     print "cpu.sets: reference unavailable (/usr/bin/lscpu is absent)"
     return Err(check_failure("CPU set comparison needs util-linux lscpu"))
   }
@@ -25201,7 +25201,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
     /sys/devices/system/cpu/online,
     /sys/devices/system/cpu/offline,
   ] {
-    guard source_path.exists()? else {
+    guard source_path.exists() else {
       print "cpu.sets: reference unavailable (a kernel CPU set file is absent)"
       return Err(check_failure("CPU set comparison needs four sysfs CPU set files"))
     }
@@ -26163,7 +26163,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("CPU set capture destination already exists"))
     }
 
@@ -26203,7 +26203,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("CPUFreq capture destination already exists"))
     }
 
@@ -26250,7 +26250,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("CPU topology capture destination already exists"))
     }
 
@@ -26283,7 +26283,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("memory capture destination already exists"))
     }
 
@@ -26326,7 +26326,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("cgroup2 capture destination already exists"))
     }
 
@@ -26360,7 +26360,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("process capture destination already exists"))
     }
 
@@ -26395,7 +26395,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("power supply capture destination already exists"))
     }
 
@@ -26433,7 +26433,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("pressure capture destination already exists"))
     }
 
@@ -26469,7 +26469,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("swap capture destination already exists"))
     }
 
@@ -26505,7 +26505,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("os-release capture destination already exists"))
     }
 
@@ -26541,7 +26541,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("uptime capture destination already exists"))
     }
 
@@ -26578,7 +26578,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("DMI identity capture destination already exists"))
     }
 
@@ -26614,7 +26614,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("device-tree capture destination already exists"))
     }
 
@@ -26650,7 +26650,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("kernel command-line capture destination already exists"))
     }
 
@@ -26686,7 +26686,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("kernel module capture destination already exists"))
     }
 
@@ -26722,7 +26722,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("vulnerability capture destination already exists"))
     }
 
@@ -26758,7 +26758,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("mountinfo capture destination already exists"))
     }
 
@@ -26794,7 +26794,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("kernel parameter capture destination already exists"))
     }
 
@@ -26830,7 +26830,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("thermal capture destination already exists"))
     }
 
@@ -26864,7 +26864,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("hwmon capture destination already exists"))
     }
 
@@ -26907,7 +26907,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("block capture destination already exists"))
     }
 
@@ -26943,7 +26943,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("powercap capture destination already exists"))
     }
 
@@ -26977,7 +26977,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("PCI capture destination already exists"))
     }
 
@@ -27019,7 +27019,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("USB capture destination already exists"))
     }
 
@@ -27062,7 +27062,7 @@ export proc validate_and_run(
     let parent = fs.open_root(destination.parent())?
     defer parent.close()?
     let leaf = fp"{destination.name()}"
-    if parent.exists(leaf)? {
+    if parent.exists(leaf) {
       return Err(check_failure("SMBIOS capture destination already exists"))
     }
 
@@ -27459,7 +27459,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory cpu.topology assertion"))
     }
 
-    if compare_live_cpu_topology(options.xsh_bin, options.script)? {
+    if compare_live_cpu_topology(options.xsh_bin, options.script) {
       scored += 1
     } else {
       reference_unavailable = true
@@ -27475,7 +27475,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory cpu.cache-sharing assertion"))
     }
 
-    if compare_live_cpu_cache(options.xsh_bin, options.script)? {
+    if compare_live_cpu_cache(options.xsh_bin, options.script) {
       scored += 1
     } else {
       reference_unavailable = true
@@ -27534,7 +27534,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory memory.cpu-scope assertion"))
     }
 
-    if compare_live_cpu_scope(options.xsh_bin, options.script)? {
+    if compare_live_cpu_scope(options.xsh_bin, options.script) {
       scored += 1
     } else {
       reference_unavailable = true
@@ -27573,7 +27573,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory cpu.vulnerabilities assertion"))
     }
 
-    if compare_live_vulnerabilities(options.xsh_bin, options.script)? {
+    if compare_live_vulnerabilities(options.xsh_bin, options.script) {
       scored += 1
     } else {
       reference_unavailable = true
@@ -27648,7 +27648,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory memory.thp assertion"))
     }
 
-    if compare_live_thp(options.xsh_bin, options.script)? {
+    if compare_live_thp(options.xsh_bin, options.script) {
       scored += 1
     } else {
       reference_unavailable = true

@@ -72,7 +72,7 @@ test test_archive_unpack_cancellation_during_compression_cleans_staging { |ctx|
   )?
 
   for _ in range(0, 500) {
-    break when writer_ready.exists()?
+    break when writer_ready.exists()
 
     time.sleep(10ms)
   }

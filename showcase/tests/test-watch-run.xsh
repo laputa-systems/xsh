@@ -39,7 +39,7 @@ test test_watch_run_cancellation_reaps_child_descendants { |ctx|
   )?
 
   for _ in range(0, 500) {
-    break when ready.exists()?
+    break when ready.exists()
 
     time.sleep(10ms)
   }

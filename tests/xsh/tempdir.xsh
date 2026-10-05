@@ -66,7 +66,7 @@ proc fail_inside(target: Path) [fs, error] {
 
 proc return_inside(target: Path) [fs, error] -> Result[Str] {
   tempdir scratch at target {
-    return "early" when scratch.exists()?
+    return "early" when scratch.exists()
   }
 
   "late"
@@ -87,7 +87,7 @@ test test_tempdir_removes_the_directory_however_the_body_leaves { |ctx|
     tempdir scratch at target {
       rounds += 1
       continue when rounds == 1
-      break when scratch.exists()?
+      break when scratch.exists()
     }
   }
 
