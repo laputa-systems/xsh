@@ -2639,6 +2639,7 @@ fn unix_fake_tty_attrs() -> Value {
         (Arc::from("oflag"), Value::Int(0)),
         (Arc::from("cflag"), Value::Int(0)),
         (Arc::from("lflag"), Value::Int(0)),
+        (Arc::from("line"), Value::Int(0)),
         (Arc::from("ispeed"), Value::Int(0)),
         (Arc::from("ospeed"), Value::Int(0)),
         (Arc::from("echo"), Value::Bool(false)),
@@ -3869,7 +3870,78 @@ impl std::ops::Index<usize> for NativeArgumentValues {
     }
 }
 
+impl NativeArgumentValues {
+    /// The arguments as runtime values for the typed host primitives; a path
+    /// is resolved against the script's working directory first, and an
+    /// omitted parameter stays `None`.
+    fn into_host_values(
+        self,
+        evaluator: &Evaluator,
+        span: Span,
+    ) -> Result<Vec<Option<Value>>, RuntimeError> {
+        self.0
+            .into_iter()
+            .map(|value| match value {
+                Some(LoweredValue::Path(path)) => path_value_from_pathbuf(evaluator.host_path(&path))
+                    .map(|path| Some(Value::Path(path)))
+                    .map_err(|error| error.with_span(span)),
+                other => Ok(other.map(LoweredValue::into_value)),
+            })
+            .collect()
+    }
+}
+
 impl Evaluator {
+    /// Dispatches the typed process, terminal, and session primitives of
+    /// `modules::process::prims`, `modules::unix::tty`, and
+    /// `modules::unix::sessions`.
+    fn eval_host_primitive(
+        &mut self,
+        op: RuntimeOp,
+        values: NativeArgumentValues,
+        span: Span,
+    ) -> Result<LoweredValue, RuntimeError> {
+        let values = values.into_host_values(self, span)?;
+        let args = process_module::Args::new(op, &values, span);
+        let result = if process_module::is_prim(op) {
+            process_module::prim_call(op, &args)
+        } else {
+            unix_module::prim_call(op, &args)
+        };
+        lowered_module_result_value(result, span)
+    }
+
+    /// Writes the buffered stdout to the host descriptor and reports the first
+    /// failure with its errno. Nothing is written when output is captured or
+    /// owned by an embedding host.
+    fn flush_stdout_checked(&mut self, span: Span) -> Result<(), RuntimeError> {
+        if !self.shared_stdio || self.capture_process_output || self.stdout.is_empty() {
+            return Ok(());
+        }
+        let bytes = std::mem::take(&mut self.stdout);
+        let mut offset = 0;
+        while offset < bytes.len() {
+            // A raw write, not `std::io::stdout`, which reports a closed
+            // descriptor as success.
+            match rustix::io::write(rustix::stdio::stdout(), &bytes[offset..]) {
+                Ok(0) => {
+                    return Err(RuntimeError::host(
+                        "io-flush-stdout",
+                        &std::io::Error::from(std::io::ErrorKind::WriteZero),
+                    )
+                    .with_span(span));
+                }
+                Ok(written) => offset += written,
+                Err(rustix::io::Errno::INTR) => {}
+                Err(rustix::io::Errno::AGAIN) => std::thread::sleep(Duration::from_millis(1)),
+                Err(error) => {
+                    return Err(RuntimeError::host("io-flush-stdout", &error).with_span(span));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn lowered_stream_list_result(
         &mut self,
         result: Result<StreamValue, RuntimeError>,
@@ -4037,6 +4109,11 @@ impl Evaluator {
         span: Span,
         cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if process_module::is_prim(op) || unix_module::is_prim(op) {
+            return Ok(ControlFlow::Continue(
+                self.eval_host_primitive(op, values, span)?,
+            ));
+        }
         let value = match op {
             RuntimeOp::CpuCount if values.is_empty() => {
                 LoweredValue::Int(crate::modules::cpu::count())
@@ -5801,6 +5878,9 @@ impl Evaluator {
                 self.stdout.extend_from_slice(text.as_bytes());
                 lowered_result_ok(LoweredValue::Unit)
             }
+            RuntimeOp::IoFlushStdout if values.is_empty() => {
+                lowered_unit_result(self.flush_stdout_checked(span))
+            }
             RuntimeOp::IoWriteStdoutBytes if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
                 let data = lowered_bytes_arg(&value, "io.write_stdout_bytes", span)?;
@@ -7428,7 +7508,15 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(run_error_to_runtime(error, span)),
                 }
             }
-            RuntimeOp::ProcessWaitAny if values.len() == 1 => {
+            RuntimeOp::ProcessWaitAny | RuntimeOp::ProcessWaitTimeout
+                if values.len() == 1 || values.len() == 2 =>
+            {
+                let deadline = if op == RuntimeOp::ProcessWaitTimeout {
+                    let timeout = lowered_duration_arg(values.pop(), "process.wait_timeout", span)?;
+                    Some(Instant::now() + Duration::from_millis(timeout.millis))
+                } else {
+                    None
+                };
                 let handles = match lowered_process_handle_list_arg(
                     values.pop().expect("checked value length"),
                     "process.wait_any",
@@ -7484,6 +7572,9 @@ impl Evaluator {
                         }
                     }
 
+                    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                        return Ok(ControlFlow::Continue(lowered_result_ok(LoweredValue::Null)));
+                    }
                     std::thread::sleep(Duration::from_millis(1));
                 }
             }
@@ -8586,6 +8677,8 @@ impl Evaluator {
                     span,
                 )?;
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
+                // Buffered output would otherwise die with the replaced image.
+                self.flush_shared_stdio();
                 unix_module::exec(&invocation, span)
             }
             RuntimeOp::UnixSetHostname => {
@@ -8604,7 +8697,9 @@ impl Evaluator {
                 let attrs =
                     lowered_record_arg(values.first().cloned(), "unix.set_tty_attrs", span)?;
                 let fd = lowered_int_arg_or(values.get(1).cloned(), 0, "unix.set_tty_attrs", span)?;
-                unix_module::set_tty_attrs(&attrs, fd, span)
+                let when =
+                    lowered_str_arg_owned(values.get(2).cloned(), "now", "unix.set_tty_attrs", span)?;
+                unix_module::set_tty_attrs(&attrs, fd, &when, span)
             }
             _ => unreachable!("unix operation expected"),
         }

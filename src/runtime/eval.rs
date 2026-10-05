@@ -2896,6 +2896,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "exited_with",
     "exit_code",
     "signal_number",
+    "shell_code",
     "display",
     "name",
     "basename",

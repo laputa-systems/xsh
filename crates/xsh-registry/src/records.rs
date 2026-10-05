@@ -76,6 +76,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("ProcessEntry", process_entry_type()),
         ("ProcessPort", process_port_type()),
         ("ProcessThread", process_thread_type()),
+        ("Rlimit", rlimit_type()),
         ("Signal", signal_record_type()),
         ("Spawn", spawn_record_type()),
         ("SystemMemory", system_memory_type()),
@@ -90,11 +91,18 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("UnixGroupId", unix_group_id_type()),
         ("UnixId", unix_id_type()),
         ("UnixKillAllResult", unix_kill_all_result_type()),
+        ("UnixLoadAverage", unix_load_average_type()),
         ("UnixLoggedProcessGroup", unix_logged_process_group_type()),
         ("UnixPid1Event", unix_pid1_event_type()),
         ("UnixPid1Shutdown", unix_pid1_shutdown_type()),
+        ("UnixPty", unix_pty_type()),
         ("UnixSpawnedChild", unix_spawned_child_type()),
         ("UnixTtyAttrs", unix_tty_attrs_type()),
+        ("UnixTtyChar", unix_tty_char_type()),
+        ("UnixTtyFlag", unix_tty_flag_type()),
+        ("UnixTtyTable", unix_tty_table_type()),
+        ("UnixUtmp", unix_utmp_type()),
+        ("UnixWindowSize", unix_window_size_type()),
         ("User", user_record_type()),
     ])
 }
@@ -516,6 +524,14 @@ pub fn signal_record_type() -> Type {
     ]))
 }
 
+pub fn rlimit_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("resource".to_string(), Type::Str),
+        ("soft".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("hard".to_string(), Type::Optional(Box::new(Type::Int))),
+    ]))
+}
+
 pub fn env_entry_type() -> Type {
     Type::Record(name_type_map(vec![
         ("name".to_string(), Type::Str),
@@ -926,12 +942,82 @@ pub fn unix_tty_attrs_type() -> Type {
         ("oflag".to_string(), Type::Int),
         ("cflag".to_string(), Type::Int),
         ("lflag".to_string(), Type::Int),
+        ("line".to_string(), Type::Int),
         ("ispeed".to_string(), Type::Int),
         ("ospeed".to_string(), Type::Int),
         ("echo".to_string(), Type::Bool),
         ("raw".to_string(), Type::Bool),
         ("crnl".to_string(), Type::Bool),
         ("control_chars".to_string(), Type::List(Box::new(Type::Int))),
+    ]))
+}
+
+pub fn unix_tty_flag_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("name".to_string(), Type::Str),
+        ("field".to_string(), Type::Str),
+        ("mask".to_string(), Type::Int),
+        ("value".to_string(), Type::Int),
+        ("sane".to_string(), Type::Bool),
+    ]))
+}
+
+pub fn unix_tty_char_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("name".to_string(), Type::Str),
+        ("index".to_string(), Type::Int),
+        ("sane".to_string(), Type::Int),
+    ]))
+}
+
+pub fn unix_tty_table_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("flags".to_string(), Type::List(Box::new(unix_tty_flag_type()))),
+        ("chars".to_string(), Type::List(Box::new(unix_tty_char_type()))),
+        ("speeds".to_string(), Type::List(Box::new(Type::Int))),
+    ]))
+}
+
+pub fn unix_window_size_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("rows".to_string(), Type::Int),
+        ("cols".to_string(), Type::Int),
+        ("xpixel".to_string(), Type::Int),
+        ("ypixel".to_string(), Type::Int),
+    ]))
+}
+
+pub fn unix_pty_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("master".to_string(), Type::Int),
+        ("replica".to_string(), Type::Int),
+        ("name".to_string(), Type::Str),
+    ]))
+}
+
+pub fn unix_utmp_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("type".to_string(), Type::Int),
+        ("kind".to_string(), Type::Str),
+        ("pid".to_string(), Type::Int),
+        ("line".to_string(), Type::Str),
+        ("id".to_string(), Type::Str),
+        ("user".to_string(), Type::Str),
+        ("host".to_string(), Type::Str),
+        ("termination".to_string(), Type::Int),
+        ("exit_status".to_string(), Type::Int),
+        ("session".to_string(), Type::Int),
+        ("time_sec".to_string(), Type::Int),
+        ("time_usec".to_string(), Type::Int),
+        ("addr".to_string(), Type::Str),
+    ]))
+}
+
+pub fn unix_load_average_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("one".to_string(), Type::Float),
+        ("five".to_string(), Type::Float),
+        ("fifteen".to_string(), Type::Float),
     ]))
 }
 

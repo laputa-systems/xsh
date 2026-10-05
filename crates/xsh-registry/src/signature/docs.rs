@@ -881,6 +881,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The operation preserves byte values and does not append a text newline.",
             &["io", "stdout", "bytes"],
         )),
+        ("io", "flush_stdout") => Some((
+            "Writes the buffered standard output to the host and reports the outcome.",
+            "Output normally leaves the process when the script ends and its write errors are not visible; flush_stdout fails with the host errno (EPIPE, ENOSPC, EBADF) so a utility can exit nonzero. Captured output is not buffered for the host, so there it succeeds and does nothing.",
+            &["io", "stdout", "flush"],
+        )),
         ("json", "encode") => Some((
             "Serializes one JSON-compatible value to text.",
             "Unsupported dynamic values return an error instead of being stringified implicitly.",
@@ -1085,6 +1090,51 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Sends a selected signal to a process.",
             "Signal delivery is an explicit host effect; permission, liveness, and target errors are not converted to success.",
             &["process", "signal", "privileged"],
+        )),
+        ("process", "signals") => Some((
+            "Lists the named signals of the host in number order.",
+            "The list starts with the EXIT pseudo-signal (0) and ends with RTMIN and RTMAX where the host has real-time signals; numbers that carry no name are absent.",
+            &["process", "signal", "pure"],
+        )),
+        ("process", "parent_pid") => Some((
+            "Returns the parent process ID of this process.",
+            "A process whose parent exited reports the process that adopted it.",
+            &["process", "identity", "host-state"],
+        )),
+        ("process", "group_id" | "session_id") => Some((
+            "Reads the process group or session ID of a process, or of this one for 0.",
+            "The IDs are host process-table state and can change after the read.",
+            &["process", "identity", "host-state"],
+        )),
+        ("process", "set_group_id" | "new_session") => Some((
+            "Moves a process into a process group, or makes this process a session leader.",
+            "Both change host process-table state; setpgid(2) rules apply (children before exec, same session), and a group leader cannot start a session.",
+            &["process", "group", "host-state"],
+        )),
+        ("process", "kill_group") => Some((
+            "Sends a signal to every member of a process group.",
+            "Unlike unix.kill_process_group it reports a missing group and a refused member as errors; signal 0 only probes.",
+            &["process", "signal", "privileged"],
+        )),
+        ("process", "priority" | "set_priority" | "nice") => Some((
+            "Reads or changes scheduling priority (niceness).",
+            "which selects a process, a process group, or a user for the first two; nice adds to this process's niceness and returns the result; lowering niceness needs privilege and every failure carries its errno.",
+            &["process", "priority", "privileged"],
+        )),
+        ("process", "rlimit" | "rlimits" | "set_rlimit") => Some((
+            "Reads or changes this process's resource limits.",
+            "Limits are process-global and inherited by children; null is unlimited, an omitted bound is left unchanged, and raising a hard limit needs privilege.",
+            &["process", "limits", "host-state"],
+        )),
+        ("process", "signal_action" | "set_signal_action") => Some((
+            "Reads or changes how this process treats a signal.",
+            "ignore and default survive unix.exec, which is how nohup is built; replacing INT or TERM disables the runtime's cancellation for that signal, and children started with run restore the defaults themselves.",
+            &["process", "signal", "host-state"],
+        )),
+        ("process", "wait_timeout") => Some((
+            "Waits for one process from an owned handle set for at most a duration.",
+            "A timeout returns null and consumes nothing, so the caller can signal the child and wait again; a completion behaves like wait_any.",
+            &["process", "ownership", "status-data"],
         )),
         ("process", "argv_words") => Some((
             "Splits a command string into an argv vector.",
@@ -1315,6 +1365,51 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Reads Unix host uptime in seconds.",
             "The result is host clock state and is not the elapsed time of the current evaluator.",
             &["unix", "uptime", "host-state"],
+        )),
+        ("unix", "isatty" | "ttyname" | "controlling_tty") => Some((
+            "Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.",
+            "The answer is host descriptor state; ttyname fails with ENOTTY for a descriptor that is not a terminal and controlling_tty with ENXIO when the process has none.",
+            &["unix", "tty", "identity"],
+        )),
+        ("unix", "open_fd" | "close_fd") => Some((
+            "Opens a path as a bare descriptor number, or closes one.",
+            "The descriptor is for the termios and window-size calls, never becomes the controlling terminal, and is closed on exec; it is not owned by any scope, so the script must close it, and the standard streams cannot be closed.",
+            &["unix", "fd", "host-resource"],
+        )),
+        ("unix", "open_pty") => Some((
+            "Opens a pseudo-terminal pair.",
+            "The two descriptors and the replica's path are host resources the script must close with unix.close_fd.",
+            &["unix", "tty", "host-resource"],
+        )),
+        ("unix", "tty_table") => Some((
+            "Returns the termios flag, control character, and baud rate names of the host.",
+            "The table is constant for a host; it lets a script edit UnixTtyAttrs words by name without hard-coding platform bit values.",
+            &["unix", "tty", "pure"],
+        )),
+        ("unix", "tty_mode") => Some((
+            "Applies raw, cooked, cbreak, or sane to a terminal attributes record.",
+            "The result is a changed copy that follows stty's definitions of the modes; the terminal changes only when the copy is passed to set_tty_attrs.",
+            &["unix", "tty", "pure"],
+        )),
+        ("unix", "window_size" | "set_window_size") => Some((
+            "Reads or sets a terminal's window size.",
+            "Setting it makes the kernel signal the foreground process group with SIGWINCH.",
+            &["unix", "tty", "terminal"],
+        )),
+        ("unix", "foreground_group" | "set_foreground_group" | "tty_session") => Some((
+            "Reads or changes the foreground process group of a terminal, or its session.",
+            "These are host terminal state; a background process group that calls set_foreground_group receives SIGTTOU, and a descriptor that is not a terminal fails with ENOTTY.",
+            &["unix", "tty", "job-control"],
+        )),
+        ("unix", "read_utmp") => Some((
+            "Reads the login session records of a utmp or wtmp file.",
+            "The default file is /var/run/utmp; a missing file is an error and a file with no whole records is an empty list. Linux only; other hosts fail with an unsupported error.",
+            &["unix", "sessions", "host-state"],
+        )),
+        ("unix", "load_average") => Some((
+            "Reads the system load averages.",
+            "The values are a point-in-time host observation.",
+            &["unix", "system", "host-state"],
         )),
         ("unix", "tty" | "tty_attrs" | "set_tty_attrs") => Some((
             "Reads or changes Unix terminal state.",
@@ -1877,6 +1972,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Checks a process exit code.",
             "The comparison applies only to normal exits; signaled statuses remain distinct.",
             &["process", "status-data", "comparison"],
+        )),
+        ("Status", "shell_code") => Some((
+            "Reports a status the way a shell does: the exit code, or 128 plus the signal.",
+            "A status whose command never started fails; the value is pure data over the completed status.",
+            &["process", "status-data"],
         )),
         ("Status", "exit_code" | "signal_number") => Some((
             "Reads one field from a process status.",
