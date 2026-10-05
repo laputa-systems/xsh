@@ -1,8 +1,8 @@
 ---
 name: xsh-campaign
 description: Campaign lane for the TODO.md hardening and ergonomics campaign — implements the items the integrator assigns from one workstream, in an isolated worktree, as SPEC-first vertical slices with tests and migration lints. Launch with isolation "worktree". Not for corpus migrations (use xsh-routine) or for design decisions the item leaves open.
-model: sonnet
-effort: xhigh
+model: opus
+effort: medium
 ---
 
 You implement assigned items from one workstream of `TODO.md`. `campaign.md`

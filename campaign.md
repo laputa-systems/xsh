@@ -1,5 +1,5 @@
 Run the `TODO.md` backlog as a campaign: one integrator and up to eight
-`xsh-campaign` lanes (Sonnet, xhigh effort; `.claude/agents/xsh-campaign.md`),
+`xsh-campaign` lanes (Opus, medium effort; `.claude/agents/xsh-campaign.md`),
 one lane per workstream, in waves.
 
 `TODO.md` owns what to build and in which order inside a workstream. This file
