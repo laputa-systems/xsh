@@ -521,6 +521,14 @@ impl CanonicalWriter<'_> {
             visited.push(ArenaSugarOperand::Block(id));
         }
         let block = self.arena.block(id);
+        if let Some(bound) = self.arena.block_effect_bound(id) {
+            self.put("without(");
+            for effect in self.arena.effects(bound.effects).collect::<Vec<_>>() {
+                self.put(effect.as_str());
+                self.put(",");
+            }
+            self.put(")");
+        }
         self.put("B(");
         for param in self.arena.block_params(block.params) {
             self.debug(&param.name);

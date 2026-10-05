@@ -404,6 +404,11 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     if matches!(text, "repeat" | "times") && repeat_head_word(source, tokens, at) {
         return Kind::Keyword;
     }
+    // `without` is an ordinary name except where it opens a
+    // `without EFFECT, ... {` statement.
+    if text == "without" && without_head_word(source, tokens, at, previous) {
+        return Kind::Keyword;
+    }
     // `print` is a statement form, not a reserved word, so only a bare use
     // reads as one.
     if text == "print" && !after_dot && !called {
@@ -478,6 +483,30 @@ fn repeat_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
                     .is_some_and(|next| next.tag == TokenTag::LBrace)
         });
     times.is_some_and(|times| at == first || at == times)
+}
+
+/// Whether `tokens[at]` is the `without` of a statement head
+/// `without EFFECT, ... {` written on one line.
+fn without_head_word(source: &str, tokens: &[Token], at: usize, previous: Option<Token>) -> bool {
+    use std::str::FromStr;
+    if !statement_start(previous, source) {
+        return false;
+    }
+    let mut index = at + 1;
+    loop {
+        let is_effect = tokens.get(index).is_some_and(|token| {
+            token.tag == TokenTag::Ident
+                && crate::syntax::node::Effect::from_str(&source[token.start..token.end]).is_ok()
+        });
+        if !is_effect {
+            return false;
+        }
+        match tokens.get(index + 1).map(|token| token.tag) {
+            Some(TokenTag::Comma) => index += 2,
+            Some(TokenTag::LBrace) => return true,
+            _ => return false,
+        }
+    }
 }
 
 /// Whether the token after `previous` starts a statement.
@@ -754,6 +783,15 @@ mod tests {
         assert_eq!(kind_of(source, "it_works"), Kind::Function);
         assert_eq!(kind_of(source, "error"), Kind::Keyword);
         assert_eq!(kind_of(source, "x"), Kind::Plain);
+    }
+
+    #[test]
+    fn without_is_a_keyword_only_in_a_without_statement_head() {
+        let source = "without net, fs {\n}\nlet without = [net]\nwithout = []\nprint ${without.len()}\n";
+        assert_eq!(kind_of(source, "without net"), Kind::Keyword);
+        assert_eq!(kind_of(source, "without = [net]"), Kind::Plain);
+        assert_eq!(kind_of(source, "without = []"), Kind::Plain);
+        assert_eq!(kind_of(source, "without.len"), Kind::Plain);
     }
 
     #[test]

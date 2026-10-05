@@ -2558,7 +2558,19 @@ impl<'a> Writer<'a> {
                 self.write_block(*block, indent_for_expr(output), output);
             }
             ArenaExprKind::ValueBlock(block) => {
-                self.write_block_contents(*block, indent_for_expr(output), output, true)
+                // The indentation is that of the line the head starts.
+                let indent = indent_for_expr(output);
+                if let Some(bound) = self.arena.block_effect_bound(*block) {
+                    let effects = self
+                        .arena
+                        .effects(bound.effects)
+                        .map(|effect| effect.as_str())
+                        .collect::<Vec<_>>();
+                    output.push_str("without ");
+                    output.push_str(&effects.join(", "));
+                    output.push(' ');
+                }
+                self.write_block_contents(*block, indent, output, true)
             }
             ArenaExprKind::ValuePipelineCall { input, call, .. } => {
                 self.write_expr(*input, child(*input), output);

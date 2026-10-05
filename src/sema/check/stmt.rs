@@ -1641,6 +1641,18 @@ impl Checker {
         block_id: BlockId,
         expected: &Type,
     ) {
+        let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
+        self.check_value_block_statements_arena(arena, source, block_id, expected);
+        self.leave_block_effect_bound(enclosing_bound);
+    }
+
+    fn check_value_block_statements_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expected: &Type,
+    ) {
         let block = arena.arena.block(block_id);
         self.push_scope();
         self.block_depth += 1;
@@ -2872,6 +2884,17 @@ impl Checker {
         source: &str,
         block_id: BlockId,
     ) {
+        let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
+        self.check_statement_block_statements_arena(arena, source, block_id);
+        self.leave_block_effect_bound(enclosing_bound);
+    }
+
+    fn check_statement_block_statements_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+    ) {
         let block = arena.arena.block(block_id);
         self.block_depth += 1;
         let previous_reachable = self.inference_reachable;
@@ -3013,6 +3036,19 @@ impl Checker {
     }
 
     pub(super) fn check_tail_block_contents_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expected: Option<&Type>,
+    ) -> Type {
+        let enclosing_bound = self.enter_block_effect_bound(arena, block_id);
+        let ty = self.check_tail_block_statements_arena(arena, source, block_id, expected);
+        self.leave_block_effect_bound(enclosing_bound);
+        ty
+    }
+
+    fn check_tail_block_statements_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,

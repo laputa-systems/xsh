@@ -471,6 +471,7 @@ diagnostic_codes! {
         CheckYield = "check.yield", error, "Reject `yield` outside a stream producer or inside a `retry` attempt";
         CheckYieldDelegation = "check.yield-delegation", error, "Reject `yield @` of a value that is not a `List` or `Stream`";
         CheckYieldStream = "check.yield-stream", error, "Reject `yield` of a stream value; use `yield @stream`";
+        CheckWithoutEffect = "check.without-effect", error, "Reject `without error`: a local bound subtracts host effects, and `try` bounds errors";
     }
     Compact {
         CompactCliArgs = "compact.cli-args", error, "Reject script arguments that are not a `List[Str]` when preparing a compact `cli main`";

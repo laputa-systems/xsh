@@ -671,6 +671,7 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     alt(exported(true).into_iter().chain([r("signal_hook")])),
                 ]),
                 r("repeat_statement"),
+                r("without_statement"),
             ])),
         ),
         rule(
@@ -1197,6 +1198,23 @@ pub(super) fn rules() -> Vec<super::Rule> {
                 w("repeat"),
                 line(r("condition_expression")),
                 w("times"),
+                block(),
+            ]),
+        ),
+        // `without` is a contextual word: the statement is the whole head
+        // `without EFFECT, ... {`, written on one line.
+        rule(
+            Statements,
+            "without_statement",
+            seq([
+                w("without"),
+                line(seq([
+                    alt(effect_names().into_iter().map(w)),
+                    star(seq([
+                        t(T::Comma),
+                        alt(effect_names().into_iter().map(w)),
+                    ])),
+                ])),
                 block(),
             ]),
         ),

@@ -39,6 +39,8 @@ mod record_require;
 pub use expected::RequirementTarget;
 #[path = "check/inferred_variant.rs"]
 mod inferred_variant;
+#[path = "check/effect_bounds.rs"]
+mod effect_bounds;
 #[path = "check/infer_effects.rs"]
 mod infer_effects;
 #[path = "check/infer_param.rs"]
@@ -570,6 +572,8 @@ pub struct Checker {
     current_yield: Option<Type>,
     in_pure: bool,
     current_effects: Option<Vec<Effect>>,
+    // The effects enclosing `without` regions exclude, outermost first.
+    excluded_effects: Vec<effect_bounds::ExcludedEffect>,
     collecting_effects: bool,
     effect_graph: EffectGraph,
     effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
@@ -904,6 +908,7 @@ impl Checker {
             current_yield: None,
             in_pure: false,
             current_effects: None,
+            excluded_effects: Vec::new(),
             collecting_effects: false,
             effect_graph: EffectGraph::default(),
             effect_summaries: BTreeMap::new(),

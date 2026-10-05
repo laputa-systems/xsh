@@ -291,6 +291,11 @@ impl Checker {
                         DiagnosticCode::CheckEffectViolation,
                     );
                 }
+                self.check_effect_not_excluded(
+                    &Effect::Process,
+                    arena.arena.span(arena.arena.run_form(*run_id).span),
+                    "`run`",
+                );
                 self.check_run_arena(arena, source, *run_id)
             }
         }

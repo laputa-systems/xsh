@@ -1535,6 +1535,36 @@ Opaque callables and unresolved dependencies have unknown effects, which a
 restricted caller cannot use either. Local `try` and `retry` capture removes
 only the outward `error` requirement.
 
+`without EFFECT, ... { BODY }` narrows the bound for one lexical region. It is
+a lexical block (same scope, same cleanup, same value rules), and the checker
+holds everything in it, including nested blocks and callbacks written there,
+to the enclosing bound minus the listed effects:
+
+```xsh
+{{.spec.without.source}}
+```
+
+The listed effects are `fs`, `net`, `process`, `env`, `time`, and `io`;
+`error` is not a host effect and is bounded with `try` instead
+(`check.without-effect`). Inside the region, an operation or callee that
+requires a listed effect is a `check.effect-violation`, reported like a
+clause violation and pointing at the `without` head as well. A callee that
+requires `io` is excluded by `without fs`, `net`, `process`, or `env`, because
+`io` implies each of them; `without io` excludes only `io` itself. A callee
+with an unknown or unrestricted contract cannot be called in the region, even
+from code that is otherwise unrestricted. Nested regions add up. The bound
+does not change the effects inferred for, or declared by, the enclosing proc.
+
+```xsh
+{{.spec.without_violation.source}}
+```
+
+This is a claim the checker proves about XSH code. It does not sandbox a
+spawned process or say what an external program does: `without net` still
+allows `run curl ...` where `process` is permitted. `without` is a word only
+at the start of such a statement, written on one line up to `{`; elsewhere it
+is an ordinary name.
+
 ## 10. Commands And Scopes
 
 ### 10.1 Command statements

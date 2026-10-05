@@ -656,6 +656,7 @@ impl Checker {
                             span,
                         );
                     }
+                    self.check_callee_not_excluded(&sig.effects, &[], &name.as_str(), span);
                     self.check_module_callable_arg_list_arena(
                         arena,
                         source,

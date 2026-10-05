@@ -2488,6 +2488,20 @@ impl<'a> ArenaProgramBuilder<'a> {
         ArenaRange::new(start, params.len())
     }
 
+    /// Records that `block` is written under `without EFFECT, ...`.
+    pub fn set_block_effect_bound(&mut self, block: BlockId, effects: ArenaRange, head: Span) {
+        let bounds = &mut self.lowerer.arena.block_effect_bounds;
+        let at = bounds.partition_point(|bound| bound.block < block);
+        bounds.insert(
+            at,
+            ArenaBlockEffectBound {
+                block,
+                effects,
+                head,
+            },
+        );
+    }
+
     pub fn push_effects(&mut self, effects: &[Effect]) -> ArenaRange {
         let start = self.lowerer.arena.extra.len();
         self.lowerer
@@ -3729,6 +3743,9 @@ pub struct AstArena {
     pub params: Vec<ArenaParam>,
     pub schema_fields: Vec<ArenaSchemaField>,
     pub module_contract_entries: Vec<ArenaModuleContractEntry>,
+    /// The `without` bounds of blocks, sorted by block. Few blocks carry
+    /// one, so they live beside the block table and not in every row.
+    pub block_effect_bounds: Vec<ArenaBlockEffectBound>,
     pub tag_variants: Vec<ArenaTagVariant>,
     pub error_variants: Vec<ArenaErrorVariant>,
     pub error_fields: Vec<ArenaErrorField>,
@@ -3883,6 +3900,7 @@ impl AstArena {
             + vec_capacity_bytes(&self.signal_hooks)
             + vec_capacity_bytes(&self.schema_fields)
             + vec_capacity_bytes(&self.module_contract_entries)
+            + vec_capacity_bytes(&self.block_effect_bounds)
             + vec_capacity_bytes(&self.tag_variants)
             + vec_capacity_bytes(&self.error_variants)
             + vec_capacity_bytes(&self.error_fields)
@@ -4029,6 +4047,7 @@ impl AstArena {
             table!(params),
             table!(schema_fields),
             table!(module_contract_entries),
+            table!(block_effect_bounds),
             table!(tag_variants),
             table!(error_variants),
             table!(error_fields),
@@ -4074,6 +4093,7 @@ impl AstArena {
             + vec_capacity_bytes(&self.signal_hooks)
             + vec_capacity_bytes(&self.schema_fields)
             + vec_capacity_bytes(&self.module_contract_entries)
+            + vec_capacity_bytes(&self.block_effect_bounds)
             + vec_capacity_bytes(&self.tag_variants)
             + vec_capacity_bytes(&self.error_variants)
             + vec_capacity_bytes(&self.error_fields)
@@ -4120,6 +4140,7 @@ impl AstArena {
             + self.params.len()
             + self.schema_fields.len()
             + self.module_contract_entries.len()
+            + self.block_effect_bounds.len()
             + self.tag_variants.len()
             + self.error_variants.len()
             + self.error_fields.len()
@@ -4648,6 +4669,14 @@ impl AstArena {
 
     pub fn schema_fields(&self, range: ArenaRange) -> &[ArenaSchemaField] {
         range_slice(&self.schema_fields, range)
+    }
+
+    /// The `without EFFECT, ...` bound written before `block`, if any.
+    pub fn block_effect_bound(&self, block: BlockId) -> Option<&ArenaBlockEffectBound> {
+        self.block_effect_bounds
+            .binary_search_by_key(&block, |bound| bound.block)
+            .ok()
+            .map(|index| &self.block_effect_bounds[index])
     }
 
     pub fn module_contract_entries(&self, range: ArenaRange) -> &[ArenaModuleContractEntry] {
@@ -5612,6 +5641,18 @@ pub struct ArenaBlock {
     pub params: ArenaRange,
     pub statements: ArenaRange,
     pub span: SpanId,
+}
+
+/// A local negative effect bound: `without EFFECT, ... { BODY }`. The block
+/// runs as the lexical block it is; the checker holds everything inside it
+/// to the enclosing bound minus `effects`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ArenaBlockEffectBound {
+    pub block: BlockId,
+    /// The effects subtracted, in source order, as an `effects` range.
+    pub effects: ArenaRange,
+    /// `without EFFECT, ...`, everything before the block.
+    pub head: Span,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

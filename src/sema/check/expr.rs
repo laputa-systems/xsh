@@ -305,6 +305,7 @@ impl Checker {
                 DiagnosticCode::CheckEffectViolation,
             );
         }
+        self.check_effect_not_excluded(&Effect::Process, span, form);
     }
 }
 
@@ -1877,6 +1878,7 @@ impl Checker {
                     DiagnosticCode::CheckEffectViolation,
                 );
             }
+            self.check_effect_not_excluded(&Effect::Time, span, "`retry` with delays");
         }
 
         self.push_scope();
@@ -1954,6 +1956,7 @@ impl Checker {
                 DiagnosticCode::CheckEffectViolation,
             );
         }
+        self.check_effect_not_excluded(&Effect::Process, run_span, "`run`");
         self.check_run_arena(arena, source, run_id)
     }
 
