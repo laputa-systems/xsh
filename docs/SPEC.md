@@ -34,8 +34,12 @@ composition model and replaces its semantics.
 - **Types without ceremony.** Every value has a type. Locals infer their types;
   annotations appear at module, function, and data boundaries.
 - **Results, not exceptions.** Fallibility is part of a signature. A failure
-  can leave a function only through a visible `?`, a statement-position
-  `Result[Unit]`, an `assert`, a `fail`, or a failed plain `run`.
+  leaves a function only through a form that is visible at the site: the `?`
+  operator; an `assert`, a `fail`, or a plain `run` whose command fails; and
+  a `Result` in a control position, where it cannot be a value, which is a
+  statement-position `Result[Unit]` or a `Result[Bool]` condition. Nothing
+  else propagates: a `Result` in a binding, an argument, an operand, or a
+  return is data and needs `?`, whatever type the context expects.
 - **Effects are tracked.** Pure functions cannot touch the host. Procs infer
   which host effects they use; a declared clause is a checked upper bound.
 - **Predictable execution.** Evaluation order is source order. The concurrency
@@ -1784,6 +1788,38 @@ A statement-position `Result[Unit]` propagates without `?` (8.1), so
 Both leave a `?` whose operand would otherwise be the value of its body, such
 as the tail of a `try` block that is bound.
 
+A `Result` propagates without `?` only in a control position, where it
+cannot be a value. There are two. A statement-position `Result[Unit]` is one
+(8.1). A `Result[Bool]` condition is the other:
+
+```xsh
+if ! cache.exists() or ! source.exists() {
+  eprint "nothing to compare"
+  return Ok(true)
+}
+```
+
+The control positions of a condition are the condition itself, in `if`,
+`else if`, `while`, `guard cond else`, and a postfix `when` or `unless`,
+whether the `if` is a statement or a value; the operand of `!` when the `!`
+is in a control position; and each operand of `and` and `or` when that
+expression is in a control position. Parentheses change nothing. No other
+part of a condition is one: not an operand of a comparison or of any other
+operator, not a call argument or a receiver, and not the subject of `is`. A
+`Result` there is data and needs `?`, as it does in a binding, an argument, or
+a return. The conditions of `assert` (8.2) and of a `match` arm's `if` are not
+control positions either: both take a concrete `Bool`.
+
+A `Result[Bool]` in a control position evaluates exactly as it would under
+`?`. `Ok(b)` gives `b`, and `Err(e)` leaves the nearest propagation boundary
+of the table above; `and` and `or` still skip the operand they do not need,
+and an operand that is skipped does not fail. Like a statement, it requires
+the `error` effect in a restricted proc, and in a pure function whose return
+type is not a `Result` it is `check.try-context` outside a `try` or `retry`.
+A `Result` of any other type is still not a condition (`check.if-condition`).
+`lint.redundant-propagation` removes the `?` from a `Result[Bool]` in a
+control position, as it does from a statement.
+
 `?` passes on a failure that already exists. A function that detects a
 failure itself states it with `fail` (8.6), or with `assert` (8.2) when a
 false condition is the whole report.
@@ -2304,6 +2340,9 @@ computed before the block's defers run; a cleanup failure becomes the `Err`
 when the body succeeded. The error type is the narrowest common family, or
 `Error`. A block that can only fail needs a `Result` annotation for its success
 type.
+
+`try` directly before a run form captures that one form: `try run.text cmd`
+is the form's `Result` as a value (11.1).
 
 `retry [delays] { ... }` re-runs a block on failure:
 
@@ -2904,6 +2943,21 @@ call and never searches `PATH`.
 | `run.stream --text cmd ...` | `Result[Stream[Str], ProcessError]` (stdout lines) | |
 | `run.stream --bytes cmd ...` | `Result[Stream[Bytes], ProcessError]` | |
 
+A run form whose value is a `Result` either keeps it or propagates it, and
+says which. `try` before the form keeps the `Result` as its value:
+
+```xsh
+let described = try run.text sh -c "exit 3"
+let label = if let Ok(text) = described { text.trim() } else { "unknown" }
+```
+
+`try run...` has the type and value of the same form written without `try`,
+reads its words to the same end, and takes the place of a `?`: writing both
+is a parse error. It applies to `run.text`, `run.bytes`, `run.capture`, and
+`run.stream`; plain `run` and `run.status` yield a `Status`, so `try` before
+them is `check.try-result`. `lint.explicit-run-capture` writes the `try` on a
+value-position run form that keeps its `Result` without one.
+
 A trailing `?` applies to the whole run form: `run.text git rev-parse HEAD ?`.
 A run form followed by `|>` heads a value pipeline wherever it is written,
 including at the start of a statement or initializer, and a `?` before the
@@ -3502,8 +3556,8 @@ let nested = package.glob("src/**/*.xsh")? # the same pattern as g"..."
   `Result[Bool]` and ask what the path itself is:
 
   ```xsh
-  return Ok("link") when out.is_symlink()?
-let kind = if out.is_dir()? { "directory" } else if out.is_file()? { "file" } else { "other" }
+  return Ok("link") when out.is_symlink()
+let kind = if out.is_dir() { "directory" } else if out.is_file() { "file" } else { "other" }
   ```
 
   `p.is_dir()` is exactly `p.metadata()?.kind == "dir"`, and likewise for

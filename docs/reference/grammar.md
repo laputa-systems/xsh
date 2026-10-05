@@ -295,6 +295,7 @@ primary = literal
         | match_expression
         | "loop" block
         | "try" block
+        | "try" run_form !"?" ( run_end | &")" )
         | retry_expression
         | run_form ( "?" &"|>" | run_end )
         | "spawn" ( run_form run_end | operand )

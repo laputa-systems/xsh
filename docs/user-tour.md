@@ -369,7 +369,7 @@ variants that callers can match on, instead of grepping message strings:
 error PortError = Missing(file: Path) | Invalid(text: Str)
 
 proc read_port(file: Path) -> Result[Int] {
-  guard file.exists()? else {
+  guard file.exists() else {
     return Err(PortError.Missing(file:))
   }
 
@@ -1271,7 +1271,7 @@ Every `run` form accepts `--timeout`. A timeout is a typed error you can match,
 not exit status 124 that you have to remember:
 
 ```xsh
-let slow = run.capture --text --timeout=200ms sleep 5
+let slow = try run.capture --text --timeout=200ms sleep 5
 
 match slow {
   Ok(out) => print f"finished: {out.status.ok}"
@@ -1392,7 +1392,7 @@ if status.signaled() {
   print f"killed by signal {status.signal_number()?}"
 }
 
-let strict = run.text sh -c "kill -TERM $$"
+let strict = try run.text sh -c "kill -TERM $$"
 
 match strict {
   Ok(_) => print "finished"
