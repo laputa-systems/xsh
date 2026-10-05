@@ -27,10 +27,11 @@ proc parse(argv: List[Str]) [process, env, io] -> Options {
     let key = parts[0]
     let text = arg.byte_slice(key.byte_len() + 1)
     if key == "if" { opts = {...opts, input: text} } else if key == "of" { opts = {...opts, output: text} } else if key in ["ibs", "obs", "bs", "cbs", "count", "skip", "seek", "iseek", "oseek"] {
-      guard let n = amount(text) else { gnu.usage_error(f"invalid number: {gnu.quote(text)}"); exit 1 }
+      guard let n = amount(text) else { gnu.error(f"invalid number: {gnu.quote(text)}"); exit 1 }
       if n == 9223372036854775807 { gnu.error(f"invalid number: {gnu.quote(text)}: Value too large for defined data type"); exit 1 }
-      if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { gnu.usage_error(f"invalid number: {gnu.quote(text)}") }
-      if key == "bs" { opts = {...opts, ibs: n, obs: n, bs: n} } else if key == "ibs" { opts = {...opts, ibs: n} } else if key == "obs" { opts = {...opts, obs: n} } else if key == "cbs" { opts = {...opts, cbs: n} } else if key == "count" { opts = {...opts, count: n, count_bytes: text.ends_with("B")} } else if key in ["skip", "iseek"] { opts = {...opts, skip: n, skip_bytes: text.ends_with("B")} } else { opts = {...opts, seek: n, seek_bytes: text.ends_with("B")} }
+      if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { gnu.error(f"invalid number: {gnu.quote(text)}"); exit 1 }
+      let byte_count = [factor for factor in text.split("x") if rx"^[0-9]+B$".matches(factor)].len() > 0
+      if key == "bs" { opts = {...opts, ibs: n, obs: n, bs: n} } else if key == "ibs" { opts = {...opts, ibs: n} } else if key == "obs" { opts = {...opts, obs: n} } else if key == "cbs" { opts = {...opts, cbs: n} } else if key == "count" { opts = {...opts, count: n, count_bytes: byte_count} } else if key in ["skip", "iseek"] { opts = {...opts, skip: n, skip_bytes: byte_count} } else { opts = {...opts, seek: n, seek_bytes: byte_count} }
     } else if key == "status" {
       if ! (text in ["none", "noxfer", "progress"]) { gnu.usage_error(f"invalid status level: {gnu.quote(text)}") }
       if text == "progress" { gnu.usage_error("unsupported status level progress: interruptible transfer reporting required") }
@@ -40,7 +41,7 @@ proc parse(argv: List[Str]) [process, env, io] -> Options {
         if key == "conv" {
           if flag in ["lcase", "ucase", "swab", "sync", "block", "unblock", "notrunc", "nocreat", "ascii", "ebcdic", "ibm"] { opts = {...opts, conv: opts.conv.extend([flag])} } else if flag in ["excl", "noerror", "fdatasync", "fsync", "sparse"] { gnu.usage_error(f"unsupported conversion {gnu.quote(flag)}: native descriptor support required") } else { gnu.usage_error(f"invalid conversion: {gnu.quote(flag)}") }
         } else {
-          if key == "iflag" and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") }
+          if key == "iflag" and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else { gnu.usage_error(f"invalid {if key == "iflag" { "input" } else { "output" }} flag: {gnu.quote(flag)}") }
         }
       }
     } else { gnu.usage_error(f"unrecognized operand {gnu.quote(arg)}") }
@@ -137,6 +138,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   if let file = source {
     if file.mode == "file" and opts.output != "-" and dest.metadata()?.mode / 4096 % 16 == 8 {
       let size = file.path.metadata()?.size
+      if skip > size { gnu.error(f"{gnu.quote(opts.input)}: cannot skip to specified offset") }
       let available = if size > skip { size - skip } else { 0 }
       let length = if available < limit { available } else { limit }
       let copied = bytes.copy_file(file.path, dest.resolve()?, source_offset: skip, dest_offset: seek, length: length, create: ! ("nocreat" in opts.conv))?
@@ -150,6 +152,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       break when block.is_empty()
       discarded += block.len()
     }
+    if discarded < skip { gnu.error("'standard input': cannot skip to specified offset") }
   }
   var total = 0
   var complete = 0
@@ -196,6 +199,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   if seek > 0 and opts.output == "-" { gnu.usage_error("unsupported seek on standard output: native descriptor support required") }
   if opts.count > 0 and ! opts.count_bytes and opts.count > 9223372036854775807 / opts.ibs { gnu.error("count is too large"); exit 1 }
   let limit = if opts.count < 0 { 9223372036854775807 } else if opts.count_bytes { opts.count } else { opts.count * opts.ibs }
+  if opts.input == "" or opts.output == "" { gnu.error("failed to open '': No such file or directory"); exit 1 }
+  if opts.input != "-" {
+    if let Err(failure) = tio.open_source(opts.input) { gnu.error(f"failed to open {gnu.quote(opts.input)}: {gnu.strerror(failure)}"); exit 1 }
+  }
+  if opts.output != "-" and "nocreat" in opts.conv and ! fp"{opts.output}".exists() { gnu.error(f"failed to open {gnu.quote(opts.output)}: No such file or directory"); exit 1 }
   let plain = [flag for flag in opts.conv if ! (flag in ["notrunc", "nocreat"])].is_empty()
   if plain {
     guard let copied = plain_copy(opts, skip, seek, limit) else { |failure| gnu.error(gnu.strerror(failure)); exit 1 }
@@ -279,7 +287,7 @@ proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: In
       let si = if size >= 1000 { human_size(size, 1000, false) } else { "" }
       let iec = if size >= 1024 { human_size(size, 1024, true) } else { "" }
       let units = if si == "" { "" } else if iec == "" { f" ({si})" } else { f" ({si}, {iec})" }
-      eprint f"{size} bytes{units} copied, {millis / 1000}.{millis % 1000:03} s, {human_size(size * 1000 / millis, 1000, false)}/s"
+      eprint f"{size} bytes{units} copied, {millis / 1000}.{millis % 1000:03} s, {if size == 0 { "0.0 B" } else { human_size(size * 1000 / millis, 1000, false) }}/s"
     }
   }
 }
