@@ -81,10 +81,57 @@ print f"finished {{done}}"
   assert survivors(marker)? == 0
 }
 
-proc failing_stage(marker: Str) [process, time, error] -> Result[Int] {
+proc failing_stage(marker: Str, root: Path) [fs, process, time, error] -> Result[Int] {
   [1, 2, 3, 4] |> par-map(jobs: 4) { |n|
+    defer fp"{root}/cleanup-{n}".write("x")
     if n == 2 {
+      # The other items have started their children by now.
+      time.sleep(300ms)
       fail "item failed"
+    }
+
+    # A stopped item that handles the failure of its child cannot go on.
+    let stopped = try { run sleep $marker }
+    fp"{root}/went-on-{n}".write(f"{stopped is Ok(_)}")
+    n
+  } |> count()
+}
+
+# An item that fails stops the stage: no further item starts, and the items
+# still running are stopped the way a deadline stops them, so the stage does
+# not wait out their children. The stage reports the failure of the item that
+# failed, not of an earlier item it stopped, and every item runs its cleanup.
+test test_par_map_item_failure_stops_running_items { |ctx|
+  let root = test.temp_dir(ctx, name: "par-map-failure")?
+  let marker = "311.0404"
+  let started = time.now()
+  let result = failing_stage(marker, root)
+  match result {
+    Ok(_) => assert false
+    Err(failure) => assert "item failed" in failure.message, failure.message
+  }
+
+  assert time.now() - started < 20000
+  assert survivors(marker)? == 0
+  for n in [1, 2, 3, 4] {
+    assert fp"{root}/cleanup-{n}".exists()?, f"item {n} ran no cleanup"
+    assert ! fp"{root}/went-on-{n}".exists()?, f"item {n} went on"
+  }
+}
+
+proc failed_leaf() [error] -> Result[Int] {
+  fail "item failed"
+}
+
+proc failing_by(way: Str, marker: Str) [process, time, error] -> Result[Int] {
+  [1, 2, 3, 4] |> par-map(jobs: 4) { |n|
+    if n == 3 {
+      time.sleep(300ms)
+      match way {
+        "question" => assert failed_leaf()? == 0
+        "run" => run sh -c "exit 7"
+        else => assert false, "item failed"
+      }
     }
 
     run sleep $marker
@@ -92,17 +139,87 @@ proc failing_stage(marker: Str) [process, time, error] -> Result[Int] {
   } |> count()
 }
 
-# An item that fails stops the stage from starting more items. Items that
-# are already running finish first, so nothing outlives the stage.
-test test_par_map_item_failure_waits_for_running_items {
-  let marker = "0.311404"
-  let result = failing_stage(marker)
+# Every way an item fails stops the stage the same way: a `?`, a failed
+# command, and a failed assertion.
+test test_par_map_every_item_failure_stops_running_items {
+  for {way, marker, expected} in [
+    {way: "question", marker: "311.0901", expected: "item failed"},
+    {way: "run", marker: "311.0902", expected: "7"},
+    {way: "assert", marker: "311.0903", expected: "item failed"},
+  ] {
+    let started = time.now()
+    let result = try { failing_by(way, marker)? }
+    match result {
+      Ok(_) => assert false, way
+      Err(failure) => assert expected in failure.message, f"{way}: {failure.message}"
+    }
+
+    assert time.now() - started < 20000, way
+    assert survivors(marker)? == 0, way
+  }
+}
+
+proc failing_reduce(marker: Str) [process, time, error] -> Result[Map[Str, Int]] {
+  [1, 2, 3, 4] |> par-map(jobs: 4) { |n|
+    if n == 3 {
+      time.sleep(300ms)
+      fail "item failed"
+    }
+
+    run sleep $marker
+    n
+  } |> reduce-by(sum: true) { |n| {key: "all", value: n} }
+}
+
+# `par-map` followed by `reduce-by` runs as one stage that reduces on the
+# workers. It gives the value the two stages give apart, with or without an
+# identity `flat-map` between them.
+test test_par_map_reduce_stage_reduces_on_the_workers {
+  let squares = range(1, 9) |> par-map(jobs: 4) { |n| n * n } |> reduce-by(sum: true) { |n|
+    {key: if n % 2 == 0 { "even" } else { "odd" }, value: n}
+  }
+  assert squares["even"] == 120
+  assert squares["odd"] == 84
+  assert squares.len() == 2
+
+  let serial = range(1, 9) |> par-map(jobs: 1) { |n| n * n } |> reduce-by(sum: true) { |n|
+    {key: if n % 2 == 0 { "even" } else { "odd" }, value: n}
+  }
+  assert serial == squares
+
+  let flattened = range(1, 9) |> par-map(jobs: 4) { |n| [n, n] } |> flat-map { |row| row } |> reduce-by(max: true) { |n|
+    {key: "largest", value: n}
+  }
+  assert flattened["largest"] == 8
+}
+
+# The one stage stops as `par-map` does: an item's failure stops the items
+# still running and is the stage's failure, and a deadline stops them all.
+test test_par_map_reduce_stage_stops_its_workers {
+  let marker = "311.0707"
+  let started = time.now()
+  let result = failing_reduce(marker)
   match result {
     Ok(_) => assert false
-    Err(failure) => assert "item failed" in failure.message
+    Err(failure) => assert "item failed" in failure.message, failure.message
   }
 
+  assert time.now() - started < 20000
   assert survivors(marker)? == 0
+
+  let late = "311.0808"
+  let timed = within 200ms {
+    [1, 2, 3, 4] |> par-map(jobs: 4) { |n|
+      run sleep $late
+      n
+    } |> reduce-by(sum: true) { |n| {key: "all", value: n} }
+  }
+  match timed {
+    Ok(_) => assert false
+    Err(failure) => assert failure is Timeout
+  }
+
+  assert survivors(late)? == 0
 }
 
 proc first_large(marker: Str) [process, error] -> Result[Int] {
@@ -114,7 +231,9 @@ proc first_large(marker: Str) [process, error] -> Result[Int] {
   mapped.len()
 }
 
-# `return` from inside an item leaves the enclosing function the same way.
+# `return` from inside an item leaves the enclosing function, and is not a
+# failure: the items already running finish first, so of the items that ran
+# the earliest one that left decides the stage.
 test test_par_map_early_return_waits_for_running_items {
   let marker = "0.311505"
   assert first_large(marker)? == 103

@@ -371,6 +371,27 @@ within limits.short {
   assert stable.status.exited_with(0), stable.stderr
 }
 
+# `process.run` reports a child that was stopped as an `Err` value instead of
+# failing. The body that handles that value still cannot go on past the
+# deadline: the timeout is delivered at the next statement.
+test test_within_stops_a_body_that_handles_an_interrupted_process_run {
+  let plan = process.command_argv("sleep", ["sleep", "30"])
+  var went_on = false
+  let started = time.now()
+  let handled = within 200ms {
+    let outcome = if let Ok(status) = process.run(plan) {
+      status.exit_code() ?? -1
+    } else {
+      -2
+    }
+    went_on = true
+    outcome
+  }
+  assert timed_out(handled)
+  assert ! went_on
+  assert time.now() - started < 10000
+}
+
 # A mocked request answers at once, so this shows only that a network call
 # and its value pass through the scope. It does not show a wait being
 # stopped; the test below and the fixture test in `stdlib/net.xsh` do.

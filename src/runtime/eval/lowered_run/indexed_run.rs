@@ -482,13 +482,34 @@ type IndexedModuleCall = (
     Span,
 );
 
-/// One `par-map` item as a worker left it: its value or runtime error, the
-/// control flow its callback left pending, and the traceback of a `?` failure.
-type ParMapItemOutcome = (
-    Result<LoweredValue, RuntimeError>,
-    Option<StmtFlow>,
-    Option<Traceback>,
-);
+/// One `par-map` item as a worker left it.
+struct ParMapItemOutcome {
+    /// Its value or runtime error.
+    result: Result<LoweredValue, RuntimeError>,
+    /// The control flow its callback left pending.
+    flow: Option<StmtFlow>,
+    /// The traceback of a `?` failure.
+    traceback: Option<Traceback>,
+    /// Whether the item ended after its worker acted on the stage being
+    /// stopped. Such an item did not end on its own, so it never decides
+    /// the stage.
+    interrupted: bool,
+}
+
+/// Whether a `par-map` item failed: by a runtime error, by a failure that is
+/// propagating out of its callback, or by returning an `Err` from the
+/// enclosing function, which is what `fail` does. Any other `return`, a
+/// `break`, and a `continue` that leave the callback are not failures.
+fn par_map_item_failed(
+    result: &Result<LoweredValue, RuntimeError>,
+    flow: Option<&StmtFlow>,
+) -> bool {
+    result.is_err()
+        || matches!(
+            flow,
+            Some(StmtFlow::Propagate(_) | StmtFlow::Return(LoweredValue::ResultErr(_)))
+        )
+}
 
 /// A module call's operation, CLI plan, optional argument operands, and span.
 fn decode_module_call<'a>(
@@ -1349,9 +1370,12 @@ impl Evaluator {
     }
 
     /// Runs `items` on `jobs` workers and returns the mapped values in input
-    /// order. Once an item fails, or its `?` leaves a `Propagate` flow, workers
-    /// start no further items; the earliest such item that ran decides the
-    /// stage, and its flow and traceback are handed to this evaluator.
+    /// order. Once an item fails or leaves a control flow, workers start no
+    /// further items. An item that fails also stops the items still running:
+    /// their workers stop the children they run and fail at their next
+    /// checkpoint. Of the items that ended on their own, the earliest that
+    /// failed or left a flow decides the stage, and its flow and traceback
+    /// are handed to this evaluator.
     fn eval_indexed_par_map_parallel(
         &mut self,
         execution: &FullExecution<'_>,
@@ -1382,9 +1406,10 @@ impl Evaluator {
         // Set once any item fails or leaves a control flow, so no worker
         // starts another item.
         let stopped = std::sync::atomic::AtomicBool::new(false);
-        // Set when this evaluator gives the stage up before the workers are
-        // done: at a deadline, on cancellation, or while shutting down. A
-        // worker then stops the child it is running and fails its item.
+        // Set when the stage stops before its workers are done: when an item
+        // fails, and when this evaluator gives the stage up at a deadline, on
+        // cancellation, or while shutting down. A worker then stops the child
+        // it is running and fails its item.
         let abandoned = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let (chunks, stderr) = std::thread::scope(|scope| {
             let (sender, receiver) = std::sync::mpsc::sync_channel(worker_count);
@@ -1407,7 +1432,7 @@ impl Evaluator {
                             let _setup = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::Setup);
                             let mut worker = Evaluator::new_lowered_worker(shared);
-                            worker.obey_stage_abandonment(abandoned);
+                            worker.obey_stage_abandonment(Arc::clone(&abandoned));
                             // A traceback built in the callback names the
                             // functions that are running the stage.
                             worker.call_stack = call_stack;
@@ -1436,10 +1461,22 @@ impl Evaluator {
                                 );
                                 let flow = worker.pending_value_block_flow.take();
                                 let traceback = worker.pending_traceback.take();
+                                let interrupted = worker.take_stage_stop_observed();
                                 if result.is_err() || flow.is_some() {
                                     stopped.store(true, std::sync::atomic::Ordering::Relaxed);
                                 }
-                                results.push((item_index, (result, flow, traceback)));
+                                if par_map_item_failed(&result, flow.as_ref()) {
+                                    abandoned.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                results.push((
+                                    item_index,
+                                    ParMapItemOutcome {
+                                        result,
+                                        flow,
+                                        traceback,
+                                        interrupted,
+                                    },
+                                ));
                             }
                         }
                         // The stage waits for every worker, so the receiver
@@ -1517,13 +1554,23 @@ impl Evaluator {
                 }
                 stderr.extend(worker_stderr);
             }
-            // Items skipped after a failure have no outcome. Of the items that
-            // ran, the earliest failure decides the stage.
+            // Items skipped after a failure have no outcome, and an item the
+            // stage interrupted did not end on its own. Of the others, the
+            // earliest that failed or left a flow decides the stage.
             let mut results = Vec::with_capacity(item_count);
             for (item_index, outcome) in ordered.into_iter().enumerate() {
-                let Some((result, flow, traceback)) = outcome else {
+                let Some(ParMapItemOutcome {
+                    result,
+                    flow,
+                    traceback,
+                    interrupted,
+                }) = outcome
+                else {
                     continue;
                 };
+                if interrupted && (result.is_err() || flow.is_some()) {
+                    continue;
+                }
                 let value = result.map_err(|error| {
                     self.stream_item_runtime_error("par-map", item_index, error)
                 })?;
@@ -1534,6 +1581,8 @@ impl Evaluator {
                 }
                 results.push(value);
             }
+            // Every stop has a cause: an item that ended on its own, found
+            // above, or this evaluator giving the stage up, returned earlier.
             if results.len() != item_count {
                 return Err(
                     RuntimeError::new("par-map", "an item was skipped without a failure")
@@ -1656,10 +1705,11 @@ impl Evaluator {
         let call_stack = self.call_stack.clone();
         // Set once a chunk fails or leaves a control flow, so no worker starts
         // another item. Chunks are contiguous, so the earliest chunk that
-        // failed holds the earliest failing item that ran.
+        // failed on its own holds the earliest such item that ran.
         let stopped = std::sync::atomic::AtomicBool::new(false);
-        // Set when this evaluator gives the stage up before the workers are
-        // done; a worker then stops the child it is running and fails.
+        // Set when the stage stops before its workers are done: when a chunk
+        // fails, and when this evaluator gives the stage up. A worker then
+        // stops the child it is running and fails.
         let abandoned = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let completed = std::thread::scope(|scope| {
             let mut workers = Vec::with_capacity(worker_count);
@@ -1681,7 +1731,7 @@ impl Evaluator {
                             let _setup = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::Setup);
                             let mut worker = Evaluator::new_lowered_worker(shared);
-                            worker.obey_stage_abandonment(abandoned);
+                            worker.obey_stage_abandonment(Arc::clone(&abandoned));
                             worker.call_stack = call_stack;
                             (worker, base_slots, BTreeMap::new())
                         };
@@ -1744,8 +1794,16 @@ impl Evaluator {
                             Ok::<_, RuntimeError>(groups)
                         })();
                         let flow = worker.pending_value_block_flow.take();
+                        let interrupted = worker.take_stage_stop_observed();
                         if result.is_err() || flow.is_some() {
                             stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
+                        let failed = match &result {
+                            Ok(_) => par_map_item_failed(&Ok(LoweredValue::Unit), flow.as_ref()),
+                            Err(_) => true,
+                        };
+                        if failed {
+                            abandoned.store(true, std::sync::atomic::Ordering::Relaxed);
                         }
                         let traceback = worker.pending_traceback.take();
                         (
@@ -1754,6 +1812,7 @@ impl Evaluator {
                             std::mem::take(&mut worker.stderr),
                             flow,
                             traceback,
+                            interrupted,
                         )
                     })
                     .expect("failed to spawn fused par-map worker");
@@ -1765,6 +1824,7 @@ impl Evaluator {
                     Vec<u8>,
                     Option<StmtFlow>,
                     Option<Traceback>,
+                    bool,
                 )>,
             > = (0..workers.len()).map(|_| None).collect();
             // As in `par-map`, the stage waits for every worker even when it
@@ -1776,9 +1836,10 @@ impl Evaluator {
                 while index < workers.len() {
                     if workers[index].is_finished() {
                         let worker = workers.swap_remove(index);
-                        let (chunk_index, result, worker_stderr, flow, traceback) =
+                        let (chunk_index, result, worker_stderr, flow, traceback, interrupted) =
                             worker.join().expect("fused par-map worker thread panicked");
-                        completed[chunk_index] = Some((result, worker_stderr, flow, traceback));
+                        completed[chunk_index] =
+                            Some((result, worker_stderr, flow, traceback, interrupted));
                         progress = true;
                     } else {
                         index += 1;
@@ -1815,11 +1876,23 @@ impl Evaluator {
             completed
                 .iter()
                 .filter_map(|entry| entry.as_ref())
-                .flat_map(|(_, stderr, _, _)| stderr.iter().copied()),
+                .flat_map(|(_, stderr, _, _, _)| stderr.iter().copied()),
         );
         let mut groups = BTreeMap::new();
+        let mut decided = false;
+        let mut interrupted_chunks = false;
         for completed in completed {
-            let (result, _, flow, traceback) = completed.expect("fused par-map worker missing");
+            let (result, _, flow, traceback, interrupted) =
+                completed.expect("fused par-map worker missing");
+            // A chunk the stage interrupted did not end on its own: the
+            // chunk that stopped the stage decides it.
+            if interrupted && (result.is_err() || flow.is_some()) {
+                interrupted_chunks = true;
+                continue;
+            }
+            if result.is_err() || flow.is_some() {
+                decided = true;
+            }
             let result = result?;
             if let Some(flow) = flow {
                 self.pending_value_block_flow = Some(flow);
@@ -1829,6 +1902,14 @@ impl Evaluator {
             for (key, value) in result {
                 lowered_reduce_group_insert(&mut groups, key, value, op, span)?;
             }
+        }
+        // Every stop has a cause: a chunk that ended on its own, found above,
+        // or this evaluator giving the stage up, returned earlier.
+        if interrupted_chunks && !decided {
+            return Err(
+                RuntimeError::new("par-map", "a chunk was stopped without a failure")
+                    .with_span(span),
+            );
         }
         Ok(LoweredValue::Map(Arc::new(
             groups

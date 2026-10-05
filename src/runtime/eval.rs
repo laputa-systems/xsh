@@ -3177,6 +3177,10 @@ pub struct Evaluator {
     /// stops its running child and fails at its next checkpoint.
     stage_abandoned: Option<Arc<std::sync::atomic::AtomicBool>>,
     stage_abandon_delivered: bool,
+    /// Whether this worker has acted on its stage being stopped since the
+    /// flag was last taken: it failed at a checkpoint for it, or stopped a
+    /// child for it. What an item does after that is the stage's doing.
+    stage_stop_observed: bool,
     /// The open `within` scopes, outermost first.
     within_deadlines: Vec<WithinDeadline>,
     next_within_id: u64,
@@ -3437,6 +3441,7 @@ impl Evaluator {
             network_wait_depth: 0,
             stage_abandoned: None,
             stage_abandon_delivered: false,
+            stage_stop_observed: false,
             within_deadlines: Vec::new(),
             next_within_id: 1,
             scope_ids: vec![0],
@@ -3654,6 +3659,7 @@ impl Evaluator {
             network_wait_depth: 0,
             stage_abandoned: None,
             stage_abandon_delivered: false,
+            stage_stop_observed: false,
             within_deadlines: shared.within_deadlines.clone(),
             // Scopes a worker opens never share an identity with the ones it
             // inherited.
@@ -3842,6 +3848,13 @@ impl Evaluator {
         self.stage_abandoned = Some(abandoned);
     }
 
+    /// Whether this worker acted on its stage being stopped since the last
+    /// call, which clears the answer. A parallel stage asks after each item:
+    /// an item that fails after it was interrupted did not fail on its own.
+    pub(super) fn take_stage_stop_observed(&mut self) -> bool {
+        std::mem::take(&mut self.stage_stop_observed)
+    }
+
     /// Whether the stage this worker belongs to was given up and the worker
     /// has not yet failed for it. The failure is raised once, so the cleanup
     /// it starts runs to its end.
@@ -3856,6 +3869,7 @@ impl Evaluator {
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
         if self.stage_abandonment_pending() {
             self.stage_abandon_delivered = true;
+            self.stage_stop_observed = true;
             return Err(RuntimeError::new(
                 "canceled",
                 "the parallel stage that started this worker was stopped",
@@ -6317,7 +6331,11 @@ impl CancellationPolicy for Evaluator {
         // A foreground child that outlives a `within` deadline is stopped the
         // way an unhooked SIGTERM stops it; the checkpoint after it delivers
         // the timeout.
-        if self.due_within_deadline().is_some() || self.stage_abandonment_pending() {
+        let stage_stopped = self.stage_abandonment_pending();
+        if stage_stopped {
+            self.stage_stop_observed = true;
+        }
+        if self.due_within_deadline().is_some() || stage_stopped {
             return CancellationDecision::Forward(libc::SIGTERM);
         }
         match self.test_cancel_request() {

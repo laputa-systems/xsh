@@ -3313,17 +3313,40 @@ batch at the first limit reached, and keeps a final short batch.
 `batch(max_argv: true)` sizes batches to fit an argv.
 
 `par-map` maps items on a bounded pool of workers (by default about one per
-CPU) and keeps input order. When a callback fails with `?`, no new work is
-scheduled and the stage propagates exactly as `map` does: of the items that
-ran, the earliest failure becomes the enclosing function's `Err`. Items that
-are already running then run to their end. The stage maps every item before
-the next stage sees one, so a later `take` or a `break` around the pipeline
-never leaves a worker running. The stage returns only when every worker has:
-when it is given up before that, by cancellation, a `within` deadline
-(10.4), or the script shutting down, each worker stops the child process it
-is running the way a cancelled one is stopped, fails its item at its next
-checkpoint, and runs its cleanup, and the stage then fails with the reason
-it was given up. Every other stage runs serially. `each`,
+CPU) and keeps input order. The stage is eager: it maps every item before the
+next stage sees one, and the code around the pipeline does not run while it
+does. So a later `take`, a `break` around the pipeline, or a `return` after
+it never finds a worker running, and none of them can leave while the stage
+runs. Only what happens inside an item, or outside the script, ends the stage
+early.
+
+An item fails when a failure leaves its callback: a `?` on an `Err`, a failed
+statement-position `Result[Unit]`, a failed command or assertion, a runtime
+failure, or `fail` (a `return` of an `Err`). When an item fails, the stage
+stops: no new item starts, and each item still running is stopped as a
+deadline (10.4) stops it. Its worker sends the child process it is running
+`SIGTERM`, and `SIGKILL` after the grace period (12.1), fails the item at its
+next checkpoint, and runs the item's cleanup; an item that handles that
+failure is failed again at its next statement. The stage returns when every
+worker has, and then propagates exactly as `map` does: one item's failure
+becomes the enclosing function's `Err`. That item is the first, in input
+order, of the items that failed on their own, meaning before their worker
+acted on the stop. An item the stage stopped never reports, whatever it was
+doing and wherever it stands in the input. So one failing item is always the
+one reported, and when several items fail independently before the stop
+reaches them, the earliest of those in the input is.
+
+An item that leaves by a `return` that is not an `Err`, or by `break` or
+`continue`, is not a failure: no new item starts, the items already running
+run to their end, and the earliest item in input order that left or failed
+decides the stage.
+
+When the stage is given up from outside, by cancellation, a `within` deadline
+(10.4), or the script shutting down, every item still running is stopped the
+same way and the stage then fails with the reason it was given up. `par-map`
+followed by `reduce-by`, with or without an identity `flat-map` between them,
+runs as one stage that reduces on the workers; it stops and reports as
+`par-map` does. Every other stage runs serially. `each`,
 `group-by`, and `count` reject `jobs:`.
 
 `sort` and `sort-by` are stable. They order `Int`, `Str`, `Bool`, and `Path`
