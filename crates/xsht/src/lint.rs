@@ -6385,7 +6385,7 @@ impl<'a> Linter<'a> {
     ) -> Option<(Vec<String>, StmtId)> {
         let mut qualifiers = Vec::new();
         loop {
-            let block = match self.arena.stmt(stmt).kind {
+            let (block, loop_body) = match self.arena.stmt(stmt).kind {
                 ArenaStmtKind::For {
                     target,
                     iter,
@@ -6403,7 +6403,7 @@ impl<'a> Linter<'a> {
                         "for {} in {iter_src}",
                         format_binding_target(self.arena, target)
                     ));
-                    block
+                    (block, true)
                 }
                 ArenaStmtKind::If {
                     branches,
@@ -6425,7 +6425,7 @@ impl<'a> Linter<'a> {
                         .source
                         .get(self.arena.expr(branch.condition).span.range())?;
                     qualifiers.push(format!("if {condition}"));
-                    branch.block
+                    (branch.block, false)
                 }
                 _ => break,
             };
@@ -6433,7 +6433,18 @@ impl<'a> Linter<'a> {
             if !block.params.is_empty() {
                 return None;
             }
-            let mut statements = self.arena.stmt_ids(block.statements);
+            let mut statements = self.arena.stmt_ids(block.statements).peekable();
+            // A loop body may skip items before it accumulates. Each leading
+            // `continue unless c` keeps exactly the items `if c` keeps, and
+            // the guards run in the order the qualifiers do.
+            while loop_body
+                && let Some(kept) = statements
+                    .peek()
+                    .and_then(|&guard| self.kept_item_condition(guard, accumulator))
+            {
+                qualifiers.push(format!("if {kept}"));
+                statements.next();
+            }
             stmt = statements.next()?;
             if statements.next().is_some() {
                 return None;
@@ -6446,6 +6457,143 @@ impl<'a> Linter<'a> {
             return None;
         }
         Some((qualifiers, stmt))
+    }
+
+    /// The condition under which a loop body goes on past `guard`, when
+    /// `guard` is `continue unless CONDITION` or `continue when CONDITION`:
+    /// the condition as written, or its negation.
+    fn kept_item_condition(&self, guard: StmtId, accumulator: Name) -> Option<String> {
+        let guard = self.arena.stmt(guard);
+        let ArenaStmtKind::Sugar {
+            form: form @ (SugarForm::When | SugarForm::Unless),
+            operands,
+            ..
+        } = guard.kind
+        else {
+            return None;
+        };
+        let ArenaSugar::Guarded {
+            stmt,
+            negate,
+            condition,
+        } = self.arena.sugar(form, operands)
+        else {
+            return None;
+        };
+        if !matches!(self.arena.stmt(stmt).kind, ArenaStmtKind::Continue)
+            || expr_references_name(self.arena, condition, accumulator)
+        {
+            return None;
+        }
+        // The statement's text keeps grouping that the condition's span can omit.
+        let text = self.source.get(guard.span.range())?.trim_end();
+        let written = text
+            .strip_prefix("continue")?
+            .trim_start()
+            .strip_prefix(if negate { "unless" } else { "when" })?;
+        if !written.starts_with(char::is_whitespace) {
+            return None;
+        }
+        let written = written.trim_start();
+        if negate {
+            return Some(written.to_string());
+        }
+        let end = guard.span.start() + text.len();
+        self.negated_condition(
+            condition,
+            Span::new(guard.span.source_id, end - written.len(), end),
+        )
+    }
+
+    /// `condition` negated in the spelling the formatter prints, for the
+    /// shapes whose negation needs no new grouping; `written` is its text.
+    fn negated_condition(&self, condition: ExprId, written: Span) -> Option<String> {
+        let text = self.source.get(written.range())?;
+        match self.arena.expr(condition).kind {
+            ArenaExprKind::Unary {
+                op: UnaryOp::Not, ..
+            } => {
+                let operand = text.strip_prefix('!')?.trim_start();
+                (!operand.starts_with('(')).then(|| operand.to_string())
+            }
+            ArenaExprKind::Ident(_)
+            | ArenaExprKind::Field { .. }
+            | ArenaExprKind::Call { .. }
+            | ArenaExprKind::Index { .. }
+                if !text.starts_with('(') =>
+            {
+                Some(format!("! {text}"))
+            }
+            ArenaExprKind::Binary {
+                op: op @ (BinaryOp::Eq | BinaryOp::Ne),
+                left,
+                right,
+            } => {
+                let (original, negated) = if op == BinaryOp::Eq {
+                    ("==", "!=")
+                } else {
+                    ("!=", "==")
+                };
+                let between = self.arena.expr(left).span.end()..self.arena.expr(right).span.start();
+                let operator = between.start + self.source.get(between.clone())?.find(original)?;
+                Some(format!(
+                    "{}{negated}{}",
+                    self.source.get(written.start()..operator)?,
+                    self.source.get(operator + original.len()..written.end())?
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    /// The element one accumulating statement appends to the list `name`:
+    /// `name = name.push(ELEMENT)` or `name += [ELEMENT]`.
+    fn appended_list_element(&self, stmt: StmtId, name: Name) -> Option<ExprId> {
+        let ArenaStmtKind::Assign {
+            target,
+            op,
+            value: ArenaExprOrRun::Expr(value),
+        } = self.arena.stmt(stmt).kind
+        else {
+            return None;
+        };
+        if !matches!(
+            self.arena.assign_target(target).kind,
+            ArenaAssignTargetKind::Name(found) if found == name
+        ) {
+            return None;
+        }
+        match (op, self.arena.expr(value).kind) {
+            (AssignOp::Set, ArenaExprKind::Call { callee, args }) => {
+                let ArenaExprKind::Field { base, name: method } = self.arena.expr(callee).kind
+                else {
+                    return None;
+                };
+                if method != "push"
+                    || !matches!(
+                        self.arena.expr(base).kind,
+                        ArenaExprKind::Ident(found) if found == name
+                    )
+                {
+                    return None;
+                }
+                match self.arena.call_args(args) {
+                    [arg] => match arg.kind {
+                        ArenaCallArgKind::Positional(element) => Some(element),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+            }
+            (AssignOp::Add, ArenaExprKind::List(items)) => {
+                let mut items = self.arena.list_elements(items);
+                match (items.next(), items.next()) {
+                    (Some(item), None) if item.splice_span.is_none() => Some(item.value),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
     }
 
     fn accumulator_annotation(&self, ty: Option<TypeExprId>) -> String {
@@ -6471,10 +6619,19 @@ impl<'a> Linter<'a> {
             == 1
             && qualifiers.len() <= 2
         {
-            return format!(
+            let one_line = format!(
                 "var {name}{annotation} = {open}{projection} {}{close}\n",
                 qualifiers.join(" ")
             );
+            // The formatter breaks a comprehension that overflows the line.
+            let line_start = self.source[..span.start()]
+                .rfind('\n')
+                .map_or(0, |offset| offset + 1);
+            let width = self.source[line_start..span.start()].chars().count()
+                + one_line.trim_end().chars().count();
+            if width <= super::format::DEFAULT_LINE_WIDTH && !one_line.trim_end().contains('\n') {
+                return one_line;
+            }
         }
         let line_start = self.source[..span.start()]
             .rfind('\n')
@@ -6590,41 +6747,7 @@ impl<'a> Linter<'a> {
         let Some((qualifiers, push_stmt_id)) = self.accumulator_qualifiers(for_id, var_name) else {
             return;
         };
-        let ArenaStmtKind::Assign {
-            target: assign_target,
-            op: AssignOp::Set,
-            value: ArenaExprOrRun::Expr(rhs),
-        } = self.arena.stmt(push_stmt_id).kind
-        else {
-            return;
-        };
-        let ArenaAssignTargetKind::Name(assign_name) = self.arena.assign_target(assign_target).kind
-        else {
-            return;
-        };
-        if assign_name != var_name {
-            return;
-        }
-        let ArenaExprKind::Call { callee, args } = self.arena.expr(rhs).kind else {
-            return;
-        };
-        let ArenaExprKind::Field {
-            base,
-            name: method_name,
-        } = self.arena.expr(callee).kind
-        else {
-            return;
-        };
-        if method_name != "push" {
-            return;
-        }
-        let ArenaExprKind::Ident(base_name) = self.arena.expr(base).kind else {
-            return;
-        };
-        if base_name != var_name || args.len() != 1 {
-            return;
-        }
-        let ArenaCallArgKind::Positional(push_expr) = self.arena.call_args(args)[0].kind else {
+        let Some(push_expr) = self.appended_list_element(push_stmt_id, var_name) else {
             return;
         };
         if expr_references_name(self.arena, push_expr, var_name) {

@@ -1640,6 +1640,78 @@ for item in items {
     );
 }
 
+/// The comprehension offered for a loop over `items` whose body is `body`.
+fn list_comprehension_for_loop_body(body: &str) -> Option<String> {
+    let source = format!(
+        "\
+let items: List[Str] = []
+let skipped = false
+var names: List[Str] = []
+for item in items {{
+{body}}}
+"
+    );
+    let parsed = parse_lint_source(&source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, &source, LintOptions::default());
+    diagnostics
+        .iter()
+        .find(|d| d.code.map(DiagnosticCode::name) == Some("lint.prefer-list-comp"))
+        .map(|d| d.fix_hints[0].replacement.clone().unwrap())
+}
+
+#[test]
+fn linter_turns_leading_continue_guards_into_comprehension_filters() {
+    // `continue unless c` keeps the items `if c` keeps; `continue when c`
+    // keeps the others, spelled without new grouping.
+    for (body, expected) in [
+        (
+            "  continue unless item != \"\"\n  names += [item.trim()]\n",
+            "var names: List[Str] = [item.trim() for item in items if item != \"\"]\n",
+        ),
+        (
+            "  continue when item == \"\"\n  names += [item.trim()]\n",
+            "var names: List[Str] = [item.trim() for item in items if item != \"\"]\n",
+        ),
+        (
+            "  continue when skipped\n  names = names.push(item)\n",
+            "var names: List[Str] = [item for item in items if ! skipped]\n",
+        ),
+        (
+            "  continue when ! skipped\n  names += [item]\n",
+            "var names: List[Str] = [item for item in items if skipped]\n",
+        ),
+        // Guards filter in the order they ran, before a nested condition.
+        (
+            "  continue unless item != \"\"\n  continue when item == \"-\"\n  if ! skipped {\n    names += [item]\n  }\n",
+            "var names: List[Str] = [\n  item\n  for item in items\n  if item != \"\"\n  if item != \"-\"\n  if ! skipped\n]\n",
+        ),
+    ] {
+        assert_eq!(
+            list_comprehension_for_loop_body(body).as_deref(),
+            Some(expected),
+            "{body}"
+        );
+    }
+}
+
+#[test]
+fn linter_keeps_loops_whose_continue_guards_are_not_plain_filters() {
+    for body in [
+        // Negating a compound condition needs grouping the lint does not add.
+        "  continue when item == \"\" or skipped\n  names += [item]\n",
+        // The filter reads the list being built.
+        "  continue unless names.len() < 3\n  names += [item]\n",
+        // A guard after the accumulation skips nothing, and `break` ends the loop.
+        "  names += [item]\n  continue unless item != \"\"\n",
+        "  break unless item != \"\"\n  names += [item]\n",
+        // Two elements at once are not one projection.
+        "  continue unless item != \"\"\n  names += [item, item]\n",
+    ] {
+        assert_eq!(list_comprehension_for_loop_body(body), None, "{body}");
+    }
+}
+
 #[test]
 fn linter_suggests_map_comprehension_for_map_building_loop() {
     let source = "\
