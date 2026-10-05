@@ -241,6 +241,86 @@ cleanup.exercise()?
   assert "module failure" in output.stderr
 }
 
+# A script's top level is a scope like any other: however it fails, the
+# actions it registered run, last first, and later ones were never registered.
+# An imported module has no top-level actions to run (`check.module-top-level`).
+test test_defer_blocks_at_the_top_level_run_however_the_script_fails { |ctx|
+  let root = test.temp_dir(ctx, name: "defer-top-level")?
+  fp"{root}/helper.xsh".write(r"""
+##! Top-level cleanup witness.
+## Fails after its caller registered cleanup.
+export proc boom() [error] {
+  let _ = "helper failure".parse_int()?
+}
+""")
+  let failures = [
+    "error.fail(\"statement\")",
+    "error.fail(\"propagated\")?",
+    "run false",
+    "assert 1 + 1 == 3",
+    "let items = [1]\nlet index = items.len() + 2\nprint f\"{items[index]}\"",
+    "proc local() [error] {\n  error.fail(\"in a proc\")\n}\nlocal()",
+    "helper.boom()",
+    "for _ in [1] {\n  defer { print \"inner\" }\n  error.fail(\"in a loop\")\n}",
+    "exit 7",
+  ]
+  for failure in failures {
+    let output = test.run_script(
+      ctx,
+      f"""use helper
+defer {{ print "first" }}
+errdefer {{ print "on error" }}
+defer {{ print "last" }}
+print "body"
+{failure}
+defer {{ print "never registered" }}
+print "never"
+""",
+      [],
+      {XSH_MODULE_PATH: root},
+    )?
+    assert output.status != 0, failure
+    let inner = if "in a loop" in failure { "inner\n" } else { "" }
+    assert output.stdout == f"body\n{inner}last\non error\nfirst\n", f"{failure}: {output.stdout}{output.stderr}"
+  }
+
+  fp"{root}/registers.xsh".write(r"""
+##! A module that tries to register top-level cleanup.
+defer { print "module cleanup" }
+
+## Does nothing.
+export proc noop() {}
+""")
+  let imported = test.run_script(
+    ctx,
+    """use registers
+registers.noop()
+""",
+    [],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert imported.status != 0
+  assert "check.module-top-level" in imported.stderr, imported.stderr
+  assert imported.stdout == ""
+}
+
+test test_defer_blocks_at_the_top_level_run_when_cli_main_fails { |ctx|
+  let output = test.run_script(
+    ctx,
+    """defer { print "first" }
+errdefer { print "on error" }
+print "body"
+
+cli main() [error] {
+  defer { print "main" }
+  error.fail("main failed")
+}
+""",
+  )?
+  assert output.status != 0
+  assert output.stdout == "body\nmain\non error\nfirst\n", output.stdout + output.stderr
+}
+
 test test_defer_blocks_unwind_return_and_keep_return_value { |ctx|
   let output = test.run_script(
     ctx,
