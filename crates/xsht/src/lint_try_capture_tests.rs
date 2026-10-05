@@ -158,11 +158,17 @@ fn checked_local_capture_rule_is_exposed_by_the_linter_library() {
     assert!(migration(&fixed).is_empty());
 }
 
+// One chain cannot be long enough to exhaust the walk: the parser's nesting
+// limit ends it first. Three bindings that each stay under that limit do,
+// and the same body with short chains is still rewritten.
 #[test]
 fn local_capture_helpers_decline_bodies_beyond_the_bounded_expression_walk() {
-    let expression = format!("\"7\"{}.parse_int()?", ".trim()".repeat(128));
-    let source = format!(
-        "proc read_port() [error] -> Result[Int] {{ {expression} }}\nlet port = read_port() ?? 8080\n"
-    );
-    assert!(migration(&source).is_empty());
+    let helper = |calls: usize| {
+        let trims = ".trim()".repeat(calls);
+        format!(
+            "proc read_port() [error] -> Result[Int] {{\n  let first = \"7\"{trims}\n  let second = first{trims}\n  second{trims}.parse_int()?\n}}\n\nlet port = read_port() ?? 8080\n"
+        )
+    };
+    assert_eq!(migration(&helper(2)).len(), 1);
+    assert!(migration(&helper(45)).is_empty());
 }

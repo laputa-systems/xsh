@@ -219,7 +219,10 @@ fn small_stack_xsht_native_test_body_does_not_abort() {
     let root = temp_path("stack-depth-xsht-native-test");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("tests")).expect("create native test dir");
-    std::fs::write(root.join("tests/deep.xsh"), nested_native_test_source(120))
+    // Sixty nested `if` blocks are the deepest test body the parser's nesting
+    // limit allows: each is a statement and a block, and one more is
+    // `parse.nesting-depth`.
+    std::fs::write(root.join("tests/deep.xsh"), nested_native_test_source(60))
         .expect("write native test");
 
     let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
