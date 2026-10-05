@@ -1,7 +1,7 @@
 test test_archive_unpack { |ctx|
   let src = test.temp_dir(ctx, name: "arc-src")?
-  fp"{src}/a.txt".write("alpha")?
-  fp"{src}/b.txt".write("beta")?
+  fp"{src}/a.txt".write("alpha")
+  fp"{src}/b.txt".write("beta")
   let tarball = test.temp_path(ctx, name: "test.tar.gz")
   run.text "tar" "czf" $tarball "-C" $src "." ?
   let out = test.temp_path(ctx, name: "arc-out")
@@ -15,14 +15,14 @@ test test_archive_unpack { |ctx|
 
 test test_archive_unpack_failure_leaves_existing_destination_untouched { |ctx|
   let src = test.temp_dir(ctx, name: "partial-src")?
-  fp"{src}/a.txt".write("first")?
-  fp"{src}/b.txt".write("second")?
+  fp"{src}/a.txt".write("first")
+  fp"{src}/b.txt".write("second")
   let tarball = test.temp_path(ctx, name: "partial.tar")
-  archive.tar_create(tarball, src, [p"a.txt", p"b.txt"])?
+  archive.tar_create(tarball, src, [p"a.txt", p"b.txt"])
 
   let out = test.temp_dir(ctx, name: "partial-out")?
-  fp"{out}/b.txt".mkdir()?
-  fp"{out}/b.txt/marker".write("untouched")?
+  fp"{out}/b.txt".mkdir()
+  fp"{out}/b.txt/marker".write("untouched")
   let status = run.status "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false
   assert ! status.exited_with(0), "conflicting extraction must fail"
   assert ! fp"{out}/a.txt".exists()?, "failed extraction must not leave earlier files"
@@ -31,10 +31,10 @@ test test_archive_unpack_failure_leaves_existing_destination_untouched { |ctx|
 
 test test_archive_unpack_cleans_partial_staging_after_unsafe_member { |ctx|
   let src = test.temp_dir(ctx, name: "unsafe-src")?
-  fp"{src}/a.txt".write("first")?
-  fs.symlink(../outside, fp"{src}/bad")?
+  fp"{src}/a.txt".write("first")
+  fs.symlink(../outside, fp"{src}/bad")
   let tarball = test.temp_path(ctx, name: "unsafe.tar")
-  archive.tar_create(tarball, src, [p"a.txt", p"bad"])?
+  archive.tar_create(tarball, src, [p"a.txt", p"bad"])
 
   let out = test.temp_path(ctx, name: "unsafe-out")
   let pending = fp"{out.parent}/.{out.name()}.xsh-stage"
@@ -57,7 +57,7 @@ test test_archive_unpack_compress_and_decompress_publish_files { |ctx|
 
 test test_archive_unpack_cancellation_during_compression_cleans_staging { |ctx|
   let source = test.temp_path(ctx, name: "compress-fifo")
-  fs.mkfifo(source, 0o600)?
+  fs.mkfifo(source, 0o600)
   let dest = fp"{source}.gz"
   let pending = fp"{dest.parent}/.{dest.name()}.xsh-stage"
   let writer_ready = test.temp_path(ctx, name: "writer-ready")
@@ -74,14 +74,14 @@ test test_archive_unpack_cancellation_during_compression_cleans_staging { |ctx|
   for _ in range(0, 500) {
     break when writer_ready.exists()?
 
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
 
   assert writer_ready.exists()?, "writer must hold the FIFO open after sending data"
   assert pending.exists()?, "compression must be in its staging directory"
-  process.kill(archive_child.pid, signal: "TERM")?
-  time.sleep(50ms)?
-  writer.cancel(signal: "TERM", kill_after: 0ms)?
+  process.kill(archive_child.pid, signal: "TERM")
+  time.sleep(50ms)
+  writer.cancel(signal: "TERM", kill_after: 0ms)
   let status = wait archive_child?
   let canceled = status.exited_with(3)
   let cancellation_message = f"canceled archive must report runtime cancellation: {status.exit_code() ?? -1}"

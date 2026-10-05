@@ -267,13 +267,13 @@ test test_stage_functions_keep_qualified_import_identity_and_defaults { |ctx|
 export pure add(item: Int, amount: Int = 4) -> Int { item + amount }
 ## A default amount is applied to strings too.
 export pure surround(item: Str, prefix: Str = "[") -> Str { prefix + item }
-""")?
+""")
   let script = fp"{directory}/main.xsh"
   script.write(r"""use helpers as helpers
 let values = [1, 2] |> map(helpers.add)
 print values[0]
 print ${(["a"] |> map(helpers.surround))[0]}
-""")?
+""")
   let output = test.run_script(ctx, script.read_text()?, [], {XSH_MODULE_PATH: directory})?
   {
     let {success: assertion_condition, stderr: assertion_message, ..} = output

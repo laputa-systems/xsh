@@ -87,6 +87,6 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   if rows.len() > 0 and opts.fail {
-    abort(1)
+    exit 1
   }
 }

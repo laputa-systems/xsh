@@ -129,7 +129,7 @@ test test_duration_arithmetic_timeout_inputs_and_zero_retry {
   let budget = 250ms * 2 + 1s
   let plan = process.command_argv("true", ["true"], timeout: budget)
   assert time.measure(plan)?.status.exited_with(0)
-  test.error_kind(net.request({method: "GET", url: "ftp://example.invalid/", timeout: budget}), "net-scheme")?
+  test.error_kind(net.request({method: "GET", url: "ftp://example.invalid/", timeout: budget}), "net-scheme")
   let selected = retry [1ms / 2, 0ms * 2] {
     7
   }?

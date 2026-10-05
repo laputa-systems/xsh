@@ -63,13 +63,13 @@ proc main(...argv: List[Str]) [fs, error] {
     let target = dest_for(source, dest, target_is_dir)
 
     if force {
-      target.remove(missing_ok: true)?
+      target.remove(missing_ok: true)
     }
 
     if symbolic {
-      fs.symlink(source, target)?
+      fs.symlink(source, target)
     } else {
-      source.hardlink(target)?
+      source.hardlink(target)
     }
   }
 }

@@ -59,13 +59,13 @@ proc main(...argv: List[Str]) [fs, error] {
   if mode == "create" {
     return Err(usage_error("tar", "expected entries to archive")) when operands.len() == 0
 
-    archive.tar_create(archive_path, root, operands, compression, overwrite:)?
+    archive.tar_create(archive_path, root, operands, compression, overwrite:)
   } else if mode == "list" {
     for entry in archive.tar_list(archive_path, compression, members: operands)? {
       print --flush $entry.path
     }
   } else if mode == "extract" {
-    root.mkdir()?
+    root.mkdir()
 
     archive.tar_extract(
       archive_path,
@@ -74,7 +74,7 @@ proc main(...argv: List[Str]) [fs, error] {
       compression:,
       overwrite:,
       members: operands,
-    )?
+    )
   } else {
     return Err(usage_error("tar", "{c|t|x}f ARCHIVE [FILE...]"))
   }

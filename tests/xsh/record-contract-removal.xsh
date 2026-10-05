@@ -26,8 +26,8 @@ test test_record_named_schema_keeps_nested_fields_extras_and_aliases {
   assert checked.details.jobs == 4, "nested schema preserves its field"
   assert "extra" in checked, "extra fields survive validation"
   assert "extra" in raw, "original alias remains unchanged"
-  test.error_kind({name: "demo", details: {jobs: "four"}}.require(Package), "schema")?
-  test.error_kind({name: "demo"}.require(Package), "schema")?
+  test.error_kind({name: "demo", details: {jobs: "four"}}.require(Package), "schema")
+  test.error_kind({name: "demo"}.require(Package), "schema")
 }
 
 test test_record_optional_key_validation_distinguishes_absent_null_and_wrong_type {
@@ -42,10 +42,10 @@ test test_record_optional_key_validation_distinguishes_absent_null_and_wrong_typ
   for input in ["{\"name\":\"demo\",\"version\":null}", "{\"name\":\"demo\",\"version\":1}"] {
     let checked = json.decode(input)?.require(Name)?
     assert "version" in checked, "null and wrong values remain present"
-    test.error_kind(checked.get("version")?.require(Str), "schema")?
+    test.error_kind(checked.get("version")?.require(Str), "schema")
   }
 
-  test.error_kind({name: "demo"}.require(NullableVersion), "schema")?
+  test.error_kind({name: "demo"}.require(NullableVersion), "schema")
   let nullable: Record = {name: "demo", version: null}
   let present = nullable.require(NullableVersion)?
   assert "version" in present, "nullable field is present"
@@ -62,7 +62,7 @@ test test_record_removed_module_name_does_not_capture_user_module_callable { |ct
   fp"{root}/helper.xsh".write_atomic("""##! User module with an ordinary callable.
 ## Returns its argument unchanged.
 export pure require(value: Str) -> Str { value }
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""
@@ -97,7 +97,7 @@ export proc demo() [error] -> Result[Str, Error] {
   checked.name
 }
 """
-  module_file.write_atomic(module_source)?
+  module_file.write_atomic(module_source)
   let main = fp"{root}/main.xsh"
   main.write_atomic(r"""use names
 
@@ -108,7 +108,7 @@ pure fourth_label() -> Str { "the fourth of several labels that only make this f
 
 print names.demo()?
 print first_label().byte_len() second_label().byte_len() third_label().byte_len() fourth_label().byte_len()
-""")?
+""")
 
   let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main ?
   assert "check.removed-record-require" in reported.stderr, reported.stderr

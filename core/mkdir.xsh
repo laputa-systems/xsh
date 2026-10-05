@@ -54,10 +54,10 @@ proc main(...argv: List[Str]) [fs, error] {
 
   for item in opts.directories {
     let target = fp"{item}"
-    target.mkdir(parents: opts.parents)?
+    target.mkdir(parents: opts.parents)
 
     if mode >= 0 {
-      target.chmod(mode)?
+      target.chmod(mode)
     }
   }
 }

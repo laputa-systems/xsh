@@ -13,8 +13,8 @@ for file in [
   "srv/README",
 ] {
   let target = fp"{root}/{file}"
-  target.parent().mkdir()?
-  target.write("x\n")?
+  target.parent().mkdir()
+  target.write("x\n")
 }
 
 let per_dir = fs.children(root)?

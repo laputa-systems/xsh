@@ -8,7 +8,7 @@ export proc bin_dir() [fs, env, error] -> Result[Path, Error] {
   let configured_home = env.get_or("HOME", "")?.trim()
   let home = if configured_home == "" { user.current()?.home } else { fp"{configured_home}" }
   let destination = fp"{home}/usr/bin"
-  stages.ensure_dir(destination)?
+  stages.ensure_dir(destination)
   destination
 }
 
@@ -70,7 +70,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
       ctx.root,
       environment,
     ),
-  )?
+  )
   let destination_dir = bin_dir()?
   let supplied_flags = env.get_or("DARWIN_CODESIGN_FLAGS", "")?
   var signing_flags = process.argv_words(supplied_flags)?
@@ -83,7 +83,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
   for product in targets.products {
     let source = fp"{ctx.target_dir}/{ctx.target.triple}/release/{product}"
     let destination = fp"{destination_dir}/{product}"
-    fs.install(source, destination, 0o755, parents: true, overwrite: true)?
+    fs.install(source, destination, 0o755, parents: true, overwrite: true)
     let codesign_argv = ["codesign", "-fs", "-", @signing_flags, destination.display()]
     stages.execute(
       stages.command(
@@ -94,7 +94,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
         ctx.root,
         {},
       ),
-    )?
+    )
     let xattr = run.capture --text xattr -d com.apple.quarantine $destination ?
 
     if ! xattr.status.ok and "No such xattr" not in xattr.stderr {
@@ -112,7 +112,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
 ## Stages one Linux CRT object after stripping debug metadata with LLVM tooling.
 export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, error, io] -> Result[Unit, Error] {
   let crt_dir = fp"{ctx.target_dir}/llvm-crt"
-  stages.ensure_dir(crt_dir)?
+  stages.ensure_dir(crt_dir)
   stages.execute(
     stages.command(
       "install-linux-crt",
@@ -122,7 +122,7 @@ export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, erro
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Installs Linux products with the existing clang, llvm-ar, and lld contract.
@@ -148,7 +148,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
   }
 
   for object in ["Scrt1.o", "crti.o", "crtn.o"] {
-    linux_crt_object(ctx, object)?
+    linux_crt_object(ctx, object)
   }
 
   let path_value = env.get_or("PATH", "")?
@@ -190,7 +190,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
         CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: rustflags,
       },
     ),
-  )?
+  )
   let destination_dir = bin_dir()?
 
   for product in targets.products {
@@ -200,7 +200,7 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
       0o755,
       parents: true,
       overwrite: true,
-    )?
+    )
   }
 }
 

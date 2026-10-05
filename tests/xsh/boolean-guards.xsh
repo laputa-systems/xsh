@@ -167,9 +167,9 @@ pure boolean_guard_validate_jobs(jobs: Int) -> Result[Unit] {
 }
 
 test test_boolean_guard_failure_branch_owns_the_error {
-  boolean_guard_validate_jobs(4)?
+  boolean_guard_validate_jobs(4)
   match boolean_guard_validate_jobs(0) {
-    Ok(_) => test.fail("non-positive jobs must fail")?
+    Ok(_) => test.fail("non-positive jobs must fail")
     Err(failure) => {
       assert ! (failure is AssertionError)
       assert failure.message == "jobs must be positive"

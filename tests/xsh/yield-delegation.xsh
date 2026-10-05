@@ -234,7 +234,7 @@ test test_yield_delegation_live_source_and_list_snapshot { |ctx|
   let file_path = test.temp_path(ctx, name: "delegated-lines")
   file_path.write("""first
 second
-""")?
+""")
   let output = test.run_script(
     ctx,
     f"""

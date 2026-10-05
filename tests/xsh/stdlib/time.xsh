@@ -1,6 +1,6 @@
 test test_time_module {
   let before = time.now()
-  time.sleep(1ms)?
+  time.sleep(1ms)
   assert time.now() >= before
   let measured = time.measure(process.command_argv("true", ["true"]))?
   assert measured.status.exited_with(0)

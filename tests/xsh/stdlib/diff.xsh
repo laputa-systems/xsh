@@ -5,12 +5,12 @@ test test_diff_unified { |ctx|
 
   original.write("""alpha
 beta
-""")?
+""")
 
   modified.write("""alpha
 BETA
 gamma
-""")?
+""")
 
   let d = diff.unified(original, modified, context: 1)?
   assert d.files == 1

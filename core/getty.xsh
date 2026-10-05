@@ -101,11 +101,11 @@ proc main(...argv: List[Str]) [fs, process, error, io] -> Result[Int] {
   let options = parse_getty_args(argv)?
 
   if options.init_string != "" {
-    io.write_stdout(options.init_string)?
+    io.write_stdout(options.init_string)
   }
 
   if ! options.no_issue and options.issue_file.exists()? {
-    io.write_stdout(options.issue_file.read_text()?)?
+    io.write_stdout(options.issue_file.read_text()?)
   }
 
   var username = ""
@@ -117,4 +117,4 @@ proc main(...argv: List[Str]) [fs, process, error, io] -> Result[Int] {
   run_external_login(options, username)?
 }
 
-abort(main(@args)?)
+exit main(@args)?

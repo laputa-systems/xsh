@@ -242,7 +242,7 @@ ends:
 ```xsh
 tempdir dir {
   cd $dir {
-    p"notes.txt".write("hi\n")?
+    p"notes.txt".write("hi\n")
     let listing = run.text ls ?
     print f"inside: {listing.trim()}"
   }
@@ -321,7 +321,7 @@ proc backup(src: Path, dest: Path) {
   print "backup written"
 }
 
-backup(/var/lib/app, /backups/app.tgz)?
+backup(/var/lib/app, /backups/app.tgz)
 ```
 
 ```text
@@ -342,7 +342,7 @@ acceptable. `grep` exits 1 for "no matches":
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let log = fp"{scratch.host_path()?}/app.log"
-log.write("ok\nERROR disk full\nok\nERROR link down\n")?
+log.write("ok\nERROR disk full\nok\nERROR link down\n")
 
 let errors = run.text --accept=[0, 1] grep -c ERROR $log ?
 let panics = run.text --accept=[0, 1] grep -c PANIC $log ?
@@ -380,8 +380,8 @@ proc read_port(file: Path) -> Result[Int] {
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let dir = scratch.host_path()?
-fp"{dir}/good".write("8080\n")?
-fp"{dir}/bad".write("eighty\n")?
+fp"{dir}/good".write("8080\n")
+fp"{dir}/bad".write("eighty\n")
 
 print f"good: {read_port(fp"{dir}/good")?}"
 print f"missing, with default: {read_port(fp"{dir}/none") ?? 80}"
@@ -493,11 +493,11 @@ let scratch = fs.tempdir()?
 defer scratch.close()?
 let tools = scratch.host_path()?
 let tool = fp"{tools}/hello-tool"
-tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n")?
-tool.chmod(0o755)?
+tool.write("#!/bin/sh\necho \"hello from $STAGE\"\n")
+tool.chmod(0o755)
 
 env STAGE=release {
-  env.PATH.prepend(tools)?
+  env.PATH.prepend(tools)
   run hello-tool
 }
 
@@ -669,7 +669,7 @@ const sample = """
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let log = fp"{scratch.host_path()?}/access.log"
-log.write(sample)?
+log.write(sample)
 
 let failures = hits(log)
   |> where .status >= 500
@@ -822,7 +822,7 @@ proc snapshot() -> Result[Map[Int, Sample]] {
 }
 
 let before = snapshot()?
-time.sleep(1s)?
+time.sleep(1s)
 let after = snapshot()?
 
 let busiest = after.values()
@@ -937,7 +937,7 @@ proc main() [fs, process, error] {
   let scratch = fs.tempdir()?
   defer scratch.close()?
   let dir = scratch.host_path()?
-  fp"{dir}/data".write("hello\n")?
+  fp"{dir}/data".write("hello\n")
 
   print f"measured: {disk_used_kb(dir)? > 0}; 3 of 4 is {percent(3, 4)}%"
 }
@@ -1053,8 +1053,8 @@ for file in [
   "srv/README",
 ] {
   let target = fp"{root}/{file}"
-  target.parent().mkdir()?
-  target.write("x\n")?
+  target.parent().mkdir()
+  target.write("x\n")
 }
 
 let per_dir = fs.children(root)?
@@ -1137,16 +1137,16 @@ reverse order when the block exits for any reason: normal completion,
 ```xsh
 proc rotate(dir: Path) {
   let lock = fp"{dir}/.rotate.lock"
-  lock.write("locked\n")?
+  lock.write("locked\n")
   defer {
-    lock.remove()?
+    lock.remove()
     print "released lock"
   }
 
   let staging = fp"{dir}/staging"
-  staging.mkdir()?
+  staging.mkdir()
   defer {
-    staging.remove_dir()?
+    staging.remove_dir()
     print "removed staging"
   }
 
@@ -1185,8 +1185,8 @@ itself, whose rooted operations cannot leave the directory:
 let scratch = fs.tempdir()?
 defer scratch.close()?
 
-scratch.mkdir(p"logs")?
-scratch.write(p"logs/app.log", "ok\n")?
+scratch.mkdir(p"logs")
+scratch.write(p"logs/app.log", "ok\n")
 print f"rooted read: {scratch.read_text(p"logs/app.log")?.trim()}"
 print f"under the temp dir: {scratch.host_path()?.exists()?}"
 ```
@@ -1234,18 +1234,18 @@ proc edit_config(file: Path, key: Str, value: Str) {
   }
 
   let backup = fp"{file}.bak"
-  fs.copy(file, backup, overwrite: true)?
-  file.write_atomic(after)?
+  fs.copy(file, backup, overwrite: true)
+  file.write_atomic(after)
   print diff.unified(backup, file)?.text.trim()
 }
 
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let config = fp"{scratch.host_path()?}/sshd_config"
-config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")?
+config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")
 
-edit_config(config, "PermitRootLogin", "no")?
-edit_config(config, "PermitRootLogin", "no")?
+edit_config(config, "PermitRootLogin", "no")
+edit_config(config, "PermitRootLogin", "no")
 ```
 
 <!-- expected-output -->
@@ -1352,15 +1352,15 @@ and the script exits with status 3:
 proc fetch(url: Str, out: Path) {
   let partial = fp"{out}.partial"
   defer {
-    fs.remove(partial, missing_ok: true)?
+    fs.remove(partial, missing_ok: true)
     print "removed partial download"
   }
 
   run curl -fsSL -o $partial $url
-  fs.rename(partial, out)?
+  fs.rename(partial, out)
 }
 
-fetch("https://mirror.example.org/laputa.iso", p"laputa.iso")?
+fetch("https://mirror.example.org/laputa.iso", p"laputa.iso")
 ```
 
 ```text
@@ -1384,15 +1384,17 @@ cancelled and reaped before that scope's defers run:
 
 ```xsh
 let worker = spawn run sleep 30 ?
-worker.cancel(signal: "TERM", kill_after: 2s)?
+worker.cancel(signal: "TERM", kill_after: 2s)
 print "worker stopped and reaped"
 
 let status = run.status sh -c "kill -TERM $$"
+
 if status.signaled() {
   print f"killed by signal {status.signal_number()?}"
 }
 
 let strict = run.text sh -c "kill -TERM $$"
+
 match strict {
   Ok(_) => print "finished"
   Err(ProcessError.Signal {..}) => print "run.text: the child died from a signal"
@@ -1407,7 +1409,7 @@ proc watch() {
   print f"returning while `{follower.argv.join(" ")}` still runs"
 }
 
-watch()?
+watch()
 ```
 
 <!-- expected-output -->
@@ -1431,13 +1433,13 @@ immediately. `abort(status)` chooses the exit status; a hook for `INT` or
 const state = p"deploy.state"
 
 on SIGTERM [fs, error] {
-  state.write("interrupted\n")?
-  abort(143)
+  state.write("interrupted\n")
+  exit 143
 }
 
-state.write("deploying\n")?
+state.write("deploying\n")
 run sleep 30
-state.write("done\n")?
+state.write("done\n")
 ```
 
 The hook may delay forwarding the signal to running children by
@@ -1460,21 +1462,21 @@ defer scratch.close()?
 let dir = scratch.host_path()?
 
 let release = fp"{dir}/app-1.4"
-fs.mkdir(fp"{release}/bin")?
-fp"{release}/bin/app".write("#!/bin/xsh\nprint \"app 1.4\"\n")?
-fp"{release}/README".write("app 1.4\n")?
+fs.mkdir(fp"{release}/bin")
+fp"{release}/bin/app".write("#!/bin/xsh\nprint \"app 1.4\"\n")
+fp"{release}/README".write("app 1.4\n")
 
 let tarball = fp"{dir}/app-1.4.tar.gz"
-archive.tar_create(tarball, dir, [p"app-1.4"])?
+archive.tar_create(tarball, dir, [p"app-1.4"])
 
 for entry in archive.tar_list(tarball)? |> sort-by .path.display() {
   print f"{entry.kind} {entry.path}"
 }
 
 let install = fp"{dir}/opt/app"
-archive.tar_extract(tarball, install, strip_components: 1)?
+archive.tar_extract(tarball, install, strip_components: 1)
 print fp"{install}/README".read_text()?.trim()
-print fp"{install}/bin/app".exists()?
+print (fp"{install}/bin/app".exists()?)
 ```
 
 <!-- expected-output -->
@@ -1728,8 +1730,8 @@ cli main(config: Path = /etc/ssh/sshd_config) {
   let before = config.read_text()?
   let after = sshd.set_option(before, "PermitRootLogin", "no")
   if after != before {
-    fs.copy(config, fp"{config}.bak", overwrite: true)?
-    config.write_atomic(after)?
+    fs.copy(config, fp"{config}.bak", overwrite: true)
+    config.write_atomic(after)
     print f"updated {config}"
   }
 }
@@ -1752,7 +1754,7 @@ test appends_missing_key {
 test harden_script_edits_file_and_keeps_backup { |ctx|
   let dir = test.temp_dir(ctx)?
   let config = fp"{dir}/sshd_config"
-  config.write("#PermitRootLogin yes\n")?
+  config.write("#PermitRootLogin yes\n")
 
   let source = p"bin/harden.xsh".read_text()?
   let result = test.run_script(ctx, source, args: ["--config", config.display()])?

@@ -26,19 +26,24 @@ export proc published() [time] -> Int { 42 }
 # of the configuration of the directory the suite runs from.
 proc run_tool(ctx: TestContext, tool: Str, args: List[Str], main: Str) [fs, process, error] -> Result[ToolResult] {
   let root = test.temp_dir(ctx, name: "exported-effects")?
-  fp"{root}/xsht-config.ini".write("")?
-  fp"{root}/helper.xsh".write(HELPER)?
+  fp"{root}/xsht-config.ini".write("")
+  fp"{root}/helper.xsh".write(HELPER)
   let entry = fp"{root}/main.xsh"
-  entry.write(main.replace("@ROOT@", root.display()))?
+  entry.write(main.replace("@ROOT@", root.display()))
   let out = run.capture --text $tool @args $entry ?
   {ok: out.status.exited_with(0), out: out.stdout + out.stderr}
 }
 
 test test_importer_sees_inferred_export_effects { |ctx|
-  let result = run_tool(ctx, "xsh", [], """use helper
+  let result = run_tool(
+    ctx,
+    "xsh",
+    [],
+    """use helper
 proc caller() [time] -> Int { helper.stamp() }
 print \${caller()}
-""")?
+""",
+  )?
   assert result.ok, result.out
   assert result.out == "42\n"
 }
@@ -51,10 +56,15 @@ test test_importer_restriction_rejects_inferred_export_effects { |ctx|
 }
 
 test test_exported_stream_effects_are_inferred { |ctx|
-  let allowed = run_tool(ctx, "xsh", [], """use helper
+  let allowed = run_tool(
+    ctx,
+    "xsh",
+    [],
+    """use helper
 proc caller() [time] -> Int { helper.ticks().collect().len() }
 print \${caller()}
-""")?
+""",
+  )?
   assert allowed.ok, allowed.out
   let rejected = run_tool(ctx, "xsh", [], "use helper\nproc caller() [] -> Stream[Int] { helper.ticks() }\n")?
   assert ! rejected.ok
@@ -114,7 +124,7 @@ export proc published_caller() [time] -> Int { helper.stamp() }
 proc main() [time] { print \${caller() + published_caller()} }
 """
   let result = run_tool(ctx, "xsht", ["lint"], main)?
-  let flagged = result.out.lines() |> where { |line| "lint.prefer-inferred-private-effects" in line } |> count
+  let flagged = result.out.lines() |> where { |line| "lint.prefer-inferred-private-effects" in line } |> count()
   assert flagged == 1, result.out
   assert "main.xsh:3:" in result.out, result.out
 }

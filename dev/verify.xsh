@@ -98,13 +98,13 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
         ctx.root,
         {},
       ),
-    )?
+    )
   }
 }
 
 ## Verifies every distribution product, executing help only when the host can run the target.
 export proc verify_all(ctx: context.Context, run_help: Bool) [fs, process, error, io] -> Result[Unit, Error] {
   for product in ["xsh", "xsht", "xshi"] {
-    binary(ctx, product, run_help)?
+    binary(ctx, product, run_help)
   }
 }

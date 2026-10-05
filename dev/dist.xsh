@@ -52,12 +52,12 @@ export proc normalize(ctx: context.Context) [fs, error] -> Result[Unit, Error] {
 
   return when profile_dir == "dist"
 
-  stages.ensure_dir(dist_dir)?
+  stages.ensure_dir(dist_dir)
 
   for product in targets.products {
     let source = profile_product_path(ctx.target_dir, ctx.target.triple, profile_dir, product)
     let destination = distribution_product_path(ctx.target_dir, ctx.target.triple, product)
-    fs.install(source, destination, 0o755, parents: true, overwrite: true)?
+    fs.install(source, destination, 0o755, parents: true, overwrite: true)
   }
 }
 
@@ -110,9 +110,9 @@ export proc native_dist(
       ctx.root,
       environment,
     ),
-  )?
-  normalize(ctx)?
-  verify.verify_all(ctx, targets.native_execution(ctx.target, ctx.host_os, ctx.host_arch))?
+  )
+  normalize(ctx)
+  verify.verify_all(ctx, targets.native_execution(ctx.target, ctx.host_os, ctx.host_arch))
 }
 
 ## Selects native or Docker distribution execution from the public policy value.
@@ -129,12 +129,12 @@ export proc build_distribution(
   }
 
   if use_docker {
-    docker.run_internal(ctx, "dist", false, [])?
+    docker.run_internal(ctx, "dist", false, [])
   } else {
-    native_dist(ctx, "DIST_BUILD_STD_FLAGS")?
+    native_dist(ctx, "DIST_BUILD_STD_FLAGS")
   }
 
   if ci {
-    verify.verify_all(ctx, native_possible)?
+    verify.verify_all(ctx, native_possible)
   }
 }

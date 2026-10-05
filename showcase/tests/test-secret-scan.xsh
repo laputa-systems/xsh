@@ -3,7 +3,7 @@ test test_secret_scan { |ctx|
 
   fp"{root}/creds.py".write("""AKIA1234567890ABCDEF
 api_key = 'abcdefghijklmnop'
-""")?
+""")
 
   let output = run.text "xsh" "showcase/secret-scan.xsh" -- --root $root ?
   assert "[aws-key]" in output

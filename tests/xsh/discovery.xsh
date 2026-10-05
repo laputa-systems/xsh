@@ -2,11 +2,11 @@
 # directory of the same name deeper in the tree.
 proc project(ctx: TestContext) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: "discovery")?
-  fp"{root}/xsht-config.ini".write_atomic("exclude = stdlib/**/*.xsh\n  generated/*.xsh\n")?
-  fs.mkdir(fp"{root}/stdlib")?
-  fs.mkdir(fp"{root}/generated")?
-  fs.mkdir(fp"{root}/tests/stdlib")?
-  fs.mkdir(fp"{root}/tests/generated")?
+  fp"{root}/xsht-config.ini".write_atomic("exclude = stdlib/**/*.xsh\n  generated/*.xsh\n")
+  fs.mkdir(fp"{root}/stdlib")
+  fs.mkdir(fp"{root}/generated")
+  fs.mkdir(fp"{root}/tests/stdlib")
+  fs.mkdir(fp"{root}/tests/generated")
   for file in [
     "main.xsh",
     "stdlib/excluded.xsh",
@@ -16,7 +16,7 @@ proc project(ctx: TestContext) [fs, error] -> Result[Path] {
     "tests/generated/kept.xsh",
   ] {
     # Unformatted, so `fmt --check` names every file it discovers.
-    fp"{root}/{file}".write_atomic("const  value = 1\n")?
+    fp"{root}/{file}".write_atomic("const  value = 1\n")
   }
 
   Ok(root)

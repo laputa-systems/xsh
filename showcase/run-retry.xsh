@@ -8,11 +8,11 @@
 error RetryRunError = CommandFailed(message: Str)
 
 on SIGINT [error] {
-  abort(3)
+  exit 3
 }
 
 on SIGTERM [error] {
-  abort(3)
+  exit 3
 }
 
 proc run_attempt(argv: List[Str], try_num: Int, max_tries: Int) [process, error] {
@@ -63,7 +63,7 @@ proc main(...cmd: List[Str]) [process, time, error] {
     Ok(_) => {}
     Err(_) => {
       print f"command failed after {max_tries} tries"
-      abort(1)
+      exit 1
     }
   }
 }

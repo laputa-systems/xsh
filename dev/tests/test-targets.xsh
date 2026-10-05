@@ -12,7 +12,7 @@ test test_supported_target_records_and_default {
   assert target_policy.host_default_triple(target_policy.Linux, target_policy.Aarch64)? == "aarch64-unknown-linux-musl"
   assert target_policy.host_default_triple(target_policy.Darwin, target_policy.Aarch64)? == "aarch64-apple-darwin"
   match target_policy.host_default_triple(target_policy.Darwin, target_policy.X86_64) {
-    Ok(_) => test.fail("unsupported host default resolved")?
+    Ok(_) => test.fail("unsupported host default resolved")
     Err(error) => assert error.message == "TargetError.Unsupported"
   }
 
@@ -33,7 +33,7 @@ test test_host_classification {
   assert target_policy.host_arch("amd64")? == "x86_64"
   assert target_policy.host_arch("arm64")? == "aarch64"
   match target_policy.host_arch("mips64") {
-    Ok(_) => test.fail("unsupported host architecture resolved")?
+    Ok(_) => test.fail("unsupported host architecture resolved")
     Err(error) => assert error.message == "TargetError.Unsupported"
   }
 }
@@ -112,18 +112,18 @@ test test_release_names_and_core_paths_are_deterministic {
 
 test test_core_archive_stages_command_and_library_paths { |ctx|
   let root = test.temp_dir(ctx, name: "core-archive")?
-  fp"{root}/core".mkdir()?
-  fp"{root}/core/bin".mkdir()?
-  fp"{root}/core/lib".mkdir()?
-  fp"{root}/core/tests".mkdir()?
+  fp"{root}/core".mkdir()
+  fp"{root}/core/bin".mkdir()
+  fp"{root}/core/lib".mkdir()
+  fp"{root}/core/tests".mkdir()
   fp"{root}/core/bin/report.xsh-helper.xsh".write("""print "command"
-""")?
+""")
   fp"{root}/core/lib/report.xsh-helper.xsh".write("""print "library"
-""")?
+""")
   fp"{root}/core/tests/ignored.xsh".write("""print "test"
-""")?
+""")
   let release_ctx = fixtures.linux_context(root, "dev")?
-  releases.package_core(release_ctx, "fixture")?
+  releases.package_core(release_ctx, "fixture")
   let archive_path = fp"{root}/dist/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let members = entries |> map .path.display()
@@ -133,7 +133,7 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
   assert (entries |> where .path == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
   assert (entries |> where .path == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
   let extracted = fp"{root}/extracted"
-  archive.tar_extract(archive_path, extracted)?
+  archive.tar_extract(archive_path, extracted)
   assert fp"{extracted}/core/bin/report.xsh-helper".read_text()? == """print "command"
 """
   assert fp"{extracted}/core/lib/report.xsh-helper.xsh".read_text()? == """print "library"
@@ -145,15 +145,15 @@ test test_core_archive_stages_command_and_library_paths { |ctx|
 
 test test_core_archive_rejects_conflicting_artifact_before_writing { |ctx|
   let root = test.temp_dir(ctx, name: "core-archive-conflict")?
-  fp"{root}/core".mkdir()?
+  fp"{root}/core".mkdir()
   fp"{root}/core/report.xsh".write("""print "ok"
-""")?
-  fp"{root}/dist".mkdir()?
+""")
+  fp"{root}/dist".mkdir()
   let stale = fp"{root}/dist/unrelated.tar.xz"
-  stale.write("existing artifact")?
+  stale.write("existing artifact")
   let release_ctx = fixtures.linux_context(root, "dev")?
   match releases.package_core(release_ctx, "fixture") {
-    Ok(_) => test.fail("conflicting archive was accepted")?
+    Ok(_) => test.fail("conflicting archive was accepted")
     Err(error) => assert "StageError.Failed" in error.message
   }
 
@@ -177,14 +177,14 @@ test test_core_archive_contains_current_system_report { |ctx|
     profile: base.profile,
     darwin_deployment_target: base.darwin_deployment_target,
   )
-  releases.package_core(release_ctx, "fixture")?
+  releases.package_core(release_ctx, "fixture")
   let archive_path = fp"{artifact_dir}/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let installed = entries |> where .path == "core/system-report"
   assert installed.len() == 1
   assert installed[0].mode.bit_and(0o777) == 0o755
   let extracted = fp"{artifact_dir}/extracted"
-  archive.tar_extract(archive_path, extracted)?
+  archive.tar_extract(archive_path, extracted)
   assert fp"{extracted}/core/system-report".read_bytes()? == fp"{repository}/core/system-report.xsh".read_bytes()?
   assert fp"{extracted}/core/lib/system_report.xsh".exists()?
 }
@@ -192,8 +192,8 @@ test test_core_archive_contains_current_system_report { |ctx|
 test test_release_checksum_sidecars_keep_a_relative_artifact_name { |ctx|
   let root = test.temp_dir(ctx, name: "release-checksum")?
   let artifact = fp"{root}/dist/xsh-release-x86_64-linux-musl"
-  artifact.parent().mkdir()?
-  artifact.write("release artifact")?
+  artifact.parent().mkdir()
+  artifact.write("release artifact")
   let checksum = releases.checksum_line(artifact, root)?
   assert """  dist/xsh-release-x86_64-linux-musl
 """ in checksum, checksum
@@ -202,7 +202,7 @@ test test_release_checksum_sidecars_keep_a_relative_artifact_name { |ctx|
 test test_release_validation_requires_exactly_the_nine_expected_products { |ctx|
   let root = test.temp_dir(ctx, name: "release-validation")?
   let artifact_dir = fp"{root}/dist"
-  artifact_dir.mkdir()?
+  artifact_dir.mkdir()
   let release_ctx = fixtures.linux_context(root)?
   let tag = "release-test"
 
@@ -215,24 +215,24 @@ test test_release_validation_requires_exactly_the_nine_expected_products { |ctx|
 
     for product in target_policy.products {
       let artifact = fp"{artifact_dir}/{product}-{tag}-{suffix}"
-      artifact.write("release artifact")?
-      fs.chmod(artifact, 0o755)?
-      fp"{artifact}.sha256".write(releases.checksum_line(artifact, root)?)?
+      artifact.write("release artifact")
+      fs.chmod(artifact, 0o755)
+      fp"{artifact}.sha256".write(releases.checksum_line(artifact, root)?)
     }
   }
 
-  releases.validate_artifacts(release_ctx, tag)?
-  fp"{artifact_dir}/unexpected-file".write("not a release artifact")?
+  releases.validate_artifacts(release_ctx, tag)
+  fp"{artifact_dir}/unexpected-file".write("not a release artifact")
 
   match releases.validate_artifacts(release_ctx, tag) {
-    Ok(_) => test.fail("unexpected artifact passed validation")?
+    Ok(_) => test.fail("unexpected artifact passed validation")
     Err(error) => assert "StageError.Failed" in error.message, error.message
   }
 }
 
 test test_unsupported_target_remains_a_structured_error {
   match target_policy.resolve("riscv64-unknown-linux-musl") {
-    Ok(_) => test.fail("unsupported target resolved")?
+    Ok(_) => test.fail("unsupported target resolved")
     Err(error) => assert error.message == "TargetError.Unsupported"
   }
 }
@@ -242,7 +242,7 @@ test test_context_paths_and_missing_tools_have_named_failures {
   assert lifecycle.repo_path(/repo, "/tmp/custom") == "/tmp/custom"
 
   match stages.require_tool("xsh-selfhost-test-tool-that-does-not-exist") {
-    Ok(_) => test.fail("missing tool unexpectedly resolved")?
+    Ok(_) => test.fail("missing tool unexpectedly resolved")
     Err(error) => assert error.message == "StageError.MissingTool"
   }
 }
@@ -258,7 +258,7 @@ test test_failed_stage_reports_its_stage_and_target {
       {},
     ),
   ) {
-    Ok(_) => test.fail("failing command unexpectedly succeeded")?
+    Ok(_) => test.fail("failing command unexpectedly succeeded")
     Err(error) => assert error.message == "StageError.Failed"
   }
 }

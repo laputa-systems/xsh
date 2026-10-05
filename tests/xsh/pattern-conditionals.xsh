@@ -66,7 +66,7 @@ test test_pattern_conditionals_produce_values_and_keep_literal_results {
   if let Err(error) = missing {
     assert error is PatternLoopError.Done == true
   } else {
-    test.fail("Result was implicitly unwrapped")?
+    test.fail("Result was implicitly unwrapped")
   }
 }
 
@@ -352,9 +352,9 @@ proc pattern_conditional_open_root(root_path: Path) [fs, error] -> Result[FsRoot
 test test_pattern_conditionals_preserve_escaping_owned_resources { |ctx|
   let root_path = test.temp_dir(ctx, name: "pattern-root")?
   let root = pattern_conditional_open_root(root_path)?
-  root.write(p"value", "retained")?
+  root.write(p"value", "retained")
   assert root.read_text(p"value")? == "retained"
-  root.close()?
+  root.close()
 }
 
 enum PatternSiblingValue { SiblingWord(Str), SiblingNumber(Int) }

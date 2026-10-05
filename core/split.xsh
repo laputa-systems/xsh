@@ -114,7 +114,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     while offset < input.len() {
       let remaining = input.len() - offset
       let chunk_end = if bytes_per_file < remaining { offset + bytes_per_file } else { input.len() }
-      fp"{prefix}{suffix(chunk)}".write(input[offset..chunk_end])?
+      fp"{prefix}{suffix(chunk)}".write(input[offset..chunk_end])
       offset += bytes_per_file
       chunk += 1
     }
@@ -131,7 +131,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
     if current.len() == lines_per_file or item.index + 1 == input.len() {
       fp"{prefix}{suffix(chunk)}".write(f"""{current.join("\n")}
-""")?
+""")
 
       current = []
       chunk += 1

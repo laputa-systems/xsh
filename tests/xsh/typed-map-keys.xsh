@@ -70,7 +70,7 @@ test test_typed_map_inference_comprehension_null_and_empty {
   assert entries == [3]
   let nullable: Map[Int, Str?] = {[1]: null}
   assert nullable.get(1)? == null
-  test.error_kind(nullable.get(2), "map-missing")?
+  test.error_kind(nullable.get(2), "map-missing")
   let empty: Map[Int, Str] = {}
   assert empty.keys() == []
   assert empty.set(3, "three").get(3)? == "three"
@@ -110,11 +110,11 @@ test test_typed_map_json_rejects_non_string_keys {
   let data: Any = {[b"a"]: 1}
   let path_keys: Any = {[p"a"]: 1}
   let duration: Any = {[3ms]: 1}
-  test.error_kind(json.encode(number), "json-compatible")?
-  test.error_kind(json.encode(flag), "json-compatible")?
-  test.error_kind(json.encode(data), "json-compatible")?
-  test.error_kind(json.encode(path_keys), "json-compatible")?
-  test.error_kind(json.encode(duration), "json-compatible")?
+  test.error_kind(json.encode(number), "json-compatible")
+  test.error_kind(json.encode(flag), "json-compatible")
+  test.error_kind(json.encode(data), "json-compatible")
+  test.error_kind(json.encode(path_keys), "json-compatible")
+  test.error_kind(json.encode(duration), "json-compatible")
   let encoded = {[f"{key}"]: value for {key, value} in {[1]: 2}}
   assert json.encode(encoded)? == "{\"1\":2}"
 }

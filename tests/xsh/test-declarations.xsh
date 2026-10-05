@@ -119,7 +119,7 @@ test helper_test {
   print "TEST EXECUTED"
   assert false
 }
-""")?
+""")
   let result = test.run_xsh(
     ctx,
     """use helper

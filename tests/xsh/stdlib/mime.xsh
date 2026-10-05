@@ -39,7 +39,7 @@ test test_mime_lookup_and_parse {
   let parsed = mime.parse("Text/Plain; Charset=UTF-8")?
   assert parsed.type == "text/plain"
   assert (parsed.params.get("charset") ?? "") == "UTF-8"
-  test.error_kind(mime.parse("not a media type"), "mime-parse")?
+  test.error_kind(mime.parse("not a media type"), "mime-parse")
 }
 
 test test_mime_lookup_ext_normalizes_the_query_spelling {
@@ -133,7 +133,7 @@ test test_mime_parse_splits_on_semicolons_before_interpreting_quotes {
   # The split happens first, so a semicolon inside a quoted value ends the
   # parameter and leaves an unterminated quote behind.
   assert parsed_type(mime.parse("text/plain; name=\"a;b\"")) == "rejected"
-  test.error_kind(mime.parse("text/plain; name=\"a;b\""), "mime-parse")?
+  test.error_kind(mime.parse("text/plain; name=\"a;b\""), "mime-parse")
 
   # The other consequence of splitting first: a value is quoted only when its
   # own part starts with a quote.
@@ -186,7 +186,7 @@ test test_mime_parse_rejects_invalid_media_types {
     assert parsed_type(mime.parse(value)) == "rejected"
   }
 
-  test.error_kind(mime.parse(""), "mime-parse")?
+  test.error_kind(mime.parse(""), "mime-parse")
 }
 
 test test_mime_parse_rejects_malformed_parameters {
@@ -207,7 +207,7 @@ test test_mime_parse_rejects_malformed_parameters {
     assert parsed_type(mime.parse(value)) == "rejected"
   }
 
-  test.error_kind(mime.parse("text/plain; bad"), "mime-parse")?
+  test.error_kind(mime.parse("text/plain; bad"), "mime-parse")
 
   # One malformed parameter rejects the whole value rather than dropping the
   # parameter.

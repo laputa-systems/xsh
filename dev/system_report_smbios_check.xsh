@@ -553,15 +553,15 @@ export proc capture_smbios_bundle(
     return Err(smbios_check_failure("SMBIOS capture destination already contains source data"))
   }
 
-  bundle.mkdir(p"sys/firmware/dmi/tables", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/firmware/dmi/tables", mode: 0o700, parents: true)
   let first = source.read_result(relative, max_bytes: 1048576)?
   let entry_first = source.read_result(entry_relative, max_bytes: 64)?
   if first.data != null {
-    bundle.write(relative, first.data)?
+    bundle.write(relative, first.data)
   }
 
   if entry_first.data != null {
-    bundle.write(entry_relative, entry_first.data)?
+    bundle.write(entry_relative, entry_first.data)
   }
 
   let second = source.read_result(relative, max_bytes: 1048576)?
@@ -613,7 +613,7 @@ export proc capture_smbios_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
   {origin: origin, captured_unix_ms: captured_unix_ms, stable: stable, scoreable: reference != null}
 }
 
@@ -1136,11 +1136,11 @@ export proc corroborate_smbios_bundle(
   let dump = craft_dmidecode_dump(entry_point, validated.data)?
   let scratch = fs.tempdir()?
   defer scratch.close()?
-  scratch.write(p"dump.bin", dump)?
-  scratch.write(p"version", "")?
-  scratch.write(p"version-error", "")?
-  scratch.write(p"output", "")?
-  scratch.write(p"error", "")?
+  scratch.write(p"dump.bin", dump)
+  scratch.write(p"version", "")
+  scratch.write(p"version-error", "")
+  scratch.write(p"output", "")
+  scratch.write(p"error", "")
   let scratch_path = scratch.host_path()?
   let version_argv = [executable, "--version"]
   let version_started = time.now()
@@ -1160,8 +1160,8 @@ export proc corroborate_smbios_bundle(
   let version_exit = version_status.exit_code() ?? -1
   let version_bytes = version_source.data ?? b""
   let version_error_bytes = version_error.data ?? b""
-  bundle.write_atomic(p"dmidecode-version.txt", version_bytes)?
-  bundle.write_atomic(p"dmidecode-version-error.txt", version_error_bytes)?
+  bundle.write_atomic(p"dmidecode-version.txt", version_bytes)
+  bundle.write_atomic(p"dmidecode-version-error.txt", version_error_bytes)
   let probe = DmidecodeProbeMetadata(
     schema_version: 1,
     reference_adapter: "dmidecode-hex-v1",
@@ -1184,7 +1184,7 @@ export proc corroborate_smbios_bundle(
     stderr_truncated: version_error.truncated,
   )
   let probe_wire: Any = probe
-  bundle.write_atomic(p"dmidecode-probe.json", json.encode(probe_wire, pretty: true)?)?
+  bundle.write_atomic(p"dmidecode-probe.json", json.encode(probe_wire, pretty: true)?)
   if version_exit != 0 or version_source.state != "observed" or version_source.truncated or version_source.data == null or version_error.truncated {
     return Err(smbios_check_failure("dmidecode version probe failed"))
   }
@@ -1213,8 +1213,8 @@ export proc corroborate_smbios_bundle(
   let exit_status = status.exit_code() ?? -1
   let output_bytes = output.data ?? b""
   let stderr_bytes = stderr.data ?? b""
-  bundle.write_atomic(p"dmidecode-output.txt", output_bytes)?
-  bundle.write_atomic(p"dmidecode-stderr.txt", stderr_bytes)?
+  bundle.write_atomic(p"dmidecode-output.txt", output_bytes)
+  bundle.write_atomic(p"dmidecode-stderr.txt", stderr_bytes)
   let metadata = DmidecodeRunMetadata(
     schema_version: 1,
     reference_adapter: "dmidecode-hex-v1",
@@ -1242,7 +1242,7 @@ export proc corroborate_smbios_bundle(
     stderr_truncated: stderr.truncated,
   )
   let metadata_wire: Any = metadata
-  bundle.write_atomic(p"dmidecode-reference.json", json.encode(metadata_wire, pretty: true)?)?
+  bundle.write_atomic(p"dmidecode-reference.json", json.encode(metadata_wire, pretty: true)?)
   if exit_status != 0 or output.state != "observed" or output.truncated or stderr.state != "observed" or stderr.truncated {
     return Err(smbios_check_failure("dmidecode reference failed or exceeded its output bound"))
   }
@@ -1254,7 +1254,7 @@ export proc corroborate_smbios_bundle(
 
   let compared = compare_dmidecode_hex_output(validated.reference, output_bytes.utf8()?)?
   let comparison_wire: Any = compared
-  bundle.write_atomic(p"dmidecode-comparison.json", json.encode(comparison_wire, pretty: true)?)?
+  bundle.write_atomic(p"dmidecode-comparison.json", json.encode(comparison_wire, pretty: true)?)
   {comparison: compared, version: version, started_unix_ms: started, ended_unix_ms: ended}
 }
 
@@ -1306,7 +1306,7 @@ export proc compare_live_smbios(
   let before = read_smbios_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -1326,7 +1326,7 @@ export proc compare_live_smbios(
   let after = read_smbios_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  smbios_require_live_report(candidate)?
+  smbios_require_live_report(candidate)
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
   if ! before.complete or ! after.complete or before.absent != after.absent {

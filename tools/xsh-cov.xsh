@@ -98,7 +98,7 @@ proc run_suites(
   out_dir: Path,
   xsht: Path,
 ) [fs, process, env, error, io] -> Result[List[SuiteInput]] {
-  out_dir.mkdir()?
+  out_dir.mkdir()
   var outputs: List[SuiteInput] = []
   var failed = false
 
@@ -108,10 +108,10 @@ proc run_suites(
 
     cd suite.path {
       let captured = run.capture --text $xsht @(suite_test_args(suite.name, suite_json)) ?
-      io.write_stdout(captured.stdout)?
+      io.write_stdout(captured.stdout)
 
       if captured.stderr != "" {
-        io.write_stdout(captured.stderr)?
+        io.write_stdout(captured.stderr)
       }
 
       if ! captured.status.ok {
@@ -254,11 +254,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let inputs = run_suites(root, suites, out_dir, xsht_path(root))?
   let report = merge_reports(root, inputs)?
   let report_text = render_text(report)?
-  json_path.parent().mkdir()?
-  text_path.parent().mkdir()?
-  json.write(json_path, report)?
-  fs.write(text_path, report_text)?
-  io.write_stdout(report_text)?
+  json_path.parent().mkdir()
+  text_path.parent().mkdir()
+  json.write(json_path, report)
+  fs.write(text_path, report_text)
+  io.write_stdout(report_text)
   print f"coverage JSON: {relative_display(root, json_path)?}"
   print f"coverage text: {relative_display(root, text_path)?}"
 }

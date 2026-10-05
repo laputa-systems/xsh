@@ -76,7 +76,7 @@ test cli_commands_constants_import_projection_and_named_spread { |ctx|
   fp"{root}/config.xsh".write(r"""##! Command descriptor configuration.
 ## Prepared command records.
 export const descriptor = {commands: {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}}
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""

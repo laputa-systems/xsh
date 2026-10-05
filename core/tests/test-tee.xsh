@@ -15,7 +15,7 @@ test test_tee_reads_stdin_and_appends { |ctx|
   let out = test.temp_path(ctx, name: "append.txt")
 
   out.write("""first
-""")?
+""")
 
   let stdout = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tee.xsh" -- -a $out < ${input} ?
 

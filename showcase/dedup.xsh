@@ -74,7 +74,7 @@ proc main(...argv: List[Str]) [fs, error] {
       print f"  [{marker}] {item.value.rel}"
 
       if item.index > 0 and ! opts.dry_run {
-        fp"{root}/{item.value.rel}".remove(missing_ok: true)?
+        fp"{root}/{item.value.rel}".remove(missing_ok: true)
       }
     }
   }

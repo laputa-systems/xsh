@@ -62,7 +62,7 @@ test test_user_module_calls_lower_named_and_defaulted_entries { |ctx|
 export pure scale(value: Int, by: Int = 2) -> Int { value * by }
 ## Counts a table.
 export pure count(table: Map[Int] = {a: 1, b: 2}, extra: Int = 0) -> Int { table.len() + extra }
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""use helper

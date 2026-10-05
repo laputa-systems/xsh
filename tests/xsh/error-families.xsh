@@ -235,7 +235,7 @@ export error FetchError {
 export proc refuse(reason: Str) -> Result[Unit, FetchError] {
   return Err(.Usage(reason))
 }
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use fetch
@@ -261,7 +261,7 @@ true
 
 test test_prefer_implicit_message_fix_preserves_behavior_and_converges { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-lint")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-implicit-messages = true\n")?
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-implicit-messages = true\n")
   let source = r"""error ProofError = Usage(message: Str) | Failed(kind: Str, message: Str) | Missing(message: Str) : NotFound
 
 error StageError {
@@ -290,7 +290,7 @@ print ${StageError.Broken("detail").message}
   let before = test.run_script(ctx, source)?
   assert before.success, before.stderr
   let candidate = fp"{root}/main.xsh"
-  candidate.write_atomic(source)?
+  candidate.write_atomic(source)
   let first = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
   assert first.status.exited_with(1), first.stderr
   assert "lint.prefer-implicit-message" in first.stderr
@@ -314,7 +314,7 @@ print ${StageError.Broken("detail").message}
 
 test test_prefer_implicit_message_leaves_exported_declarations_to_the_author { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-message-exported")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-implicit-messages = true\n")?
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-implicit-messages = true\n")
   let module_source = """##! Fetch failures.
 ## Why a fetch failed.
 export error FetchError = Usage(message: Str) | Rejected(url: Str, status: Int)
@@ -324,7 +324,7 @@ export proc refuse(reason: Str) -> Result[Unit, FetchError] {
 }
 """
   let module_file = fp"{root}/fetch.xsh"
-  module_file.write_atomic(module_source)?
+  module_file.write_atomic(module_source)
   let importer_source = r"""use fetch
 match fetch.refuse("not a URL") {
   Err(fetch.FetchError.Usage {message}) => print f"usage: {message}"
@@ -336,7 +336,7 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   let before = test.run_script(ctx, importer_source, [], module_env)?
   assert before.success, before.stderr
   let importer = fp"{root}/main.xsh"
-  importer.write_atomic(importer_source)?
+  importer.write_atomic(importer_source)
 
   let reported = run.capture --text "xsht" lint --only lint.prefer-implicit-message $module_file ?
   assert reported.status.exited_with(1), reported.stderr
@@ -362,7 +362,7 @@ print ${fetch.FetchError.Usage(message: "imported").message}
   assert after.stdout == before.stdout
 
   # With every call positional, the manual declaration edit keeps behavior.
-  module_file.write_atomic(fixed_module.replace("Usage(message: Str)", "Usage"))?
+  module_file.write_atomic(fixed_module.replace("Usage(message: Str)", "Usage"))
   let migrated = test.run_script(ctx, fixed_importer, [], module_env)?
   assert migrated.success, migrated.stderr
   assert migrated.stdout == before.stdout
@@ -373,7 +373,7 @@ test test_prefer_implicit_message_is_off_by_default { |ctx|
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(r"""error ProofError = Usage(message: Str)
 print ${ProofError.Usage(message: "named").message}
-""")?
+""")
   let linted = run.capture --text "xsht" lint --only lint.prefer-implicit-message $candidate ?
   assert linted.status.exited_with(0), linted.stderr
 }
@@ -401,7 +401,7 @@ for kind in ["a", "b", "c", "d", "e"] {
   }
 }
 """,
-  )?
+  )
   let first = run.capture --text "xsht" lint --only lint.positional-error-arguments $candidate ?
   assert ! first.status.exited_with(0), first.stderr
   assert "fields `kind` and `message` can hold the same value" in first.stderr, first.stderr
@@ -450,7 +450,7 @@ export proc refuse(kind: Str, package: Str) -> Result[Unit, ProofError] {
 export proc load(file: Path) [fs, error] -> Result[Str] {
   file.read_text()
 }
-""")?
+""")
   let main = fp"{root}/main.xsh"
   main.write_atomic(r"""use proof
 for package in ["a", "b", "c"] {
@@ -460,7 +460,7 @@ for package in ["a", "b", "c"] {
     Ok(_) => print "ok"
   }
 }
-""")?
+""")
   let module_env = {XSH_MODULE_PATH: root.display()}
   let before = test.run_script(ctx, main.read_text()?, [], module_env)?
   assert before.success, before.stderr

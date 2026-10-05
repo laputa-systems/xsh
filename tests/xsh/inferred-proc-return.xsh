@@ -59,11 +59,11 @@ let _ = refuse(1)
 
 proc project(ctx: TestContext, config: Str) [fs, error] -> Result[Path, Error] {
   let root = test.temp_dir(ctx, name: "inferred-proc-return")?
-  fp"{root}/lib".mkdir()?
-  fp"{root}/bin".mkdir()?
-  fp"{root}/xsht-config.ini".write(config)?
-  fp"{root}/lib/disks.xsh".write(disks_module)?
-  fp"{root}/bin/report.xsh".write(script)?
+  fp"{root}/lib".mkdir()
+  fp"{root}/bin".mkdir()
+  fp"{root}/xsht-config.ini".write(config)
+  fp"{root}/lib/disks.xsh".write(disks_module)
+  fp"{root}/bin/report.xsh".write(script)
   root
 }
 

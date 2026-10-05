@@ -24,9 +24,9 @@ test test_json_require_checks_nested_named_record_fields {
   let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
   assert valid.require(JsonNestedRows)?.cpus[0].online == true
   let wrong_type = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":\"yes\"}]}")?
-  test.error_kind(wrong_type.require(JsonNestedRows), "schema")?
+  test.error_kind(wrong_type.require(JsonNestedRows), "schema")
   let missing_field = json.decode("{\"cpus\":[{\"cpu\":0}]}")?
-  test.error_kind(missing_field.require(JsonNestedRows), "schema")?
+  test.error_kind(missing_field.require(JsonNestedRows), "schema")
 }
 
 test test_float_arithmetic_and_json_record_boundary {
@@ -52,13 +52,13 @@ test test_json_read_write_lines_and_paths { |ctx|
   assert "\"status\"" in json.encode(updated, pretty: true)?
   assert "{\"a\":1}" in json.encode_lines([{a: 1}, {a: 2}])?
   let json_path = fp"{root}/data.json"
-  json.write(json_path, updated, pretty: false)?
+  json.write(json_path, updated, pretty: false)
   assert json.read(json_path)?["name"] == "pkg"
   let lines_path = fp"{root}/lines.jsonl"
-  json.write_lines(lines_path, [{a: 1}, {a: 2}])?
+  json.write_lines(lines_path, [{a: 1}, {a: 2}])
   assert lines_path.read_text()?.count_lines() == 2
-  test.error_kind(json.decode("{"), "json")?
-  test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
+  test.error_kind(json.decode("{"), "json")
+  test.error_kind(json.get(value, ["items", "bad"]), "json-path")
 }
 
 test test_json_decode_type_patterns_and_public_boundaries {
@@ -71,7 +71,7 @@ b"""
   assert decoded.snow == "☃"
   assert decoded.music == "𝄞"
   assert json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
-  test.error_kind(json.decode("9223372036854775808"), "json")?
+  test.error_kind(json.decode("9223372036854775808"), "json")
   assert json_label(json.decode("1")?)? == "int 1.0"
   assert json_label(json.decode("1.25")?)? == "float 1.25"
   assert json_label(json.decode("\"x\"")?)? == "str x"
@@ -89,10 +89,10 @@ b"""
   assert rows[0].b == 2
   assert rows[1].a == 1
   assert encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
-  test.error_kind(json.decode("not json"), "json")?
+  test.error_kind(json.decode("not json"), "json")
   let data = {path: p"src"}
   let path_value: Any = data["path"]
-  test.error_kind(json.encode(path_value), "json-compatible")?
+  test.error_kind(json.encode(path_value), "json-compatible")
 }
 
 pure json_label(value: Any) -> Result[Str] {
@@ -108,10 +108,10 @@ pure json_label(value: Any) -> Result[Str] {
 
 test test_json_path_helpers_report_invalid_paths {
   let data = {items: [1]}
-  test.error_kind(json.get(data, ["items", 4]), "json-path")?
-  test.error_kind(json.set(data, ["items", 2], 3), "json-path")?
-  test.error_kind(json.remove(data, ["missing"]), "json-path")?
-  test.error_kind(json.get(data, [-1]), "json-path")?
+  test.error_kind(json.get(data, ["items", 4]), "json-path")
+  test.error_kind(json.set(data, ["items", 2], 3), "json-path")
+  test.error_kind(json.remove(data, ["missing"]), "json-path")
+  test.error_kind(json.get(data, [-1]), "json-path")
 }
 
 test test_json_rejection_is_trace_visible { |ctx|
@@ -210,7 +210,7 @@ test test_json_path_get_keeps_maps_and_passes_values_through {
   assert json.get(tree, ["inner", "leaf"])? == 0
   assert json.get(tree, ["nil"])? == null
   assert rejection_message(json.get(tree, ["inner", "absent"]))? == "missing object key `absent`"
-  expect_map("get over a Map keeps it a Map", json.get(tree, [])?)?
+  expect_map("get over a Map keeps it a Map", json.get(tree, [])?)
 
   # Values that are not JSON at all are ordinary members: the walk returns them
   # and never inspects or converts them.
@@ -226,7 +226,7 @@ test test_json_path_get_keeps_maps_and_passes_values_through {
   assert json.get(mixed, ["rows", 0, "cells", 1])? == 2
   assert json.get(json.set(mixed, ["rows", 0, "cells", 1], 9)?, ["rows", 0, "cells", 1])? == 9
   assert json.get(json.remove(mixed, ["rows", 0, "cells", 0])?, ["rows", 0, "cells", 0])? == 2
-  expect_map("a mixed path keeps the Map", json.get(mixed, ["rows", 0])?)?
+  expect_map("a mixed path keeps the Map", json.get(mixed, ["rows", 0])?)
 }
 
 test test_json_path_is_interpreted_before_traversal {
@@ -251,9 +251,9 @@ test test_json_path_is_interpreted_before_traversal {
   assert rejection_message(json.remove(value, [null]))? == "path segments must be Str or Int, found Null"
 
   # The rejections carry the `json-path` kind as well as the message.
-  test.error_kind(json.get(value, [-1]), "json-path")?
-  test.error_kind(json.set(value, [1.5], 1), "json-path")?
-  test.error_kind(json.remove(value, [null]), "json-path")?
+  test.error_kind(json.get(value, [-1]), "json-path")
+  test.error_kind(json.set(value, [1.5], 1), "json-path")
+  test.error_kind(json.remove(value, [null]), "json-path")
 }
 
 test test_json_set_updates_the_named_position {
@@ -281,25 +281,25 @@ test test_json_set_updates_the_named_position {
   assert rejection_message(json.set(value, ["name", 0], 1))? == "expected list at index 0, found Str"
 
   # The result is the same kind of container, rebuilt once per changed field.
-  expect_record("set keeps a Record", json.set(value, ["added"], 1)?)?
+  expect_record("set keeps a Record", json.set(value, ["added"], 1)?)
   assert json.get(json.set(value, ["added"], 1)?, ["name"])? == "pkg"
-  expect_record("set keeps a nested Record", json.get(json.set(value, ["meta", "ok"], false)?, ["meta"])?)?
+  expect_record("set keeps a nested Record", json.get(json.set(value, ["meta", "ok"], false)?, ["meta"])?)
   let empty: Map[Any] = {}
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
-  expect_map("set keeps a Map", json.set(tree, ["other"], 2)?)?
-  expect_map("set adds to a Map", json.set(tree, ["fresh"], 3)?)?
-  expect_map("set keeps a nested Map", json.set(tree, ["inner", "leaf"], 5)?.require(Map[Any])?.get("inner") ?? null)?
+  expect_map("set keeps a Map", json.set(tree, ["other"], 2)?)
+  expect_map("set adds to a Map", json.set(tree, ["fresh"], 3)?)
+  expect_map("set keeps a nested Map", json.set(tree, ["inner", "leaf"], 5)?.require(Map[Any])?.get("inner") ?? null)
   assert json.get(json.set(tree, ["inner", "leaf"], 5)?, ["inner", "leaf"])? == 5
   assert json.get(json.set(tree, ["inner", "leaf"], 5)?, ["other"])? == 1
 
   # The value and the replacement must both be JSON-encodable, checked before
   # anything is updated.
   let path_value: Any = p"src"
-  test.error_kind(json.set(value, ["added"], path_value), "json-compatible")?
-  test.error_kind(json.set(path_value, ["added"], 1), "json-compatible")?
+  test.error_kind(json.set(value, ["added"], path_value), "json-compatible")
+  test.error_kind(json.set(path_value, ["added"], 1), "json-compatible")
   let holder: Any = {where: p"src"}
-  test.error_kind(json.set(holder, ["where"], 1), "json-compatible")?
-  test.error_kind(json.set(value, [-1], path_value), "json-compatible")?
+  test.error_kind(json.set(holder, ["where"], 1), "json-compatible")
+  test.error_kind(json.set(value, [-1], path_value), "json-compatible")
 }
 
 test test_json_remove_drops_the_named_position {
@@ -330,15 +330,15 @@ test test_json_remove_drops_the_named_position {
   assert rejection_message(json.remove(value, ["items", "x"]))? == "expected object at key `x`, found List"
 
   # The result is the same kind of container.
-  expect_record("remove keeps a Record", json.remove(value, ["name"])?)?
+  expect_record("remove keeps a Record", json.remove(value, ["name"])?)
   let empty: Map[Any] = {}
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
-  expect_map("remove keeps a Map", json.remove(tree, ["other"])?)?
+  expect_map("remove keeps a Map", json.remove(tree, ["other"])?)
 
   # The path operation has a dynamic result. Validate its Map identity before
   # calling Map methods; nested values remain dynamic until checked separately.
   let pruned = json.remove(tree, ["inner", "leaf"])?.require(Map[Any])?
-  expect_map("remove keeps a nested Map", pruned.get("inner") ?? null)?
+  expect_map("remove keeps a nested Map", pruned.get("inner") ?? null)
   assert "leaf" not in (pruned.get("inner") ?? null).require(Map[Any])?
   assert json.get(pruned, ["inner", "leaf"], "gone") == "gone"
 
@@ -395,9 +395,9 @@ b""",
   # An item that cannot be encoded fails the whole composition, whichever item
   # it is; the message and the empty output are checked in the trace test.
   let path_value: Any = p"src"
-  test.error_kind(json.encode_lines([path_value]), "json-compatible")?
-  test.error_kind(json.encode_lines([1, path_value]), "json-compatible")?
-  test.error_kind(json.encode_lines([path_value, 1]), "json-compatible")?
+  test.error_kind(json.encode_lines([path_value]), "json-compatible")
+  test.error_kind(json.encode_lines([1, path_value]), "json-compatible")
+  test.error_kind(json.encode_lines([path_value, 1]), "json-compatible")
 }
 
 test test_json_path_rejects_a_non_list_path { |ctx|
@@ -469,5 +469,5 @@ print f"{summary.events}:{summary.complete}"
 test test_json_set_keeps_path_segments_and_runtime_validation {
   let input = {rows: [{name: "first"}]}
   assert json.encode(json.set(input, ["rows", 0, "name"], "second")?)? == "{\"rows\":[{\"name\":\"second\"}]}"
-  test.error_kind(json.set(input, ["rows", 1.5], "second"), "json-path")?
+  test.error_kind(json.set(input, ["rows", 1.5], "second"), "json-path")
 }

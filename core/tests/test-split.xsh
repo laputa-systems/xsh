@@ -5,7 +5,7 @@ test test_split_lines { |ctx|
   input.write("""a
 b
 c
-""")?
+""")
 
   let prefix = fp"{root}/chunk-"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/split.xsh" -- -l 2 $input $prefix ?
@@ -19,7 +19,7 @@ b""" in fp"{root}/chunk-aa".read_text()?
 test test_split_bytes_clamps_final_chunk { |ctx|
   let root = test.temp_dir(ctx, name: "split-bytes")?
   let input = fp"{root}/input.bin"
-  input.write(b"abcdefg")?
+  input.write(b"abcdefg")
 
   let prefix = fp"{root}/chunk-"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/split.xsh" -- -b 3 $input $prefix ?
@@ -32,7 +32,7 @@ test test_split_bytes_clamps_final_chunk { |ctx|
 test test_split_bytes_large_count_preserves_entire_input { |ctx|
   let root = test.temp_dir(ctx, name: "split-large-byte-count")?
   let input = fp"{root}/input.bin"
-  input.write(b"abcdefg")?
+  input.write(b"abcdefg")
 
   let prefix = fp"{root}/chunk-"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/split.xsh" -- -b 9223372036854775807 $input $prefix ?

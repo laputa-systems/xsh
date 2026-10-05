@@ -20,7 +20,7 @@ test test_fmt_fixture { |ctx|
     p"tests/fixtures/fmt/beauty.xsh",
     p"tests/fixtures/fmt/beauty.expected.xsh",
     "fmt-beauty.xsh",
-  )?
+  )
 }
 
 test test_fmt_env_strings_round_trip { |ctx|
@@ -29,7 +29,7 @@ test test_fmt_env_strings_round_trip { |ctx|
     p"tests/fixtures/fmt/env-strings.xsh",
     p"tests/fixtures/fmt/env-strings.expected.xsh",
     "fmt-env-strings.xsh",
-  )?
+  )
 }
 
 test test_fmt_target_typed_variants_and_positional_constructors { |ctx|
@@ -41,7 +41,7 @@ test test_fmt_target_typed_variants_and_positional_constructors { |ctx|
     p"tests/fixtures/fmt/target-typed-constructors.xsh",
     p"tests/fixtures/fmt/target-typed-constructors.expected.xsh",
     "fmt-target-typed.xsh",
-  )?
+  )
   let after = test.run_script(ctx, p"tests/fixtures/fmt/target-typed-constructors.expected.xsh".read_text()?)?
   assert after.success, after.stderr
   assert after.stdout == before.stdout
@@ -73,7 +73,7 @@ test test_fmt_assigned_conditionals_are_stable { |ctx|
     p"tests/fixtures/fmt/assigned-conditionals.xsh",
     p"tests/fixtures/fmt/assigned-conditionals.expected.xsh",
     "assigned-conditionals.xsh",
-  )?
+  )
   let after = test.run_script(ctx, p"tests/fixtures/fmt/assigned-conditionals.expected.xsh".read_text()?)?
   assert after.success, after.stderr
   assert after.stdout == before.stdout
@@ -89,7 +89,7 @@ test test_fmt_command_continuation { |ctx|
     p"tests/fixtures/fmt/command-continuation.xsh",
     p"tests/fixtures/fmt/command-continuation.expected.xsh",
     "command-continuation.xsh",
-  )?
+  )
   let after = test.run_script(ctx, p"tests/fixtures/fmt/command-continuation.expected.xsh".read_text()?)?
   assert after.success, after.stderr
   assert after.stdout == before.stdout
@@ -156,7 +156,7 @@ test test_fmt_error_families_choose_the_form_by_width { |ctx|
     p"tests/fixtures/fmt/error-families.xsh",
     p"tests/fixtures/fmt/error-families.expected.xsh",
     "fmt-error-families.xsh",
-  )?
+  )
   let after = test.run_script(ctx, p"tests/fixtures/fmt/error-families.expected.xsh".read_text()?)?
   assert after.success, after.stderr
   assert after.stdout == before.stdout

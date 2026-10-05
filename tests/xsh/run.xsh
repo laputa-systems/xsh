@@ -123,7 +123,7 @@ test test_result_unit_statements_propagate_by_default {
 }
 
 test test_script_stdout_can_emit_invalid_utf8_bytes {
-  io.write_stdout_bytes(b"\xff\0a")?
+  io.write_stdout_bytes(b"\xff\0a")
 }
 
 test test_run_capture_record_captures_status_stdout_and_stderr {
@@ -177,7 +177,7 @@ export proc build() [process, error] {
   run echo --format json ?
   run echo apples ?
 }
-""")?
+""")
 
   let output = test.run_script(
     ctx,
@@ -209,7 +209,7 @@ package.build()?
 test test_run_unknown_name_returns_process_error {
   env PATH="/bin:/usr/bin" {
     let missing = run.text command-not-builtin
-    test.error_kind(missing, "not-found")?
+    test.error_kind(missing, "not-found")
   }
 }
 
@@ -418,14 +418,14 @@ test test_acceptance_tar_gzip_pipeline_writes_archive { |ctx|
   let root = test.temp_dir(ctx, name: "tar-gzip")?
   let src = fp"{root}/src"
   let tarball = fp"{root}/archive.tar.gz"
-  src.mkdir()?
+  src.mkdir()
 
   fp"{src}/file.txt".write("""contents
-""")?
+""")
 
   cd root {
     run tar cf - src | run gzip -9 > $tarball ?
-  } ?
+  }
 
   assert tarball.metadata()?.size > 0
 }
@@ -486,12 +486,12 @@ test test_large_stdout_capture_drains_and_limit_is_error {
   let out = run.bytes head -c 131072 /dev/zero ?
   assert out.len() == 131072
   let too_large = run.bytes head -c 16777217 /dev/zero
-  test.error_kind(too_large, "capture-limit")?
+  test.error_kind(too_large, "capture-limit")
 }
 
 test test_invalid_utf8_text_capture_is_a_run_error {
   let invalid = run.text sh -c "printf '\\377'"
-  test.error_kind(invalid, "invalid-utf8")?
+  test.error_kind(invalid, "invalid-utf8")
 }
 
 test test_whole_script_exit_status_and_abort_behavior { |ctx|
@@ -816,7 +816,7 @@ test test_pipeline_capture_takes_last_stdout_and_fails_on_any_segment {
   assert head == "y\ny\n"
 
   let late = run.text true | run false
-  test.error_kind(late, "pipeline-failure")?
+  test.error_kind(late, "pipeline-failure")
   if let Err(error) = late {
     assert "pipeline segment 1 `false` exited with status 1" in error.message, error.message
   }
@@ -825,13 +825,13 @@ test test_pipeline_capture_takes_last_stdout_and_fails_on_any_segment {
   if let Err(error) = early {
     assert "pipeline segment 0 `sh` exited with status 2" in error.message, error.message
   } else {
-    test.fail("expected a pipeline failure")?
+    test.fail("expected a pipeline failure")
   }
 
   let invalid = run.text printf "\\377" | run cat
-  test.error_kind(invalid, "invalid-utf8")?
+  test.error_kind(invalid, "invalid-utf8")
   let too_large = run.bytes head -c 16777217 /dev/zero | run cat
-  test.error_kind(too_large, "capture-limit")?
+  test.error_kind(too_large, "capture-limit")
   let accepted = run.text true | run --accept=[0, 1] sh -c "echo kept; exit 1" ?
   assert accepted == "kept\n"
 }
@@ -1072,7 +1072,7 @@ test test_foundation_literals_defers_streams_and_builders { |ctx|
   let file = fp"{root}/note.txt"
   file.write("""alpha
 beta
-""")?
+""")
   let content = file.read_text()?
   let mode = 0o755
   let label = f"mode {mode}"
@@ -1160,7 +1160,7 @@ print "i"
 let _ = wait child ?
 let k = run.text echo k ?
 print ${k.trim()}
-""")?
+""")
   let stdout = fp"{root}/stdout.txt"
   let stderr = fp"{root}/stderr.txt"
   run "xsh" $script > $stdout 2> $stderr
@@ -1216,12 +1216,12 @@ test test_filesystem_errors_name_their_paths { |ctx|
   # A path under a regular file fails for every user; root could create
   # a missing top-level directory such as /nonexistent.
   let blocker = fp"{ctx.temp_root}/blocker"
-  blocker.write("x")?
+  blocker.write("x")
   let missing = fp"{blocker}/xsh-missing-dir"
   if let Err(error) = fs.metadata(missing) {
     assert missing.display() in error.message, error.message
   } else {
-    test.fail("expected a filesystem failure")?
+    test.fail("expected a filesystem failure")
   }
 
   for failure in [
@@ -1232,15 +1232,15 @@ test test_filesystem_errors_name_their_paths { |ctx|
     if let Err(error) = failure {
       assert missing.display() in error.message, error.message
     } else {
-      test.fail("expected a filesystem failure")?
+      test.fail("expected a filesystem failure")
     }
   }
 }
 
 test test_run_accepts_relative_command_paths { |ctx|
   let tool = fp"{ctx.temp_root}/tool"
-  tool.write("#!/bin/sh\necho ran\n")?
-  tool.chmod(0o755)?
+  tool.write("#!/bin/sh\necho ran\n")
+  tool.chmod(0o755)
   let output = test.run_script(
     ctx,
     r"""cd (ROOT) {

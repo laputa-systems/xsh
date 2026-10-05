@@ -33,11 +33,11 @@ proc main(...argv: List[Str]) [process, error] {
   let operands = opts.operands
 
   match operands {
-    ["addr"] | ["address"] | ["addr", "show"] | ["address", "show"] => print_addr("")?
+    ["addr"] | ["address"] | ["addr", "show"] | ["address", "show"] => print_addr("")
     ["addr", "show", "dev", name] | ["address", "show", "dev", name] | ["addr", "dev", name] | ["address", "dev", name] => print_addr(
       name,
-    )?
-    ["route"] | ["route", "show"] => print_route()?
+    )
+    ["route"] | ["route", "show"] => print_route()
     else => return Err(AppletError.Usage("ip: expected addr or route"))
   }
 }

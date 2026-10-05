@@ -17,13 +17,13 @@ world"""
   assert "[server]" in encoded
   assert "host = example.test" in encoded
   let config_path = test.temp_path(ctx, name: "app.ini")
-  ini.write(config_path, {global: "root", server: {host: "example.test"}})?
+  ini.write(config_path, {global: "root", server: {host: "example.test"}})
   let read_back = ini.read(config_path)?
   assert read_back.server.host == "example.test"
-  test.error_kind(ini.write(config_path, {global: "again"}, overwrite: false), "ini-write")?
+  test.error_kind(ini.write(config_path, {global: "again"}, overwrite: false), "ini-write")
 
   # Encoding fails before overwrite policy examines the existing destination.
-  test.error_kind(ini.write(config_path, {global: 1}, overwrite: false), "ini-encode")?
+  test.error_kind(ini.write(config_path, {global: 1}, overwrite: false), "ini-encode")
   assert ini.read(config_path)?.global == "root"
 }
 
@@ -135,24 +135,24 @@ k=v = 2
 test test_ini_encode_rejects_invalid_names {
   # A global key is validated exactly as written; an empty key and a key
   # holding NUL, newline, `[`, or `]` are rejected.
-  test.error_kind(ini.encode({"a[b": "1"}), "ini-key")?
+  test.error_kind(ini.encode({"a[b": "1"}), "ini-key")
   assert encode_message(ini.encode({"a[b": "1"})) == "invalid INI key"
-  test.error_kind(ini.encode({"": "1"}), "ini-key")?
+  test.error_kind(ini.encode({"": "1"}), "ini-key")
   assert encode_message(ini.encode({"": "1"})) == "invalid INI key"
-  test.error_kind(ini.encode({"a]b": "1"}), "ini-key")?
+  test.error_kind(ini.encode({"a]b": "1"}), "ini-key")
   test.error_kind(
     ini.encode({
       "a\nb": "1",
     }),
     "ini-key",
-  )?
+  )
 
   # A section key is validated after normalization, so a rejected key reports
   # the lowercase spelling under the `ini-key` kind.
-  test.error_kind(ini.encode({s: {"a[b": "1"}}), "ini-key")?
+  test.error_kind(ini.encode({s: {"a[b": "1"}}), "ini-key")
   assert encode_message(ini.encode({s: {"a[b": "1"}})) == "invalid INI key"
-  test.error_kind(ini.encode({s: {"": "1"}}), "ini-key")?
-  test.error_kind(ini.encode({s: {"a]b": "1"}}), "ini-key")?
+  test.error_kind(ini.encode({s: {"": "1"}}), "ini-key")
+  test.error_kind(ini.encode({s: {"a]b": "1"}}), "ini-key")
   test.error_kind(
     ini.encode({
       s: {
@@ -160,13 +160,13 @@ test test_ini_encode_rejects_invalid_names {
       },
     }),
     "ini-key",
-  )?
+  )
 
   # Section names keep their spelling and carry their own kind.
-  test.error_kind(ini.encode({"a[b": {h: "1"}}), "ini-section")?
+  test.error_kind(ini.encode({"a[b": {h: "1"}}), "ini-section")
   assert encode_message(ini.encode({"a[b": {h: "1"}})) == "invalid INI section"
-  test.error_kind(ini.encode({"": {h: "1"}}), "ini-section")?
-  test.error_kind(ini.encode({"a]b": {h: "1"}}), "ini-section")?
+  test.error_kind(ini.encode({"": {h: "1"}}), "ini-section")
+  test.error_kind(ini.encode({"a]b": {h: "1"}}), "ini-section")
   test.error_kind(
     ini.encode({
       "a\nb": {
@@ -174,40 +174,40 @@ test test_ini_encode_rejects_invalid_names {
       },
     }),
     "ini-section",
-  )?
+  )
 
   # The whole record is collected before any global key is validated, so a
   # section-field rejection outranks a global-key rejection even when the
   # offending global key sorts first.
-  test.error_kind(ini.encode({"a[b": "1", s: {c: 2}}), "ini-encode")?
+  test.error_kind(ini.encode({"a[b": "1", s: {c: 2}}), "ini-encode")
   assert encode_message(ini.encode({"a[b": "1", s: {c: 2}})) == "INI section values must be strings"
 }
 
 test test_ini_encode_rejects_non_string_values {
   # A top-level field must be a global string or a section record.
-  test.error_kind(ini.encode({a: 1}), "ini-encode")?
+  test.error_kind(ini.encode({a: 1}), "ini-encode")
   assert encode_message(ini.encode({a: 1})) == "INI records may contain only global string keys or section records"
-  test.error_kind(ini.encode({a: true}), "ini-encode")?
-  test.error_kind(ini.encode({a: null}), "ini-encode")?
-  test.error_kind(ini.encode({a: [1, 2]}), "ini-encode")?
+  test.error_kind(ini.encode({a: true}), "ini-encode")
+  test.error_kind(ini.encode({a: null}), "ini-encode")
+  test.error_kind(ini.encode({a: [1, 2]}), "ini-encode")
 
   # A map is not a section record.
   let empty_map: Map[Str] = {}
-  test.error_kind(ini.encode({s: empty_map}), "ini-encode")?
+  test.error_kind(ini.encode({s: empty_map}), "ini-encode")
   assert encode_message(ini.encode({s: empty_map})) == "INI records may contain only global string keys or section records"
 
   # A section field must be a string.
-  test.error_kind(ini.encode({s: {a: 1}}), "ini-encode")?
+  test.error_kind(ini.encode({s: {a: 1}}), "ini-encode")
   assert encode_message(ini.encode({s: {a: 1}})) == "INI section values must be strings"
-  test.error_kind(ini.encode({s: {a: true}}), "ini-encode")?
-  test.error_kind(ini.encode({s: {a: null}}), "ini-encode")?
-  test.error_kind(ini.encode({s: {a: [1]}}), "ini-encode")?
+  test.error_kind(ini.encode({s: {a: true}}), "ini-encode")
+  test.error_kind(ini.encode({s: {a: null}}), "ini-encode")
+  test.error_kind(ini.encode({s: {a: [1]}}), "ini-encode")
 
   # The check runs in the section's key order, so `a` is judged before `c`:
   # the rejected value is reported, and the invalid key beside it is not
   # reached. The key is a string field because `c]d` is not an identifier —
   # which is exactly why the encoder has to validate it.
-  test.error_kind(ini.encode({s: {"c]d": "2", a: 1}}), "ini-encode")?
+  test.error_kind(ini.encode({s: {"c]d": "2", a: 1}}), "ini-encode")
   assert encode_message(ini.encode({s: {"c]d": "2", a: 1}})) == "INI section values must be strings"
 }
 

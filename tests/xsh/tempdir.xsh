@@ -16,8 +16,8 @@ test test_tempdir_creates_the_directory_and_removes_it_on_exit { |ctx|
   var seen = false
   tempdir scratch at target {
     seen = entry_count(scratch)? == 0
-    fp"{scratch}/nested/file".parent.mkdir()?
-    fp"{scratch}/nested/file".write("x")?
+    fp"{scratch}/nested/file".parent.mkdir()
+    fp"{scratch}/nested/file".write("x")
   }
 
   assert seen
@@ -27,13 +27,13 @@ test test_tempdir_creates_the_directory_and_removes_it_on_exit { |ctx|
 test test_tempdir_clears_what_is_at_the_path { |ctx|
   let root = test.temp_dir(ctx, name: "tempdir-clear")?
   let target = fp"{root}/scratch"
-  target.write("a file, not a directory")?
+  target.write("a file, not a directory")
   tempdir scratch at target {
     assert entry_count(scratch)? == 0
   }
 
-  fp"{target}/stale/deep".mkdir()?
-  fp"{target}/stale/deep/file".write("stale")?
+  fp"{target}/stale/deep".mkdir()
+  fp"{target}/stale/deep/file".write("stale")
   var entries = -1
   tempdir scratch at target {
     entries = entry_count(scratch)?
@@ -59,7 +59,7 @@ test test_tempdir_evaluates_the_path_once { |ctx|
 
 proc fail_inside(target: Path) [fs, error] {
   tempdir scratch at target {
-    fp"{scratch}/partial".write("x")?
+    fp"{scratch}/partial".write("x")
     return error.fail("body failed")
   }
 }
@@ -109,7 +109,7 @@ test test_tempdir_removal_runs_after_the_body_defers { |ctx|
 
 proc staged(target: Path) [fs, error] -> Result[Str] {
   tempdir scratch at target {
-    fp"{scratch}/stamp".write("staged")?
+    fp"{scratch}/stamp".write("staged")
     fp"{scratch}/stamp".read_text()?
   }
 }
@@ -254,7 +254,7 @@ test test_tempdir_needs_the_fs_effect { |ctx|
 test test_tempdir_creation_failure_stops_before_the_body { |ctx|
   let root = test.temp_dir(ctx, name: "tempdir-create")?
   let blocker = fp"{root}/file"
-  blocker.write("not a directory")?
+  blocker.write("not a directory")
   var ran = false
   let outcome = try {
     tempdir scratch at fp"{blocker}/below" {

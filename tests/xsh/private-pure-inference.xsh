@@ -125,7 +125,7 @@ let prefix = "label:"
 pure private_label(value: Str) { prefix + value.trim() }
 ## Renders a label through the private helper.
 export pure label(value: Str) -> Str { private_label(value) }
-""")?
+""")
   let loaded = module.load(module_path)?.require(InferredPrivateModule)?
   assert loaded.label(" ready ") == "label:ready"
 }
@@ -186,7 +186,7 @@ enum Selection { Included, Excluded }
 pure private_enabled(value: Selection) { value == Included }
 ## Checks the selected tag.
 export pure enabled() -> Bool { private_enabled(Included) }
-""")?
+""")
   let result = test.run_script(
     ctx,
     """use inferred_tags

@@ -264,7 +264,7 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions { |ctx|
 { print forbidden }
 ## Exported name.
 export let name = "invalid"
-""")?
+""")
   let source = f"""
     let _ = module.load(p\"{module_path}\")?
 

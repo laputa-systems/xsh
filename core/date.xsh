@@ -33,7 +33,7 @@ proc main(...argv: List[Str]) [process, error] {
   return when status.ok
 
   if status.exited() {
-    abort(status.exit_code()?)
+    exit status.exit_code()?
   }
 
   return Err(AppletError.Usage("date: command was signaled"))

@@ -122,7 +122,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     }
 
     let dest = fp"{out_dir}/{rel}".with_ext("m4a")
-    dest.parent().mkdir()?
+    dest.parent().mkdir()
 
     let cmd = process.command_argv(
       "ffmpeg",

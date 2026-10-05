@@ -4,7 +4,7 @@ test test_todo_scan { |ctx|
   fp"{root}/main.rs".write("""// TODO: fix this
 fn main() {}
 // FIXME: also broken
-""")?
+""")
 
   let output = run.text "xsh" "showcase/todo-scan.xsh" -- --root $root ?
   assert "FIXME" in output

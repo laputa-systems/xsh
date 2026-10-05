@@ -20,7 +20,7 @@ proc handle_status(status: Status) [error] {
   return when status.ok
 
   if status.exited() {
-    abort(status.exit_code()?)
+    exit status.exit_code()?
   }
 
   return Err(EnvError.Failed("command was signaled"))
@@ -90,15 +90,15 @@ proc main(...raw: List[Str]) [process, env, error] {
           env: {PATH: path_update, XSH_MODULE_PATH: xsh_module_path_update},
         ),
       )?,
-    )?
+    )
   } else if path_update != "" {
-    handle_status(process.run(process.command_argv(command_argv[0], command_argv, env: {PATH: path_update}))?)?
+    handle_status(process.run(process.command_argv(command_argv[0], command_argv, env: {PATH: path_update}))?)
   } else if xsh_module_path_update != "" {
     handle_status(
       process.run(process.command_argv(command_argv[0], command_argv, env: {XSH_MODULE_PATH: xsh_module_path_update}))?,
-    )?
+    )
   } else {
     let status = run.status @command_argv ?
-    handle_status(status)?
+    handle_status(status)
   }
 }

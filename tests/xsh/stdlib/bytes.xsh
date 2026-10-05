@@ -14,8 +14,8 @@ test test_bytes_construction_encoding_and_copy { |ctx|
   assert bytes.pack_be(16909060, 4)? == b"\x01\x02\x03\x04"
   assert bytes.unpack_le(b"4\x12", 2)? == 4660
   assert bytes.unpack_be(b"\x01\x02\x03\x04", 4)? == 16909060
-  test.error_kind(bytes.from_ints([256]), "bytes-from-ints")?
-  test.error_kind(bytes.pack_be(1, 9), "bytes-pack")?
+  test.error_kind(bytes.from_ints([256]), "bytes-from-ints")
+  test.error_kind(bytes.pack_be(1, 9), "bytes-pack")
   let data_path = test.temp_path(ctx, name: "data.bin")
   assert bytes.write_at(data_path, 2, b"abcdef", create: true)? == 6
   assert bytes.zero_at(data_path, 4, 2)? == 2
@@ -37,7 +37,7 @@ test test_bytes_construction_encoding_and_copy { |ctx|
 
   assert copied_file.bytes == 2
   assert copy.read_bytes()?.dump("hex-u8") == "0000000 61 65 66 00"
-  test.error_kind(bytes.copy(data_path, copy), "bytes-copy")?
+  test.error_kind(bytes.copy(data_path, copy), "bytes-copy")
 }
 
 test test_bytes_methods_and_decode_errors {
@@ -86,7 +86,7 @@ WJj""".base64_decode()? == b"abc"
   assert b"abc".sha1().hex() == hash.sha1(b"abc").hex()
   assert b"abc".sha256().hex() == hash.sha256(b"abc").hex()
   assert b"abc".sha512().hex() == hash.sha512(b"abc").hex()
-  test.error_kind(b"\xff".utf8(), "invalid-utf8")?
-  test.error_kind("%%%".base64_decode(), "invalid-base64")?
-  test.error_kind("M!".base32_decode(), "invalid-base32")?
+  test.error_kind(b"\xff".utf8(), "invalid-utf8")
+  test.error_kind("%%%".base64_decode(), "invalid-base64")
+  test.error_kind("M!".base32_decode(), "invalid-base32")
 }

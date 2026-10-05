@@ -7,19 +7,19 @@ test test_user_lookup_and_mutation_contracts { |ctx|
     passwd_file,
     """root:x:0:0:root:/root:/bin/sh
 """,
-  )?
+  )
 
   fs.write(
     shadow_file,
     """root:*:0:0:99999:7:::
 """,
-  )?
+  )
 
   fs.write(
     group_file,
     """root:x:0:
 """,
-  )?
+  )
 
   let current_user = user.current()?
   let by_uid = user.by_uid(current_user.uid)?
@@ -35,6 +35,6 @@ test test_user_lookup_and_mutation_contracts { |ctx|
   let output = run.text XSH_PASSWD_FILE=$passwd_file XSH_SHADOW_FILE=$shadow_file XSH_GROUP_FILE=$group_file "xsh" \
     $script ?
   assert "demo /home/demo" in output
-  test.error_kind(user.lookup("definitely-missing-xsh-user"), "user-not-found")?
-  test.error_kind(user.add("-bad"), "user-name")?
+  test.error_kind(user.lookup("definitely-missing-xsh-user"), "user-not-found")
+  test.error_kind(user.add("-bad"), "user-name")
 }

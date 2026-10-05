@@ -111,7 +111,7 @@ test test_template_define_and_template_calls {
 
 test test_template_render_errors_report_kind_and_position {
   let data = {name: "web", list: [1], n: null, map: {a: 1}}
-  test.error_kind(template.render("{{.missing}}", data), "template-render")?
+  test.error_kind(template.render("{{.missing}}", data), "template-render")
   assert render_outcome(template.render("line one\n  {{.missing}}", data)) == "template:2:5: missing field `missing`"
   assert render_outcome(template.render("é {{.name.first}}", data)) == "template:1:5: cannot read field `first` of Str"
   assert render_outcome(template.render("{{.n}}", data)) == "template:1:1: cannot render null; use `default` to supply a value"
@@ -122,12 +122,12 @@ test test_template_render_errors_report_kind_and_position {
   assert render_outcome(template.render("{{if eq .name 1}}{{end}}", data)) == "template:1:6: cannot compare Str with Int"
   assert render_outcome(template.render("{{len 3}}", data)) == "template:1:3: `len` expects Str, List, or Map, found Int"
   # Missing fields are errors even inside conditions; supply null for optional data.
-  test.error_kind(template.render("{{if .optional}}x{{end}}", data), "template-render")?
+  test.error_kind(template.render("{{if .optional}}x{{end}}", data), "template-render")
 }
 
 test test_template_syntax_errors_report_kind_and_position {
   let data = {a: 1}
-  test.error_kind(template.render("{{.a", data), "template-syntax")?
+  test.error_kind(template.render("{{.a", data), "template-syntax")
   assert render_outcome(template.render("ok\n {{.a", data)) == "template:2:2: unclosed action; expected `}}`"
   assert render_outcome(template.render("{{if .a}}x", data)) == "template:1:1: unclosed `{{if}}`; expected `{{end}}`"
   assert render_outcome(template.render("{{end}}", data)) == "template:1:1: unexpected `{{end}}`"

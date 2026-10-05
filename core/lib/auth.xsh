@@ -165,7 +165,7 @@ export proc read_shadow_records() [fs, env, error] -> Result[List[ShadowRecord],
 
 ## Public authentication helper for shipped core applets.
 export proc write_shadow_records(records: List[ShadowRecord]) [fs, env, error] {
-  shadow_path()?.write_atomic(render_shadow(records))?
+  shadow_path()?.write_atomic(render_shadow(records))
 }
 
 ## Public authentication helper for shipped core applets.

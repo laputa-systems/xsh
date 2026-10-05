@@ -33,7 +33,7 @@ proc snapshot() -> Result[Map[Int, Sample]] {
 }
 
 let before = snapshot()?
-time.sleep(1s)?
+time.sleep(1s)
 let after = snapshot()?
 
 let busiest = after.values()

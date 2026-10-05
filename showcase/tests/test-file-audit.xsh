@@ -1,20 +1,20 @@
 test test_file_audit_findings { |ctx|
   let root = test.temp_dir(ctx, name: "file-audit")?
   let outside = test.temp_dir(ctx, name: "file-audit-outside")?
-  fp"{root}/world.txt".write("world")?
-  fp"{root}/world.txt".chmod(0o666)?
-  fp"{root}/open-dir".mkdir()?
-  fp"{root}/open-dir".chmod(0o777)?
+  fp"{root}/world.txt".write("world")
+  fp"{root}/world.txt".chmod(0o666)
+  fp"{root}/open-dir".mkdir()
+  fp"{root}/open-dir".chmod(0o777)
   let suid = fp"{root}/suid.sh"
 
   suid.write("""#!/bin/sh
-""")?
+""")
 
-  suid.chmod(0o4755)?
-  fp"{outside}/target.txt".write("outside")?
-  fs.symlink(p"missing-target", fp"{root}/broken")?
-  fs.symlink(fp"{root}/world.txt", fp"{root}/absolute")?
-  fs.symlink(fp"{outside}/target.txt", fp"{root}/escape")?
+  suid.chmod(0o4755)
+  fp"{outside}/target.txt".write("outside")
+  fs.symlink(p"missing-target", fp"{root}/broken")
+  fs.symlink(fp"{root}/world.txt", fp"{root}/absolute")
+  fs.symlink(fp"{outside}/target.txt", fp"{root}/escape")
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root ?
   assert "broken-symlink broken" in output
   assert "absolute-symlink absolute" in output
@@ -39,14 +39,14 @@ test test_file_audit_distinguishes_non_utf8_sibling_paths { |ctx|
   let outside_bytes = bytes.concat([prefix, b"/", b"\xfe"])
   let root = Path.parse_bytes(root_bytes)?
   let outside = Path.parse_bytes(outside_bytes)?
-  root.mkdir()?
-  outside.mkdir()?
+  root.mkdir()
+  outside.mkdir()
   let root_alias = fp"{parent}/root-alias"
-  fs.symlink(root, root_alias)?
+  fs.symlink(root, root_alias)
   let target = Path.parse_bytes(bytes.concat([outside_bytes, b"/target"]))?
   let link = Path.parse_bytes(bytes.concat([root_bytes, b"/escape"]))?
-  target.write("outside")?
-  fs.symlink(target, link)?
+  target.write("outside")
+  fs.symlink(target, link)
 
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root_alias ?
   assert "escaping-symlink escape" in output

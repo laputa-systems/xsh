@@ -10,7 +10,7 @@ test test_system_report_sensors_json_reference_uses_raw_subfeature_names {
   assert parsed[1].subfeature == "temp2_input"
   assert parsed[3].chip == "nvme"
   assert parsed[3].subfeature == "temp1_alarm"
-  test.error_kind(sensors_reference.parse_sensors_json("{bad json"), "json")?
+  test.error_kind(sensors_reference.parse_sensors_json("{bad json"), "json")
 }
 
 test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_readings_partial {
@@ -71,15 +71,15 @@ if [ "$1" != "-j" ] || [ "$2" != "-c" ] || [ "$3" != "/dev/null" ]; then
 fi
 printf '{"coretemp-isa-0000":{"Core 0":{"temp2_input":41.125}}}\n'
 """,
-  )?
+  )
   tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"hwmon0","chip":"coretemp","channel":"temp2","value":41125}]}}\n'
 """,
-  )?
-  tools_root.chmod(p"sensors", 0o700)?
-  tools_root.chmod(p"xsh", 0o700)?
+  )
+  tools_root.chmod(p"sensors", 0o700)
+  tools_root.chmod(p"xsh", 0o700)
   let root_path = tools_root.host_path()?
   let result = sensors_reference.compare_live_sensors_json(
     fp"{root_path}/xsh".display(),
@@ -104,15 +104,15 @@ else
   printf '{"coretemp-isa-0000":{"Core 0":{"temp2_input":41.125}}}\n'
 fi
 """,
-  )?
+  )
   tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"hwmon0","chip":"coretemp","channel":"temp2","value":41125}]}}\n'
 """,
-  )?
-  tools_root.chmod(p"sensors", 0o700)?
-  tools_root.chmod(p"xsh", 0o700)?
+  )
+  tools_root.chmod(p"sensors", 0o700)
+  tools_root.chmod(p"xsh", 0o700)
   let root_path = tools_root.host_path()?
   let sensors_path = fp"{root_path}/sensors"
   let xsh_path = fp"{root_path}/xsh"

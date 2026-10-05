@@ -10,11 +10,11 @@ type Opts = {archive: List[Str], out: Path, list: Bool, compress: Str, decompres
 type StagedOutput = {published: Path, pending: Path}
 
 on SIGINT [error] {
-  abort(3)
+  exit 3
 }
 
 on SIGTERM [error] {
-  abort(3)
+  exit 3
 }
 
 proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
@@ -23,11 +23,11 @@ proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
   let published = fp"{parent}/{dest.name()}"
   if published.exists()? {
     print f"destination already exists: {published}"
-    abort(1)
+    exit 1
   }
 
   let pending = fp"{parent}/.{dest.name()}.xsh-stage"
-  pending.mkdir(parents: false)?
+  pending.mkdir(parents: false)
   {published, pending}
 }
 
@@ -77,8 +77,8 @@ proc main(...argv: List[Str]) [fs, error] {
     let output = staged_output(dest)?
     defer output.pending.remove(missing_ok: true)?
     let staged_file = fp"{output.pending}/{dest.name()}"
-    archive.compress(src, staged_file)?
-    staged_file.rename(output.published)?
+    archive.compress(src, staged_file)
+    staged_file.rename(output.published)
     print f"compressed {src.name()} → {dest.name()} ({dest.metadata()?.size} bytes)"
     return
   }
@@ -95,8 +95,8 @@ proc main(...argv: List[Str]) [fs, error] {
     let output = staged_output(dest)?
     defer output.pending.remove(missing_ok: true)?
     let staged_file = fp"{output.pending}/{dest.name()}"
-    archive.decompress(src, staged_file)?
-    staged_file.rename(output.published)?
+    archive.decompress(src, staged_file)
+    staged_file.rename(output.published)
     print f"decompressed {src.name()} → {dest.name()}"
     return
   }
@@ -125,12 +125,12 @@ proc main(...argv: List[Str]) [fs, error] {
       defer output.pending.remove(missing_ok: true)?
 
       if is_zip {
-        archive.zip_extract(archive_path, output.pending)?
+        archive.zip_extract(archive_path, output.pending)
       } else {
-        archive.tar_extract(archive_path, output.pending)?
+        archive.tar_extract(archive_path, output.pending)
       }
 
-      output.pending.rename(output.published)?
+      output.pending.rename(output.published)
       print f"extracted to {opts.out}"
     }
   }

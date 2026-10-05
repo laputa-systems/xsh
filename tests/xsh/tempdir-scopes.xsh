@@ -1,6 +1,6 @@
 proc tempdir_early_return() [fs, error] -> Result[Path] {
   tempdir dir {
-    fp"{dir}/kept".write("x")?
+    fp"{dir}/kept".write("x")
     return Ok(dir)
   }
   Ok(/)
@@ -14,7 +14,7 @@ test test_tempdir_binds_a_fresh_directory_removed_after_the_body {
       cleanup = f"cleanup sees {fs.children(dir)? |> count()}"
     }
     assert (fs.children(dir)? |> count()) == 0
-    fp"{dir}/notes.txt".write("hi\n")?
+    fp"{dir}/notes.txt".write("hi\n")
     seen = dir
   }
   assert cleanup == "cleanup sees 1"
@@ -23,8 +23,8 @@ test test_tempdir_binds_a_fresh_directory_removed_after_the_body {
 
 test test_tempdir_value_scope_returns_the_tail_as_a_result {
   let count = tempdir work {
-    fp"{work}/x".write("1")?
-    fp"{work}/y".write("2")?
+    fp"{work}/x".write("1")
+    fp"{work}/y".write("2")
     fs.files(work)? |> count()
   }
   assert count == Ok(2)

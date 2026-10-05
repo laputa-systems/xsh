@@ -104,7 +104,7 @@ export enum Kind { File, Binary, Symlink }
 export error OwnerError = Unowned(file: Path) | Conflict(file: Path, owner: Str)
 ## A packaged file.
 export type Entry = {path: Path, kind: Kind}
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use kinds as k
@@ -231,11 +231,11 @@ let names = entries |> where .kind == .Binary |> map .name
 
 test test_prefer_inferred_variant_fix_preserves_behavior_and_converges { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-lint")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")?
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")
   fp"{root}/kinds.xsh".write_atomic("""##! Kinds.
 ## A file kind.
 export enum Kind { File, Binary }
-""")?
+""")
   let source = r"""use kinds
 error ProofError = Failed(kind: Str, message: Str)
 type Entry = {path: Path, kind: kinds.Kind}
@@ -258,7 +258,7 @@ for entry in entries {
   let before = test.run_script(ctx, source, [], module_env)?
   assert before.success, before.stderr
   let candidate = fp"{root}/main.xsh"
-  candidate.write_atomic(source)?
+  candidate.write_atomic(source)
   let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
   assert first.status.exited_with(1), first.stderr
   assert "lint.prefer-inferred-variant" in first.stderr
@@ -279,13 +279,13 @@ for entry in entries {
 
 test test_prefer_inferred_variant_skips_stage_items_and_unknown_targets { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-skip")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")?
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")
   fp"{root}/kinds.xsh".write_atomic("""##! Kinds.
 ## A file kind.
 export enum Kind { File, Binary }
 ## A kind failure.
 export error KindError = Unexpected(message: Str)
-""")?
+""")
   let candidate = fp"{root}/main.xsh"
   candidate.write_atomic(r"""use kinds
 type Entry = {kind: kinds.Kind}
@@ -299,7 +299,7 @@ let entries: List[Entry] = [Entry(kind: .Binary)]
 let rebuilt = entries |> map { |entry| Entry(kind: kinds.File) }
 print ${rebuilt.len()}
 print ${[inferred].len()}
-""")?
+""")
   let linted = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
   assert linted.status.exited_with(0), linted.stderr
 }
@@ -318,7 +318,7 @@ export error OwnerError {
 
 test test_target_typed_variant_patterns_match_like_their_qualified_spellings { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-patterns")?
-  fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)?
+  fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)
   let executed = test.run_script(
     ctx,
     r"""use kinds as k
@@ -508,8 +508,8 @@ let text = "x"
 
 test test_prefer_inferred_variant_fix_reaches_patterns_but_not_arm_heads { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-variant-pattern-lint")?
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")?
-  fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)?
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")
+  fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)
   let source = r"""use kinds as k
 
 error FetchError {
@@ -557,7 +557,7 @@ for step in range(4) {
   let before = test.run_script(ctx, source, [], module_env)?
   assert before.success, before.stderr
   let candidate = fp"{root}/main.xsh"
-  candidate.write_atomic(source)?
+  candidate.write_atomic(source)
   let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
   assert first.status.exited_with(1), first.stderr
   assert "the matched value's type already selects this variant" in first.stderr, first.stderr

@@ -1,9 +1,9 @@
 test test_ls { |ctx|
   let root = test.temp_dir(ctx, name: "ls")?
-  fp"{root}/a.txt".write("a")?
-  fp"{root}/b.txt".write("bb")?
-  fp"{root}/dir".mkdir()?
-  fp"{root}/.hidden".write("dot")?
+  fp"{root}/a.txt".write("a")
+  fp"{root}/b.txt".write("bb")
+  fp"{root}/dir".mkdir()
+  fp"{root}/.hidden".write("dot")
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ls.xsh" -- -a -p $root ?
   assert "a.txt" in output
   assert "b.txt" in output

@@ -9,21 +9,59 @@ proc step(fail: Bool) -> Result[Unit, Step] {
 }
 """
 
+const LINT_CANDIDATE = r"""error Step = Bad(message: Str)
+
+proc step(fail: Bool) -> Result[Unit, Step] {
+  if fail { return Err(Step.Bad("stopped")) }
+}
+
+proc count() -> Result[Int, Step] {
+  2
+}
+
+proc finish(fail: Bool) -> Result[Unit, Step] {
+  step(false)<removed>
+  step(fail)<removed>
+}
+
+proc work(dir: Path, fail: Bool) [env, io, error] -> Result[Int] {
+  step(false)<removed>
+  defer step(false)?
+  for flag in [false, false] {
+    step(flag)<removed>
+  }
+  let captured = try {
+    step(fail)?
+  }
+  print ${captured is Err(_)}
+  cd $dir {
+    step(false)<removed>
+  }<removed>
+  env ({MODE: "x"}) {
+    step(false)<removed>
+  }<removed>
+<unit-match>
+<value-match>
+  let total = count()?
+  finish(fail)<removed>
+  total
+}
+
+print ${work(p"ROOT", false)?}
+print ${work(p"ROOT", true) is Err(_)}
+"""
+
 # A traceback line without its script name. The failing statement's line also
 # loses its end column, which is the one position the removed `?` moves.
 pure site(line: Str) -> Str {
   let parts = line.split("both.xsh-")
-  if parts.len() < 2 {
-    return line
-  }
+  return line when parts.len() < 2
   let position = parts[1].split(":")[1..].join(":")
-  if line.starts_with("at ") {
-    return position.split("-")[0]
-  }
+  return position.split("-")[0] when line.starts_with("at ")
   position
 }
 
-proc run_both(ctx: TestContext, body: Str) [fs, process, env, time, error] -> Result[Unit] {
+proc run_both(ctx: TestContext, body: Str) [fs, process, env, time, error] {
   let explicit = test.run_script(ctx, PRELUDE + body.replace("<?>", "?"), [], {}, b"", "both.xsh")?
   let implicit = test.run_script(ctx, PRELUDE + body.replace("<?>", ""), [], {}, b"", "both.xsh")?
   # Both spellings check, and fail only by the propagated error.
@@ -54,7 +92,7 @@ proc work() -> Result[Int, Step] {
 
 print ${work()?}
 """,
-  )?
+  )
 }
 
 test test_statement_propagation_matches_in_statement_blocks { |ctx|
@@ -73,7 +111,7 @@ proc work(items: List[Bool]) -> Result[Unit, Step] {
 
 work([false, false, true, false])
 """,
-  )?
+  )
   run_both(
     ctx,
     r"""
@@ -89,7 +127,7 @@ work(false)
 print "ok"
 work(true)
 """,
-  )?
+  )
 }
 
 test test_statement_propagation_matches_at_capture_boundaries { |ctx|
@@ -116,7 +154,7 @@ proc work() [time] -> Int {
 
 print ${work()}
 """,
-  )?
+  )
 }
 
 test test_statement_propagation_matches_in_cleanup_and_handlers { |ctx|
@@ -146,7 +184,7 @@ proc work() -> Result[Int, Step] {
 
 print ${work() is Err(_)}
 """,
-  )?
+  )
 }
 
 test test_statement_propagation_matches_in_stream_callbacks { |ctx|
@@ -168,7 +206,7 @@ print ${work([false, false])?}
 print ${work([false, true]) is Err(_)}
 work([false, true])?
 """,
-  )?
+  )
 }
 
 test test_statement_propagation_matches_at_top_level_and_through_plain_procs { |ctx|
@@ -192,7 +230,7 @@ print ${caught is Err(_)}
 step(true)<?>
 print "unreachable"
 """,
-  )?
+  )
   # The final top-level statement may be the exit status, but a `Result[Unit]`
   # there still propagates.
   run_both(
@@ -206,7 +244,7 @@ proc entry(...argv: List[Str]) [io, error] -> Result[Unit, Step] {
 
 entry(@args)<?>
 """,
-  )?
+  )
 }
 
 test test_statement_propagation_matches_inside_context_scopes { |ctx|
@@ -227,7 +265,7 @@ proc work(dir: Path) [env, io, error] -> Result[Int, Error] {{
 print ${{work(p"{root}") is Err(_)}}
 work(p"{root}")?
 """,
-  )?
+  )
 }
 
 # The direct tail of a `Result[Unit]` function is a statement too: its failure
@@ -267,7 +305,7 @@ let kept = work(true)
 print ${kept is Err(_)} ${outer(2) is Err(_)} ${outer(3) is Err(_)}
 outer(1)<?>
 """,
-  )?
+  )
   run_both(
     ctx,
     r"""
@@ -278,7 +316,7 @@ proc inferred(fail: Bool) [error] {
 print "start"
 inferred(true)<?>
 """,
-  )?
+  )
 }
 
 # The tail still supplies the function's `Result`: a caller that binds it gets
@@ -369,7 +407,7 @@ print ${{work(p"{root}", true) is Err(_)}}
 print ${{work(p"{root}/missing", false) is Err(_)}}
 work(p"{root}/missing", false)?
 """,
-  )?
+  )
   run_both(
     ctx,
     f"""
@@ -383,50 +421,8 @@ work(p"{root}")
 print "entered"
 work(p"{root}/missing")
 """,
-  )?
+  )
 }
-
-const LINT_CANDIDATE = r"""error Step = Bad(message: Str)
-
-proc step(fail: Bool) -> Result[Unit, Step] {
-  if fail { return Err(Step.Bad("stopped")) }
-}
-
-proc count() -> Result[Int, Step] {
-  2
-}
-
-proc finish(fail: Bool) -> Result[Unit, Step] {
-  step(false)<removed>
-  step(fail)<removed>
-}
-
-proc work(dir: Path, fail: Bool) [env, io, error] -> Result[Int] {
-  step(false)<removed>
-  defer step(false)?
-  for flag in [false, false] {
-    step(flag)<removed>
-  }
-  let captured = try {
-    step(fail)?
-  }
-  print ${captured is Err(_)}
-  cd $dir {
-    step(false)<removed>
-  }<removed>
-  env ({MODE: "x"}) {
-    step(false)<removed>
-  }<removed>
-<unit-match>
-<value-match>
-  let total = count()?
-  finish(fail)<removed>
-  total
-}
-
-print ${work(p"ROOT", false)?}
-print ${work(p"ROOT", true) is Err(_)}
-"""
 
 # The three rules through the CLI: every redundant `?` goes, a re-propagating
 # `match` becomes `?` and then loses it where the statement propagates anyway,
@@ -436,14 +432,8 @@ test test_propagation_lints_fix_only_the_redundant_spellings { |ctx|
   let root = test.temp_dir(ctx, name: "propagation-lints")?
   let outline = LINT_CANDIDATE.replace("ROOT", root.display())
   let source = outline.replace("<removed>", "?")
-    .replace(
-      "<unit-match>",
-      "  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }",
-    )
-    .replace(
-      "<value-match>",
-      "  match count() {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }",
-    )
+    .replace("<unit-match>", "  match step(false) {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }")
+    .replace("<value-match>", "  match count() {\n    Ok(_) => {}\n    Err(problem) => return Err(problem)\n  }")
   let expected = outline.replace("<removed>", "")
     .replace("<unit-match>", "  step(false)")
     .replace("<value-match>", "  let _ = count()?")

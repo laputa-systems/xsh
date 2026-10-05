@@ -12,8 +12,8 @@ proc read_port(file: Path) -> Result[Int] {
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let dir = scratch.host_path()?
-fp"{dir}/good".write("8080\n")?
-fp"{dir}/bad".write("eighty\n")?
+fp"{dir}/good".write("8080\n")
+fp"{dir}/bad".write("eighty\n")
 
 print f"good: {read_port(fp"{dir}/good")?}"
 print f"missing, with default: {read_port(fp"{dir}/none") ?? 80}"

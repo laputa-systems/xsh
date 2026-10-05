@@ -27,15 +27,15 @@ proc edit_config(file: Path, key: Str, value: Str) {
   }
 
   let backup = fp"{file}.bak"
-  fs.copy(file, backup, overwrite: true)?
-  file.write_atomic(after)?
+  fs.copy(file, backup, overwrite: true)
+  file.write_atomic(after)
   print diff.unified(backup, file)?.text.trim()
 }
 
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let config = fp"{scratch.host_path()?}/sshd_config"
-config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")?
+config.write("Port 22\n#PermitRootLogin prohibit-password\nPasswordAuthentication yes\n")
 
-edit_config(config, "PermitRootLogin", "no")?
-edit_config(config, "PermitRootLogin", "no")?
+edit_config(config, "PermitRootLogin", "no")
+edit_config(config, "PermitRootLogin", "no")

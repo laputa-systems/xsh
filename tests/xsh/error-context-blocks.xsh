@@ -16,19 +16,19 @@ test test_ctx_propagation_attaches_inner_to_outer_and_preserves_error_data {
   if let Err(error) = failure {
     assert "base (ctx: inner) (ctx: outer)" in error.message
   } else {
-    test.fail("expected contextual failure")?
+    test.fail("expected contextual failure")
   }
 
   if let Err(error) = original {
     assert error.message == "base"
   } else {
-    test.fail("expected original failure")?
+    test.fail("expected original failure")
   }
 
   if let Err(error) = ctx_data_result() {
     assert error.message == "untouched"
   } else {
-    test.fail("expected direct error data")?
+    test.fail("expected direct error data")
   }
 
   let data = ctx "stored data" {
@@ -37,7 +37,7 @@ test test_ctx_propagation_attaches_inner_to_outer_and_preserves_error_data {
   if let Err(error) = data {
     assert error.message == "stored"
   } else {
-    test.fail("expected stored error data")?
+    test.fail("expected stored error data")
   }
 }
 
@@ -195,12 +195,12 @@ print ${ctx(4)}
       original?
     }
   }
-  test.error_kind(contextual, "CtxFailure.Failed")?
+  test.error_kind(contextual, "CtxFailure.Failed")
   if let Err(CtxFailure.Failed {message: message, code: code}) = contextual {
     assert message == "base"
     assert code == 7
   } else {
-    test.fail("expected nominal payload")?
+    test.fail("expected nominal payload")
   }
 }
 

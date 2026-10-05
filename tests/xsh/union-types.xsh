@@ -87,7 +87,7 @@ pure path_name_bytes(words: List[Word]) -> Int {
 test test_union_word_list_splices_into_argv { |ctx|
   let dir = test.temp_dir(ctx, name: "union-argv")?
   let file = fp"{dir}/input file.txt"
-  file.write("payload\n")?
+  file.write("payload\n")
   let words: List[Word] = ["--", file, "literal"]
   let listed = run.capture --text printf "%s\n" @words ?
   assert listed.stdout == f"--\n{file}\nliteral\n"

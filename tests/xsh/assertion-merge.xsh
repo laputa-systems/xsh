@@ -129,7 +129,7 @@ test test_membership_assertions_accept_checked_module_exports { |ctx|
   fp"{ctx.temp_root}/membership_merge.xsh".write("""##! Provides a checked export.
 ## A public field.
 export let present = 1
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""use membership_merge

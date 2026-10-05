@@ -248,7 +248,7 @@ proc mark_configured(state_path: Path, physical: Str, logical: Str) [fs, error] 
   let parent = state_path.parent()
 
   if ! parent.exists()? {
-    parent.mkdir()?
+    parent.mkdir()
   }
 
   var text = ""
@@ -265,7 +265,7 @@ proc mark_configured(state_path: Path, physical: Str, logical: Str) [fs, error] 
   }
 
   state_path.write_atomic(f"""{text}{physical}={logical}
-""")?
+""")
 }
 
 proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [process, error] {
@@ -492,7 +492,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
     return Err(IfupError.State(f"{physical}: could not read MAC address for DHCP"))
   }
 
-  linux.link_up(physical)?
+  linux.link_up(physical)
   let xid = time.now() % 4294967296
   let none = []
   let fd = linux.dhcp_socket(physical)?
@@ -501,7 +501,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
   var attempt = 0
 
   while attempt < DHCP_RETRIES and ! offer.valid {
-    linux.dhcp_send(fd, dhcp_packet(DHCP_DISCOVER, xid, mac, none, none)?)?
+    linux.dhcp_send(fd, dhcp_packet(DHCP_DISCOVER, xid, mac, none, none)?)
     let reply = linux.dhcp_recv(fd, DHCP_TIMEOUT_MS)?
 
     if reply.len() > 0 {
@@ -521,7 +521,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
   attempt = 0
 
   while attempt < DHCP_RETRIES and ! lease.valid {
-    linux.dhcp_send(fd, dhcp_packet(DHCP_REQUEST, xid, mac, offer.yiaddr, offer.server_id)?)?
+    linux.dhcp_send(fd, dhcp_packet(DHCP_REQUEST, xid, mac, offer.yiaddr, offer.server_id)?)
     let reply = linux.dhcp_recv(fd, DHCP_TIMEOUT_MS)?
 
     if reply.len() > 0 {
@@ -552,7 +552,7 @@ proc write_resolv_conf(servers: List[Str]) [fs, error] {
 """
   }
 
-  fs.write(/etc/resolv.conf, body)?
+  fs.write(/etc/resolv.conf, body)
 }
 
 proc configure_dhcp(physical: Str) [fs, process, time, error] {
@@ -562,13 +562,13 @@ proc configure_dhcp(physical: Str) [fs, process, time, error] {
   return Err(IfupError.State(f"{physical}: DHCP lease had no address")) when address == ""
 
   let netmask = if lease.netmask == "" { "255.255.255.0" } else { lease.netmask }
-  linux.set_ipv4_address(physical, address, netmask)?
+  linux.set_ipv4_address(physical, address, netmask)
 
   if lease.gateway != "" {
-    linux.add_default_ipv4_route(lease.gateway, interface: physical)?
+    linux.add_default_ipv4_route(lease.gateway, interface: physical)
   }
 
-  write_resolv_conf(lease.dns)?
+  write_resolv_conf(lease.dns)
 }
 
 proc configure_static(physical: Str, stanza: Interface) [process, error] {
@@ -576,11 +576,11 @@ proc configure_static(physical: Str, stanza: Interface) [process, error] {
     return Err(IfupError.Config(f"{stanza.logical}: static inet stanza requires address and netmask"))
   }
 
-  linux.link_up(physical)?
-  linux.set_ipv4_address(physical, stanza.address, stanza.netmask)?
+  linux.link_up(physical)
+  linux.set_ipv4_address(physical, stanza.address, stanza.netmask)
 
   if stanza.gateway != "" {
-    linux.add_default_ipv4_route(stanza.gateway, interface: physical)?
+    linux.add_default_ipv4_route(stanza.gateway, interface: physical)
   }
 }
 
@@ -594,28 +594,28 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
   }
 
   for command in stanza.pre_up {
-    run_hook(command, physical, stanza, "pre-up")?
+    run_hook(command, physical, stanza, "pre-up")
   }
 
-  run_parts(/etc/network/if-pre-up.d, physical, stanza, "pre-up")?
+  run_parts(/etc/network/if-pre-up.d, physical, stanza, "pre-up")
 
   match stanza.method {
-    "loopback" | "manual" => linux.link_up(physical)?
-    "static" => configure_static(physical, stanza)?
-    "dhcp" => configure_dhcp(physical)?
+    "loopback" | "manual" => linux.link_up(physical)
+    "static" => configure_static(physical, stanza)
+    "dhcp" => configure_dhcp(physical)
     else => return Err(IfupError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.up {
-    run_hook(command, physical, stanza, "post-up")?
+    run_hook(command, physical, stanza, "post-up")
   }
 
   for command in stanza.post_up {
-    run_hook(command, physical, stanza, "post-up")?
+    run_hook(command, physical, stanza, "post-up")
   }
 
-  run_parts(/etc/network/if-up.d, physical, stanza, "post-up")?
-  mark_configured(state_path, physical, stanza.logical)?
+  run_parts(/etc/network/if-up.d, physical, stanza, "post-up")
+  mark_configured(state_path, physical, stanza.logical)
 }
 
 pure split_iface_arg(arg: Str) -> InterfaceSelection {
@@ -656,12 +656,12 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
 
   if all {
     for name in config.auto {
-      configure_interface(config, state_path, name, name)?
+      configure_interface(config, state_path, name, name)
     }
   }
 
   for operand in operands {
     let selection = split_iface_arg(operand)
-    configure_interface(config, state_path, selection.physical, selection.logical)?
+    configure_interface(config, state_path, selection.physical, selection.logical)
   }
 }

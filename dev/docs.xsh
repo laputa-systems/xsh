@@ -587,8 +587,8 @@ export proc generate(root: Path, tools: DocTools) [fs, process, env, error, io] 
   for doc in render(root, tools)? {
     let target = fp"{root}/docs/{doc.rel}"
     if ! target.exists()? or target.read_text()? != doc.text {
-      target.parent().mkdir()?
-      target.write(doc.text)?
+      target.parent().mkdir()
+      target.write(doc.text)
       print f"wrote docs/{doc.rel}"
     }
   }
@@ -608,7 +608,7 @@ export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> 
   }
 
   for collection in snippet_collections {
-    check_snippet_diagnostics(fp"{root}/docs/snippets/{collection}", tools.xsht)?
+    check_snippet_diagnostics(fp"{root}/docs/snippets/{collection}", tools.xsht)
   }
 
   stages.execute(
@@ -620,7 +620,7 @@ export proc check(root: Path, tools: DocTools) [fs, process, env, error, io] -> 
       fp"{root}/docs/snippets/tour/project",
       {},
     ),
-  )?
+  )
 }
 
 ## Release binaries for `make docs` and `cargo dev check`, built by
@@ -652,5 +652,5 @@ export proc build_release(ctx: context.Context) [process, error, io] -> Result[U
       ctx.root,
       {},
     ),
-  )?
+  )
 }

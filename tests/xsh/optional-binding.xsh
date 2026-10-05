@@ -62,7 +62,7 @@ test test_guard_let_optional_destructures_and_accepts_an_annotation {
     return
   }
 
-  test.fail(f"unexpected retries {retries}")?
+  test.fail(f"unexpected retries {retries}")
 }
 
 test test_guard_let_optional_in_a_loop_may_continue_or_break {
@@ -133,7 +133,7 @@ test test_guard_let_over_a_result_of_an_optional_is_a_result_binding {
       continue
     }
 
-    test.fail("expected an error")?
+    test.fail("expected an error")
   }
 
   assert failed != ""
@@ -152,7 +152,7 @@ test test_guard_let_over_an_optional_result_binds_the_result {
   }
 
   assert missing is Ok(_)
-  test.fail("expected no result")?
+  test.fail("expected no result")
 }
 
 test test_if_let_and_while_let_bind_a_present_optional {
@@ -185,7 +185,7 @@ test test_if_let_and_while_let_bind_a_present_optional {
   if let _ = context.retries {
     assert context.retries + 1 == 4
   } else {
-    test.fail("expected retries")?
+    test.fail("expected retries")
   }
 }
 

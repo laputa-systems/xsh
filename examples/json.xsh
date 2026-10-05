@@ -19,15 +19,15 @@ let metadata = {
   ok: status.ok,
   error: error_message,
 }
-json.write(out, metadata, pretty: true)?
+json.write(out, metadata, pretty: true)
 let decoded = json.read(out)?.require(Metadata)?
 let events = [{service: decoded.name, event: "start"}, {service: decoded.name, event: "stop"}]
-json.write_lines(lines, events)?
+json.write_lines(lines, events)
 let decoded_events = lines.read_text()? |> json.lines
 let first = decoded_events[0].require(Event)?
 let second = decoded_events[1].require(Event)?
 let summary = {name: decoded.name, events: decoded_events.len(), complete: second.event == "stop"}
-json.write(summary_path, summary, pretty: true)?
+json.write(summary_path, summary, pretty: true)
 let checked_summary = json.read(summary_path)?.require(Summary)?
 
 print f"metadata {decoded.name} {decoded.root} {decoded.digest} {decoded.ok} {decoded.error}"

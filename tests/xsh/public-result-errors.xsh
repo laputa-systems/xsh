@@ -52,7 +52,7 @@ config.touch(file)?
 test test_public_result_error_reports_every_public_result { |ctx|
   let root = test.temp_dir(ctx, name: "public-result-report")?
   let module_file = fp"{root}/config.xsh"
-  module_file.write_atomic(unspelled_module)?
+  module_file.write_atomic(unspelled_module)
   let reported = run.capture --text "xsht" lint --only lint.public-result-error $module_file ?
   assert ! reported.status.exited_with(0), reported.stderr
   let findings = [line for line in reported.stderr.lines() if "lint.public-result-error" in line]
@@ -70,7 +70,7 @@ test test_public_result_error_reports_every_public_result { |ctx|
 test test_public_result_error_fix_spells_the_broad_error_and_converges { |ctx|
   let root = test.temp_dir(ctx, name: "public-result-fix")?
   let module_file = fp"{root}/config.xsh"
-  module_file.write_atomic(unspelled_module)?
+  module_file.write_atomic(unspelled_module)
   let module_env = {XSH_MODULE_PATH: root.display()}
   let fixing = run.capture --text "xsht" lint --fix --only lint.public-result-error $module_file ?
   assert fixing.status.exited_with(0), fixing.stderr
@@ -100,9 +100,9 @@ b
 
 test test_public_result_error_reaches_imported_modules { |ctx|
   let root = test.temp_dir(ctx, name: "public-result-import")?
-  fp"{root}/config.xsh".write_atomic(unspelled_module)?
+  fp"{root}/config.xsh".write_atomic(unspelled_module)
   let main = fp"{root}/main.xsh"
-  main.write_atomic(importer)?
+  main.write_atomic(importer)
   let checked = run.capture --text "xsht" check $main ?
   assert "check.public-result-error" in checked.stderr, checked.stderr
   assert "config.xsh:16:" in checked.stderr, checked.stderr

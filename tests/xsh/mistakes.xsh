@@ -85,7 +85,7 @@ print $name
       fix: "",
     },
   ] {
-    assert_one_diagnostic(ctx, mistake)?
+    assert_one_diagnostic(ctx, mistake)
   }
 }
 
@@ -277,7 +277,7 @@ print $greeting
       fix: "",
     },
   ] {
-    assert_one_diagnostic(ctx, mistake)?
+    assert_one_diagnostic(ctx, mistake)
   }
 }
 
@@ -389,7 +389,7 @@ if x > 0:
       fix: "",
     },
   ] {
-    assert_one_diagnostic(ctx, mistake)?
+    assert_one_diagnostic(ctx, mistake)
   }
 }
 
@@ -588,7 +588,7 @@ if status == 0 { print ok }
       fix: "",
     },
   ] {
-    assert_one_diagnostic(ctx, mistake)?
+    assert_one_diagnostic(ctx, mistake)
   }
 }
 
@@ -663,6 +663,6 @@ print $size
       fix: "-> len()",
     },
   ] {
-    assert_one_diagnostic(ctx, mistake)?
+    assert_one_diagnostic(ctx, mistake)
   }
 }

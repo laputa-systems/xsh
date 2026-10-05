@@ -15,17 +15,17 @@ export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Re
 
   let sysroot_text: Str = run.text rustc --print sysroot ?
   let sysroot = fp"{sysroot_text.trim()}/lib/rustlib/{ctx.target.triple}/lib"
-  fs.remove(fp"{sysroot}/libgcc_s.so", missing_ok: true)?
-  fs.remove(fp"{sysroot}/libgcc_s.so.1", missing_ok: true)?
-  fs.remove(fp"{sysroot}/libc.so", missing_ok: true)?
-  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so")?
-  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so.1")?
-  fs.symlink(libc, fp"{sysroot}/libc.so")?
+  fs.remove(fp"{sysroot}/libgcc_s.so", missing_ok: true)
+  fs.remove(fp"{sysroot}/libgcc_s.so.1", missing_ok: true)
+  fs.remove(fp"{sysroot}/libc.so", missing_ok: true)
+  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so")
+  fs.symlink(libgcc, fp"{sysroot}/libgcc_s.so.1")
+  fs.symlink(libc, fp"{sysroot}/libc.so")
 }
 
 ## Builds the repository with the current development Cargo profile.
 export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit, Error] {
-  prepare_native_musl(ctx)?
+  prepare_native_musl(ctx)
   stages.execute(
     stages.command(
       "build",
@@ -35,7 +35,7 @@ export proc build(ctx: context.Context) [fs, process, error, io] -> Result[Unit,
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Runs the repository's non-mutating deprecated-import contract.
@@ -89,9 +89,9 @@ export proc check_lint(ctx: context.Context) [fs, process, env, error, io] -> Re
       ctx.root,
       {},
     ),
-  )?
-  documentation.build_release(ctx)?
-  check_docs(ctx, documentation.release_tools(ctx))?
+  )
+  documentation.build_release(ctx)
+  check_docs(ctx, documentation.release_tools(ctx))
 }
 
 ## Fails on stale generated docs, failing tour snippets, or failing tour project tests.
@@ -100,7 +100,7 @@ export proc check_docs(
   tools: documentation.DocTools,
 ) [fs, process, env, error, io] -> Result[Unit, Error] {
   print f"[check-docs target={ctx.target.triple}] render docs/templates and compare"
-  documentation.check(ctx.root, tools)?
+  documentation.check(ctx.root, tools)
 }
 
 ## Runs the focused, source-non-mutating development check suite. Its tools
@@ -131,7 +131,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "check-rustfmt",
@@ -141,7 +141,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "check-clippy",
@@ -160,7 +160,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
+  )
   let xsht = fp"{ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
@@ -171,7 +171,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "check-xsh-fmt",
@@ -181,7 +181,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "check-xsh-lint",
@@ -191,9 +191,9 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
-  check_docs(ctx, documentation.release_tools(ctx))?
-  check_libxsh_imports(ctx)?
+  )
+  check_docs(ctx, documentation.release_tools(ctx))
+  check_libxsh_imports(ctx)
   stages.execute(
     stages.command(
       "check-diff",
@@ -203,7 +203,7 @@ export proc check(ctx: context.Context) [fs, process, env, error, io] -> Result[
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Runs the repository-owner-only formatting and autofix workflow.
@@ -217,7 +217,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "lint-clippy",
@@ -227,7 +227,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "lint-build-xsh",
@@ -237,7 +237,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "lint-build-xsht",
@@ -247,7 +247,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       ctx.root,
       {},
     ),
-  )?
+  )
   let xsht = fp"{ctx.target_dir}/debug/xsht"
   stages.execute(
     stages.command(
@@ -258,7 +258,7 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "format-xsh",
@@ -268,5 +268,5 @@ export proc lint_fix(ctx: context.Context) [process, error, io] -> Result[Unit, 
       ctx.root,
       {},
     ),
-  )?
+  )
 }

@@ -258,7 +258,7 @@ type Local = {name: Str}
 export type Box[T] = {value: T, owner: Local}
 ## A generic alias with a nested argument.
 export type Alias[T] = Box[List[T]]
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use model as m

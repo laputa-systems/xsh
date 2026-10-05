@@ -1,8 +1,8 @@
 test test_release_pack { |ctx|
   let root = test.temp_dir(ctx, name: "release-src")?
   let out = test.temp_path(ctx, name: "release-out")
-  fp"{root}/bin".mkdir()?
-  fp"{root}/bin/tool".write("tool")?
+  fp"{root}/bin".mkdir()
+  fp"{root}/bin/tool".write("tool")
   let output = run.text "xsh" "showcase/release-pack.xsh" -- $root $out --dry-run=false ?
   assert "archive " in output
   assert fp"{out}/release.tar".exists()?
@@ -11,10 +11,10 @@ test test_release_pack { |ctx|
 
 test test_release_pack_refuses_existing_output { |ctx|
   let source = test.temp_dir(ctx, name: "release-source")?
-  fp"{source}/input".write("new release")?
+  fp"{source}/input".write("new release")
   let out = test.temp_dir(ctx, name: "existing-release")?
   let old_archive = fp"{out}/release.tar"
-  old_archive.write("previous release")?
+  old_archive.write("previous release")
 
   let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
   assert ! status.exited_with(0), "existing output must not be replaced"
@@ -33,7 +33,7 @@ test test_release_pack_cleans_failed_staging { |ctx|
 
 test test_release_pack_rejects_output_inside_input { |ctx|
   let source = test.temp_dir(ctx, name: "nested-source")?
-  fp"{source}/input".write("unchanged")?
+  fp"{source}/input".write("unchanged")
   let out = fp"{source}/release"
   let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
   assert ! status.exited_with(0), "output inside source would recurse during copy"

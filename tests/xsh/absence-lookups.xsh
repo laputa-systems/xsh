@@ -30,8 +30,8 @@ test test_absence_lookup_collection_get_preserves_present_null_and_typed_errors 
   assert (values.get(2) ?? 7) == 7
   assert (entries.get("present") ?? 7) == null
   assert (entries.get("missing") ?? 7) == 7
-  test.error_kind(values.get(2), "index-out-of-bounds")?
-  test.error_kind(entries.get("missing"), "map-missing")?
+  test.error_kind(values.get(2), "index-out-of-bounds")
+  test.error_kind(entries.get("missing"), "map-missing")
 }
 
 test test_absence_lookup_removed_overloads_are_rejected { |ctx|

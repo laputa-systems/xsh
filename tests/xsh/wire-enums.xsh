@@ -97,11 +97,11 @@ export const spelling = "same"
 export enum State: Str { Seen = spelling }
 ## Prepared state.
 export const prepared = Seen
-""")?
+""")
   fp"{root}/second.xsh".write_atomic("""##! Second nominal state.
 ## Second state.
 export enum State: Str { Seen = "same" }
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use first as a
@@ -255,7 +255,7 @@ test test_wire_enum_static_import_and_dynamic_module_load_share_identity { |ctx|
 export enum State: Str { Ready = "ready" }
 ## Prepared state.
 export const prepared = Ready
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use state as model
@@ -291,7 +291,7 @@ export enum State: Str { Ready = spelling, Empty = "" }
 export type Packet[T] = {state: State, values: List[T], optional: State?}
 ## Concrete packet alias.
 export type States = Packet[State]
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use state as model

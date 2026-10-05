@@ -71,7 +71,7 @@ proc main(...argv: List[Str]) [fs, error] {
     if opts.dry_run {
       print f"would delete: {name}"
     } else {
-      entry.path.remove()?
+      entry.path.remove()
       print f"delete: {name}"
     }
 

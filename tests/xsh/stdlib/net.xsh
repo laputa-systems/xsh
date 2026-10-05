@@ -13,14 +13,14 @@ test test_net_module_with_mocks { |ctx|
     body: b"ok",
   }
 
-  test.mock(ctx, "net.request", {url: "https://example.test/"}, Ok(response))?
+  test.mock(ctx, "net.request", {url: "https://example.test/"}, Ok(response))
 
   test.mock(
     ctx,
     "net.request_many",
     {pool: "stdlib-test"},
     Ok([Ok(response)]),
-  )?
+  )
 
   test.mock(
     ctx,
@@ -33,7 +33,7 @@ test test_net_module_with_mocks { |ctx|
       headers: [{name: "content-type", value: "text/plain"}],
       url: "https://example.test/file",
     }),
-  )?
+  )
 
   test.mock(
     ctx,
@@ -50,7 +50,7 @@ test test_net_module_with_mocks { |ctx|
         }),
       ],
     ),
-  )?
+  )
 
   test.mock(
     ctx,
@@ -63,7 +63,7 @@ test test_net_module_with_mocks { |ctx|
       headers: [{name: "content-type", value: "text/plain"}],
       url: "https://example.test/upload",
     }),
-  )?
+  )
 
   assert net.request({method: "GET", url: "https://example.test/"})?.body == b"ok"
   let many = net.request_many({
@@ -81,8 +81,8 @@ test test_net_module_with_mocks { |ctx|
   let pool = net.pool(name: "stdlib-test", max_idle_per_host: 1, idle_timeout: 1s)?
   assert pool.name == "stdlib-test"
   assert pool.max_idle_per_host == 1
-  net.close_pool("stdlib-test")?
-  net.close_all_pools()?
+  net.close_pool("stdlib-test")
+  net.close_all_pools()
   assert test.calls(ctx, "net.request")[0].args.method == "GET"
   assert test.calls(ctx, "net.request_many")[0].args.requests[0].method == "GET"
   assert test.calls(ctx, "net.download")[0].args.dest.require(Path)?.display() == "out"
@@ -107,11 +107,11 @@ test test_net_start_mock_job_is_single_consumption { |ctx|
     url: "https://example.test/",
     body: b"ok",
   }
-  test.mock(ctx, "net.start", {url: "https://example.test/"}, Ok(response))?
+  test.mock(ctx, "net.start", {url: "https://example.test/"}, Ok(response))
 
   let job = net.start({method: "GET", url: "https://example.test/"})?
   assert job.wait()?.body == b"ok"
-  test.error_kind(job.cancel(), "net-job-not-live")?
+  test.error_kind(job.cancel(), "net-job-not-live")
 }
 
 test test_net_job_progresses_while_synchronous_request_waits {
@@ -148,7 +148,7 @@ test test_net_start_transfers_returned_job_ownership { |ctx|
     url: "https://example.test/returned-job",
     body: b"ok",
   }
-  test.mock(ctx, "net.start", {url: "https://example.test/returned-job"}, Ok(response))?
+  test.mock(ctx, "net.start", {url: "https://example.test/returned-job"}, Ok(response))
 
   let job = net_start_scoped_helper()?
   assert job.wait()?.body == b"ok"
@@ -163,12 +163,12 @@ test test_net_start_aliases_share_one_consumption { |ctx|
     url: "https://example.test/alias",
     body: b"",
   }
-  test.mock(ctx, "net.start", {url: "https://example.test/alias"}, Ok(response))?
+  test.mock(ctx, "net.start", {url: "https://example.test/alias"}, Ok(response))
 
   let job = net.start({method: "GET", url: "https://example.test/alias"})?
   let alias = job
-  alias.cancel()?
-  test.error_kind(job.wait(), "net-job-not-live")?
+  alias.cancel()
+  test.error_kind(job.wait(), "net-job-not-live")
   assert test.calls(ctx, "net.start")[0].args.method == "GET"
 }
 
@@ -181,7 +181,7 @@ test test_net_start_enforces_live_job_capacity { |ctx|
     url: "https://example.test/capacity",
     body: b"",
   }
-  test.mock(ctx, "net.start", {url: "https://example.test/capacity"}, Ok(response), 66)?
+  test.mock(ctx, "net.start", {url: "https://example.test/capacity"}, Ok(response), 66)
 
   test.error_kind(
     net.start({
@@ -190,7 +190,7 @@ test test_net_start_enforces_live_job_capacity { |ctx|
       max_body_bytes: 67108865,
     }),
     "net-overload",
-  )?
+  )
 
   var jobs = [
     net.start({
@@ -203,9 +203,9 @@ test test_net_start_enforces_live_job_capacity { |ctx|
   test.error_kind(
     net.start({method: "GET", url: "https://example.test/capacity", max_body_bytes: 1}),
     "net-overload",
-  )?
+  )
   for job in jobs {
-    job.cancel()?
+    job.cancel()
   }
 }
 
@@ -218,7 +218,7 @@ test test_net_start_scope_cleanup_releases_admission { |ctx|
     url: "https://example.test/cleanup",
     body: b"",
   }
-  test.mock(ctx, "net.start", {url: "https://example.test/cleanup"}, Ok(response), 65)?
+  test.mock(ctx, "net.start", {url: "https://example.test/cleanup"}, Ok(response), 65)
 
   let should_cleanup = ctx.keys().len() > 0
   if should_cleanup {
@@ -238,7 +238,7 @@ test test_net_start_scope_cleanup_releases_admission { |ctx|
     url: "https://example.test/cleanup",
     max_body_bytes: 1,
   })?
-  released.cancel()?
+  released.cancel()
 }
 
 test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
@@ -256,7 +256,7 @@ test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
     {url: "https://example.test/loop-cleanup"},
     Ok(response),
     66,
-  )?
+  )
 
   # Both control paths discard a statement block. Its unconsumed job must be
   # canceled before the next iteration, rather than staying live until this
@@ -358,7 +358,7 @@ test test_net_transport_http_contracts { |ctx|
   let upload_source = fp"{root}/upload.txt"
   let download_dest = fp"{root}/download.txt"
   let missing_ca = fp"{root}/missing-ca.pem"
-  fs.write(upload_source, "upload-body")?
+  fs.write(upload_source, "upload-body")
 
   let pool = net.pool("fixture", 4, 1s)?
   let first = net.request({method: "GET", url: f"{url}/hello", pool: "fixture"})?
@@ -422,13 +422,13 @@ test test_net_transport_http_contracts { |ctx|
   assert uploaded.url == f"{url}/upload"
   assert first.headers[0].name == "Date"
   assert first.headers[1].value == "5"
-  test.error_kind(net.request({method: "GET", url: "ftp://example.invalid/file"}), "net-scheme")?
+  test.error_kind(net.request({method: "GET", url: "ftp://example.invalid/file"}), "net-scheme")
   test.error_kind(
     net.request({method: "GET", url: f"{url}/hello", ca_certificate: missing_ca}),
     "net-ca-certificate",
-  )?
-  net.close_pool("fixture")?
-  net.close_all_pools()?
+  )
+  net.close_pool("fixture")
+  net.close_all_pools()
 }
 
 test test_net_transport_error_contracts { |ctx|
@@ -442,9 +442,9 @@ test test_net_transport_error_contracts { |ctx|
   let existing = fp"{root}/existing.txt"
   let limited = fp"{root}/limited.txt"
   let in_place = fp"{root}/in-place.txt"
-  fs.write(existing, "previous")?
-  fs.write(limited, "limited before")?
-  fs.write(in_place, "old")?
+  fs.write(existing, "previous")
+  fs.write(limited, "limited before")
+  fs.write(in_place, "old")
 
   let redirect_limit = net.request({method: "GET", url: f"{url}/redirect", redirects: 0})
   let missing_location = net.request({method: "GET", url: f"{url}/redirect-missing", redirects: 1})
@@ -466,13 +466,13 @@ test test_net_transport_error_contracts { |ctx|
     overwrite: true,
   })?
 
-  test.error_kind(redirect_limit, "net-redirect")?
-  test.error_kind(missing_location, "net-redirect")?
-  test.error_kind(redirect_loop, "net-redirect")?
-  test.error_kind(body_limit, "net-body-limit")?
-  test.error_kind(status, "net-status")?
-  test.error_kind(existing_result, "net-dest")?
-  test.error_kind(limited_result, "net-body-limit")?
+  test.error_kind(redirect_limit, "net-redirect")
+  test.error_kind(missing_location, "net-redirect")
+  test.error_kind(redirect_loop, "net-redirect")
+  test.error_kind(body_limit, "net-body-limit")
+  test.error_kind(status, "net-status")
+  test.error_kind(existing_result, "net-dest")
+  test.error_kind(limited_result, "net-body-limit")
   assert existing.read_text()? == "previous"
   assert limited.read_text()? == "limited before"
   assert in_place_result.bytes == 11
@@ -490,8 +490,8 @@ test test_net_transport_rejects_invalid_shapes { |ctx|
   let root = test.temp_dir(ctx, name: "net-invalid")?
   let missing_source = fp"{root}/missing.txt"
 
-  test.error_kind(net.request({method: "TRACE", url: "http://127.0.0.1:9/"}), "net-method")?
-  test.error_kind(net.request({method: "GET", url: "ftp://example.test/"}), "net-scheme")?
+  test.error_kind(net.request({method: "TRACE", url: "http://127.0.0.1:9/"}), "net-method")
+  test.error_kind(net.request({method: "GET", url: "ftp://example.test/"}), "net-scheme")
   test.error_kind(
     net.request({
       method: "GET",
@@ -499,18 +499,18 @@ test test_net_transport_rejects_invalid_shapes { |ctx|
       headers: [{name: "", value: "bad"}],
     }),
     "net-header",
-  )?
+  )
   test.error_kind(
     net.request({method: "POST", url: "http://127.0.0.1:9/", body_file: missing_source}),
     "net-body-file",
-  )?
+  )
   test.error_kind(
     net.upload({url: "http://127.0.0.1:9/", source: missing_source}),
     "net-source",
-  )?
-  test.error_kind(net.request_many({requests: [], concurrency: 0}), "net-concurrency")?
-  test.error_kind(net.download_many({downloads: [], concurrency: -1}), "net-concurrency")?
-  test.error_kind(net.pool("invalid", -1), "net-pool")?
+  )
+  test.error_kind(net.request_many({requests: [], concurrency: 0}), "net-concurrency")
+  test.error_kind(net.download_many({downloads: [], concurrency: -1}), "net-concurrency")
+  test.error_kind(net.pool("invalid", -1), "net-pool")
   assert_invalid_net_input(
     ctx,
     """let _ = net.request({
@@ -521,24 +521,24 @@ test test_net_transport_rejects_invalid_shapes { |ctx|
 })
 """,
     "net-body",
-  )?
+  )
   assert_invalid_net_input(
     ctx,
     """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", redirects: -1})
 """,
     "range-error",
-  )?
+  )
   assert_invalid_net_input(
     ctx,
     """let _ = net.download({url: "http://127.0.0.1:9/", dest: p"missing", max_body_bytes: -1})
 """,
     "range-error",
-  )?
-  test.error_kind(net.request({method: "GET", url: "http://"}), "net-url")?
+  )
+  test.error_kind(net.request({method: "GET", url: "http://"}), "net-url")
   test.error_kind(
     net.upload({method: "TRACE", url: "http://127.0.0.1:9/", source: missing_source}),
     "net-method",
-  )?
+  )
 }
 
 test test_net_transport_timeout_contracts { |ctx|
@@ -548,23 +548,23 @@ test test_net_transport_timeout_contracts { |ctx|
     return
   }
 
-  test.error_kind(net.request({method: "GET", url: f"{url}/slow", timeout: 50ms}), "net-timeout")?
+  test.error_kind(net.request({method: "GET", url: f"{url}/slow", timeout: 50ms}), "net-timeout")
   let response = net.request({method: "GET", url: f"{url}/slow", connect_timeout: 50ms})?
   assert response.body.utf8()? == "slow"
   test.error_kind(
     net.request({method: "GET", url: f"{url}/slow", headers_timeout: 50ms}),
     "net-headers-timeout",
-  )?
+  )
   test.error_kind(
     net.request({method: "GET", url: f"{url}/slow-body", body_idle_timeout: 50ms}),
     "net-body-idle-timeout",
-  )?
+  )
   let root = test.temp_dir(ctx, name: "net-total-timeout")?
   let destination = fp"{root}/download.txt"
   test.error_kind(
     net.download({url: f"{url}/slow-body", dest: destination, timeout: 50ms}),
     "net-timeout",
-  )?
+  )
   assert ! destination.exists()?
 
   let tls_stall_url = env.get_or("XSH_NET_TEST_TLS_STALL_URL", "")?
@@ -572,7 +572,7 @@ test test_net_transport_timeout_contracts { |ctx|
     test.error_kind(
       net.request({method: "GET", url: tls_stall_url, tls_timeout: 50ms}),
       "net-tls-timeout",
-    )?
+    )
   }
 }
 
@@ -655,8 +655,8 @@ test test_net_transport_batch_contracts { |ctx|
   })?
 
   assert requests[0]?.body.utf8()? == "hello"
-  test.error_kind(requests[1], "net-scheme")?
-  test.error_kind(requests[2], "net-status")?
+  test.error_kind(requests[1], "net-scheme")
+  test.error_kind(requests[2], "net-status")
   assert requests[3]?.body.utf8()? == "hello"
   assert downloads[0]?.bytes == 5
   assert downloads[1]?.bytes == 5
@@ -676,7 +676,7 @@ test test_net_transport_batch_download_error_contract { |ctx|
   let root = test.temp_dir(ctx, name: "net-batch-errors")?
   let redirected = fp"{root}/redirected.txt"
   let limited = fp"{root}/limited.txt"
-  fs.write(limited, "previous")?
+  fs.write(limited, "previous")
   let download_items = [
     {
       url: f"{url}/redirect",
@@ -702,7 +702,7 @@ test test_net_transport_batch_download_error_contract { |ctx|
   })?
 
   assert responses[0]?.bytes == 5
-  test.error_kind(responses[1], "net-body-limit")?
+  test.error_kind(responses[1], "net-body-limit")
   assert redirected.read_text()? == "hello"
   assert limited.read_text()? == "previous"
 }
@@ -727,7 +727,7 @@ test test_net_transport_tls_contracts {
     ca_certificate: fp"{ca}",
   })?
 
-  test.error_kind(rejected, "net-tls")?
+  test.error_kind(rejected, "net-tls")
   assert unverified.body.utf8()? == "secure"
   assert verified.body.utf8()? == "secure"
 }
@@ -811,7 +811,7 @@ test test_net_job_cancel_keeps_h2_siblings_and_pool_healthy {
   })?
   let fast = sibling.wait()?
   assert fast.body.utf8()? == "fast"
-  stalled.cancel()?
+  stalled.cancel()
 
   let later = net.request_many({
     requests: [{method: "GET", url: f"{url}/later"}],

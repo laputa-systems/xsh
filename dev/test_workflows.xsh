@@ -30,7 +30,7 @@ export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit, Erro
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "test-rust-debug-assertions",
@@ -40,7 +40,7 @@ export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit, Erro
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Runs only the native XSH test corpus through the release `xsht`, which
@@ -66,7 +66,7 @@ export proc xsh(ctx: context.Context) [process, error, io] -> Result[Unit, Error
       ctx.root,
       {},
     ),
-  )?
+  )
   let xsht = fp"{ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
@@ -77,15 +77,15 @@ export proc xsh(ctx: context.Context) [process, error, io] -> Result[Unit, Error
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Runs privileged Linux developer tests through a direct Docker-to-XSH command.
 export proc linux_test(ctx: context.Context, ci: Bool) [process, env, error, io] -> Result[Unit, Error] {
   if ci {
-    docker.run_internal(ctx, "test-linux-ci", true, [])?
+    docker.run_internal(ctx, "test-linux-ci", true, [])
   } else {
-    docker.run_internal(ctx, "test-linux", true, [])?
+    docker.run_internal(ctx, "test-linux", true, [])
   }
 }
 
@@ -112,5 +112,5 @@ export proc macos_ci(ctx: context.Context) [process, error, io] -> Result[Unit, 
       ctx.root,
       {MACOSX_DEPLOYMENT_TARGET: ctx.darwin_deployment_target},
     ),
-  )?
+  )
 }

@@ -427,7 +427,7 @@ test test_user_fields_and_functions_named_membership_aliases_remain_usable { |ct
 export pure contains(value: Str) -> Bool { value == "present" }
 ## Caller-owned presence function.
 export pure has(value: Str) -> Bool { value == "present" }
-""")?
+""")
   let output = test.run_script(
     ctx,
     """
@@ -558,7 +558,7 @@ test test_imported_module_boolean_statement_is_rejected { |ctx|
 ## A public field.
 export let present = 1
 true
-""")?
+""")
   let output = test.run_script(
     ctx,
     """use statement_module

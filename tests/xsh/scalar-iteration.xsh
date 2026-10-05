@@ -84,7 +84,7 @@ ctx "iteration" {
   if let Err(ScalarSourceFailure.Missing {source: source}) = actual {
     assert source == "text"
   } else {
-    test.fail("expected unchanged source error")?
+    test.fail("expected unchanged source error")
   }
 
   assert [character for character in Ok("ab")] == ["a", "b"]
@@ -150,7 +150,7 @@ test scalar_comprehension_errors_keep_nominal_payloads {
   if let Err(ScalarSourceFailure.Missing {source: source}) = actual {
     assert source == "text"
   } else {
-    test.fail("expected unchanged comprehension source error")?
+    test.fail("expected unchanged comprehension source error")
   }
 }
 

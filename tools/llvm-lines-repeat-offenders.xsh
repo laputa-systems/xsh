@@ -312,7 +312,7 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
   let captured = run.capture --text cargo llvm-lines --release --no-default-features --features tools --lib ?
 
   if captured.stderr != "" {
-    io.write_stdout(captured.stderr)?
+    io.write_stdout(captured.stderr)
   }
 
   return Err(LlvmLinesError.Failed("cargo llvm-lines failed")) unless captured.status.ok
@@ -324,7 +324,7 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
     let dir = fp"/tmp/xsh-llvm-lines-{pid}"
 
     if ! dir.exists()? {
-      dir.mkdir()?
+      dir.mkdir()
     }
 
     artifact_path = fp"{dir}/xsh-llvm-lines.txt"
@@ -332,8 +332,8 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
     artifact_path = fp"{artifact}"
   }
 
-  artifact_path.parent().mkdir()?
-  artifact_path.write(bounded_llvm_lines_artifact(captured.stdout, artifact_rows))?
+  artifact_path.parent().mkdir()
+  artifact_path.write(bounded_llvm_lines_artifact(captured.stdout, artifact_rows))
   Ok({text: captured.stdout, artifact: artifact_path.display()})
 }
 
@@ -399,7 +399,7 @@ proc print_summary(
         },
         pretty: true,
       )?,
-    )?
+    )
   } else if g > 0 {
     print f"scope={scope} filter=\"{filter}\" offenders={rows.len()} instances={instances} duplicated={duplicated} ({pct}% of {grand})"
   } else {
@@ -465,7 +465,7 @@ proc main(...argv: List[Str]) [fs, process, error, io] {
     let shown = if opts.limit <= 0 or opts.limit > filtered.len() { filtered } else { filtered |> take(opts.limit) }
 
     if opts.json {
-      io.write_stdout(json.encode({artifact: input.artifact, rows: shown}, pretty: true)?)?
+      io.write_stdout(json.encode({artifact: input.artifact, rows: shown}, pretty: true)?)
     } else {
       print_text(filtered, opts.limit, input.artifact)
     }

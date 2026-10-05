@@ -7,7 +7,7 @@ test test_map_module_and_methods {
   assert m1.keys()[0] == "one"
   assert m1.values()[1] == 2
   assert "one" not in m1.remove("one")
-  test.error_kind(m1.get("missing"), "map-missing")?
+  test.error_kind(m1.get("missing"), "map-missing")
 }
 
 test test_map_updates_preserve_older_values_and_nested_lists {
@@ -124,13 +124,13 @@ test test_map_iteration_result_sources_preserve_nominal_errors {
   if let Err(MapIterationError.Missing {code: code}) = map_iteration_collect_failure() {
     assert code == 7
   } else {
-    test.fail("comprehension lost the source error")?
+    test.fail("comprehension lost the source error")
   }
 
   if let Err(MapIterationError.Missing {code: code}) = map_iteration_loop_failure() {
     assert code == 7
   } else {
-    test.fail("loop lost the source error")?
+    test.fail("loop lost the source error")
   }
 
   let empty_values: Map[Result[Int, MapIterationError]] = {}

@@ -58,5 +58,5 @@ pure render(fmt: Str, values: List[Str]) -> Str {
 proc main(fmt = "", ...values: List[Str]) [error, io] {
   return Err(usage_error("printf", "FORMAT [ARG...]")) when fmt == ""
 
-  io.write_stdout(render(fmt, values))?
+  io.write_stdout(render(fmt, values))
 }

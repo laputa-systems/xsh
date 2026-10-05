@@ -1704,6 +1704,6 @@ print $text
 
 if opts.json != "" {
   let json_path = fp"{opts.json}"
-  json_path.parent().mkdir()?
-  json.write(json_path, report)?
+  json_path.parent().mkdir()
+  json.write(json_path, report)
 }

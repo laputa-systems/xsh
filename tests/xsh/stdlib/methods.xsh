@@ -176,7 +176,7 @@ test test_collection_number_text_status_and_result_methods {
   assert 3.2.ceil()? == 4
   assert 3.5.round()? == 4
   assert "3.14159".parse_float()? == 3.14159
-  test.error_kind("not-a-number".parse_float(), "parse-float")?
+  test.error_kind("not-a-number".parse_float(), "parse-float")
   assert 16.0.sqrt() == 4.0
   assert 2.0.pow(3.0) == 8.0
   assert (-3.5).abs() == 3.5
@@ -238,20 +238,20 @@ beta""".find("z") == null
   assert "42".parse_int_decimal()? == 42
   assert "42".parse_uint()? == 42
   assert "0".parse_uint()? == 0
-  test.error_kind("+42".parse_uint(), "parse-uint")?
-  test.error_kind("-1".parse_uint(), "parse-uint")?
+  test.error_kind("+42".parse_uint(), "parse-uint")
+  test.error_kind("-1".parse_uint(), "parse-uint")
   assert "42".parse_uint_positive()? == 42
   assert " 42 ".parse_uint_positive()? == 42
-  test.error_kind("0".parse_uint_positive(), "parse-uint-positive")?
-  test.error_kind("+42".parse_uint_positive(), "parse-uint-positive")?
-  test.error_kind("-1".parse_uint_positive(), "parse-uint-positive")?
-  test.error_kind("0x2a".parse_uint_positive(), "parse-uint-positive")?
-  test.error_kind("nope".parse_uint_positive(), "parse-uint-positive")?
-  test.error_kind("0x10".parse_int_decimal(), "parse-int")?
-  test.error_kind("+5".parse_int_decimal(), "parse-int")?
-  test.error_kind(" 5 ".parse_int_decimal(), "parse-int")?
-  test.error_kind("05".parse_int_decimal(), "parse-int")?
-  test.error_kind("nope".parse_int(), "parse-int")?
+  test.error_kind("0".parse_uint_positive(), "parse-uint-positive")
+  test.error_kind("+42".parse_uint_positive(), "parse-uint-positive")
+  test.error_kind("-1".parse_uint_positive(), "parse-uint-positive")
+  test.error_kind("0x2a".parse_uint_positive(), "parse-uint-positive")
+  test.error_kind("nope".parse_uint_positive(), "parse-uint-positive")
+  test.error_kind("0x10".parse_int_decimal(), "parse-int")
+  test.error_kind("+5".parse_int_decimal(), "parse-int")
+  test.error_kind(" 5 ".parse_int_decimal(), "parse-int")
+  test.error_kind("05".parse_int_decimal(), "parse-int")
+  test.error_kind("nope".parse_int(), "parse-int")
   assert "hello" + " " + "world" == "hello world"
   let name = "Alice"
   assert "Hello, " + name + "!" == "Hello, Alice!"
@@ -261,9 +261,9 @@ beta""".find("z") == null
   assert ! status.signaled()
   assert status.exited_with(1)
   assert status.exit_code()? == 1
-  test.error_kind(status.signal_number(), "status-kind")?
+  test.error_kind(status.signal_number(), "status-kind")
   let result: Result[Int] = Err(TestBaseError.Base(message: "base message"))
-  test.error_kind(result.context("wrapped", "extra"), "TestBaseError.Base")?
+  test.error_kind(result.context("wrapped", "extra"), "TestBaseError.Base")
 }
 
 test test_int_bitset_methods { |ctx|

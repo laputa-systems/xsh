@@ -57,7 +57,7 @@ test cli_constants_import_projection_and_composition_keep_types { |ctx|
   fp"{root}/config.xsh".write_atomic(r"""##! CLI configuration.
 ## Prepared descriptor fields.
 export const descriptors = {schema: {jobs: {default: 4}, root: {kind: "Path", required: true}}}
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""use config as c
@@ -99,7 +99,7 @@ test cli_constants_dynamic_descriptors_keep_runtime_validation {
   let dynamic = cli.parse(["--jobs", "8"], dynamic_options({jobs: {kind: "Int"}}))?
   let jobs = dynamic.get("jobs")?.require(Int)?
   assert jobs == 8
-  test.error_kind(cli.parse([], dynamic_options({count: {kind: "Nope"}})), "cli-parse")?
+  test.error_kind(cli.parse([], dynamic_options({count: {kind: "Nope"}})), "cli-parse")
 }
 
 test cli_constants_invalid_imported_composition_reports_original_descriptor { |ctx|
@@ -107,7 +107,7 @@ test cli_constants_invalid_imported_composition_reports_original_descriptor { |c
   fp"{root}/invalid_config.xsh".write_atomic(r"""##! Invalid descriptor fixture.
 ## Known malformed option.
 export const descriptors = {count: {kind: "Nope"}}
-""")?
+""")
   let rejected = test.run_script(
     ctx,
     r"""use invalid_config as c

@@ -27,4 +27,4 @@ proc build(root: Path) [process, error] {
 # end example
 
 print describe("all")
-build(fs.cwd()?)?
+build(fs.cwd()?)

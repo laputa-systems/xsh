@@ -258,7 +258,7 @@ export pure destinations() -> List[Path] {
   for destination in [p"one", p"two"] { entries += [destination] }
   entries
 }
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""use collect as c

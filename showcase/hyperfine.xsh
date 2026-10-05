@@ -224,7 +224,7 @@ proc export_json(results: List[Summary], dest: Str) [fs, error] {
   }
 
   let encoded = json.encode({results: entries}, pretty: true)?
-  fp"{dest}".write(encoded)?
+  fp"{dest}".write(encoded)
 }
 
 proc main(...argv: List[Str]) [fs, process, time, error, io] {
@@ -284,10 +284,10 @@ proc main(...argv: List[Str]) [fs, process, time, error, io] {
   }
 
   if results.len() > 1 {
-    print_summary(results)?
+    print_summary(results)
   }
 
   if opts.export_json != "" {
-    export_json(results, opts.export_json)?
+    export_json(results, opts.export_json)
   }
 }

@@ -47,17 +47,17 @@ test test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows {
 Bus 001 Device 001: ID 1d6b:0002
 """),
     "LsusbCheckError.Invalid",
-  )?
+  )
   test.error_kind(
     lsusb_reference.parse_lsusb_list("""Bus 001 Device 001: ID 1d6b:xyz2
 """),
     "LsusbCheckError.Invalid",
-  )?
+  )
   test.error_kind(
     lsusb_reference.parse_lsusb_tree("""|__ Port 002: Dev 002, If 0, Driver=hub/4p
 """),
     "LsusbCheckError.Invalid",
-  )?
+  )
   test.error_kind(
     lsusb_reference.parse_lsusb_verbose(
   """idVendor 0x1d6b
@@ -66,7 +66,7 @@ Bus 001 Device 001: ID 1d6b:0002
   1,
 ),
     "LsusbCheckError.Invalid",
-  )?
+  )
   test.error_kind(
     lsusb_reference.parse_lsusb_verbose(
   """Bus 002 Device 001: ID 1d6b:0002
@@ -79,7 +79,7 @@ bNumConfigurations 1
   1,
 ),
     "LsusbCheckError.Invalid",
-  )?
+  )
 }
 
 test test_system_report_lsusb_live_reference_uses_bounded_selected_descriptor {
@@ -96,15 +96,15 @@ case "$*" in
   *) exit 4 ;;
 esac
 """,
-  )?
+  )
   tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","usb":{"devices":[{"bus_number":1,"device_number":1,"vendor_id":7531,"product_id":2,"class_code":9,"configuration_count":1,"port_path":null,"interfaces":[]}]}}\n'
 """,
-  )?
-  tools_root.chmod(p"lsusb", 0o700)?
-  tools_root.chmod(p"xsh", 0o700)?
+  )
+  tools_root.chmod(p"lsusb", 0o700)
+  tools_root.chmod(p"xsh", 0o700)
   let root_path = tools_root.host_path()?
   let result = lsusb_reference.compare_live_lsusb(
     fp"{root_path}/xsh".display(),

@@ -56,7 +56,7 @@ export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Runs rustybench's syscall diagnostic workflow.
@@ -72,5 +72,5 @@ export proc syscalls(ctx: context.Context) [process, env, error, io] -> Result[U
       ctx.root,
       {},
     ),
-  )?
+  )
 }

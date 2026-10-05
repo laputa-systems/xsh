@@ -136,7 +136,7 @@ export type Box[T] = {value: T, owner: Local}
 export type Alias[T] = Box[List[T]]
 ## A concrete constructor keeps the public alias.
 export type Counts = Alias[Int]
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use model as m

@@ -4,11 +4,11 @@ test test_dns_module_with_mocks { |ctx|
     "dns.lookup",
     {name: "example.test"},
     Ok([{name: "example.test", record: "A", value: "127.0.0.1", ttl: 60}]),
-  )?
+  )
 
-  test.mock(ctx, "dns.resolve_host", {name: "localhost"}, Ok([{name: "localhost", family: "inet", addr: "127.0.0.1"}]))?
-  test.mock(ctx, "dns.reverse", {addr: "127.0.0.1"}, Ok(["localhost"]))?
-  test.mock(ctx, "dns.nameservers", {}, Ok(["127.0.0.53"]))?
+  test.mock(ctx, "dns.resolve_host", {name: "localhost"}, Ok([{name: "localhost", family: "inet", addr: "127.0.0.1"}]))
+  test.mock(ctx, "dns.reverse", {addr: "127.0.0.1"}, Ok(["localhost"]))
+  test.mock(ctx, "dns.nameservers", {}, Ok(["127.0.0.53"]))
   assert dns.lookup("example.test", "AAAA", "127.0.0.1:5353", 2s)?[0].value == "127.0.0.1"
   assert dns.resolve_host("localhost", "ipv4")?[0].family == "inet"
   assert dns.reverse("127.0.0.1")?[0] == "localhost"
@@ -22,10 +22,10 @@ test test_dns_module_with_mocks { |ctx|
 }
 
 test test_dns_module_rejects_invalid_arguments {
-  test.error_kind(dns.lookup("", "A"), "dns-name")?
-  test.error_kind(dns.lookup("example.test", "TXT"), "dns-record")?
-  test.error_kind(dns.resolve_host("127.0.0.1", "bogus"), "dns-family")?
-  test.error_kind(dns.reverse("not-an-ip-address"), "dns-address")?
+  test.error_kind(dns.lookup("", "A"), "dns-name")
+  test.error_kind(dns.lookup("example.test", "TXT"), "dns-record")
+  test.error_kind(dns.resolve_host("127.0.0.1", "bogus"), "dns-family")
+  test.error_kind(dns.reverse("not-an-ip-address"), "dns-address")
 }
 
 test test_dns_explicit_server_transport {

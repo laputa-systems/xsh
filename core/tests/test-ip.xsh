@@ -1,7 +1,7 @@
 # Runs `ip` under the `linux` test fake, whose fixed interfaces and routes keep
 # the output independent of the host.
 proc ip_output(ctx: TestContext, argv: List[Str]) [fs, process, error] -> Str {
-  test.linux_fake(ctx)?
+  test.linux_fake(ctx)
   let source = fp"{ctx.core_dir}/ip.xsh".read_text()?
   let output = test.run_script(ctx, source, argv, {}, b"", "ip")?
   assert output.success, output.stderr

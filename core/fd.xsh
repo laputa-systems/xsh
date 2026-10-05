@@ -129,7 +129,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
       let shown = if opts.absolute { entry.path.resolve()?.display() } else { rel_text }
 
       if opts.print0 {
-        io.write_stdout(f"{shown}\0")?
+        io.write_stdout(f"{shown}\0")
       } else {
         print $shown
       }

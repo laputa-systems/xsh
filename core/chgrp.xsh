@@ -58,10 +58,10 @@ proc main(...argv: List[Str]) [fs, error] {
       # order entries arrive from that walk.
       fs.walk(target)
         |> each { |entry|
-          fs.chgrp(entry.path, group_rec, follow_symlinks:)?
+          fs.chgrp(entry.path, group_rec, follow_symlinks:)
         }
     } else {
-      fs.chgrp(target, group_rec, follow_symlinks:)?
+      fs.chgrp(target, group_rec, follow_symlinks:)
     }
   }
 }

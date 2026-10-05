@@ -4,9 +4,9 @@ error AppletError = Usage(message: Str) : Usage
 proc remove_tree(root: Path) [fs, error] {
   for entry in fs.walk(root) |> sort-by(desc: true) .path {
     if entry.kind == "dir" {
-      entry.path.remove_dir()?
+      entry.path.remove_dir()
     } else {
-      entry.path.remove(missing_ok: true)?
+      entry.path.remove(missing_ok: true)
     }
   }
 }
@@ -43,7 +43,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
     if ! target.exists()? {
       continue when force
-      target.remove()?
+      target.remove()
     }
 
     if target.metadata()?.kind == "dir" {
@@ -51,9 +51,9 @@ proc main(...argv: List[Str]) [fs, error] {
         return Err(AppletError.Usage(f"rm: '{target}' is a directory"))
       }
 
-      remove_tree(target)?
+      remove_tree(target)
     } else {
-      target.remove(missing_ok: force)?
+      target.remove(missing_ok: force)
     }
   }
 }

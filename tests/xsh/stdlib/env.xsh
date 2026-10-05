@@ -37,10 +37,10 @@ test test_env_get_or_yields_the_fallback_only_for_an_unset_name {
     assert env.get_or("XSH_ENV_UNICODE", "fallback")? == "h\u{e9}llo"
 
     # Key validation is the native one and is not a fallback case.
-    test.error_kind(env.get_or(""), "env-name")?
+    test.error_kind(env.get_or(""), "env-name")
     assert str_failure(env.get_or("")) == "environment names cannot be empty or contain NUL or `=`"
-    test.error_kind(env.get_or("=bad", "fallback"), "env-name")?
-    test.error_kind(env.get("XSH_ENV=A"), "env-name")?
+    test.error_kind(env.get_or("=bad", "fallback"), "env-name")
+    test.error_kind(env.get("XSH_ENV=A"), "env-name")
   } ?
 }
 
@@ -95,7 +95,7 @@ test test_env_bool_accepts_only_the_baseline_spellings {
       }
     }
 
-    test.error_kind(env.bool("", true), "env-name")?
+    test.error_kind(env.bool("", true), "env-name")
   } ?
 }
 
@@ -139,7 +139,7 @@ test test_env_int_parses_the_baseline_grammar {
     assert env.int("XSH_ENV_INT_ABSENT")? == 0
     assert env.int("XSH_ENV_INT_ABSENT", 7)? == 7
 
-    test.error_kind(env.int("", 7), "env-name")?
+    test.error_kind(env.int("", 7), "env-name")
   } ?
 }
 
@@ -187,7 +187,7 @@ test test_env_int_rejects_unparsable_and_out_of_range_text {
       "XSH_ENV_BAD_UNDER",
     ]
     for name in rejected {
-      test.error_kind(env.int(name, 7), "env-int", f"{name} should be rejected")?
+      test.error_kind(env.int(name, 7), "env-int", f"{name} should be rejected")
       {
         let assertion_actual = int_failure(env.int(name, 7))
         let assertion_expected = "environment value is not an integer"
@@ -201,7 +201,7 @@ test test_env_int_rejects_unparsable_and_out_of_range_text {
 test test_env_conversions_read_the_scoped_overlay {
   env XSH_ENV_OVERLAY=outer {
     assert env.get_or("XSH_ENV_OVERLAY")? == "outer"
-    test.error_kind(env.int("XSH_ENV_OVERLAY", 7), "env-int")?
+    test.error_kind(env.int("XSH_ENV_OVERLAY", 7), "env-int")
 
     env XSH_ENV_OVERLAY=inner XSH_ENV_OVERLAY_DIGITS=11 {
       assert env.get_or("XSH_ENV_OVERLAY")? == "inner"
@@ -212,21 +212,21 @@ test test_env_conversions_read_the_scoped_overlay {
       env ({XSH_ENV_OVERLAY_BOOL: "off"}) {
         assert env.bool("XSH_ENV_OVERLAY_BOOL", true)? == false
         assert env.get_or("XSH_ENV_OVERLAY")? == "inner"
-      }?
-    } ?
+      }
+    }
 
     # The inner scopes are gone: the outer value is visible again, and the
     # inner-only name is unset again.
     assert env.get_or("XSH_ENV_OVERLAY")? == "outer"
     assert env.int("XSH_ENV_OVERLAY_DIGITS", 7)? == 7
     assert env.bool("XSH_ENV_OVERLAY_BOOL", false)? == false
-  } ?
+  }
 }
 
 test test_env_functions_and_path_list { |ctx|
   let root = test.temp_dir(ctx, name: "env")?
   let tool_dir = fp"{root}/bin"
-  fs.mkdir(tool_dir)?
+  fs.mkdir(tool_dir)
   let tool = fp"{tool_dir}/xsh-env-helper"
 
   fs.write(
@@ -234,9 +234,9 @@ test test_env_functions_and_path_list { |ctx|
     """#!/bin/sh
 printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
 """,
-  )?
+  )
 
-  fs.chmod(tool, 0o755)?
+  fs.chmod(tool, 0o755)
 
   env XSH_STDLIB_ENV=yes DESTDIR=/tmp/xsh-stdlib-env XSH_STDLIB_COUNT=7 XSH_STDLIB_BOOL=true XSH_STDLIB_PATH=$root {
     assert e"XSH_STDLIB_ENV"? == "yes"
@@ -248,19 +248,19 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     assert env.path("XSH_STDLIB_PATH")? == root
     assert env.path("XSH_STDLIB_MISSING_PATH", root)? == root
     assert env.list()? |> any .name == "DESTDIR" and .value == "/tmp/xsh-stdlib-env"
-    env.PATH.prepend(tool_dir)?
+    env.PATH.prepend(tool_dir)
     assert tool_dir in env.path_list("PATH")?
     assert tool_dir in env.path_list("PATH")?
     let path_entries = env.path_entries("PATH")?
     assert path_entries |> any .raw == tool_dir.display() and .path == tool_dir and ! .empty
     let extra_dir = fp"{tool_dir}/extra"
-    env.PATH.append(extra_dir)?
+    env.PATH.append(extra_dir)
     assert env.PATH.pop()? == extra_dir
     assert env.Path.XSH_STDLIB_PATH? == root
     assert e"DESTDIR"? == "/tmp/xsh-stdlib-env"
     let output = run.text xsh-env-helper ?
     assert "yes|/tmp/xsh-stdlib-env|" in output
-  } ?
+  }
 
   env XSH_STDLIB_CUSTOM_PATH=f":{tool_dir}::" {
     let entries = env.path_entries("XSH_STDLIB_CUSTOM_PATH")?
@@ -269,7 +269,7 @@ printf '%s|%s|%s' "$XSH_STDLIB_ENV" "$DESTDIR" "$PATH"
     assert entries[1].path == tool_dir
     assert entries[2].empty
     assert entries[3].empty
-  } ?
+  }
 }
 
 test test_env_overlays_blocks_lookup_and_path_mutation_affect_children { |ctx|
@@ -278,10 +278,10 @@ test test_env_overlays_blocks_lookup_and_path_mutation_affect_children { |ctx|
 
   tool.write("""#!/bin/sh
 printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
-""")?
+""")
 
-  tool.chmod(0o755)?
-  env.PATH.append(root)?
+  tool.chmod(0o755)
+  env.PATH.append(root)
   assert root in env.PATH
 
   env XSH_ENV_SCOPE=block DESTDIR=/tmp/xsh-env-scope HOME=$root {
@@ -311,7 +311,7 @@ printf '%s|%s|%s|%s' "$CC" "$CFLAGS" "$DESTDIR" "$XSH_ENV_SCOPE"
     assert fallback_path == root
     let line = run.text CC=cc CFLAGS="-O2 -pipe" env-scope-tool ?
     assert line == "cc|-O2 -pipe|/tmp/xsh-env-scope|block"
-  } ?
+  }
 
   let removed_path = env.PATH.pop()?
   assert removed_path == root
@@ -322,7 +322,7 @@ test test_path_literals_method_sugar_and_expr_env_blocks { |ctx|
   let root = test.temp_dir(ctx, name: "sugar")?
   let child_name = "child"
   let child = fp"{root}/{child_name}"
-  root.mkdir()?
+  root.mkdir()
 
   env ({
     HOME: root,
@@ -391,7 +391,7 @@ test test_env_string_reads_exactly_like_env_str {
     # A missing name fails with the lookup's own error, so `??`, `match`, and
     # `test.error_kind` see what `env.Str.NAME` produces.
     assert (e"XSH_ESTR_ABSENT" ?? "fallback") == "fallback"
-    test.error_kind(e"XSH_ESTR_ABSENT", "env-missing")?
+    test.error_kind(e"XSH_ESTR_ABSENT", "env-missing")
     assert str_failure(e"XSH_ESTR_ABSENT") == str_failure(env.get(absent_name))
     let described = match e"XSH_ESTR_ABSENT" {
       Ok(value) => f"set to {value}",
@@ -401,7 +401,7 @@ test test_env_string_reads_exactly_like_env_str {
 
     # An e-string interpolates inside an f-string like any other expression.
     assert f"[{e"XSH_ESTR_TEXT"?.trim()}]" == "[keep]"
-  } ?
+  }
 }
 
 test test_env_string_assignment_converts_like_an_overlay_value {
@@ -423,7 +423,7 @@ test test_env_string_assignment_converts_like_an_overlay_value {
     # Reassignment replaces the value, including one an overlay set.
     e"XSH_ESTR_SCOPE" = "replaced"
     assert e"XSH_ESTR_SCOPE"? == "replaced"
-  } ?
+  }
 }
 
 proc export_estr_marker(value: Str) [env] {
@@ -436,9 +436,9 @@ test test_env_string_assignment_lasts_until_the_enclosing_env_scope_ends { |ctx|
     env XSH_ESTR_INNER=1 {
       e"XSH_ESTR_NESTED" = "inner"
       assert e"XSH_ESTR_NESTED"? == "inner"
-    } ?
+    }
     # The inner scope restored the environment it started with.
-    test.error_kind(e"XSH_ESTR_NESTED", "env-missing")?
+    test.error_kind(e"XSH_ESTR_NESTED", "env-missing")
 
     # A `cd` scope restores only the directory, so the assignment outlives it.
     cd $dir {
@@ -450,9 +450,9 @@ test test_env_string_assignment_lasts_until_the_enclosing_env_scope_ends { |ctx|
     # is visible to its caller.
     export_estr_marker("from proc")
     assert e"XSH_ESTR_MARKER"? == "from proc"
-  } ?
-  test.error_kind(e"XSH_ESTR_FROM_CD", "env-missing")?
-  test.error_kind(e"XSH_ESTR_MARKER", "env-missing")?
+  }
+  test.error_kind(e"XSH_ESTR_FROM_CD", "env-missing")
+  test.error_kind(e"XSH_ESTR_MARKER", "env-missing")
 }
 
 test test_env_string_assignment_reaches_child_processes {
@@ -465,7 +465,7 @@ test test_env_string_assignment_reaches_child_processes {
     let overridden = run.text XSH_ESTR_CHILD=override printenv XSH_ESTR_CHILD ?
     assert overridden == "override\n"
     assert e"XSH_ESTR_CHILD"? == "seen by child"
-  } ?
+  }
 }
 
 test test_env_string_keeps_non_utf8_bytes_for_paths_and_children {
@@ -474,12 +474,12 @@ test test_env_string_keeps_non_utf8_bytes_for_paths_and_children {
     e"XSH_ESTR_RAW" = raw
     # The text read fails rather than decoding lossily; the path read and the
     # child keep the bytes.
-    test.error_kind(e"XSH_ESTR_RAW", "invalid-utf8")?
+    test.error_kind(e"XSH_ESTR_RAW", "invalid-utf8")
     assert (e"XSH_ESTR_RAW" ?? "fallback") == "fallback"
     assert env.Path.XSH_ESTR_RAW? == raw
     let child = run.bytes printenv XSH_ESTR_RAW ?
     assert child == b"/tmp/xsh-estr-\xff\n"
-  } ?
+  }
 }
 
 test test_env_string_rejections { |ctx|

@@ -32,7 +32,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   if ! opts.manifest.exists()? {
     print f"error: {opts.manifest} not found"
-    abort(1)
+    exit 1
   }
 
   let manifest = opts.manifest.resolve()?
@@ -70,7 +70,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   if version_line_index < 0 {
     print "error: no version field found in [package] section"
-    abort(1)
+    exit 1
   }
 
   let old_version = f"{major}.{minor}.{patch_component}"
@@ -103,6 +103,6 @@ proc main(...argv: List[Str]) [fs, error] {
   ]
 
   let new_content = updated.join("\n")
-  manifest.write_atomic(new_content)?
+  manifest.write_atomic(new_content)
   print "updated"
 }

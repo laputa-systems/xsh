@@ -10,7 +10,7 @@ proc run_ifupdown(
   state: Path,
   linux_log: Path,
 ) [fs, process, error] -> AppletRun {
-  test.linux_fake(ctx, {log: linux_log})?
+  test.linux_fake(ctx, {log: linux_log})
   let source = fp"{ctx.core_dir}/{name}.xsh".read_text()?
   let overlay = {XSH_IFUP_INTERFACES: interfaces.display(), XSH_IFUP_STATE: state.display()}
   test.run_script(ctx, source, argv, overlay, b"", name)?
@@ -42,7 +42,7 @@ iface eth0 inet static
     down echo "down:\$IFACE:\$IF_ADDRESS" >> {hook_log}
     post-down echo "post-down:\$PHASE" >> {hook_log}
 """,
-  )?
+  )
 }
 
 test test_ifdown_all_removes_configured_interfaces { |ctx|
@@ -51,7 +51,7 @@ test test_ifdown_all_removes_configured_interfaces { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
   let hook_log = fp"{root}/hooks.log"
-  write_interfaces(interfaces, hook_log)?
+  write_interfaces(interfaces, hook_log)
 
   # Bring up eth0 first.
   ifupdown_ok(ctx, "ifup", ["eth0"], interfaces, state, linux_log)
@@ -78,7 +78,7 @@ test test_ifdown_runs_hooks { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
   let hook_log = fp"{root}/hooks.log"
-  write_interfaces(interfaces, hook_log)?
+  write_interfaces(interfaces, hook_log)
 
   ifupdown_ok(ctx, "ifup", ["eth0"], interfaces, state, linux_log)
 
@@ -102,9 +102,9 @@ test test_ifdown_dhcp_sends_release { |ctx|
     """auto eth0
 iface eth0 inet dhcp
 """,
-  )?
+  )
 
-  fs.write(state, "eth0=eth0")?
+  fs.write(state, "eth0=eth0")
 
   # The fake has no real DHCP, so the RELEASE send will log but not actually
   # reach a server.  This is fine — we just verify the primitive was called.
@@ -130,7 +130,7 @@ iface eth0 inet static
     address 10.0.1.42
     netmask 255.255.255.0
 """,
-  )?
+  )
 
   # Don't pre-seed state — ifdown should be a no-op for unconfigured interfaces.
   ifupdown_ok(ctx, "ifdown", ["eth0"], interfaces, state, linux_log)
@@ -150,9 +150,9 @@ test test_ifdown_logical_selection { |ctx|
     address 10.0.1.42
     netmask 255.255.255.0
 """,
-  )?
+  )
 
-  fs.write(state, "eth0=office")?
+  fs.write(state, "eth0=office")
 
   ifupdown_ok(ctx, "ifdown", ["eth0=office"], interfaces, state, linux_log)
 

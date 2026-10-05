@@ -2,36 +2,36 @@ test test_tokei_json_shape_counts_and_ignores { |ctx|
   let root = test.temp_dir(ctx, name: "tokei-root")?
 
   fp"{root}/.tokeignore".write("""ignored
-""")?
+""")
 
-  fp"{root}/ignored".mkdir()?
+  fp"{root}/ignored".mkdir()
 
   fp"{root}/ignored/skip.rs".write("""fn skipped() {}
-""")?
+""")
 
   fp"{root}/.hidden.json".write("""{"skip":true}
-""")?
+""")
 
   fp"{root}/build.bash".write("""echo bash
 # comment
-""")?
+""")
 
   fp"{root}/run.sh".write("""echo shell
 # comment
 
-""")?
+""")
 
   fp"{root}/data.json".write("""{"ok":true}
-""")?
+""")
 
   fp"{root}/config.toml".write("""# comment
 name = "demo"
-""")?
+""")
 
   fp"{root}/app.js".write("""// top
 const x = "/* no */";
 /* block */
-""")?
+""")
 
   fp"{root}/index.html".write("""<!-- note -->
 <div>
@@ -40,7 +40,7 @@ const x = "/* no */";
   let x = 1;
 </script>
 </div>
-""")?
+""")
 
   fp"{root}/README.md".write("""Intro
 
@@ -52,14 +52,14 @@ echo hi
 ```shell
 echo shell
 ```
-""")?
+""")
 
   fp"{root}/component.mdx".write("""Intro
 
 ```tsx
 const x = 1;
 ```
-""")?
+""")
 
   fp"{root}/main.rs".write("""/// # Doc
 /// 
@@ -72,7 +72,7 @@ fn main() {
 }
 /* block
 comment */
-""")?
+""")
 
   let output = run.text "xsh" "showcase/tokei.xsh" -- --json $root ?
   let data = json.decode(output)?

@@ -30,10 +30,10 @@ test test_rg_word_line_pattern_and_globs { |ctx|
 alphabet
 needle
 Needle
-""")?
+""")
 
   drop.write("""alpha
-""")?
+""")
 
   let word = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/rg.xsh" -- -w alpha $keep ?
 

@@ -19,6 +19,6 @@ proc main(...names: List[Str]) [env, error] {
   }
 
   if missing {
-    abort(1)
+    exit 1
   }
 }

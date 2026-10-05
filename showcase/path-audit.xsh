@@ -156,6 +156,6 @@ proc main(...argv: List[Str]) [fs, env, error] {
   }
 
   if (dir_rows.len() > 0 or shadow_rows.len() > 0) and opts.fail {
-    abort(1)
+    exit 1
   }
 }

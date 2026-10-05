@@ -208,7 +208,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
       let tools = documentation.release_tools(ctx)
       return Err(usage("docs accepts only the optional check action")) unless args == [] or args == ["check"]
 
-      documentation.build_release(ctx)?
+      documentation.build_release(ctx)
       return documentation.check(ctx.root, tools) when args == ["check"]
 
       return documentation.generate(ctx.root, tools)
@@ -351,8 +351,6 @@ proc main(...raw: List[Str]) [fs, process, env, time, error, io] {
   return dispatch(command, global.rest) when global.target == ""
 
   env TARGET=$global.target {
-    dispatch(command, global.rest)?
-  } ?
+    dispatch(command, global.rest)
+  }
 }
-
-main(@args)?

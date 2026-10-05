@@ -154,7 +154,7 @@ let part = "é"[..bound]
   let end: Any = 3
   assert [0, 1, 2, 3][(start.require(Int)?)..end.require(Int)?] == [1, 2]
   let invalid: Any = true
-  test.error_kind(invalid.require(Int), "schema")?
+  test.error_kind(invalid.require(Int), "schema")
   let receiver_error = test.run_script(
     ctx,
     """let receiver: Any = 42

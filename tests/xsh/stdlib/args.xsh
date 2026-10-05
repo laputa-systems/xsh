@@ -314,7 +314,7 @@ test test_cli_applet_last_scalar_occurrence_wins {
     ["-v", "-v"],
     {verbose: {form: "-v", default: false}},
   ) {
-    Ok(_) => test.fail("strict cli.parse should reject duplicate scalar options")?
+    Ok(_) => test.fail("strict cli.parse should reject duplicate scalar options")
     Err(_) => {}
   }
 
@@ -330,7 +330,7 @@ test test_cli_parse_advanced_descriptors {
   defer root_handle.close()?
   let root = root_handle.host_path()?
   let config = fp"{root}/config.toml"
-  config.write("ready")?
+  config.write("ready")
 
   let schema = {
     mode: {
@@ -434,32 +434,32 @@ test test_cli_parse_advanced_descriptors {
   assert ! ("--secret" in usage)
 
   match cli.parse(["--help"], schema, "demo sub") {
-    Ok(_) => test.fail("implicit help should stop parsing")?
+    Ok(_) => test.fail("implicit help should stop parsing")
     Err(error) => assert "usage: demo sub [OPTIONS]" in error.message
   }
 
   match cli.parse(["--mode", "xml", "--left", "a"], schema) {
-    Ok(_) => test.fail("choice validation should fail")?
+    Ok(_) => test.fail("choice validation should fail")
     Err(error) => assert "expects one of" in error.message
   }
 
   match cli.parse(["--json", "--table", "--left", "a"], schema) {
-    Ok(_) => test.fail("conflict validation should fail")?
+    Ok(_) => test.fail("conflict validation should fail")
     Err(error) => assert "conflicts" in error.message
   }
 
   match cli.parse([], schema) {
-    Ok(_) => test.fail("required group validation should fail")?
+    Ok(_) => test.fail("required group validation should fail")
     Err(error) => assert "required group" in error.message
   }
 
   match cli.parse(["--count", "-1", "--left", "a"], schema) {
-    Ok(_) => test.fail("UInt validation should fail")?
+    Ok(_) => test.fail("UInt validation should fail")
     Err(error) => assert "expects UInt" in error.message
   }
 
   match cli.parse(["--config", f"{root}/missing.toml", "--left", "a"], schema) {
-    Ok(_) => test.fail("file path validation should fail")?
+    Ok(_) => test.fail("file path validation should fail")
     Err(error) => assert "expects a file path" in error.message
   }
 }
@@ -504,7 +504,7 @@ test test_cli_parse_positional_default_is_optional {
   assert "[KIND]" in usage
 
   match cli.parse([], {action: {form: "ACTION", required: true}}) {
-    Ok(_) => test.fail("required positional should fail when absent")?
+    Ok(_) => test.fail("required positional should fail when absent")
     Err(error) => assert "missing required argument ACTION" in error.message
   }
 

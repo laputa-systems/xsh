@@ -123,11 +123,11 @@ export type Config = {name: Str = name, nested: List[Int] = [1, 2]}
 export type Alias = Config
 ## Uses the owning schema in parameter checks.
 export pure render(value: Config) -> Str { value.name.upper() }
-""")?
+""")
   fp"{root}/other.xsh".write_atomic("""##! Another schema with the same local name.
 ## Defaults belong to this schema.
 export type Config = {name: Int = 5, values: List[Str] = ["other"]}
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use config as c
@@ -434,10 +434,10 @@ print f"{tool.path} {tool.mode} {config.path} {reordered.path} {pair.first}"
   assert before.success, before.stderr
   let root = test.temp_dir(ctx, name: "positional-constructor-lint")?
   let candidate = fp"{root}/main.xsh"
-  candidate.write_atomic(source)?
+  candidate.write_atomic(source)
   let ignored = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
   assert ignored.status.exited_with(0), "the lint is opt-in"
-  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-positional-constructors = true\n")?
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-positional-constructors = true\n")
   let first = run.capture --text "xsht" lint --only lint.prefer-positional-constructor $candidate ?
   assert first.status.exited_with(1), first.stderr
   let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-positional-constructor $candidate ?

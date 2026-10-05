@@ -309,7 +309,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   }
 
   if operands.len() == 0 {
-    print_default_roots(show_args, show_pids, ascii)?
+    print_default_roots(show_args, show_pids, ascii)
     return
   }
 
@@ -318,9 +318,9 @@ proc main(...argv: List[Str]) [fs, process, error] {
       let visited = []
       let _ = print_parent_chain(pid, show_args, show_pids, ascii, visited)?
     } else {
-      print_pid_root(pid, show_args, show_pids, ascii)?
+      print_pid_root(pid, show_args, show_pids, ascii)
     }
   } else {
-    print_user_roots(operands[0], show_args, show_pids, ascii)?
+    print_user_roots(operands[0], show_args, show_pids, ascii)
   }
 }

@@ -1,7 +1,7 @@
 test test_batch_rename { |ctx|
   let root = test.temp_dir(ctx, name: "rename")?
-  fp"{root}/hello world.txt".write("a")?
-  fp"{root}/foo bar.txt".write("b")?
+  fp"{root}/hello world.txt".write("a")
+  fp"{root}/foo bar.txt".write("b")
   let dry = run.text "xsh" "showcase/batch-rename.xsh" -- --root $root --normalize --dry-run ?
   assert "would rename" in dry
   assert "hello_world.txt" in dry

@@ -9,27 +9,27 @@ test test_accepted_exit_codes_keep_actual_status {
 
 test test_accept_rejections_and_capture_record_status {
   let rejected_1 = run.text --accept=[0, 1] sh -c "exit 2"
-  test.error_kind(rejected_1, "unexpected-exit")?
+  test.error_kind(rejected_1, "unexpected-exit")
   let rejected_2 = run.bytes --accept=[1] sh -c "exit 0"
-  test.error_kind(rejected_2, "unexpected-exit")?
+  test.error_kind(rejected_2, "unexpected-exit")
   let captured = run.capture --text --accept=[1] sh -c "printf out; printf err >&2; exit 1" ?
   assert captured.stdout == "out"
   assert captured.stderr == "err"
   assert captured.status.exited_with(1)
   assert ! captured.status.ok
   let rejected_3 = run.capture --bytes --accept=[0] sh -c "exit 1"
-  test.error_kind(rejected_3, "unexpected-exit")?
+  test.error_kind(rejected_3, "unexpected-exit")
 }
 
 test test_accept_never_normalizes_signals_setup_or_decode_failures {
   let rejected_4 = run.text --accept=[0, 143] sh -c "kill -TERM $$"
-  test.error_kind(rejected_4, "signal")?
+  test.error_kind(rejected_4, "signal")
   let rejected_5 = run.text --accept=[0, 127] xsh-accept-definitely-missing-command
-  test.error_kind(rejected_5, "not-found")?
+  test.error_kind(rejected_5, "not-found")
   let rejected_6 = run.text --accept=[0, 1] sh -c "printf '\\377'; exit 1"
-  test.error_kind(rejected_6, "invalid-utf8")?
+  test.error_kind(rejected_6, "invalid-utf8")
   let rejected_7 = run.text --timeout=10ms --accept=[0, 137] sh -c "sleep 5"
-  test.error_kind(rejected_7, "timeout")?
+  test.error_kind(rejected_7, "timeout")
 }
 
 test test_accept_command_and_owned_wait_preserve_policy {
@@ -41,15 +41,15 @@ test test_accept_command_and_owned_wait_preserve_policy {
   let child = spawn command?
   assert (wait child?).exited_with(1)
   let argv_command = process.command_argv("sh", ["sh", "-c", "exit 2"], accept: [0, 1])
-  test.error_kind(process.run(argv_command), "unexpected-exit")?
+  test.error_kind(process.run(argv_command), "unexpected-exit")
   let rejected = spawn argv_command?
   let sibling = spawn run --accept=[0] sh -c "exit 0" ?
   let rejection = wait [rejected, sibling]
-  test.error_kind(rejection, "unexpected-exit")?
+  test.error_kind(rejection, "unexpected-exit")
   let consumed = wait sibling
-  test.error_kind(consumed, "unknown")?
+  test.error_kind(consumed, "unknown")
   let canceled = spawn run --accept=[0, 143] sh -c "sleep 5" ?
-  canceled.cancel(kill_after: 0ms)?
+  canceled.cancel(kill_after: 0ms)
 }
 
 test test_accept_status_plain_pipeline_and_external_argv { |ctx|
@@ -184,9 +184,9 @@ test test_accept_owned_child_keeps_a_validated_snapshot {
 
 test test_accept_wait_any_and_ready_apply_the_owned_policy {
   let selected = spawn run --accept=[0] sh -c "exit 1" ?
-  test.error_kind(process.wait_any([selected]), "unexpected-exit")?
+  test.error_kind(process.wait_any([selected]), "unexpected-exit")
   let ready = spawn run --accept=[0] sh -c "exit 1" ?
-  test.error_kind(process.wait_ready([ready]), "unexpected-exit")?
+  test.error_kind(process.wait_ready([ready]), "unexpected-exit")
 }
 
 test test_accept_direct_status_capture_keeps_nominal_error_and_actual_zero {
@@ -197,13 +197,13 @@ test test_accept_direct_status_capture_keeps_nominal_error_and_actual_zero {
   match rejected {
     Err(ProcessError.UnexpectedExit {status: child_status}) => {
       guard child_status != null else {
-        abort(99)
+        exit 99
       }
       assert child_status.ok
       assert child_status.exit_code()? == 0
     }
-    Err(error) => test.fail(f"unexpected error: {error.message}")?
-    Ok(_) => test.fail("direct status validation succeeded")?
+    Err(error) => test.fail(f"unexpected error: {error.message}")
+    Ok(_) => test.fail("direct status validation succeeded")
   }
 }
 

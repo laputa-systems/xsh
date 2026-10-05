@@ -31,7 +31,7 @@ test test_process_module {
   let sleeper = process.command_argv("sh", ["sh", "-c", "sleep 5"])
   let child = process.spawn(sleeper)?
   assert child.pid > 0
-  process.kill(child.pid, signal: "TERM")?
+  process.kill(child.pid, signal: "TERM")
   let any_handle = spawn run true ?
   let any = process.wait_any([any_handle])?
   assert any.index == 0
@@ -43,7 +43,7 @@ test test_process_module {
   assert ready.len() >= 1
   assert ready[0].status.exited_with(0)
   let handle = spawn run sh -c "sleep 5" ?
-  handle.cancel(signal: "TERM", kill_after: 10ms)?
+  handle.cancel(signal: "TERM", kill_after: 10ms)
 }
 
 test test_process_command_argv_requires_argv0 { |ctx|
@@ -178,7 +178,7 @@ test test_process_argv_words_rejects_shell_syntax {
     "echo > file",
     "unterminated 'quote",
   ] {
-    test.error_kind(process.argv_words(text), "argv-words")?
+    test.error_kind(process.argv_words(text), "argv-words")
   }
 
   # Every member of the rejected set, as its own word and inside a word.
@@ -199,26 +199,26 @@ test test_process_argv_words_rejects_shell_syntax {
     "{",
     "}",
   ] {
-    test.error_kind(process.argv_words(f"echo {character}"), "argv-words")?
-    test.error_kind(process.argv_words(f"before{character}after"), "argv-words")?
+    test.error_kind(process.argv_words(f"echo {character}"), "argv-words")
+    test.error_kind(process.argv_words(f"before{character}after"), "argv-words")
   }
 
   # Escaping a shell syntax character outside quotes is rejected like an
   # unquoted one; inside double quotes `\` escapes it.
-  test.error_kind(process.argv_words("echo \\*"), "argv-words")?
-  test.error_kind(process.argv_words("a\\|b"), "argv-words")?
-  test.error_kind(process.argv_words("echo \\$HOME"), "argv-words")?
+  test.error_kind(process.argv_words("echo \\*"), "argv-words")
+  test.error_kind(process.argv_words("a\\|b"), "argv-words")
+  test.error_kind(process.argv_words("echo \\$HOME"), "argv-words")
 
   # `$` and `` ` `` are rejected inside double quotes too.
-  test.error_kind(process.argv_words("\"$HOME\""), "argv-words")?
-  test.error_kind(process.argv_words("\"`date`\""), "argv-words")?
+  test.error_kind(process.argv_words("\"$HOME\""), "argv-words")
+  test.error_kind(process.argv_words("\"`date`\""), "argv-words")
 
   # Unterminated quotes and a trailing escape.
-  test.error_kind(process.argv_words("unterminated 'quote"), "argv-words")?
-  test.error_kind(process.argv_words("unterminated \"quote"), "argv-words")?
-  test.error_kind(process.argv_words("'unterminated \""), "argv-words")?
-  test.error_kind(process.argv_words("trailing\\"), "argv-words")?
-  test.error_kind(process.argv_words("\"trailing\\"), "argv-words")?
+  test.error_kind(process.argv_words("unterminated 'quote"), "argv-words")
+  test.error_kind(process.argv_words("unterminated \"quote"), "argv-words")
+  test.error_kind(process.argv_words("'unterminated \""), "argv-words")
+  test.error_kind(process.argv_words("trailing\\"), "argv-words")
+  test.error_kind(process.argv_words("\"trailing\\"), "argv-words")
 
   # The rejection messages name the offending character, and a multi-byte word
   # before it is sliced cleanly.
@@ -266,7 +266,7 @@ test test_process_command_redirections { |ctx|
   let root = test.temp_dir(ctx, name: "process-redirections")?
   let input = fp"{root}/input.txt"
   let log = fp"{root}/combined.log"
-  input.write("from-stdin")?
+  input.write("from-stdin")
 
   let command = process.command_argv(
     "sh",
@@ -292,9 +292,9 @@ test test_process_timeout_errors {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   match process.run(command) {
     Err(ProcessError.Timeout {message: message}) => assert "timed out" in message
-    Err(is Timeout) => test.fail("timeout facet without nominal variant")?
-    Err(error) => test.fail(f"unexpected process error: {error.message}")?
-    Ok(_) => test.fail("timed-out process succeeded")?
+    Err(is Timeout) => test.fail("timeout facet without nominal variant")
+    Err(error) => test.fail(f"unexpected process error: {error.message}")
+    Ok(_) => test.fail("timed-out process succeeded")
   }
 }
 
@@ -325,8 +325,8 @@ test test_process_wait_and_handle_contracts {
   let duplicate = spawn run true ?
   match wait [duplicate, duplicate] {
     Err(ProcessError.Unknown {message: message}) => assert "already requested" in message
-    Err(error) => test.fail(f"unexpected duplicate wait error: {error.message}")?
-    Ok(_) => test.fail("duplicate wait succeeded")?
+    Err(error) => test.fail(f"unexpected duplicate wait error: {error.message}")
+    Ok(_) => test.fail("duplicate wait succeeded")
   }
 
   let alias = spawn run true ?
@@ -334,8 +334,8 @@ test test_process_wait_and_handle_contracts {
   let _ = wait alias?
   match wait alias_copy {
     Err(ProcessError.Unknown {message: message}) => assert "no longer live" in message
-    Err(error) => test.fail(f"unexpected alias wait error: {error.message}")?
-    Ok(_) => test.fail("alias wait succeeded")?
+    Err(error) => test.fail(f"unexpected alias wait error: {error.message}")
+    Ok(_) => test.fail("alias wait succeeded")
   }
 }
 
@@ -343,15 +343,15 @@ test test_process_spawn_setup_errors {
   env PATH="/bin:/usr/bin" {
     match spawn run xsh-definitely-missing-command {
       Err(ProcessError.NotFound {message: message}) => assert "not found" in message
-      Err(error) => test.fail(f"unexpected spawn error: {error.message}")?
-      Ok(_) => test.fail("missing command spawned")?
+      Err(error) => test.fail(f"unexpected spawn error: {error.message}")
+      Ok(_) => test.fail("missing command spawned")
     }
   }
 
   match spawn run true > /definitely/missing/xsh-spawn-output {
     Err(ProcessError.Redirection {message: message}) => assert message != ""
-    Err(error) => test.fail(f"unexpected redirection error: {error.message}")?
-    Ok(_) => test.fail("invalid redirection succeeded")?
+    Err(error) => test.fail(f"unexpected redirection error: {error.message}")
+    Ok(_) => test.fail("invalid redirection succeeded")
   }
 }
 
@@ -377,11 +377,11 @@ proc process_handle_from_list() [process, error] -> Result[List[ProcessHandle]] 
 test test_process_spawn_timeout_and_return_transfer {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   let handle = spawn command?
-  time.sleep(50ms)?
+  time.sleep(50ms)
   match wait handle {
     Err(ProcessError.Timeout {message: message}) => assert "timed out" in message
-    Err(error) => test.fail(f"unexpected spawn timeout error: {error.message}")?
-    Ok(_) => test.fail("spawn timeout did not expire")?
+    Err(error) => test.fail(f"unexpected spawn timeout error: {error.message}")
+    Ok(_) => test.fail("spawn timeout did not expire")
   }
 
   let first = process_handle_from_proc()?
@@ -483,7 +483,7 @@ run cat < (payload)
 test test_bytes_stdin_path_strings_and_once_only_expression { |ctx|
   let root = test.temp_dir(ctx, name: "bytes-stdin-path")?
   let input = fp"{root}/input"
-  input.write("file content")?
+  input.write("file content")
   let file_name = input.display()
   assert run.text cat < $file_name? == "file content"
   let result = test.run_script(

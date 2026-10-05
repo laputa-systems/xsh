@@ -1,11 +1,11 @@
 proc install(source: Path, dest: Path = "/usr/local/bin") [fs, error] {
-  source.copy(fp"{dest}/{source.name()}")?
+  source.copy(fp"{dest}/{source.name()}")
 }
 
 proc classify(config: Path, seen: List[Path]) [fs, error] -> Result[Str] {
   # begin example
   let fallback: Path = "/etc/xsh/config.ini"
-  install("build/xsh")? # a user parameter
+  install("build/xsh") # a user parameter
   let relative = config.strip_prefix("/etc")? # a standard method parameter
   let default_config = config == "/etc/xsh/config.ini"
   let repeated = "/etc/hosts" in seen

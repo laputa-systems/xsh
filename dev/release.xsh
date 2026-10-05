@@ -18,21 +18,21 @@ export proc package_binaries(ctx: context.Context, tag: Str) [fs, process, error
     )
   }
 
-  verify.verify_all(ctx, false)?
+  verify.verify_all(ctx, false)
   let suffix = targets.release_suffix(ctx.target.triple)?
-  stages.ensure_dir(ctx.artifact_dir)?
+  stages.ensure_dir(ctx.artifact_dir)
 
   for product in targets.products {
     let source = fp"{ctx.target_dir}/{ctx.target.triple}/dist/{product}"
     let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
-    fs.install(source, artifact, 0o755, parents: true, overwrite: true)?
-    fp"{artifact}.sha256".write(checksum_line(artifact, ctx.root)?)?
+    fs.install(source, artifact, 0o755, parents: true, overwrite: true)
+    fp"{artifact}.sha256".write(checksum_line(artifact, ctx.root)?)
   }
 }
 
 ## Runs the release product smoke contract after the distribution build is complete.
 export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit, Error] {
-  verify.verify_all(ctx, true)?
+  verify.verify_all(ctx, true)
   let xsh = fp"{ctx.target_dir}/{ctx.target.triple}/dist/xsh"
   let xshi = fp"{ctx.target_dir}/{ctx.target.triple}/dist/xshi"
   stages.execute(
@@ -44,7 +44,7 @@ export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit,
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "release-xshi-smoke",
@@ -54,7 +54,7 @@ export proc smoke(ctx: context.Context) [fs, process, error, io] -> Result[Unit,
       ctx.root,
       {XSHI_ALLOW_NON_TTY_FOR_TESTS: "1"},
     ),
-  )?
+  )
 }
 
 ## Commands install without `.xsh`; library modules keep it so `use lib.*`
@@ -97,7 +97,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     )
   }
 
-  stages.ensure_dir(ctx.artifact_dir)?
+  stages.ensure_dir(ctx.artifact_dir)
   let core_archive = fp"{ctx.artifact_dir}/core-{tag}.tar.xz"
   for entry in fs.files(ctx.artifact_dir, hidden: true)? {
     if entry.ext == "xz" and entry.path != core_archive {
@@ -127,11 +127,11 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
       mode,
       parents: true,
       overwrite: true,
-    )?
+    )
     archive_entries += [installed]
   }
 
-  archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)?
+  archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)
 
   if core_archive.metadata()?.size == 0 {
     return Err(
@@ -139,7 +139,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     )
   }
 
-  fp"{ctx.artifact_dir}/core-{tag}.sha256".write(checksum_line(core_archive, ctx.root)?)?
+  fp"{ctx.artifact_dir}/core-{tag}.sha256".write(checksum_line(core_archive, ctx.root)?)
 }
 
 ## Validates the full nine-product release artifact set and checksum sidecars.
@@ -159,7 +159,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
       let artifact = fp"{ctx.artifact_dir}/{product}-{tag}-{suffix}"
       expected_files += [artifact.name, f"{artifact.name}.sha256"]
       if artifact.exists()? {
-        fs.chmod(artifact, 0o755)?
+        fs.chmod(artifact, 0o755)
       }
 
       if ! artifact.exists()? or ! artifact.executable()? or artifact.metadata()?.size == 0 {

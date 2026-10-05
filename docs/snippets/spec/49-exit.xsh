@@ -1,6 +1,6 @@
 proc require_root(uid: Int) {
   # begin example
-  if uid != 0 {
+  guard uid == 0 else {
     eprint "must run as root"
     exit 77
   }

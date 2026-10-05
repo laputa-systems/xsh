@@ -313,9 +313,9 @@ proc header_open_root(root_path: Path) [fs, error] -> Result[FsRoot] {
 test test_with_headers_preserve_escaping_owned_prefix_values { |ctx|
   let root_path = test.temp_dir(ctx, name: "header-root")?
   let root = header_open_root(root_path)?
-  root.write(p"value", "retained")?
+  root.write(p"value", "retained")
   assert root.read_text(p"value")? == "retained"
-  root.close()?
+  root.close()
 }
 
 test test_block_header_migration_rechecks_imports_and_deduplicates_edits { |ctx|
@@ -328,7 +328,7 @@ export proc recover() [] -> Int {
   value
 }
 """
-  shared.write(shared_source)?
+  shared.write(shared_source)
   for name in ["first", "second"] {
     fp"{directory}/{name}.xsh".write(r"""use shared as shared
 proc recover() [] -> Int {
@@ -336,7 +336,7 @@ proc recover() [] -> Int {
   value
 }
 print recover()
-""")?
+""")
   }
 
   let fixed = run.capture --text "xsht" lint --fix $directory ?

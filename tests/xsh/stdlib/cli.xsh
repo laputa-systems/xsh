@@ -224,9 +224,9 @@ test test_cli_tokens_splits_values_clusters_and_operands {
   # A declared value name with nothing left to consume is a rejection rather
   # than a token with an empty value.
   assert token_spellings(cli.tokens(["-I"], ["I"])) == "rejected"
-  test.error_kind(cli.tokens(["-I"], ["I"]), "cli-parse")?
+  test.error_kind(cli.tokens(["-I"], ["I"]), "cli-parse")
   assert token_spellings(cli.tokens(["--output"], ["output"])) == "rejected"
-  test.error_kind(cli.tokens(["--output"], ["output"]), "cli-parse")?
+  test.error_kind(cli.tokens(["--output"], ["output"]), "cli-parse")
 
   # A name takes a value only when `value_flags` names it, so an undeclared
   # short name is an ordinary token.
@@ -305,7 +305,7 @@ test test_cli_commands_dispatch_names_aliases_and_forms {
   # nothing, and an empty list has nothing to report.
   assert failure_message(cli.commands(["nope"], schema)) == "unknown command `nope`"
   assert failure_message(cli.commands([], schema)) == "missing command"
-  test.error_kind(cli.commands([], schema), "cli-commands")?
+  test.error_kind(cli.commands([], schema), "cli-commands")
 
   # An alias another command already claims is rejected while the schema is
   # interpreted, before any argument is read.
@@ -405,7 +405,7 @@ test test_cli_commands_convert_positionals_and_collect_the_rest {
   # Every rejection in this walk is a `cli-commands` error, and none of them
   # carries usage text: attaching it is entry-point policy, and this walk
   # renders none.
-  test.error_kind(cli.commands(["t", "1", "x", "y"], basic), "cli-commands")?
+  test.error_kind(cli.commands(["t", "1", "x", "y"], basic), "cli-commands")
   assert "usage:" not in failure_message(cli.commands(["t", "1", "x", "y"], basic))
   assert "usage:" not in failure_message(cli.commands([], basic))
 }
@@ -480,7 +480,7 @@ test test_cli_command_options_split_values_and_defaults {
   # A second value for an option that does not repeat is a rejection, and its
   # index is the one it has in the split option list rather than in `argv`.
   assert failure_message(cli.commands(["go", "r", "-v", "-v"], schema)) == "duplicate argument at argv[1]: -v"
-  test.error_kind(cli.commands(["go", "r", "-v", "-v"], schema), "cli-parse")?
+  test.error_kind(cli.commands(["go", "r", "-v", "-v"], schema), "cli-parse")
 
   # A token that names no declared option is an operand, not an unknown option:
   # the split hands it to the positionals, and the positional reader rejects it
@@ -624,7 +624,7 @@ test test_cli_command_options_validate_values_and_relationships {
   test.error_kind(
     cli.commands(["go", "r"], dynamic_cli_schema({go: {options: {helpful: {kind: "Bool", short: ["h"]}}}})),
     "cli-parse",
-  )?
+  )
   assert failure_message(
     cli.commands(["go", "r"], dynamic_cli_schema({go: {options: {helper: {kind: "Bool", long: ["help"]}}}})),
   ) == "`--help` is reserved by cli.parse"
@@ -684,7 +684,7 @@ test test_cli_command_option_path_constraints { |ctx|
     ),
   ) == ""
   let file_link = test.temp_path(ctx, name: "cli-file-link")
-  fs.symlink(present, file_link)?
+  fs.symlink(present, file_link)
   assert failure_message(
     cli.commands(
       ["go", "--target", file_link.display()],
@@ -692,7 +692,7 @@ test test_cli_command_option_path_constraints { |ctx|
     ),
   ) == ""
   let dangling = test.temp_path(ctx, name: "cli-dangling")
-  fs.symlink(missing, dangling)?
+  fs.symlink(missing, dangling)
   assert failure_message(
     cli.commands(
       ["go", "--target", dangling.display()],
@@ -735,7 +735,7 @@ test test_cli_parse_returns_values_and_asks_for_help {
 
   # A rejection carries its kind and the usage text appended to its message,
   # and a duplicate is the same shape with the second spelling's argv index.
-  test.error_kind(cli.parse(["--nope"], {name: "Str"}, "demo"), "cli-parse")?
+  test.error_kind(cli.parse(["--nope"], {name: "Str"}, "demo"), "cli-parse")
   assert failure_message(cli.parse(["--nope"], {name: "Str"}, "demo")) == """unknown argument at argv[0]: --nope
 
 usage: demo [OPTIONS]
@@ -760,13 +760,13 @@ options:
   # `--help`, `-h`, and any short cluster carrying an unclaimed `h` ask for
   # help: the rejection's kind is `cli-help` and its message is the usage text
   # alone.
-  test.error_kind(cli.parse(["--help"], {}, "demo"), "cli-help")?
+  test.error_kind(cli.parse(["--help"], {}, "demo"), "cli-help")
   assert failure_message(cli.parse(["--help"], {}, "demo")) == """usage: demo [OPTIONS]
 
 options:
   -h, --help  show this help"""
-  test.error_kind(cli.parse(["-h"], {}, "demo"), "cli-help")?
-  test.error_kind(cli.parse(["-vh"], {v: {short: "v", kind: "Bool"}}, "demo"), "cli-help")?
+  test.error_kind(cli.parse(["-h"], {}, "demo"), "cli-help")
+  test.error_kind(cli.parse(["-vh"], {v: {short: "v", kind: "Bool"}}, "demo"), "cli-help")
 
   # `--` ends option parsing before any help spelling is read, so the spelling
   # after it is an operand the schema has no place for.
@@ -854,8 +854,8 @@ options:
   )?
   assert clustered.get("v")? == true
   assert clustered.get("handle")? == true
-  test.error_kind(cli.applet(["-h"], {}, "demo"), "cli-help")?
-  test.error_kind(cli.applet(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo"), "cli-help")?
+  test.error_kind(cli.applet(["-h"], {}, "demo"), "cli-help")
+  test.error_kind(cli.applet(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo"), "cli-help")
 
   # Three: a scalar spelled twice overwrites instead of rejecting, and a
   # conflict the newly set option declares resets the other option to what its

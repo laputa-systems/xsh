@@ -48,7 +48,7 @@ driver: y
 """,
 ),
     "CpupowerCheckError.Invalid",
-  )?
+  )
   test.error_kind(
     cpupower_reference.parse_cpupower_frequency(
   """driver: x
@@ -57,7 +57,7 @@ driver: y
 """,
 ),
     "CpupowerCheckError.Invalid",
-  )?
+  )
   test.error_kind(
     cpupower_reference.parse_cpupower_idle("""CPUidle driver: x
 CPUidle governor: y
@@ -65,7 +65,7 @@ Number of idle states: 2
 Available idle states: C1
 """),
     "CpupowerCheckError.Invalid",
-  )?
+  )
 }
 
 test test_system_report_cpupower_live_reference_runs_only_selected_forms {
@@ -82,15 +82,15 @@ case "$*" in
   *) exit 4 ;;
 esac
 """,
-  )?
+  )
   tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","cpu":{"frequency_policies":[{"name":"policy7","related_cpus":[0,2],"driver":"fixture-driver","hardware_min_khz":100,"hardware_max_khz":200}],"global_idle_driver":"fixture-idle","global_idle_governor":"fixture-governor","idle_states":[{"cpu_id":0,"state_index":0,"name":"C1"}]}}\n'
 """,
-  )?
-  tools_root.chmod(p"cpupower", 0o700)?
-  tools_root.chmod(p"xsh", 0o700)?
+  )
+  tools_root.chmod(p"cpupower", 0o700)
+  tools_root.chmod(p"xsh", 0o700)
   let root_path = tools_root.host_path()?
   let result = cpupower_reference.compare_live_cpupower(
     fp"{root_path}/xsh".display(),

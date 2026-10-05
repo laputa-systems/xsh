@@ -34,11 +34,11 @@ type IRWireReport = {
 test test_ir_coverage_cli_retains_typed_report_and_scan_counts { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "ir-coverage-wire")?.resolve()?
-  fp"{root}/src/syntax".mkdir()?
-  fp"{root}/src/sema".mkdir()?
-  fp"{root}/src/sema/records.rs".write_atomic("")?
-  fp"{root}/src/runtime/eval/indexed".mkdir()?
-  fp"{root}/core".mkdir()?
+  fp"{root}/src/syntax".mkdir()
+  fp"{root}/src/sema".mkdir()
+  fp"{root}/src/sema/records.rs".write_atomic("")
+  fp"{root}/src/runtime/eval/indexed".mkdir()
+  fp"{root}/core".mkdir()
   fp"{root}/src/syntax/arena.rs".write_atomic("""
 pub enum ArenaStmtKind {
     Let,
@@ -50,7 +50,7 @@ pub enum ArenaExprKind {
 pub enum ArenaTypeExprTag {
     Named,
 }
-""")?
+""")
   fp"{root}/src/syntax/node.rs".write_atomic("""
 pub enum BinaryOp {
     Add,
@@ -58,7 +58,7 @@ pub enum BinaryOp {
 pub enum AssignOp {
     Set,
 }
-""")?
+""")
   fp"{root}/src/runtime/eval.rs".write_atomic("""
 pub enum LoweredPipelineStage {
     Map,
@@ -69,19 +69,19 @@ pub enum LoweredType {
 const LOWERED_METHOD_NAMES: &[&str] = &[
     "len",
 ];
-""")?
+""")
   fp"{root}/src/runtime/eval/indexed/full.rs".write_atomic("""
 pub enum FullTag {
     StmtLet,
     ExprInt,
 }
-""")?
+""")
   fp"{root}/core/sample.xsh".write_atomic("""
 pure identity(value: Int) -> Int { value }
 proc count() [] -> Int { 1 }
 let value = identity(1)
 let values = [1, 2] |> batch(count: 1)
-""")?
+""")
   let report_path = fp"{root}/reports/ir.json"
   let stdout_path = fp"{root}/stdout.txt"
   let stderr_path = fp"{root}/stderr.txt"
@@ -123,5 +123,5 @@ let values = [1, 2] |> batch(count: 1)
 
 test test_ir_coverage_report_validation_rejects_incomplete_wire_data {
   let incomplete = json.decode(r"""{"rows": []}""")?
-  test.error_kind(incomplete.require(IRWireReport), "schema")?
+  test.error_kind(incomplete.require(IRWireReport), "schema")
 }

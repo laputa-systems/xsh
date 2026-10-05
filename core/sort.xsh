@@ -124,7 +124,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   if has_output {
-    output.write(text)?
+    output.write(text)
   } else {
     for line in lines {
       print $line

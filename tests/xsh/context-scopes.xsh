@@ -73,7 +73,7 @@ test test_env_value_scope_accepts_typed_overlays_and_restores {
 
 proc scope_body_failure(root: Path) [env, error] -> Result[Int] {
   let _ = cd (root) {
-    error.fail("scope body failed")?
+    error.fail("scope body failed")
     1
   }
   Ok(99)
@@ -117,7 +117,7 @@ test test_scope_lexical_return_and_loop_transfers_restore {
     let _ = env ({XSH_SCOPE_RETURN: "loop"}) {
       continue
     }
-    test.fail("continue must leave the enclosing loop")?
+    test.fail("continue must leave the enclosing loop")
   }
 
   assert attempts == 2
@@ -126,7 +126,7 @@ test test_scope_lexical_return_and_loop_transfers_restore {
     let _ = env ({XSH_SCOPE_RETURN: "loop"}) {
       break
     }
-    test.fail("break must leave the enclosing loop")?
+    test.fail("break must leave the enclosing loop")
   }
 
   assert env.get_or("XSH_SCOPE_RETURN", "absent")? == original
@@ -167,7 +167,7 @@ test test_scope_body_error_is_caught_only_by_the_outer_capture {
   let original = env.get_or("XSH_SCOPE_CAPTURE", "absent")?
   let failure = try {
     let _ = env ({XSH_SCOPE_CAPTURE: "inner"}) {
-      error.fail("transparent")?
+      error.fail("transparent")
       7
     }
     99
@@ -327,7 +327,7 @@ test test_scope_function_tails_consume_declared_values_and_statement_results_pro
   let assertion = try {
     env ({XSH_SCOPE_TAIL: "inner"}) {
       assert false
-    }?
+    }
     7
   }
   assert assertion is Err(_)

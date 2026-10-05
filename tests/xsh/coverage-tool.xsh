@@ -12,9 +12,9 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "combined-coverage")?.resolve()?
   let tests = fp"{root}/tests/xsh"
-  tests.mkdir()?
+  tests.mkdir()
   fp"{tests}/smoke.xsh".write("""test test_cpu_count [error] { test.ok(cpu.count() > 0)? }
-""")?
+""")
 
   let out_dir = fp"{root}/coverage"
   let report_path = fp"{out_dir}/coverage.json"
@@ -36,7 +36,7 @@ test test_combined_coverage_report_includes_standard_api_hits { |ctx|
     let command_succeeded = status.exited_with(0)
     let command_output = stdout.read_text()? + stderr.read_text()?
     assert command_succeeded, command_output
-  } ?
+  }
 
   let report = json.read(report_path)?.require(CoverageReport)?
   let {standard_apis, api_hits} = report
@@ -69,7 +69,7 @@ test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_v
       examples: 3,
     },
   ] {
-    input.write(example.json)?
+    input.write(example.json)
     let output = test.run_script(ctx, script)?
     assert output.success, output.stderr
     let report = json.decode(output.stdout)?.require(CoverageReport)?
@@ -86,7 +86,7 @@ test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_v
     r"""{"standard_apis":[],"api_hits":{"module.cpu.count":{"tests":"2"}}}""",
     r"""{"standard_apis":[],"api_hits":{"module.cpu.count":{"examples":null}}}""",
   ] {
-    input.write(invalid)?
+    input.write(invalid)
     let output = test.run_script(ctx, script)?
     assert output.status != 0
     assert output.stdout == ""

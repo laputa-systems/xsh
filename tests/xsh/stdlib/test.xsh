@@ -1,11 +1,11 @@
 test test_test_helpers {
   assert 1 != 2
-  test.error_kind(test.fail("covered failure"), "AssertionError.Failed")?
+  test.error_kind(test.fail("covered failure"), "AssertionError.Failed")
 }
 
 test test_error_fail_constructs_validation_result {
   let failure = error.fail("header is missing")
-  test.error_kind(failure, "validation")?
+  test.error_kind(failure, "validation")
 }
 
 test test_run_script_captures_status_env_args_and_bytes { |ctx|

@@ -68,8 +68,8 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   if serial {
-    paste_serial(paths, delim)?
+    paste_serial(paths, delim)
   } else {
-    paste_parallel(paths, delim)?
+    paste_parallel(paths, delim)
   }
 }

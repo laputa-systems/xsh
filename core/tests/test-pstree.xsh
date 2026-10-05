@@ -20,7 +20,7 @@ proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
 
     return rows[0].parent_pid when rows.len() > 0
 
-    time.sleep(100ms)?
+    time.sleep(100ms)
   }
 
   Err(BusyboxTestError.ProcessList(message: f"spawned process {pid} was not visible"))
@@ -46,7 +46,7 @@ test test_pstree_rejects_unknown_pid { |ctx|
 test test_pstree_default_prints_visible_root { |ctx|
   if system.uname()?.sysname == "Darwin" {
     match process.which("pstree") {
-      Err(_) => test.skip("macOS pstree is unavailable")?
+      Err(_) => test.skip("macOS pstree is unavailable")
       Ok(_) => {}
     }
   }

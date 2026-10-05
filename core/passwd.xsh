@@ -94,11 +94,11 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] -> Result[Int]
         return auth.fail("passwd", f"invalid action {options.action}")
       }
 
-      auth.write_shadow_records(auth.upsert_shadow(records, name, password, auth.days_since_epoch()))?
+      auth.write_shadow_records(auth.upsert_shadow(records, name, password, auth.days_since_epoch()))
       0
     }
     Err(error) => auth.fail("passwd", error.message)
   }
 }
 
-abort(main(@args)?)
+exit main(@args)?

@@ -58,7 +58,7 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
 }
 
 proc remove_dir(target: Path) [fs, error] {
-  fs.remove(target, missing_ok: true)?
+  fs.remove(target, missing_ok: true)
 }
 
 proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
@@ -130,16 +130,16 @@ proc main() [fs, process, env, error, io] {
   let llvm_profdata = find_llvm_tool("llvm-profdata")?
   let llvm_cov = find_llvm_tool("llvm-cov")?
   let cargo_bin = cargo_bin_dir(root)?
-  remove_dir(raw_dir)?
-  remove_dir(api_dir)?
-  remove_dir(html_dir)?
-  remove_dir(shim_dir)?
-  raw_dir.mkdir()?
-  api_dir.mkdir()?
-  shim_dir.mkdir()?
-  fs.symlink(xsh, fp"{shim_dir}/xsh")?
-  fs.symlink(xsht, fp"{shim_dir}/xsht")?
-  fs.symlink(xshi, fp"{shim_dir}/xshi")?
+  remove_dir(raw_dir)
+  remove_dir(api_dir)
+  remove_dir(html_dir)
+  remove_dir(shim_dir)
+  raw_dir.mkdir()
+  api_dir.mkdir()
+  shim_dir.mkdir()
+  fs.symlink(xsh, fp"{shim_dir}/xsh")
+  fs.symlink(xsht, fp"{shim_dir}/xsht")
+  fs.symlink(xshi, fp"{shim_dir}/xshi")
   let existing_rustflags = env.get_or("RUSTFLAGS", "")?.trim()
 
   let rustflags = if existing_rustflags == "" {
@@ -160,7 +160,7 @@ proc main() [fs, process, env, error, io] {
     run cargo build --release -p xshi ?
     run XSHT=$xsht XSH_COV_DIR=$api_dir XSH_COV_JSON=fp"{api_dir}/coverage.json" \
       XSH_COV_REPORT=fp"{api_dir}/coverage.txt" $xsh tools/xsh-cov.xsh ?
-  } ?
+  }
 
   let profraws = collect_profraw(raw_dir)?
   run $llvm_profdata merge -sparse -o $profdata @profraws ?
@@ -183,11 +183,11 @@ proc main() [fs, process, env, error, io] {
     objects_file,
     f"""{objects.join("\n")}
 """,
-  )?
+  )
 
   let llvm_args = cov_args(profdata, objects)
   run $llvm_cov report @llvm_args > report_file ?
-  io.write_stdout(report_file.read_text()?)?
+  io.write_stdout(report_file.read_text()?)
   let html_output_arg = f"--output-dir={html_dir}"
   run $llvm_cov show @llvm_args --format=html $html_output_arg --show-instantiations --show-line-counts-or-regions ?
   run $llvm_cov export @llvm_args --format=lcov > lcov_file ?

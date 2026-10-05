@@ -77,9 +77,9 @@ proc main(...argv: List[Str]) [net, time, error] {
     } else {
       opts.interval * 1000
     }
-    time.sleep(time.millis(sleep_ms))?
+    time.sleep(time.millis(sleep_ms))
   }
 
   print f"timed out after {opts.timeout}s"
-  abort(1)
+  exit 1
 }

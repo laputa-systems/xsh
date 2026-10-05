@@ -2305,7 +2305,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
 }
 
 pure encode_typed_report_json(report: SystemReport, sensitive: Bool, pretty: Bool) -> Result[Str] {
-  require_report_v1(report)?
+  require_report_v1(report)
   let clean = sanitize_report_mount_options(report)
   let output_report = if sensitive { clean } else { redact_report(clean) }
   let wire: Any = report_json(output_report)
@@ -2572,7 +2572,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport, Error] {
   }
 
   let parsed = report_xsh(wire)? |> sanitize_report_mount_options(_)
-  require_report_v1(parsed)?
+  require_report_v1(parsed)
   Ok(parsed)
 }
 
@@ -3009,7 +3009,7 @@ pure mount_usage_summary(section: StorageSection) -> Str {
 }
 
 pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Result[Str] {
-  require_report_v1(report)?
+  require_report_v1(report)
   let output_report = if sensitive { report } else { redact_report(report) }
   var os_name = "unknown"
   if output_report.identity.os_release != null {

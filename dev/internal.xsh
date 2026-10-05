@@ -21,15 +21,15 @@ export proc repair_target(ctx: context.Context) [process, env, error, io] -> Res
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Builds and verifies distribution products inside the selected Linux container.
 export proc container_dist(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.ensure_dir(ctx.target_dir)?
+  stages.ensure_dir(ctx.target_dir)
   defer repair_target(ctx)?
-  build.prepare_native_musl(ctx)?
-  dist.native_dist(ctx, "DIST_DOCKER_BUILD_STD_FLAGS")?
+  build.prepare_native_musl(ctx)
+  dist.native_dist(ctx, "DIST_DOCKER_BUILD_STD_FLAGS")
 }
 
 ## Runs the privileged developer Linux test sequence inside the container on
@@ -44,7 +44,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       ctx.root,
       {},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "linux-build-test-tools",
@@ -68,9 +68,9 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       ctx.root,
       {},
     ),
-  )?
-  fs.remove(/bin/xsh, missing_ok: true)?
-  fs.symlink(fp"{ctx.target_dir}/release/xsh", /bin/xsh)?
+  )
+  fs.remove(/bin/xsh, missing_ok: true)
+  fs.symlink(fp"{ctx.target_dir}/release/xsh", /bin/xsh)
   let stress_repeat = env.get_or("XSH_OS_STRESS_REPEAT", "25")?.trim()
   stages.execute(
     stages.command(
@@ -95,7 +95,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       ctx.root,
       {XSH_OS_STRESS_REPEAT: if stress_repeat == "" { "25" } else { stress_repeat }},
     ),
-  )?
+  )
   stages.execute(
     stages.command(
       "linux-rust-unit-tests",
@@ -105,7 +105,7 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       ctx.root,
       {},
     ),
-  )?
+  )
   let xsht = fp"{ctx.target_dir}/release/xsht"
   stages.execute(
     stages.command(
@@ -116,12 +116,12 @@ export proc linux_developer_test(ctx: context.Context) [fs, process, env, error,
       ctx.root,
       {CARGO_BIN_EXE_xsh_test_sleeper: fp"{ctx.target_dir}/release/xsh-test-sleeper".display()},
     ),
-  )?
+  )
 }
 
 ## Runs the selected Linux CI test contract and always repairs mounted output ownership.
 export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.ensure_dir(ctx.target_dir)?
+  stages.ensure_dir(ctx.target_dir)
   defer repair_target(ctx)?
   stages.execute(
     stages.command(
@@ -132,7 +132,7 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
       ctx.root,
       {},
     ),
-  )?
+  )
   let environment = targets.docker_test_env(ctx.target.triple)?
   stages.execute(
     stages.command(
@@ -163,16 +163,16 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
       ctx.root,
       environment,
     ),
-  )?
+  )
   if ctx.profile == "dev" {
     let debug = fp"{ctx.target_dir}/debug"
-    stages.ensure_dir(debug)?
+    stages.ensure_dir(debug)
     for product in targets.products {
       let destination = fp"{debug}/{product}"
       let source = fp"{ctx.target_dir}/{ctx.target.triple}/debug/{product}"
       if destination != source {
-        fs.remove(destination, missing_ok: true)?
-        fs.symlink(source, destination)?
+        fs.remove(destination, missing_ok: true)
+        fs.symlink(source, destination)
       }
     }
   }
@@ -198,7 +198,7 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
       ctx.root,
       environment,
     ),
-  )?
+  )
 }
 
 ## Repairs the bind-mounted coverage result directory after container work completes.
@@ -217,7 +217,7 @@ export proc repair_coverage(ctx: context.Context) [process, env, error, io] -> R
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Runs the existing coverage program from the privileged coverage container.
@@ -242,5 +242,5 @@ export proc container_coverage(ctx: context.Context) [process, env, error, io] -
       ctx.root,
       {},
     ),
-  )?
+  )
 }

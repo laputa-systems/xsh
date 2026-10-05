@@ -1,1 +1,1 @@
-json.write(p"config.json", {enabled: true})?
+json.write(p"config.json", {enabled: true})

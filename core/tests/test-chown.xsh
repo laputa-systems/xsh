@@ -7,7 +7,7 @@ test test_chown_current_user { |ctx|
   assert target.metadata()?.uid == current.uid
   let root = test.temp_dir(ctx, name: "owned-tree")?
   let child = fp"{root}/child.txt"
-  child.write("payload")?
+  child.write("payload")
   let recursive = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/chown.xsh" -- -R $name $root ?
   assert recursive == ""
   assert child.metadata()?.uid == current.uid

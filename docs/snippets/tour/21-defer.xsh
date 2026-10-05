@@ -1,15 +1,15 @@
 proc rotate(dir: Path) {
   let lock = fp"{dir}/.rotate.lock"
-  lock.write("locked\n")?
+  lock.write("locked\n")
   defer {
-    lock.remove()?
+    lock.remove()
     print "released lock"
   }
 
   let staging = fp"{dir}/staging"
-  staging.mkdir()?
+  staging.mkdir()
   defer {
-    staging.remove_dir()?
+    staging.remove_dir()
     print "removed staging"
   }
 

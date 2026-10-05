@@ -23,7 +23,7 @@ test test_error_payload_transfers_child_to_caller {
       defer child.cancel(signal: "TERM", kill_after: 0ms)
       assert process.list()? |> any .pid == child.pid, "returned error payload must retain its owned child"
     }
-    Ok(_) => test.fail("expected child error")?
+    Ok(_) => test.fail("expected child error")
   }
 }
 
@@ -47,8 +47,8 @@ test test_try_error_payload_transfers_child_before_nested_cleanup {
       defer child.cancel(signal: "TERM", kill_after: 0ms)
       assert process.list()? |> any .pid == child.pid, "capture must retain a child owned by an outer discarded block"
     }
-    Err(error) => test.fail(error.message)?
-    Ok(_) => test.fail("expected captured child error")?
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("expected captured child error")
   }
 }
 
@@ -62,8 +62,8 @@ test test_try_error_cause_transfers_child_before_cleanup {
       defer process.kill(pid, signal: "TERM")
       assert process.list()? |> any .pid == pid, "capture must retain a child held only by a cause"
     }
-    Err(error) => test.fail(error.message)?
-    Ok(_) => test.fail("expected captured cause")?
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("expected captured cause")
   }
 }
 
@@ -120,8 +120,8 @@ test test_try_plain_callee_failure_transfers_child {
       defer child.cancel(signal: "TERM", kill_after: 0ms)
       assert process.list()? |> any .pid == child.pid, "checked runtime transport must retain the callee child"
     }
-    Err(error) => test.fail(error.message)?
-    Ok(_) => test.fail("missing callee failure")?
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("missing callee failure")
   }
 }
 
@@ -153,8 +153,8 @@ test test_inner_try_retains_resource_inside_same_context {
         defer child.cancel(signal: "TERM", kill_after: 0ms)
         assert process.list()? |> any .pid == child.pid, "inner capture may consume resource before restoration"
       }
-      Err(error) => test.fail(error.message)?
-      Ok(_) => test.fail("missing inner capture")?
+      Err(error) => test.fail(error.message)
+      Ok(_) => test.fail("missing inner capture")
     }
 
     7
@@ -206,8 +206,8 @@ test test_retry_exhaustion_retains_resource_in_original_failure {
       defer child.cancel(signal: "TERM", kill_after: 0ms)
       assert process.list()? |> any .pid == child.pid, "exhausted retry must retain the original failure's resource"
     }
-    Err(error) => test.fail(error.message)?
-    Ok(_) => test.fail("retry unexpectedly succeeded")?
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("retry unexpectedly succeeded")
   }
 }
 
@@ -230,8 +230,8 @@ test test_primary_defer_error_retains_child_after_exhausted_block {
       defer child.cancel(signal: "TERM", kill_after: 0ms)
       assert process.list()? |> any .pid == child.pid, "primary defer failure must retain its child"
     }
-    Err(error) => test.fail(error.message)?
-    Ok(_) => test.fail("missing defer failure")?
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("missing defer failure")
   }
 }
 
@@ -246,14 +246,14 @@ test test_primary_defer_cause_retains_child {
       defer process.kill(pid, signal: "TERM")
       assert process.list()? |> any .pid == pid, "primary defer cause must retain its child across nested scope exits"
     }
-    Err(error) => test.fail(error.message)?
-    Ok(_) => test.fail("missing defer cause")?
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("missing defer cause")
   }
 }
 
 proc cleanup_marked_error_child(marker: Path) [fs, process, error] {
   let child = spawn run sh -c "sleep 10" ?
-  marker.write(f"{child.pid}")?
+  marker.write(f"{child.pid}")
   Err(ChildError.Owned(child:))
 }
 
@@ -265,8 +265,8 @@ test test_secondary_defer_failure_releases_its_child { |ctx|
   }
   match captured {
     Err(WrapperError.Failed {message: message}) => assert message == "primary"
-    Err(error) => test.fail(error.message)?
-    Ok(_) => test.fail("missing primary failure")?
+    Err(error) => test.fail(error.message)
+    Ok(_) => test.fail("missing primary failure")
   }
 
   let pid = (marker.read_text()?).parse_int()?
@@ -318,8 +318,8 @@ test test_inner_try_primary_defer_can_retain_resource_inside_context {
         defer child.cancel(signal: "TERM", kill_after: 0ms)
         assert process.list()? |> any .pid == child.pid, "inner primary defer failure may retain its resource"
       }
-      Err(error) => test.fail(error.message)?
-      Ok(_) => test.fail("missing inner defer failure")?
+      Err(error) => test.fail(error.message)
+      Ok(_) => test.fail("missing inner defer failure")
     }
 
     7

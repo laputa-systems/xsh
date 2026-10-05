@@ -23,4 +23,4 @@ let term = process.signal("TERM")?
 print "host" ${shell.name == "sh"} ${process_count > 0} ${host != ""} ${os.sysname != ""}
 print "identity" ${same_user.uid == me.uid} ${same_group.gid == me.gid} ${me.name != ""} ${me.home.display() != ""}
 print "signal" ${term.number > 0} ${time.now() > 0}
-run_checks()?
+run_checks()

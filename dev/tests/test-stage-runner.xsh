@@ -10,7 +10,7 @@ use stage_contract
 export proc execute(spec: stage_contract.CommandSpec) [process, error, io] -> Result[Unit] {
   return Ok()
 }
-""")?
+""")
   let result = test.run_script(
     ctx,
     """

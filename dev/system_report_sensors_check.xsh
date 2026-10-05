@@ -217,7 +217,7 @@ export proc compare_live_sensors_json(
   let scratch = fs.tempdir()?
   defer scratch.close()?
   for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
-    scratch.write(fp"{name}", "")?
+    scratch.write(fp"{name}", "")
   }
 
   let scratch_path = scratch.host_path()?

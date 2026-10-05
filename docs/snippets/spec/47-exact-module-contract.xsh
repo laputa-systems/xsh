@@ -14,8 +14,8 @@ proc restart_service() [fs, process, error, io] -> Result[Unit] {
   # begin example
   match module.load(service_path)?.require(Service) {
     Ok(service) => {
-      service.stop()?
-      service.start()?
+      service.stop()
+      service.start()
     }
     Err(is UnexpectedExport) => print "the service exports more than its contract allows"
     Err(error) => return Err(error)

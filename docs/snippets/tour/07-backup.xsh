@@ -3,4 +3,4 @@ proc backup(src: Path, dest: Path) {
   print "backup written"
 }
 
-backup(/var/lib/app, /backups/app.tgz)?
+backup(/var/lib/app, /backups/app.tgz)

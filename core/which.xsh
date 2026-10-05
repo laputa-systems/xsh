@@ -39,6 +39,6 @@ proc main(...argv: List[Str]) [process, error] {
   }
 
   if missing {
-    abort(1)
+    exit 1
   }
 }

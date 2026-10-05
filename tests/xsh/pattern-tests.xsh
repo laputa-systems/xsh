@@ -38,7 +38,7 @@ test test_pattern_predicates_narrow_stable_dynamic_bindings {
   if value is Str {
     assert value.upper() == "HELLO"
   } else {
-    test.fail("expected string")?
+    test.fail("expected string")
   }
 }
 
@@ -241,7 +241,7 @@ export enum Choice { Ready, Payload(Int) }
 export error Failure = Missing(detail: Str) : NotFound
 ## A dynamic choice.
 export pure dynamic_choice() -> Any { return Ready }
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""
@@ -340,11 +340,11 @@ test test_pattern_predicates_leave_control_body_braces {
   }
 
   if missing is PredicateError.Missing {} else {
-    test.fail("matching empty branch was skipped")?
+    test.fail("matching empty branch was skipped")
   }
 
   while missing is PredicateError.Broken {
-    test.fail("nonmatching loop was entered")?
+    test.fail("nonmatching loop was entered")
   }
 
   let matched = if missing is PredicateError.Missing { true } else { false }
@@ -365,7 +365,7 @@ test test_pattern_predicates_inside_a_condition_group_read_their_payload {
   }
 
   if ! (failures[0] is PredicateError.Missing) {
-    test.fail("a grouped pattern test lost its payload")?
+    test.fail("a grouped pattern test lost its payload")
   }
 
   if [failures[0] is PredicateError.Missing] == [true] {
@@ -583,7 +583,7 @@ export pure describe(result: Result[Int, Failure]) -> Str {
     _ => "other"
   }
 }
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""

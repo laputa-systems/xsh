@@ -6,6 +6,8 @@
 # reported to unwind straight out of the worker and was worked around with
 # `match prove() { Ok(_) => {} Err(e) => return Err(e) }`.
 
+const NAMES = ["good-1", "bad-1", "skip", "run-bad-1", "good-2", "bad-2"]
+
 error ProofError = Rejected(message: Str)
 
 proc check_payload(name: Str) [error] -> Result[Unit, ProofError] {
@@ -15,28 +17,26 @@ proc check_payload(name: Str) [error] -> Result[Unit, ProofError] {
 proc prove(root: Path, name: Str) [fs, process, env, error] {
   let cleaned = fp"{root}/{name}.proof-cleaned"
   defer cleaned.write("")?
-  if name == "skip" {
-    return
-  }
+  return when name == "skip"
   env ({PROOF_TARGET: name}) {
-    check_payload(name)?
+    check_payload(name)
     # A failed plain `run` is this proc's `Err` as well.
     if name.starts_with("run-bad") {
       run false
     }
-  }?
-  fp"{root}/{name}.proved".write("")?
+  }
+  fp"{root}/{name}.proved".write("")
 }
 
 proc build_with_propagation(root: Path, name: Str) [fs, process, env, error] -> Result[Str] {
   let cleaned = fp"{root}/{name}.build-cleaned"
   defer cleaned.write("")?
-  prove(root, name)?
-  fp"{root}/{name}.committed".write("")?
+  prove(root, name)
+  fp"{root}/{name}.committed".write("")
   f"{name} receipt"
 }
 
-proc assert_worker_outcomes(root: Path, names: List[Str], outcomes: List[Result[Str]]) [fs, error] -> Result[Unit] {
+proc assert_worker_outcomes(root: Path, names: List[Str], outcomes: List[Result[Str]]) [fs, error] {
   assert outcomes.len() == names.len()
   for index in range(names.len()) {
     let name = names[index]
@@ -61,17 +61,15 @@ proc assert_worker_outcomes(root: Path, names: List[Str], outcomes: List[Result[
   }
 }
 
-const NAMES = ["good-1", "bad-1", "skip", "run-bad-1", "good-2", "bad-2"]
-
 test test_par_map_worker_keeps_a_propagated_callee_failure_as_data { |ctx|
   for jobs in [1, 2, 6] {
     let root = test.temp_dir(ctx, name: f"par-map-worker-propagation-{jobs}")?
-    let outcomes = NAMES |> par-map(jobs: jobs) { |name|
+    let outcomes = NAMES |> par-map(jobs:) { |name|
       let outcome = build_with_propagation(root, name)
-      fp"{root}/{name}.status".write(if outcome is Ok(_) { "built" } else { "failed" })?
+      fp"{root}/{name}.status".write(if outcome is Ok(_) { "built" } else { "failed" })
       outcome
     }
-    assert_worker_outcomes(root, NAMES, outcomes)?
+    assert_worker_outcomes(root, NAMES, outcomes)
   }
 }
 
@@ -82,7 +80,7 @@ proc run_stage(root: Path, names: List[Str]) [fs, process, env, error] -> Result
   defer fp"{root}/stage-cleaned".write("")?
   let outcomes = names |> par-map(jobs: 2) { |name|
     let outcome = try { build_with_propagation(root, name)? }
-    fp"{root}/{name}.status".write(if outcome is Ok(_) { "built" } else { "failed" })?
+    fp"{root}/{name}.status".write(if outcome is Ok(_) { "built" } else { "failed" })
     outcome
   }
   assert ! fp"{root}/stage-cleaned".exists()?
@@ -93,5 +91,5 @@ test test_par_map_worker_capture_runs_before_the_callers_cleanup { |ctx|
   let root = test.temp_dir(ctx, name: "par-map-worker-capture")?
   let outcomes = run_stage(root, NAMES)?
   assert fp"{root}/stage-cleaned".exists()?
-  assert_worker_outcomes(root, NAMES, outcomes)?
+  assert_worker_outcomes(root, NAMES, outcomes)
 }

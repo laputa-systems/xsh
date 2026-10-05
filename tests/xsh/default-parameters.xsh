@@ -175,7 +175,7 @@ test test_default_parameters_resolve_imported_constants { |ctx|
   fp"{root}/config.xsh".write_atomic(r"""##! Build defaults.
 ## The default worker count.
 export const settings = {jobs: 6}
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""use config as c

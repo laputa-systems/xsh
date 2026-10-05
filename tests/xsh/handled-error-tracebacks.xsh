@@ -24,6 +24,18 @@ proc first_of(items: List[Int]) -> Int {
 let empty: List[Int] = []
 """
 
+const REPLACED_PRELUDE = """
+proc nested_outer(x: Int) [error] -> Result[Result[Int]] {
+  let value = check(x)?
+  Ok(Ok(value))
+}
+
+proc unit_outer(x: Int) [error] -> Result[Result[Unit]] {
+  let _ = check(x)?
+  Ok(Ok())
+}
+"""
+
 pure handled_script(handling: Str, failure: Str) -> Str {
   HANDLED_PRELUDE + handling + "\n" + failure + "\n"
 }
@@ -143,18 +155,6 @@ caller()?""",
   assert "proc handled_outer" in failed.stderr, failed.stderr
   assert "proc caller" in failed.stderr, failed.stderr
 }
-
-const REPLACED_PRELUDE = """
-proc nested_outer(x: Int) [error] -> Result[Result[Int]] {
-  let value = check(x)?
-  Ok(Ok(value))
-}
-
-proc unit_outer(x: Int) [error] -> Result[Result[Unit]] {
-  let _ = check(x)?
-  Ok(Ok())
-}
-"""
 
 # An `Err` that is handled and replaced inside one `?` operand, or inside one
 # propagating statement, starts no statement and no call in between. The

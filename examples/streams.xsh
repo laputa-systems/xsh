@@ -8,19 +8,19 @@ tempdir root {
     fp"{src}/main.xsh",
     """print "hi"
 """,
-  )?
+  )
 
   fs.write(
     fp"{src}/lib.xsh",
     """pure id(value: Str) -> Str { value }
 """,
-  )?
+  )
 
   fs.write(
     fp"{docs}/README.md",
     """structured reports
 """,
-  )?
+  )
 
   let reports = fs.files(root)
     |> where .kind == "file"

@@ -96,7 +96,7 @@ export const values: List[Int] = [size, 4]
 ## A schema with a prepared default.
 export type Config = {values: List[Int] = values}
 const private_value = 9
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use config as c

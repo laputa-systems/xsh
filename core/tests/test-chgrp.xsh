@@ -7,7 +7,7 @@ test test_chgrp_current_group { |ctx|
   assert target.metadata()?.gid == current.gid
   let root = test.temp_dir(ctx, name: "grouped-tree")?
   let child = fp"{root}/child.txt"
-  child.write("payload")?
+  child.write("payload")
   let recursive = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/chgrp.xsh" -- -R $name $root ?
   assert recursive == ""
   assert child.metadata()?.gid == current.gid

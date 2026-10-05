@@ -49,7 +49,7 @@ proc print_children(
   for item in entries |> enumerate() {
     let entry = item.value
     let is_last = item.index + 1 == count
-    print_entry(entry.path, entry.name, prefix, is_last, entry.kind)?
+    print_entry(entry.path, entry.name, prefix, is_last, entry.kind)
 
     if entry.kind == "dir" {
       totals = add_counts(totals, {dirs: 1, files: 0})

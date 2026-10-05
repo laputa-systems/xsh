@@ -198,12 +198,12 @@ proc main(...argv: List[Str]) [fs, error] {
       # clears a directory's execute bit would otherwise lock itself out of
       # resolving paths to that directory's children; chmod them first.
       for entry in fs.walk(target) |> sort-by(desc: true) .path {
-        entry.path.chmod(mode_for(mode_spec, entry.mode, entry.kind == "dir")?)?
+        entry.path.chmod(mode_for(mode_spec, entry.mode, entry.kind == "dir")?)
       }
     } else {
       let meta = target.metadata()?
       let mode = mode_for(mode_spec, meta.mode, meta.kind == "dir")?
-      target.chmod(mode)?
+      target.chmod(mode)
     }
   }
 }

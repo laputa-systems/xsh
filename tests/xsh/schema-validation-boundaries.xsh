@@ -38,7 +38,7 @@ type Private = {count: UInt}
 export type Box[T] = {value: T, owner: Private}
 ## Validate with the declaring schema.
 export pure validated(raw: Any) -> Result[Box[Int]] { raw.require()? }
-""")?
+""")
   let output = test.run_script(
     ctx,
     r"""use model as m

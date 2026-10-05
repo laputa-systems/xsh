@@ -10,7 +10,7 @@ proc run_ifupdown(
   state: Path,
   linux_log: Path,
 ) [fs, process, error] -> AppletRun {
-  test.linux_fake(ctx, {log: linux_log})?
+  test.linux_fake(ctx, {log: linux_log})
   let source = fp"{ctx.core_dir}/{name}.xsh".read_text()?
   let overlay = {XSH_IFUP_INTERFACES: interfaces.display(), XSH_IFUP_STATE: state.display()}
   test.run_script(ctx, source, argv, overlay, b"", name)?
@@ -42,7 +42,7 @@ iface eth0 inet static
     up echo "up:\$IFACE:\$IF_ADDRESS:\$IF_GATEWAY" >> {hook_log}
     post-up echo "post:\$PHASE" >> {hook_log}
 """,
-  )?
+  )
 }
 
 test test_ifup_all_applies_auto_static_and_hooks { |ctx|
@@ -51,7 +51,7 @@ test test_ifup_all_applies_auto_static_and_hooks { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
   let hook_log = fp"{root}/hooks.log"
-  write_interfaces(interfaces, hook_log)?
+  write_interfaces(interfaces, hook_log)
 
   ifupdown_ok(ctx, "ifup", ["-a"], interfaces, state, linux_log)
 
@@ -81,7 +81,7 @@ test test_ifup_dhcp_runs_discovery { |ctx|
     """auto eth0
 iface eth0 inet dhcp
 """,
-  )?
+  )
 
   let output = run_ifupdown(ctx, "ifup", ["-a"], interfaces, state, linux_log)
 
@@ -103,7 +103,7 @@ test test_ifup_state_skips_configured_interface { |ctx|
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
   let hook_log = fp"{root}/hooks.log"
-  write_interfaces(interfaces, hook_log)?
+  write_interfaces(interfaces, hook_log)
 
   ifupdown_ok(ctx, "ifup", ["eth0"], interfaces, state, linux_log)
 
@@ -124,7 +124,7 @@ test test_ifup_logical_selection { |ctx|
     address 10.0.1.42
     netmask 255.255.255.0
 """,
-  )?
+  )
 
   ifupdown_ok(ctx, "ifup", ["eth0=office"], interfaces, state, linux_log)
 
@@ -138,14 +138,14 @@ test test_ifup_source_glob { |ctx|
   let sourced = fp"{root}/interfaces.d"
   let state = fp"{root}/ifstate"
   let linux_log = fp"{root}/linux.jsonl"
-  fs.mkdir(sourced)?
+  fs.mkdir(sourced)
 
   fs.write(
     interfaces,
     f"""source {sourced}/*
 auto eth0
 """,
-  )?
+  )
 
   fs.write(
     fp"{sourced}/eth0",
@@ -153,7 +153,7 @@ auto eth0
     address 10.0.1.42
     netmask 255.255.255.0
 """,
-  )?
+  )
 
   ifupdown_ok(ctx, "ifup", ["-a"], interfaces, state, linux_log)
 

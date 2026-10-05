@@ -3,24 +3,24 @@ test test_linux_fake_covers_module_surface { |ctx|
   let log = fp"{root}/linux.jsonl"
   let seed = fp"{root}/seed"
   let random = fp"{root}/random"
-  fs.write(seed, "seed")?
+  fs.write(seed, "seed")
 
-  test.linux_fake(ctx, {log: log})?
-  linux.write_device(/dev/urandom, seed)?
-  linux.read_device(/dev/urandom, random, bytes: 4)?
-  linux.mount("proc", /proc, fstype: "proc", options: ["nosuid"])?
-  linux.mount_all()?
-  linux.umount_all(types: ["tmpfs"])?
-  linux.swapon_all()?
-  linux.swapoff_all()?
+  test.linux_fake(ctx, {log: log})
+  linux.write_device(/dev/urandom, seed)
+  linux.read_device(/dev/urandom, random, bytes: 4)
+  linux.mount("proc", /proc, fstype: "proc", options: ["nosuid"])
+  linux.mount_all()
+  linux.umount_all(types: ["tmpfs"])
+  linux.swapon_all()
+  linux.swapoff_all()
   assert linux.root_device()? == "rootfs"
-  linux.link_up("lo")?
-  linux.link_down("eth0")?
-  linux.set_ipv4_address("eth0", "192.0.2.10", "255.255.255.0")?
-  linux.flush_ipv4_addresses("eth0")?
-  linux.add_default_ipv4_route("192.0.2.1", interface: "eth0")?
-  linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")?
-  linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")?
+  linux.link_up("lo")
+  linux.link_down("eth0")
+  linux.set_ipv4_address("eth0", "192.0.2.10", "255.255.255.0")
+  linux.flush_ipv4_addresses("eth0")
+  linux.add_default_ipv4_route("192.0.2.1", interface: "eth0")
+  linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")
+  linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")
   let interfaces = linux.interfaces()?.collect()
   assert interfaces[0].name == "eth0"
   assert interfaces[0].addresses[0].family == "inet"
@@ -41,39 +41,39 @@ test test_linux_fake_covers_module_surface { |ctx|
   assert linux.block_devices()?.collect()[0].name == "vda"
   let sysctl_value = linux.sysctl_get("kernel.pid_max")?
   assert sysctl_value == "1"
-  linux.sysctl_set("kernel.pid_max", sysctl_value)?
+  linux.sysctl_set("kernel.pid_max", sysctl_value)
   let attrs = linux.file_attrs(seed)?
   assert attrs.immutable and attrs.append_only
-  linux.set_file_attrs(seed, attrs.flags)?
+  linux.set_file_attrs(seed, attrs.flags)
   let version = linux.file_version(seed)?
-  linux.set_file_version(seed, version)?
-  linux.chroot(root)?
-  linux.mknod(fp"{root}/null", "char", 1, 3)?
-  linux.insmod(fp"{root}/demo.ko", params: "debug=1")?
-  linux.rmmod("demo", force: true)?
-  linux.pivot_root(root, fp"{root}/oldroot")?
-  linux.switch_root(root, /sbin/init)?
+  linux.set_file_version(seed, version)
+  linux.chroot(root)
+  linux.mknod(fp"{root}/null", "char", 1, 3)
+  linux.insmod(fp"{root}/demo.ko", params: "debug=1")
+  linux.rmmod("demo", force: true)
+  linux.pivot_root(root, fp"{root}/oldroot")
+  linux.switch_root(root, /sbin/init)
   let epoch_ms = linux.hwclock()?
-  linux.set_hwclock(epoch_ms)?
-  linux.set_system_clock(epoch_ms)?
+  linux.set_hwclock(epoch_ms)
+  linux.set_system_clock(epoch_ms)
   let rfkill = linux.rfkill_list()?.collect()
   assert rfkill[0].type == "wlan"
-  linux.rfkill_block(rfkill[0].id)?
-  linux.rfkill_unblock(rfkill[0].id)?
+  linux.rfkill_block(rfkill[0].id)
+  linux.rfkill_unblock(rfkill[0].id)
   let loop_device = linux.loop_attach(seed)?
-  linux.loop_detach(loop_device)?
+  linux.loop_detach(loop_device)
   assert linux.loop_list()?.collect()[0].device == loop_device
-  linux.mkswap(seed)?
-  linux.swapon(seed, priority: 1)?
-  linux.swapoff(seed)?
+  linux.mkswap(seed)
+  linux.swapon(seed, priority: 1)
+  linux.swapoff(seed)
   assert linux.blkid(seed)?.type == "ext4"
   assert linux.modinfo("demo")?.params[0].name == "debug"
-  linux.modprobe("demo", params: "debug=1")?
-  linux.depmod("dry-run")?
+  linux.modprobe("demo", params: "debug=1")
+  linux.depmod("dry-run")
   assert linux.open_files(123)?.collect()[0].type == "file"
   let table = linux.partition_table(seed)?
   assert table.partitions[0].name == "root"
-  linux.write_partition_table(seed, table)?
+  linux.write_partition_table(seed, table)
   assert linux.fsck(seed, fstype: "ext4")?.status == 0
   let uevents = linux.uevent_stream()?
 
@@ -84,11 +84,11 @@ test test_linux_fake_covers_module_surface { |ctx|
     break
   }
 
-  linux.sysctl_load_dirs([/etc/sysctl.d], fallback: /etc/sysctl.conf)?
-  linux.kill_all(signal: "TERM", except_pid1: true)?
-  linux.halt()?
-  linux.poweroff()?
-  linux.reboot()?
+  linux.sysctl_load_dirs([/etc/sysctl.d], fallback: /etc/sysctl.conf)
+  linux.kill_all(signal: "TERM", except_pid1: true)
+  linux.halt()
+  linux.poweroff()
+  linux.reboot()
 
   assert random.read_bytes()? == b"\0\0\0\0"
   let log_text = log.read_text()?
@@ -130,16 +130,16 @@ test test_linux_entries_reach_the_host_without_a_gate {
     assert interfaces |> any .name == "lo"
     assert linux.link_up("xsh-absent0") is Err(_)
   } else {
-    test.error_kind(linux.meminfo(), "linux-unsupported")?
-    test.error_kind(linux.interfaces(), "linux-unsupported")?
-    test.error_kind(linux.link_up("xsh-absent0"), "linux-unsupported")?
-    test.error_kind(linux.halt(), "linux-unsupported")?
+    test.error_kind(linux.meminfo(), "linux-unsupported")
+    test.error_kind(linux.interfaces(), "linux-unsupported")
+    test.error_kind(linux.link_up("xsh-absent0"), "linux-unsupported")
+    test.error_kind(linux.halt(), "linux-unsupported")
   }
 }
 
 test test_linux_fake_rejects_unknown_settings { |ctx|
-  test.error_kind(test.linux_fake(ctx, {dry_run: "1"}), "test-linux-fake")?
-  test.error_kind(test.linux_fake(ctx, {log: true}), "test-linux-fake")?
+  test.error_kind(test.linux_fake(ctx, {dry_run: "1"}), "test-linux-fake")
+  test.error_kind(test.linux_fake(ctx, {log: true}), "test-linux-fake")
 }
 
 test test_linux_fake_text_values_and_log { |ctx|
@@ -148,7 +148,7 @@ test test_linux_fake_text_values_and_log { |ctx|
 
   # The entries report fixed values while the fake is installed, and each call
   # appends one line naming its operation to the log file.
-  test.linux_fake(ctx, {log: log})?
+  test.linux_fake(ctx, {log: log})
   let memory = linux.meminfo()?
   assert memory.total == 1GiB
   assert memory.free == 256MiB
@@ -170,7 +170,7 @@ test test_linux_fake_text_values_and_log { |ctx|
 }
 
 test test_linux_fake_disk_usage_and_sysctl_records { |ctx|
-  test.linux_fake(ctx, {sysctl_value: "65535"})?
+  test.linux_fake(ctx, {sysctl_value: "65535"})
   let root_usage = linux.disk_usage()?.collect()
   let tmp_usage = linux.disk_usage(/tmp)?.collect()
   assert root_usage[0].device == "rootfs"
@@ -188,12 +188,12 @@ test test_linux_fake_disk_usage_and_sysctl_records { |ctx|
 test test_linux_fake_file_attrs_decode_seed_flags { |ctx|
   let root = test.temp_dir(ctx, name: "linux-file-attrs")?
   let seed = fp"{root}/seed"
-  fs.write(seed, "seed")?
-  test.linux_fake(ctx, {file_attrs_flags: 250111, file_version: 7})?
+  fs.write(seed, "seed")
+  test.linux_fake(ctx, {file_attrs_flags: 250111, file_version: 7})
   let attrs = linux.file_attrs(seed)?
   let version = linux.file_version(seed)?
-  linux.set_file_attrs(seed, attrs.flags)?
-  linux.set_file_version(seed, version)?
+  linux.set_file_attrs(seed, attrs.flags)
+  linux.set_file_version(seed, version)
   assert attrs.flags == 250111
   assert version == 7
   assert attrs.indexed_directory
@@ -212,11 +212,11 @@ test test_linux_fake_file_attrs_decode_seed_flags { |ctx|
 }
 
 test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
-  test.linux_fake(ctx)?
+  test.linux_fake(ctx)
   match linux.sysctl_get("kernel..pid_max") {
     Ok(_) => assert false, "invalid sysctl name was accepted"
     Err(failure) => {
-      test.error_kind(failure, "linux-sysctl")?
+      test.error_kind(failure, "linux-sysctl")
       assert "invalid" in failure.message
     }
   }
@@ -224,7 +224,7 @@ test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
   match linux.sysctl_set("../kernel.pid_max", "1") {
     Ok(_) => assert false, "invalid sysctl path was accepted"
     Err(failure) => {
-      test.error_kind(failure, "linux-sysctl")?
+      test.error_kind(failure, "linux-sysctl")
       assert "invalid" in failure.message
     }
   }
@@ -233,7 +233,7 @@ test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
     match linux.set_file_attrs(/tmp/file, flags) {
       Ok(_) => assert false, "invalid file attribute flags were accepted"
       Err(failure) => {
-        test.error_kind(failure, "linux-file-attrs")?
+        test.error_kind(failure, "linux-file-attrs")
         assert "between 0 and 4294967295" in failure.message
       }
     }
@@ -242,16 +242,16 @@ test test_linux_fake_rejects_invalid_seed_inputs { |ctx|
   match linux.set_file_version(/tmp/file, -1) {
     Ok(_) => assert false, "invalid file version was accepted"
     Err(failure) => {
-      test.error_kind(failure, "linux-file-version")?
+      test.error_kind(failure, "linux-file-version")
       assert "between 0 and 4294967295" in failure.message
     }
   }
 
-  test.error_kind(linux.kill_all(signal: "BOGUS"), "invalid-signal")?
+  test.error_kind(linux.kill_all(signal: "BOGUS"), "invalid-signal")
   match linux.mknod(/tmp/file, "socket", 0, 0) {
     Ok(_) => assert false, "invalid node kind was accepted"
     Err(failure) => {
-      test.error_kind(failure, "linux-mknod")?
+      test.error_kind(failure, "linux-mknod")
       assert "block" in failure.message
     }
   }
@@ -265,9 +265,9 @@ test test_linux_fake_log_appends_in_place { |ctx|
   # newline. The baseline appends to the open file, so those bytes have to
   # survive; a read-concatenate-rewrite log would lose or replace them.
   let seeded = bytes.from_ints([255, 254, 10])?
-  fs.write(log, seeded)?
+  fs.write(log, seeded)
 
-  test.linux_fake(ctx, {log: log})?
+  test.linux_fake(ctx, {log: log})
   let _ = linux.meminfo()?
   let once = log.read_bytes()?
   assert once.starts_with(seeded)
@@ -275,7 +275,7 @@ test test_linux_fake_log_appends_in_place { |ctx|
 
   # A second call appends exactly one more record: the file grows by the same
   # number of bytes again and nothing before it is truncated.
-  test.linux_fake(ctx, {log: log})?
+  test.linux_fake(ctx, {log: log})
   let _ = linux.meminfo()?
   let twice = log.read_bytes()?
   assert twice.starts_with(seeded)
@@ -283,15 +283,15 @@ test test_linux_fake_log_appends_in_place { |ctx|
 
   # A destination whose parent directories do not exist yet is created.
   let fresh = fp"{root}/missing/deeper/linux.jsonl"
-  test.linux_fake(ctx, {log: fresh})?
+  test.linux_fake(ctx, {log: fresh})
   let _ = linux.meminfo()?
   assert fresh.exists()?
   assert "\"op\":\"meminfo\"" in (fresh.read_text() ?? "")
 
   # A directory destination raises the native logging error.
   let blocked = fp"{root}/a-directory"
-  fs.mkdir(blocked)?
-  test.linux_fake(ctx, {log: blocked})?
+  fs.mkdir(blocked)
+  test.linux_fake(ctx, {log: blocked})
   let failed = test.run_script(ctx, "let _ = linux.meminfo()?")?
   assert ! failed.success
   assert "linux-fake-log" in failed.stderr
@@ -301,9 +301,9 @@ test test_linux_fake_log_appends_in_place { |ctx|
 test test_linux_text_log_failure_kind { |ctx|
   let root = test.temp_dir(ctx, name: "linux-text-log")?
   let blocked = fp"{root}/file"
-  fs.write(blocked, "not a directory")?
+  fs.write(blocked, "not a directory")
   let blocked_log = fp"{blocked}/linux.jsonl"
-  test.linux_fake(ctx, {log: blocked_log})?
+  test.linux_fake(ctx, {log: blocked_log})
   let meminfo_failed = test.run_script(ctx, "let _ = linux.meminfo()?")?
   assert ! meminfo_failed.success
   assert "linux-fake-log" in meminfo_failed.stderr
@@ -390,11 +390,11 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
   fs.write(
     fp"{root}/demo-name.ko",
     "description=Demo module\0license=MIT\0version=2\0depends=dep,missing\0parm=debug:Enable debug (bool)\0parm=mode:Mode (charp)\0",
-  )?
+  )
   fs.write(
     fp"{root}/dep.ko",
     "description=dep module\0license=GPL\0version=1\0",
-  )?
+  )
 
   # The nested source is a template rather than an f-string: its `${...}`
   # interpolations belong to the nested script, so the outer checker must not
@@ -454,7 +454,7 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
   let release = fp"{root}/release"
   let closed = fp"{root}/closed"
   let stop = fp"{root}/stop"
-  source.write("payload")?
+  source.write("payload")
   let child = spawn process.command_argv(
     "sh",
     [
@@ -472,7 +472,7 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
 
   for _ in range(0, 500) {
     break when ready.exists()?
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
 
   assert ready.exists()?, "child did not open its descriptor"
@@ -480,10 +480,10 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
   let before = linux.open_files(child.pid)?.collect()
   assert before |> any .path == source, "open descriptor must be visible"
 
-  release.write("")?
+  release.write("")
   for _ in range(0, 500) {
     break when closed.exists()?
-    time.sleep(10ms)?
+    time.sleep(10ms)
   }
 
   assert closed.exists()?, "child did not close its descriptor"
@@ -491,6 +491,6 @@ test test_linux_open_files_tracks_a_live_child_descriptor { |ctx|
   assert after.len() > 0, "child must still be visible"
   assert ! (after |> any .path == source), "closed descriptor must disappear"
 
-  stop.write("")?
+  stop.write("")
   assert wait child?.exited_with(0)
 }

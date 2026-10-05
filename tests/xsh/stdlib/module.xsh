@@ -23,7 +23,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   fs.write(fp"{root}/out.txt", name)?
 }
 """,
-  )?
+  )
 
   let plugin = module.load(plugin_path)?.require(Plugin)?
   assert plugin.name == "demo"
@@ -31,7 +31,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   assert "missing" not in plugin.keys()
   assert "name" in plugin.keys()
   assert plugin.keys().len() == 3
-  plugin.execute(root)?
+  plugin.execute(root)
   assert fp"{root}/out.txt".read_text()? == "demo"
 }
 
@@ -58,7 +58,7 @@ export proc build(root: Path) [fs, error] -> Result[Path] {
   marker.write(label("marker"))?
   marker
 }
-""")?
+""")
 
   let bound = module.load(builder_path)?.require(Builder)?
   let bound_marker = bound.build(root)?
@@ -115,7 +115,7 @@ export proc build(root: Path) [fs, error] -> Result[Path] {
   root.mkdir()?
   root
 }
-""")?
+""")
   fixture
 }
 
@@ -124,7 +124,7 @@ export proc build(root: Path) [fs, error] -> Result[Path] {
 test test_module_contract_failure_names_missing_exports { |ctx|
   let fixture = contract_fixture(ctx)?
   match module.load(fixture)?.require(MissingOnly) {
-    Ok(_) => test.fail("a module without required exports satisfied the contract")?
+    Ok(_) => test.fail("a module without required exports satisfied the contract")
     Err(error) => {
       assert error is MissingExport
       assert ! (error is MismatchedExport)
@@ -140,7 +140,7 @@ test test_module_contract_failure_names_missing_exports { |ctx|
 test test_module_contract_failure_names_mismatched_exports { |ctx|
   let fixture = contract_fixture(ctx)?
   match module.load(fixture)?.require(MismatchedOnly) {
-    Ok(_) => test.fail("a module with other signatures satisfied the contract")?
+    Ok(_) => test.fail("a module with other signatures satisfied the contract")
     Err(error) => {
       assert error is MismatchedExport
       assert ! (error is MissingExport)
@@ -151,7 +151,7 @@ test test_module_contract_failure_names_mismatched_exports { |ctx|
   }
 
   match module.load(fixture)?.require(EffectsAndReturn) {
-    Ok(_) => test.fail("a module with other effects satisfied the contract")?
+    Ok(_) => test.fail("a module with other effects satisfied the contract")
     Err(signature) => {
       assert signature is MismatchedExport
       assert "(the effects are [fs, error], the contract declares [fs, process, error])" in signature.message, signature.message
@@ -160,7 +160,7 @@ test test_module_contract_failure_names_mismatched_exports { |ctx|
   }
 
   match module.load(fixture)?.require(WrongKinds) {
-    Ok(_) => test.fail("a module with other export kinds satisfied the contract")?
+    Ok(_) => test.fail("a module with other export kinds satisfied the contract")
     Err(kinds) => {
       assert kinds is MismatchedExport
       assert "(the contract declares a proc, the module exports a pure function)" in kinds.message, kinds.message
@@ -173,13 +173,13 @@ test test_module_contract_failure_names_mismatched_exports { |ctx|
 test test_module_contract_failure_reports_both_categories { |ctx|
   let fixture = contract_fixture(ctx)?
   match module.load(fixture)?.require(MissingAndMismatched) {
-    Ok(_) => test.fail("an unsatisfied contract succeeded")?
+    Ok(_) => test.fail("an unsatisfied contract succeeded")
     Err(error) => {
       assert error is MissingExport
       assert error is MismatchedExport
       assert "mismatched export `name`" in error.message, error.message
       assert "missing export `version`" in error.message, error.message
-      test.error_kind(error, "schema")?
+      test.error_kind(error, "schema")
     }
   }
 }
@@ -210,7 +210,7 @@ test test_exact_module_contract_rejects_unexpected_exports { |ctx|
   assert exact.label("x") == "label-x"
 
   match module.load(fixture)?.require(ExactTooSmall) {
-    Ok(_) => test.fail("a module with unlisted exports satisfied an exact contract")?
+    Ok(_) => test.fail("a module with unlisted exports satisfied an exact contract")
     Err(error) => {
       assert error is UnexpectedExport
       assert ! (error is MissingExport)
@@ -219,12 +219,12 @@ test test_exact_module_contract_rejects_unexpected_exports { |ctx|
       assert "unexpected export `label`: `export pure label(value: Str) -> Str` is not in the exact contract" in error.message, error.message
       assert "`name`" not in error.message, error.message
       assert "description" not in error.message, error.message
-      test.error_kind(error, "schema")?
+      test.error_kind(error, "schema")
     }
   }
 
   match module.load(fixture)?.require(ExactAllCategories) {
-    Ok(_) => test.fail("an unsatisfied exact contract succeeded")?
+    Ok(_) => test.fail("an unsatisfied exact contract succeeded")
     Err(error) => {
       assert error is MissingExport
       assert error is MismatchedExport
@@ -257,7 +257,7 @@ export let name: Str = "cache"
 export pure extra() -> Int {
   1
 }
-""")?
+""")
   let env_root = {XSH_MODULE_PATH: root.display()}
 
   let accepted = test.run_script(
@@ -356,18 +356,18 @@ export let version = module.load(fp"{versioned}")?.require(VersionedModule)?.ver
 """
   let first = fp"{root}/first.xsh"
   let second = fp"{root}/second.xsh"
-  first.write(outer_text)?
-  second.write(outer_text)?
+  first.write(outer_text)
+  second.write(outer_text)
 
   versioned.write(
     module_text + """1
 """,
-  )?
+  )
   assert module.load(first)?.require(VersionedModule)?.version == 1
   versioned.write(
     module_text + """2
 """,
-  )?
+  )
   assert module.load(second)?.require(VersionedModule)?.version == 2
 }
 
@@ -379,10 +379,10 @@ test test_module_load_reloads_a_changed_module_in_the_same_evaluator { |ctx|
   let module_text = """##! Versioned module.
 ## Exposes the version.
 export let version = """
-  versioned.write(module_text + "1\n")?
+  versioned.write(module_text + "1\n")
   assert module.load(versioned)?.require(VersionedModule)?.version == 1
   assert module.load(versioned)?.require(VersionedModule)?.version == 1
-  versioned.write(module_text + "2\n")?
+  versioned.write(module_text + "2\n")
   assert module.load(versioned)?.require(VersionedModule)?.version == 2
 }
 
@@ -397,7 +397,7 @@ export let helper_name = "demo"
 export pure helper_label(value: Str) -> Str {
   return f"helper:{value}"
 }
-""")?
+""")
   let package = fp"{root}/package.xsh"
   package.write(r"""
 ##! Dynamic package module.
@@ -425,7 +425,7 @@ export pure label(value: Str) -> Str {
 export proc build(value: Str) -> Result[Unit] {
   emit_private(value)?
 }
-""")?
+""")
 
   let module_env = {XSH_MODULE_PATH: root.display()}
   let success = test.run_script(
@@ -493,7 +493,7 @@ test test_module_load_rejects_undocumented_export { |ctx|
     plugin_path,
     """export let name = "undocumented"
 """,
-  )?
+  )
 
   let output = test.run_script(
     ctx,
@@ -524,7 +524,7 @@ export let name = "bad"
     },
   ] {
     let module_path = fp"{root}/{fixture.name}.xsh"
-    fs.write(module_path, fixture.source)?
+    fs.write(module_path, fixture.source)
     let output = test.run_script(
       ctx,
       f"""let _ = module.load(p"{module_path}")?
@@ -542,7 +542,7 @@ export let name = "bad"
     """on SIGINT [] {
 }
 """,
-  )?
+  )
   let output = test.run_script(
     ctx,
     f"""let _ = module.load(p"{hook}")?
@@ -563,7 +563,7 @@ test test_static_and_loaded_modules_reject_the_same_contract_mismatches { |ctx|
 
 ## Deliberately not the contract's string type.
 export let description: Int = 1
-""")?
+""")
   effect_path.write("""
 ##! Module with an implementation effect outside its contract.
 
@@ -571,7 +571,7 @@ export let description: Int = 1
 export proc execute() [fs, process, error] -> Result[Unit] {
   return Ok()
 }
-""")?
+""")
 
   let optional_contract = """\ntype Plugin = module {
   export optional let description: Str
@@ -615,7 +615,7 @@ test test_static_module_namespace_satisfies_the_same_contract { |ctx|
 export proc execute(root: Path) [fs, error] -> Result[Unit] {
   fp"{root}/out.txt".write("static")?
 }
-""")?
+""")
 
   let result = test.run_script(
     ctx,
@@ -645,8 +645,8 @@ main()?
 
 test test_same_basename_modules_keep_separate_top_level_bindings { |ctx|
   let root = test.temp_dir(ctx, name: "same-basename-modules")?
-  fp"{root}/alpha".mkdir()?
-  fp"{root}/beta".mkdir()?
+  fp"{root}/alpha".mkdir()
+  fp"{root}/beta".mkdir()
   fp"{root}/alpha/proof.xsh".write("""
 ##! First proof module.
 let numbers = [2, 3]
@@ -659,7 +659,7 @@ export pure sum_numbers() -> Int {
   }
   return total
 }
-""")?
+""")
   fp"{root}/beta/proof.xsh".write("""
 ##! Second proof module.
 let words = ["one", "two", "three"]
@@ -672,7 +672,7 @@ export pure count_words() -> Int {
   }
   return total
 }
-""")?
+""")
 
   let result = test.run_script(
     ctx,
@@ -703,7 +703,7 @@ export pure select(argv: List[Str]) -> List[Str] {
   let args = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
   return args
 }
-""")?
+""")
 
   let result = test.run_script(
     ctx,
@@ -732,7 +732,7 @@ export error HelperError = Failed(detail: Str, code: Int) : Temporary
 export pure failure() -> Result[Unit] {
   Err(HelperError.Failed(detail: "loaded", code: 9))
 }
-""")?
+""")
   let result = test.run_script(
     ctx,
     r"""
@@ -824,7 +824,7 @@ export stream numbers() [] -> Stream[Int] {
 export enum State { Ready, Stopped(Str) }
 ## An error family export with an error facet.
 export error HelperError = Failed(detail: Str) : Temporary
-""")?
+""")
 
   let positive = test.run_script(
     ctx,
@@ -958,7 +958,7 @@ export proc show(pkg: Package) -> Result[Unit] {
 
 ## Public package value.
 export let pkg: Package = {name: "demo"}
-""")?
+""")
 
   let output = test.run_script(
     ctx,
@@ -997,7 +997,7 @@ export type Target = {triple: Str, cpu: Cpu}
 export pure select() -> Target {
   return {triple: "x86_64-unknown-linux-musl", cpu: {feature: "crt-static"}}
 }
-""")?
+""")
   fp"{root}/lifecycle.xsh".write(r"""
 ##! Lifecycle fixture module consuming contexts composed from the target policy record.
 use target as targets
@@ -1009,7 +1009,7 @@ export type Context = {root: Path, target: targets.Target}
 export proc normalize(context: Context) [io] -> Result[Unit] {
   print ${context.root} ${context.target.triple} ${context.target.cpu.feature}
 }
-""")?
+""")
 
   let output = test.run_script(
     ctx,
@@ -1036,14 +1036,14 @@ test test_module_proc_call_preserves_runtime_cwd { |ctx|
   let src = fp"{root}/src"
   let out = fp"{root}/cwd.txt"
   let callee = fp"{root}/callee.xsh"
-  src.mkdir()?
+  src.mkdir()
   callee.write(r"""
 ##! CWD writer module.
 ## Writes the active runtime working directory.
 export proc write_cwd(out: Path) [fs, error] -> Result[Unit] {
   fs.write(out, fs.cwd()?.display())?
 }
-""")?
+""")
   fp"{root}/caller.xsh".write(f"""
 ##! CWD caller module.
 type Writer = module {{
@@ -1057,7 +1057,7 @@ export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {{
     module_exports.write_cwd(out)?
   }} ?
 }}
-""")?
+""")
 
   let output = test.run_script(
     ctx,
@@ -1078,7 +1078,7 @@ c.invoke(p"{src}", p"{out}")?
 test test_module_path_resolves_nested_module_with_default_alias { |ctx|
   let root = test.temp_dir(ctx, name: "nested-module-path")?
   let lib = fp"{root}/lib"
-  fp"{lib}/pm".mkdir()?
+  fp"{lib}/pm".mkdir()
   fp"{lib}/pm/configure.xsh".write(r"""
 ##! Configure fixture module.
 ## Provides a package label.
@@ -1086,7 +1086,7 @@ test test_module_path_resolves_nested_module_with_default_alias { |ctx|
 export pure label(name: Str) -> Str {
   return f"configured {name}"
 }
-""")?
+""")
 
   let output = test.run_script(
     ctx,
@@ -1129,7 +1129,7 @@ export proc show(pkg: p.Package) -> Result[Unit] {
   print ${line(pkg.name)}
   return Ok()
 }
-""")?
+""")
   fp"{root}/package.xsh".write(r"""
 ##! Package fixture module.
 let secret = "hidden"
@@ -1137,7 +1137,7 @@ let secret = "hidden"
 export type Package = {name: Str, root: Path}
 ## Public package value.
 export let pkg: Package = {name: "demo", root: Path("src")}
-""")?
+""")
 
   let source = """\nuse helper
 use package as p
@@ -1178,12 +1178,12 @@ missing-field
 ## Public cycle value.
 use b
 export let value = 1
-""")?
+""")
   fp"{root}/b.xsh".write("""##! Cycle fixture B.
 ## Public cycle value.
 use a
 export let value = 2
-""")?
+""")
   let cycle = test.run_script(
     ctx,
     """use a
@@ -1200,7 +1200,7 @@ test test_package_hook_module_calls_keep_dynamic_and_static_cwd { |ctx|
   let dynamic_out = fp"{root}/dynamic-out"
   let static_src = fp"{root}/static-src"
   let static_out = fp"{root}/static-out"
-  static_src.mkdir()?
+  static_src.mkdir()
   let package = fp"{root}/PKGBUILD.xsh"
   package.write(r"""
 ##! Package hook module.
@@ -1212,7 +1212,7 @@ export proc build(dest: Path) [fs, error] -> Result[Unit] {
   fs.mkdir(dest)?
   fs.write(fp"{dest}/ok", f"{name}:{fs.cwd()?.name()}\n")?
 }
-""")?
+""")
 
   let dynamic = test.run_script(
     ctx,
@@ -1264,7 +1264,7 @@ test test_stream_exports_are_namespace_members_not_module_contract_members { |ct
 export stream numbers() [] -> Stream[Int] {
   yield 1
 }
-""")?
+""")
 
   let concrete_empty = test.run_script(
     ctx,
@@ -1311,7 +1311,7 @@ test test_module_load_reports_module_path_and_parse_cause { |ctx|
 export pure answer() -> Int {
   1 +
 """,
-  )?
+  )
 
   let output = test.run_script(
     ctx,
@@ -1326,24 +1326,24 @@ export pure answer() -> Int {
 
 test test_module_load_resolves_uses_with_configured_test_module_roots { |ctx|
   let project = test.temp_dir(ctx, name: "module-roots-project")?
-  fp"{project}/lib/shared".mkdir()?
-  fp"{project}/plugins".mkdir()?
-  fp"{project}/tests".mkdir()?
+  fp"{project}/lib/shared".mkdir()
+  fp"{project}/plugins".mkdir()
+  fp"{project}/tests".mkdir()
   fp"{project}/xsht-config.ini".write("""module_path = lib
-""")?
+""")
   fp"{project}/lib/shared/answers.xsh".write("""##! Shared answers.
 
 ## The shared answer.
 export pure answer() -> Int {
   42
 }
-""")?
+""")
   fp"{project}/plugins/plugin.xsh".write("""##! A plugin importing through a configured root.
 use shared.answers as answers
 
 ## The answer resolved through the configured root.
 export let value: Int = answers.answer()
-""")?
+""")
   fp"{project}/tests/loader.xsh".write("""type AnswerPlugin = module {
   export let value: Int
 }
@@ -1352,36 +1352,36 @@ test loads_plugin_with_configured_roots {
   let plugin = module.load(p"plugins/plugin.xsh")?.require(AnswerPlugin)?
   assert plugin.value == 42
 }
-""")?
+""")
 
   cd project {
     let output = run.capture --text "xsht" test tests/loader.xsh ?
     assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
-  } ?
+  }
 }
 
 test test_spawned_xsh_children_append_configured_test_module_roots { |ctx|
   let project = test.temp_dir(ctx, name: "child-module-roots-project")?
   let inherited = test.temp_dir(ctx, name: "child-module-roots-inherited")?
-  fp"{project}/lib/shared".mkdir()?
-  fp"{project}/tests".mkdir()?
-  fp"{inherited}/extra".mkdir()?
+  fp"{project}/lib/shared".mkdir()
+  fp"{project}/tests".mkdir()
+  fp"{inherited}/extra".mkdir()
   fp"{project}/xsht-config.ini".write("""module_path = lib
-""")?
+""")
   fp"{project}/lib/shared/answers.xsh".write("""##! Shared answers.
 
 ## The shared answer.
 export pure answer() -> Int {
   42
 }
-""")?
+""")
   fp"{inherited}/extra/greeting.xsh".write("""##! An inherited greeting.
 
 ## The greeting word.
 export pure word() -> Str {
   "hi"
 }
-""")?
+""")
   fp"{project}/tests/children.xsh".write(
     r"""const child_source = "use shared.answers as answers\nuse extra.greeting as greeting\nprint greeting.word() answers.answer()\n"
 
@@ -1399,7 +1399,7 @@ test plain_run_child_finds_configured_roots { |ctx|
   assert output.stdout == "hi 42\n", output.stdout
 }
 """,
-  )?
+  )
 
   let inherited_root = inherited.display()
   env XSH_MODULE_PATH=$inherited_root {
@@ -1407,7 +1407,7 @@ test plain_run_child_finds_configured_roots { |ctx|
       let output = run.capture --text "xsht" test tests/children.xsh ?
       assert output.status.exited_with(0), f"{output.stdout}{output.stderr}"
       assert "2 passed" in output.stdout, output.stdout
-    } ?
+    }
   }
 }
 
@@ -1415,20 +1415,20 @@ test plain_run_child_finds_configured_roots { |ctx|
 # program means the same afterwards.
 test test_redundant_use_alias_is_reported_and_fixed { |ctx|
   let root = test.temp_dir(ctx, name: "redundant-use-alias")?
-  fp"{root}/checks".mkdir()?
+  fp"{root}/checks".mkdir()
   fp"{root}/checks/disk.xsh".write("""##! Disk checks.
 
 ## The usage threshold.
 export pure threshold() -> Int {
   90
 }
-""")?
+""")
   let script = fp"{root}/main.xsh"
   script.write(r"""use checks.disk as disk
 use checks.disk as usage
 
 print ${disk.threshold()} ${usage.threshold()}
-""")?
+""")
 
   let before = run.capture --text "xsh" $script ?
   assert before.status.exited_with(0), before.stderr
@@ -1466,7 +1466,7 @@ export let name: Str = "cache"
 export pure label(value: Str) -> Str {
   f"{name}-{value}"
 }
-""")?
+""")
 
   let output = test.run_script(
     ctx,
@@ -1497,7 +1497,7 @@ print ${{open.name}} ${{exact.label("exact")}} ${{loaded.label("loaded")}} ${{cu
 describe()
 """,
     [],
-    {XSH_MODULE_PATH: root.display()},
+    {XSH_MODULE_PATH: root},
   )?
   assert output.success, output.stderr
   assert output.stdout == "cache cache-exact cache-loaded cache\ncache-proc\n", output.stdout

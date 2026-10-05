@@ -20,7 +20,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
     assert error_kind == "bad"
     assert error_number == 3
   } else {
-    test.fail("keyword error payload labels must match")?
+    test.fail("keyword error payload labels must match")
   }
 
   if let {type: kind, in: number, match: enabled} = bare {
@@ -28,7 +28,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes {
     assert number == 2
     assert enabled, "pattern-bound keyword field remains enabled"
   } else {
-    test.fail("keyword field labels must match")?
+    test.fail("keyword field labels must match")
   }
 
   var mutable = bare

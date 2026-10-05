@@ -81,7 +81,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
               let trash_status = run.status trash $entry.path
 
               if trash_status.ok {
-                tmp_out.rename(dest, overwrite: true)?
+                tmp_out.rename(dest, overwrite: true)
                 print f"{entry.path} -> {dest}"
                 out = {converted: true}
               } else {

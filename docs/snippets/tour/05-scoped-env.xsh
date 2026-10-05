@@ -1,6 +1,6 @@
 tempdir dir {
   cd $dir {
-    p"notes.txt".write("hi\n")?
+    p"notes.txt".write("hi\n")
     let listing = run.text ls ?
     print f"inside: {listing.trim()}"
   }

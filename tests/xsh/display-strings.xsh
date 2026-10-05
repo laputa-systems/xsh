@@ -68,21 +68,21 @@ test test_display_strings_reject_malformed_interpolations_at_exact_columns { |ct
 """,
     "parse.fmt-lone-brace",
     ":1:11",
-  )?
+  )
   assert_rejected(
     ctx,
     """print f"a {x"
 """,
     "parse.unterminated-interpolation",
     ":1:11",
-  )?
+  )
   assert_rejected(
     ctx,
     """print f"a {  } b"
 """,
     "parse.fmt-empty-interpolation",
     ":1:11",
-  )?
+  )
   assert_rejected(
     ctx,
     """let x = 1
@@ -90,7 +90,7 @@ print f"{x # note}"
 """,
     "parse.fmt-interpolation-comment",
     ":2:12",
-  )?
+  )
   assert_rejected(
     ctx,
     """let x = 1
@@ -99,7 +99,7 @@ print f"{x +
 """,
     "parse.fmt-interpolation-line-break",
     ":2:13",
-  )?
+  )
   assert_rejected(
     ctx,
     """let x = 1
@@ -107,7 +107,7 @@ print f"{x:4}"
 """,
     "parse.fmt-spec",
     ":2:11",
-  )?
+  )
   assert_rejected(
     ctx,
     """let x = 1
@@ -115,21 +115,21 @@ print f"{x y}"
 """,
     "parse.fmt-interpolation-trailing",
     ":2:12",
-  )?
+  )
   assert_rejected(
     ctx,
     """print f"{{a: 1}.a}"
 """,
     "needs a space",
     ":1:15",
-  )?
+  )
   assert_rejected(
     ctx,
     """print f"é ü {nope}"
 """,
     "check.unresolved-name",
     ":1:14",
-  )?
+  )
   assert_rejected(
     ctx,
     """let v = f\"""
@@ -138,7 +138,7 @@ print f"{x y}"
 """,
     "check.unresolved-name",
     ":2:9",
-  )?
+  )
 }
 
 test test_display_strings_reject_shell_style_dollar_interpolation { |ctx|

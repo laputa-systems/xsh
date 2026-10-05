@@ -88,7 +88,7 @@ test test_optional_result_layers_and_outer_propagation {
   assert (present?.parse_int() ?? Ok(0))? == 42
   assert (absent?.parse_int() ?? Ok(0))? == 0
   let bad: Str? = "bad"
-  test.error_kind(bad?.parse_int() ?? Ok(0), "parse-int")?
+  test.error_kind(bad?.parse_int() ?? Ok(0), "parse-int")
   let wrapped = Ok([3, 4, 5])
   assert wrapped?[1] == 4
   assert wrapped?[1..] == [4, 5]

@@ -76,7 +76,7 @@ test test_pattern_aliases_work_in_iflet_and_whilelet {
     assert file == "selected"
     assert original is Changed(_) == true
   } else {
-    test.fail("expected selected branch")?
+    test.fail("expected selected branch")
   }
 
   var current = [1, 2]
@@ -208,7 +208,7 @@ test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing 
   if dynamic is (_ is Str | _ is AliasText) {
     assert dynamic.upper() == "ITEM"
   } else {
-    test.fail("expected string")?
+    test.fail("expected string")
   }
 }
 

@@ -14,10 +14,10 @@ test test_membership_operator_supports_strings_lists_bytes_and_paths {
 test test_path_methods { |ctx|
   let root = test.temp_dir(ctx, name: "path-methods")?
   let file = fp"{root}/dir/file.txt"
-  file.parent().mkdir()?
-  file.write("hello")?
+  file.parent().mkdir()
+  file.write("hello")
   assert file.read_text()? == "hello"
-  file.write_atomic(b"bytes")?
+  file.write_atomic(b"bytes")
   assert file.read_bytes()? == b"bytes"
   assert file.name() == "file.txt"
   assert file.ext() == "txt"
@@ -39,31 +39,31 @@ test test_path_methods { |ctx|
   assert ! file.executable()?
   assert file.du()? >= 0
   assert file.metadata()?.kind == "file"
-  file.chmod(0o600)?
-  file.truncate(2)?
+  file.chmod(0o600)
+  file.truncate(2)
   assert file.read_text()? == "by"
   let copied = fp"{root}/copy.txt"
-  file.copy(copied)?
+  file.copy(copied)
   assert copied.read_text()? == "by"
   let renamed = fp"{root}/renamed.txt"
-  copied.rename(renamed)?
+  copied.rename(renamed)
   assert renamed.exists()?
   let link = fp"{root}/link.txt"
-  file.hardlink(link)?
+  file.hardlink(link)
   assert link.read_text()? == "by"
   let symlink = fp"{root}/symlink.txt"
-  fs.symlink(file, symlink)?
+  fs.symlink(file, symlink)
   assert symlink.readlink()?.display() == file.display()
-  link.unlink()?
+  link.unlink()
   assert ! link.exists()?
-  renamed.remove()?
+  renamed.remove()
   let empty_dir = fp"{root}/empty"
-  empty_dir.mkdir()?
-  empty_dir.remove_dir()?
+  empty_dir.mkdir()
+  empty_dir.remove_dir()
   let touched = fp"{root}/touched"
-  touched.touch()?
-  touched.touch_from(file)?
-  touched.remove(missing_ok: true)?
+  touched.touch()
+  touched.touch_from(file)
+  touched.remove(missing_ok: true)
   let relative_text = "relative/path"
   let parsed = fp"{relative_text}"
   assert parsed == "relative/path"
@@ -78,9 +78,9 @@ test test_path_edge_cases_and_standard_record_schema { |ctx|
 name"""
 
   let dashed = fp"{root}/-leading"
-  spaced.write("a")?
-  lined.write("b")?
-  dashed.write("c")?
+  spaced.write("a")
+  lined.write("b")
+  dashed.write("c")
   run test -f $spaced
   run test -f $lined
   run test -f $dashed
@@ -113,8 +113,8 @@ test test_absolute_glob_traverses_symlinked_literal_components { |ctx|
   let real = fp"{root}/real"
   let link = fp"{root}/link"
   real.mkdir()
-  fp"{real}/hit.txt".write("ok")?
-  fs.symlink(real, link)?
+  fp"{real}/hit.txt".write("ok")
+  fs.symlink(real, link)
 
   let output = test.run_script(
     ctx,

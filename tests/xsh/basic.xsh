@@ -203,7 +203,7 @@ test test_language_sugar_edge_cases { |ctx|
   let file = fp"{root}/note.txt"
   file.write("""alpha
 beta
-""")?
+""")
   let content = file.read_text()?
   let raw = r"\n ${literal}"
   let nested = f"""{ {name: "demo"}.name }:{if true { "x}" } else { "y" }}:{f"{1}"}"""
@@ -227,7 +227,7 @@ test test_dns_mock { |ctx|
     "dns.lookup",
     {name: "example.test"},
     Ok([{name: "example.test", record: "A", value: "127.0.0.1", ttl: 60}]),
-  )?
+  )
 
   let records = dns.lookup("example.test")?
   assert records[0].value == "127.0.0.1"
@@ -248,7 +248,7 @@ test test_net_mock { |ctx|
       url: "https://example.test/",
       body: b"ok",
     }),
-  )?
+  )
 
   let response = net.request({method: "GET", url: "https://example.test/"})?
   assert response.body == b"ok"

@@ -30,7 +30,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   for item in targets {
     var current = fp"{item}"
-    current.remove_dir()?
+    current.remove_dir()
 
     if parents {
       var parent = current.parent()

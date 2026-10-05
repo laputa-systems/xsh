@@ -7,7 +7,7 @@ export type Version = {major: Int, minor: Int, patch: Int}
 export pure parse(text: Str) -> Result[Version, Error] {
   let parts = text.split(".")
   guard parts.len() == 3 else {
-    error.fail(f"not a semantic version: {text}")?
+    error.fail(f"not a semantic version: {text}")
     return Version(major: 0, minor: 0, patch: 0)
   }
 

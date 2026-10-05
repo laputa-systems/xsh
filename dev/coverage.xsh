@@ -99,7 +99,7 @@ export proc native_linker() [process, env, error] -> Result[Path, Error] {
 
 ## Runs the retained native combined Rust LLVM and XSH API coverage program.
 export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.ensure_dir(ctx.coverage_dir)?
+  stages.ensure_dir(ctx.coverage_dir)
   let cargo_value = env.get_or("COV_CARGO", "")?.trim()
   let cargo = if cargo_value == "" { process.which("cargo")?.display() } else { cargo_value }
   let configured_bin = env.get_or("COV_CARGO_BIN", "")?.trim()
@@ -131,12 +131,12 @@ export proc native_coverage(ctx: context.Context) [fs, process, env, error, io] 
         CC_x86_64_unknown_linux_musl: linker.display(),
       },
     ),
-  )?
+  )
 }
 
 ## Runs retained coverage logic inside a privileged Docker boundary.
 export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit, Error] {
-  stages.ensure_dir(ctx.coverage_dir)?
+  stages.ensure_dir(ctx.coverage_dir)
   let image = docker.ensure_image(ctx)?
   let identity = unix.id()?
   let argv = [
@@ -183,7 +183,7 @@ export proc docker_backend(ctx: context.Context) [fs, process, env, error, io] -
       ctx.root,
       {},
     ),
-  )?
+  )
 }
 
 ## Dispatches the public coverage backend policy.
@@ -205,8 +205,8 @@ export proc coverage(
       return docker_backend(ctx) when triple == ctx.target.triple
 
       env TARGET=$triple {
-        docker_backend(context.create()?)?
-      } ?
+        docker_backend(context.create()?)
+      }
       return
     }
   }

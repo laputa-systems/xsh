@@ -24,8 +24,8 @@ pure verification_context_source(root: Path) -> Str {
 proc write_fake_tool(tool_path: Path, xsh: Path, body: Str) [fs, error] {
   tool_path.write(f"""#!{xsh}
 {body}
-""")?
-  fs.chmod(tool_path, 0o755)?
+""")
+  fs.chmod(tool_path, 0o755)
 }
 
 test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
@@ -33,20 +33,20 @@ test test_binary_verification_rejects_missing_and_non_elf_products { |ctx|
   let verify_ctx = verification_context(root)?
 
   match verify.binary(verify_ctx, "xsh", false) {
-    Ok(_) => test.fail("missing product passed verification")?
+    Ok(_) => test.fail("missing product passed verification")
     Err(error) => assert "StageError.Failed" in error.message, error.message
   }
 
   let product = fp"{root}/target/x86_64-unknown-linux-musl/dist/xsh"
-  product.parent().mkdir()?
+  product.parent().mkdir()
   let padding = (["x"]
     |> repeat(1024)
     |> collect()).join("")
-  product.write(padding)?
-  fs.chmod(product, 0o755)?
+  product.write(padding)
+  fs.chmod(product, 0o755)
 
   match verify.binary(verify_ctx, "xsh", false) {
-    Ok(_) => test.fail("non-ELF product passed verification")?
+    Ok(_) => test.fail("non-ELF product passed verification")
     Err(error) => assert "StageError.Failed" in error.message, error.message
   }
 }
@@ -60,14 +60,14 @@ test test_distribution_product_paths_are_stable {
 test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries { |ctx|
   let root = test.temp_dir(ctx, name: "verify-linux")?
   let product = fp"{root}/target/x86_64-unknown-linux-musl/dist/xsh"
-  product.parent().mkdir()?
+  product.parent().mkdir()
   let padding = (["x"]
     |> repeat(1020)
     |> collect()).join("")
-  product.write("\u{7f}ELF" + padding)?
-  fs.chmod(product, 0o755)?
+  product.write("\u{7f}ELF" + padding)
+  fs.chmod(product, 0o755)
   let tools = fp"{root}/tools"
-  tools.mkdir()?
+  tools.mkdir()
   let repository = fs.cwd()?
   let xsh = ctx.xsh_bin
   let module_path = fp"{repository}/dev".display()
@@ -80,7 +80,7 @@ test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries { |ctx|
 } else {
   print ""
 }""",
-  )?
+  )
   let wrong_machine = test.run_script(
     ctx,
     f"""
@@ -112,7 +112,7 @@ main()?
 } else {
   print "NEEDED"
 }""",
-  )?
+  )
   let dynamic = test.run_script(
     ctx,
     f"""

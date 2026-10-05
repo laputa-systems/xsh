@@ -448,7 +448,7 @@ test test_uint_imported_constructor_payloads_keep_declared_domains { |ctx|
 export enum Count { Counted(UInt) }
 ## A nonnegative failure payload.
 export error CountError = Bad(count: UInt)
-""")?
+""")
   for body in ["let rejected = c.Counted(-1)", "let rejected = c.CountError.Bad(count: -1)"] {
     let output = test.run_script(
       ctx,

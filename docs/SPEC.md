@@ -328,7 +328,7 @@ cli main(source: Path, dest: Path, jobs: UInt = 4, verbose = false) {
     print f"copying {source} to {dest} with {jobs} jobs"
   }
 
-  fs.copy(source, dest)?
+  fs.copy(source, dest)
 }
 ```
 
@@ -522,7 +522,7 @@ map; and a redirection target. An optional `Path` expects a `Path`.
 
 ```xsh
 let fallback: Path = "/etc/xsh/config.ini"
-install("build/xsh")? # a user parameter
+install("build/xsh") # a user parameter
 let relative = config.strip_prefix("/etc")? # a standard method parameter
 let default_config = config == "/etc/xsh/config.ini"
 let repeated = "/etc/hosts" in seen
@@ -713,7 +713,7 @@ type BuildPlugin = module {
 }
 
 let plugin = module.load(plugin_path)?.require(BuildPlugin)?
-plugin.build(root)?
+plugin.build(root)
 ```
 
 A module contract describes a runtime module's exports. Each entry's kind and
@@ -737,7 +737,7 @@ implements both when both occur.
 
 ```xsh
 match module.load(plugin_path)?.require(BuildPlugin) {
-  Ok(plugin) => plugin.build(root)?
+  Ok(plugin) => plugin.build(root)
   Err(is MissingExport) => print "the plugin lacks a required export"
   Err(is MismatchedExport) => print "a plugin export has another signature"
   Err(error) => return Err(error)
@@ -761,8 +761,8 @@ type Service = exact module {
 }
 match module.load(service_path)?.require(Service) {
   Ok(service) => {
-    service.stop()?
-    service.start()?
+    service.stop()
+    service.start()
   }
   Err(is UnexpectedExport) => print "the service exports more than its contract allows"
   Err(error) => return Err(error)
@@ -1959,7 +1959,7 @@ control leaves the enclosing block with an error:
 proc publish(output: Path) {
   let partial = fp"{output}.partial"
   errdefer fs.remove(partial, missing_ok: true)
-  render(partial)?
+  render(partial)
   fs.rename(partial, output)
 }
 ```
@@ -1994,7 +1994,7 @@ path the program chooses. It is sugar, defined by its expansion:
 
 ```xsh
 tempdir scratch at fp"{root}/stage" {
-  fp"{scratch}/stamp".write("staged\n")?
+  fp"{scratch}/stamp".write("staged\n")
   fp"{scratch}/stamp".read_text()?
 }
 ```
@@ -2008,7 +2008,7 @@ means exactly
   fs.mkdir(scratch)
   defer fs.remove(scratch, missing_ok: true)
   {
-    fp"{scratch}/stamp".write("staged\n")?
+    fp"{scratch}/stamp".write("staged\n")
     fp"{scratch}/stamp".read_text()?
   }
 }
@@ -2082,7 +2082,7 @@ one. A non-empty delay list requires the `time` effect. Each attempt emits a
 
 ```xsh
 ctx f"installing {package.name}" {
-  fs.copy(source, dest)?
+  fs.copy(source, dest)
 }
 ```
 
@@ -2103,7 +2103,7 @@ runs while unwinding, and the status is an `Int` expression from 0 to 255
 (12.3), evaluated once.
 
 ```xsh
-if uid != 0 {
+guard uid == 0 else {
   eprint "must run as root"
   exit 77
 }
@@ -2210,7 +2210,7 @@ that function's full signature (labels, defaults, return type, and effects):
 
 ```xsh
 let build = toolchain.build
-build(root, jobs: 4)?
+build(root, jobs: 4)
 ```
 
 A `var`, a conditional selection, or an explicit `Pure`/`Proc` annotation gives
@@ -2280,11 +2280,11 @@ to the enclosing bound minus the listed effects:
 
 ```xsh
 proc build(index: Str, staged: Path) [fs, net, process, error] {
-  fetch_sources(index, staged)?
+  fetch_sources(index, staged)
 
   # Everything after the fetch is offline, and the checker holds it to that.
   without net {
-    build_from_staged_sources(staged)?
+    build_from_staged_sources(staged)
   }
 }
 ```
@@ -2698,7 +2698,7 @@ let tests = spawn run make test ?
 let statuses = wait [build, tests]?
 
 let server = spawn run /srv/app/server --port 8080 ?
-server.cancel(signal: "TERM", kill_after: 2s)?
+server.cancel(signal: "TERM", kill_after: 2s)
 ```
 
 - `spawn run ...` starts exactly one child immediately and returns
@@ -2782,7 +2782,7 @@ An entry script may declare one hook per signal at its top level:
 
 ```xsh
 on SIGINT --pre-cancel=150ms [fs, process, error] {
-  p"/tmp/build.interrupted".write("interrupted\n")?
+  p"/tmp/build.interrupted".write("interrupted\n")
   exit 130
 }
 ```
@@ -3008,7 +3008,7 @@ order (`pretty: true` indents deterministically). `json.encode_lines` and
 Not every temporary value needs a schema. A record literal is already typed:
 
 ```xsh
-json.write(log_path, {service: "worker", event: "done", ok: status.ok})?
+json.write(log_path, {service: "worker", event: "done", ok: status.ok})
 ```
 
 Programs that operate on unknown JSON (formatters, filters, validators) branch

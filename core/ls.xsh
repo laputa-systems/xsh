@@ -98,7 +98,7 @@ proc main(...argv: List[Str]) [fs, error] {
         print_entry(entry, long_format, indicator)
       }
     } else {
-      list_dir(target, show_all, long_format, indicator)?
+      list_dir(target, show_all, long_format, indicator)
     }
   }
 }

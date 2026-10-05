@@ -80,9 +80,9 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     if options.json {
       let output = system_report.encode_report_json(report, options.sensitive, false)?
       io.write_stdout(f"""{output}
-""")?
+""")
     } else {
-      io.write_stdout(system_report.render_text(report, options.full, options.sensitive)?)?
+      io.write_stdout(system_report.render_text(report, options.full, options.sensitive)?)
     }
 
     return
@@ -142,8 +142,8 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   if options.json {
     let output = system_report.encode_report_json(selected, options.sensitive, false)?
     io.write_stdout(f"""{output}
-""")?
+""")
   } else {
-    io.write_stdout(system_report.render_text(selected, options.full, options.sensitive)?)?
+    io.write_stdout(system_report.render_text(selected, options.full, options.sensitive)?)
   }
 }

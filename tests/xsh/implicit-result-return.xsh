@@ -107,7 +107,7 @@ test test_implicit_result_return_in_par_map {
 
 test test_result_return_shapes_agree {
   assert build()? == ["ok"]
-  implicit_unit()?
+  implicit_unit()
 
   if let Err(error) = fail_explicitly() {
     assert error.message == "explicit failure"
@@ -195,7 +195,7 @@ print direct[0] alias[0] middle(3)?
 test test_implicit_result_return_through_module { |ctx|
   let root = test.temp_dir(ctx, name: "implicit-result-module")?
   let module_dir = fp"{root}/lib"
-  module_dir.mkdir()?
+  module_dir.mkdir()
   fp"{module_dir}/helper.xsh".write("""
 ##! Helper module for implicit Result return coverage.
 
@@ -204,7 +204,7 @@ export proc build() [error] -> Result[List[Str]] {
   let built = ["ok"]
   built
 }
-""")?
+""")
 
   let output = test.run_script(
     ctx,

@@ -2,5 +2,5 @@ const invalid_input = true
 
 if invalid_input {
   print "validation failed"
-  abort(1)
+  exit 1
 }

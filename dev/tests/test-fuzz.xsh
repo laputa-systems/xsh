@@ -18,7 +18,7 @@ test test_fuzz_binary_rejects_missing_or_ambiguous_artifacts {
 """
   for messages in ["", r"""{"reason":"build-finished","success":true}""", artifact + artifact] {
     match fuzz.built_binary(messages) {
-      Ok(_) => test.fail("cargo output without one binary artifact was accepted")?
+      Ok(_) => test.fail("cargo output without one binary artifact was accepted")
       Err(failure) => assert "expected one xsh-fuzz binary artifact" in failure.message, failure.message
     }
   }
@@ -31,7 +31,7 @@ test test_fuzz_binary_rejects_invalid_build_messages {
     r"""{"reason":"compiler-artifact","target":{"name":"xsh-fuzz","kind":["bin"]}}""",
   ] {
     match fuzz.built_binary(messages) {
-      Ok(_) => test.fail("invalid cargo build output was accepted")?
+      Ok(_) => test.fail("invalid cargo build output was accepted")
       Err(_) => {}
     }
   }
@@ -41,12 +41,12 @@ test test_fuzz_failures_follow_binary_contents { |ctx|
   let root = test.temp_dir(ctx, name: "fuzz-address")?
   let first = fp"{root}/first"
   let second = fp"{root}/second"
-  first.write("same XSH implementation")?
-  second.write("same XSH implementation")?
+  first.write("same XSH implementation")
+  second.write("same XSH implementation")
   let original = fuzz.failure_dir(first)?
   assert original == fuzz.failure_dir(second)?
   assert original == fp"target/fuzz/{hash.sha256(first)?.hex()}/failures"
-  second.write("changed XSH implementation")?
+  second.write("changed XSH implementation")
   assert original != fuzz.failure_dir(second)?
   assert original == fuzz.failure_dir(first)?
 }
@@ -54,7 +54,7 @@ test test_fuzz_failures_follow_binary_contents { |ctx|
 test test_fuzz_failure_address_rejects_missing_binary { |ctx|
   let root = test.temp_dir(ctx, name: "fuzz-missing")?
   match fuzz.failure_dir(fp"{root}/missing") {
-    Ok(_) => test.fail("missing binary was assigned a failure directory")?
+    Ok(_) => test.fail("missing binary was assigned a failure directory")
     Err(_) => {}
   }
 }

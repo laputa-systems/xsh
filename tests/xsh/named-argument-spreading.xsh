@@ -220,7 +220,7 @@ test test_named_argument_spreads_support_static_error_payloads {
     assert code == 3
     assert message == "supplied"
   } else {
-    test.fail("expected supplied error payload")?
+    test.fail("expected supplied error payload")
   }
 }
 
@@ -234,7 +234,7 @@ test test_named_argument_spreads_bind_checked_loaded_module_contracts { |ctx|
   source_path.write("""##! Checked static argument fixture.
 ## Adds supplied values and lexical defaults.
 export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int { first + second + third }
-""")?
+""")
   let loaded = module.load(source_path)?.require(SpreadModule)?
   assert loaded.total(...{first: 1, third: 3}) == 24
 }
@@ -252,10 +252,10 @@ test test_named_argument_spreads_preserve_native_omitted_slots { |ctx|
   let source = fp"{root}/payload.txt"
   let compressed = fp"{root}/payload.gz"
   let restored = fp"{root}/restored.txt"
-  source.write("spread defaults")?
-  compressed.write("replace this")?
-  restored.write("replace this")?
-  archive.compress(source, compressed, ...{overwrite: true})?
-  archive.decompress(compressed, restored, ...{overwrite: true})?
+  source.write("spread defaults")
+  compressed.write("replace this")
+  restored.write("replace this")
+  archive.compress(source, compressed, ...{overwrite: true})
+  archive.decompress(compressed, restored, ...{overwrite: true})
   assert restored.read_text()? == "spread defaults"
 }

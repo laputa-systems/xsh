@@ -10,14 +10,14 @@ test test_record_schema_validation_and_any_require {
     let _ = required.get("version")?.require(Str)?
   }
 
-  test.error_kind({name: 1}.require(PackageName), "schema")?
+  test.error_kind({name: 1}.require(PackageName), "schema")
   let typed: JsonPackage = json.decode("{\"name\":\"pkg\",\"version\":\"1\"}")?.require()?
   assert typed.version == "1"
   let row = {name: "pkg", version: "1"}
   assert "version" in row
   assert row.name == "pkg"
   assert row.keys()[0] == "name"
-  test.error_kind(row.get("missing"), "missing-field")?
+  test.error_kind(row.get("missing"), "missing-field")
 }
 
 test test_standard_record_schemas_reject_bad_dynamic_records { |ctx|

@@ -225,7 +225,7 @@ export proc exercise() [error] {
   defer { print "module cleanup" }
   let _ = "module failure".parse_int()?
 }
-""")?
+""")
   let output = test.run_script(
     ctx,
     """use cleanup

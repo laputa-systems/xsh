@@ -35,7 +35,7 @@ raw-line
 test test_applet_auth_helpers_and_sessions { |ctx|
   let root = test.temp_dir(ctx, name: "applet-auth")?
   let home = fp"{root}/home"
-  fs.mkdir(home)?
+  fs.mkdir(home)
   let shell = fp"{root}/session-shell"
 
   fs.write(
@@ -43,9 +43,9 @@ test test_applet_auth_helpers_and_sessions { |ctx|
     """#!/bin/sh
 exit 17
 """,
-  )?
+  )
 
-  fs.chmod(shell, 0o755)?
+  fs.chmod(shell, 0o755)
   let user_entry = user.current()?
 
   let session_user = {
@@ -69,7 +69,7 @@ exit 17
   assert applet.sulogin_session(session_user)? == 17
   assert applet.su_session(session_user, false, false, shell.display(), "", [])? == 17
   assert applet.su_session(session_user, false, false, "/bin/sh", "exit 19", [])? == 19
-  test.error_kind(applet.hash_password("secret", "bogus"), "applet-hash-password")?
+  test.error_kind(applet.hash_password("secret", "bogus"), "applet-hash-password")
 }
 
 test test_applet_mdev_scans_empty_roots { |ctx|
@@ -83,10 +83,10 @@ test test_applet_mdev_scans_empty_roots { |ctx|
   let sys = fp"{root}/sys"
   let sys_dev = fp"{sys}/dev"
   let conf = fp"{root}/mdev.conf"
-  fs.mkdir(dev)?
-  fs.mkdir(sys)?
-  fs.mkdir(sys_dev)?
-  fs.write(conf, "")?
+  fs.mkdir(dev)
+  fs.mkdir(sys)
+  fs.mkdir(sys_dev)
+  fs.write(conf, "")
 
   env XSH_MDEV_DEV_ROOT=$dev XSH_MDEV_SYSFS=$sys XSH_MDEV_CONF=$conf XSH_MDEV_TEST_PLAIN_FILES=1 {
     let status = applet.mdev(["--scan"])?
@@ -95,5 +95,5 @@ test test_applet_mdev_scans_empty_roots { |ctx|
       test.skip("mdev scan is unavailable in this runner")
       return
     }
-  } ?
+  }
 }

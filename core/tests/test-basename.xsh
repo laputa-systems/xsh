@@ -12,11 +12,11 @@ other"""
 
 test test_basename_runs_as_executable_shebang_script { |ctx|
   if ! p"/bin/xsh".exists()? {
-    test.skip("/bin/xsh is not installed")?
+    test.skip("/bin/xsh is not installed")
   }
 
   let script = fp"{ctx.core_dir}/basename.xsh"
-  script.chmod(0o755)?
+  script.chmod(0o755)
   let output = run.text $script -- /tmp/demo.txt ?
 
   assert output == """demo.txt

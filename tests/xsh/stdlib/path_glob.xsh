@@ -39,7 +39,7 @@ test test_path_rglob_matches_at_any_depth_in_byte_order { |ctx|
 
   # A recursive match does not enter a symbolic link to a directory; a
   # literal component does.
-  fs.symlink(fp"{root}/src", fp"{root}/link")?
+  fs.symlink(fp"{root}/src", fp"{root}/link")
   assert root.rglob("lib.txt")? == [fp"{root}/src/lib.txt"]
   assert root.glob("link/*.txt")? == [fp"{root}/link/lib.txt"]
 }
@@ -52,12 +52,12 @@ test test_path_glob_agrees_with_glob_literals { |ctx|
     assert p"src".rglob("*.txt")? == g"src/**/*.txt"
     assert p"src".glob("*")? == g"src/*"
     assert p"src".glob("deep/leaf.txt")? == g"src/deep/leaf.txt"
-  } ?
+  }
 
   # The receiver is a path, never a pattern.
   let starred = fp"{root}/[ab]"
-  starred.mkdir()?
-  fp"{starred}/in.txt".write("x")?
+  starred.mkdir()
+  fp"{starred}/in.txt".write("x")
   assert starred.glob("*.txt")? == [fp"{starred}/in.txt"]
 }
 
@@ -94,10 +94,10 @@ let found = p"src".glob(p"*.xsh")?
 
 proc glob_fixture(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name:)?
-  fp"{root}/src/deep".mkdir()?
-  fp"{root}/.hidden".mkdir()?
+  fp"{root}/src/deep".mkdir()
+  fp"{root}/.hidden".mkdir()
   for file in ["b.txt", "a.txt", "c.md", ".dot.txt", "src/lib.txt", "src/deep/leaf.txt", ".hidden/in.txt"] {
-    fp"{root}/{file}".write("x")?
+    fp"{root}/{file}".write("x")
   }
 
   root

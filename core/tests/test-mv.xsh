@@ -1,9 +1,9 @@
 test test_mv_file_and_target_directory { |ctx|
   let root = test.temp_dir(ctx, name: "mv")?
   let src = fp"{root}/src.txt"
-  src.write("hello")?
+  src.write("hello")
   let dir = fp"{root}/dir"
-  dir.mkdir()?
+  dir.mkdir()
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- -t $dir $src ?
   assert ! src.exists()?
   assert fp"{dir}/src.txt".read_text()? == "hello"

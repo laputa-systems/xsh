@@ -1,22 +1,22 @@
 test test_path_write_lines_terminates_every_line { |ctx|
   let root = test.temp_dir(ctx, name: "path-write-lines")?
   let report = fp"{root}/report.txt"
-  report.write_lines(["first", "second"])?
+  report.write_lines(["first", "second"])
   assert report.read_text()? == "first\nsecond\n"
 
   # The file is replaced, never appended to.
-  report.write_lines(["only"])?
+  report.write_lines(["only"])
   assert report.read_text()? == "only\n"
 
   # No lines is an empty file, where joining and appending a newline writes one.
   let none = []
-  report.write_lines(none)?
+  report.write_lines(none)
   assert report.read_bytes()? == b""
   let joined = none.join("\n") + "\n"
   assert joined == "\n"
 
   # Elements are written as given.
-  report.write_lines(["", "a\nb", "tail "])?
+  report.write_lines(["", "a\nb", "tail "])
   assert report.read_text()? == "\na\nb\ntail \n"
 }
 
@@ -35,13 +35,13 @@ test test_path_write_lines_fails_and_creates_like_write { |ctx|
 
   let by_lines = fp"{root}/lines.txt"
   let by_write = fp"{root}/write.txt"
-  by_lines.write_lines(["x"])?
-  by_write.write("x\n")?
+  by_lines.write_lines(["x"])
+  by_write.write("x\n")
   assert by_lines.metadata()?.mode == by_write.metadata()?.mode
 
   # An existing file keeps its mode, as it does under write.
-  by_lines.chmod(0o600)?
-  by_lines.write_lines(["y"])?
+  by_lines.chmod(0o600)
+  by_lines.write_lines(["y"])
   assert by_lines.metadata()?.mode.bit_and(0o777) == 0o600
 }
 
@@ -110,20 +110,20 @@ test test_path_read_lines_is_read_text_then_lines { |ctx|
   let root = test.temp_dir(ctx, name: "path-read-lines")?
   let file = fp"{root}/lines.txt"
   for contents in ["", "\n", "one", "one\ntwo\n", "one\r\ntwo\r\n\r\n", "\n\nlast", " padded \n"] {
-    file.write(contents)?
+    file.write(contents)
     let text = file.read_text()?
     assert file.read_lines()? == text.lines()
     assert file.read_lines()? == contents.lines()
   }
 
-  file.write("one\ntwo\n")?
+  file.write("one\ntwo\n")
   assert file.read_lines()? == ["one", "two"]
 
   # The partner of write_lines.
   let written = ["first", "", "third", ""]
-  file.write_lines(written)?
+  file.write_lines(written)
   assert file.read_lines()? == written
-  file.write_lines([])?
+  file.write_lines([])
   assert file.read_lines()? == []
 }
 
@@ -141,7 +141,7 @@ test test_path_read_lines_fails_like_read_text { |ctx|
 
   # Decoding fails at the call, before any line is produced.
   let binary = fp"{root}/binary"
-  binary.write(b"ok\n\xff\n")?
+  binary.write(b"ok\n\xff\n")
   let decoded = binary.read_lines()
   assert decoded is Err(_)
   if let Err(decode_error) = decoded {
@@ -166,8 +166,8 @@ pure load(source: Path) -> Result[List[Str]] {
 
 test test_read_lines_lint_fix_keeps_values_and_failures { |ctx|
   let root = test.temp_dir(ctx, name: "read-lines-lint")?
-  fp"{root}/list.txt".write("one\r\ntwo\n\nfour")?
-  fp"{root}/binary".write(b"ok\n\xff\n")?
+  fp"{root}/list.txt".write("one\r\ntwo\n\nfour")
+  fp"{root}/binary".write(b"ok\n\xff\n")
   let source = r"""proc count(source: Path) [fs, error] -> Result[Int] {
   let direct = source.read_text()?.lines()
   let by_module = fs.read_text(source)?.lines()

@@ -838,7 +838,7 @@ test test_core_commands_and_byte_pipeline { |ctx|
   let output = fp"{root}/out.txt"
 
   cd root {
-    fs.write(p"inside.txt", "cwd")?
+    fs.write(p"inside.txt", "cwd")
   }
 
   assert fp"{root}/inside.txt".read_text()? == "cwd"
@@ -1174,10 +1174,10 @@ test test_flat_map_identity_reduce_by_matches_direct_rows {
 
 test test_live_files_flat_map_reduce_by_matches_collected_rows { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-flat-map-reduce")?
-  fp"{root}/nested".mkdir()?
-  fp"{root}/a.txt".write("abc")?
-  fp"{root}/nested/b.txt".write("de")?
-  fp"{root}/nested/c.md".write("fghi")?
+  fp"{root}/nested".mkdir()
+  fp"{root}/a.txt".write("abc")
+  fp"{root}/nested/b.txt".write("de")
+  fp"{root}/nested/c.md".write("fghi")
 
   let streamed = fs.files(root)
     |> par-map(jobs: 4) { |entry|
@@ -1204,10 +1204,10 @@ test test_live_files_flat_map_reduce_by_matches_collected_rows { |ctx|
 
 test test_live_files_par_map_for_matches_collected_rows { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-par-map-for")?
-  fp"{root}/nested".mkdir()?
-  fp"{root}/a.txt".write("abc")?
-  fp"{root}/nested/b.txt".write("de")?
-  fp"{root}/nested/c.md".write("fghi")?
+  fp"{root}/nested".mkdir()
+  fp"{root}/a.txt".write("abc")
+  fp"{root}/nested/b.txt".write("de")
+  fp"{root}/nested/c.md".write("fghi")
 
   var streamed_txt_count = 0
   var streamed_txt_size = 0
@@ -1249,7 +1249,7 @@ test test_par_map_filesystem_reads_preserve_all_results { |ctx|
   let root = test.temp_dir(ctx, name: "par-map-filesystem-reads")?
   for index in range(32) {
     fp"{root}/entry-{index}.txt".write(f"""{index}
-""")?
+""")
   }
 
   let entries = fs.files(root, stat: false)? |> collect()
@@ -2043,7 +2043,7 @@ test test_line_methods_and_adapters_are_lazy_sources { |ctx|
   input.write("""alpha\r
 beta
 gamma
-""")?
+""")
 
   assert input.lines()? |> first()? == "alpha"
 
@@ -2088,11 +2088,11 @@ test test_flat_map_consumes_live_streams_returned_by_blocks { |ctx|
 
   left.write("""a
 b
-""")?
+""")
 
   right.write("""c
 d
-""")?
+""")
 
   let lines = [left, right]
     |> flat-map { |pth|
@@ -2552,9 +2552,9 @@ test test_parallel_stream_preserves_filtered_order {
 test test_structured_streams_walk_filter_map_collect_and_count { |ctx|
   let root = test.temp_dir(ctx, name: "stream-walk")?
   let nested = fp"{root}/nested"
-  nested.mkdir()?
-  fp"{root}/a.txt".write("a")?
-  fp"{nested}/b.txt".write("b")?
+  nested.mkdir()
+  fp"{root}/a.txt".write("a")
+  fp"{nested}/b.txt".write("b")
   let entries = fs.files(root) |> collect()
 
   let names = entries
@@ -2568,9 +2568,9 @@ test test_structured_streams_walk_filter_map_collect_and_count { |ctx|
 
 test test_direct_collect_of_lazy_module_stream_is_a_list { |ctx|
   let root = test.temp_dir(ctx, name: "stream-direct-collect")?
-  fp"{root}/a.txt".write("a")?
-  fp"{root}/b.txt".write("b")?
-  fp"{root}/c.txt".write("c")?
+  fp"{root}/a.txt".write("a")
+  fp"{root}/b.txt".write("b")
+  fp"{root}/c.txt".write("c")
 
   # A module-produced lazy stream piped straight into the collect terminal, with
   # no intervening transformation stage, must lower and run as a materialized
@@ -2758,9 +2758,9 @@ let values = [1, 2, 3] |> par-map(jobs: 8) { |index| xs[index] }
 test test_fs_files_lazy_folding_terminals_match_eager_results { |ctx|
   # count/sum/min/max/fold drive the live stream by folding one item at a time.
   let root = test.temp_dir(ctx, name: "fs-walk-fold")?
-  fp"{root}/a.txt".write("a")?
-  fp"{root}/bb.txt".write("bb")?
-  fp"{root}/ccc.txt".write("ccc")?
+  fp"{root}/a.txt".write("a")
+  fp"{root}/bb.txt".write("bb")
+  fp"{root}/ccc.txt".write("ccc")
   assert (fs.files(root) |> count()) == 3
 
   assert (fs.files(root)

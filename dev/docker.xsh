@@ -38,7 +38,7 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
         ctx.root,
         {},
       ),
-    )?
+    )
   } else {
     stages.execute(
       stages.command(
@@ -59,7 +59,7 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
         ctx.root,
         {},
       ),
-    )?
+    )
   }
 
   image
@@ -159,5 +159,5 @@ export proc run_internal(
       ctx.root,
       {},
     ),
-  )?
+  )
 }

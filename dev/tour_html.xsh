@@ -756,7 +756,7 @@ pure ini_line(line: Str) -> Str {
 # line and whose runs concatenate back to the source.
 proc xsh_html(hl: Highlighter, source: Str) [fs, process, error] -> Result[Str] {
   let file = fp"{hl.scratch}/block.xsh"
-  file.write(source)?
+  file.write(source)
   let lines = run.text $hl.xsht highlight $file ?
   var parts = []
   for line in lines.lines() {

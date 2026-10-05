@@ -294,11 +294,11 @@ proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
   }
 
   if new_lines.len() == 0 {
-    state_path.remove()?
+    state_path.remove()
     return
   }
 
-  state_path.write_atomic(new_lines.join("\n"))?
+  state_path.write_atomic(new_lines.join("\n"))
 }
 
 proc teardown_dhcp(physical: Str) [fs, process, error] {
@@ -319,15 +319,15 @@ proc teardown_dhcp(physical: Str) [fs, process, error] {
 
   for route in routes {
     if route.dst == "default" and route.dev == physical and "." in route.gateway {
-      linux.del_default_ipv4_route(route.gateway, interface: physical)?
+      linux.del_default_ipv4_route(route.gateway, interface: physical)
     }
   }
 
   if address != "" {
-    linux.flush_ipv4_addresses(physical)?
+    linux.flush_ipv4_addresses(physical)
   }
 
-  linux.link_down(physical)?
+  linux.link_down(physical)
 }
 
 proc teardown_static(physical: Str, stanza: Interface) [fs, process, error] {
@@ -335,15 +335,15 @@ proc teardown_static(physical: Str, stanza: Interface) [fs, process, error] {
 
   for route in routes {
     if route.dst == "default" and route.dev == physical and "." in route.gateway {
-      linux.del_default_ipv4_route(route.gateway, interface: physical)?
+      linux.del_default_ipv4_route(route.gateway, interface: physical)
     }
   }
 
   if stanza.address != "" {
-    linux.flush_ipv4_addresses(physical)?
+    linux.flush_ipv4_addresses(physical)
   }
 
-  linux.link_down(physical)?
+  linux.link_down(physical)
 }
 
 proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logical: Str) [fs, process, error] {
@@ -371,28 +371,28 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
   }
 
   for command in stanza.pre_down {
-    run_hook(command, physical, stanza, "pre-down")?
+    run_hook(command, physical, stanza, "pre-down")
   }
 
-  run_parts(/etc/network/if-pre-down.d, physical, stanza, "pre-down")?
+  run_parts(/etc/network/if-pre-down.d, physical, stanza, "pre-down")
 
   match stanza.method {
-    "loopback" | "manual" => linux.link_down(physical)?
-    "static" => teardown_static(physical, stanza)?
-    "dhcp" => teardown_dhcp(physical)?
+    "loopback" | "manual" => linux.link_down(physical)
+    "static" => teardown_static(physical, stanza)
+    "dhcp" => teardown_dhcp(physical)
     else => return Err(IfdownError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.down {
-    run_hook(command, physical, stanza, "down")?
+    run_hook(command, physical, stanza, "down")
   }
 
   for command in stanza.post_down {
-    run_hook(command, physical, stanza, "post-down")?
+    run_hook(command, physical, stanza, "post-down")
   }
 
-  run_parts(/etc/network/if-post-down.d, physical, stanza, "post-down")?
-  state_remove_iface(state_path, physical)?
+  run_parts(/etc/network/if-post-down.d, physical, stanza, "post-down")
+  state_remove_iface(state_path, physical)
 }
 
 pure split_iface_arg(arg: Str) -> InterfaceSelection {
@@ -449,12 +449,12 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
 
   if all {
     for item in state_configured_ifaces(state_path) {
-      deconfigure_interface(config, state_path, item.physical, item.logical)?
+      deconfigure_interface(config, state_path, item.physical, item.logical)
     }
   }
 
   for operand in operands {
     let selection = split_iface_arg(operand)
-    deconfigure_interface(config, state_path, selection.physical, selection.logical)?
+    deconfigure_interface(config, state_path, selection.physical, selection.logical)
   }
 }

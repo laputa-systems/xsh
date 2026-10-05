@@ -3,25 +3,25 @@
 # time.
 
 proc record(log: Path, line: Str) [fs, error] {
-  log.write(f"{log.read_text() ?? ""}{line}\n")?
+  log.write(f"{log.read_text() ?? ""}{line}\n")
 }
 
 proc offline_steps(log: Path) [fs, net, error] {
-  record(log, "before")?
+  record(log, "before")
   without net {
     defer record(log, "cleanup")?
 
-    record(log, "inside")?
+    record(log, "inside")
   }
 
-  record(log, "after")?
+  record(log, "after")
 }
 
 # The region is a scope: its bindings end with it, its defers run when it
 # ends, and it may assign to bindings outside it.
 test test_without_runs_as_a_lexical_block { |ctx|
   let log = test.temp_file(ctx, name: "without.log")?
-  offline_steps(log)?
+  offline_steps(log)
   assert log.read_text()? == "before\ninside\ncleanup\nafter\n"
 
   var total = 0
@@ -142,7 +142,7 @@ test test_without_needs_a_checked_contract_even_in_unrestricted_code { |ctx|
 export proc anything() {
   print "anything"
 }
-""")?
+""")
 
   # An export without a clause has its effects inferred, so the region can
   # hold it to its bound.
@@ -276,7 +276,7 @@ test test_without_formats_and_checks_through_the_tools { |ctx|
       print "offline"
   }
 }
-""")?
+""")
   let formatted = run.capture --text "xsht" fmt $script ?
   assert formatted.status.exited_with(0), formatted.stderr
   assert script.read_text()? == """proc main() [fs, net, error] {

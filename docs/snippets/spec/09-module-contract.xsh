@@ -10,5 +10,5 @@ type BuildPlugin = module {
 }
 
 let plugin = module.load(plugin_path)?.require(BuildPlugin)?
-plugin.build(root)?
+plugin.build(root)
 # end example

@@ -471,7 +471,7 @@ proc signal_matched_pids(pids: List[Int], signal: Int, own_pid: Int) [process, e
 
   for pid in unique_ints(pids) {
     continue when pid == own_pid
-    process.kill(pid, signal: f"{info.number}")?
+    process.kill(pid, signal: f"{info.number}")
     signaled += 1
   }
 
@@ -588,11 +588,11 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   }
 
   if opts.show_threads and matched_owner_pids.len() == 0 {
-    abort(1)
+    exit 1
   }
 
   if ! opts.show_threads and matched_rows.len() == 0 {
-    abort(1)
+    exit 1
   }
 
   if kill_signal != null {
@@ -635,9 +635,9 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
         lookup_receiver_4.get(lookup_index_4) ?? lookup_fallback_4
       }
       let tree_depth = parent_lineage(row, rows_by_pid).len()
-      print_lineage(row, rows_by_pid)?
-      print_row(row, stats, ports_by_pid.get(f"{stat_pid}") ?? empty_ports)?
-      print_thread_names(items, tree_depth + 1)?
+      print_lineage(row, rows_by_pid)
+      print_row(row, stats, ports_by_pid.get(f"{stat_pid}") ?? empty_ports)
+      print_thread_names(items, tree_depth + 1)
     }
   } else {
     for row in matched_rows {
@@ -653,8 +653,8 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
         let lookup_fallback_5 = empty_stats()
         lookup_receiver_5.get(lookup_index_5) ?? lookup_fallback_5
       }
-      print_lineage(row, rows_by_pid)?
-      print_row(row, stats, ports_by_pid.get(f"{stat_pid}") ?? empty_ports)?
+      print_lineage(row, rows_by_pid)
+      print_row(row, stats, ports_by_pid.get(f"{stat_pid}") ?? empty_ports)
     }
   }
 }

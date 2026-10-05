@@ -44,9 +44,9 @@ proc main(...argv: List[Str]) [fs, error] {
     continue when no_create and ! target.exists()?
 
     if has_reference {
-      target.touch_from(reference)?
+      target.touch_from(reference)
     } else {
-      target.touch(create: ! no_create)?
+      target.touch(create: ! no_create)
     }
   }
 }

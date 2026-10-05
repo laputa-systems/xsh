@@ -1,11 +1,11 @@
 test test_tree_renders_sorted_branches_and_symlinks { |ctx|
   let root = test.temp_dir(ctx, name: "tree")?
-  fp"{root}/dir".mkdir()?
-  fp"{root}/dir/file.txt".write("ok")?
-  fp"{root}/a.txt".write("a")?
-  fp"{root}/z.txt".write("z")?
-  fp"{root}/.hidden".write("dot")?
-  fs.symlink(fp"{root}/a.txt", fp"{root}/link-a")?
+  fp"{root}/dir".mkdir()
+  fp"{root}/dir/file.txt".write("ok")
+  fp"{root}/a.txt".write("a")
+  fp"{root}/z.txt".write("z")
+  fp"{root}/.hidden".write("dot")
+  fs.symlink(fp"{root}/a.txt", fp"{root}/link-a")
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- $root ?
   let lines = output.lines().collect()
   assert lines[0] == root.display()
@@ -28,8 +28,8 @@ test test_tree_renders_sorted_branches_and_symlinks { |ctx|
 test test_tree_supports_multiple_roots_and_rejects_flags { |ctx|
   let left = test.temp_dir(ctx, name: "tree-left")?
   let right = test.temp_dir(ctx, name: "tree-right")?
-  fp"{left}/a".write("a")?
-  fp"{right}/b".write("b")?
+  fp"{left}/a".write("a")
+  fp"{right}/b".write("b")
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- $left $right ?
 
   assert f"""{left}

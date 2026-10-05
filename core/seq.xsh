@@ -123,6 +123,6 @@ proc main(...argv: List[Str]) [error, io] {
 
   if values.len() > 0 {
     io.write_stdout(f"""{out}
-""")?
+""")
   }
 }

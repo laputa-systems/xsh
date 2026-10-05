@@ -8,11 +8,11 @@
 type Opts = {root: Path, ext: List[Str], interval: Int, once: Bool, cmd: List[Str]}
 
 on SIGINT [error] {
-  abort(3)
+  exit 3
 }
 
 on SIGTERM [error] {
-  abort(3)
+  exit 3
 }
 
 proc stamp(root: Path, exts: List[Str]) [fs] -> Int {
@@ -77,7 +77,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
         }
 
         if opts.once {
-          abort(1)
+          exit 1
         }
       }
 
@@ -89,7 +89,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
     }
 
     repeat interval times {
-      time.sleep(1s)?
+      time.sleep(1s)
     }
 
     let current_stamp = stamp(root, exts)

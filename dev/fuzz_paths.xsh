@@ -15,7 +15,7 @@ export proc built_binary(messages: Str) [error] -> Result[Path, Error] {
   }
 
   if binaries.len() != 1 {
-    error.fail(f"expected one xsh-fuzz binary artifact, found {binaries.len()}")?
+    error.fail(f"expected one xsh-fuzz binary artifact, found {binaries.len()}")
   }
 
   Ok(binaries[0])

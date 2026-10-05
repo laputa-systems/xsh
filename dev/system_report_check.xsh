@@ -2585,10 +2585,7 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int], Error] 
   # Reject malformed utility booleans at the JSON boundary before typed row conversion.
   let rows = json.get(raw, ["cpus"])?.require(List[Record])?
   for row in rows {
-    match json.get(row, ["online"])?.require(Bool) {
-      Ok(_) => {}
-      Err(error) => return Err(error)
-    }
+    let _ = json.get(row, ["online"])?.require(Bool)?
   }
 
   let data = raw.require(LscpuExtended)?
@@ -4779,15 +4776,15 @@ export proc capture_power_supply_bundle(
 
   let layout = power_supply_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/class/power_supply", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/power_supply", mode: 0o700, parents: true)
     for entry in layout.entries {
       let storage = fp"{entry.storage_path}"
       if ! bundle.exists(storage)? {
-        bundle.mkdir(storage, mode: 0o700, parents: true)?
+        bundle.mkdir(storage, mode: 0o700, parents: true)
       }
 
       if entry.class_target != null {
-        bundle.symlink(fp"{entry.class_target}", fp"sys/class/power_supply/{entry.name}")?
+        bundle.symlink(fp"{entry.class_target}", fp"sys/class/power_supply/{entry.name}")
       }
     }
   }
@@ -4801,7 +4798,7 @@ export proc capture_power_supply_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{item.path}", data)?
+      bundle.write(fp"{item.path}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -4866,7 +4863,7 @@ export proc capture_power_supply_bundle(
     return Err(check_failure("power supply capture metadata exceeds its replay bound"))
   }
 
-  bundle.write_atomic(p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)
 }
 
 ## Rejects changed power supply links, source bytes, absences, and references.
@@ -4939,7 +4936,7 @@ export proc replay_power_supply_bundle(bundle: FsRoot) [fs, time, error] -> Resu
     return Err(check_failure("power supply capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 4194304)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 4194304)
   let candidate_json = encode_replayed_report(candidate, true)?
   let reference = capture.reference ?? []
   compare_power_supplies(candidate_json, reference, reference)
@@ -5378,14 +5375,14 @@ export proc capture_powercap_bundle(
 
   let layout = powercap_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/class/powercap", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/powercap", mode: 0o700, parents: true)
     for zone in layout.zones {
-      bundle.mkdir(fp"{zone.storage_path}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"{zone.storage_path}", mode: 0o700, parents: true)
     }
 
     for zone in layout.zones {
       if zone.class_target != null {
-        bundle.symlink(fp"{zone.class_target}", fp"sys/class/powercap/{zone.entry_name}")?
+        bundle.symlink(fp"{zone.class_target}", fp"sys/class/powercap/{zone.entry_name}")
       }
     }
   }
@@ -5399,7 +5396,7 @@ export proc capture_powercap_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -5456,7 +5453,7 @@ export proc capture_powercap_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Rejects altered source identities, link topology, and raw bytes before replay.
@@ -5518,7 +5515,7 @@ export proc replay_powercap_bundle(bundle: FsRoot) [fs, time, error] -> Result[P
     return Err(check_failure("powercap capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_powercap(encode_replayed_report(candidate, true)?, reference, reference)
 }
 
@@ -6381,18 +6378,18 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 
   let layout = hwmon_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/class/hwmon", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/hwmon", mode: 0o700, parents: true)
     for chip in layout.chips {
       if ! bundle.exists(fp"{chip.storage_path}")? {
-        bundle.mkdir(fp"{chip.storage_path}", mode: 0o700, parents: true)?
+        bundle.mkdir(fp"{chip.storage_path}", mode: 0o700, parents: true)
       }
 
       if chip.device_target != null {
-        bundle.symlink(fp"{chip.device_target}", fp"{chip.storage_path}/device")?
+        bundle.symlink(fp"{chip.device_target}", fp"{chip.storage_path}/device")
       }
 
       if chip.class_target != null {
-        bundle.symlink(fp"{chip.class_target}", fp"sys/class/hwmon/{chip.name}")?
+        bundle.symlink(fp"{chip.class_target}", fp"sys/class/hwmon/{chip.name}")
       }
     }
   }
@@ -6406,7 +6403,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -6471,7 +6468,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     return Err(check_failure("hwmon capture metadata exceeds its replay bound"))
   }
 
-  bundle.write_atomic(p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)
 }
 
 ## Rejects changed class links, source bytes, absences, and independently decoded channels.
@@ -6543,7 +6540,7 @@ export proc replay_hwmon_bundle(bundle: FsRoot) [fs, time, error] -> Result[Hwmo
     return Err(check_failure("hwmon capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)
   let report_json = encode_replayed_report(candidate, true)?
   compare_hwmon(report_json, capture.reference ?? [], capture.reference ?? [])?
 }
@@ -7486,7 +7483,7 @@ export proc capture_cpu_set_bundle(
     }
   }
 
-  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)
   var observations: List[CpuSetSourceObservation] = []
   var complete = true
   var saved_bytes: List[Bytes?] = []
@@ -7499,7 +7496,7 @@ export proc capture_cpu_set_bundle(
 
     let byte_count = raw.data?.len() ?? 0
     if raw.data != null {
-      bundle.write(relative, raw.data)?
+      bundle.write(relative, raw.data)
     }
 
     saved_bytes += [raw.data]
@@ -7548,7 +7545,7 @@ export proc capture_cpu_set_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Validates captured bytes and independently reparses the saved CPU-set reference.
@@ -7607,7 +7604,7 @@ export proc replay_cpu_set_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cp
     return Err(check_failure("CPU set capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   let possible = compare_cpu_id_sets(candidate.cpu.possible.require()?, reference.possible)?
   let present = compare_cpu_id_sets(candidate.cpu.present.require()?, reference.present)?
   let online = compare_cpu_id_sets(candidate.cpu.online.require()?, reference.online)?
@@ -7728,12 +7725,12 @@ export proc capture_cpufreq_bundle(
   }
 
   let layout = cpufreq_bundle_layout(source)?
-  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)?
-  bundle.mkdir(p"sys/devices/system/cpu/intel_pstate", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)
+  bundle.mkdir(p"sys/devices/system/cpu/intel_pstate", mode: 0o700, parents: true)
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/devices/system/cpu/cpufreq", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/devices/system/cpu/cpufreq", mode: 0o700, parents: true)
     for policy in layout.policies {
-      bundle.mkdir(fp"sys/devices/system/cpu/cpufreq/{policy}", mode: 0o700)?
+      bundle.mkdir(fp"sys/devices/system/cpu/cpufreq/{policy}", mode: 0o700)
     }
   }
 
@@ -7746,7 +7743,7 @@ export proc capture_cpufreq_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -7817,7 +7814,7 @@ export proc capture_cpufreq_bundle(
     policies:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Rejects changed policy directories, raw bytes, absence, and decoded references.
@@ -7891,7 +7888,7 @@ export proc replay_cpufreq_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cp
     return Err(check_failure("CPUFreq capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)
   let report_json = encode_replayed_report(candidate, true)?
   {
     sets: compare_cpu_sets(report_json, capture.sets ?? captured_cpu_set_reference(bundle)?)?,
@@ -8118,13 +8115,13 @@ export proc capture_cpu_topology_bundle(
   }
 
   let layout = cpu_topology_bundle_layout(source)?
-  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/devices/system/cpu", mode: 0o700, parents: true)
   for cpu_id in layout.cpu_ids {
-    bundle.mkdir(fp"sys/devices/system/cpu/cpu{cpu_id}/topology", mode: 0o700, parents: true)?
+    bundle.mkdir(fp"sys/devices/system/cpu/cpu{cpu_id}/topology", mode: 0o700, parents: true)
   }
 
   for link in layout.node_links {
-    bundle.symlink(fp"{link.target}", fp"sys/devices/system/cpu/cpu{link.cpu_id}/{link.name}")?
+    bundle.symlink(fp"{link.target}", fp"sys/devices/system/cpu/cpu{link.cpu_id}/{link.name}")
   }
 
   var sources: List[CpuTopologySourceObservation] = []
@@ -8143,7 +8140,7 @@ export proc capture_cpu_topology_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8210,7 +8207,7 @@ export proc capture_cpu_topology_bundle(
     topology:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Validates CPU set bytes, topology values, and NUMA link targets before replay.
@@ -8282,7 +8279,7 @@ export proc replay_cpu_topology_bundle(bundle: FsRoot) [fs, time, error] -> Resu
     return Err(check_failure("CPU topology capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)
   let report_json = encode_replayed_report(candidate, true)?
   {
     sets: compare_cpu_sets(report_json, capture.sets ?? captured_cpu_set_reference(bundle)?)?,
@@ -8345,8 +8342,8 @@ export proc capture_memory_bundle(
     }
   }
 
-  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
-  bundle.mkdir(p"sys/kernel/mm/transparent_hugepage", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)
+  bundle.mkdir(p"sys/kernel/mm/transparent_hugepage", mode: 0o700, parents: true)
   var observations: List[MemorySourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   var complete = true
@@ -8366,7 +8363,7 @@ export proc capture_memory_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -8412,7 +8409,7 @@ export proc capture_memory_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Requires captured bytes and the saved independent memory oracle to agree.
@@ -8479,7 +8476,7 @@ export proc replay_memory_bundle(bundle: FsRoot) [fs, time, error] -> Result[Mem
     return Err(check_failure("memory capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   let candidate_json = encode_replayed_report(candidate, true)?
   {
     meminfo: compare_meminfo(candidate_json, reference.meminfo, reference.meminfo)?,
@@ -8995,7 +8992,7 @@ export proc capture_vulnerabilities_bundle(
     return Err(check_failure("vulnerability capture destination is not empty"))
   }
 
-  bundle.mkdir(directory, mode: 0o700, parents: true)?
+  bundle.mkdir(directory, mode: 0o700, parents: true)
   let first = source.children(directory, max_entries: 256)?
   var sources: List[VulnerabilityCaptureSource] = []
   var reference: List[VulnerabilityReference] = []
@@ -9013,7 +9010,7 @@ export proc capture_vulnerabilities_bundle(
       let raw = source.read_result(child, max_bytes: 16384)?
       var digest: Str? = null
       if raw.data != null {
-        bundle.write(child, raw.data)?
+        bundle.write(child, raw.data)
         digest = hash.sha256(raw.data).hex()
         captured_bytes += raw.data.len()
         if captured_bytes > 262144 {
@@ -9082,7 +9079,7 @@ export proc capture_vulnerabilities_bundle(
     },
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Checks the captured file set, source states, digests, and decoded descriptions.
@@ -9154,7 +9151,7 @@ export proc replay_vulnerabilities_bundle(
     return Err(check_failure("vulnerability capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_vulnerabilities(encode_replayed_report(candidate, true)?, reference, reference)
 }
 
@@ -9577,7 +9574,7 @@ export proc capture_pressure_bundle(
     }
   }
 
-  bundle.mkdir(p"proc/pressure", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc/pressure", mode: 0o700, parents: true)
   var sources: List[PressureSourceObservation] = []
   var complete = true
   for resource in ["cpu", "memory", "io"] {
@@ -9591,7 +9588,7 @@ export proc capture_pressure_bundle(
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data
-      bundle.write(relative, data)?
+      bundle.write(relative, data)
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -9625,7 +9622,7 @@ export proc capture_pressure_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Verifies each saved pressure source and reparses its independently saved rows.
@@ -9688,7 +9685,7 @@ export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[P
     return Err(check_failure("pressure capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   let candidate_json = encode_replayed_report(candidate, true)?
   let data = json.decode(candidate_json)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
@@ -9820,13 +9817,13 @@ export proc capture_proc_swaps_bundle(
     return Err(check_failure("proc swap capture destination is not empty"))
   }
 
-  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let first = source.read_result(p"proc/swaps", max_bytes: 262144)?
   var byte_count = 0
   var sha256_hex: Str? = null
   if first.data != null {
     let data = first.data
-    bundle.write(p"proc/swaps", data)?
+    bundle.write(p"proc/swaps", data)
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
   }
@@ -9857,7 +9854,7 @@ export proc capture_proc_swaps_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Requires saved bytes, source state, and the parsed device oracle to agree.
@@ -9905,7 +9902,7 @@ export proc replay_proc_swaps_bundle(bundle: FsRoot) [fs, time, error] -> Result
     return Err(check_failure("proc swap capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_swap_devices(encode_replayed_report(report_value, true)?, reference)
 }
 
@@ -10978,9 +10975,9 @@ export proc capture_thermal_bundle(
 
   let layout = thermal_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/class/thermal", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/thermal", mode: 0o700, parents: true)
     for zone in layout.zone_paths {
-      bundle.mkdir(fp"{zone}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"{zone}", mode: 0o700, parents: true)
     }
   }
 
@@ -10993,7 +10990,7 @@ export proc capture_thermal_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11048,7 +11045,7 @@ export proc capture_thermal_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Validates source identities, presence, byte digests, and the saved reference.
@@ -11114,7 +11111,7 @@ export proc replay_thermal_bundle(bundle: FsRoot) [fs, time, error] -> Result[Th
     return Err(check_failure("thermal capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_thermal_zones(encode_replayed_report(candidate, true)?, reference, reference)
 }
 
@@ -11418,18 +11415,18 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
 
   let layout = pci_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/bus/pci/devices", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/bus/pci/devices", mode: 0o700, parents: true)
     for function in layout.functions {
-      bundle.mkdir(fp"{function.storage_path}", mode: 0o700, parents: true)?
+      bundle.mkdir(fp"{function.storage_path}", mode: 0o700, parents: true)
       if function.driver_target != null {
-        bundle.symlink(fp"{function.driver_target}", fp"{function.storage_path}/driver")?
+        bundle.symlink(fp"{function.driver_target}", fp"{function.storage_path}/driver")
       }
 
       if function.iommu_target != null {
-        bundle.symlink(fp"{function.iommu_target}", fp"{function.storage_path}/iommu_group")?
+        bundle.symlink(fp"{function.iommu_target}", fp"{function.storage_path}/iommu_group")
       }
 
-      bundle.symlink(fp"{function.class_target}", fp"sys/bus/pci/devices/{function.address}")?
+      bundle.symlink(fp"{function.class_target}", fp"sys/bus/pci/devices/{function.address}")
     }
   }
 
@@ -11442,7 +11439,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11511,7 +11508,7 @@ export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     link:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Rejects changed PCI links, source absence, raw bytes, and decoded identities.
@@ -11577,7 +11574,7 @@ export proc replay_pci_bundle(bundle: FsRoot) [fs, time, error] -> Result[PciBun
     return Err(check_failure("PCI capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)
   let report_json = encode_replayed_report(candidate, true)?
   {
     identity: compare_lspci_identity(report_json, capture.identity ?? [])?,
@@ -11744,25 +11741,25 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
 
   let layout = usb_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/bus/usb/devices", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/bus/usb/devices", mode: 0o700, parents: true)
     for entry in layout.entries {
       if ! bundle.exists(fp"{entry.storage_path}")? {
-        bundle.mkdir(fp"{entry.storage_path}", mode: 0o700, parents: true)?
+        bundle.mkdir(fp"{entry.storage_path}", mode: 0o700, parents: true)
       }
 
       if ":" not in entry.name {
         if ! bundle.exists(fp"{entry.storage_path}/power")? {
-          bundle.mkdir(fp"{entry.storage_path}/power", mode: 0o700, parents: true)?
+          bundle.mkdir(fp"{entry.storage_path}/power", mode: 0o700, parents: true)
         }
       }
     }
 
     for entry in layout.entries {
       if entry.driver_target != null {
-        bundle.symlink(fp"{entry.driver_target}", fp"{entry.storage_path}/driver")?
+        bundle.symlink(fp"{entry.driver_target}", fp"{entry.storage_path}/driver")
       }
 
-      bundle.symlink(fp"{entry.class_target}", fp"sys/bus/usb/devices/{entry.name}")?
+      bundle.symlink(fp"{entry.class_target}", fp"sys/bus/usb/devices/{entry.name}")
     }
   }
 
@@ -11775,7 +11772,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -11849,7 +11846,7 @@ export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs,
     interfaces:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Rejects changed USB links, source absence, descriptors, attributes, and reference values.
@@ -11914,7 +11911,7 @@ export proc replay_usb_bundle(bundle: FsRoot) [fs, time, error] -> Result[UsbBun
     return Err(check_failure("USB capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)
   let report_json = encode_replayed_report(candidate, true)?
   {
     topology: compare_usb_topology(report_json, capture.topology ?? [], capture.topology ?? [])?,
@@ -13046,10 +13043,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       ] or attribute.data.state != "observed" or attribute.data.value == null {
         fully_represented = false
       } else {
-        match attribute.data.value.base64_decode() {
-          Ok(_) => {}
-          Err(error) => return Err(error)
-        }
+        let _ = attribute.data.value.base64_decode()?
       }
     }
 
@@ -15027,16 +15021,16 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
 
   let layout = block_bundle_layout(source)?
   if layout.listing_state == "complete" {
-    bundle.mkdir(p"sys/class/block", mode: 0o700, parents: true)?
+    bundle.mkdir(p"sys/class/block", mode: 0o700, parents: true)
     for entry in layout.entries {
       let storage = fp"{entry.storage_path}"
       if ! bundle.exists(storage)? {
-        bundle.mkdir(storage, mode: 0o700, parents: true)?
+        bundle.mkdir(storage, mode: 0o700, parents: true)
       }
 
       for nested in ["queue", "device"] {
         if ! bundle.exists(fp"{storage}/{nested}")? {
-          bundle.mkdir(fp"{storage}/{nested}", mode: 0o700, parents: true)?
+          bundle.mkdir(fp"{storage}/{nested}", mode: 0o700, parents: true)
         }
       }
 
@@ -15054,19 +15048,19 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
       ] {
         continue when relation.state != "complete"
         let directory = fp"{storage}/{relation.kind}"
-        bundle.mkdir(directory, mode: 0o700)?
+        bundle.mkdir(directory, mode: 0o700)
         for link in relation.links {
           let destination = fp"{directory}/{link.name}"
           if link.target == null {
-            bundle.mkdir(destination, mode: 0o700)?
+            bundle.mkdir(destination, mode: 0o700)
           } else {
-            bundle.symlink(fp"{link.target}", destination)?
+            bundle.symlink(fp"{link.target}", destination)
           }
         }
       }
 
       if entry.class_target != null {
-        bundle.symlink(fp"{entry.class_target}", fp"sys/class/block/{entry.name}")?
+        bundle.symlink(fp"{entry.class_target}", fp"sys/class/block/{entry.name}")
       }
     }
   }
@@ -15080,7 +15074,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -15152,7 +15146,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
     return Err(check_failure("block capture metadata exceeds its replay bound"))
   }
 
-  bundle.write_atomic(p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)
 }
 
 ## Rejects altered block links, source bytes, absences, and independent references.
@@ -15228,7 +15222,7 @@ export proc replay_block_bundle(bundle: FsRoot) [fs, time, error] -> Result[Bloc
     return Err(check_failure("block capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)
   let report_json = encode_replayed_report(candidate, true)?
   let reference = capture.reference ?? {devices: [], edges: [], queue: []}
   {
@@ -15639,14 +15633,14 @@ export proc capture_mountinfo_bundle(
     return Err(check_failure("mountinfo capture destination is not empty"))
   }
 
-  bundle.mkdir(p"proc/self", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc/self", mode: 0o700, parents: true)
   let first = source.read_result(relative, max_bytes: 4194304)?
   var byte_count = 0
   var sha256_hex: Str? = null
   var reference: List[MountReference]? = null
   if first.data != null {
     let data = first.data
-    bundle.write(relative, data)?
+    bundle.write(relative, data)
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
     if first.state == "observed" and ! first.truncated and first.errno == null and first.error_kind == null {
@@ -15684,7 +15678,7 @@ export proc capture_mountinfo_bundle(
     metadata_text = json.encode(reduced_wire, pretty: true)?
   }
 
-  bundle.write_atomic(p"capture.json", metadata_text)?
+  bundle.write_atomic(p"capture.json", metadata_text)
 }
 
 ## Recomputes the mount oracle from digest-checked saved procfs bytes.
@@ -15726,7 +15720,7 @@ export proc replay_mountinfo_bundle(bundle: FsRoot) [fs, time, error] -> Result[
     return Err(check_failure("mountinfo capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata, max_bytes: 16777216)?
+  require_capture_metadata_unchanged(bundle, capture_metadata, max_bytes: 16777216)
   compare_mounts(encode_replayed_report(candidate, true)?, reference)
 }
 
@@ -16377,13 +16371,13 @@ export proc capture_kernel_modules_bundle(
     return Err(check_failure("kernel module capture destination is not empty"))
   }
 
-  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let first = source.read_result(p"proc/modules", max_bytes: 1048576)?
   var byte_count = 0
   var sha256_hex: Str? = null
   if first.data != null {
     let data = first.data
-    bundle.write(p"proc/modules", data)?
+    bundle.write(p"proc/modules", data)
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
   }
@@ -16414,7 +16408,7 @@ export proc capture_kernel_modules_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Validates saved procfs bytes before returning the independently parsed module set.
@@ -16462,7 +16456,7 @@ export proc replay_kernel_modules_bundle(bundle: FsRoot) [fs, time, error] -> Re
     return Err(check_failure("kernel module capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_kernel_modules(encode_replayed_report(report_value, true)?, reference)
 }
 
@@ -16510,14 +16504,14 @@ export proc capture_kernel_command_line_bundle(
     return Err(check_failure("kernel command-line capture destination is not empty"))
   }
 
-  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let first = source.read_result(p"proc/cmdline", max_bytes: 65536)?
   var byte_count = 0
   var sha256_hex: Str? = null
   var reference_base64: Str? = null
   if first.data != null {
     let data = first.data
-    bundle.write(p"proc/cmdline", data)?
+    bundle.write(p"proc/cmdline", data)
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
     if first.state == "observed" and ! first.truncated {
@@ -16542,7 +16536,7 @@ export proc capture_kernel_command_line_bundle(
     reference_base64:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Requires the saved bytes to match the capture digest and exact byte reference.
@@ -16581,7 +16575,7 @@ export proc replay_kernel_command_line_bundle(
     return Err(check_failure("kernel command-line capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_kernel_command_line(
     encode_replayed_report(sensitive, true)?,
     encode_replayed_report(redacted, false)?,
@@ -16765,10 +16759,10 @@ export proc capture_kernel_parameters_bundle(
     if raw.data != null {
       let data = raw.data
       if ! bundle.exists(relative.parent())? {
-        bundle.mkdir(relative.parent(), mode: 0o700, parents: true)?
+        bundle.mkdir(relative.parent(), mode: 0o700, parents: true)
       }
 
-      bundle.write(relative, data)?
+      bundle.write(relative, data)
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -16814,7 +16808,7 @@ export proc capture_kernel_parameters_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Validates every saved source before returning the independently decoded nine-key oracle.
@@ -16880,7 +16874,7 @@ export proc replay_kernel_parameters_bundle(
     return Err(check_failure("kernel parameter capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_kernel_parameters(encode_replayed_report(report_value, true)?, reference)
 }
 
@@ -17062,8 +17056,8 @@ export proc capture_os_release_bundle(
     }
   }
 
-  bundle.mkdir(p"etc", mode: 0o700, parents: true)?
-  bundle.mkdir(p"usr/lib", mode: 0o700, parents: true)?
+  bundle.mkdir(p"etc", mode: 0o700, parents: true)
+  bundle.mkdir(p"usr/lib", mode: 0o700, parents: true)
   var observations: List[OsReleaseSourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   for relative in paths {
@@ -17072,7 +17066,7 @@ export proc capture_os_release_bundle(
     var byte_count = 0
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -17128,7 +17122,7 @@ export proc capture_os_release_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Verifies every saved source before using its independently parsed release identity.
@@ -17211,7 +17205,7 @@ export proc replay_os_release_bundle(bundle: FsRoot) [fs, time, error] -> Result
     return Err(check_failure("os-release capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_os_release(encode_replayed_report(candidate, true)?, reference)
 }
 
@@ -17404,7 +17398,7 @@ export proc capture_device_tree_bundle(
     }
   }
 
-  bundle.mkdir(p"sys/firmware/devicetree/base", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/firmware/devicetree/base", mode: 0o700, parents: true)
   var sources: List[DeviceTreeSourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   var complete = true
@@ -17420,7 +17414,7 @@ export proc capture_device_tree_bundle(
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17466,7 +17460,7 @@ export proc capture_device_tree_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Verifies saved source states, digests, and the decoded device-tree reference.
@@ -17533,7 +17527,7 @@ export proc replay_device_tree_bundle(bundle: FsRoot) [fs, time, error] -> Resul
     return Err(check_failure("device-tree capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_device_tree(encode_replayed_report(candidate, true)?, reference, false)
 }
 
@@ -17604,7 +17598,7 @@ export proc capture_dmi_identity_bundle(
     }
   }
 
-  bundle.mkdir(p"sys/class/dmi/id", mode: 0o700, parents: true)?
+  bundle.mkdir(p"sys/class/dmi/id", mode: 0o700, parents: true)
   var sources: List[DmiIdentitySourceObservation] = []
   var saved_bytes: List[Bytes?] = []
   var complete = true
@@ -17618,7 +17612,7 @@ export proc capture_dmi_identity_bundle(
     var sha256_hex: Str? = null
     if raw.data != null {
       let data = raw.data
-      bundle.write(fp"{relative}", data)?
+      bundle.write(fp"{relative}", data)
       byte_count = data.len()
       sha256_hex = hash.sha256(data).hex()
     }
@@ -17664,7 +17658,7 @@ export proc capture_dmi_identity_bundle(
     reference:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Checks DMI class source states, digests, and the saved raw-value reference.
@@ -17727,7 +17721,7 @@ export proc replay_dmi_identity_bundle(bundle: FsRoot) [fs, time, error] -> Resu
     return Err(check_failure("DMI identity capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   let sensitive = compare_dmi_identity(encode_replayed_report(sensitive_candidate, true)?, reference, reference)?
   let default_redacted = dmi_identity_redacted(encode_replayed_report(default_candidate, false)?, reference)?
   {sensitive: sensitive, default_redacted: default_redacted, exact: sensitive.exact and default_redacted}
@@ -17931,14 +17925,14 @@ export proc capture_uptime_bundle(
     return Err(check_failure("uptime capture destination is not empty"))
   }
 
-  bundle.mkdir(p"proc", mode: 0o700, parents: true)?
+  bundle.mkdir(p"proc", mode: 0o700, parents: true)
   let raw = source.read_result(p"proc/uptime", max_bytes: 4096)?
   var byte_count = 0
   var sha256_hex: Str? = null
   var reference_seconds: Int? = null
   if raw.data != null {
     let data = raw.data
-    bundle.write(p"proc/uptime", data)?
+    bundle.write(p"proc/uptime", data)
     byte_count = data.len()
     sha256_hex = hash.sha256(data).hex()
     if raw.state == "observed" and ! raw.truncated and raw.errno == null and raw.error_kind == null {
@@ -17964,7 +17958,7 @@ export proc capture_uptime_bundle(
     reference_seconds:,
   )
   let wire: Any = capture
-  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)?
+  bundle.write_atomic(p"capture.json", json.encode(wire, pretty: true)?)
 }
 
 ## Verifies saved uptime bytes before using the parsed whole-second oracle.
@@ -18012,7 +18006,7 @@ export proc replay_uptime_bundle(bundle: FsRoot) [fs, time, error] -> Result[Upt
     return Err(check_failure("uptime capture changed during collector replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  require_capture_metadata_unchanged(bundle, capture_metadata)
   compare_uptime(encode_replayed_report(candidate, true)?, reference, reference)
 }
 
@@ -18546,10 +18540,7 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
     }
 
     for part in device_parts {
-      match cgroup2_reference_number(part) {
-        Ok(_) => {}
-        Err(error) => return Err(error)
-      }
+      let _ = cgroup2_reference_number(part)?
     }
 
     devices = set.add(devices, device)
@@ -18939,10 +18930,10 @@ export proc capture_cgroup2_bundle(
       let data = raw.data
       let parent = relative.parent()
       if ! bundle.exists(parent)? {
-        bundle.mkdir(parent, mode: 0o700, parents: true)?
+        bundle.mkdir(parent, mode: 0o700, parents: true)
       }
 
-      bundle.write(relative, data)?
+      bundle.write(relative, data)
       sha256_hex = hash.sha256(data).hex()
       byte_count = data.len()
     }
@@ -19015,7 +19006,7 @@ export proc capture_cgroup2_bundle(
     return Err(check_failure("cgroup2 capture metadata exceeds its replay bound"))
   }
 
-  bundle.write_atomic(p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)
 }
 
 ## Requires saved cgroup2 bytes, path selection, and decoded resources to agree.
@@ -19089,7 +19080,7 @@ export proc replay_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cg
     return Err(check_failure("cgroup2 capture changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 1048576)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 1048576)
   let candidate_json = encode_replayed_report(candidate, true)?
   let reference = Cgroup2ResourceObservation(
     ancestors: capture.reference_ancestors,
@@ -19555,7 +19546,7 @@ export proc capture_process_bundle(
   var skipped: List[ProcessBundleSkip] = []
   var total_bytes = 0
   if listing.state == "complete" {
-    bundle.mkdir(p"proc", mode: 0o700)?
+    bundle.mkdir(p"proc", mode: 0o700)
     for process_path in listing.children {
       let pid_text = process_path.name()
       continue when pid_text == "" or (pid_text.split("")
@@ -19727,10 +19718,10 @@ export proc capture_process_bundle(
       }
 
       total_bytes += selected_bytes
-      bundle.mkdir(fp"proc/{pid}", mode: 0o700)?
+      bundle.mkdir(fp"proc/{pid}", mode: 0o700)
       for field in raw_fields {
         let relative = f"proc/{pid}/{field.name}"
-        bundle.write(fp"{relative}", field.data)?
+        bundle.write(fp"{relative}", field.data)
         sources += [
           {
             path: relative,
@@ -19781,7 +19772,7 @@ export proc capture_process_bundle(
     return Err(check_failure("process capture metadata exceeds its replay bound"))
   }
 
-  bundle.write_atomic(p"capture.json", encoded)?
+  bundle.write_atomic(p"capture.json", encoded)
 }
 
 ## Rejects changed saved process bytes, PID membership, and decoded references.
@@ -19911,7 +19902,7 @@ export proc replay_process_bundle(bundle: FsRoot) [fs, time, error] -> Result[Pr
     return Err(check_failure("process bundle changed during replay"))
   }
 
-  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 8388608)?
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 8388608)
   let candidate_json = encode_replayed_report(candidate, true)?
   let identity = capture.identity ?? {processes: [], skipped_count: 0}
   let resources = capture.resources ?? {processes: [], skipped_count: 0}
@@ -21314,9 +21305,9 @@ proc audit_no_subprocess_case(
   let trace_name = fp"trace-{label}"
   let stdout_name = fp"stdout-{label}"
   let stderr_name = fp"stderr-{label}"
-  scratch.write(trace_name, "")?
-  scratch.write(stdout_name, "")?
-  scratch.write(stderr_name, "")?
+  scratch.write(trace_name, "")
+  scratch.write(stdout_name, "")
+  scratch.write(stderr_name, "")
   let scratch_path = scratch.host_path()?
   let trace_path = fp"{scratch_path}/{trace_name}"
   let stdout_path = fp"{scratch_path}/{stdout_name}"
@@ -21375,31 +21366,31 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
 
   let scratch = fs.tempdir()?
   defer scratch.close()?
-  scratch.write(p"malformed.json", "{invalid")?
-  scratch.write(p"unsupported.json", "{\"schema_version\":2}")?
-  scratch.write(p"invalid-utf8.json", b"\xff")?
+  scratch.write(p"malformed.json", "{invalid")
+  scratch.write(p"unsupported.json", "{\"schema_version\":2}")
+  scratch.write(p"invalid-utf8.json", b"\xff")
   let scratch_path = scratch.host_path()?
   let malformed_path = fp"{scratch_path}/malformed.json"
   let unsupported_path = fp"{scratch_path}/unsupported.json"
   let invalid_utf8_path = fp"{scratch_path}/invalid-utf8.json"
   let missing_path = fp"{scratch_path}/missing.json"
 
-  audit_no_subprocess_case(xsh_bin, script, ["--json"], true, "live-json", scratch)?
-  audit_no_subprocess_case(xsh_bin, script, [], true, "overview-text", scratch)?
-  audit_no_subprocess_case(xsh_bin, script, ["--full"], true, "full-text", scratch)?
-  audit_no_subprocess_case(xsh_bin, script, ["--section", "cpu", "--json"], true, "cpu-json", scratch)?
-  audit_no_subprocess_case(xsh_bin, script, ["--sensitive", "--json"], true, "sensitive-json", scratch)?
+  audit_no_subprocess_case(xsh_bin, script, ["--json"], true, "live-json", scratch)
+  audit_no_subprocess_case(xsh_bin, script, [], true, "overview-text", scratch)
+  audit_no_subprocess_case(xsh_bin, script, ["--full"], true, "full-text", scratch)
+  audit_no_subprocess_case(xsh_bin, script, ["--section", "cpu", "--json"], true, "cpu-json", scratch)
+  audit_no_subprocess_case(xsh_bin, script, ["--sensitive", "--json"], true, "sensitive-json", scratch)
   let saved_path = fp"{scratch_path}/stdout-live-json"
-  audit_no_subprocess_case(xsh_bin, script, ["--from", saved_path.display(), "--json"], true, "offline-replay", scratch)?
+  audit_no_subprocess_case(xsh_bin, script, ["--from", saved_path.display(), "--json"], true, "offline-replay", scratch)
   let live_json = scratch.read_text(p"stdout-live-json")?
   let replay_json = scratch.read_text(p"stdout-offline-replay")?
   if replay_json != live_json {
     return Err(check_failure("saved-report replay changed the JSON snapshot"))
   }
 
-  audit_no_subprocess_case(xsh_bin, script, ["--version"], true, "version", scratch)?
-  audit_no_subprocess_case(xsh_bin, script, ["--section", "invalid"], false, "invalid-section", scratch)?
-  audit_no_subprocess_case(xsh_bin, script, ["--from", malformed_path.display()], false, "malformed-replay", scratch)?
+  audit_no_subprocess_case(xsh_bin, script, ["--version"], true, "version", scratch)
+  audit_no_subprocess_case(xsh_bin, script, ["--section", "invalid"], false, "invalid-section", scratch)
+  audit_no_subprocess_case(xsh_bin, script, ["--from", malformed_path.display()], false, "malformed-replay", scratch)
   audit_no_subprocess_case(
     xsh_bin,
     script,
@@ -21407,7 +21398,7 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
     false,
     "unsupported-schema",
     scratch,
-  )?
+  )
   audit_no_subprocess_case(
     xsh_bin,
     script,
@@ -21415,8 +21406,8 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
     false,
     "invalid-utf8-replay",
     scratch,
-  )?
-  audit_no_subprocess_case(xsh_bin, script, ["--from", missing_path.display()], false, "missing-replay", scratch)?
+  )
+  audit_no_subprocess_case(xsh_bin, script, ["--from", missing_path.display()], false, "missing-replay", scratch)
   let startup_trace = scratch.read_text(p"trace-version")?
   for label in ["offline-replay", "malformed-replay", "unsupported-schema", "invalid-utf8-replay", "missing-replay"] {
     let replay_trace = scratch.read_text(fp"trace-{label}")?
@@ -21444,7 +21435,7 @@ proc read_uname_reference(
 ) [fs, process, time, error] -> Result[UnameObservation] {
   let scratch_path = scratch.host_path()?
   let output_path = fp"{scratch_path}/{name}"
-  scratch.write(fp"{name}", "")?
+  scratch.write(fp"{name}", "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21473,7 +21464,7 @@ proc read_uptime_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UptimeReferenceObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")?
+  scratch.write(fp"{name}", "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21499,7 +21490,7 @@ proc read_os_release_reference(
   name: Str,
 ) [fs, process, time, error] -> Result[UnameObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")?
+  scratch.write(fp"{name}", "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21536,7 +21527,7 @@ export proc read_device_tree_raw_reference(
   }
 
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")?
+  scratch.write(fp"{name}", "")
   let status = process.run(
     process.command_argv(
       "/usr/bin/od",
@@ -21571,8 +21562,8 @@ proc read_namespace_reference(
   output_name: Str,
 ) [fs, process, time, error] -> Result[NamespaceLinkObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{output_name}", "")?
-  scratch.write(fp"{output_name}-error", "")?
+  scratch.write(fp"{output_name}", "")
+  scratch.write(fp"{output_name}-error", "")
   let source_path = f"/proc/self/ns/{kernel_name}"
   let started = time.now()
   let status = process.run(
@@ -21607,8 +21598,8 @@ proc read_reference_tool_version(
   let scratch_path = scratch.host_path()?
   let output_name = fp"{name}-version"
   let error_name = fp"{name}-version-error"
-  scratch.write(output_name, "")?
-  scratch.write(error_name, "")?
+  scratch.write(output_name, "")
+  scratch.write(error_name, "")
   let status = process.run(
     process.command_argv(
       binary,
@@ -21674,7 +21665,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
   )?
   let before_dmi = read_dmi_identity_reference(source)?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -21729,7 +21720,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, error,
   let uname_version = read_reference_tool_version("/bin/uname", "uname", scratch, "uname")?
   let cat_version = read_reference_tool_version("/bin/cat", "cat", scratch, "cat")?
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_identity(candidate, before_release.value, before_architecture.value)?
   let uptime_compared = compare_uptime(candidate, before_uptime.seconds, after_uptime.seconds)?
   let dmi_compared = compare_dmi_identity(candidate, before_dmi, after_dmi)?
@@ -21921,7 +21912,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
 
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -21951,7 +21942,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
 
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_namespace_scope(candidate, before)?
   let version = read_reference_tool_version("/usr/bin/readlink", "readlink", scratch, "readlink")?
   let candidate_data = json.decode(candidate)?
@@ -21978,8 +21969,8 @@ proc print_cpu_id_set_result(name: Str, result: CpuIdSetComparison) [error, io] 
 # Reads a bounded raw host-memory snapshot with its observation interval.
 proc read_meminfo_reference(scratch: FsRoot, name: Str) [fs, process, time, error] -> Result[MeminfoObservation] {
   let scratch_path = scratch.host_path()?
-  scratch.write(fp"{name}", "")?
-  scratch.write(fp"{name}-error", "")?
+  scratch.write(fp"{name}", "")
+  scratch.write(fp"{name}-error", "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22025,8 +22016,8 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
   defer scratch.close()?
   let before = read_meminfo_reference(scratch, "meminfo-before")?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22045,7 +22036,7 @@ proc compare_live_meminfo(xsh_bin: Str, script: Str) [fs, process, time, error, 
 
   let after = read_meminfo_reference(scratch, "meminfo-after")?
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
   for item in issues {
@@ -22073,8 +22064,8 @@ proc read_thp_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
     let source_path = fp"/sys/kernel/mm/transparent_hugepage/{name}"
     continue unless source_path.exists()?
     let output_name = f"thp-{label}-{name}"
-    scratch.write(fp"{output_name}", "")?
-    scratch.write(fp"{output_name}-error", "")?
+    scratch.write(fp"{output_name}", "")
+    scratch.write(fp"{output_name}-error", "")
     let status = process.run(
       process.command_argv(
         "/bin/cat",
@@ -22119,8 +22110,8 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   defer scratch.close()?
   let before = read_thp_reference(scratch, "before")?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22144,7 +22135,7 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
   for item in issues {
@@ -22309,8 +22300,8 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
   defer scratch.close()?
   let before = read_huge_page_reference(source)?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22329,7 +22320,7 @@ proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, erro
 
   let after = read_huge_page_reference(source)?
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
   for item in issues {
@@ -22376,8 +22367,8 @@ proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] 
     continue unless source_path.exists()?
     available_resources += [resource]
     let output_name = f"psi-{label}-{resource}"
-    scratch.write(fp"{output_name}", "")?
-    scratch.write(fp"{output_name}-error", "")?
+    scratch.write(fp"{output_name}", "")
+    scratch.write(fp"{output_name}-error", "")
     let status = process.run(
       process.command_argv(
         "/bin/cat",
@@ -22422,8 +22413,8 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   defer scratch.close()?
   let before = read_psi_reference(scratch, "before")?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22446,7 +22437,7 @@ proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, error, io] 
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
   for resource in ["cpu", "memory", "io"] {
@@ -22516,8 +22507,8 @@ proc read_vulnerability_reference(
     }
 
     let output_name = f"vulnerability-{label}-{index}"
-    scratch.write(fp"{output_name}", "")?
-    scratch.write(fp"{output_name}-error", "")?
+    scratch.write(fp"{output_name}", "")
+    scratch.write(fp"{output_name}-error", "")
     let source_path = fp"/sys/devices/system/cpu/vulnerabilities/{name}"
     let status = process.run(
       process.command_argv(
@@ -22565,8 +22556,8 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
   defer scratch.close()?
   let before = read_vulnerability_reference(scratch, "before")?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -22590,7 +22581,7 @@ proc compare_live_vulnerabilities(xsh_bin: Str, script: Str) [fs, process, time,
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
   for item in issues {
@@ -22694,7 +22685,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, error, io
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
   for issue in issues {
@@ -22833,7 +22824,7 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, er
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_lspci_identity(candidate, before)?
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
@@ -22859,7 +22850,7 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
   let before = read_pci_link_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22879,7 +22870,7 @@ proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, error
   let after = read_pci_link_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_pci_links(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -22909,7 +22900,7 @@ proc compare_live_usb_topology(
   let before = read_usb_topology_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22929,7 +22920,7 @@ proc compare_live_usb_topology(
   let after = read_usb_topology_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_usb_topology(candidate, before, after)?
   if compared.reference_count == 0 and after.len() == 0 {
     guard compared.candidate_count == 0 else {
@@ -22965,7 +22956,7 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let before = read_usb_ids_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -22985,7 +22976,7 @@ proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after = read_usb_ids_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_usb_ids(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23012,7 +23003,7 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
   let before = read_usb_power_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23032,7 +23023,7 @@ proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, error
   let after = read_usb_power_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_usb_power(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23062,7 +23053,7 @@ proc compare_live_usb_interfaces(
   let before = read_usb_interface_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23082,7 +23073,7 @@ proc compare_live_usb_interfaces(
   let after = read_usb_interface_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_usb_interfaces(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23112,7 +23103,7 @@ proc compare_live_power_supplies(
   let before = read_power_supply_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23132,7 +23123,7 @@ proc compare_live_power_supplies(
   let after = read_power_supply_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_power_supplies(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23159,7 +23150,7 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
   let before = read_powercap_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23179,7 +23170,7 @@ proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, error,
   let after = read_powercap_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_powercap(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23213,7 +23204,7 @@ proc compare_live_device_classes(
 
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23237,7 +23228,7 @@ proc compare_live_device_classes(
 
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_device_classes(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23268,7 +23259,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
 
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23292,7 +23283,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
 
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_hwmon(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23322,7 +23313,7 @@ proc compare_live_pci_bindings(
   let before = read_pci_binding_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23342,7 +23333,7 @@ proc compare_live_pci_bindings(
   let after = read_pci_binding_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_pci_bindings(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23369,7 +23360,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let before = read_thermal_zone_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -23389,7 +23380,7 @@ proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after = read_thermal_zone_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_thermal_zones(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -23540,7 +23531,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_ip_links(candidate, before)?
   let raw_compared = compare_network_link_raw(candidate, raw_before, raw_after)?
   let candidate_data = json.decode(candidate)?
@@ -23642,7 +23633,7 @@ proc compare_live_ip_addresses(
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_ip_addresses(candidate, before)?
   let lifetimes = compare_ip_address_lifetimes(candidate, before, after)?
   let candidate_data = json.decode(candidate)?
@@ -23738,7 +23729,7 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_ip_rules(candidate, before)?
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
@@ -23831,7 +23822,7 @@ proc compare_live_ip_routes(
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_ip_routes(candidate, before)?
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
@@ -23941,7 +23932,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
   for issue in issues {
@@ -24060,7 +24051,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, error, io
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
   for issue in issues {
@@ -24188,7 +24179,7 @@ proc compare_live_mounts(xsh_bin: Str, script: Str) [fs, process, time, error, i
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
   for issue in issues {
@@ -24355,7 +24346,7 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, err
   let after_usage = read_mount_usage_references(binary, scratch, "usage-after", after_mounts)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"usage-candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
   for issue in issues {
@@ -24470,7 +24461,7 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, error, 
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
   for issue in issues {
@@ -24575,8 +24566,8 @@ proc compare_live_kernel_command_line(xsh_bin: Str, script: Str) [fs, process, t
 
   let sensitive = scratch.read_text(p"cmdline-sensitive")?
   let redacted = scratch.read_text(p"cmdline-redacted")?
-  require_live_linux_report(sensitive)?
-  require_live_linux_report(redacted)?
+  require_live_linux_report(sensitive)
+  require_live_linux_report(redacted)
   let compared = compare_kernel_command_line(sensitive, redacted, before.data)?
   let version = read_reference_tool_version("/bin/cat", "cat", scratch, "cat-cmdline")?
   let sensitive_data = json.decode(sensitive)?
@@ -24736,7 +24727,7 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
   }
 
   let candidate = scratch.read_text(p"parameters-candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_kernel_parameters(candidate, before.values)?
   let version = read_reference_tool_version(sysctl_binary, "sysctl", scratch, "sysctl")?
   let candidate_data = json.decode(candidate)?
@@ -24758,8 +24749,8 @@ proc read_proc_status_affinity_reference(
 ) [fs, process, time, error] -> Result[ProcStatusAffinityObservation] {
   let scratch_path = scratch.host_path()?
   let output_name = fp"{name}"
-  scratch.write(output_name, "")?
-  scratch.write(fp"{name}-error", "")?
+  scratch.write(output_name, "")
+  scratch.write(fp"{name}-error", "")
   let started = time.now()
   let status = process.run(
     process.command_argv(
@@ -24809,8 +24800,8 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
   let affinity_before = read_proc_status_affinity_reference(scratch, "cpu-scope-before")?
   let cgroup_before = read_cpu_scope_cgroup_reference(source)?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -24830,7 +24821,7 @@ proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, error
   let cgroup_after = read_cpu_scope_cgroup_reference(source)?
   let affinity_after = read_proc_status_affinity_reference(scratch, "cpu-scope-after")?
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
   let has_visible_cgroup = cgroup_before.ancestors.len() > 0
@@ -24873,8 +24864,8 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
   defer scratch.close()?
   let before = read_cgroup2_resource_reference(source)?
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -24893,7 +24884,7 @@ proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, error, 
 
   let after = read_cgroup2_resource_reference(source)?
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let data = json.decode(candidate)?
   let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
   if before.resources.len() > 0 {
@@ -24940,7 +24931,7 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
   let before = read_cpu_cache_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -24960,7 +24951,7 @@ proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, error
   let after = read_cpu_cache_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_cpu_cache_sharing(candidate, before, after)?
   if compared.reference_count == 0 {
     guard compared.candidate_count == 0 else {
@@ -25021,7 +25012,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
     before_sets.present,
   )?
   let before_ended = time.now()
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -25062,7 +25053,7 @@ proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, er
   )?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_lscpu_topology(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -25093,7 +25084,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let before = read_cpufreq_policy_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -25113,7 +25104,7 @@ proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after = read_cpufreq_policy_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_cpufreq_policies(candidate, before, after)?
   if before.len() == 0 {
     guard compared.candidate_count == 0 else {
@@ -25160,7 +25151,7 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let before = read_cpuidle_reference(source)?
   let before_ended = time.now()
   let scratch_path = scratch.host_path()?
-  scratch.write(p"candidate", "")?
+  scratch.write(p"candidate", "")
   let candidate_started = time.now()
   let status = process.run(
     process.command_argv(
@@ -25180,7 +25171,7 @@ proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, error, 
   let after = read_cpuidle_reference(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_cpuidle(candidate, before, after)?
   let data = json.decode(candidate)?
   let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
@@ -25219,7 +25210,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   let scratch = fs.tempdir()?
   defer scratch.close()?
   for name in ["lscpu-before", "lscpu-after", "candidate", "lscpu-version"] {
-    scratch.write(fp"{name}", "")?
+    scratch.write(fp"{name}", "")
   }
 
   let scratch_path = scratch.host_path()?
@@ -25306,7 +25297,7 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   }
 
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_cpu_sets(candidate, before_sets)?
   let candidate_data = json.decode(candidate)?
   let source_mode = json.get(candidate_data, ["source_mode"])?.require(Str)?
@@ -25315,10 +25306,10 @@ proc compare_live_cpu_sets(xsh_bin: Str, script: Str) [fs, process, time, error,
   let host_claim_display = json.encode(host_claim)?
   let agreement = if compared.exact { "exact" } else { "mismatch" }
   print f"cpu.sets: {agreement}"
-  print_cpu_id_set_result("possible", compared.possible)?
-  print_cpu_id_set_result("present", compared.present)?
-  print_cpu_id_set_result("online", compared.online)?
-  print_cpu_id_set_result("offline", compared.offline)?
+  print_cpu_id_set_result("possible", compared.possible)
+  print_cpu_id_set_result("present", compared.present)
+  print_cpu_id_set_result("online", compared.online)
+  print_cpu_id_set_result("offline", compared.offline)
   print f"reference: {version}; argv=lscpu --json --extended=CPU,ONLINE,NODE,SOCKET,CORE; sysfs=/sys/devices/system/cpu/possible,present,online,offline; locale=C; euid={applet.current_euid()}; source_mode={source_mode_display}; host_claim={host_claim_display}; before-sysfs={before_sysfs_started}..{before_sysfs_ended} ms; before-lscpu={before_started}..{before_ended} ms; candidate={candidate_started}..{candidate_ended} ms; after-lscpu={after_started}..{after_ended} ms; after-sysfs={after_sysfs_started}..{after_sysfs_ended} ms"
   return Err(check_failure("cpu.sets mandatory assertion failed")) unless compared.exact
 }
@@ -25339,8 +25330,8 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
   let before_identity = read_process_identity_snapshot(source)?
   let before_resources = read_process_resource_snapshot(source, units.page_size_bytes)?
   let before_ended = time.now()
-  scratch.write(p"candidate", "")?
-  scratch.write(p"candidate-error", "")?
+  scratch.write(p"candidate", "")
+  scratch.write(p"candidate-error", "")
   let candidate_started = time.now()
   let candidate_status = process.run(
     process.command_argv(
@@ -25362,7 +25353,7 @@ proc compare_live_processes(xsh_bin: Str, script: Str) [fs, process, time, error
   let after_identity = read_process_identity_snapshot(source)?
   let after_ended = time.now()
   let candidate = scratch.read_text(p"candidate")?
-  require_live_linux_report(candidate)?
+  require_live_linux_report(candidate)
   let compared = compare_process_identity(candidate, before_identity.processes, after_identity.processes)?
   let resources = compare_process_resources(candidate, before_resources.processes, after_resources.processes)?
   if compared.stable_count == 0 or resources.scored_fields == 0 {
@@ -25531,8 +25522,8 @@ proc run_fixture_cases(
         continue
       }
 
-      scratch.write(p"stdout", "")?
-      scratch.write(p"stderr", "")?
+      scratch.write(p"stdout", "")
+      scratch.write(p"stderr", "")
       let rust_case = rust_fixture_name(test_name)
       let status = if rust_case {
         process.run(
@@ -26030,8 +26021,8 @@ export proc validate_and_run(
   let manifest_path = context.repo_path(ctx.root, options.manifest)
   let raw = json.read(manifest_path)?
   let manifest = raw.require(CoverageManifest)?
-  validate(manifest)?
-  validate_fixture_test_definitions(ctx.root, manifest.fixture_cases.extend(manifest.macos_fixture_cases))?
+  validate(manifest)
+  validate_fixture_test_definitions(ctx.root, manifest.fixture_cases.extend(manifest.macos_fixture_cases))
   if options.run_fixtures and options.run_macos_fixtures {
     return Err(check_failure("choose one fixture platform gate"))
   }
@@ -26176,12 +26167,12 @@ export proc validate_and_run(
       return Err(check_failure("CPU set capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_cpu_set_bundle(source, bundle, "live_capture")?
+    capture_cpu_set_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"CPU set raw capture saved at {destination}; origin=live_capture; stable={capture.stable}; scoreable={scoreable}"
@@ -26196,10 +26187,10 @@ export proc validate_and_run(
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuSetCapture)?
     let state = if result.exact { "exact" } else { "mismatch" }
     print f"CPU set raw replay: {state}; origin={capture.origin}; captured={capture.captured_unix_ms} ms"
-    print_cpu_id_set_result("possible", result.possible)?
-    print_cpu_id_set_result("present", result.present)?
-    print_cpu_id_set_result("online", result.online)?
-    print_cpu_id_set_result("offline", result.offline)?
+    print_cpu_id_set_result("possible", result.possible)
+    print_cpu_id_set_result("present", result.present)
+    print_cpu_id_set_result("online", result.online)
+    print_cpu_id_set_result("offline", result.offline)
     if ! result.exact {
       return Err(check_failure("CPU set raw replay does not match its independent reference"))
     }
@@ -26216,12 +26207,12 @@ export proc validate_and_run(
       return Err(check_failure("CPUFreq capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_cpufreq_bundle(source, bundle, "live_capture")?
+    capture_cpufreq_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuFreqBundleCapture)?
     print f"CPUFreq raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; policies={capture.layout.policies.len()}; changing_gauges={capture.changing_gauges.len()}"
     print f"Replay with --replay-cpufreq-bundle {destination}"
@@ -26263,12 +26254,12 @@ export proc validate_and_run(
       return Err(check_failure("CPU topology capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_cpu_topology_bundle(source, bundle, "live_capture")?
+    capture_cpu_topology_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(CpuTopologyBundleCapture)?
     print f"CPU topology raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; CPUs={capture.layout.cpu_ids.len()}; node_links={capture.layout.node_links.len()}"
     print f"Replay with --replay-cpu-topology-bundle {destination}"
@@ -26296,12 +26287,12 @@ export proc validate_and_run(
       return Err(check_failure("memory capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_memory_bundle(source, bundle, "live_capture")?
+    capture_memory_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(MemoryCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"memory raw capture saved at {destination}; origin=live_capture; stable={capture.stable}; scoreable={scoreable}"
@@ -26339,12 +26330,12 @@ export proc validate_and_run(
       return Err(check_failure("cgroup2 capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_cgroup2_bundle(source, bundle, "live_capture")?
+    capture_cgroup2_bundle(source, bundle, "live_capture")
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
     print f"cgroup2 raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; ancestors={capture.layout.ancestors.len()}; resources={capture.reference_resources.len()}; changing_sources={capture.changing_sources.len()}"
     print f"Replay with --replay-cgroup2-bundle {destination}"
@@ -26373,13 +26364,13 @@ export proc validate_and_run(
       return Err(check_failure("process capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
     let units = system.execution_units()?
-    capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)?
+    capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
     print f"process raw capture saved at {destination}; origin={capture.origin}; scoreable={capture.scoreable}; pids={capture.pids.len()}; skipped={capture.skipped_count}; page_size={capture.page_size_bytes}"
     print f"Replay with --replay-process-bundle {destination}"
@@ -26408,12 +26399,12 @@ export proc validate_and_run(
       return Err(check_failure("power supply capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_power_supply_bundle(source, bundle, "live_capture")?
+    capture_power_supply_bundle(source, bundle, "live_capture")
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
     print f"power supply raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; supplies={capture.layout.entries.len()}; changing_sources={capture.changing_sources.len()}"
     if capture.scoreable {
@@ -26446,12 +26437,12 @@ export proc validate_and_run(
       return Err(check_failure("pressure capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_pressure_bundle(source, bundle, "live_capture")?
+    capture_pressure_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PressureCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"pressure raw capture saved at {destination}; origin=live_capture; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26482,12 +26473,12 @@ export proc validate_and_run(
       return Err(check_failure("swap capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_proc_swaps_bundle(source, bundle, "live_capture")?
+    capture_proc_swaps_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ProcSwapsCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"swap raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26518,12 +26509,12 @@ export proc validate_and_run(
       return Err(check_failure("os-release capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_os_release_bundle(source, bundle, "live_capture")?
+    capture_os_release_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(OsReleaseCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"os-release raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; selected={capture.selected_path}"
@@ -26554,12 +26545,12 @@ export proc validate_and_run(
       return Err(check_failure("uptime capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_uptime_bundle(source, bundle, "live_capture")?
+    capture_uptime_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UptimeCapture)?
     let scoreable = if capture.reference_seconds != null { "yes" } else { "no" }
     print f"uptime raw capture saved at {destination}; origin={capture.origin}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26591,12 +26582,12 @@ export proc validate_and_run(
       return Err(check_failure("DMI identity capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_dmi_identity_bundle(source, bundle, "live_capture")?
+    capture_dmi_identity_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DmiIdentityCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"DMI identity raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26627,12 +26618,12 @@ export proc validate_and_run(
       return Err(check_failure("device-tree capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_device_tree_bundle(source, bundle, "live_capture")?
+    capture_device_tree_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(DeviceTreeCapture)?
     let scoreable = if capture.stable and capture.reference != null { "yes" } else { "no" }
     print f"device-tree raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26663,12 +26654,12 @@ export proc validate_and_run(
       return Err(check_failure("kernel command-line capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_kernel_command_line_bundle(source, bundle, "live_capture")?
+    capture_kernel_command_line_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelCommandLineCapture)?
     let scoreable = if capture.stable and capture.reference_base64 != null { "yes" } else { "no" }
     print f"kernel command-line raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26699,12 +26690,12 @@ export proc validate_and_run(
       return Err(check_failure("kernel module capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_kernel_modules_bundle(source, bundle, "live_capture")?
+    capture_kernel_modules_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelModulesCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"kernel module raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26735,12 +26726,12 @@ export proc validate_and_run(
       return Err(check_failure("vulnerability capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_vulnerabilities_bundle(source, bundle, "live_capture")?
+    capture_vulnerabilities_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(VulnerabilityCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"vulnerability raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26771,12 +26762,12 @@ export proc validate_and_run(
       return Err(check_failure("mountinfo capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_mountinfo_bundle(source, bundle, "live_capture")?
+    capture_mountinfo_bundle(source, bundle, "live_capture")
     let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"mountinfo raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26807,12 +26798,12 @@ export proc validate_and_run(
       return Err(check_failure("kernel parameter capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_kernel_parameters_bundle(source, bundle, "live_capture")?
+    capture_kernel_parameters_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(KernelParametersCapture)?
     let scoreable = if capture.reference != null { "yes" } else { "no" }
     print f"kernel parameter raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={scoreable}; captured={capture.captured_unix_ms} ms"
@@ -26843,12 +26834,12 @@ export proc validate_and_run(
       return Err(check_failure("thermal capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_thermal_bundle(source, bundle, "live_capture")?
+    capture_thermal_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(ThermalCapture)?
     print f"thermal raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-thermal-bundle {destination}"
@@ -26877,12 +26868,12 @@ export proc validate_and_run(
       return Err(check_failure("hwmon capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_hwmon_bundle(source, bundle, "live_capture")?
+    capture_hwmon_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(HwmonBundleCapture)?
     print f"hwmon raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; chips={capture.layout.chips.len()}; changing_gauges={capture.changing_gauges.len()}"
     print f"Replay with --replay-hwmon-bundle {destination}"
@@ -26920,12 +26911,12 @@ export proc validate_and_run(
       return Err(check_failure("block capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_block_bundle(source, bundle, "live_capture")?
+    capture_block_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(BlockBundleCapture)?
     print f"block raw capture saved at {destination}; origin={capture.origin}; stable_static={capture.stable_static}; scoreable={capture.scoreable}; devices={capture.layout.entries.len()}; changing_stats={capture.changing_stats.len()}"
     print f"Replay with --replay-block-bundle {destination}"
@@ -26956,12 +26947,12 @@ export proc validate_and_run(
       return Err(check_failure("powercap capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_powercap_bundle(source, bundle, "live_capture")?
+    capture_powercap_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PowerCapCapture)?
     print f"powercap raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; captured={capture.captured_unix_ms} ms"
     print f"Replay with --replay-powercap-bundle {destination}"
@@ -26990,12 +26981,12 @@ export proc validate_and_run(
       return Err(check_failure("PCI capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_pci_bundle(source, bundle, "live_capture")?
+    capture_pci_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(PciBundleCapture)?
     print f"PCI raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; functions={capture.layout.functions.len()}"
     print f"Replay with --replay-pci-bundle {destination}"
@@ -27032,12 +27023,12 @@ export proc validate_and_run(
       return Err(check_failure("USB capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
     defer source.close()?
-    capture_usb_bundle(source, bundle, "live_capture")?
+    capture_usb_bundle(source, bundle, "live_capture")
     let capture = json.decode(bundle.read_text(p"capture.json")?)?.require(UsbBundleCapture)?
     print f"USB raw capture saved at {destination}; origin={capture.origin}; stable={capture.stable}; scoreable={capture.scoreable}; entries={capture.layout.entries.len()}"
     print f"Replay with --replay-usb-bundle {destination}"
@@ -27075,7 +27066,7 @@ export proc validate_and_run(
       return Err(check_failure("SMBIOS capture destination already exists"))
     }
 
-    parent.mkdir(leaf, mode: 0o700)?
+    parent.mkdir(leaf, mode: 0o700)
     let bundle = fs.open_root(destination)?
     defer bundle.close()?
     let source = fs.open_root(/)?
@@ -27442,7 +27433,7 @@ export proc validate_and_run(
       return Err(check_failure("--no-subprocess requires --xsh-bin and --script"))
     }
 
-    audit_no_subprocess(options.xsh_bin, options.script)?
+    audit_no_subprocess(options.xsh_bin, options.script)
     print "process, file-mutation, and network-request traces passed for overview, full text, live JSON, CPU JSON, sensitive JSON, offline replay, version, invalid-section, and missing, malformed, unsupported-schema, and invalid-UTF-8 replay paths"
   }
 
@@ -27455,7 +27446,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory cpu.sets assertion"))
     }
 
-    compare_live_cpu_sets(options.xsh_bin, options.script)?
+    compare_live_cpu_sets(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -27598,7 +27589,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory memory.meminfo assertion"))
     }
 
-    compare_live_meminfo(options.xsh_bin, options.script)?
+    compare_live_meminfo(options.xsh_bin, options.script)
     partial_compared = true
   }
 
@@ -27673,7 +27664,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory memory.swap assertion"))
     }
 
-    compare_live_swaps(options.xsh_bin, options.script)?
+    compare_live_swaps(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -27686,7 +27677,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory pci.identity assertion"))
     }
 
-    compare_live_pci_identity(options.xsh_bin, options.script)?
+    compare_live_pci_identity(options.xsh_bin, options.script)
     partial_compared = true
   }
 
@@ -28148,7 +28139,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory storage.devices assertion"))
     }
 
-    compare_live_storage(options.xsh_bin, options.script)?
+    compare_live_storage(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28161,7 +28152,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory storage.queue assertion"))
     }
 
-    compare_live_queue(options.xsh_bin, options.script)?
+    compare_live_queue(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28174,7 +28165,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory storage.mountinfo assertion"))
     }
 
-    compare_live_mounts(options.xsh_bin, options.script)?
+    compare_live_mounts(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28187,7 +28178,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory storage.mount-usage assertion"))
     }
 
-    compare_live_mount_usage(options.xsh_bin, options.script)?
+    compare_live_mount_usage(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28200,7 +28191,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory kernel.modules assertion"))
     }
 
-    compare_live_modules(options.xsh_bin, options.script)?
+    compare_live_modules(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28213,7 +28204,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory kernel.command-line assertion"))
     }
 
-    compare_live_kernel_command_line(options.xsh_bin, options.script)?
+    compare_live_kernel_command_line(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28226,7 +28217,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory kernel.parameters assertion"))
     }
 
-    compare_live_kernel_parameters(options.xsh_bin, options.script)?
+    compare_live_kernel_parameters(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28251,7 +28242,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory identity.scope.namespaces assertion"))
     }
 
-    compare_live_namespaces(options.xsh_bin, options.script)?
+    compare_live_namespaces(options.xsh_bin, options.script)
     scored += 1
   }
 
@@ -28264,7 +28255,7 @@ export proc validate_and_run(
       return Err(check_failure("coverage manifest lacks mandatory process.identity assertion"))
     }
 
-    compare_live_processes(options.xsh_bin, options.script)?
+    compare_live_processes(options.xsh_bin, options.script)
     partial_compared = true
   }
 

@@ -41,19 +41,19 @@ proc main(...argv: List[Str]) [fs, error] {
   let output = fp"{parent}/{opts.output.name()}"
   if output.exists()? {
     print f"output already exists: {output}"
-    abort(1)
+    exit 1
   }
 
   match output.strip_prefix(absolute_source) {
     Ok(_) => {
       print "output must be outside the input tree"
-      abort(1)
+      exit 1
     }
     Err(_) => {}
   }
 
   let pending = fp"{parent}/.{opts.output.name()}.xsh-stage"
-  pending.mkdir(parents: false)?
+  pending.mkdir(parents: false)
   defer pending.remove(missing_ok: true)?
   let stage = fp"{pending}/stage"
   let payload = fp"{stage}/payload"
@@ -68,12 +68,12 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
   let manifest = fp"{stage}/MANIFEST.json"
-  json.write(manifest, {source: absolute_source.display(), files: entries})?
+  json.write(manifest, {source: absolute_source.display(), files: entries})
   let staged_tarball = fp"{pending}/release.tar"
-  archive.tar_create(staged_tarball, stage, [p"."], "auto")?
+  archive.tar_create(staged_tarball, stage, [p"."], "auto")
   let listed = archive.tar_list(staged_tarball)?.collect()
   let digest = staged_tarball.read_bytes()?.sha256().hex()
-  pending.rename(output)?
+  pending.rename(output)
   let tarball = fp"{output}/release.tar"
   print f"staged {copied.files} files {copied.dirs} dirs"
   print f"archive {tarball} entries {listed.len()} sha256 {digest}"

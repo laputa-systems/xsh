@@ -285,6 +285,6 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   if ! any_match {
-    abort(1)
+    exit 1
   }
 }

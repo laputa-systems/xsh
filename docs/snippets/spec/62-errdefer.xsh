@@ -6,7 +6,7 @@ proc render(output: Path) {
 proc publish(output: Path) {
   let partial = fp"{output}.partial"
   errdefer fs.remove(partial, missing_ok: true)
-  render(partial)?
+  render(partial)
   fs.rename(partial, output)
 }
 
@@ -15,5 +15,5 @@ proc publish(output: Path) {
 let scratch = fs.tempdir()?
 defer scratch.close()?
 let output = fp"{scratch.host_path()?}/report"
-publish(output)?
+publish(output)
 print output.read_text()?.trim()

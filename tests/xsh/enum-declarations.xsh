@@ -62,7 +62,7 @@ test test_enum_module_constructor_namespace_and_labels { |ctx|
 export enum Choice { Chosen(Int) }
 ## The same nominal type.
 export type Alias = Choice
-""")?
+""")
   let executed = test.run_script(
     ctx,
     r"""use choice as c

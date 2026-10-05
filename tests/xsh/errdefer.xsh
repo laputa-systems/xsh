@@ -307,9 +307,9 @@ test test_errdefer_removes_a_partial_file_only_on_failure { |ctx|
 }
 
 proc write_then(target: Path, fail: Bool) -> Result[Int] {
-  target.write("partial")?
+  target.write("partial")
   errdefer fs.remove(target, missing_ok: true)
-  if fail { fails()? }
+  if fail { fails() }
   1
 }
 

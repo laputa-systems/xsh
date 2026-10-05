@@ -28,7 +28,7 @@ test test_regex_literal_defaults_and_dynamic_compile_errors {
   let dynamic_pattern = "[0-9]+"
   let dynamic = regex.compile(dynamic_pattern)?
   assert dynamic.matches("42")
-  test.error_kind(regex.compile("("), "regex-compile")?
+  test.error_kind(regex.compile("("), "regex-compile")
 }
 
 test test_regex_literal_errors_fail_preparation_before_execution { |ctx|

@@ -1,7 +1,7 @@
 test test_tar_create_list_extract { |ctx|
   let root = test.temp_dir(ctx, name: "tar-src")?
-  fp"{root}/file.txt".write("tar payload")?
-  fp"{root}/other.txt".write("other payload")?
+  fp"{root}/file.txt".write("tar payload")
+  fp"{root}/other.txt".write("other payload")
   let tarball = test.temp_path(ctx, name: "archive.tar")
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tar.xsh" -- -cf $tarball -C $root . ?
   let listed = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tar.xsh" -- -tf $tarball ?

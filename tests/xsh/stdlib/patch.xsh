@@ -3,7 +3,7 @@ test test_patch_apply { |ctx|
 
   fp"{root}/original.txt".write("""alpha
 beta
-""")?
+""")
 
   let patch_text = """--- original.txt
 +++ original.txt
@@ -25,5 +25,5 @@ beta
 +bad
 """
 
-  test.error_kind(patch.apply(root, escape_patch), "patch-path")?
+  test.error_kind(patch.apply(root, escape_patch), "patch-path")
 }
