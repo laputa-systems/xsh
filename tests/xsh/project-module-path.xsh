@@ -172,6 +172,13 @@ test the_starting_directory_is_not_a_module_root { |ctx|
   fp"{root}/sub".mkdir()
   fp"{root}/shared/answers.xsh".write(answers_module)
   fp"{root}/sub/entry.xsh".write(entry_script)
+  fp"{root}/tests".mkdir()
+  fp"{root}/tests/test-answers.xsh".write("""use shared.answers
+
+test answers_are_not_found_from_the_starting_directory {
+  assert answers.answer() == 42
+}
+""")
 
   cd root {
     let run_output = run.capture --text "xsh" "sub/entry.xsh"
@@ -184,6 +191,12 @@ test the_starting_directory_is_not_a_module_root { |ctx|
 
     let lint_output = run.capture --text "xsht" lint "sub/entry.xsh"
     assert "failed to read module" in lint_output.stderr, lint_output.stderr
+
+    # `xsht test` discovers `tests/` from the starting directory, and still
+    # does not resolve the test file's import through that directory.
+    let test_output = run.capture --text "xsht" test
+    assert ! test_output.status.ok, test_output.stdout
+    assert "failed to read module" in f"{test_output.stdout}{test_output.stderr}", test_output.stderr
   }
 }
 
