@@ -230,7 +230,7 @@ test test_path_display_lint_fixes_drop_needless_text_conversions { |ctx|
   let text = Path(name)
   let label = marker.display()
   print f"at {marker.display()}"
-  run printf "%s\n" ${marker.display()} ?
+  run printf "%s\n" ${marker.display()}
   print $whole $nested $text $label
 }
 
@@ -250,7 +250,7 @@ show(p"m", "n")
   let text = fp"{name}"
   let label = marker.display()
   print f"at {marker}"
-  run printf "%s\n" $marker ?
+  run printf "%s\n" $marker
   print $whole $nested $text $label
 }
 

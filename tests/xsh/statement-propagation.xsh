@@ -26,7 +26,7 @@ proc finish(fail: Bool) -> Result[Unit, Step] {
 
 proc work(dir: Path, fail: Bool) [env, io, error] -> Result[Int] {
   step(false)<removed>
-  defer step(false)?
+  defer step(false)<removed>
   for flag in [false, false] {
     step(flag)<removed>
   }

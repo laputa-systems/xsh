@@ -609,6 +609,10 @@ struct Binding {
 
 pub struct Linter<'a> {
     arena: &'a AstArena,
+    /// The source's parenthesized expressions, and where every expression is
+    /// written, built when the first rule asks for an expression's context.
+    paren_groups: &'a [(ExprId, Span)],
+    expr_positions: std::cell::OnceCell<lint_redundant_propagation::ExprPositions>,
     record_constructors: xsh::frontend::check::RecordConstructors,
     prefer_inferred_pure_returns: bool,
     prefer_inferred_private_effects: bool,
@@ -823,6 +827,8 @@ impl<'a> Linter<'a> {
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
+            paren_groups: &program.paren_groups,
+            expr_positions: std::cell::OnceCell::new(),
             duration_conversion_module_unshadowed: !(0..program.arena.stmt_tags.len()).any(
                 |index| {
                     let ArenaStmtKind::Use(id) = program.arena.stmt(StmtId::from_index(index)).kind
@@ -12690,6 +12696,14 @@ impl LintExprVisitor<'_, '_> {
         if let Some(diagnostic) = lint_redundant_propagation::redundant_capture_try(
             self.linter.arena,
             self.linter.source,
+            || {
+                self.linter.expr_positions.get_or_init(|| {
+                    lint_redundant_propagation::ExprPositions::new(
+                        self.linter.arena,
+                        self.linter.paren_groups,
+                    )
+                })
+            },
             expr,
         ) {
             self.linter.diagnostics.push(diagnostic);

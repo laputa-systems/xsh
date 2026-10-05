@@ -1,3 +1,4 @@
+use rustc_hash::FxHashMap;
 use std::collections::{BTreeMap, BTreeSet};
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::check::{StatementPosition, Type};
@@ -6,8 +7,10 @@ use xsh::frontend::syntax::arena::{
     ArenaCommand, ArenaExprKind, ArenaExprOrRun, ArenaStmtKind, AstArena, ExprId, RunFormId,
     StmtId,
 };
+use xsh::frontend::syntax::grouping::{
+    Context, Follow, Lead, child_context, for_each_child, needs_parens,
+};
 use xsh::frontend::syntax::node::RunKind;
-use xsh::frontend::syntax::parser::Parser;
 
 /// The checked facts that decide whether a statement's `?` is redundant.
 pub(super) struct PropagationFacts<'a> {
@@ -201,39 +204,22 @@ fn captures_output(arena: &AstArena, run: RunFormId) -> bool {
             .is_some_and(|head| !matches!(head.kind, RunKind::Plain | RunKind::Status))
 }
 
-/// The report for a `?` after a capturing run form, or `None` where the `?`
-/// is also what ends the form.
-///
-/// A run form reads words to the end of its line, a `;`, a `}`, a `|>`, or
-/// the `)` of the parentheses that group it. Before anything else, such as
-/// the `,` or `)` of a call's arguments, an operator, or a postfix guard,
-/// the `?` ends the form and stays. A `)` closes a group only if the source
-/// still parses without the `?`.
-fn redundant_capture_diagnostic(source: &str, removal: Span) -> Option<Diagnostic> {
-    let after = source.get(removal.end()..)?.trim_start_matches([' ', '\t']);
-    let ends_form = after.is_empty()
-        || after.starts_with(['\n', '\r', ';', '}', '#'])
-        || after.starts_with("|>")
-        || (after.starts_with(')') && {
-            let mut candidate = source.to_owned();
-            candidate.replace_range(removal.range(), "");
-            Parser::parse_source_arena_only(removal.source_id, &candidate)
-                .diagnostics
-                .is_empty()
-        });
-    ends_form.then(|| {
-        Diagnostic::warning("`?` on a run form that already fails with its command")
-            .with_code(DiagnosticCode::LintRedundantPropagation)
-            .with_label(Label::secondary(
-                removal,
-                "a capturing run form propagates a failed command without `?`; `try run...` keeps the failure as a value",
-            ))
-            .with_fix_hint(FixHint::deletion(removal, "remove `?`"))
-    })
+fn redundant_capture_diagnostic(removal: Span) -> Diagnostic {
+    Diagnostic::warning("`?` on a run form that already fails with its command")
+        .with_code(DiagnosticCode::LintRedundantPropagation)
+        .with_label(Label::secondary(
+            removal,
+            "a capturing run form propagates a failed command without `?`; `try run...` keeps the failure as a value",
+        ))
+        .with_fix_hint(FixHint::deletion(removal, "remove `?`"))
 }
 
 /// `let text = run.text git describe ?` spells propagation twice: a
 /// capturing run form already fails with its command.
+///
+/// This is the `?` of a run form that is a statement or a statement's whole
+/// value. What follows it is the statement's end, or a postfix guard, whose
+/// word the form would read as an argument without the `?`.
 pub(super) fn redundant_capture_propagation(
     arena: &AstArena,
     source: &str,
@@ -247,22 +233,157 @@ pub(super) fn redundant_capture_propagation(
     let after = source.get(span.end()..)?;
     let propagation = after.trim_start_matches([' ', '\t']);
     let blanks = after.len() - propagation.len();
-    if !propagation.starts_with('?') {
-        return None;
+    let rest = propagation
+        .strip_prefix('?')?
+        .trim_start_matches([' ', '\t']);
+    (rest.is_empty() || rest.starts_with(['\n', '\r', ';', '}', '#'])).then(|| {
+        redundant_capture_diagnostic(Span::new(
+            span.source_id,
+            span.end(),
+            span.end() + blanks + 1,
+        ))
+    })
+}
+
+/// Where the expressions of one file are written: what holds each one, and
+/// which are a statement's whole value. The context of any expression
+/// follows from these as the printer derives it, whatever parentheses and
+/// line breaks the source has.
+pub(super) struct ExprPositions {
+    /// The expression each expression is a direct child of, by index.
+    parents: Vec<Option<ExprId>>,
+    /// Expressions that are a statement's whole value, with how the parser
+    /// reads their first tokens.
+    statement_values: FxHashMap<ExprId, Option<Lead>>,
+    /// The outermost parentheses written around an expression.
+    groups: FxHashMap<ExprId, Span>,
+}
+
+impl ExprPositions {
+    pub(super) fn new(arena: &AstArena, paren_groups: &[(ExprId, Span)]) -> Self {
+        let mut parents = vec![None; arena.expr_tags.len()];
+        for index in 0..arena.expr_tags.len() {
+            let parent = ExprId::from_index(index);
+            for_each_child(arena, parent, |child| {
+                parents[child.index()] = Some(parent)
+            });
+        }
+        let mut statement_values = FxHashMap::default();
+        for index in 0..arena.stmt_tags.len() {
+            match arena.stmt(StmtId::from_index(index)).kind {
+                ArenaStmtKind::Expr(value) => {
+                    statement_values.insert(
+                        value,
+                        Some(Lead::Statement {
+                            after_expression: false,
+                        }),
+                    );
+                }
+                ArenaStmtKind::Let {
+                    initializer: value, ..
+                }
+                | ArenaStmtKind::Var {
+                    initializer: value, ..
+                }
+                | ArenaStmtKind::Const {
+                    initializer: value, ..
+                }
+                | ArenaStmtKind::Guard {
+                    initializer: value, ..
+                }
+                | ArenaStmtKind::Assign { value, .. }
+                | ArenaStmtKind::Return(Some(value))
+                | ArenaStmtKind::Yield(value)
+                | ArenaStmtKind::Defer(value, _) => {
+                    if let ArenaExprOrRun::Expr(value) = value {
+                        statement_values.insert(value, Some(Lead::Initializer));
+                    }
+                }
+                ArenaStmtKind::Assert {
+                    condition,
+                    message: None,
+                } => {
+                    statement_values.insert(condition, None);
+                }
+                _ => {}
+            }
+        }
+        let mut groups: FxHashMap<ExprId, Span> = FxHashMap::default();
+        for (expr, span) in paren_groups {
+            let outermost = groups.entry(*expr).or_insert(*span);
+            if span.end() > outermost.end() {
+                *outermost = *span;
+            }
+        }
+        Self {
+            parents,
+            statement_values,
+            groups,
+        }
     }
-    redundant_capture_diagnostic(
-        source,
-        Span::new(span.source_id, span.end(), span.end() + blanks + 1),
-    )
+
+    /// The context `expr` is printed in.
+    ///
+    /// The source is read in one place only: after a statement's value, where
+    /// the statement ends or a guard follows. Any other expression that
+    /// nothing holds, such as a condition or a command argument, is taken to
+    /// be followed by a delimiter, before which no run form ends.
+    fn context(&self, arena: &AstArena, source: &str, expr: ExprId) -> Context {
+        let mut chain = vec![expr];
+        while let Some(parent) = self.parents[chain[chain.len() - 1].index()] {
+            chain.push(parent);
+        }
+        let top = chain[chain.len() - 1];
+        let mut context = match self.statement_values.get(&top) {
+            Some(lead) => {
+                let end = self
+                    .groups
+                    .get(&top)
+                    .map_or(arena.expr(top).span.end(), |group| group.end());
+                let after = source.get(end..).unwrap_or("");
+                let line = &after[..after.find('\n').map_or(after.len(), |end| end + 1)];
+                Context {
+                    lead: *lead,
+                    ..Context::open(Follow::of_source(
+                        line,
+                        !after.starts_with([' ', '\t', '\n', '\r']),
+                    ))
+                }
+            }
+            None => Context::open(Follow::CLOSE),
+        };
+        for pair in chain.windows(2).rev() {
+            let (child, parent) = (pair[0], pair[1]);
+            if needs_parens(arena, source, parent, context) {
+                context = context.group();
+            }
+            context = child_context(arena, parent, context, child);
+        }
+        context
+    }
 }
 
 /// `(run.text git describe ?).trim()` and `run.stream --text git log ? |>
 /// take(2)` spell it twice the same way, with the `?` as an operator on the
-/// run form. A `?` after a closing parenthesis is left alone: only one
-/// written directly after the form's words is removed.
-pub(super) fn redundant_capture_try(
+/// run form.
+///
+/// Whether the `?` can go is decided by where the expression sits, never by
+/// how its line is laid out. A run form reads words until something ends it,
+/// and the `?` is one of the things that do: in
+/// `render(run.text git describe?, width)` and `run.text id? == "0"` the
+/// form without its `?` would have to be parenthesized instead, so the `?`
+/// stays. It is redundant where the form alone needs no parentheses in the
+/// same place, and where the propagation is parenthesized anyway, as a
+/// receiver is.
+///
+/// `(run.text git describe)?` is the same propagation with the form
+/// parenthesized under its `?`, which is how the printer writes it at the
+/// start of an initializer. Where that `?` is redundant the parentheses go
+/// with it, since the form alone needs none there.
+pub(super) fn redundant_capture_try<'a>(
     arena: &AstArena,
     source: &str,
+    positions: impl FnOnce() -> &'a ExprPositions,
     expression: ExprId,
 ) -> Option<Diagnostic> {
     let propagation = arena.expr(expression);
@@ -279,11 +400,35 @@ pub(super) fn redundant_capture_try(
     if form.end() > propagation.span.end() {
         return None;
     }
-    let removal = Span::new(form.source_id, form.end(), propagation.span.end());
-    if source.get(removal.range())?.trim_matches([' ', '\t']) != "?" {
+    let end = propagation.span.end();
+    let written = source.get(form.end()..end)?.strip_suffix('?')?;
+    let positions = positions();
+    let context = positions.context(arena, source, expression);
+    if !needs_parens(arena, source, expression, context)
+        && needs_parens(arena, source, operand, context)
+    {
         return None;
     }
-    redundant_capture_diagnostic(source, removal)
+    let blank = |text: &str| text.trim_matches([' ', '\t']).is_empty();
+    if blank(written) {
+        return Some(redundant_capture_diagnostic(Span::new(
+            form.source_id,
+            form.end(),
+            end,
+        )));
+    }
+    let group = *positions.groups.get(&operand)?;
+    if group.start() > form.start() || !blank(source.get(group.end()..end - 1)?) {
+        return None;
+    }
+    let mut diagnostic =
+        redundant_capture_diagnostic(Span::new(form.source_id, group.end(), end));
+    diagnostic.fix_hints = vec![FixHint::replacement(
+        Span::new(form.source_id, group.start(), end),
+        "remove `?` and the parentheses",
+        source.get(form.range())?,
+    )];
+    Some(diagnostic)
 }
 
 /// `if fs.exists(path)? { ... }` spells propagation twice: a `Result[Bool]`
@@ -601,13 +746,140 @@ pub(super) mod tests {
     }
 
     // A captured form has no `?`, a status form's `?` is its only
-    // propagation, a `?` after a closing parenthesis is an operator on the
-    // group, and a guard after the `?` would become arguments without it.
+    // propagation, a form that starts an initializer under its `?` is
+    // parenthesized there with or without it, and a guard after the `?`
+    // would become arguments without it.
     #[test]
     fn a_run_form_that_needs_its_propagation_keeps_it() {
         unflagged(
             "proc work(ready: Bool) [process, error] -> Result[Int] {\n  let kept = try run.text echo hi\n  let status = run.status echo hi ?\n  let plain = run echo hi ?\n  let grouped = (run.text echo hi)?\n  var text = \"\"\n  text = run.text echo hi ? when ready\n  return Ok(text.byte_len()) when kept is Ok(_)\n  print $grouped ${status.success} ${plain.success}\n  1\n}\n",
         );
+    }
+
+    const BOTH: &str = "pure both(text: Str, tail: Str) -> Str {\n  text + tail\n}\n\n";
+
+    /// The findings for a layout of a program. Parentheses that group
+    /// nothing are a check error of their own and are part of a layout.
+    fn lint_layout(source: &str) -> Vec<Diagnostic> {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "{source}\n{:?}",
+            parsed.diagnostics
+        );
+        let mut checked = Checker::check_arena(&parsed.arena, source);
+        checked
+            .diagnostics
+            .retain(|diagnostic| diagnostic.code != Some(DiagnosticCode::CheckRedundantParens));
+        assert!(
+            checked.diagnostics.is_empty(),
+            "{source}\n{:?}",
+            checked.diagnostics
+        );
+        lint_checked(
+            &parsed.arena,
+            source,
+            checked,
+            DiagnosticCode::LintRedundantPropagation,
+        )
+    }
+
+    fn run_body(lines: &[&str]) -> String {
+        format!(
+            "{BOTH}proc work(ready: Bool) [process, error] -> Result[Int] {{\n  {}\n  print $ready\n  1\n}}\n",
+            lines.join("\n  ")
+        )
+    }
+
+    // Parentheses, line breaks, and spacing that do not change the program
+    // do not change the answer: where the `?` is what ends the form, no
+    // layout reports it.
+    #[test]
+    fn a_propagation_that_ends_its_run_form_stays_in_every_layout() {
+        for layout in [
+            "assert run.text echo d? == \"d\"",
+            "assert (run.text echo d?) == \"d\"",
+            "assert (run.text echo d ?) == \"d\"",
+            "assert (run.text echo d?) ==\n    \"d\"",
+            "assert ((run.text echo d?)) == (\"d\")",
+            "assert (run.text echo d? == \"d\") and (ready)",
+            "let last = both(\"!\", run.text echo a?)\n  print $last",
+            "let last = both(\"!\", (run.text echo a?))\n  print $last",
+            "let last = both(\n    \"!\",\n    run.text echo a?,\n  )\n  print $last",
+            "let last = both(\n    \"!\",\n    run.text echo a ?\n  )\n  print $last",
+            "let listed = [run.text echo b?]\n  print ${listed.len()}",
+            "let listed = [\n    run.text echo b ?\n  ]\n  print ${listed.len()}",
+            "let first = (run.text echo a)? + \"!\"\n  print $first",
+            "let first = (run.text echo a ?) + \"!\"\n  print $first",
+            "let whole = (run.text echo a ?)\n  print $whole",
+            "let whole = (run.text echo a)?\n  print $whole",
+        ] {
+            let source = run_body(&[layout]);
+            let diagnostics = lint_layout(&source);
+            assert!(diagnostics.is_empty(), "{layout}\n{diagnostics:?}");
+        }
+    }
+
+    // Where the form ends without its `?`, every layout reports it, on the
+    // `?`, and the fixes agree once the parentheses that group nothing are
+    // gone.
+    #[test]
+    fn a_redundant_run_propagation_is_reported_in_every_layout() {
+        for (layouts, expected) in [
+            (
+                &[
+                    "assert \"d\" == run.text echo d?",
+                    "assert \"d\" == run.text echo d ?",
+                    "assert \"d\" ==\n    run.text echo d ?",
+                    "assert (\"d\") == (run.text echo d ?)",
+                    "assert \"d\" == (run.text echo d)?",
+                ][..],
+                "assert \"d\" == run.text echo d",
+            ),
+            (
+                &[
+                    "assert ready and \"d\" == run.text echo d?",
+                    "assert (ready) and (\"d\" == run.text echo d ?)",
+                    "assert (ready) and ((\"d\") == (run.text echo d ?))",
+                ],
+                "assert ready and \"d\" == run.text echo d",
+            ),
+            (
+                &[
+                    "let lines = run.stream --text echo log ? |> take(2) |> collect()\n  print ${lines.len()}",
+                    "let lines = (run.stream --text echo log)? |> take(2) |> collect()\n  print ${lines.len()}",
+                ],
+                "let lines = run.stream --text echo log |> take(2) |> collect()\n  print ${lines.len()}",
+            ),
+            (
+                &[
+                    "let words = (run.text echo a b?).split(\" \")\n  print ${words.len()}",
+                    "let words = (run.text echo a b ?).split(\n    \" \"\n  )\n  print ${words.len()}",
+                    "let words = ((run.text echo a b)?).split(\" \")\n  print ${words.len()}",
+                ],
+                "let words = (run.text echo a b).split(\" \")\n  print ${words.len()}",
+            ),
+        ] {
+            for layout in layouts {
+                let source = run_body(&[layout]);
+                let diagnostics = lint_layout(&source);
+                assert_eq!(diagnostics.len(), 1, "{layout}\n{diagnostics:?}");
+                let label = diagnostics[0].labels[0].span;
+                assert_eq!(source[label.range()].trim_start(), "?", "{layout}");
+                let after = apply(&diagnostics, &source);
+                assert!(lint_layout(&after).is_empty(), "{after}");
+                let significant = |text: &str| {
+                    text.chars()
+                        .filter(|ch| !ch.is_whitespace() && !matches!(ch, '(' | ')'))
+                        .collect::<String>()
+                };
+                assert_eq!(
+                    significant(&after),
+                    significant(&run_body(&[expected])),
+                    "{layout}"
+                );
+            }
+        }
     }
 
     // A bare name without `?` is a command word, not the binding.

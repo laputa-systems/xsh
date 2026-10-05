@@ -1090,7 +1090,7 @@ fn for_each_operand(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(Expr
 }
 
 /// Every expression child of `parent`.
-fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId)) {
+pub fn for_each_child(arena: &AstArena, parent: ExprId, mut visit: impl FnMut(ExprId)) {
     use crate::syntax::arena::{ArenaCallArgKind, ArenaFmtPart};
     match arena.expr(parent).kind {
         ArenaExprKind::Binary { left, right, .. } => {

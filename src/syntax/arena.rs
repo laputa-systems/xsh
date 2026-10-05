@@ -514,7 +514,8 @@ pub struct ArenaProgram {
     pub root_nominal_namespace: Option<Name>,
     pub docs: ArenaDocComments,
     /// Each source parenthesized expression with the span of its parentheses,
-    /// innermost first. Only `grouping::grouping_diagnostics` reads it.
+    /// innermost first. `grouping::grouping_diagnostics` judges them, and the
+    /// linter reads where a statement's parenthesized value ends.
     pub paren_groups: Vec<(ExprId, Span)>,
     symbols: crate::symbol::SymbolOwner,
 }

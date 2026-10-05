@@ -3146,7 +3146,9 @@ it. A run form reads its words to the end of its line, a `;`, a `}`, a `|>`,
 a `?`, or the `)` of the parentheses that group it. Before anything else,
 such as the `,` or `)` of a call's arguments, an operator, or a postfix
 guard, the `?` is also what ends the form, and there it stays:
-`render(run.text git describe?, width)`. A postfix `?`, `?.`, or `?[` on a
+`render(run.text git describe?, width)`. The lint decides this from where the
+form sits in its expression, so parentheses that group nothing and line breaks
+do not change what it reports. A postfix `?`, `?.`, or `?[` on a
 grouped form is the form's propagation: `(run.text cmd)?` is
 `(run.text cmd)`.
 A run form followed by `|>` heads a value pipeline wherever it is written,
