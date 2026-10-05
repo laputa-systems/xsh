@@ -262,8 +262,7 @@ fn measure_compact_declarations(declarations: &CompactDeclOutput) -> (usize, usi
                     * size_of::<(crate::symbol::Name, crate::sema::check::ErrorVariantInfo)>();
                 for variant in family.variants.values() {
                     type_count += variant.fields.len();
-                    bytes += size_of::<BTreeMap<crate::symbol::Name, Type>>()
-                        + variant.fields.len() * size_of::<(crate::symbol::Name, Type)>()
+                    bytes += variant.fields.len() * size_of::<(crate::symbol::Name, Type)>()
                         + variant.fields.values().map(type_owned_bytes).sum::<usize>()
                         + variant.facets.capacity() * size_of::<crate::symbol::Name>();
                 }

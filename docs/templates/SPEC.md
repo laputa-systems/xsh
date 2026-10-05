@@ -583,6 +583,11 @@ families whose variants carry fixed payloads and may implement facets:
 
 Constructors are qualified by family (and by module namespace when imported),
 or written `.Variant(...)` where the expected type names the family (5.5).
+A constructor takes payload fields by name (with puns) or positionally:
+positional arguments fill the leading fields in the order the variant
+declares them, the order record constructors use (4.7). Arguments evaluate
+once in source order, and the error is the same value whether a field was
+passed by name or by position.
 An imported `mod.E` names the same family as `E` inside its module, so an
 error raised there matches `Err(mod.E.A { .. })` in the importer.
 Every error has `.message`. Exact variant patterns expose payload fields;

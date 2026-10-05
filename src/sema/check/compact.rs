@@ -2,8 +2,8 @@
 
 use super::decl::is_builtin_or_standard_record_type_name;
 use super::{
-    BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorVariantInfo, FxHashMap,
-    FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
+    BTreeMap, Checker, CoreCommand, Diagnostic, ErrorFamilyInfo, ErrorPayloadFields,
+    ErrorVariantInfo, FxHashMap, FxHashSet, Label, Name, Span, TagVariantInfo, Type, api_spec,
 };
 use crate::diagnostic::DiagnosticCode;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType};
@@ -502,7 +502,7 @@ impl CompactDeclCollector {
             let fields = program.arena.error_fields(variant.fields);
             self.output.error_fields += fields.len();
             let mut field_names = FxHashSet::default();
-            let mut field_types = BTreeMap::new();
+            let mut field_types = Vec::with_capacity(fields.len());
             for field in fields {
                 if !field_names.insert(field.name) {
                     self.error(
@@ -511,13 +511,13 @@ impl CompactDeclCollector {
                         DiagnosticCode::CheckDuplicateRecordField,
                     );
                 }
-                field_types.insert(field.name, Type::from_arena(&program.arena, field.ty));
+                field_types.push((field.name, Type::from_arena(&program.arena, field.ty)));
             }
             let facets = program.arena.names(variant.facets).collect::<Vec<_>>();
             family_variants.insert(
                 variant.name,
                 ErrorVariantInfo {
-                    fields: field_types,
+                    fields: ErrorPayloadFields::from_declared(field_types),
                     facets,
                 },
             );

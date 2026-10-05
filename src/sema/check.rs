@@ -371,8 +371,55 @@ pub struct ErrorFamilyInfo {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorVariantInfo {
-    pub fields: BTreeMap<Name, Type>,
+    pub fields: ErrorPayloadFields,
     pub facets: Vec<Name>,
+}
+
+/// A variant's payload fields in the order the declaration wrote them, which
+/// is the order positional constructor arguments fill them. Names are unique.
+/// A name-sorted map here would make `V(path, owner)` bind by spelling.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ErrorPayloadFields(Vec<(Name, Type)>);
+
+impl ErrorPayloadFields {
+    /// Keeps the first field of each name; the declaration check reports the
+    /// duplicates.
+    pub fn from_declared(declared: impl IntoIterator<Item = (Name, Type)>) -> Self {
+        let mut fields: Vec<(Name, Type)> = Vec::new();
+        for (name, ty) in declared {
+            if fields.iter().all(|(existing, _)| *existing != name) {
+                fields.push((name, ty));
+            }
+        }
+        Self(fields)
+    }
+
+    pub fn get(&self, name: &Name) -> Option<&Type> {
+        self.0
+            .iter()
+            .find_map(|(field, ty)| (field == name).then_some(ty))
+    }
+
+    pub fn contains_key(&self, name: &Name) -> bool {
+        self.get(name).is_some()
+    }
+
+    /// Field names in declaration order.
+    pub fn keys(&self) -> impl Iterator<Item = &Name> {
+        self.0.iter().map(|(name, _)| name)
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Type> {
+        self.0.iter().map(|(_, ty)| ty)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -849,7 +896,8 @@ impl Checker {
                         crate::modules::signature::convert_type(&field.ty),
                     )
                 })
-                .collect::<BTreeMap<_, _>>();
+                .collect::<Vec<_>>();
+            let fields = ErrorPayloadFields::from_declared(fields);
             let mut variants = BTreeMap::new();
             for variant in family.variants {
                 variants.insert(
