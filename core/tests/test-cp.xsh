@@ -539,3 +539,22 @@ test test_cp_ownership_only_finishes_new_file_and_directory_modes { |ctx|
   assert fs.stat(fp"{dest}/file")?.mode.bit_and(0o7777) == 0o740.clear_bits(fs.umask()?)
   assert fp"{dest}/file".read_text()? == "contents"
 }
+
+test test_cp_does_not_reuse_destination_symlink_for_second_source { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-used-link")?
+  let a = fp"{root}/a"
+  let b = fp"{root}/b"
+  let dest = fp"{root}/dest"
+  a.mkdir()
+  b.mkdir()
+  dest.mkdir()
+  fp"{a}/file".write("first")
+  fp"{b}/file".write("second")
+  let referent = fp"{root}/referent"
+  referent.write("old")
+  fp"{dest}/file".symlink(to: referent)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- fp"{a}/file" fp"{b}/file" $dest
+  assert result.status.exited_with(1)
+  assert result.stderr.find("through just-created symlink") != null
+  assert referent.read_text()? == "first"
+}

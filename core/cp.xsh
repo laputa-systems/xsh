@@ -206,7 +206,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   if exists {
     for previous in saved {
       if previous.path == target_key {
-        if previous.kind == "symlink" and meta.kind != "symlink" and ! opts.remove and opts.backup == "none" {
+        if previous.kind == "symlink" and meta.kind != "symlink" and ! opts.symlink and ! opts.hardlink and ! opts.remove and opts.backup == "none" {
           invalid(f"will not copy {gnu.quote_bytes(source.bytes())} through just-created symlink {gnu.quote_bytes(target.bytes())}")?
         }
         if command_line and previous.dev == meta.dev and previous.ino == meta.ino and opts.backup == "none" {
@@ -385,7 +385,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     }
     preserve(input, target, opts, follow, meta.atime_ns, meta.mtime_ns, created: created)
   }
-  copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: if opts.symlink { "symlink" } else { meta.kind }}]
+  copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: fs.stat(target)?.kind}]
   if opts.verbose { gnu.write_text(f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}\n") }
   Ok({copies: copies, failed: false})
 }
