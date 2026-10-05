@@ -519,7 +519,11 @@ impl<'a> Writer<'a> {
                 output.push(' ');
                 output.push_str(assign_op_text(*op));
                 output.push(' ');
-                self.write_expr_or_run(value, output);
+                // An assigned value breaks like a `let` initializer. Written
+                // flat, an over-long conditional or comprehension broke inside
+                // a one-line block instead, and the next pass read that block
+                // as author-broken and laid it out differently.
+                self.write_expr_or_run_safe(value, output);
             }
             ArenaStmtKind::ProcDef(def) => self.write_function("proc", *def, indent, output),
             ArenaStmtKind::CliMain(def) => self.write_function("cli", *def, indent, output),
@@ -2149,7 +2153,23 @@ impl<'a> Writer<'a> {
             ArenaExprKind::If {
                 branches,
                 else_value,
-            } => self.write_if_expr(*branches, *else_value, output),
+            } => {
+                // A branch written `{ value }` on one line must not break
+                // inside: the next pass would read that block as broken by
+                // the author and lay it out differently. Every branch breaks
+                // instead, the same layout that pass then keeps.
+                let start = output.len();
+                let next_comment = self.next_comment;
+                let after_expression = self.after_expression;
+                let arm_statement = self.arm_statement;
+                if self.write_if_expr(*branches, *else_value, output) && !self.inline_only {
+                    output.truncate(start);
+                    self.next_comment = next_comment;
+                    self.after_expression = after_expression;
+                    self.arm_statement = arm_statement;
+                    self.write_if_expr_multiline(*branches, *else_value, output);
+                }
+            }
             ArenaExprKind::Match { value, arms } => self.write_match_expr(*value, *arms, output),
             ArenaExprKind::PatternCondition { value, arms } => {
                 output.push_str("let ");
@@ -2826,8 +2846,9 @@ impl<'a> Writer<'a> {
         branches: xsh::frontend::syntax::arena::ArenaRange,
         else_value: ExprId,
         output: &mut String,
-    ) {
+    ) -> bool {
         let indent = indent_for_expr(output);
+        let mut flat_branch_broke = false;
         for (index, branch) in self
             .arena
             .if_expr_branches(branches)
@@ -2838,13 +2859,17 @@ impl<'a> Writer<'a> {
             output.push_str(if index == 0 { "if " } else { " else if " });
             self.write_expr(branch.condition, BRACE, output);
             output.push(' ');
-            self.write_value_branch(branch.value, indent, output);
+            flat_branch_broke |= self.write_value_branch(branch.value, indent, output);
         }
         output.push_str(" else ");
-        self.write_value_branch(else_value, indent, output);
+        flat_branch_broke |= self.write_value_branch(else_value, indent, output);
+        flat_branch_broke
     }
 
-    fn write_value_branch(&mut self, value: ExprId, indent: usize, output: &mut String) {
+    /// Writes one branch of a conditional expression and reports whether a
+    /// branch kept on one line as `{ value }` had to break inside the value.
+    fn write_value_branch(&mut self, value: ExprId, indent: usize, output: &mut String) -> bool {
+        let start = output.len();
         if let ArenaExprKind::ValueBlock(block) = self.arena.expr(value).kind {
             let statements = self
                 .arena
@@ -2862,6 +2887,7 @@ impl<'a> Writer<'a> {
                         output.push_str("{ ");
                         self.write_statement_expr(expr, output);
                         output.push_str(" }");
+                        return output[start..].contains('\n');
                     }
                     ArenaStmtKind::TailBareIdent(name) => {
                         output.push_str("{ ");
@@ -2873,10 +2899,12 @@ impl<'a> Writer<'a> {
             } else {
                 self.write_block(block, indent, output);
             }
+            false
         } else {
             output.push_str("{ ");
             self.write_statement_expr(value, output);
             output.push_str(" }");
+            output[start..].contains('\n')
         }
     }
 

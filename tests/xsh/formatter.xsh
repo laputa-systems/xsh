@@ -61,6 +61,24 @@ test test_fmt_nested_multiline_string_preserves_value { |ctx|
   assert stable.status.exited_with(0), stable.stderr
 }
 
+# A conditional or comprehension on the right of an assignment breaks the way
+# a `let` initializer does, and a conditional operand never breaks inside a
+# one-line branch, so a second pass changes nothing.
+test test_fmt_assigned_conditionals_are_stable { |ctx|
+  let source = p"tests/fixtures/fmt/assigned-conditionals.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  assert before.success, before.stderr
+  assert_fmt_fixture(
+    ctx,
+    p"tests/fixtures/fmt/assigned-conditionals.xsh",
+    p"tests/fixtures/fmt/assigned-conditionals.expected.xsh",
+    "assigned-conditionals.xsh",
+  )?
+  let after = test.run_script(ctx, p"tests/fixtures/fmt/assigned-conditionals.expected.xsh".read_text()?)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+}
+
 test test_fmt_path_format_specs_preserve_value { |ctx|
   let source = p"tests/fixtures/fmt/path-format-specs.xsh".read_text()?
   let before = test.run_script(ctx, source)?

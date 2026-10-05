@@ -66,7 +66,9 @@ contract stays in `docs/SPEC.md`.
   the same rule `check.redundant-parens` enforces on source, and adjacent
   tokens are joined through `lexer::join_tokens`. `format_proofs` checks the
   rule over every slot and expression form and over generated trees.
-- Formatting is idempotent.
+- Formatting is idempotent. A conditional branch kept on one line as
+  `{ value }` never breaks inside the value; when the value cannot fit, every
+  branch breaks, in an assigned value and in an operand as in an initializer.
 - Comments are never duplicated or dropped; `fmt: skip` source is preserved.
 - Expression continuations never become separate statements.
 - A comprehension value is grouped against the qualifier's rendered boundary:
