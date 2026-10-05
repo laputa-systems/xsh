@@ -158,7 +158,7 @@ enum FullTag {
         root.join("script.xsh"),
         r#"
 type Plugin = module {
-  export proc execute(root: Path) [fs, error] -> Result[Unit]
+  export proc execute(root: Path) [fs, error] -> Result[Unit, Error]
 }
 
 let records = """{"name":"small"}
@@ -168,7 +168,7 @@ let records = """{"name":"small"}
   |> sort-by .name
 print ${records[0].name}
 
-let module_source = """\nexport proc execute(root: Path) [fs, error] -> Result[Unit] {
+let module_source = """\nexport proc execute(root: Path) [fs, error] -> Result[Unit, Error] {
   let status = {raw: true}
 }
 """
@@ -328,7 +328,7 @@ export let label: Str = "demo"
 
 proc local(input: Path = Path(".")) {}
 
-export proc entry(flag: Bool = true) -> Result[Unit] {}
+export proc entry(flag: Bool = true) -> Result[Unit, Error] {}
 "#
     );
 

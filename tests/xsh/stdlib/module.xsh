@@ -19,7 +19,7 @@ export let name: Str = "demo"
 export let description: Str = "loaded module"
 
 ## Writes the plugin name into the requested root.
-export proc execute(root: Path) [fs, error] -> Result[Unit] {
+export proc execute(root: Path) [fs, error] -> Result[Unit, Error] {
   fs.write(fp"{root}/out.txt", name)?
 }
 """,
@@ -53,7 +53,7 @@ export pure label(value: Str) -> Str {
 }
 
 ## Writes the build marker and returns its path.
-export proc build(root: Path) [fs, error] -> Result[Path] {
+export proc build(root: Path) [fs, error] -> Result[Path, Error] {
   let marker = fp"{root}/marker.txt"
   marker.write(label("marker"))?
   marker
@@ -111,7 +111,7 @@ export pure label(value: Str) -> Str {
 }
 
 ## Returns the root it was given.
-export proc build(root: Path) [fs, error] -> Result[Path] {
+export proc build(root: Path) [fs, error] -> Result[Path, Error] {
   root.mkdir()?
   root
 }
@@ -422,7 +422,7 @@ export pure label(value: Str) -> Str {
 }
 
 ## Emits the package build value.
-export proc build(value: Str) -> Result[Unit] {
+export proc build(value: Str) -> Result[Unit, Error] {
   emit_private(value)?
 }
 """)
@@ -434,7 +434,7 @@ export proc build(value: Str) -> Result[Unit] {
 type DynamicPackage = module {{
   export let name: Str
   export pure label(value: Str) -> Str
-  export proc build(value: Str) -> Result[Unit]
+  export proc build(value: Str) -> Result[Unit, Error]
 }}
 let checked = module.load(p"{package}")?.require(DynamicPackage)?
 let name: Str = checked.name
@@ -469,7 +469,7 @@ let value = loaded.prefix
     ctx,
     f"""
 type BadPackage = module {{
-  export proc build(path: Path) -> Result[Unit]
+  export proc build(path: Path) -> Result[Unit, Error]
 }}
 let loaded = module.load(p"{package}")?
 match loaded.require(BadPackage) {{
@@ -568,7 +568,7 @@ export let description: Int = 1
 ##! Module with an implementation effect outside its contract.
 
 ## Deliberately requires an extra process capability.
-export proc execute() [fs, process, error] -> Result[Unit] {
+export proc execute() [fs, process, error] -> Result[Unit, Error] {
   return Ok()
 }
 """)
@@ -578,7 +578,7 @@ export proc execute() [fs, process, error] -> Result[Unit] {
 }
 """
   let effect_contract = """\ntype Runner = module {
-  export proc execute() [fs, error] -> Result[Unit]
+  export proc execute() [fs, error] -> Result[Unit, Error]
 }
 """
 
@@ -612,7 +612,7 @@ test test_static_module_namespace_satisfies_the_same_contract { |ctx|
   fp"{root}/runner.xsh".write("""
 ##! Static runner fixture.
 ## Writes the fixture marker.
-export proc execute(root: Path) [fs, error] -> Result[Unit] {
+export proc execute(root: Path) [fs, error] -> Result[Unit, Error] {
   fp"{root}/out.txt".write("static")?
 }
 """)
@@ -621,7 +621,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
     ctx,
     f"""
 type Runner = module {{
-  export proc execute(root: Path) [fs, error] -> Result[Unit]
+  export proc execute(root: Path) [fs, error] -> Result[Unit, Error]
 }}
 
 use runner
@@ -729,7 +729,7 @@ test test_imported_error_constructor_named_fields_preserve_identity_and_order { 
 ## A checked failure with two named fields.
 export error HelperError = Failed(detail: Str, code: Int) : Temporary
 ## Constructs a failure inside the defining module.
-export pure failure() -> Result[Unit] {
+export pure failure() -> Result[Unit, Error] {
   Err(HelperError.Failed(detail: "loaded", code: 9))
 }
 """)
@@ -785,7 +785,7 @@ match failure {
     ctx,
     f"""
 type FailureProvider = module {{
-  export pure failure() -> Result[Unit]
+  export pure failure() -> Result[Unit, Error]
 }}
 let provider = module.load(p"{root}/helper.xsh")?.require(FailureProvider)?
 print ${{provider.failure() is Err(_)}}
@@ -809,7 +809,7 @@ test test_static_module_exports_bind_one_namespace { |ctx|
 ## A value export.
 export let value: Str = "helper"
 ## An effectful callable export.
-export proc execute() [error] -> Result[Unit] {
+export proc execute() [error] -> Result[Unit, Error] {
   return Ok()
 }
 ## A pure callable export.
@@ -952,7 +952,7 @@ export pure label(pkg: Package) -> Str {
 }
 
 ## Shows a package label.
-export proc show(pkg: Package) -> Result[Unit] {
+export proc show(pkg: Package) -> Result[Unit, Error] {
   print ${label(pkg)}
 }
 
@@ -1006,7 +1006,7 @@ use target as targets
 export type Context = {root: Path, target: targets.Target}
 
 ## Normalizes the selected target policy.
-export proc normalize(context: Context) [io] -> Result[Unit] {
+export proc normalize(context: Context) [io] -> Result[Unit, Error] {
   print ${context.root} ${context.target.triple} ${context.target.cpu.feature}
 }
 """)
@@ -1040,18 +1040,18 @@ test test_module_proc_call_preserves_runtime_cwd { |ctx|
   callee.write(r"""
 ##! CWD writer module.
 ## Writes the active runtime working directory.
-export proc write_cwd(out: Path) [fs, error] -> Result[Unit] {
+export proc write_cwd(out: Path) [fs, error] -> Result[Unit, Error] {
   fs.write(out, fs.cwd()?.display())?
 }
 """)
   fp"{root}/caller.xsh".write(f"""
 ##! CWD caller module.
 type Writer = module {{
-  export proc write_cwd(out: Path) [fs, error] -> Result[Unit]
+  export proc write_cwd(out: Path) [fs, error] -> Result[Unit, Error]
 }}
 
 ## Loads the writer and invokes it within the requested directory.
-export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {{
+export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit, Error] {{
   let module_exports = module.load(p"{callee}")?.require(Writer)?
   cd src {{
     module_exports.write_cwd(out)?
@@ -1119,13 +1119,13 @@ pure line(name: Str) -> Str {
 }
 
 ## Greets by name.
-export proc greet(name: Str) -> Result[Unit] {
+export proc greet(name: Str) -> Result[Unit, Error] {
   print ${line(name)}
   return Ok()
 }
 
 ## Shows a package name.
-export proc show(pkg: p.Package) -> Result[Unit] {
+export proc show(pkg: p.Package) -> Result[Unit, Error] {
   print ${line(pkg.name)}
   return Ok()
 }
@@ -1208,7 +1208,7 @@ test test_package_hook_module_calls_keep_dynamic_and_static_cwd { |ctx|
 export let name = "demo"
 
 ## Writes the package marker into the destination.
-export proc build(dest: Path) [fs, error] -> Result[Unit] {
+export proc build(dest: Path) [fs, error] -> Result[Unit, Error] {
   fs.mkdir(dest)?
   fs.write(fp"{dest}/ok", f"{name}:{fs.cwd()?.name()}\n")?
 }
@@ -1219,7 +1219,7 @@ export proc build(dest: Path) [fs, error] -> Result[Unit] {
     f"""
 type Pkg = module {{
   export let name: Str
-  export proc build(dest: Path) [fs, error] -> Result[Unit]
+  export proc build(dest: Path) [fs, error] -> Result[Unit, Error]
 }}
 let pkg = module.load(p"{package}")?.require(Pkg)?
 pkg.build(p"{dynamic_out}")?
@@ -1270,7 +1270,7 @@ export stream numbers() [] -> Stream[Int] {
     ctx,
     """
 type Runner = module {
-  export proc run() [error] -> Result[Unit]
+  export proc run() [error] -> Result[Unit, Error]
 }
 
 use stream_only

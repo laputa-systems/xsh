@@ -1032,7 +1032,7 @@ use fs
 type Plugin = module {
   export let name: Str
   export pure label(name: Str) -> Str
-  export proc execute() [io] -> Result[Unit]
+  export proc execute() [io] -> Result[Unit, Error]
 }
 
 type User = {name: Str}

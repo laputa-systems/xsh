@@ -611,7 +611,7 @@ fn parser_and_formatter_accept_module_contract_types() {
     let source = r#"type Plugin = module {
   export let name: Str
   export optional let description: Str
-  export proc execute(root: Path) [fs, error] -> Result[Unit]
+  export proc execute(root: Path) [fs, error] -> Result[Unit, Error]
   export pure label(name: Str) -> Str
 }
 
@@ -1431,7 +1431,7 @@ export pure label(pkg: h.Package) -> Str {
   return pkg.name
 }
 
-export proc build(name: Str) -> Result[Unit] {
+export proc build(name: Str) -> Result[Unit, Error] {
   h.greet(name)?
   return Ok()
 }

@@ -389,7 +389,7 @@ diagnostic_codes! {
         CheckPositionalErrorArguments = "check.positional-error-arguments", error, "Reject positional error constructor arguments that follow a named one or fill fields a single value fits two of";
         CheckProcCommandSyntax = "check.proc-command-syntax", error, "Reject calling a `proc` with command syntax instead of expression-call syntax";
         CheckProcessArgvEmpty = "check.process-argv-empty", error, "Reject an empty argv list in `process.command_argv`";
-        CheckPublicResultError = "check.public-result-error", warning, "Require an exported signature or module contract to spell the error type of each Result";
+        CheckPublicResultError = "check.public-result-error", error, "Require an exported signature or module contract to spell the error type of each Result";
         CheckPureAssignment = "check.pure-assignment", error, "Reject assignment in a `pure` function to anything but its own local `var`";
         CheckPureCommand = "check.pure-command", error, "Reject a command statement inside a `pure` function";
         CheckPureDefer = "check.pure-defer", error, "Reject `defer` inside a `pure` function";

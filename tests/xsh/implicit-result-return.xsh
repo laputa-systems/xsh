@@ -200,7 +200,7 @@ test test_implicit_result_return_through_module { |ctx|
 ##! Helper module for implicit Result return coverage.
 
 ## Builds the fixed value through an implicit Result tail.
-export proc build() [error] -> Result[List[Str]] {
+export proc build() [error] -> Result[List[Str], Error] {
   let built = ["ok"]
   built
 }

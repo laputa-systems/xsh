@@ -575,7 +575,7 @@ export error Failure = Missing(detail: Str) | Busy
 ## Fails with a declared family.
 export pure fail_typed() -> Result[Int, Failure] { return Err(Failure.Missing(detail: "typed")) }
 ## Fails through the broad Error carrier.
-export pure fail_broad() -> Result[Int] { return Err(Failure.Missing(detail: "broad")) }
+export pure fail_broad() -> Result[Int, Error] { return Err(Failure.Missing(detail: "broad")) }
 ## Matches inside the module.
 export pure describe(result: Result[Int, Failure]) -> Str {
   match result {

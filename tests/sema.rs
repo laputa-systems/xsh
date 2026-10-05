@@ -2205,7 +2205,7 @@ fn checker_enforces_stage_13_module_export_boundaries() {
     let ok = check_with_module(
         "use helper\nhelper.build(\"demo\")?\n",
         r#"
-export proc build(name: Str) -> Result[Unit] {
+export proc build(name: Str) -> Result[Unit, Error] {
   print ${name}
   return Ok()
 }

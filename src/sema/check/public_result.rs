@@ -89,9 +89,7 @@ impl Checker {
                 .type_expr_span(TypeExprId::from_index(data.lhs as usize))
                 .end();
             self.diagnostics.push(
-                Diagnostic::warning(
-                    "a public signature must spell the error type of its Result",
-                )
+                Diagnostic::error("a public signature must spell the error type of its Result")
                 .with_code(DiagnosticCode::CheckPublicResultError)
                 .with_label(Label::primary(
                     span,

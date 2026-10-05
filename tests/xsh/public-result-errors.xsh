@@ -107,3 +107,23 @@ test test_public_result_error_reaches_imported_modules { |ctx|
   assert "check.public-result-error" in checked.stderr, checked.stderr
   assert "config.xsh:16:" in checked.stderr, checked.stderr
 }
+
+test test_unspelled_public_results_are_check_errors { |ctx|
+  let root = test.temp_dir(ctx, name: "public-result-rejected")?
+  fp"{root}/config.xsh".write_atomic(unspelled_module)?
+  let rejected = test.run_script(ctx, importer, [], {XSH_MODULE_PATH: root.display()})?
+  assert ! rejected.success, rejected.stdout
+  assert "check.public-result-error" in rejected.stderr, rejected.stderr
+
+  let private = test.run_script(
+    ctx,
+    r"""proc helper(text: Str) -> Result[Str] {
+  let kept: Result[Str] = Ok(text)
+  kept
+}
+print ${helper("private")?}
+""",
+  )?
+  assert private.success, private.stderr
+  assert private.stdout == "private\n"
+}

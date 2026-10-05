@@ -377,10 +377,10 @@ fn a_loaded_module_calls_prepared_implementations() {
         "loaded.xsh",
         "##! A module that uses a migrated entry.\n\n\
          ## Verify a file against an expected checksum.\n\
-         export proc check(file: Path, checksum: Str) [fs] -> Result[Unit] {\n  \
+         export proc check(file: Path, checksum: Str) [fs] -> Result[Unit, Error] {\n  \
          return hash.verify_file(file, sha256: checksum)\n}\n\n\
          ## The checksum of a file.\n\
-         export proc digest_of(file: Path) [fs, error] -> Result[Str] {\n  \
+         export proc digest_of(file: Path) [fs, error] -> Result[Str, Error] {\n  \
          return hash.sha256(file)?.hex()\n}\n",
     );
     let data = dir.join("data.txt");
@@ -390,8 +390,8 @@ fn a_loaded_module_calls_prepared_implementations() {
         "loader.xsh",
         &format!(
             "type Loaded = module {{\n  \
-             export proc check(file: Path, checksum: Str) [fs] -> Result[Unit]\n  \
-             export proc digest_of(file: Path) [fs, error] -> Result[Str]\n}}\n\n\
+             export proc check(file: Path, checksum: Str) [fs] -> Result[Unit, Error]\n  \
+             export proc digest_of(file: Path) [fs, error] -> Result[Str, Error]\n}}\n\n\
              proc main() [io, error] {{\n  \
              let loaded = module.load(p\"{}\" )?.require(Loaded)?\n  \
              let hex = loaded.digest_of(p\"{}\" )?\n  \

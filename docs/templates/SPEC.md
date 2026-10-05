@@ -1850,6 +1850,18 @@ type in the file changes; `lint.redundant-result-unit` removes a broad
 `Result[Unit]` that a statement body already means, and leaves
 `Result[Unit, Family]` alone.
 
+A public signature spells the error type of every `Result` it writes
+(`check.public-result-error`): `Result[Config, ConfigError]` where callers can
+rely on a family, or `Result[Config, Error]` where broad failure is the
+contract. The public signatures are the parameters and return type of an
+exported `proc`, `pure`, or `stream`, an exported `type` or annotated binding,
+and every entry of a module contract (4.9). `Result[T]` stays the short
+spelling of `Result[T, Error]` in private signatures and inside bodies.
+
+```xsh
+{{.spec.public_result_error.source}}
+```
+
 ### 9.4 Callable aliases
 
 An unannotated `let` that names a checked function or a module export keeps

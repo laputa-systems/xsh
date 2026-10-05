@@ -2248,7 +2248,7 @@ mod tests {
 type EtcSum = {path: Str, sha256: Str}
 
 ## Builds a map from etcsum records.
-export proc map_etcsums(etcsums: List[EtcSum]) [error] -> Result[Map[Str]] {
+export proc map_etcsums(etcsums: List[EtcSum]) [error] -> Result[Map[Str], Error] {
   var mapped: Map[Str] = map.empty()
 
   for entry in etcsums {
