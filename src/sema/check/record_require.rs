@@ -8,6 +8,42 @@ use crate::syntax::arena::{
 use crate::syntax::grouping;
 use std::collections::BTreeMap;
 
+/// The checker's decision that a removed `record.require(value, {...})` call
+/// validates exactly what the named schema `schema` validates, so
+/// `value.require(schema)` replaces it unchanged.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RecordRequireMigration {
+    /// The validated value's expression.
+    pub receiver: Span,
+    pub schema: Name,
+    /// Whether the value needs parentheses to take `.require(`.
+    pub grouped: bool,
+}
+
+impl RecordRequireMigration {
+    /// The edit that replaces the call at `call`, built from `text`, the text
+    /// of the file that holds the call. A call with a comment inside has no
+    /// edit, because the replacement would drop the comment.
+    pub fn fix(&self, call: Span, text: &str) -> Option<FixHint> {
+        let written = text.get(call.range())?;
+        // The wrong file's text does not hold the call at these offsets.
+        if !written.starts_with("record") || written.contains('#') {
+            return None;
+        }
+        let receiver = text.get(self.receiver.range())?;
+        let schema = self.schema;
+        Some(FixHint::replacement(
+            call,
+            "validate the existing named schema",
+            if self.grouped {
+                format!("({receiver}).require({schema})")
+            } else {
+                format!("{receiver}.require({schema})")
+            },
+        ))
+    }
+}
+
 impl Checker {
     pub(super) fn check_removed_record_require_arena(
         &mut self,
@@ -47,14 +83,18 @@ impl Checker {
             "`record.require` was removed; declare a named schema and use `.require(Schema)`; optional keys, callable contracts, and dynamic policies need explicit application validation",
         ).with_code(DiagnosticCode::CheckRemovedRecordRequire)
             .with_label(Label::primary(span, "removed string contract API"));
-        if let Some(replacement) =
-            self.record_require_identity_migration(arena, source, args, &types, span)
+        if let Some(migration) = self.record_require_identity_migration(arena, source, args, &types)
         {
-            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
-                span,
-                "validate the existing named schema",
-                replacement,
-            ));
+            // `source` is the root file's text, and a call in an imported
+            // module lies at offsets of another file. Its edit is built by
+            // whoever holds that file, from the decision published here.
+            if self.module_depth == 0 {
+                if let Some(fix) = migration.fix(span, source) {
+                    diagnostic = diagnostic.with_fix_hint(fix);
+                }
+            } else {
+                self.record_require_migrations.insert(span, migration);
+            }
         }
         self.diagnostics.push(diagnostic);
         true
@@ -69,14 +109,7 @@ impl Checker {
         source: &str,
         args: &[ArenaCallArg],
         types: &[Type],
-        span: Span,
-    ) -> Option<String> {
-        // The edit copies the receiver's text, and `source` is the root
-        // program's: a call in an imported module lies at offsets of another
-        // file. That call gets its fix when its own file is the root.
-        if self.module_depth != 0 {
-            return None;
-        }
+    ) -> Option<RecordRequireMigration> {
         let [receiver_arg, required_arg] = args else {
             return None;
         };
@@ -88,9 +121,6 @@ impl Checker {
             ArenaCallArgKind::Named { name, value, .. } if name == "required" => value,
             _ => return None,
         };
-        if source.get(span.start()..span.end())?.contains('#') {
-            return None;
-        }
         let is_plain = matches!(arena.arena.expr(receiver).kind, ArenaExprKind::Record(_))
             || self
                 .prepared_constants
@@ -148,18 +178,17 @@ impl Checker {
                 matches!(required.get(&field.name), Some(LiteralConstant::Str(value)) if spelling.as_str().as_str() == value.as_ref())
             })
         })?;
-        let receiver_span = arena.arena.expr(receiver).span;
-        let text = source.get(receiver_span.start()..receiver_span.end())?;
         let receiver_context = grouping::Context {
             slot: grouping::Slot::Postfix { dotted: false },
             ..grouping::Context::open(grouping::Follow::adjacent(grouping::FollowToken::Require))
         };
-        Some(
-            if grouping::needs_parens(&arena.arena, source, receiver, receiver_context) {
-                format!("({text}).require({schema})")
-            } else {
-                format!("{text}.require({schema})")
-            },
-        )
+        Some(RecordRequireMigration {
+            receiver: arena.arena.expr(receiver).span,
+            schema,
+            // Grouping reads the text only of a command form, which a plain
+            // receiver never is, so the root's text is not consulted for a
+            // call in another file.
+            grouped: grouping::needs_parens(&arena.arena, source, receiver, receiver_context),
+        })
     }
 }

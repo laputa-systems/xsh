@@ -775,7 +775,7 @@ fn lint_workspace_root(
         }];
     }
 
-    let checked = timings.time(Stage::Check, || {
+    let mut checked = timings.time(Stage::Check, || {
         SymbolOwner::new().with_current(|| {
             xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
                 bundle,
@@ -785,6 +785,7 @@ fn lint_workspace_root(
             )
         })
     });
+    offer_module_record_require_fixes(&mut checked, &workspace.sources);
     // A check error leaves the checked facts incomplete, so the file is not
     // linted. A check warning does not: it is reported beside the lints.
     let unrelated_check_error = checked.diagnostics.iter().any(|diagnostic| {
@@ -969,6 +970,36 @@ fn lint_workspace_root(
         results.push(result);
     }
     results
+}
+
+/// The checker builds a `record.require` migration edit only for the root
+/// file, whose text it holds. The workspace holds every imported module's
+/// text, so the edit for a call in one of them is built here, from the
+/// decision the checker published for that call.
+fn offer_module_record_require_fixes(
+    checked: &mut xsh::frontend::check::CheckOutput,
+    sources: &SourceMap,
+) {
+    if checked.record_require_migrations.is_empty() {
+        return;
+    }
+    for diagnostic in &mut checked.diagnostics {
+        if diagnostic.code != Some(DiagnosticCode::CheckRemovedRecordRequire)
+            || !diagnostic.fix_hints.is_empty()
+        {
+            continue;
+        }
+        // The diagnostic's one label is the call.
+        let Some(call) = diagnostic.labels.first().map(|label| label.span) else {
+            continue;
+        };
+        let fix = checked
+            .record_require_migrations
+            .get(&call)
+            .zip(sources.get(call.source_id))
+            .and_then(|(migration, file)| migration.fix(call, file.text()));
+        diagnostic.fix_hints.extend(fix);
+    }
 }
 
 /// Validate the complete rewritten import graph before publishing any migration

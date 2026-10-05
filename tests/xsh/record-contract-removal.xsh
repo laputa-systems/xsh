@@ -79,9 +79,8 @@ print $selected
 
 # The removed call sits in a module that the linted root imports, and the root
 # is long enough to have text at the call's offsets. The fix copies the
-# receiver's text, so it is offered only by the check that holds that file's
-# text: linting the importer must not rewrite the module from the importer's
-# text, and linting the module itself fixes it.
+# receiver's text from the module's own file, whether the module is linted
+# itself or reached through its importer, and never from the importer's text.
 test test_record_require_migration_fix_reads_the_text_of_its_own_file { |ctx|
   let root = test.temp_dir(ctx, name: "record-require-module")?
   let module_file = fp"{root}/names.xsh"
@@ -109,20 +108,51 @@ print names.demo()?
 print first_label().byte_len() second_label().byte_len() third_label().byte_len() fourth_label().byte_len()
 """)
 
+  let help = "help: validate the existing named schema -> PackageName(name: \"demo\").require(PackageName)"
+  let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main ?
+  assert "check.removed-record-require" in reported.stderr, reported.stderr
+  assert help in reported.stderr, reported.stderr
+  let offered = run.capture --text "xsht" lint --only lint.removed-record-require $module_file ?
+  assert help in offered.stderr, offered.stderr
+
+  let under_importer = run.capture --text "xsht" lint --fix --only lint.removed-record-require $main ?
+  assert under_importer.status.exited_with(0), under_importer.stderr
+  let fixed = module_file.read_text()?
+  assert fixed == module_source.replace(
+    "record.require(PackageName(name: \"demo\"), {name: \"Str\"})",
+    "PackageName(name: \"demo\").require(PackageName)",
+  ), fixed
+  let after = test.expect(ctx, main.read_text()?, status: 0, args: [], env: {XSH_MODULE_PATH: root})?
+  assert after.stdout == "demo\n57 58 57 58\n"
+}
+
+# A call with a comment inside has no edit in its own file, and none through
+# an importer either: the importer's run reports it and writes nothing.
+test test_record_require_migration_in_a_module_keeps_a_commented_call { |ctx|
+  let root = test.temp_dir(ctx, name: "record-require-module-comment")?
+  let module_file = fp"{root}/names.xsh"
+  let module_source = r"""##! Package names.
+
+## A package name.
+export type PackageName = {name: Str}
+
+## The name of the demo package.
+export proc demo() [error] -> Result[Str, Error] {
+  let checked = record.require(
+    PackageName(name: "demo"), # the demo package
+    {name: "Str"},
+  )?
+  checked.name
+}
+"""
+  module_file.write_atomic(module_source)
+  let main = fp"{root}/main.xsh"
+  main.write_atomic("use names\n\nprint names.demo()?\n")
+
   let reported = run.capture --text "xsht" lint --only lint.removed-record-require $main ?
   assert "check.removed-record-require" in reported.stderr, reported.stderr
   assert "help: validate the existing named schema" not in reported.stderr, reported.stderr
   let under_importer = run.capture --text "xsht" lint --fix --only lint.removed-record-require $main ?
   assert ! under_importer.status.exited_with(0), under_importer.stderr
   assert module_file.read_text()? == module_source
-
-  let offered = run.capture --text "xsht" lint --only lint.removed-record-require $module_file ?
-  assert "help: validate the existing named schema -> PackageName(name: \"demo\").require(PackageName)" in offered.stderr, offered.stderr
-
-  let as_root = run.capture --text "xsht" lint --fix --only lint.removed-record-require $module_file ?
-  assert as_root.status.exited_with(0), as_root.stderr
-  let fixed = module_file.read_text()?
-  assert "let checked = PackageName(name: \"demo\").require(PackageName)?" in fixed, fixed
-  let after = test.expect(ctx, main.read_text()?, status: 0, args: [], env: {XSH_MODULE_PATH: root})?
-  assert after.stdout == "demo\n57 58 57 58\n"
 }

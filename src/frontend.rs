@@ -14,7 +14,8 @@ pub mod check {
         AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, CheckedProjection,
         CheckedStreamStage, Checker, CompactBodyFacts, CompactDeclOutput, CompactFunctionSig,
         CompactTypeDefInfo, Conversion, EffectDeclarationId, ErrorFamilyInfo, ErrorVariantInfo,
-        FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RequirementTarget,
+        FunctionEffectFact, MessagePayloadConstructor, ProjectionOperation, RecordRequireMigration,
+        RequirementTarget,
         StatementPosition, StaticCallableAlias, TagVariantInfo,
     };
     pub use crate::sema::constants::{

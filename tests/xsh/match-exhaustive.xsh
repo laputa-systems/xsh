@@ -166,6 +166,107 @@ match kind {
   assert count(rejected.stderr, "err[") == 1, rejected.stderr
 }
 
+const shapes_module = """##! Shapes.
+
+## How fast.
+export enum Speed: Str { Fast = "fast", Slow = "slow" }
+
+## A lookup failure.
+export error Lookup = Missing(name: Str) | Denied
+"""
+
+const reader_module = """##! Reader.
+use shapes as inner
+
+## The configured speed.
+export pure speed() -> inner.Speed { inner.Slow }
+
+## Label a speed from inside a module.
+export pure label(speed: inner.Speed) -> Str {
+  match speed {
+    inner.Fast => return "fast"
+    inner.Slow => return "slow"
+  }
+}
+"""
+
+# A qualified arm head counts for every closed imported subject: a Str-backed
+# enum, an error family, a subject whose type arrives through another module,
+# and a match written inside an imported module. Grouped, aliased, and guarded
+# heads count as they do for a local enum.
+test test_qualified_imported_arm_heads_count_toward_exhaustiveness { |ctx|
+  let root = test.temp_dir(ctx, name: "match-exhaustive-qualified")?
+  fp"{root}/shapes.xsh".write_atomic(shapes_module)
+  fp"{root}/reader.xsh".write_atomic(reader_module)
+  let module_env = {XSH_MODULE_PATH: root.display()}
+  let covered = test.expect(
+    ctx,
+    """use shapes as s
+use shapes
+use reader as r
+
+pure explain(problem: s.Lookup) -> Str {
+  match problem {
+    s.Lookup.Missing {name} => return f"missing {name}"
+    s.Lookup.Denied => return "denied"
+  }
+}
+
+pure cost(speed: s.Speed, strict: Bool) -> Int {
+  match speed {
+    (s.Fast) as _fast if strict => return 0
+    shapes.Fast as _whole => return 1
+    (s.Slow) => return 2
+  }
+}
+
+let through = match r.speed() {
+  s.Fast => "fast",
+  shapes.Slow => "slow",
+}
+print $through
+print r.label(s.Fast)
+print explain(s.Lookup.Missing(name: "key"))
+print explain(s.Lookup.Denied("no"))
+print cost(s.Fast, false)
+print cost(s.Slow, true)
+""",
+    status: 0,
+    args: [],
+    env: module_env,
+  )?
+  assert covered.stdout == "slow\nfast\nmissing key\ndenied\n1\n2\n", covered.stdout
+
+  let rejected = test.expect(
+    ctx,
+    """use shapes as s
+use reader as r
+
+pure explain(problem: s.Lookup) -> Str {
+  match problem {
+    s.Lookup.Missing {name} => return f"missing {name}"
+  }
+}
+
+match r.speed() {
+  s.Fast => print "fast"
+  s.Slow if false => print "slow"
+}
+print explain(s.Lookup.Denied("no"))
+""",
+    status: 2,
+    args: [],
+    env: module_env,
+  )?
+  assert rejected.stdout == ""
+  # The family match is the function's tail, so it is a value match.
+  assert "must be exhaustive: missing variant(s) `Denied`" in rejected.stderr, rejected.stderr
+  assert "non-exhaustive match: missing variant(s) `Slow`" in rejected.stderr, rejected.stderr
+  assert count(rejected.stderr, "err[check.match-value-exhaustive]") == 1, rejected.stderr
+  assert count(rejected.stderr, "err[check.non-exhaustive-match]") == 1, rejected.stderr
+  assert count(rejected.stderr, "err[") == 2, rejected.stderr
+}
+
 # The checker enumerates enums only. Every other subject keeps the run-time
 # failure, which is also what stops a match the checker could not see through.
 test test_unenumerated_subjects_still_fail_with_match_no_arm { |ctx|

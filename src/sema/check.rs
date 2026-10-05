@@ -37,6 +37,7 @@ mod expected;
 mod expr;
 mod record_require;
 pub use expected::RequirementTarget;
+pub use record_require::RecordRequireMigration;
 #[path = "check/inferred_variant.rs"]
 mod inferred_variant;
 #[path = "check/effect_bounds.rs"]
@@ -201,6 +202,11 @@ pub struct CheckOutput {
     /// `message: Str`, the field a variant without a payload already carries,
     /// keyed by call expression.
     pub message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
+    /// Removed `record.require` calls in imported modules that the named
+    /// schema's `.require` replaces unchanged, keyed by call expression. The
+    /// checker holds only the root file's text, so whoever holds the module's
+    /// text builds the edit from this.
+    pub record_require_migrations: BTreeMap<Span, RecordRequireMigration>,
     /// What each `.Name` pattern stands for, keyed by pattern.
     pub inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     /// How each well-formed error constructor call binds its arguments, keyed
@@ -739,6 +745,7 @@ pub struct Checker {
     redundant_variant_qualifiers: BTreeMap<Span, Span>,
     record_constructor_fields: BTreeMap<Span, Vec<Name>>,
     message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
+    record_require_migrations: BTreeMap<Span, RecordRequireMigration>,
     error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     optional_binding_spans: BTreeSet<Span>,
     from_end_indexes: BTreeMap<Span, u32>,
@@ -902,6 +909,7 @@ impl Checker {
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
+                record_require_migrations: checker.record_require_migrations,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
                 from_end_indexes: checker.from_end_indexes,
@@ -1080,6 +1088,7 @@ impl Checker {
                 redundant_variant_qualifiers: checker.redundant_variant_qualifiers,
                 record_constructor_fields: checker.record_constructor_fields,
                 message_payload_constructors: checker.message_payload_constructors,
+                record_require_migrations: checker.record_require_migrations,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
                 from_end_indexes: checker.from_end_indexes,
@@ -1160,6 +1169,7 @@ impl Checker {
             redundant_variant_qualifiers: BTreeMap::new(),
             record_constructor_fields: BTreeMap::new(),
             message_payload_constructors: BTreeMap::new(),
+            record_require_migrations: BTreeMap::new(),
             error_constructors: BTreeMap::new(),
             optional_binding_spans: BTreeSet::new(),
             from_end_indexes: BTreeMap::new(),
