@@ -4,7 +4,7 @@
 //! Every failure is a host error that carries its errno.
 
 use crate::modules::RuntimeOp;
-use crate::modules::process::{Args, host_error, key, name_error};
+use crate::modules::process::{Args, host_error, key, name_error, positive_pid};
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use rustix::fd::BorrowedFd;
@@ -75,8 +75,15 @@ fn borrow(fd: i32) -> BorrowedFd<'static> {
     unsafe { BorrowedFd::borrow_raw(fd) }
 }
 
+/// A descriptor number that cannot name an open descriptor is not a terminal.
 fn isatty(args: &Args<'_>) -> Result<Value, RuntimeError> {
-    Ok(Value::Bool(termios::isatty(borrow(fd_arg(args, 0, 0)?))))
+    let fd = args.int_or(0, 0)?;
+    Ok(Value::Bool(
+        i32::try_from(fd)
+            .ok()
+            .filter(|fd| *fd >= 0)
+            .is_some_and(|fd| termios::isatty(borrow(fd))),
+    ))
 }
 
 fn name_of(name: &CStr) -> Value {
@@ -261,7 +268,7 @@ fn foreground_group(args: &Args<'_>) -> Result<Value, RuntimeError> {
 fn set_foreground_group(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let span = args.span();
     let pgid = args.int(0)?;
-    let Some(pgid) = i32::try_from(pgid).ok().and_then(Pid::from_raw) else {
+    let Some(pgid) = positive_pid(pgid) else {
         return Err(invalid("process group id must be positive", span));
     };
     let fd = borrow(fd_arg(args, 1, 0)?);

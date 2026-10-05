@@ -243,11 +243,15 @@ fn pid_arg(pid: i64, operation: &str, span: Span) -> Result<Option<Pid>, Runtime
     if pid == 0 {
         return Ok(None);
     }
-    i32::try_from(pid)
-        .ok()
-        .and_then(Pid::from_raw)
+    positive_pid(pid)
         .map(Some)
         .ok_or_else(|| invalid("pid-range", format!("{operation}: pid is out of range"), span))
+}
+
+/// A process ID that names one process: `Pid::from_raw` also accepts
+/// negative numbers, which the kernel reads as groups.
+pub(crate) fn positive_pid(pid: i64) -> Option<Pid> {
+    i32::try_from(pid).ok().filter(|pid| *pid > 0).and_then(Pid::from_raw)
 }
 
 fn pid_value(pid: Pid) -> Value {
@@ -312,7 +316,7 @@ pub(crate) fn kill_error(error: rustix::io::Errno, span: Span) -> RuntimeError {
 fn kill_group(args: &Args<'_>) -> Result<Value, RuntimeError> {
     let span = args.span();
     let pgid = args.int(0)?;
-    let Some(pgid) = i32::try_from(pgid).ok().and_then(Pid::from_raw) else {
+    let Some(pgid) = positive_pid(pgid) else {
         return Err(invalid(
             "pid-range",
             "process group id must be a positive process id",

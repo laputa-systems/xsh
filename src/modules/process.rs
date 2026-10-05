@@ -10,7 +10,7 @@ use std::sync::{Arc, LazyLock};
 
 mod prims;
 pub(crate) use prims::{
-    Args, call as prim_call, handles as is_prim, host_error, key, name_error,
+    Args, call as prim_call, handles as is_prim, host_error, key, name_error, positive_pid,
 };
 
 static K_PID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("pid"));
