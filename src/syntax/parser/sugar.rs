@@ -32,7 +32,8 @@ use super::{Keyword, Name, Parser, TokenTag};
 use crate::diagnostic::DiagnosticCode;
 use crate::source::Span;
 use crate::syntax::arena::{
-    ArenaCallArgInput, ArenaExprOrRun, ArenaProgramBuilder, ArenaSugarOperand, BindingTargetId,
+    ArenaCallArgInput, ArenaExprKind, ArenaExprOrRun, ArenaProgramBuilder, ArenaSugarOperand,
+    BindingTargetId,
     DeferTrigger,
     BlockId, ExprId, StmtId, SugarForm,
 };
@@ -49,6 +50,8 @@ const AT_WORD: &str = "at";
 /// The word that begins a `fail` statement. It stays an ordinary identifier
 /// everywhere else (`test.fail`, a record field named `fail`).
 const FAIL_WORD: &str = "fail";
+/// The word between a `fail` statement's failure and its cause.
+const BECAUSE_WORD: &str = "because";
 
 impl Parser<'_> {
     /// Whether the statement at the cursor is `repeat COUNT times {`.
@@ -501,9 +504,10 @@ struct CallSpans {
 }
 
 impl Parser<'_> {
-    /// Whether the command statement at the cursor is `fail MESSAGE`. `fail`
-    /// is not reserved: it begins the statement only where a command named
-    /// `fail` would be read, with its message after a space on the same line.
+    /// Whether the command statement at the cursor is a `fail` statement.
+    /// `fail` is not reserved: it begins the statement only where a command
+    /// named `fail` would be read, with its message or `.Variant(...)` after a
+    /// space on the same line.
     pub(super) fn lookahead_is_fail(&self) -> bool {
         self.current_name().is_some_and(|name| name == FAIL_WORD)
             && self.peek_start(1).is_some_and(|next| next > self.current_end())
@@ -525,7 +529,14 @@ impl Parser<'_> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         let keyword = self.bump();
-        let message = self.parse_expr_id_arena_only(arena)?;
+        let failure = self.parse_expr_id_arena_only(arena)?;
+        let failure_end = arena.expr_span(failure).end();
+        let cause = if self.current_name().is_some_and(|name| name == BECAUSE_WORD) {
+            let because = self.bump();
+            Some((because, self.parse_expr_id_arena_only(arena)?))
+        } else {
+            None
+        };
         let guarded = self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless);
         let end = if guarded {
             self.previous_end()
@@ -533,17 +544,39 @@ impl Parser<'_> {
             self.expect_terminator()
         };
         let span = self.span(start, end);
+        // A leading-dot name, alone or called, is an error of the family the
+        // function declares. Anything else is a message.
+        let variant = {
+            let constructor = match arena.expr_kind(failure) {
+                ArenaExprKind::Call { callee, .. } => callee,
+                _ => failure,
+            };
+            matches!(
+                arena.expr_kind(constructor),
+                ArenaExprKind::Field { base, .. }
+                    if matches!(arena.expr_kind(base), ArenaExprKind::Item)
+            )
+        };
         let operands = FailOperands {
             keyword,
-            message,
-            message_end: arena.expr_span(message).end(),
+            failure,
+            failure_end,
+            variant,
+            cause: cause.map(|(because, cause)| FailCause {
+                argument: self.span(because.start(), arena.expr_span(cause).end()),
+                cause,
+            }),
         };
-        let inner = arena.push_sugar(
-            SugarForm::Fail,
-            &[ArenaSugarOperand::Expr(message)],
-            span,
-            |arena| expand_fail(arena, operands, span),
-        );
+        let written = match cause {
+            Some((_, cause)) => vec![
+                ArenaSugarOperand::Expr(failure),
+                ArenaSugarOperand::Expr(cause),
+            ],
+            None => vec![ArenaSugarOperand::Expr(failure)],
+        };
+        let inner = arena.push_sugar(SugarForm::Fail, &written, span, |arena| {
+            expand_fail(arena, operands, span)
+        });
         if guarded {
             return self.parse_guarded_stmt_arena_only(start, inner, arena);
         }
@@ -555,11 +588,23 @@ impl Parser<'_> {
 struct FailOperands {
     /// The `fail` word.
     keyword: Span,
-    message: ExprId,
-    message_end: usize,
+    failure: ExprId,
+    failure_end: usize,
+    /// The failure is written `.Variant` or `.Variant(...)`.
+    variant: bool,
+    cause: Option<FailCause>,
 }
 
-/// `fail MESSAGE` is `return Err(error.failure(MESSAGE))`.
+#[derive(Clone, Copy)]
+struct FailCause {
+    /// `because CAUSE`.
+    argument: Span,
+    cause: ExprId,
+}
+
+/// `fail MESSAGE` is `return Err(error.failure(MESSAGE))`, and
+/// `fail .Variant(...)` is `return Err(.Variant(...))`. `because CAUSE` adds
+/// `cause: CAUSE` to the `Err`.
 ///
 /// A call spelled `error.failure(...)` names the module function even where
 /// `error` is a local, so the expansion means the same inside an `Err(error)`
@@ -571,24 +616,40 @@ struct FailOperands {
 fn expand_fail(arena: &mut ArenaProgramBuilder<'_>, operands: FailOperands, span: Span) -> StmtId {
     let FailOperands {
         keyword,
-        message,
-        message_end,
+        failure,
+        failure_end,
+        variant,
+        cause,
     } = operands;
     let within = |start: usize, end: usize| Span::new(span.source_id, start, end);
     // `fail` has four bytes, so these three are distinct and none is the
     // whole word.
     let keyword_prefix = |len: usize| within(keyword.start(), keyword.start() + len);
 
-    let module = arena.push_ident_expr(Name::intern("error"), keyword_prefix(1));
-    let constructor = arena.push_field_expr(module, Name::intern("failure"), keyword_prefix(2));
-    arena.begin_call_args();
-    arena.push_call_arg_input(ArenaCallArgInput::Positional(message));
-    let args = arena.finish_call_args();
-    let failure = arena.push_call_expr(constructor, args, within(keyword.end(), message_end));
+    let error = if variant {
+        failure
+    } else {
+        let module = arena.push_ident_expr(Name::intern("error"), keyword_prefix(1));
+        let constructor =
+            arena.push_field_expr(module, Name::intern("failure"), keyword_prefix(2));
+        arena.begin_call_args();
+        arena.push_call_arg_input(ArenaCallArgInput::Positional(failure));
+        let args = arena.finish_call_args();
+        arena.push_call_expr(constructor, args, within(keyword.end(), failure_end))
+    };
 
     let err = arena.push_ident_expr(Name::intern("Err"), keyword_prefix(3));
     arena.begin_call_args();
-    arena.push_call_arg_input(ArenaCallArgInput::Positional(failure));
+    arena.push_call_arg_input(ArenaCallArgInput::Positional(error));
+    if let Some(FailCause { argument, cause }) = cause {
+        // The argument starts on `because`, before its value, as a written
+        // `cause: value` starts on its name.
+        arena.push_call_arg_input(ArenaCallArgInput::Named {
+            name: Name::intern("cause"),
+            value: cause,
+            span: argument,
+        });
+    }
     let args = arena.finish_call_args();
     let value = arena.push_call_expr(err, args, keyword);
     arena.push_return(Some(ArenaExprOrRun::Expr(value)), span)
@@ -802,6 +863,7 @@ mod tests {
             include_str!("../../../docs/snippets/spec/49-exit.xsh"),
             include_str!("../../../tests/xsh/fail.xsh"),
             include_str!("../../../docs/snippets/spec/61-fail.xsh"),
+            include_str!("../../../docs/snippets/spec/61-fail-because.xsh"),
         ] {
             let tokens = lex_grammar_tokens(source).expect("lexes");
             for part in top_level_parts(&tokens) {

@@ -1068,9 +1068,9 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "fail" => {
             return reference_doc_full(
                 "Returns an error that carries a message from the enclosing function.",
-                "`fail MESSAGE` means `return Err(error.failure(MESSAGE))`: it leaves the function, not an enclosing `try`, runs deferred cleanup, ends its block like `return`, and accepts a postfix `when` or `unless`. The message is a Str and the error a plain Error, so the function returns a Result whose error type is Error. Use a declared error family instead when callers match on the failure. `fail` is a contextual word that begins the statement where a command would be read.",
-                &["language", "fail", "error", "result", "statement"],
-                "fail MESSAGE",
+                "`fail MESSAGE` means `return Err(error.failure(MESSAGE))`: it leaves the function, not an enclosing `try`, runs deferred cleanup, ends its block like `return`, and accepts a postfix `when` or `unless`. The message is a Str and the error a plain Error, so the function returns a Result whose error type is Error. In a function that declares an error family, `fail .Variant(...)` means `return Err(.Variant(...))`; the variant comes only from the declared return type. `because CAUSE` after either form adds `cause: CAUSE` to the `Err`, keeping the replaced error as the cause. `fail` is a contextual word that begins the statement where a command would be read, and `because` is a word only after its first operand.",
+                &["language", "fail", "error", "result", "cause", "statement"],
+                "fail MESSAGE|.Variant(...) [because CAUSE]",
                 &[],
             );
         }

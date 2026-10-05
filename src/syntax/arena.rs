@@ -4937,9 +4937,22 @@ impl AstArena {
             (SugarForm::Tempdir, operands) => {
                 unreachable!("`tempdir` has a name, a path, and a body, found {operands:?}")
             }
-            (SugarForm::Fail, &[ArenaSugarOperand::Expr(message)]) => ArenaSugar::Fail { message },
+            (SugarForm::Fail, &[ArenaSugarOperand::Expr(failure)]) => ArenaSugar::Fail {
+                failure,
+                cause: None,
+            },
+            (
+                SugarForm::Fail,
+                &[
+                    ArenaSugarOperand::Expr(failure),
+                    ArenaSugarOperand::Expr(cause),
+                ],
+            ) => ArenaSugar::Fail {
+                failure,
+                cause: Some(cause),
+            },
             (SugarForm::Fail, operands) => {
-                unreachable!("`fail` has a message, found {operands:?}")
+                unreachable!("`fail` has a failure and at most a cause, found {operands:?}")
             }
         }
     }
@@ -5606,7 +5619,9 @@ pub enum SugarForm {
     /// `tempdir NAME at PATH { BODY }`: operands are the binding that names
     /// the directory, the path expression, and the body block.
     Tempdir,
-    /// `fail MESSAGE`: the operand is the message expression.
+    /// `fail FAILURE` and `fail FAILURE because CAUSE`: operands are the
+    /// message or `.Variant(...)` expression and then the cause, when the
+    /// statement has one.
     Fail,
 }
 
@@ -5662,7 +5677,11 @@ pub enum ArenaSugar {
         path: ExprId,
         body: BlockId,
     },
-    Fail { message: ExprId },
+    /// `failure` is a message, or an error written `.Variant(...)`.
+    Fail {
+        failure: ExprId,
+        cause: Option<ExprId>,
+    },
 }
 
 /// The table rows one sugar expansion added.

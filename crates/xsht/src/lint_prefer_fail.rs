@@ -16,6 +16,9 @@
 //! the same `Err` with the same message. What changes is the name an
 //! uncaught failure is reported under: `validation` instead of the family and
 //! variant.
+//!
+//! The lint also respells `return Err(.Variant(...))`, with or without a
+//! `cause:`, as the `fail .Variant(...)` that is defined to mean it.
 
 use xsh::diagnostic::{Diagnostic, DiagnosticCode, FixHint, Label};
 use xsh::frontend::source::{SourceId, Span};
@@ -42,10 +45,11 @@ struct Constructor {
     message: ExprId,
 }
 
-/// `Err(VALUE)` with nothing but its one positional argument.
+/// `Err(VALUE)` or `Err(VALUE, cause: CAUSE)`.
 struct ErrCall {
     call: ExprId,
     value: ExprId,
+    cause: Option<ExprId>,
 }
 
 /// `return VALUE`, by where the statement starts.
@@ -110,11 +114,10 @@ impl Candidates {
     }
 
     pub(super) fn visit_stmt(&mut self, arena: &AstArena, statement: StmtId) {
-        if self.families.is_empty() {
-            return;
-        }
         let stmt = arena.stmt(statement);
-        if let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) = stmt.kind {
+        if let ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) = stmt.kind
+            && is_err_call(arena, value)
+        {
             self.returns.push(Return {
                 start: stmt.span.start(),
                 value,
@@ -123,21 +126,40 @@ impl Candidates {
     }
 
     pub(super) fn visit_expr(&mut self, arena: &AstArena, expr: ExprId) {
-        if self.families.is_empty() {
-            return;
-        }
         let ArenaExprKind::Call { callee, args } = arena.expr(expr).kind else {
             return;
         };
+        if is_err_call(arena, expr) {
+            let (value, cause) = match arena.call_args(args) {
+                [value] => (value, None),
+                [value, cause] => match cause.kind {
+                    ArenaCallArgKind::Named { name, value: cause, .. } if name == "cause" => {
+                        (value, Some(cause))
+                    }
+                    _ => return,
+                },
+                _ => return,
+            };
+            let ArenaCallArgKind::Positional(value) = value.kind else {
+                return;
+            };
+            // Without a candidate family, only a leading-dot error matters.
+            if !self.families.is_empty() || is_leading_dot_variant(arena, value) {
+                self.err_calls.push(ErrCall {
+                    call: expr,
+                    value,
+                    cause,
+                });
+            }
+            return;
+        }
+        if self.families.is_empty() {
+            return;
+        }
         let [argument] = arena.call_args(args) else {
             return;
         };
         match arena.expr(callee).kind {
-            ArenaExprKind::Ident(name) if name == "Err" => {
-                if let ArenaCallArgKind::Positional(value) = argument.kind {
-                    self.err_calls.push(ErrCall { call: expr, value });
-                }
-            }
             ArenaExprKind::Field { base, name } => {
                 let ArenaExprKind::Ident(family) = arena.expr(base).kind else {
                     return;
@@ -229,8 +251,71 @@ impl Candidates {
                 diagnostics.push(diagnostic);
             }
         }
+        for err in &self.err_calls {
+            if !is_leading_dot_variant(arena, err.value) {
+                continue;
+            }
+            let Some(statement) = self.returned(arena, err) else {
+                continue;
+            };
+            let mut diagnostic =
+                Diagnostic::warning("return an error written `.Variant(...)` with `fail`")
+                    .with_code(DiagnosticCode::LintPreferFail)
+                    .with_label(Label::secondary(
+                        statement,
+                        "`fail .Variant(...)` means this `return Err(...)`",
+                    ));
+            if let Some(replacement) = self.fail_text(arena, source, statement, err, err.value) {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                    statement,
+                    "return the error with `fail`",
+                    replacement,
+                ));
+            }
+            diagnostics.push(diagnostic);
+        }
         diagnostics.sort_by_key(|diagnostic| diagnostic.labels[0].span.start());
         diagnostics
+    }
+
+    /// The `return Err(...)` statement, up to the end of the `Err(...)`, that
+    /// returns exactly this call.
+    fn returned(&self, arena: &AstArena, err: &ErrCall) -> Option<Span> {
+        let statement = self.returns.iter().find(|ret| ret.value == err.call)?;
+        let call = arena.expr(err.call).span;
+        Some(Span::new(call.source_id, statement.start, call.end()))
+    }
+
+    /// `fail FAILURE` or `fail FAILURE because CAUSE` for a returned `Err`,
+    /// where `failure` is the part of its first argument that `fail` takes.
+    /// There is none when the statement holds a comment the rewrite would
+    /// drop, or when the text reads differently after the word `fail`.
+    fn fail_text(
+        &self,
+        arena: &AstArena,
+        source: &str,
+        statement: Span,
+        err: &ErrCall,
+        failure: ExprId,
+    ) -> Option<String> {
+        let failure = arena.expr(failure).span;
+        let text = written(source, failure)?;
+        let mut kept_end = failure.end();
+        let mut replacement = format!("fail {text}");
+        if source.get(statement.start()..failure.start())?.contains('#') {
+            return None;
+        }
+        if let Some(cause) = err.cause {
+            let cause = arena.expr(cause).span;
+            if source.get(kept_end..cause.start())?.contains('#') {
+                return None;
+            }
+            replacement.push_str(" because ");
+            replacement.push_str(written(source, cause)?);
+            kept_end = cause.end();
+        }
+        (!source.get(kept_end..statement.end())?.contains('#') && is_fail_statement(&replacement))
+            .then_some(replacement)
     }
 
     /// The edit that replaces one constructor: the whole `return Err(...)`
@@ -239,11 +324,9 @@ impl Candidates {
     fn rewrite(&self, arena: &AstArena, source: &str, constructor: &Constructor) -> Option<FixHint> {
         let call = arena.expr(constructor.call).span;
         let message = arena.expr(constructor.message).span;
-        // A pun (`message:`) is the name with its colon.
-        let text = source.get(message.range())?.trim_end_matches(':').trim();
+        let text = written(source, message)?;
         // A comment between the pieces would be dropped with them.
-        if text.is_empty()
-            || source.get(call.start()..message.start())?.contains('#')
+        if source.get(call.start()..message.start())?.contains('#')
             || source.get(message.end()..call.end())?.contains('#')
         {
             return None;
@@ -253,28 +336,15 @@ impl Candidates {
             .iter()
             .find(|err| err.value == constructor.call)
             .and_then(|err| {
-                let statement = self.returns.iter().find(|ret| ret.value == err.call)?;
-                Some(Span::new(
-                    call.source_id,
-                    statement.start,
-                    arena.expr(err.call).span.end(),
-                ))
-            })
-            .filter(|statement| {
-                source
-                    .get(statement.start()..call.start())
-                    .is_some_and(|text| !text.contains('#'))
-                    && source
-                        .get(call.end()..statement.end())
-                        .is_some_and(|text| !text.contains('#'))
-                    && is_fail_statement(text)
+                let statement = self.returned(arena, err)?;
+                let replacement =
+                    self.fail_text(arena, source, statement, err, constructor.message)?;
+                Some((statement, replacement))
             });
         Some(match returned {
-            Some(statement) => FixHint::replacement(
-                statement,
-                "return the failure with `fail`",
-                format!("fail {text}"),
-            ),
+            Some((statement, replacement)) => {
+                FixHint::replacement(statement, "return the failure with `fail`", replacement)
+            }
             None => FixHint::replacement(
                 call,
                 "build the error with `error.failure`",
@@ -284,13 +354,41 @@ impl Candidates {
     }
 }
 
-/// Whether `fail MESSAGE` with this message text is a `fail` statement, alone
-/// and before a postfix guard. A message that reads differently after the
-/// word `fail` than it did as an argument keeps its `Err(...)`.
-fn is_fail_statement(message: &str) -> bool {
+fn is_err_call(arena: &AstArena, expr: ExprId) -> bool {
+    matches!(
+        arena.expr(expr).kind,
+        ArenaExprKind::Call { callee, .. }
+            if matches!(arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err")
+    )
+}
+
+/// Whether the expression is `.Name` or `.Name(...)`, the shape a `fail`
+/// statement returns as it stands.
+fn is_leading_dot_variant(arena: &AstArena, expr: ExprId) -> bool {
+    let constructor = match arena.expr(expr).kind {
+        ArenaExprKind::Call { callee, .. } => callee,
+        _ => expr,
+    };
+    matches!(
+        arena.expr(constructor).kind,
+        ArenaExprKind::Field { base, .. } if matches!(arena.expr(base).kind, ArenaExprKind::Item)
+    )
+}
+
+/// The text of an argument's value. A pun (`message:`) is the name with its
+/// colon.
+fn written(source: &str, value: Span) -> Option<&str> {
+    let text = source.get(value.range())?.trim_end_matches(':').trim();
+    (!text.is_empty()).then_some(text)
+}
+
+/// Whether this text is a `fail` statement, alone and before a postfix guard.
+/// Text that reads differently after the word `fail` than it did as an
+/// argument keeps its `Err(...)`.
+fn is_fail_statement(statement: &str) -> bool {
     [
-        format!("fail {message}\n"),
-        format!("fail {message} when true\n"),
+        format!("{statement}\n"),
+        format!("{statement} when true\n"),
     ]
     .iter()
     .all(|candidate| {
@@ -447,7 +545,7 @@ mod tests {
             // Matched on.
             "error LoadError = Failed(message: Str)\n\nproc load() -> Result[Int, LoadError] {\n  return Err(LoadError.Failed(\"no\"))\n}\n\nmatch load() {\n  Err(LoadError.Failed {message}) => print $message\n  Ok(_) => print \"ok\"\n}\n",
             // Named by a return type, and built in the leading-dot form.
-            "error LoadError = Failed\n\nproc load() -> Result[Int, LoadError] {\n  return Err(.Failed(\"no\"))\n}\n",
+            "error LoadError = Failed\n\nproc load() -> Result[Int, LoadError] {\n  Err(.Failed(\"no\"))\n}\n",
             // Named only in a comment.
             "error LoadError = Failed(message: Str)\n\n# LoadError is what the installer greps for.\nproc load() -> Result[Int] {\n  return Err(LoadError.Failed(\"no\"))\n}\n",
             // More than a message, more than one variant, or a facet.
@@ -483,17 +581,47 @@ mod tests {
     }
 
     #[test]
-    fn a_cause_keeps_its_err_and_only_the_error_changes() {
-        let source = "error LoadError = Failed(message: Str)\n\nproc load(inner: Result[Int]) -> Result[Int] {\n  match inner {\n    Ok(value) => Ok(value)\n    Err(error) => return Err(LoadError.Failed(\"outer\"), cause: error)\n  }\n}\n";
+    fn a_cause_becomes_because() {
+        let source = "error LoadError = Failed(message: Str)\n\nproc load(inner: Result[Int]) -> Result[Int] {\n  match inner {\n    Ok(value) => Ok(value)\n    Err(error) => return Err(LoadError.Failed(\"outer\"), cause: error)\n  }\n}\n\nproc wrap(inner: Result[Int]) -> Result[Int] {\n  match inner {\n    Ok(value) => Ok(value)\n    Err(error) => Err(LoadError.Failed(\"tail\"), cause: error)\n  }\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
         let fixed = apply(&diagnostics, source);
         assert!(
-            fixed.contains("Err(error) => return Err(error.failure(\"outer\"), cause: error)\n"),
+            fixed.contains("Err(error) => fail \"outer\" because error\n"),
             "{fixed}"
         );
-        // The fixed program still checks: the call names the module even
-        // where `error` is the caught error.
+        // Not the value of a `return`: only the error changes. The fixed
+        // program still checks, because the call names the module even where
+        // `error` is the caught error.
+        assert!(
+            fixed.contains("Err(error) => Err(error.failure(\"tail\"), cause: error)\n"),
+            "{fixed}"
+        );
         assert_eq!(lint(&fixed).len(), 1);
+    }
+
+    #[test]
+    fn a_returned_leading_dot_error_becomes_fail() {
+        let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  return Err(.Busy()) when target == p\"/\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(.Missing(path: target), cause: problem)\n  }\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        assert_eq!(
+            fixed,
+            "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  fail .Busy() when target == p\"/\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => fail .Missing(path: target) because problem\n  }\n}\n"
+        );
+        assert!(lint(&fixed).is_empty());
+    }
+
+    #[test]
+    fn other_returned_errors_keep_their_return() {
+        for source in [
+            // A qualified constructor, an error that already exists, and an
+            // `Err` that is a value and not a `return`.
+            "error LoadError = Missing(path: Path) | Busy\n\nproc load(inner: Result[Int, LoadError]) -> Result[Int, LoadError] {\n  match inner {\n    Ok(0) => return Err(LoadError.Busy())\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(problem)\n  }\n}\n\nproc tail() -> Result[Int, LoadError] {\n  Err(.Busy())\n}\n",
+        ] {
+            let diagnostics = lint(source);
+            assert!(diagnostics.is_empty(), "{source}\n{diagnostics:?}");
+        }
     }
 }

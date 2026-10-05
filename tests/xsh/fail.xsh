@@ -163,3 +163,133 @@ test test_prefer_fail_leaves_a_matched_family_alone { |ctx|
   let linted = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
   assert linted.status.exited_with(0), linted.stderr
 }
+
+error FetchError = RemoteFetch | Offline
+
+proc download(url: Str) -> Result[Str] {
+  fail f"no route to {url}" unless url.starts_with("https:")
+  Ok("body")
+}
+
+proc fetch(url: Str) -> Result[Str, FetchError] {
+  fail .Offline() when url == ""
+  match download(url) {
+    Ok(body) => Ok(body)
+    Err(problem) => fail .RemoteFetch(f"fetching {url}") because problem
+  }
+}
+
+pure fetched(outcome: Result[Str, FetchError]) -> Str {
+  match outcome {
+    Ok(body) => body
+    Err(FetchError.RemoteFetch {message}) => f"remote: {message}"
+    Err(FetchError.Offline) => "offline"
+    Err(other) => f"unexpected: {other.message}"
+  }
+}
+
+test test_fail_returns_a_variant_of_the_declared_family {
+  assert fetched(fetch("https://mirror")) == "body"
+  assert fetched(fetch("")) == "offline"
+  assert fetched(fetch("ftp://mirror")) == "remote: fetching ftp://mirror"
+}
+
+test test_fail_because_keeps_the_replaced_error_as_the_cause { |ctx|
+  let source = r"""error FetchError = RemoteFetch | Offline
+
+proc download(url: Str) -> Result[Str] {
+  fail f"no route to {url}"
+}
+
+proc fetch(url: Str) -> Result[Str, FetchError] {
+  match download(url) {
+    Ok(body) => Ok(body)
+    Err(problem) => fail .RemoteFetch(f"fetching {url}") because problem
+  }
+}
+
+proc load(url: Str) -> Result[Str] {
+  match fetch(url) {
+    Ok(body) => Ok(body)
+    # `error` is the caught error, as a cause and beside the new message.
+    Err(error) => fail f"loading {url}: {error.message}" because error
+  }
+}
+
+match load("ftp://mirror") {
+  Ok(body) => print $body
+  Err(problem) => print $problem.message
+}
+print load("ftp://mirror")?
+"""
+  let output = test.run_script(ctx, source)?
+  assert output.status == 3, output.stderr
+  assert output.stdout == "loading ftp://mirror: fetching ftp://mirror\n", output.stdout
+  let report = output.stderr.lines()
+  let outer = [line for line in report if line.starts_with("err: ")]
+  let causes = [line for line in report if line.starts_with("caused by: ")]
+  assert outer.len() == 1 and "loading ftp://mirror: fetching ftp://mirror" in outer[0], output.stderr
+  assert causes.len() == 2, output.stderr
+  assert "FetchError.RemoteFetch" in causes[0] and "fetching ftp://mirror" in causes[0], output.stderr
+  assert "no route to ftp://mirror" in causes[1], output.stderr
+}
+
+test test_fail_variant_needs_a_declared_family_and_a_cause_an_error { |ctx|
+  let undeclared = test.run_script(
+    ctx,
+    "error FetchError = RemoteFetch | Offline\n\nproc fetch() -> Result[Str] {\n  fail .Offline()\n}\n",
+  )?
+  assert ! undeclared.success
+  assert "err[check.inferred-variant]" in undeclared.stderr, undeclared.stderr
+  let inferred = test.run_script(
+    ctx,
+    "error FetchError = RemoteFetch | Offline\n\nproc fetch() {\n  fail .Offline()\n}\n",
+  )?
+  assert ! inferred.success
+  assert "err[check.inferred-variant]" in inferred.stderr, inferred.stderr
+  let qualified = test.run_script(
+    ctx,
+    "error FetchError = RemoteFetch | Offline\n\nproc fetch() -> Result[Str, FetchError] {\n  fail FetchError.Offline()\n}\n",
+  )?
+  assert ! qualified.success
+  assert "expected Str, found FetchError" in qualified.stderr, qualified.stderr
+  let wrong_cause = test.run_script(
+    ctx,
+    "proc fetch() -> Result[Str] {\n  fail \"no\" because \"reasons\"\n}\n",
+  )?
+  assert ! wrong_cause.success
+  assert "err[check." in wrong_cause.stderr, wrong_cause.stderr
+  let missing_cause = test.run_script(ctx, "proc fetch() -> Result[Str] {\n  fail \"no\" because\n}\n")?
+  assert ! missing_cause.success
+  assert "err[parse." in missing_cause.stderr, missing_cause.stderr
+}
+
+test test_because_is_a_word_only_after_a_failure { |ctx|
+  let source = "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail   because.message   because   because unless fail.because == 2\n  Ok(1)\n}\n"
+  let file = test.temp_file(ctx, name: "because.xsh", contents: bytes.from_text(source))?
+  let formatted = run.capture --text "xsht" fmt $file ?
+  assert formatted.status.exited_with(0), formatted.stderr
+  assert file.read_text()? == "proc report(because: Error) -> Result[Int] {\n  let fail = {because: 1}\n  fail because.message because because unless fail.because == 2\n  Ok(1)\n}\n"
+  let expanded = run.capture --text "xsht" desugar $file ?
+  assert expanded.status.exited_with(0), expanded.stderr
+  assert "return Err(error.failure(because.message), cause: because)" in expanded.stdout, expanded.stdout
+  let checked = run.capture --text "xsht" check $file ?
+  assert checked.status.exited_with(0), checked.stderr
+}
+
+test test_prefer_fail_respells_a_returned_leading_dot_error { |ctx|
+  let source = "error LoadError = Missing(path: Path) | Busy\n\nproc load(target: Path, inner: Result[Int]) -> Result[Int, LoadError] {\n  return Err(.Busy()) when target.display() == \"\"\n  match inner {\n    Ok(value) => Ok(value)\n    Err(problem) => return Err(.Missing(path: target), cause: problem)\n  }\n}\n"
+  let candidate = test.temp_file(ctx, name: "load.xsh", contents: bytes.from_text(source))?
+  let first = run.capture --text "xsht" lint --only lint.prefer-fail $candidate ?
+  assert first.status.exited_with(1), first.stderr
+  assert "return an error written `.Variant(...)` with `fail`" in first.stderr, first.stderr
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-fail $candidate ?
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  assert "  fail .Busy() when target.display() == \"\"\n" in fixed, fixed
+  assert "    Err(problem) => fail .Missing(path: target) because problem\n" in fixed, fixed
+  let formatted = run.capture --text "xsht" fmt --check $candidate ?
+  assert formatted.status.exited_with(0), formatted.stderr
+  let checked = run.capture --text "xsht" check $candidate ?
+  assert checked.status.exited_with(0), checked.stderr
+}

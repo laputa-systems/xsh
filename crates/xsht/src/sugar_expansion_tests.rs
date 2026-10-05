@@ -104,6 +104,15 @@ fn cases(form: SugarForm) -> &'static [Case] {
                 sugar: include_str!("../../../docs/snippets/spec/61-fail.xsh"),
                 core: Core::Desugared,
             },
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/61-fail-because.xsh"),
+                core: Core::Desugared,
+            },
+            // A cause on each form, under a guard, where `because` is a name.
+            Case {
+                sugar: "error LoadError = Missing(path: Path) | Busy\n\nproc load(because: Error, target: Path) -> Result[Int, LoadError] {\n  fail .Busy() because because when target == p\"/\"\n  fail .Missing(path: target) because because\n}\n\nproc report(because: Error) -> Result[Int] {\n  fail because.message because because unless because.message == \"\"\n  Ok(1)\n}\n",
+                core: Core::Written("error LoadError = Missing(path: Path) | Busy\n\nproc load(because: Error, target: Path) -> Result[Int, LoadError] {\n  if target == p\"/\" {\n    return Err(.Busy(), cause: because)\n  }\n  return Err(.Missing(path: target), cause: because)\n}\n\nproc report(because: Error) -> Result[Int] {\n  if because.message == \"\" {\n  } else {\n    return Err(error.failure(because.message), cause: because)\n  }\n  Ok(1)\n}\n"),
+            },
             // Under each postfix guard, as a match arm's statement, as the
             // block of a `guard`, and where `error` and `fail` are locals.
             Case {

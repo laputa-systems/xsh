@@ -407,32 +407,12 @@ fn classify_name(source: &str, tokens: &[Token], at: usize, in_use: bool) -> Kin
     // `exit` is an ordinary name except where it begins `exit STATUS`: first
     // in a statement, with the status after a space on the same line. `fail`
     // begins `fail MESSAGE` under the same rule.
-    if matches!(text, "exit" | "fail")
-        && statement_start(previous, source)
-        && next.is_some_and(|next| {
-            next.start > token.end
-                && !matches!(
-                    next.tag,
-                    TokenTag::Newline
-                        | TokenTag::Semicolon
-                        | TokenTag::RBrace
-                        | TokenTag::Comment
-                        | TokenTag::Equals
-                        | TokenTag::PipeGt
-                        | TokenTag::Plus
-                        | TokenTag::Star
-                        | TokenTag::Slash
-                        | TokenTag::Percent
-                        | TokenTag::EqEq
-                        | TokenTag::BangEq
-                        | TokenTag::Lt
-                        | TokenTag::Le
-                        | TokenTag::Gt
-                        | TokenTag::Ge
-                        | TokenTag::QuestionQuestion
-                )
-        })
-    {
+    if matches!(text, "exit" | "fail") && operand_statement_word(source, tokens, at) {
+        return Kind::Keyword;
+    }
+    // `because` is an ordinary name except between the failure and the cause
+    // of a `fail` statement.
+    if text == "because" && fail_because_word(source, tokens, at) {
         return Kind::Keyword;
     }
     // `without` is an ordinary name except where it opens a
@@ -529,6 +509,82 @@ fn repeat_head_word(source: &str, tokens: &[Token], at: usize) -> bool {
                     .is_some_and(|next| next.tag == TokenTag::LBrace)
         });
     times.is_some_and(|times| at == first || at == times)
+}
+
+/// Whether the word at `tokens[at]` begins a statement that reads an operand
+/// after it, as `exit STATUS` and `fail MESSAGE` do: first in a statement,
+/// with the operand after a space on the same line and not an operator that
+/// would make the word a name.
+fn operand_statement_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let token = tokens[at];
+    statement_start(at.checked_sub(1).map(|before| tokens[before]), source)
+        && tokens.get(at + 1).is_some_and(|next| {
+            next.start > token.end
+                && !matches!(
+                    next.tag,
+                    TokenTag::Newline
+                        | TokenTag::Semicolon
+                        | TokenTag::RBrace
+                        | TokenTag::Comment
+                        | TokenTag::Equals
+                        | TokenTag::PipeGt
+                        | TokenTag::Plus
+                        | TokenTag::Star
+                        | TokenTag::Slash
+                        | TokenTag::Percent
+                        | TokenTag::EqEq
+                        | TokenTag::BangEq
+                        | TokenTag::Lt
+                        | TokenTag::Le
+                        | TokenTag::Gt
+                        | TokenTag::Ge
+                        | TokenTag::QuestionQuestion
+                )
+        })
+}
+
+/// Whether `tokens[at]` is the `because` of a statement that begins with the
+/// word `fail` on the same line: outside every bracket the failure opens,
+/// and not a field name.
+fn fail_because_word(source: &str, tokens: &[Token], at: usize) -> bool {
+    let text = |token: &Token| &source[token.start..token.end];
+    let first = tokens[..at]
+        .iter()
+        .rposition(|token| matches!(token.tag, TokenTag::Newline | TokenTag::Semicolon))
+        .map_or(0, |separator| separator + 1);
+    if at < first + 2
+        || text(&tokens[first]) != "fail"
+        || !operand_statement_word(source, tokens, first)
+        || tokens[at - 1].tag == TokenTag::Dot
+    {
+        return false;
+    }
+    let mut depth = 0usize;
+    for index in first + 1..at {
+        let token = &tokens[index];
+        match token.tag {
+            TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace | TokenTag::DollarLBrace => {
+                depth += 1
+            }
+            TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace => {
+                let Some(outer) = depth.checked_sub(1) else {
+                    return false;
+                };
+                depth = outer;
+            }
+            // An earlier `because` is the word, so this one is in the cause.
+            TokenTag::Ident
+                if depth == 0
+                    && index > first + 1
+                    && tokens[index - 1].tag != TokenTag::Dot
+                    && text(token) == "because" =>
+            {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    depth == 0
 }
 
 /// Whether `tokens[at]` is the `without` of a statement head
@@ -866,6 +922,20 @@ mod tests {
         assert_eq!(kind_of(source, "times ="), Kind::Plain);
         assert_eq!(kind_of(source, "repeat(count"), Kind::Function);
         assert_eq!(kind_of(source, "repeat = times"), Kind::Plain);
+    }
+
+    #[test]
+    fn fail_words_are_keywords_only_in_a_fail_statement() {
+        let source = "fail \"no\" because problem\nlet because = test.fail(\"x\")\nfail = because\nfail f(because) because because.fail\n";
+        assert_eq!(kind_of(source, "fail \"no\""), Kind::Keyword);
+        assert_eq!(kind_of(source, "because problem"), Kind::Keyword);
+        assert_eq!(kind_of(source, "because = test"), Kind::Plain);
+        assert_eq!(kind_of(source, "fail(\"x\")"), Kind::Function);
+        assert_eq!(kind_of(source, "fail = because"), Kind::Plain);
+        assert_eq!(kind_of(source, "because\nfail f"), Kind::Plain);
+        assert_eq!(kind_of(source, "because) because"), Kind::Plain);
+        assert_eq!(kind_of(source, "because because.fail"), Kind::Keyword);
+        assert_eq!(kind_of(source, "because.fail"), Kind::Plain);
     }
 
     #[test]

@@ -87,7 +87,8 @@ Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
 `on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
 statement (8.6), `at` in the head of a `tempdir NAME at PATH` statement (8.7),
-`fail` at the start of a `fail` statement (8.6),
+`fail` at the start of a `fail` statement and `because` after its first
+operand (8.6),
 the core commands `print`, `eprint`, `cd`, and `env`, and builder entries such
 as `run` inside a builder block.
 
@@ -752,7 +753,8 @@ and `error.fail(message)` is `Err(error.failure(message))` as a
 function with any `Ok` type and is the usual way to report an expected
 failure.
 
-`Err(outer, cause: inner)` translates one error into another and keeps the
+`Err(outer, cause: inner)`, which `fail ... because inner` (8.6) returns,
+translates one error into another and keeps the
 original as diagnostic cause. The outer error's family, payload, and Result
 type are unchanged, and matching inspects only the outer error. Tracebacks
 render the cause chain (bounded). Resources reachable from an error payload or
@@ -1599,11 +1601,39 @@ family that has one message-only variant and that nothing in its file names
 in a pattern or a type, and then deletes the family. An uncaught failure is
 reported as `validation` where it was reported under the family's name.
 
+A function that declares an error family fails with one of its variants,
+written in the leading-dot form (5.5): `fail .Offline()` means exactly
+`return Err(.Offline())`. The variant comes from the declared return type and
+from nowhere else, so in a function whose error type is `Error`, or is
+inferred, `fail .Name(...)` is `check.inferred-variant`. An operand that is
+not a leading-dot name, alone or called, is a message; a qualified
+constructor is not a message, so `fail FetchError.Offline()` is a type error.
+
+`because cause` after either form keeps the error being replaced as the cause
+of the new one (4.10):
+
+```xsh
+{{.spec.fail_because.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.fail_because.desugared}}
+```
+
+and `fail "loading index" because problem` means
+`return Err(error.failure("loading index"), cause: problem)`. The message or
+variant is evaluated before the cause, which must be an error value; its
+diagnostics are those of the `cause:` argument. `lint.prefer-fail` also rewrites a
+`return Err(.Name(...))`, with or without `cause:`, to this statement.
+
 `fail` is not a reserved word. A statement is a `fail` statement when it
 begins with the word `fail` followed, after a space on the same line, by its
-message, in the position where a command named `fail` would otherwise be read
-(10.1); `fail = 1`, `fail(1)`, and `test.fail("...")` are an assignment and
-two calls. A proc named `fail` is called with parentheses.
+message or variant, in the position where a command named `fail` would
+otherwise be read (10.1); `fail = 1`, `fail(1)`, and `test.fail("...")` are an
+assignment and two calls. A proc named `fail` is called with parentheses.
+`because` is a word only after the first operand of a `fail` statement.
 
 `guard let target = expr else { ... }` binds `target` (with an optional type
 annotation) when `expr` succeeds and otherwise runs the block. `expr`

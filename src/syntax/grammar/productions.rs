@@ -1079,11 +1079,19 @@ pub(super) fn rules() -> Vec<super::Rule> {
             seq([w("exit"), line(r("expression")), opt(r("postfix_guard"))]),
         ),
         // `fail` is a contextual word: it begins the statement where a
-        // command named `fail` would be read, with its message on the line.
+        // command named `fail` would be read, with its message or
+        // `.Variant(...)` on the line. `because` is a word only there.
         rule(
             Statements,
             "fail_statement",
-            seq([w("fail"), line(r("expression")), opt(r("postfix_guard"))]),
+            seq([
+                w("fail"),
+                line(seq([
+                    r("expression"),
+                    opt(seq([w("because"), r("expression")])),
+                ])),
+                opt(r("postfix_guard")),
+            ]),
         ),
         rule(
             Statements,
