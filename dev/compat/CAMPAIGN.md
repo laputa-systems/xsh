@@ -1,142 +1,98 @@
 # XSH Core Compatibility Campaign
 
-Status: Wave 1 in progress on branch `campaign-utils` (two integrators, see the
-handoff and `CLAIMS.md`); scope widened on 2026-10-04 from coreutils parity to the full systems-core surface below. Lane strategy and the
-integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
+Status: the compatibility work was merged into `master` on 2026-10-05;
+completion of the campaign gates is unverified on the current head. Scope
+widened on 2026-10-04 from coreutils parity to the full systems-core surface
+below. Lane strategy is in [`LANES.md`](LANES.md); harness usage is in
 [`README.md`](README.md).
 
-## Handoff (2026-10-05, second session wound down)
+## Operational handoff (2026-10-05)
 
-Read this first, then `CLAIMS.md`. Verified against the repository when written;
-anything not stated as verified is marked.
+This refresh inspected local Git history, worktrees, committed reports, and
+campaign ratchets at `37df79b6`. It did not fetch remote branches or rerun the
+native, uutils, or GNU suites. Counts below are committed baselines, not a
+claim that the current head passes them.
 
-### Where the campaign stands
+### Verified repository state
 
-- **Wave 0 is complete** and the merge of fresh `origin/master` is done (the branch
-  was rebased onto master before this session; master has nothing the branch lacks).
-- **Merged lanes:** `w0-cli`, `w0-gnu-lib`, `sysreport-extract`, `native-fs`,
-  `trivial`, `text-a1`, then this session's `native-proc-tty` (process, tty, session,
-  termios, utmp primitives and `io.flush_stdout`), `ls` (`ls dir vdir`, rewritten),
-  `tty-misc` (`stty more uptime users who pinky`) and a partial `proc-a` (`kill`,
-  `nice` only); and, from the other integrator session (`01Tqp2`), `text-b1`
-  (`uniq comm join split csplit tsort ptx shuf`) and `text-b2` (`seq wc numfmt
-  factor expr`). Also `[` is now an alias of `test` (`core/[.xsh` is gone).
-- **Scoreboard** (full uutils run on the merged head `5358d323` plus docs, Linux
-  glibc host, [`results/`](results/)): **2186 / 5974 passing**, 4 excluded per test
-  ID (up from 1000 at the start of the session); **73 of 106** in-scope utilities have
-  an applet. Surface inventory ([`surface.json`](surface.json)): 125 commands, 2
-  present. The GNU suite on the pinned uutils is unchanged (571 / 719); the XSH side
-  of the GNU differential has still not been run.
-- **One regression is on the books:** `test_uniq::test_obsolete_skip_fields_not_read_after_double_dash`
-  passed in the other session's last committed results and fails on the merged head.
-  Probably the runtime request that `xsh` swallows a first `--` after the script path
-  (`src/entrypoints/xsh.rs:124`); not investigated. The `ls` merge also lost
-  `test_ls_proc_self_fd_no_errors` (eager directory reads; waived in `gaps.json`) and
-  `sleep case_7_single_quote` was excluded (uutils quotes an apostrophe argument
-  differently from GNU `quote()`).
-- **Known failures on a clean tree, not regressions:** native suite on Linux
-  2459 pass / 10 fail before this session's merges (the `linux-modules` and two mime
-  stdlib tests, `test-system-report-check ... traced_live_and_replay`, three `px`
-  showcase tests, the two pattern-lint tests, `tempdir` removal-on-exit); rerun
-  `target/release/xsht test` to refresh it. `make docs` was last run before the
-  `tty-misc`, `proc-a` and text lanes landed: run
-  `target/release/xsh dev/main.xsh -- docs` (not `make docs`, whose `cargo dev` alias
-  builds a debug `xsh` that overflows its stack on Linux), then `make docs-check`
-  equivalents, and commit. Not verified after this session's last merges.
-- **The lanes are all merged or released.** No lane worktree, lane branch or lane
-  target dir remains except `/home/user/targets/main` (a release build of the head
-  before `kill`/`nice`, safe to delete). `cp` and `mv-ln` were started and lost to a
-  worker restart with nothing committed; `nohup`, `timeout` and `stdbuf` (the rest of
-  `proc-a`) were never started.
+- `master` merged the compatibility branch in `9e6428b1`. The locally recorded
+  `origin/campaign-utils` tip, `95e35002`, is an ancestor of the current head.
+  Continue from `master`; do not resume the old branch as the integration base.
+- Subsequent commits migrated the merged applets to the current language and
+  regenerated docs and the API surface fixture (`11525cef`), followed by lint
+  cleanup. `37df79b6` fixes atomic-replacement lint so it preserves no-clobber
+  publications. These changes have not received a fresh compatibility run.
+- `git worktree list` shows only the main checkout, and there are no local
+  `lane/*` branches. [`CLAIMS.md`](CLAIMS.md) records no verified active local
+  claims. Old session IDs and “running” rows are historical; remote workers
+  have not been checked.
+- The campaign's implementation and regression backlog is in
+  [`requests.md`](requests.md), [`gaps.json`](gaps.json), and the current
+  repository [`TODO.md`](../../TODO.md). Old runtime requests must be checked
+  against today's API and tests before they are treated as missing features.
 
-### Two integrators share this branch
+### Committed scoreboard
 
-Another Claude session (`01Tqp2`) integrates into `campaign-utils` in parallel. Before
-starting a lane: `git fetch origin campaign-utils`, read [`CLAIMS.md`](CLAIMS.md), claim
-the lane there, and push the claim first. This session built `ls` and `native-proc-tty`
-twice by not doing that. `CLAIMS.md` lists `cp`, `text-a2`, `sort`, `fs-basic`,
-`printf-env`, `native-bytes-hash`, `bytes-enc`, `checksums`, `perm`, `stat-du-df`
-as the other session's; everything else is free, including `mv-ln`, `fs-misc`,
-`legacy-buckets`, `date`, `sed`, `awk`, `gnu-patch-classify`, `nohup`, `timeout`,
-`stdbuf`. Results JSON conflicts: take either side and rerun the suite.
+The last full uutils report was recorded in `95e35002`, before the merge and
+language migrations on `master`:
+
+| Evidence | Recorded state |
+|---|---|
+| `results/uutils-integration.json` | 2,186 pass, 3,788 fail, 0 skip; 4 per-test exclusions |
+| `dev/coreutils-parity.json` | 73 of 106 in-scope utilities present; 33 missing; 108 upstream utilities, 2 capability-gated |
+| Expanded Linux surface | 125 commands, 2 present |
+| `results/gnu-uutils.json` | 571 PASS, 46 FAIL, 101 SKIP, 1 ERROR across 719 tests |
+| XSH GNU run and differential | no committed `gnu-xsh.json` or `gnu-differential.json` |
+
+Presence means an applet exists, not behavioral parity. Reports do not prove
+current-head compatibility. Preserve this baseline before publishing a new
+full run; compare per-test outcomes, not just totals.
+
+The following offline checks passed during this refresh: `parity.py --check`,
+`lanes.py check` (27 lanes covering all 106 in-scope utilities),
+`check_ignored_options.py` (14 legacy buckets, none new),
+`check_kernel_reads.py` (0 direct-reader applets), and
+`check_exclusions.py` (4 categorized exclusions). An unchanged ratchet does
+not mean its legacy gaps are resolved.
 
 ### Next steps, in order
 
-1. Fetch, merge `origin/campaign-utils`, rebuild (`cargo build --release -p xsh --bin
-   xsh -p xsht --bin xsht`; never `--bins`, which triggers the extra thin-LTO links),
-   regenerate docs, run the native suite and the full uutils run, compare with
-   `compare.py`, commit results and `parity.py` output.
-2. Investigate the `uniq` regression above.
-3. Work through [`requests.md`](requests.md): the remaining exclusion candidates
-   (verify each against GNU 9.12 source after `run-gnu.sh prepare`; the GNU source was
-   never fetched this session, so none of the `ls`, `tty-misc` or text-lane candidates
-   is verified), the `gaps.json` entries, and the `fs.stat` wiring for `test -ef`.
-4. Continue Wave 1 in `lanes.json` start order for whatever `CLAIMS.md` leaves free.
-   `python3 dev/compat/lanes.py brief LANE` renders a brief with live counts. The
-   rest of `proc-a` (`nohup timeout stdbuf`) now has its primitives: `process.wait_timeout`,
-   `kill_group`, `set_signal_action`, `priority`, `Status.shell_code`; `nohup` must use
-   `process.run` with an ignored HUP and a `stdout` path because `unix.exec` ignores plan
-   redirections. `native-bytes-hash` still gates `bytes-enc` and `checksums`.
-5. Wave 2 and 3 follow the tables in `LANES.md` and the phases below; the XSH side of
-   the GNU differential starts in Wave 2.
+1. Choose an explicit `master` revision and record the environment and tool
+   paths. Read `AGENTS.md`, `docs/TESTING.md`, and `TODO.md`; use the repository's
+   Linux test image for Linux verification. Build the required release tools
+   from that revision and keep their paths stable for the whole run. Follow
+   [`README.md`](README.md) for the pinned reference checkout and harness
+   prerequisites; reference trees were not located under `../ref` in this audit.
+2. Run the current native/core gates. Triage failures against `TODO.md` rather
+   than importing the old session's 2,459/10 native-suite count. That file
+   records musl-sensitive `stty`, `ls`, and `uniq` expectations and the lint
+   performance budget; none was revalidated in this refresh.
+3. Save the committed uutils report outside `results/`, run the full uutils
+   suite, compare with `compare.py`, and regenerate `coreutils-parity.json`
+   using the pinned checkout. Record revision, host/libc, pass/fail/exclusion
+   counts and regressions. Run one full suite at a time.
+4. Investigate the historical `uniq` failure
+   `test_uniq::test_obsolete_skip_fields_not_read_after_double_dash`, then
+   triage `requests.md` and `gaps.json` against the new report. Verify exclusion
+   candidates against pinned GNU 9.12 before changing `exclusions.json`.
+5. Choose the next unfinished lane from `lanes.json`, check its dependencies
+   and current implementation, and record ownership in `CLAIMS.md` before
+   starting it. A lane's existence or applet presence is not a completion gate.
+6. Run the XSH side of the GNU suite and generate its differential against the
+   stored pinned-uutils baseline. Continue the waves and verification gates
+   below; campaign completion still requires all applicable tests, zero GNU
+   differential blockers, and resolution of legacy ignored-option buckets.
 
-### How lanes ran this session (lessons)
+### Working constraints
 
-- Lane agents are Sonnet at high effort, started in their own worktrees under
-  `/home/user/xsh-lanes` with a brief from `lanes.py brief` plus an operating-rules
-  note. A lane's Bash commands can block on a permission prompt that nobody is
-  watching (the `cp` lane did, on a command containing `rm -rf *`); tell lanes to avoid
-  destructive-looking shell and use the editing tools.
-- A worker restart (container restart) ends every lane and background suite at once and
-  loses uncommitted lane work; lane branches are never pushed. Tell lanes to commit
-  after every utility, and consider pushing finished lane branches.
-- Script lanes use the shared release binaries; a native build into a separate
-  `CARGO_TARGET_DIR` avoids replacing the binary under a running suite. The full suite
-  takes 25-30 minutes with other work running.
-
-### Runtime requests (none implemented; full lists with test IDs in `requests.md`)
-
-- Non-UTF-8 argv is rejected by `xsh` before the script runs.
-- Stdout is buffered to exit; `io.flush_stdout()` now exists but write errors, EPIPE
-  and SIGPIPE are still not observable by default (`process.set_signal_action("PIPE",
-  "default")` opts in): blocks the broken-pipe and `/dev/full` tests.
-- `src/entrypoints/xsh.rs:124` swallows a first `--` after the script path.
-- `main`'s `Int` return does not set the exit status (use `exit(n)`); no `Path` to
-  `Bytes` accessor; no incremental stdin read; no FIFO read; no lazy `fs.children`.
-- Missing APIs: `user.groups(name)`, `user.login_name()`, `system.hostid()`, ordered
-  `getgroups`, online CPU count, u64 integers, `gecos` in `user.lookup`, a timezone
-  database primitive, `dns.canonical`, sub-second boot time.
-- `date +%99999999999c` writes 2 GiB (assigned to the `date` lane).
-
-### Standing constraints
-
-- Lane agents are Sonnet 5.5 at high effort only, never Opus (agent definition
-  pinned; every spawn passes `model: sonnet`). The `sonnet` alias was not confirmed to
-  resolve to 5.5 specifically.
-- The owner's non-negotiables: no accepted option silently ignored; the denominator
-  never shrinks; no compatibility command parses another's text output; uutils is an
-  oracle and reference, never a dependency.
-- Do not run formatters or autofixers (AGENTS.md).
-- Build only `xsh` and `xsht` (the owner's request this session), not the other
-  workspace binaries.
-- The suite lock must not leak to children: `run-uutils.sh` runs its children with the
-  lock descriptor closed.
-
-### Bootstrapping a fresh container
-
-```sh
-git clone https://github.com/uutils/coreutils ../ref/uutils-coreutils
-git -C ../ref/uutils-coreutils checkout e7c9f3194280835c4487c2945c68d5f01ccacc8d
-curl -fsSL https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin   # prebuilt nextest
-apt-get -o APT::Sandbox::User=root install -y quilt gperf texinfo autopoint gawk help2man rsync
-cargo build --release -p xsh --bins -p xsht --bin xsht                      # ~6-7 minutes
-export UUTILS_ROOT=$PWD/../ref/uutils-coreutils UUTESTS_THREADS=3
-dev/compat/run-uutils.sh                                                    # ~14 minutes, full suite
-dev/compat/run-gnu.sh prepare && dev/compat/run-gnu.sh uutils               # GNU baseline, ~25 minutes
-```
-
-The first `run-uutils.sh` after a new checkout or `PATH` change recompiles the
-uutils test crate once (about 7 minutes). Details are under "Environment notes".
+No accepted option may be silently ignored; denominators never shrink;
+reference utilities are test oracles, never runtime dependencies; applets
+use typed native APIs instead of parsing another command's text output.
+Every campaign subagent must use **`gpt-6.1-sol` at medium reasoning effort**,
+including routine tasks and any authorized nested delegation. Pass both
+settings explicitly on every spawn. Follow current `AGENTS.md` and session
+instructions for tools, delegation, commit authorization, and publishing. Do not
+run formatters or autofixers, or push as part of this handoff refresh.
 
 ## Mission
 
@@ -818,11 +774,10 @@ lanes that consume them.
 - The repository pins `nightly-2026-09-15`; XSH uses no `#![feature]`, so
   stable 1.97 builds it when the pinned toolchain is unreachable
   (`RUSTUP_TOOLCHAIN=stable`). Do not commit a toolchain change for this.
-- Cloud sessions need network access to crates.io (`index.crates.io`,
+- The test environment needs network access to crates.io (`index.crates.io`,
   `static.crates.io`), `static.rust-lang.org`, GitHub release downloads, and,
   for the `xsh-test` image, Docker Hub and `dl-cdn.alpinelinux.org`. The
-  default **Trusted** environment level covers crates.io, the Rust
-  distribution host and Docker Hub; add anything else as a custom domain.
+  network policy must allow those hosts when preparing fetched inputs.
 - The reference host has 4 cores, about 15 GB RAM, a 14.3 GB memory cgroup
   shared by every process the session starts (builds, lanes and suites), and
   about 27 GB of disk. First full runs showed what that costs: a runaway
@@ -836,7 +791,7 @@ lanes that consume them.
   `run-uutils.sh` pins `PATH` and creates an empty placeholder.
 - The uutils framework runs each command with a cleared environment, so the
   adapter finds its stage from its own path rather than from a variable.
-- Native-lane features need hardware or kernel facilities this VM lacks
+- Native-lane features need hardware or kernel facilities the host may lack
   (QEMU/OVMF, NVMe devices, `scsi_debug`, privileged namespaces): those tests
   are written against synthetic fixtures here and run for real in the
   `xsh-test` image or a privileged CI lane.

@@ -14,6 +14,8 @@ has no owner in any lane.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -92,8 +94,8 @@ def brief(name: str, sha: str, root: str, targets: str, shared: str) -> str:
         if lane["utilities"]
         else lane["note"]
     )
-    return f"""Lane: {name}   Wave: {lane['wave']}   Agent: xsh-lane (Sonnet, high effort)
-Worktree: {root}-lanes/{name} on branch lane/{name} (from campaign-utils @ {sha})
+    return f"""Lane: {name}   Wave: {lane['wave']}   Agent: gpt-6.1-sol (medium reasoning effort)
+Worktree: {root}-lanes/{name} on branch lane/{name} (from master @ {sha})
 Read first: AGENTS.md, docs/user-tour.md, dev/compat/CAMPAIGN.md, dev/compat/LANES.md,
             core/README.md, core/lib/gnu.xsh, the cli GNU-mode section of docs/SPEC.md,
             core/basename.xsh and core/tests/test-basename.xsh (the converted reference applet),
@@ -105,20 +107,20 @@ Goal: {goal};
 Notes: {lane['note'] or '-'}
 Use: core/lib/gnu.xsh diagnostics and the cli GNU mode (`gnu` record: prog, status, permute,
      unsupported; numeric and stop option fields); the pinned uutils source at
-     /home/user/ref/uutils-coreutils/src/uu/<util> and tests/by-util/test_<util>.rs are the behavior spec
+     $UUTILS_ROOT/src/uu/<util> and tests/by-util/test_<util>.rs are the behavior spec
      (read-only reference: never copy wholesale, never a dependency). GNU wording wins over clap wording.
 Verify: {shared}/xsht test core/tests/test-<util>.xsh for each owned utility;
         your uutils slice, any time (it serializes on a lock):
-          UUTILS_ROOT=/home/user/ref/uutils-coreutils XSH_BIN={shared}/xsh \\
+          UUTILS_ROOT=<pinned reference checkout> XSH_BIN={shared}/xsh \\
           COMPAT_RESULTS_DIR=<scratch dir outside the repo> dev/compat/run-uutils.sh <utils>
         then read <scratch>/uutils-integration.json (per-utility pass/fail and failing test IDs);
         failure output is in <scratch>/uutils-integration.junit.xml. Never commit anything under
         dev/compat/results/ or target/. Also: python3 dev/compat/check_ignored_options.py,
         check_kernel_reads.py and check_exclusions.py.
 Budget: stop and report at twice the size the integrator states.
-Commit on lane/{name} when green (never push, merge, or rebase others), ending the message with:
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01C9ecaKzQVr1bnTZYQmHHwN
+Commit on lane/{name} when green (never push, merge, or rebase others).
+Every campaign subagent must use gpt-6.1-sol at medium reasoning effort, including routine work.
+Do not delegate further unless the integrator explicitly assigns a nested scope.
 Report (<200 words): behavior changed, before/after counts, tests run, decisions, Requests:, blockers.
 """
 
@@ -133,11 +135,12 @@ def main() -> int:
                 print(f"{name:20} wave {lane['wave']} {lane['kind']:8} {len(lane['utilities']):3} utilities  depends: {' '.join(lane['depends']) or '-'}")
         return 0
     if len(sys.argv) >= 3 and sys.argv[1] == "brief":
-        import os
-        sha = os.popen("git rev-parse --short HEAD").read().strip()
-        root = os.environ.get("LANES_ROOT", "/home/user/xsh")
-        targets = os.environ.get("LANES_TARGETS", "/home/user/targets")
-        shared = os.environ.get("XSH_SHARED_BIN", "/home/user/xsh/target/release")
+        sha = subprocess.check_output(
+            ["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], text=True,
+        ).strip()
+        root = os.environ.get("LANES_ROOT", str(REPO))
+        targets = os.environ.get("LANES_TARGETS", str(REPO.parent / "xsh-lane-targets"))
+        shared = os.environ.get("XSH_SHARED_BIN", str(REPO / "target/release"))
         for name in sys.argv[2:]:
             print(brief(name, sha, root, targets, shared))
         return 0

@@ -3,6 +3,13 @@
 Tooling for the campaign in [`CAMPAIGN.md`](CAMPAIGN.md); lane process in
 [`LANES.md`](LANES.md).
 
+## Campaign subagents
+
+Use only **`gpt-6.1-sol` with medium reasoning effort** for every campaign
+subagent, including routine work. Set both explicitly when spawning.
+`python3 dev/compat/lanes.py brief LANE` renders this requirement and paths
+for the current checkout; see `LANES.md` for ownership and integration.
+
 ## Setup
 
 ```sh
@@ -59,15 +66,19 @@ chown. `GNU_JOBS` (default 3) sets `make -j`.
 
 ## Status
 
-Verified in the authoring session: manifest generation against the pinned
-tree (108 utilities, 106 in scope, 41 present), the ignored-options ratchet
-(16 legacy buckets), staging and the adapter with a stand-in interpreter
-(argv including empty arguments and `--`, NUL bytes on stdin, exit status,
-alias names, `false` placeholders), and both `results.py` modes on synthetic
-reports.
+The compatibility work is merged into `master`. See the dated operational
+handoff in [`CAMPAIGN.md`](CAMPAIGN.md) for current repository state and
+[`CLAIMS.md`](CLAIMS.md) for active ownership.
 
-Not yet executed, because that session's network policy blocked crates.io:
-building XSH, `run-uutils.sh` against real applets, and `run-gnu.sh`. The
-first session with crates.io access should run the baseline (see the handoff
-checklist in the `campaign-utils` commit log) and fix whatever the scripts
-get wrong.
+Committed reports are historical: the uutils report has 2,186/5,974 passing
+and four exclusions; the manifest has 73/106 in-scope applets present. The
+pinned-uutils GNU report has 571 PASS, 46 FAIL, 101 SKIP and one ERROR. No XSH
+GNU report or differential is committed. These suites have not been rerun
+against the migrated `master` head.
+
+Before running a new baseline, preserve `results/uutils-integration.json`
+outside `results/` for `compare.py`, select release tools built from an exact
+revision, and record the reference pin and host/libc alongside the result.
+Run full suites serially. Offline manifest, lane-ownership, ignored-option,
+kernel-read and exclusion checks passed in the 2026-10-05 handoff refresh;
+this does not establish behavioral parity.

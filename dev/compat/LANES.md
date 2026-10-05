@@ -2,10 +2,19 @@
 
 How the campaign in [`CAMPAIGN.md`](CAMPAIGN.md) is parallelized without
 turning into a merge-conflict campaign. One **integrator** (the main session)
-owns the integration branch, the shared files and every merge. **Lanes** are
-`xsh-lane` subagents (`.claude/agents/xsh-lane.md`), each in its own git
-worktree with an exclusive file set. Mechanical inventories and test-list
-work go to `xsh-routine` (`.claude/agents/xsh-routine.md`).
+owns the integration branch, the shared files and every merge. Each lane is
+a Codex subagent in its own git worktree with an exclusive file set.
+Every campaign subagent uses **`gpt-6.1-sol` with medium reasoning effort**,
+including mechanical inventories, test-list work, implementation, and review.
+Pass `model: "gpt-6.1-sol"` and `reasoning_effort: "medium"` explicitly when
+spawning; do not substitute another model or effort level.
+
+The compatibility branch was merged into `master` on 2026-10-05. The current
+handoff and verified claims are in `CAMPAIGN.md` and `CLAIMS.md`; the lane
+tables below define planned file ownership, not live workers or completion.
+Reference-machine examples are templates; current session instructions govern
+delegation, commits, and publishing. Record a claim before starting work; no automatic push is
+part of the local protocol.
 
 ## Principles
 
@@ -26,9 +35,10 @@ work go to `xsh-routine` (`.claude/agents/xsh-routine.md`).
    process sampling, nvme, ...) has exactly one owning lane at a time; applet
    lanes consume it and request missing fields through the integrator. Native
    domain lanes land before the applet lanes that depend on them.
-7. **Lane model policy.** `xsh-lane` agents run on Sonnet 5.5 at high effort and
-   nothing else; the agent definition pins both and every spawn passes
-   `model: sonnet` explicitly. Opus is not used for lanes.
+7. **Subagent model.** Use only `gpt-6.1-sol` at medium reasoning effort for
+   every campaign subagent. This includes routine work. Set both explicitly
+   on every spawn and carry this requirement into any authorized nested
+   delegation; no other model or effort level is permitted.
 
 ## Integrator-owned paths
 
@@ -60,11 +70,14 @@ ships a workaround that parses text or discards the option.
 
 ## Machine budget
 
-Paths in this file are the reference VM's (`/home/claude/...`); the integrator
-substitutes the host's layout in each brief (this session used
-`/home/user/xsh-lanes` and `/home/user/targets`). The host's memory cgroup is
-shared by every build, lane and suite: size concurrency to its limit, not only
-to cores.
+Use the current checkout and host paths in every brief. `lanes.py brief`
+defaults `LANES_ROOT` to the checkout path, `LANES_TARGETS` to the sibling
+`xsh-lane-targets` directory, and `XSH_SHARED_BIN` to the checkout's
+`target/release`. Existing environment overrides remain supported. The
+worktree path is `${LANES_ROOT}-lanes/<lane>`.
+
+The host's memory cgroup is shared by every build, lane and suite: size
+concurrency to its limit, not only to cores.
 
 Size concurrency to the host. The reference cloud VM has 2 cores, 7 GB RAM
 and about 30 GB free; a release XSH build plus the uutils test build each take
@@ -72,13 +85,13 @@ several GB of target directory and most of the RAM while linking.
 
 - **Script-only lanes** (most `core/*.xsh` work) do not compile. They share
   one release `xsh`/`xsht` built from the integration branch at
-  `$XSH_SHARED_BIN` (default `/home/claude/xsh/target/release`) and run
+  `$XSH_SHARED_BIN` (default `<checkout>/target/release`) and run
   `XSH_BIN=$XSH_SHARED_BIN/xsh`. The integrator rebuilds it after merging any
   runtime change and tells running lanes.
 - **Native lanes** (Rust under `src/`) each use their own
-  `CARGO_TARGET_DIR=/home/claude/targets/<lane>` and serialize compilation
+  `CARGO_TARGET_DIR=<lane-targets>/<lane>` and serialize compilation
   through one lock so two links never run at once:
-  `flock /home/claude/targets/cargo.lock cargo build --release -p xsh --bin xsh`.
+  `flock <lane-targets>/cargo.lock cargo build --release -p xsh --bin xsh`.
 - **Suite runs.** Full uutils and GNU runs are integrator-only, one at a time.
   Lanes run their own utilities' slice with `dev/compat/run-uutils.sh UTIL...`
   whenever they like: invocations serialize on `UUTILS_SUITE_LOCK`, and a lane
@@ -91,30 +104,31 @@ several GB of target directory and most of the RAM while linking.
 
 ## Worktree protocol
 
-The integration branch is `campaign-utils`. Lanes branch from its current
-head.
+The integration branch is `master`. Lanes branch from an explicitly recorded
+current head after their ownership is recorded in `CLAIMS.md`.
 
 Create a lane (integrator):
 
 ```sh
-git -C /home/claude/xsh fetch origin
-git -C /home/claude/xsh worktree add -b lane/<lane> /home/claude/xsh-lanes/<lane> campaign-utils
+git -C <checkout> fetch origin
+git -C <checkout> worktree add -b lane/<lane> <checkout>-lanes/<lane> master
 ```
 
-Spawn the `xsh-lane` agent with the brief below, naming the worktree as its
+Spawn a `gpt-6.1-sol` subagent at medium reasoning effort with the brief below,
+naming the worktree as its
 only working directory. The lane commits on `lane/<lane>` when its slice is
 green (the brief authorizes commits; it still never pushes or merges).
 
 Merge queue (integrator, one lane at a time, FIFO):
 
-1. `git -C /home/claude/xsh-lanes/<lane> rebase campaign-utils`; on conflict
+1. `git -C <checkout>-lanes/<lane> rebase master`; on conflict
    in a lane-owned file, send it back to the lane; on conflict in an
    integrator-owned file, the lane touched something it should not have.
 2. Fast gates in the lane worktree: `python3 dev/compat/check_ignored_options.py`,
    `target/release/xsht check` on changed files, the lane's `core/tests`
    files, and the Rust tests its item names.
 3. Lane slice: `dev/compat/run-uutils.sh <its utilities>`.
-4. `git -C /home/claude/xsh merge --no-ff lane/<lane>`.
+4. `git -C <checkout> merge --no-ff lane/<lane>`.
 5. Rebuild the release binaries on the integration branch, then run the full
    uutils suite and compare with the committed
    `results/uutils-integration.json` using `python3 dev/compat/compare.py
@@ -122,14 +136,14 @@ Merge queue (integrator, one lane at a time, FIFO):
    (`git revert -m 1`) and returns the lane with the failing IDs; the totals it
    prints go into the merge commit message.
 6. Regenerate and commit integrator-owned outputs: `parity.py`, results,
-   baselines, applied requests. Push `campaign-utils`.
+   baselines, applied requests. Publishing requires explicit session authorization.
 7. Clean up immediately:
 
    ```sh
-   git -C /home/claude/xsh worktree remove /home/claude/xsh-lanes/<lane>
-   git -C /home/claude/xsh branch -d lane/<lane>
-   git -C /home/claude/xsh worktree prune
-   rm -rf /home/claude/targets/<lane>
+   git -C <checkout> worktree remove <checkout>-lanes/<lane>
+   git -C <checkout> branch -d lane/<lane>
+   git -C <checkout> worktree prune
+   rm -rf <lane-targets>/<lane>
    ```
 
 8. Start the next queued lane from the new head, and tell running lanes to
@@ -270,13 +284,13 @@ CI lane.
 ## Lane brief template
 
 ```text
-Lane: <lane>   Wave: <n>   Agent: xsh-lane
-Worktree: /home/claude/xsh-lanes/<lane> on branch lane/<lane> (from campaign-utils @ <sha>)
+Lane: <lane>   Wave: <n>   Agent: gpt-6.1-sol (medium reasoning effort)
+Worktree: <checkout>-lanes/<lane> on branch lane/<lane> (from master @ <sha>)
 Read first: AGENTS.md, docs/user-tour.md, dev/compat/CAMPAIGN.md, dev/compat/LANES.md,
             the applets and tests you own.
 You own exactly: <files>. Do not edit anything else; put needs under "Requests:".
-Shared binaries: XSH_BIN=<path>/xsh (script lane)  |  CARGO_TARGET_DIR=/home/claude/targets/<lane>,
-                 compile only via `flock /home/claude/targets/cargo.lock cargo ...` (native lane)
+Shared binaries: XSH_BIN=<path>/xsh (script lane)  |  CARGO_TARGET_DIR=<lane-targets>/<lane>,
+                 compile only via `flock <lane-targets>/cargo.lock cargo ...` (native lane)
 Goal: <utilities> pass their applicable uutils tests (current: <pass>/<total>);
       remove discard buckets in owned applets; implement or explicitly reject every option.
 Use: core/lib/gnu.xsh diagnostics and the cli GNU mode; the pinned uutils source at
@@ -285,6 +299,8 @@ Verify: target/release/xsht test core/tests/test-<util>.xsh; dev/compat/run-uuti
         only when told the suite is idle; python3 dev/compat/check_ignored_options.py.
 Budget: <size>. Stop and report at twice the budget.
 Commit on lane/<lane> when green (never push, merge, or rebase others).
+Every campaign subagent uses gpt-6.1-sol at medium reasoning effort, including routine work.
+Do not delegate further unless the integrator explicitly assigns a nested scope.
 Report (<200 words): behavior changed, before/after counts, tests run, decisions, Requests:, blockers.
 ```
 
@@ -294,13 +310,8 @@ Keep a running log in the integration branch commit messages: lane merged,
 before/after suite totals, requests applied, lanes started. The parity
 manifest and results JSON are the scoreboard; regenerate them on every merge.
 
-Sequencing directive (2026-10-04): after the first four Wave 1 lanes (`trivial`,
-`native-fs`, `text-a1`, `sysreport-extract`) are merged, merge fresh
-`origin/master` into `campaign-utils` (a merge, not a rebase: the branch is
-shared) before any further lane starts. Resolve conflicts in the registry, `eval.rs`
-and `lower.rs` by hand, regenerate docs with `make docs`, rebuild, run the full suite
-against the last committed results, and only then continue Wave 1 from the new base.
-At the time of writing master is 10 commits ahead of the merge base (nicer
-tracebacks, module-constant splicing in `run`, doc-block comment handling, tar hard
-link names) and overlaps `signature/docs.rs`, `eval.rs`, `lower.rs` and the generated
-docs.
+The 2026-10-04 directive to integrate fresh master before further lanes is
+historical: compatibility work landed on `master` in `9e6428b1`, and follow-up
+commits migrated applets and regenerated documentation. Start new lanes from
+the current `master` revision and rerun compatibility gates before claiming
+that the old report applies to it.

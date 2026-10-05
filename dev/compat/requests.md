@@ -1,9 +1,15 @@
 # Lane Requests Backlog
 
+These are historical reports from the pre-merge compatibility lanes. The
+2026-10-05 operational refresh did not revalidate their runtime/API blockers.
+Check current code and tests before treating a request as unimplemented; see
+[CAMPAIGN.md](CAMPAIGN.md) for current next steps.
+
 What merged lanes asked the integrator for, kept here because lane reports do not
-outlive the session. Nothing below is applied unless it says so. Exclusion
+outlive the session. Application notes record the reporting session's state,
+not a fresh audit of `master`. Exclusion
 candidates are claims by the lane: verify each against GNU 9.12 source
-(`/home/user/ref/gnu-coreutils/src/*.c` after `run-gnu.sh prepare`) before adding
+(`$GNU_ROOT/src/*.c` after `run-gnu.sh prepare`) before adding
 it to `exclusions.json`, as was done for `basename -h/-V` and `tee -h`. Categories:
 see `check_exclusions.py`.
 
