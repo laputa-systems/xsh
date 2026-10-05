@@ -738,3 +738,30 @@ test test_copy_file_force_replaces_only_an_unopenable_destination { |ctx|
   assert fs.stat(dest)?.ino != old_ino
   assert retained.read_text()? == "keep"
 }
+
+test test_copy_file_force_replaces_only_proven_final_symlink_loops { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-force-loop")?
+  let source = fp"{root}/source"
+  let loop_path = fp"{root}/loop"
+  source.write("copied")
+  loop_path.symlink(to: p"loop")
+  assert fs.copy_file(source, loop_path) is Err(_)
+  assert fs.copy_file(source, loop_path, force: true, overwrite: false) is Err(_)
+  assert loop_path.readlink()? == p"loop"
+  let missing = fp"{root}/missing"
+  assert fs.copy_file(missing, loop_path, force: true) is Err(is NotFound)
+  assert loop_path.readlink()? == p"loop"
+  assert fs.copy_file(source, loop_path, force: true)?.bytes == 6
+  assert fs.stat(loop_path)?.kind == "file"
+  assert loop_path.read_text()? == "copied"
+
+  let ancestor = fp"{root}/ancestor"
+  ancestor.symlink(to: p"ancestor")
+  let refused = fs.copy_file(source, fp"{ancestor}/child", force: true)
+  assert refused is Err(_)
+  if let Err(failure) = refused {
+    assert failure.errno == 40 or failure.errno == 62
+  }
+  assert ancestor.readlink()? == p"ancestor"
+  assert source.read_text()? == "copied"
+}

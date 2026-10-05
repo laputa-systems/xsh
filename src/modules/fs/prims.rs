@@ -503,6 +503,14 @@ fn copy_file_unnamed(
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
             Err(error) => return Err(host(error)),
         },
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) && options.force && options.overwrite => {
+            // lstat can prove the final link even when following it loops;
+            // an ancestor loop also prevents lstat and remains an error.
+            if !std::fs::symlink_metadata(&dest).map_err(host)?.file_type().is_symlink() {
+                return Err(host(error));
+            }
+            true
+        }
         Err(error) => return Err(host(error)),
     };
     if !kind.is_file() && options.reflink == Policy::Always {
@@ -540,6 +548,11 @@ fn copy_file_unnamed(
                 }
                 Ok(_) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
+                    if !std::fs::symlink_metadata(&dest).map_err(host)?.file_type().is_symlink() {
+                        return Err(host(error));
+                    }
+                }
                 Err(error) => return Err(host(error)),
             }
             std::fs::remove_file(&dest).map_err(host)?;
