@@ -12747,14 +12747,18 @@ impl LintExprVisitor<'_, '_> {
                     {
                         self.linter
                             .lint_redundant_path_display(expr, PathDisplaySite::Interpolation);
-                        self.visit_command_embedded_expr(expr);
+                        if matches!(part, ArenaWordPart::Interpolation(_)) {
+                            self.visit_command_delimited_expr(expr);
+                        } else {
+                            self.visit_command_embedded_expr(expr);
+                        }
                     }
                 }
             }
             ArenaCommandArgKind::SpliceExpr(expr) => {
                 self.linter
                     .lint_redundant_path_display(expr, PathDisplaySite::Splice);
-                self.visit_command_embedded_expr(expr);
+                self.visit_command_delimited_expr(expr);
             }
             ArenaCommandArgKind::Typed(expr) => {
                 let expr_span = self.linter.arena.expr(expr).span;
@@ -12811,9 +12815,31 @@ impl LintExprVisitor<'_, '_> {
                         )),
                     );
                 }
-                self.visit_command_embedded_expr(expr);
+                self.visit_command_delimited_expr(expr);
             }
         }
+    }
+
+    /// An expression a command argument holds between its own delimiters:
+    /// `(EXPR)`, `${EXPR}`, or `@(EXPR)`. Inside them any expression can
+    /// replace it, so it is linted like an expression anywhere else. One
+    /// written without delimiters (a bare `f"..."` argument, a `$name.field`
+    /// shorthand) is a command word as much as an expression, and replacing
+    /// it could turn it into a literal word, so its rewrites stay off.
+    fn visit_command_delimited_expr(&mut self, expr: ExprId) {
+        let start = self.linter.arena.expr(expr).span.start();
+        let delimited = start > 0
+            && matches!(
+                self.linter.source.as_bytes().get(start - 1),
+                Some(b'(' | b'{')
+            );
+        if !delimited {
+            return self.visit_command_embedded_expr(expr);
+        }
+        let old = self.suppress_expr_autofixes;
+        self.suppress_expr_autofixes = false;
+        self.visit_expr(expr);
+        self.suppress_expr_autofixes = old;
     }
 
     fn visit_command_embedded_expr(&mut self, expr: ExprId) {

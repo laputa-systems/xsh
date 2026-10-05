@@ -94,8 +94,6 @@ pub(super) fn path_kind_comparison(
             if !is_path(path) {
                 return None;
             }
-            // Anything that is not a call receiver as written is reported
-            // and left for a manual rewrite.
             call_receiver_text(arena, source, path).map(|path| format!("{path}."))
         }
         _ => return None,
@@ -121,25 +119,42 @@ pub(super) fn path_kind_comparison(
     Some(diagnostic)
 }
 
-/// The source of an operand that can be written before `.method(...)`
-/// unchanged: a name, a field, a call, an index, or a quoted path literal. A
-/// bare path literal such as `/etc/hosts` would read the `.method` as more of
-/// the path, and an operator expression would need parentheses.
-pub(super) fn call_receiver_text<'a>(
-    arena: &AstArena,
-    source: &'a str,
-    operand: ExprId,
-) -> Option<&'a str> {
+/// An operand of static type `Path`, spelled so that `.method(...)` can
+/// follow it and the whole still evaluates the operand exactly as written:
+///
+/// - a name, a field, an index, a call, or a propagation is used as it is
+///   (`resolve()?.copy(...)` propagates and then calls, as `LOOKUP?.kind`
+///   does);
+/// - a bare path literal such as `/etc/hosts` would read `.method` as more
+///   of the path, and a string literal is text until something expects a
+///   path, so both are written `p"..."`, which is the same path;
+/// - any other expression is parenthesized.
+///
+/// A literal whose text is not exactly its value (an escape, an expansion)
+/// has no such spelling here and gives `None`.
+pub(super) fn call_receiver_text(arena: &AstArena, source: &str, operand: ExprId) -> Option<String> {
     let operand = arena.expr(operand);
     let text = source.get(operand.span.range())?;
+    let quoted = |value: &str, written: &str| {
+        (value == written && !written.contains(['"', '\\', '\n'])).then(|| format!("p\"{written}\""))
+    };
     match operand.kind {
         ArenaExprKind::Ident(_)
         | ArenaExprKind::Field { .. }
+        | ArenaExprKind::NullSafeField { .. }
         | ArenaExprKind::Call { .. }
-        | ArenaExprKind::Index { .. } => Some(text),
-        ArenaExprKind::PathStr(_) => text.starts_with("p\"").then_some(text),
-        ArenaExprKind::PathFmtString(_) => text.starts_with("fp\"").then_some(text),
-        _ => None,
+        | ArenaExprKind::Index { .. }
+        | ArenaExprKind::Try(_) => Some(text.to_owned()),
+        ArenaExprKind::PathStr(_) if text.starts_with("p\"") => Some(text.to_owned()),
+        ArenaExprKind::PathStr(literal) => quoted(arena.string_literal(literal), text),
+        ArenaExprKind::Str(literal) => {
+            let written = text.strip_prefix('"')?.strip_suffix('"')?;
+            quoted(arena.string_literal(literal), written)
+        }
+        ArenaExprKind::PathFmtString(_) => text.starts_with("fp\"").then(|| text.to_owned()),
+        // A format string would need its prefix changed, not parentheses.
+        ArenaExprKind::FmtString(_) => None,
+        _ => Some(format!("({text})")),
     }
 }
 
@@ -203,14 +218,19 @@ mod tests {
         assert!(lint(source).is_empty(), "{:?}", lint(source));
     }
 
-    // An operand that is not a call receiver as written is reported without
-    // a rewrite: an expression that would need parentheses, and a bare path
-    // literal, which would swallow the method name.
+    // An operand that cannot stand before `.is_dir()` as written is respelled:
+    // parentheses around an expression, and a quoted path for a bare path
+    // literal, which would otherwise swallow the method name.
     #[test]
-    fn an_operand_that_is_not_a_receiver_is_reported_without_a_rewrite() {
-        let source = "proc classify(out: Path, fallback: Path, first: Bool) [fs, error] -> Result[Bool] {\n  let chosen = fs.metadata(if first { out } else { fallback })?.kind == \"dir\"\n  Ok(chosen and fs.metadata(/etc/hosts)?.kind == \"file\")\n}\n";
+    fn an_operand_that_is_not_a_receiver_is_respelled() {
+        let source = "proc classify(out: Path, fallback: Path, first: Bool) [fs, error] -> Result[Bool] {\n  let chosen = fs.metadata(if first { out } else { fallback })?.kind == \"dir\"\n  let real = fs.metadata(out.resolve()?)?.kind != \"symlink\"\n  Ok(chosen and real and fs.metadata(/etc/hosts)?.kind == \"file\")\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
-        assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        assert_eq!(
+            fixed,
+            "proc classify(out: Path, fallback: Path, first: Bool) [fs, error] -> Result[Bool] {\n  let chosen = (if first { out } else { fallback }).is_dir()?\n  let real = ! out.resolve()?.is_symlink()?\n  Ok(chosen and real and p\"/etc/hosts\".is_file()?)\n}\n"
+        );
+        assert!(lint(&fixed).is_empty());
     }
 }

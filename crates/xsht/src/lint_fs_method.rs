@@ -254,15 +254,43 @@ mod tests {
         assert!(lint(source).is_empty(), "{:?}", lint(source));
     }
 
-    // An operand that cannot stand before `.OP(` as written (an expression
-    // that needs parentheses, a bare path literal, a string literal read as a
-    // path) and a path with a comment beside it are reported without a
-    // rewrite.
+    // An operand that cannot stand before `.OP(` as written is respelled: a
+    // propagated call is used directly, an expression is parenthesized, and a
+    // bare path literal or a string literal read as a path is written
+    // `p"..."`. In each the operand is still evaluated first.
+    #[test]
+    fn an_operand_that_is_not_a_receiver_is_respelled() {
+        let source = "proc publish(out: Path, other: Path, first: Bool, text: Str) [fs, error] {\n  fs.write(if first { out } else { other }, text)\n  fs.write(/tmp/marker, text)\n  fs.write(\"marker.txt\", text)\n  fs.copy(out.resolve()?, other)\n  let found = fs.exists(\"marker.txt\")?\n  assert found\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 5, "{diagnostics:?}");
+        let fixed = apply(&diagnostics, source);
+        assert_eq!(
+            fixed,
+            "proc publish(out: Path, other: Path, first: Bool, text: Str) [fs, error] {\n  (if first { out } else { other }).write(text)\n  p\"/tmp/marker\".write(text)\n  p\"marker.txt\".write(text)\n  out.resolve()?.copy(other)\n  let found = p\"marker.txt\".exists()?\n  assert found\n}\n"
+        );
+        assert!(lint(&fixed).is_empty());
+    }
+
+    // An expression between a command argument's own delimiters is linted
+    // like any other: `(EXPR)`, `${EXPR}`, and `@(EXPR)`.
+    #[test]
+    fn a_call_inside_a_command_argument_is_rewritten() {
+        let source = "proc show(log: Path, names: List[Path]) [fs, process, error] {\n  print (fs.exists(log)?) ${fs.read_text(log)?}\n  run ls @([fs.read_text(names[0])?])\n}\n";
+        let diagnostics = lint(source);
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:?}");
+        assert_eq!(
+            apply(&diagnostics, source),
+            "proc show(log: Path, names: List[Path]) [fs, process, error] {\n  print (log.exists()?) ${log.read_text()?}\n  run ls @([names[0].read_text()?])\n}\n"
+        );
+    }
+
+    // A comment beside the path would be lost, and a literal with an escape
+    // has no quoted path spelling here; both are reported without a rewrite.
     #[test]
     fn a_call_that_cannot_be_rewritten_in_place_is_reported_without_a_rewrite() {
-        let source = "proc publish(out: Path, other: Path, first: Bool, text: Str) [fs, error] {\n  fs.write(if first { out } else { other }, text)\n  fs.write(/tmp/marker, text)\n  fs.write(\"marker.txt\", text)\n  fs.write(\n    out, # the target\n    text,\n  )\n}\n";
+        let source = "proc publish(out: Path, text: Str) [fs, error] {\n  fs.write(\n    out, # the target\n    text,\n  )\n  fs.write(\"tab\\there.txt\", text)\n}\n";
         let diagnostics = lint(source);
-        assert_eq!(diagnostics.len(), 4, "{diagnostics:?}");
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
         assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
     }
 }
