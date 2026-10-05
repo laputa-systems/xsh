@@ -216,6 +216,46 @@ impl Evaluator {
     }
 }
 
+/// Why a finished script run is not the one a test expected: every mismatch
+/// of the exit status and of the required output fragments, followed by the
+/// whole captured output, so one failed run shows everything a rerun would.
+/// `None` when the run matches.
+#[cfg(feature = "native-tests")]
+fn script_expectation_failure(
+    output: &BTreeMap<Arc<str>, LoweredValue>,
+    status: i64,
+    stderr: &[String],
+    stdout: &[String],
+) -> Option<String> {
+    let text = |field: &str| output.get(field).and_then(lowered_str_value).unwrap_or("");
+    let actual_status = match output.get("status") {
+        Some(LoweredValue::Int(status)) => Some(*status),
+        _ => None,
+    };
+    let mut mismatches = Vec::new();
+    if actual_status != Some(status) {
+        mismatches.push(format!("  expected status {status}"));
+    }
+    for (stream, fragments) in [("stderr", stderr), ("stdout", stdout)] {
+        let captured = text(stream);
+        for fragment in fragments {
+            if !captured.contains(fragment.as_str()) {
+                mismatches.push(format!("  {stream} does not contain {fragment:?}"));
+            }
+        }
+    }
+    if mismatches.is_empty() {
+        return None;
+    }
+    let actual_status = actual_status.map_or_else(|| "unknown".to_string(), |status| status.to_string());
+    Some(format!(
+        "test.expect: the script did not behave as expected\n{}\nstatus: {actual_status}\nstdout:\n{}\nstderr:\n{}",
+        mismatches.join("\n"),
+        text("stdout"),
+        text("stderr"),
+    ))
+}
+
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
     map.extend(entries);
@@ -7929,6 +7969,37 @@ impl Evaluator {
                     span,
                 ) {
                     Ok(record) => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            #[cfg(feature = "native-tests")]
+            RuntimeOp::TestExpect if (3..=9).contains(&values.len()) => {
+                let ctx = lowered_record_arg(values.first().cloned(), "test.expect", span)?;
+                let source =
+                    lowered_str_arg_owned(values.get(1).cloned(), "", "test.expect", span)?;
+                let status = lowered_int_arg(values.get(2).cloned(), "test.expect", span)?;
+                let stderr =
+                    lowered_optional_str_list(values.get(3).cloned(), "test.expect", span)?;
+                let stdout =
+                    lowered_optional_str_list(values.get(4).cloned(), "test.expect", span)?;
+                let args = lowered_optional_str_list(values.get(5).cloned(), "test.expect", span)?;
+                let env =
+                    lowered_optional_env_record(values.get(6).cloned(), "test.expect", span)?;
+                let stdin =
+                    lowered_bytes_arg_or_empty(values.get(7).cloned(), "test.expect", span)?;
+                let name = lowered_str_arg_owned(
+                    values.get(8).cloned(),
+                    "script.xsh",
+                    "test.expect",
+                    span,
+                )?;
+                match self.lowered_test_run_script(&ctx, &source, &args, &env, &stdin, &name, span)
+                {
+                    Ok(record) => match script_expectation_failure(&record, status, &stderr, &stdout)
+                    {
+                        Some(message) => lowered_runtime_value(test_failure(message), span)?,
+                        None => lowered_result_ok(LoweredValue::Record(Arc::new(record))),
+                    },
                     Err(error) => lowered_result_err_value(error),
                 }
             }

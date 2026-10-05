@@ -422,6 +422,8 @@ pub enum RuntimeOp {
     TestRunXsh,
     #[cfg(feature = "native-tests")]
     TestRunXshtTrace,
+    #[cfg(feature = "native-tests")]
+    TestExpect,
     TemplateRender,
     TimeNow,
     TimeSleep,

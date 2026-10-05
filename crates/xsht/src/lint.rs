@@ -82,6 +82,8 @@ mod lint_env_path_list;
 mod lint_write_mode;
 #[path = "lint_prefer_fail.rs"]
 mod lint_prefer_fail;
+#[path = "lint_prefer_test_expect.rs"]
+mod lint_prefer_test_expect;
 
 #[path = "lint_path_kind.rs"]
 mod lint_path_kind;
@@ -5773,6 +5775,7 @@ impl<'a> Linter<'a> {
         }
         lint_optional_binding::lint_null_test_then_binding(self, stmts);
         lint_write_mode::lint_write_then_chmod(self, stmts);
+        lint_prefer_test_expect::lint_script_runs(self, stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for (index, &stmt) in stmts.iter().enumerate() {

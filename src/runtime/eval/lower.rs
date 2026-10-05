@@ -650,6 +650,7 @@ fn lowered_native_test_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::TestRunScript
             | RuntimeOp::TestRunXsh
             | RuntimeOp::TestRunXshtTrace
+            | RuntimeOp::TestExpect
     )
 }
 

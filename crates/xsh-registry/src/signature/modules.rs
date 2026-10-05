@@ -3567,6 +3567,25 @@ fn test_module() -> ModuleSig {
                 RuntimeOp::TestRunXshtTrace,
             ),
         ),
+        (
+            "expect",
+            sig(
+                vec![
+                    param("ctx", test_context_type()),
+                    param("source", Type::Str),
+                    param("status", Type::Int),
+                    default_param("stderr", Type::List(Box::new(Type::Str))),
+                    default_param("stdout", Type::List(Box::new(Type::Str))),
+                    default_param("args", Type::List(Box::new(Type::Str))),
+                    default_param("env", Type::Record(BTreeMap::new())),
+                    default_param("stdin", Type::Bytes),
+                    default_param("name", Type::Str),
+                ],
+                result(test_script_output_type()),
+                false,
+                RuntimeOp::TestExpect,
+            ),
+        ),
     ])
 }
 

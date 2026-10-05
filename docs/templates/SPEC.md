@@ -3276,6 +3276,16 @@ argument records. When an operation has mocks and none matches, the call
 fails with an unmatched-mock error; operations without mocks use the real
 host.
 
+`test.expect(ctx, source, status: N, stderr: [...], stdout: [...])` runs a
+script as `test.run_script` does, in its own process and with the same
+`args`, `env`, `stdin`, and `name` arguments, and states what the run must
+look like. `status` is required (`0` for success); `stderr` and `stdout` list
+fragments the captured text must contain and default to none. When the status
+differs or a fragment is missing, the call is a failed assertion whose message
+names every mismatch and then gives the script's status, stdout, and stderr in
+full. Otherwise it returns the output record `test.run_script` returns, so
+further assertions can follow.
+
 Each test runs under a time limit counted from its start: the runner's
 `xsht test --timeout` value unless the test calls `test.timeout(ctx, limit)`,
 which replaces it unless the run disabled timeouts. On overrun the test's next

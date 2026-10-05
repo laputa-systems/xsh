@@ -1166,6 +1166,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The nested process receives explicit arguments and its status/output remain test data for assertions.",
             &["test", "native-tests", "process"],
         )),
+        ("test", "expect") => Some((
+            "Runs a nested XSH script and requires its exit status and output fragments.",
+            "Runs the script as `test.run_script` does. A status other than `status`, or a `stderr` or `stdout` fragment the captured text does not contain, fails the test with every mismatch and the script's whole output; otherwise the output record is returned for further assertions.",
+            &["test", "native-tests", "process"],
+        )),
         ("template", "render") => Some((
             "Renders a Go text/template-style template against data.",
             "Actions are `{{.}}`, `{{.a.b}}`, `{{$var.a}}`, `{{if}}`/`{{else if}}`/`{{else}}`, `{{range}}` with optional `$i, $v :=` and `{{else}}`, `{{with}}`, `{{define \"name\"}}`, `{{template \"name\" pipeline}}`, `{{/* comments */}}`, and `{{-`/`-}}` white-space trimming. Pipelines chain `|` into the fixed functions len, upper, lower, trim, default, join, quote, json, not, and, or, eq, and ne; no XSH function is callable. Data is records, maps, lists, and scalars; maps and records range in sorted key order. false, null, 0, 0.0, and empty Str, List, Map, and record values are falsy. Only Str, Int, Float, and Bool render directly. The whole template parses before rendering; syntax errors report kind `template-syntax` and rendering failures, including a missing field, report `template-render`, each with a `template:LINE:COLUMN:` message prefix.",
