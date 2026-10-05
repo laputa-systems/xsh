@@ -26,7 +26,7 @@ Mandatory arguments to long options are mandatory for short options too.
       --help        display this help and exit
       --version     output version information and exit
 
-A field is a group of blanks (usually spaces and/or TABs), then non-blank
+A field is a run of blanks (usually spaces and/or TABs), then non-blank
 characters.  Fields are skipped before chars.
 
 Note: 'uniq' does not detect repeated lines unless they are adjacent.
@@ -38,13 +38,13 @@ type UniqOptions = {
   repeated: Bool,
   all_dups: Bool,
   all_repeated: Str,
-  skip_fields: Str,
+  skip_fields: Str?,
   group: Str,
   ignore_case: Bool,
-  skip_chars: Str,
+  skip_chars: Str?,
   unique: Bool,
   zero: Bool,
-  check_chars: Str,
+  check_chars: Str?,
   help: Bool,
   version: Bool,
   files: List[Str],
@@ -59,23 +59,23 @@ type Key = {fields: Int, skip: Int, width: Int, fold: Bool, utf8: Bool}
 type Selection = {unique: Bool, first: Bool, later: Bool, delimit: Str, group: Bool, counts: Bool}
 
 # The ARGMATCH abbreviation rules: an exact name or a unique prefix.
-pure match_method(value: Str, names: List[Str]) -> Str {
-  return value when value in names
+pure match_method(value: Str, names: List[Str]) -> List[Str] {
+  return [value] when value in names
 
-  let found = [name for name in names if value != "" and name.starts_with(value)]
-
-  if found.len() == 1 { found[0] } else { "" }
+  [name for name in names if name.starts_with(value)]
 }
 
 proc method_or_die(option: Str, value: Str, names: List[Str]) [process, env] -> Str {
-  let method = match_method(value, names)
+  let found = match_method(value, names)
 
-  if method == "" {
+  if found.len() != 1 {
     let list = [f"  - {gnu.quote(name)}" for name in names].join("\n")
-    gnu.usage_error(f"invalid argument {gnu.quote(value)} for {gnu.quote(option)}\nValid arguments are:\n{list}")
+    let word = if found.len() == 0 { "invalid" } else { "ambiguous" }
+
+    gnu.usage_error(f"{word} argument {gnu.quote(value)} for {gnu.quote(option)}\nValid arguments are:\n{list}")
   }
 
-  method
+  found[0]
 }
 
 # A count for -f, -s or -w: digits only; a huge value clamps.
@@ -83,7 +83,7 @@ proc size_or_die(text: Str, what: Str) [process, env] -> Int {
   let digits = if text.starts_with("+") { text.byte_slice(1) } else { text }
 
   if digits == "" or ! rx"^[0-9]+$".matches(digits) {
-    gnu.error(f"{gnu.quote(text)}: {what}")
+    gnu.error(f"{text}: {what}")
     exit 1
   }
 
@@ -241,13 +241,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       repeated: {form: "-d --repeated", default: false},
       all_dups: {form: "-D", default: false, conflicts: ["all_repeated"]},
       all_repeated: {form: "--all-repeated[=METHOD]", default: "", optional_default: "none", conflicts: ["all_dups"]},
-      skip_fields: {form: "-f --skip-fields N", default: "", numeric: true},
+      skip_fields: {form: "-f --skip-fields N", numeric: true},
       group: {form: "--group[=METHOD]", default: "", optional_default: "separate"},
       ignore_case: {form: "-i --ignore-case", default: false},
-      skip_chars: {form: "-s --skip-chars N", default: ""},
+      skip_chars: {form: "-s --skip-chars N"},
       unique: {form: "-u --unique", default: false},
       zero: {form: "-z --zero-terminated", default: false},
-      check_chars: {form: "-w --check-chars N", default: ""},
+      check_chars: {form: "-w --check-chars N"},
       help: {form: "--help", default: false, stop: true},
       version: {form: "--version", default: false, stop: true},
       files: {form: "...FILE"},
@@ -290,9 +290,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let key: Key = {
-    fields: if opts.skip_fields == "" { 0 } else { size_or_die(opts.skip_fields, "invalid number of fields to skip") },
-    skip: if opts.skip_chars == "" { 0 } else { size_or_die(opts.skip_chars, "invalid number of bytes to skip") },
-    width: if opts.check_chars == "" { -1 } else { size_or_die(opts.check_chars, "invalid number of bytes to compare") },
+    fields: if opts.skip_fields == null { 0 } else { size_or_die(opts.skip_fields ?? "", "invalid number of fields to skip") },
+    skip: if opts.skip_chars == null { 0 } else { size_or_die(opts.skip_chars ?? "", "invalid number of bytes to skip") },
+    width: if opts.check_chars == null { -1 } else { size_or_die(opts.check_chars ?? "", "invalid number of bytes to compare") },
     fold: opts.ignore_case,
     utf8: utf8_locale(),
   }

@@ -320,7 +320,7 @@ proc file_number(text: Str) [process, env] -> Int {
   return 0 when text == "1"
   return 1 when text == "2"
 
-  gnu.error(f"invalid file number: {gnu.quote(text)}")
+  gnu.error(f"invalid field number: {gnu.quote(text)}")
   exit 1
 }
 
@@ -341,6 +341,11 @@ proc parse_format(items: List[Str]) [process, env] -> List[Spec] {
       if word == "0" {
         specs += [{file: 0, field: 0}]
         continue
+      }
+
+      if word.starts_with("0") {
+        gnu.error(f"invalid field specifier: {gnu.quote(word)}")
+        exit 1
       }
 
       if word == "" or ! (word.starts_with("1") or word.starts_with("2")) {
@@ -619,8 +624,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         emit(join_line(if side == 0 { row } else { [] }, if side == 1 { row } else { [] }, side == 1, layout_out), layout_out, eol)
       }
 
-      flags = {...flags, unpairable: true}
-
       let idx = next[side]
 
       if idx < counts[side] {
@@ -635,6 +638,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       } else {
         head[side] = -1
       }
+
+      # The check for the next line runs before the first unpairable line is
+      # noted, as in GNU.
+      flags = {...flags, unpairable: true}
 
       continue
     }
@@ -676,10 +683,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   for side in [0, 1] {
-    if head[side] >= 0 {
-      flags = {...flags, unpairable: true}
-    }
-
     let wanted = if side == 0 { print1 } else { print2 }
 
     while head[side] >= 0 {
