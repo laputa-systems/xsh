@@ -9,7 +9,7 @@ type Summary = {modules: List[Any], method_receivers: List[Any], records: List[A
 
 # The stdout of a successful `xsht api ARGS...` run that printed no diagnostics.
 proc api(arguments: List[Str]) [process, error] -> Result[Str] {
-  let output = run.capture --text --accept=[0, 1, 2] "xsht" api @arguments ?
+  let output = run.capture --text "xsht" api @arguments ?
   assert output.status.exited_with(0), f"{arguments.join(" ")}: {output.stdout}{output.stderr}"
   assert output.stderr == "", output.stderr
   output.stdout
@@ -134,7 +134,7 @@ test test_api_onboarding_script_passes_xsht_check { |ctx|
     name: "hello.xsh",
     contents: bytes.from_text(stdout.byte_slice(start, end - start)),
   )?
-  let checked = run.capture --text --accept=[0, 1, 2] "xsht" check $script ?
+  let checked = run.capture --text "xsht" check $script ?
   assert checked.status.exited_with(0), checked.stderr
 }
 
@@ -219,7 +219,7 @@ test test_api_summary_jsonl_is_one_structured_response {
 }
 
 test test_api_summary_rejects_selectors {
-  let output = run.capture --text --accept=[2] "xsht" api summary "api:json.read" ?
+  let output = run.capture --text "xsht" api summary "api:json.read" ?
   assert output.status.exited_with(2), output.stdout
   assert "cannot be combined with selectors" in output.stderr, output.stderr
 }
@@ -238,7 +238,7 @@ test test_api_jsonl_has_one_response_per_selector {
 }
 
 test test_api_strict_renders_all_queries_before_failing {
-  let output = run.capture --text --accept=[1] "xsht" api --strict "api:json.read" "api:json.missing" ?
+  let output = run.capture --text "xsht" api --strict "api:json.read" "api:json.missing" ?
   assert output.status.exited_with(1), output.stderr
   assert_contains(
     output.stdout,
