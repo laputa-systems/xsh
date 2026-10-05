@@ -1287,7 +1287,8 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
   let checked_row = raw.require(Row)?
   let same_count = f\"{count}\".parse_int()?
   let same_ratio = f\"{ratio}\".parse_float()?
-  print ${parsed_literal} ${parsed_fmt} ${constructed_fmt} ${same_path} ${same_name} ${same_row.name} ${checked_row.name} ${same_count} ${same_ratio}
+  print ${parsed_literal} ${parsed_fmt} ${constructed_fmt} ${same_path} ${same_name} \\
+    ${same_row.name} ${checked_row.name} ${same_count} ${same_ratio}
 }
 ";
     let parsed = parse_lint_source(source);
