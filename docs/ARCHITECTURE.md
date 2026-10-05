@@ -101,7 +101,9 @@ stages do not recover from ambiguous trees the parser could have represented.
 A surface form that is sugar (`docs/DESIGN.md`) is one statement row,
 `ArenaStmtKind::Sugar { form, operands, expansion }`, that carries two views of
 the same nodes. `operands` are the parts the user wrote, as `ArenaSugarOperand`
-ids into the ordinary tables, in source order. `expansion` is a core statement
+ids into the ordinary tables, in the order they run (source order, except
+that a postfix `when`/`unless` condition comes before the statement it
+guards). `expansion` is a core statement
 that the form's function in `src/syntax/parser/sugar.rs` builds, once, from
 those same ids plus the nodes it adds; that function is the only definition of
 the form's meaning, and no later pass rewrites anything.
@@ -251,10 +253,14 @@ annotated ones, and `xsht test` in the project.
    observability and OS contract stays exact.
 9. **Sugar has one meaning and two readers.** A sugar form reaches the checker,
    lowering, and execution only as its expansion; syntax tools read only its
-   operands. The expansion references each operand exactly once and in source
-   order, its root carries the surface statement's span and is never a
+   operands. The expansion references each operand exactly once and in the
+   order listed, its root carries the surface statement's span and is never a
    declaration or binding, and every other node it adds has a span of its own
-   inside the surface statement, because checker facts are keyed by span.
+   inside the surface statement, because checker facts are keyed by span. The
+   one static rule a form may add to its expansion is that a block must leave
+   the enclosing continuation (`ArenaProgramBuilder::require_block_exit`, read
+   by the checker as `AstArena::block_must_exit` on whichever `if` owns the
+   block); `guard cond else` uses it, and no checker code names a form.
    `every_form_keeps_the_expansion_rules` checks this for every `SugarForm`,
    and `every_form_expands_to_its_stated_core_program` holds each expansion to
    the hand-written core program the SPEC shows
@@ -287,7 +293,12 @@ annotated ones, and `xsht test` in the project.
 ## Adding a sugar form
 
 A form qualifies when `docs/DESIGN.md` says it desugars trivially. It then
-needs nothing in the checker, lowering, the verifier, or the executor.
+needs nothing in the checker, lowering, the verifier, or the executor. If the
+core form does not already give the behavior the surface form needs (a
+narrowing, a tail rule), improve the core rule so both spellings get it; do
+not special-case the form. A form that binds a name in the enclosing block
+cannot be sugar, because declaration scans do not look inside a surface form:
+`guard let` is a core statement for that reason.
 
 1. Specify it in `docs/templates/SPEC.md` by its expansion, with the sugar and
    the hand-written core program as two snippets in `docs/snippets/spec/`.

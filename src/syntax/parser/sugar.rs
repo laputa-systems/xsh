@@ -9,9 +9,11 @@
 //! `every_form_keeps_the_expansion_rules` checks them for every `SugarForm`,
 //! using the complete tree walk that the formatter's equivalence check owns:
 //!
-//! - It references each operand exactly once and in source order, so nothing
-//!   the user wrote is evaluated twice or out of order. A value the expansion
-//!   needs twice is bound once to a local whose name no identifier can spell.
+//! - It references each operand exactly once and in the order the operands
+//!   are listed, which is the order they run: source order, except that a
+//!   postfix condition precedes the statement it guards. Nothing the user
+//!   wrote is evaluated twice or out of order. A value the expansion needs
+//!   twice is bound once to a local whose name no identifier can spell.
 //! - Its root statement carries the surface statement's span, so tracebacks,
 //!   traces, and coverage report the statement the user wrote. Every other
 //!   node it adds has a span of its own inside the surface statement, distinct
@@ -21,8 +23,12 @@
 //! - Its root is a core control or effect statement, never a declaration,
 //!   import, export, or binding: those are collected by scans of statement
 //!   lists that do not look inside a surface form.
+//!
+//! A form's meaning is its expansion and nothing more, with one exception an
+//! expansion may ask for: that a block leave the enclosing continuation on
+//! every path. The checker enforces that on the block, not on the form.
 
-use super::{Name, Parser, TokenTag};
+use super::{Keyword, Name, Parser, TokenTag};
 use crate::diagnostic::DiagnosticCode;
 use crate::source::Span;
 use crate::syntax::arena::{
@@ -146,6 +152,135 @@ fn expand_repeat(
     let iter = arena.push_call_expr(callee, args, operands.head);
     let target = arena.push_binding_target_name(Name::intern("_"));
     arena.push_for_id(target, iter, operands.body, span)
+}
+
+impl Parser<'_> {
+    /// Parses the `when CONDITION` or `unless CONDITION` that follows `inner`,
+    /// the statement the parser just registered.
+    pub(super) fn parse_guarded_stmt_arena_only(
+        &mut self,
+        start: usize,
+        inner: StmtId,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        let keyword = self.current_span();
+        let negate = self.consume_keyword(Keyword::Unless).is_some();
+        if !negate {
+            self.expect_keyword(Keyword::When, "expected `when` or `unless`");
+        }
+        let condition = self.parse_expr_id_arena_only(arena)?;
+        let end = self.expect_terminator();
+        let span = self.span(start, end);
+        // The guarded statement belongs to the expansion's block, not to the
+        // enclosing statement list.
+        let registered = arena.pop_last_statement();
+        assert_eq!(registered, inner, "the guarded statement is registered last");
+        let operands = GuardedOperands {
+            keyword,
+            condition,
+            stmt: inner,
+        };
+        // A postfix condition runs before the statement it guards, so the
+        // operands are listed in that order.
+        arena.push_sugar(
+            if negate {
+                SugarForm::Unless
+            } else {
+                SugarForm::When
+            },
+            &[
+                ArenaSugarOperand::Expr(condition),
+                ArenaSugarOperand::Stmt(inner),
+            ],
+            span,
+            |arena| {
+                if negate {
+                    expand_unless(arena, operands, span)
+                } else {
+                    expand_when(arena, operands, span)
+                }
+            },
+        );
+        Some(())
+    }
+
+    /// Parses `CONDITION else { BLOCK }` after the `guard` word.
+    pub(super) fn parse_boolean_guard_arena_only(
+        &mut self,
+        start: usize,
+        keyword: Span,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        let condition = self.parse_condition_arena_only(arena)?.id;
+        self.expect_keyword(Keyword::Else, "expected `else` after guard condition");
+        let else_block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        arena.push_sugar(
+            SugarForm::Guard,
+            &[
+                ArenaSugarOperand::Expr(condition),
+                ArenaSugarOperand::Block(else_block),
+            ],
+            span,
+            |arena| expand_guard(arena, keyword, condition, else_block, span),
+        );
+        Some(())
+    }
+}
+
+#[derive(Clone, Copy)]
+struct GuardedOperands {
+    /// The `when` or `unless` word.
+    keyword: Span,
+    condition: ExprId,
+    stmt: StmtId,
+}
+
+/// `STMT when CONDITION` is `if CONDITION { STMT }`.
+///
+/// The branch block sits on the guarded statement, which no written block
+/// can span because it has no braces of its own.
+fn expand_when(
+    arena: &mut ArenaProgramBuilder<'_>,
+    operands: GuardedOperands,
+    span: Span,
+) -> StmtId {
+    let then_block = arena.push_block_of(&[operands.stmt], arena.stmt_span(operands.stmt));
+    arena.push_if(&[(operands.condition, then_block)], None, span)
+}
+
+/// `STMT unless CONDITION` is `if CONDITION {} else { STMT }`.
+///
+/// The condition is not negated, so it keeps its own diagnostics and facts
+/// and may be a `Status`. The empty branch sits on the `unless` word.
+fn expand_unless(
+    arena: &mut ArenaProgramBuilder<'_>,
+    operands: GuardedOperands,
+    span: Span,
+) -> StmtId {
+    let then_block = arena.push_block_of(&[], operands.keyword);
+    let else_block = arena.push_block_of(&[operands.stmt], arena.stmt_span(operands.stmt));
+    arena.push_if(
+        &[(operands.condition, then_block)],
+        Some(else_block),
+        span,
+    )
+}
+
+/// `guard CONDITION else { BLOCK }` is `if CONDITION {} else { BLOCK }`,
+/// where the block must leave the enclosing continuation.
+///
+/// The empty branch sits on the `guard` word.
+fn expand_guard(
+    arena: &mut ArenaProgramBuilder<'_>,
+    keyword: Span,
+    condition: ExprId,
+    else_block: BlockId,
+    span: Span,
+) -> StmtId {
+    let then_block = arena.push_block_of(&[], keyword);
+    arena.require_block_exit(else_block);
+    arena.push_if(&[(condition, then_block)], Some(else_block), span)
 }
 
 #[cfg(test)]

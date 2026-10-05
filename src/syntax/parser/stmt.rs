@@ -1417,13 +1417,9 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
-        self.bump(); // consume `guard`
+        let keyword = self.bump(); // consume `guard`
         if !self.at_keyword(Keyword::Let) {
-            let condition = self.parse_condition_arena_only(arena)?.id;
-            self.expect_keyword(Keyword::Else, "expected `else` after guard condition");
-            let else_block = self.parse_block_arena_only(arena)?;
-            arena.push_boolean_guard(condition, else_block, self.span(start, self.previous_end()));
-            return Some(());
+            return self.parse_boolean_guard_arena_only(start, keyword, arena);
         }
         self.expect_keyword(Keyword::Let, "expected `let` after `guard`");
         let target = self.parse_binding_target_arena_only("expected binding name", arena)?;
@@ -1727,22 +1723,6 @@ impl<'a> Parser<'a> {
         );
         let fields = arena.finish_destructure_fields();
         Some(arena.push_binding_target_record(fields, rest, self.span(start, self.previous_end())))
-    }
-
-    fn parse_guarded_stmt_arena_only(
-        &mut self,
-        start: usize,
-        inner: crate::syntax::arena::StmtId,
-        arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<()> {
-        let negate = self.consume_keyword(Keyword::Unless).is_some();
-        if !negate {
-            self.expect_keyword(Keyword::When, "expected `when` or `unless`");
-        }
-        let condition = self.parse_expr_id_arena_only(arena)?;
-        let end = self.expect_terminator();
-        arena.push_guarded_stmt(inner, negate, condition, self.span(start, end));
-        Some(())
     }
 
     fn parse_return_arena_only(

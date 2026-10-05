@@ -1776,7 +1776,9 @@ pure bad(flag: Bool) -> Int {
 }
 "#,
     );
-    assert!(has_code(&ambiguous, "check.if-value-else"));
+    // No branch ends in a value, so the `if` is a statement and the body
+    // can fall through, exactly as `return 1 when flag` does.
+    assert!(has_code(&ambiguous, "check.missing-return"));
 }
 
 #[test]
@@ -3784,7 +3786,7 @@ pure cached(value: Str?) -> Str {
     assert!(
         invalid_condition
             .iter()
-            .any(|code| code.as_deref() == Some("check.guarded-stmt-condition")),
+            .any(|code| code.as_deref() == Some("check.if-condition")),
         "{invalid_condition:?}"
     );
 }

@@ -1009,6 +1009,10 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.arena.expr(id).span
     }
 
+    pub fn stmt_span(&self, id: StmtId) -> Span {
+        self.lowerer.arena.stmt(id).span
+    }
+
     pub fn root_statement_count(&self) -> usize {
         self.statements.len()
     }
@@ -2727,38 +2731,28 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
-    /// Wrap an already-built inner statement in a guarded (`when`/`unless`) stmt.
-    /// The inner statement was just registered by its own `push_*`; pop it so only
-    /// the guarded wrapper appears in the current statement list (mirrors the old
-    /// AST where the inner `Stmt` is a local that is never pushed on its own).
-    pub fn push_guarded_stmt(
-        &mut self,
-        inner: StmtId,
-        negate: bool,
-        condition: ExprId,
-        span: Span,
-    ) -> StmtId {
-        if self.block_statement_starts.is_empty() {
-            self.statements.pop();
-        } else {
-            self.block_statements.pop();
+    /// A parameterless block over statements that already exist, for an
+    /// expansion that wraps what the user wrote in a core block. The
+    /// statements must not be registered in any statement list.
+    pub fn push_block_of(&mut self, statements: &[StmtId], span: Span) -> BlockId {
+        self.lowerer.push_block_from_stmt_ids(&[], statements, span)
+    }
+
+    /// Require `block` to leave the enclosing continuation on every reachable
+    /// path. This is the one static rule an expansion may add to the core
+    /// statement it builds: the checker reports a block that can fall
+    /// through, whichever statement owns it.
+    pub fn require_block_exit(&mut self, block: BlockId) {
+        let blocks = &mut self.lowerer.arena.exit_required_blocks;
+        if let Err(at) = blocks.binary_search_by_key(&block.index(), |required| required.index()) {
+            blocks.as_mut_vec().insert(at, block);
         }
-        let id = self.lowerer.push_stmt_kind(
-            ArenaStmtKind::GuardedStmt {
-                stmt: inner,
-                negate,
-                condition,
-            },
-            span,
-        );
-        self.push_current_statement(id);
-        id
     }
 
     /// Build a surface statement together with the expansion that defines it.
     ///
-    /// `operands` are the parts the user wrote, already parsed, in source
-    /// order. `expand` builds the expansion from them and returns its root,
+    /// `operands` are the parts the user wrote, already parsed, in the order
+    /// they run. `expand` builds the expansion from them and returns its root,
     /// which must be the statement it registered last; that root is popped so
     /// only the surface node appears in the current statement list. Every
     /// expression, statement, and block row `expand` adds is recorded as
@@ -2875,23 +2869,6 @@ impl<'a> ArenaProgramBuilder<'a> {
                 target,
                 ty,
                 initializer,
-                else_block,
-            },
-            span,
-        );
-        self.push_current_statement(id);
-        id
-    }
-
-    pub fn push_boolean_guard(
-        &mut self,
-        condition: ExprId,
-        else_block: BlockId,
-        span: Span,
-    ) -> StmtId {
-        let id = self.lowerer.push_stmt_kind(
-            ArenaStmtKind::BooleanGuard {
-                condition,
                 else_block,
             },
             span,
@@ -3113,7 +3090,7 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     /// Wrap an already-registered inner statement in `export`. Pops the inner so
-    /// only the export wrapper stays in the current scope (like `push_guarded_stmt`).
+    /// only the export wrapper stays in the current scope.
     pub fn push_export(&mut self, inner: StmtId, span: Span) -> StmtId {
         if self.block_statement_starts.is_empty() {
             self.statements.pop();
@@ -3754,6 +3731,8 @@ pub struct AstArena {
     pub sugar_operands: ArenaColdVec<ArenaSugarOperand>,
     /// The rows each sugar expansion added, in table order.
     pub sugar_expansions: ArenaColdVec<ArenaSugarExpansion>,
+    /// Blocks that must leave the enclosing continuation, in ascending order.
+    pub exit_required_blocks: ArenaColdVec<BlockId>,
     pub match_arms: Vec<ArenaMatchArm>,
     pub destructure_fields: ArenaColdVec<ArenaDestructureField>,
     pub pattern_fields: Vec<ArenaRecordPatternField>,
@@ -3934,6 +3913,7 @@ impl AstArena {
             + vec_capacity_bytes(&self.with_bindings)
             + vec_capacity_bytes(&self.sugar_operands)
             + vec_capacity_bytes(&self.sugar_expansions)
+            + vec_capacity_bytes(&self.exit_required_blocks)
             + vec_capacity_bytes(&self.match_arms)
             + vec_capacity_bytes(&self.if_expr_branches)
             + vec_capacity_bytes(&self.match_expr_arms)
@@ -4055,6 +4035,7 @@ impl AstArena {
             table!(with_bindings),
             table!(sugar_operands),
             table!(sugar_expansions),
+            table!(exit_required_blocks),
             table!(match_arms),
             table!(destructure_fields),
             table!(pattern_fields),
@@ -4115,6 +4096,7 @@ impl AstArena {
             + vec_capacity_bytes(&self.with_bindings)
             + vec_capacity_bytes(&self.sugar_operands)
             + vec_capacity_bytes(&self.sugar_expansions)
+            + vec_capacity_bytes(&self.exit_required_blocks)
             + vec_capacity_bytes(&self.match_arms)
             + vec_capacity_bytes(&self.destructure_fields)
             + vec_capacity_bytes(&self.pattern_fields)
@@ -4148,6 +4130,7 @@ impl AstArena {
             + self.with_bindings.len()
             + self.sugar_operands.len()
             + self.sugar_expansions.len()
+            + self.exit_required_blocks.len()
             + self.match_arms.len()
             + self.destructure_fields.len()
             + self.pattern_fields.len()
@@ -4327,17 +4310,6 @@ impl AstArena {
                     ty: optional_type_expr_id(raw[1]),
                     initializer: expr_or_run_from_raw(raw[2]),
                     else_block: BlockId::new(raw[3] as usize),
-                }
-            }
-            ArenaStmtTag::BooleanGuard => ArenaStmtKind::BooleanGuard {
-                condition: ExprId::new(data.lhs as usize),
-                else_block: BlockId::new(data.rhs as usize),
-            },
-            ArenaStmtTag::GuardedStmt | ArenaStmtTag::GuardedStmtNegated => {
-                ArenaStmtKind::GuardedStmt {
-                    stmt: StmtId::new(data.lhs as usize),
-                    negate: tag == ArenaStmtTag::GuardedStmtNegated,
-                    condition: ExprId::new(data.rhs as usize),
                 }
             }
             ArenaStmtTag::Sugar => {
@@ -4831,7 +4803,7 @@ impl AstArena {
         range_slice(&self.with_bindings, range)
     }
 
-    /// The parts of a sugar statement the user wrote, in source order.
+    /// The parts of a sugar statement the user wrote, in the order they run.
     ///
     /// This is the whole syntactic content of the statement: a walker that
     /// only recurses visits these and never the expansion, so one arm covers
@@ -4853,7 +4825,42 @@ impl AstArena {
             (SugarForm::Repeat, operands) => {
                 unreachable!("`repeat` has a count and a body, found {operands:?}")
             }
+            (
+                SugarForm::When | SugarForm::Unless,
+                &[
+                    ArenaSugarOperand::Expr(condition),
+                    ArenaSugarOperand::Stmt(stmt),
+                ],
+            ) => ArenaSugar::Guarded {
+                stmt,
+                negate: form == SugarForm::Unless,
+                condition,
+            },
+            (SugarForm::When | SugarForm::Unless, operands) => {
+                unreachable!("a guarded statement has a condition and a statement, found {operands:?}")
+            }
+            (
+                SugarForm::Guard,
+                &[
+                    ArenaSugarOperand::Expr(condition),
+                    ArenaSugarOperand::Block(else_block),
+                ],
+            ) => ArenaSugar::Guard {
+                condition,
+                else_block,
+            },
+            (SugarForm::Guard, operands) => {
+                unreachable!("`guard` has a condition and a failure block, found {operands:?}")
+            }
         }
+    }
+
+    /// Whether an expansion requires this block to leave the enclosing
+    /// continuation on every reachable path.
+    pub fn block_must_exit(&self, id: BlockId) -> bool {
+        self.exit_required_blocks
+            .binary_search_by_key(&id.index(), |required| required.index())
+            .is_ok()
     }
 
     /// Whether a sugar expansion added this expression. A tool that scans the
@@ -5361,9 +5368,6 @@ pub enum ArenaStmtTag {
     With,
     Loop,
     Guard,
-    BooleanGuard,
-    GuardedStmt,
-    GuardedStmtNegated,
     Sugar,
     Assert,
     AssertBare,
@@ -5460,15 +5464,6 @@ pub enum ArenaStmtKind {
         initializer: ArenaExprOrRun,
         else_block: BlockId,
     },
-    GuardedStmt {
-        stmt: StmtId,
-        negate: bool,
-        condition: ExprId,
-    },
-    BooleanGuard {
-        condition: ExprId,
-        else_block: BlockId,
-    },
     /// A surface form whose meaning is its expansion into core statements.
     ///
     /// The parser builds both views once. Checking, lowering, and execution
@@ -5506,15 +5501,24 @@ pub enum SugarForm {
     /// `repeat COUNT times { BODY }`: operands are the count expression and
     /// the body block.
     Repeat,
+    /// `STMT when CONDITION`: operands are the condition and the guarded
+    /// statement, in the order they run.
+    When,
+    /// `STMT unless CONDITION`: operands as for `When`.
+    Unless,
+    /// `guard CONDITION else { BLOCK }`: operands are the condition and the
+    /// failure block.
+    Guard,
 }
 
 impl SugarForm {
-    pub const ALL: [Self; 1] = [Self::Repeat];
+    pub const ALL: [Self; 4] = [Self::Repeat, Self::When, Self::Unless, Self::Guard];
 
     /// A compound statement ends with a block and needs no terminator.
     pub const fn is_compound(self) -> bool {
         match self {
-            Self::Repeat => true,
+            Self::Repeat | Self::Guard => true,
+            Self::When | Self::Unless => false,
         }
     }
 
@@ -5540,6 +5544,13 @@ pub enum ArenaSugarOperand {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ArenaSugar {
     Repeat { count: ExprId, body: BlockId },
+    /// `stmt when condition`, or `stmt unless condition` when `negate`.
+    Guarded {
+        stmt: StmtId,
+        negate: bool,
+        condition: ExprId,
+    },
+    Guard { condition: ExprId, else_block: BlockId },
 }
 
 /// The table rows one sugar expansion added.
@@ -6978,28 +6989,6 @@ impl ArenaLowerer<'_> {
                     raw_block_id(else_block),
                 ]);
                 (ArenaStmtTag::Guard, data)
-            }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => (
-                ArenaStmtTag::BooleanGuard,
-                ArenaStmtData::new(raw_expr_id(condition), raw_block_id(else_block)),
-            ),
-            ArenaStmtKind::GuardedStmt {
-                stmt,
-                negate,
-                condition,
-            } => {
-                let tag = if negate {
-                    ArenaStmtTag::GuardedStmtNegated
-                } else {
-                    ArenaStmtTag::GuardedStmt
-                };
-                (
-                    tag,
-                    ArenaStmtData::new(raw_stmt_id(stmt), raw_expr_id(condition)),
-                )
             }
             ArenaStmtKind::Sugar {
                 form,

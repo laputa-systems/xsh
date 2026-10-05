@@ -318,9 +318,7 @@ diagnostic_codes! {
         CheckFmtDollarName = "check.fmt-dollar-name", error, "Reject `$name` in an f-string, which interpolates with `{name}`";
         CheckForIterator = "check.for-iterator", error, "Reject a `for` loop over a value that is not a `List`, `Stream`, `Map`, `Str`, or `Bytes`";
         CheckGuardBinding = "check.guard-binding", error, "Reject a `guard let` binding that is not a `Result` value";
-        CheckGuardCondition = "check.guard-condition", error, "Reject a `guard` condition that is not `Bool` or `Status`";
         CheckGuardFallthrough = "check.guard-fallthrough", error, "Reject a `guard` else block that can fall through to the enclosing code";
-        CheckGuardedStmtCondition = "check.guarded-stmt-condition", error, "Reject a guarded statement condition that is not `Bool` or `Status`";
         CheckHandlerBlockParams = "check.handler-block-params", error, "Reject an error handler block with more than one parameter";
         CheckHyphenatedModuleAlias = "check.hyphenated-module-alias", error, "Reject a hyphenated module path segment imported without an `as` alias";
         CheckIfCondition = "check.if-condition", error, "Reject an `if` condition that is not `Bool` or `Status`";

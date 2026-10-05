@@ -4,7 +4,8 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaPatternKind,
-    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
+    ArenaPipeStageKind, ArenaRecordFieldKind, ArenaSpawnTarget, ArenaStmtKind, ArenaSugar,
+    ArenaTypeDefBody, SugarForm,
     ArenaWordPart, ExprId, StmtId,
 };
 use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
@@ -17,7 +18,7 @@ use xsh::frontend::syntax::token::TokenTag;
 use xsht::format::Formatter;
 
 #[test]
-fn boolean_guards_keep_separate_arena_kind_and_cst_round_trip() {
+fn boolean_guards_parse_as_sugar_and_cst_round_trip() {
     let source = "proc checked(name: Str?) [] -> Str {\n  guard name != null else {\n    # Preserve the authored failure.\n    return \"missing\"\n  }\n\n  name.trim()\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
@@ -33,7 +34,10 @@ fn boolean_guards_keep_separate_arena_kind_and_cst_round_trip() {
         .unwrap();
     assert!(matches!(
         arena.stmt(guard).kind,
-        ArenaStmtKind::BooleanGuard { .. }
+        ArenaStmtKind::Sugar {
+            form: SugarForm::Guard,
+            ..
+        }
     ));
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
     assert!(
@@ -3608,11 +3612,14 @@ fn guarded_value_control_keeps_payload_and_condition_source_spans() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let root = parsed.arena.statement_ids().next().unwrap();
     let arena = &parsed.arena.arena;
-    let ArenaStmtKind::GuardedStmt {
+    let ArenaStmtKind::Sugar { form, operands, .. } = arena.stmt(root).kind else {
+        panic!("expected guarded return");
+    };
+    let ArenaSugar::Guarded {
         stmt,
         condition,
         negate,
-    } = arena.stmt(root).kind
+    } = arena.sugar(form, operands)
     else {
         panic!("expected guarded return");
     };

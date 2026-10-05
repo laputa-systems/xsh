@@ -10,7 +10,7 @@ use xsh::frontend::syntax::arena::{
     ArenaCommandArgKind, ArenaCompQualifier, ArenaEnvAssignment, ArenaEnvAssignmentValue,
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
     ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaText, ArenaTypeExprTag, ArenaWordPart,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugar, ArenaText, SugarForm, ArenaTypeExprTag, ArenaWordPart,
     AstArena, BindingTargetId, BlockId, ExprId, FunctionDefId, PatternId, StmtId, TypeExprId,
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
@@ -639,6 +639,28 @@ impl<'a> Writer<'a> {
                         output.push_str(" times ");
                         self.write_block(body, indent, output);
                     }
+                    ArenaSugar::Guarded {
+                        stmt: inner,
+                        negate,
+                        condition,
+                    } => {
+                        self.write_guarded_action(inner, indent, output);
+                        if negate {
+                            output.push_str(" unless ");
+                        } else {
+                            output.push_str(" when ");
+                        }
+                        self.write_expr(condition, END, output);
+                    }
+                    ArenaSugar::Guard {
+                        condition,
+                        else_block,
+                    } => {
+                        output.push_str("guard ");
+                        self.write_expr(condition, WORD, output);
+                        output.push_str(" else ");
+                        self.write_block(else_block, indent, output);
+                    }
                 }
             }
             ArenaStmtKind::Guard {
@@ -655,30 +677,8 @@ impl<'a> Writer<'a> {
                 output.push_str(" else ");
                 self.write_block(*else_block, indent, output);
             }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                output.push_str("guard ");
-                self.write_expr(*condition, WORD, output);
-                output.push_str(" else ");
-                self.write_block(*else_block, indent, output);
-            }
             ArenaStmtKind::Assert { condition, message } => {
                 self.write_assert(*condition, *message, output)
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt: inner,
-                negate,
-                condition,
-            } => {
-                self.write_guarded_action(*inner, indent, output);
-                if *negate {
-                    output.push_str(" unless ");
-                } else {
-                    output.push_str(" when ");
-                }
-                self.write_expr(*condition, END, output);
             }
             ArenaStmtKind::Break { value } => {
                 output.push_str("break");
@@ -1205,7 +1205,6 @@ impl<'a> Writer<'a> {
                 let control_flow = matches!(
                     stmt.kind,
                     ArenaStmtKind::If { .. }
-                        | ArenaStmtKind::BooleanGuard { .. }
                         | ArenaStmtKind::While { .. }
                         | ArenaStmtKind::For { .. }
                         | ArenaStmtKind::Match { .. }
@@ -1689,8 +1688,11 @@ impl<'a> Writer<'a> {
                     | ArenaStmtKind::With { .. }
                     | ArenaStmtKind::Loop { .. }
                     | ArenaStmtKind::Match { .. }
-            ) || matches!(stmt.kind, ArenaStmtKind::Sugar { form, .. } if form.is_compound()))
-                && output[stmt_output_start..].contains('\n');
+            ) || matches!(
+                stmt.kind,
+                // A `guard` reads as a precondition of what follows it.
+                ArenaStmtKind::Sugar { form, .. } if form.is_compound() && form != SugarForm::Guard
+            )) && output[stmt_output_start..].contains('\n');
         }
         if self.has_comment_before(close) {
             if let Some(previous) = previous_span {
@@ -4458,7 +4460,6 @@ fn is_top_level_section(kind: &ArenaStmtKind) -> bool {
     matches!(
         kind,
         ArenaStmtKind::If { .. }
-            | ArenaStmtKind::BooleanGuard { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. }

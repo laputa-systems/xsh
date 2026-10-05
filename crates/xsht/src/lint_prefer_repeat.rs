@@ -90,7 +90,9 @@ fn repeat_head(linter: &super::Linter<'_>, head: Span, count: ExprId) -> Option<
         else {
             return false;
         };
-        let ArenaSugar::Repeat { count, .. } = parsed.arena.arena.sugar(form, operands);
+        let ArenaSugar::Repeat { count, .. } = parsed.arena.arena.sugar(form, operands) else {
+            return false;
+        };
         parsed.arena.symbol_owner().with_current(|| {
             super::super::format::canonical_subtree(&parsed.arena.arena, &rewritten, Err(count))
         }) == expected

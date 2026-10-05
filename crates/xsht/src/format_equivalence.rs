@@ -386,24 +386,6 @@ impl CanonicalWriter<'_> {
                 self.binding_stmt("guard", *target, *ty, initializer);
                 self.block(*else_block);
             }
-            ArenaStmtKind::GuardedStmt {
-                stmt,
-                negate,
-                condition,
-            } => {
-                self.put("guarded;");
-                self.debug(negate);
-                self.stmt(*stmt);
-                self.expr(*condition);
-            }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                self.put("guard-bool;");
-                self.expr(*condition);
-                self.block(*else_block);
-            }
             ArenaStmtKind::Assert { condition, message } => {
                 self.put("assert;");
                 self.expr(*condition);

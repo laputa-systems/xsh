@@ -1169,7 +1169,11 @@ pub fn statement_may_continue(kind: &ArenaStmtKind) -> bool {
             | ArenaStmtKind::Defer(_)
             | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Break { value: Some(_) }
-            | ArenaStmtKind::GuardedStmt { .. }
+            | ArenaStmtKind::Sugar {
+                form: crate::syntax::arena::SugarForm::When
+                    | crate::syntax::arena::SugarForm::Unless,
+                ..
+            }
             | ArenaStmtKind::Export(_)
     )
 }

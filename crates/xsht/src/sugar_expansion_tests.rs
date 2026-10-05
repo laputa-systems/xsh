@@ -28,11 +28,45 @@ fn cases(form: SugarForm) -> &'static [Case] {
             },
             Case {
                 sugar: "var n = 0\nrepeat 2 times {\n  repeat (n + 1) * 2 times {\n    n += 1\n    continue when n == 3\n  }\n}\n",
-                core: "var n = 0\nfor _ in range(2) {\n  for _ in range((n + 1) * 2) {\n    n += 1\n    continue when n == 3\n  }\n}\n",
+                core: "var n = 0\nfor _ in range(2) {\n  for _ in range((n + 1) * 2) {\n    n += 1\n    if n == 3 {\n      continue\n    }\n  }\n}\n",
             },
             Case {
                 sugar: "proc poll(times: Int) {\n  match times {\n    0 => repeat 1 times { print \"once\" }\n    _ => {\n      repeat times times {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
                 core: "proc poll(times: Int) {\n  match times {\n    0 => for _ in range(1) { print \"once\" }\n    _ => {\n      for _ in range(times) {\n        print \"tick\"\n      }\n    }\n  }\n}\n",
+            },
+        ],
+        SugarForm::When => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/47-when.xsh"),
+                core: include_str!("../../../docs/snippets/spec/47-when-expansion.xsh"),
+            },
+            Case {
+                sugar: "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    break when row < 0\n    yield row when row > 0\n    yield @[row, row] when row == 0\n  }\n}\n",
+                core: "stream picked(rows: List[Int]) -> Stream[Int] {\n  for row in rows {\n    if row < 0 {\n      break\n    }\n    if row > 0 {\n      yield row\n    }\n    if row == 0 {\n      yield @[row, row]\n    }\n  }\n}\n",
+            },
+            Case {
+                sugar: "proc built(ready: Bool) [process] -> Status {\n  return (run.status make) when ready\n  return when (run.status true)\n  run.status false\n}\n",
+                core: "proc built(ready: Bool) [process] -> Status {\n  if ready {\n    return (run.status make)\n  }\n  if (run.status true) {\n    return\n  }\n  run.status false\n}\n",
+            },
+        ],
+        SugarForm::Unless => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/48-unless.xsh"),
+                core: include_str!("../../../docs/snippets/spec/48-unless-expansion.xsh"),
+            },
+            Case {
+                sugar: "pure read(raw: Str?) -> Str {\n  let present = raw != null\n  return \"missing\" unless present\n  raw.trim()\n}\n",
+                core: "pure read(raw: Str?) -> Str {\n  let present = raw != null\n  if present {\n  } else {\n    return \"missing\"\n  }\n  raw.trim()\n}\n",
+            },
+        ],
+        SugarForm::Guard => &[
+            Case {
+                sugar: include_str!("../../../docs/snippets/spec/49-guard-else.xsh"),
+                core: include_str!("../../../docs/snippets/spec/49-guard-else-expansion.xsh"),
+            },
+            Case {
+                sugar: "for raw in [1, 2] {\n  guard raw > 0 else {\n    guard raw < 0 else { continue }\n    break unless raw == 0\n    continue\n  }\n  print $raw\n}\n",
+                core: "for raw in [1, 2] {\n  if raw > 0 {\n  } else {\n    if raw < 0 {\n    } else {\n      continue\n    }\n    if raw == 0 {\n    } else {\n      break\n    }\n    continue\n  }\n  print $raw\n}\n",
             },
         ],
     }
@@ -221,6 +255,24 @@ fn every_form_keeps_the_expansion_rules() {
         }
         assert!(seen, "no case uses {form:?}");
     }
+}
+
+/// A `guard` adds one rule to its `if`: the failure block must leave. The
+/// expansion records that on the block the user wrote and on no other.
+#[test]
+fn a_guard_requires_only_its_failure_block_to_exit() {
+    let source = "for raw in [1, 2] {\n  continue unless raw > 0\n  guard raw > 1 else {\n    if raw == 0 { break } else { continue }\n  }\n  if raw > 2 {} else { continue }\n}\n";
+    let program = parse(source);
+    let arena = &program.arena;
+    let required = (0..arena.blocks.len())
+        .map(BlockId::from_index)
+        .filter(|id| arena.block_must_exit(*id))
+        .map(|id| &source[arena.span(arena.block(id).span).range()])
+        .collect::<Vec<_>>();
+    assert_eq!(
+        required,
+        ["{\n    if raw == 0 { break } else { continue }\n  }"]
+    );
 }
 
 /// Reading each sugar statement as its expansion gives the same program as

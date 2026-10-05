@@ -1775,19 +1775,6 @@ fn compact_collect_stmt_call_edges(
                 compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
             }
         }
-        ArenaStmtKind::GuardedStmt {
-            stmt, condition, ..
-        } => {
-            compact_collect_stmt_call_edges(program, stmt, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-        }
-        ArenaStmtKind::BooleanGuard {
-            condition,
-            else_block,
-        } => {
-            compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-            compact_collect_block_call_edges(program, else_block, namespace, index_of, edges);
-        }
         ArenaStmtKind::Break { value: Some(value) }
         | ArenaStmtKind::Expr(value)
         | ArenaStmtKind::YieldDelegate(value) => {
@@ -2240,6 +2227,8 @@ fn compact_type_expr_tag_index(tag: ArenaTypeExprTag) -> usize {
     }
 }
 
+// Indexes 20 and 27 are unassigned: they counted the guarded statement and
+// the boolean guard, which now lower as the `if` they expand to.
 fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
     match kind {
         ArenaStmtKind::Use(_) => 0,
@@ -2264,14 +2253,12 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::With { .. } => 17,
         ArenaStmtKind::Loop { .. } => 18,
         ArenaStmtKind::Guard { .. } => 19,
-        ArenaStmtKind::GuardedStmt { .. } => 20,
         ArenaStmtKind::Break { .. } => 21,
         ArenaStmtKind::Continue => 22,
         ArenaStmtKind::Match { .. } => 23,
         ArenaStmtKind::Command(_) => 24,
         ArenaStmtKind::TailBareIdent(_) => 25,
         ArenaStmtKind::Expr(_) => 26,
-        ArenaStmtKind::BooleanGuard { .. } => 27,
         ArenaStmtKind::Sugar { .. } => {
             unreachable!("a sugar statement is classified by its expansion")
         }
@@ -2303,14 +2290,12 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::With { .. } => "with",
         ArenaStmtKind::Loop { .. } => "loop",
         ArenaStmtKind::Guard { .. } => "guard",
-        ArenaStmtKind::GuardedStmt { .. } => "guarded_stmt",
         ArenaStmtKind::Break { .. } => "break",
         ArenaStmtKind::Continue => "continue",
         ArenaStmtKind::Match { .. } => "match",
         ArenaStmtKind::Command(_) => "command",
         ArenaStmtKind::TailBareIdent(_) => "tail_bare_ident",
         ArenaStmtKind::Expr(_) => "expr",
-        ArenaStmtKind::BooleanGuard { .. } => "boolean_guard",
         ArenaStmtKind::Sugar { .. } => {
             unreachable!("a sugar statement is classified by its expansion")
         }
@@ -3749,8 +3734,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                 CompactTopLevelBlocker::AssignExpression
             }
             ArenaStmtKind::Assign { .. } => CompactTopLevelBlocker::AssignExpression,
-            ArenaStmtKind::BooleanGuard { .. }
-            | ArenaStmtKind::Assert { .. }
+            ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
@@ -4133,8 +4117,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                     slots,
                 ))
             }
-            ArenaStmtKind::BooleanGuard { .. }
-            | ArenaStmtKind::Assert { .. }
+            ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
@@ -5031,33 +5014,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         self.output.statements += 1;
         let lowered = match self.program.arena.stmt(id).kind {
             ArenaStmtKind::Sugar { .. } => unreachable!("lowered through its expansion above"),
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                let condition = self.lower_expr(condition, slots, current_function, item_slot)?;
-                let else_body =
-                    Some(self.lower_block(else_block, slots, current_function, item_slot)?);
-                if let Some(condition) = self.lower_bool_expr_candidate(&condition) {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::IfBool {
-                            branches: vec![(condition, vec![])],
-                            else_body
-                        }
-                    ))
-                } else {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::If {
-                            branches: vec![(condition, vec![])],
-                            else_body
-                        }
-                    ))
-                }
-            }
             ArenaStmtKind::Let {
                 target,
                 ty,
@@ -5904,51 +5860,6 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         span: self.program.arena.stmt(id).span,
                     }
                 ))
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt,
-                negate,
-                condition,
-            } => {
-                let mut condition =
-                    self.lower_expr(condition, slots, current_function, item_slot)?;
-                if negate {
-                    let false_value = push_build_row!(self, expr, BuildExprRow::Bool(false));
-                    condition = push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::IfExpr {
-                            branches: vec![(condition, false_value)],
-                            else_value: push_build_row!(self, expr, BuildExprRow::Bool(true)),
-                            span: self.program.arena.stmt(id).span,
-                        }
-                    );
-                }
-                let body = vec![self.lower_stmt_with_blocker_guard(
-                    stmt,
-                    slots,
-                    current_function,
-                    item_slot,
-                )?];
-                if let Some(condition) = self.lower_bool_expr_candidate(&condition) {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::IfBool {
-                            branches: vec![(condition, body)],
-                            else_body: None,
-                        }
-                    ))
-                } else {
-                    Some(push_build_row!(
-                        self,
-                        stmt,
-                        BuildStmtRow::If {
-                            branches: vec![(condition, body)],
-                            else_body: None,
-                        }
-                    ))
-                }
             }
             ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(push_build_row!(
                 self,

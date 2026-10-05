@@ -49,12 +49,6 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
     match arena.arena.stmt(id).kind {
         ArenaStmtKind::Sugar { expansion, .. } => stmt_always_returns_arena(arena, expansion),
         ArenaStmtKind::Return(_) => true,
-        ArenaStmtKind::BooleanGuard {
-            condition,
-            else_block,
-        } if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(false)) => {
-            block_always_returns_arena(arena, else_block)
-        }
         ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
             ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),
             _ => false,
@@ -68,6 +62,13 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
                 .arena
                 .if_branches(branches)
                 .iter()
+                // A branch whose condition is the literal `false` never runs.
+                .filter(|branch| {
+                    !matches!(
+                        arena.arena.expr(branch.condition).kind,
+                        ArenaExprKind::Bool(false)
+                    )
+                })
                 .all(|branch| block_always_returns_arena(arena, branch.block))
                 && block_always_returns_arena(arena, else_block)
         }
@@ -83,6 +84,43 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
         }
         _ => false,
     }
+}
+
+/// Whether a tail `if` can supply its block's value: some branch ends in a
+/// statement that has one. An `if` whose branches all end in a control
+/// transfer, a binding, or nothing completes as a statement wherever it
+/// stands, so `if done { return x }` may end a block that has no value.
+pub(super) fn if_stmt_may_produce_value(arena: &ArenaProgram, id: StmtId) -> bool {
+    let ArenaStmtKind::If {
+        branches,
+        else_block,
+    } = arena.arena.stmt(id).kind
+    else {
+        return false;
+    };
+    let ends_in_value = |block: BlockId| {
+        arena
+            .arena
+            .stmt_ids(arena.arena.block(block).statements)
+            .last()
+            .is_some_and(|tail| {
+                let tail = arena.arena.core_stmt_id(tail);
+                match arena.arena.stmt(tail).kind {
+                    ArenaStmtKind::Expr(_)
+                    | ArenaStmtKind::Command(_)
+                    | ArenaStmtKind::TailBareIdent(_)
+                    | ArenaStmtKind::Match { .. } => true,
+                    ArenaStmtKind::If { .. } => if_stmt_may_produce_value(arena, tail),
+                    _ => false,
+                }
+            })
+    };
+    arena
+        .arena
+        .if_branches(branches)
+        .iter()
+        .any(|branch| ends_in_value(branch.block))
+        || else_block.is_some_and(ends_in_value)
 }
 
 /// Returns true if the block contains any `break` or `return` statement that
@@ -129,18 +167,12 @@ pub(super) fn stmt_has_exit_point_arena(arena: &ArenaProgram, id: StmtId) -> boo
             block_has_exit_point_arena(arena, *body)
                 || block_has_exit_point_arena(arena, *else_block)
         }
-        ArenaStmtKind::Guard { else_block, .. }
-        | ArenaStmtKind::BooleanGuard { else_block, .. } => {
-            block_has_exit_point_arena(arena, *else_block)
-        }
+        ArenaStmtKind::Guard { else_block, .. } => block_has_exit_point_arena(arena, *else_block),
         ArenaStmtKind::Expr(expr) => match arena.arena.expr(*expr).kind {
             ArenaExprKind::ErrorContext { block, .. } => block_has_exit_point_arena(arena, block),
             _ => false,
         },
-        ArenaStmtKind::GuardedStmt { stmt: inner, .. }
-        | ArenaStmtKind::Sugar {
-            expansion: inner, ..
-        } => stmt_has_exit_point_arena(arena, *inner),
+        ArenaStmtKind::Sugar { expansion, .. } => stmt_has_exit_point_arena(arena, *expansion),
         _ => false,
     }
 }
@@ -628,30 +660,6 @@ impl Checker {
             ArenaStmtKind::Sugar { expansion, .. } => {
                 self.check_stmt_arena(arena, source, expansion);
             }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                let narrowings = self.check_condition_arena(
-                    arena,
-                    source,
-                    condition,
-                    DiagnosticCode::CheckGuardCondition,
-                );
-                let success_scopes = self.scopes.clone();
-                self.push_scope();
-                self.apply_narrowings(&narrowings.when_false);
-                self.check_block_arena(arena, source, else_block);
-                self.pop_scope();
-                if !self
-                    .definitely_exiting_block_spans
-                    .contains(&arena.arena.span(arena.arena.block(else_block).span))
-                {
-                    self.error(arena.arena.span(arena.arena.block(else_block).span), "guard failure branch must leave the enclosing continuation on every reachable path", DiagnosticCode::CheckGuardFallthrough);
-                }
-                self.scopes = success_scopes;
-                self.apply_narrowings(&narrowings.when_true);
-            }
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = arena.arena.use_stmt(use_id);
                 self.check_use_arena(
@@ -912,40 +920,6 @@ impl Checker {
                     else_block,
                     stmt.span,
                 );
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt: inner,
-                negate,
-                condition,
-            } => {
-                let narrowings = self.check_condition_arena(
-                    arena,
-                    source,
-                    condition,
-                    DiagnosticCode::CheckGuardedStmtCondition,
-                );
-                let continuing_scopes = self
-                    .stmt_definitely_exits_arena(arena, inner)
-                    .then(|| self.scopes.clone());
-                self.push_scope();
-                if negate {
-                    self.apply_narrowings(&narrowings.when_false);
-                } else {
-                    self.apply_narrowings(&narrowings.when_true);
-                }
-                self.check_stmt_arena(arena, source, inner);
-                self.pop_scope();
-                if let Some(scopes) = continuing_scopes {
-                    // An exiting payload cannot mutate bindings on the path
-                    // that skips it. That continuation retains the opposite
-                    // condition proof against the original lexical bindings.
-                    self.scopes = scopes;
-                    self.apply_narrowings(if negate {
-                        &narrowings.when_true
-                    } else {
-                        &narrowings.when_false
-                    });
-                }
             }
             ArenaStmtKind::Match { value, arms } => {
                 self.check_match_arena(arena, source, value, arms);
@@ -1275,6 +1249,7 @@ impl Checker {
         self.apply_narrowings(&previous_failure);
         if let Some(block) = else_block {
             self.check_block_arena(arena, source, block);
+            self.check_required_block_exit(arena, block);
             if !self
                 .definitely_exiting_block_spans
                 .contains(&arena.arena.span(arena.arena.block(block).span))
@@ -1353,6 +1328,19 @@ impl Checker {
             }
         }
         self.apply_narrowings(&facts);
+    }
+
+    /// Reports a block that an expansion requires to leave the enclosing
+    /// continuation (the failure block of `guard ... else`) when some path
+    /// through it falls through. Call it once the block has been checked.
+    fn check_required_block_exit(&mut self, arena: &ArenaProgram, block: BlockId) {
+        if arena.arena.block_must_exit(block) && !self.block_definitely_exits_arena(arena, block) {
+            self.error(
+                arena.arena.span(arena.arena.block(block).span),
+                "guard failure branch must leave the enclosing continuation on every reachable path",
+                DiagnosticCode::CheckGuardFallthrough,
+            );
+        }
     }
 
     fn check_while_arena(
@@ -1663,17 +1651,17 @@ impl Checker {
             .collect();
         let block_span = arena.arena.span(block.span);
         if let Some((&tail, non_tail)) = stmt_ids.split_last() {
-            let tail_producing = matches!(
-                arena.arena.stmt(tail).kind,
+            let tail_producing = match arena.arena.stmt(tail).kind {
                 ArenaStmtKind::Expr(_)
-                    | ArenaStmtKind::Command(_)
-                    | ArenaStmtKind::TailBareIdent(_)
-                    | ArenaStmtKind::Match { .. }
-                    | ArenaStmtKind::If { .. }
-                    | ArenaStmtKind::Return(_)
-                    | ArenaStmtKind::Break { .. }
-                    | ArenaStmtKind::Continue
-            );
+                | ArenaStmtKind::Command(_)
+                | ArenaStmtKind::TailBareIdent(_)
+                | ArenaStmtKind::Match { .. }
+                | ArenaStmtKind::Return(_)
+                | ArenaStmtKind::Break { .. }
+                | ArenaStmtKind::Continue => true,
+                ArenaStmtKind::If { .. } => if_stmt_may_produce_value(arena, tail),
+                _ => false,
+            };
             let checked_stmts: &[StmtId] = if tail_producing { non_tail } else { &stmt_ids };
             for &stmt_id in checked_stmts {
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
@@ -2987,12 +2975,6 @@ impl Checker {
                 self.block_definitely_exits_arena(arena, body)
                     && self.block_definitely_exits_arena(arena, else_block)
             }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(false)) => {
-                self.block_definitely_exits_arena(arena, else_block)
-            }
             ArenaStmtKind::Loop { block } => !block_has_exit_point_arena(arena, block),
             ArenaStmtKind::While { condition, block }
                 if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(true)) =>
@@ -3064,17 +3046,20 @@ impl Checker {
             .collect();
         let previous_reachable = self.inference_reachable;
         let result = if let Some((&tail, non_tail)) = stmt_ids.split_last() {
-            let tail_producing = matches!(
-                arena.arena.stmt(tail).kind,
-                ArenaStmtKind::Expr(_)
-                    | ArenaStmtKind::Command(_)
-                    | ArenaStmtKind::TailBareIdent(_)
-                    | ArenaStmtKind::Match { .. }
-                    | ArenaStmtKind::If { .. }
-                    | ArenaStmtKind::Return(_)
-                    | ArenaStmtKind::Break { .. }
-                    | ArenaStmtKind::Continue
-            );
+            let valueless_if = matches!(arena.arena.stmt(tail).kind, ArenaStmtKind::If { .. })
+                && !if_stmt_may_produce_value(arena, tail);
+            let tail_producing = !valueless_if
+                && matches!(
+                    arena.arena.stmt(tail).kind,
+                    ArenaStmtKind::Expr(_)
+                        | ArenaStmtKind::Command(_)
+                        | ArenaStmtKind::TailBareIdent(_)
+                        | ArenaStmtKind::Match { .. }
+                        | ArenaStmtKind::If { .. }
+                        | ArenaStmtKind::Return(_)
+                        | ArenaStmtKind::Break { .. }
+                        | ArenaStmtKind::Continue
+                );
             for &stmt_id in non_tail {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
@@ -3094,6 +3079,8 @@ impl Checker {
                     }
                 }
                 ty
+            } else if valueless_if {
+                self.check_valueless_tail_if_arena(arena, source, tail)
             } else {
                 self.check_stmt_arena(arena, source, tail);
                 Type::Unit
@@ -3399,6 +3386,9 @@ impl Checker {
                 branches,
                 else_block,
             } => {
+                if !if_stmt_may_produce_value(arena, id) {
+                    return self.check_valueless_tail_if_arena(arena, source, id);
+                }
                 let infer_branches = self.inferred_returns.is_some() && expected.is_none();
                 let mut inferred = None;
                 for branch in arena.arena.if_branches(branches) {
@@ -3459,6 +3449,7 @@ impl Checker {
                             expected.or(inferred.as_ref())
                         },
                     );
+                    self.check_required_block_exit(arena, block);
                     self.pop_scope();
                     if !infer_branches {
                         self.check_unit_branch_completion(
@@ -3497,6 +3488,27 @@ impl Checker {
                 self.check_stmt_arena(arena, source, id);
                 Type::Unit
             }
+        }
+    }
+
+    /// Checks a tail `if` none of whose branches ends in a value. It runs as
+    /// a statement; the block it ends has no value when every path through
+    /// the `if` leaves, and completes with Unit otherwise.
+    fn check_valueless_tail_if_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        id: StmtId,
+    ) -> Type {
+        self.statement_positions.insert(
+            arena.arena.stmt(id).span,
+            super::StatementPosition::Statement,
+        );
+        self.check_stmt_arena(arena, source, id);
+        if self.stmt_definitely_exits_arena(arena, id) {
+            Type::Unknown
+        } else {
+            Type::Unit
         }
     }
 

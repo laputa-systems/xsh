@@ -46,7 +46,7 @@ use xsh::frontend::syntax::arena::{
     ArenaFmtPart, ArenaFunctionDef, ArenaMatchExprArm, ArenaModuleContractEntryKind,
     ArenaPatternKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgram, ArenaRange,
     ArenaRecordField, ArenaRecordFieldKind, ArenaRedirection, ArenaRedirectionTarget,
-    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprTag,
+    ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage, ArenaSugarOperand, ArenaTypeDefBody, ArenaTypeExprTag, SugarForm,
     ArenaWordPart, AssignTargetId, AstArena, BindingTargetId, BlockId, BuilderBlockId,
     CommandStmtId, ExprId, FunctionDefId, PatternId, RunFormId, StmtId, TypeExprId,
 };
@@ -956,9 +956,7 @@ impl<'a> Linter<'a> {
 
     fn collect_assigned_names_stmt(&mut self, stmt_id: StmtId) {
         match self.arena.stmt(stmt_id).kind {
-            ArenaStmtKind::Export(inner) | ArenaStmtKind::GuardedStmt { stmt: inner, .. } => {
-                self.collect_assigned_names_stmt(inner)
-            }
+            ArenaStmtKind::Export(inner) => self.collect_assigned_names_stmt(inner),
             ArenaStmtKind::Assign { target, .. } => self.collect_assigned_names_target(target),
             ArenaStmtKind::ProcDef(def)
             | ArenaStmtKind::CliMain(def)
@@ -998,8 +996,7 @@ impl<'a> Linter<'a> {
                 self.collect_assigned_names_block(body);
                 self.collect_assigned_names_block(else_block);
             }
-            ArenaStmtKind::Guard { else_block, .. }
-            | ArenaStmtKind::BooleanGuard { else_block, .. } => {
+            ArenaStmtKind::Guard { else_block, .. } => {
                 self.collect_assigned_names_block(else_block);
             }
             ArenaStmtKind::Match { arms, .. } => {
@@ -1530,12 +1527,17 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Continue => {}
             ArenaStmtKind::Loop { block } => self.lint_block(block),
-            ArenaStmtKind::Sugar { operands, .. } => {
+            ArenaStmtKind::Sugar { form, operands, .. } => {
+                let guarded = matches!(form, SugarForm::When | SugarForm::Unless);
                 for operand in self.arena.sugar_operands(operands).to_vec() {
                     match operand {
                         ArenaSugarOperand::Expr(expr) => self.lint_expr(expr),
                         ArenaSugarOperand::Block(block) => self.lint_block(block),
-                        ArenaSugarOperand::Stmt(stmt) => self.lint_stmt(stmt, false),
+                        ArenaSugarOperand::Stmt(stmt) => {
+                            self.guarded_statement_depth += usize::from(guarded);
+                            self.lint_stmt(stmt, false);
+                            self.guarded_statement_depth -= usize::from(guarded);
+                        }
                         _ => {}
                     }
                 }
@@ -1550,28 +1552,11 @@ impl<'a> Linter<'a> {
                 self.define_binding_target(target, stmt.span, true);
                 self.lint_block(else_block);
             }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                self.lint_expr(condition);
-                self.lint_block(else_block);
-            }
             ArenaStmtKind::Assert { condition, message } => {
                 self.lint_expr(condition);
                 if let Some(message) = message {
                     self.lint_expr(message);
                 }
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt: inner,
-                condition,
-                ..
-            } => {
-                self.lint_expr(condition);
-                self.guarded_statement_depth += 1;
-                self.lint_stmt(inner, false);
-                self.guarded_statement_depth -= 1;
             }
             ArenaStmtKind::Match { value, arms } => {
                 self.lint_adjacent_pattern_arms(
@@ -10599,17 +10584,9 @@ fn lazy_visit_stmt(
             lazy_visit_expr_or_run(arena, &initializer, out);
             lazy_visit_block(arena, else_block, out);
         }
-        ArenaStmtKind::BooleanGuard { condition, else_block } => {
-            lazy_visit_expr(arena, condition, out);
-            lazy_visit_block(arena, else_block, out);
-        }
         ArenaStmtKind::Assert { condition, message } => {
             lazy_visit_expr(arena, condition, out);
             if let Some(message) = message { lazy_visit_expr(arena, message, out); }
-        }
-        ArenaStmtKind::GuardedStmt { stmt, condition, .. } => {
-            lazy_visit_expr(arena, condition, out);
-            lazy_visit_stmt(arena, stmt, out);
         }
         ArenaStmtKind::With { bindings, body, else_block, .. } => {
             for binding in arena.with_bindings(bindings).to_vec() {
@@ -11140,13 +11117,8 @@ fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::
                 ArenaSugarOperand::Stmt(stmt) => stmt_pushes_to(arena, stmt, name),
                 _ => false,
             }),
-        ArenaStmtKind::Guard { else_block, .. }
-        | ArenaStmtKind::BooleanGuard { else_block, .. } => {
-            block_pushes_to(arena, else_block, name)
-        }
-        ArenaStmtKind::GuardedStmt { stmt, .. } | ArenaStmtKind::Export(stmt) => {
-            stmt_pushes_to(arena, stmt, name)
-        }
+        ArenaStmtKind::Guard { else_block, .. } => block_pushes_to(arena, else_block, name),
+        ArenaStmtKind::Export(stmt) => stmt_pushes_to(arena, stmt, name),
         ArenaStmtKind::With {
             body, else_block, ..
         } => block_pushes_to(arena, body, name) || block_pushes_to(arena, else_block, name),
@@ -11196,13 +11168,10 @@ fn stmt_assigns_non_push_to(
                 ArenaSugarOperand::Stmt(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
                 _ => false,
             }),
-        ArenaStmtKind::Guard { else_block, .. }
-        | ArenaStmtKind::BooleanGuard { else_block, .. } => {
+        ArenaStmtKind::Guard { else_block, .. } => {
             block_assigns_non_push_to(arena, else_block, name)
         }
-        ArenaStmtKind::GuardedStmt { stmt, .. } | ArenaStmtKind::Export(stmt) => {
-            stmt_assigns_non_push_to(arena, stmt, name)
-        }
+        ArenaStmtKind::Export(stmt) => stmt_assigns_non_push_to(arena, stmt, name),
         ArenaStmtKind::With {
             body, else_block, ..
         } => {
@@ -11945,22 +11914,9 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
             matches!(initializer, ArenaExprOrRun::Expr(expr) if expr_contains_read_text_lines_call(arena, expr))
                 || block_contains_read_text_lines_call(arena, else_block)
         }
-        ArenaStmtKind::BooleanGuard {
-            condition,
-            else_block,
-        } => {
-            expr_contains_read_text_lines_call(arena, condition)
-                || block_contains_read_text_lines_call(arena, else_block)
-        }
         ArenaStmtKind::Assert { condition, message } => {
             expr_contains_read_text_lines_call(arena, condition)
                 || message.is_some_and(|message| expr_contains_read_text_lines_call(arena, message))
-        }
-        ArenaStmtKind::GuardedStmt {
-            stmt, condition, ..
-        } => {
-            expr_contains_read_text_lines_call(arena, condition)
-                || stmt_contains_read_text_lines_call(arena, stmt)
         }
         ArenaStmtKind::With {
             bindings,
@@ -13556,24 +13512,11 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.pop_scope();
                 self.define_binding_target(target);
             }
-            ArenaStmtKind::BooleanGuard {
-                condition,
-                else_block,
-            } => {
-                self.scan_expr(condition);
-                self.scan_block(else_block);
-            }
             ArenaStmtKind::Assert { condition, message } => {
                 self.scan_expr(condition);
                 if let Some(message) = message {
                     self.scan_expr(message);
                 }
-            }
-            ArenaStmtKind::GuardedStmt {
-                stmt, condition, ..
-            } => {
-                self.scan_expr(condition);
-                self.scan_stmt(stmt);
             }
             ArenaStmtKind::Match { value, arms } => {
                 self.scan_expr(value);
@@ -14272,23 +14215,6 @@ fn stmt_flow(
             // A successful guard always continues after the statement.
             initializer.then(FlowSummary::fallthrough().union(else_flow))
         }
-        ArenaStmtKind::BooleanGuard {
-            condition,
-            else_block,
-        } => {
-            let condition_flow = expr_flow(arena, condition, terminating_call_spans);
-            match arena.expr(condition).kind {
-                ArenaExprKind::Bool(true) => condition_flow,
-                ArenaExprKind::Bool(false) => {
-                    condition_flow.then(block_flow(arena, else_block, terminating_call_spans))
-                }
-                _ => condition_flow.then(FlowSummary::fallthrough().union(block_flow(
-                    arena,
-                    else_block,
-                    terminating_call_spans,
-                ))),
-            }
-        }
         ArenaStmtKind::Assert { condition, message } => {
             expr_flow(arena, condition, terminating_call_spans).then(
                 FlowSummary::fallthrough().union(match message {
@@ -14297,10 +14223,6 @@ fn stmt_flow(
                     None => FlowSummary::terminating(),
                 }),
             )
-        }
-        ArenaStmtKind::GuardedStmt { stmt, .. } => {
-            // When the guard is false, the inner statement is skipped.
-            FlowSummary::fallthrough().union(stmt_flow(arena, stmt, terminating_call_spans))
         }
         ArenaStmtKind::Break { value } => value
             .map(|value| expr_flow(arena, value, terminating_call_spans))

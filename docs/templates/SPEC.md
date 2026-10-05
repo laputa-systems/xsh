@@ -1078,7 +1078,10 @@ layers separately, as in `(text?.parse_int() ?? Ok(0))?`.
 needs an `else`; a value `match` must be exhaustive without relying on guards.
 Branches may contain statements followed by a tail value, and all reachable
 branch values must have one type. A branch that returns, breaks, or fails
-contributes no value.
+contributes no value. An `if` statement none of whose branches ends in a value
+(each ends in a control transfer, a binding, or nothing) is a statement even
+as the last statement of a block: it needs no `else` and gives the block no
+value, so `if done { return x }` may end a block.
 
 ```xsh
 {{.spec.conditional_expressions.source}}
@@ -1308,20 +1311,62 @@ on the same line, its count is followed by the word `times` directly before
 {{.spec.guard_modifiers.source}}
 ```
 
-The condition runs first and the payload runs only if selected. A guarded
-statement can fall through, so it does not end a block, but when its payload
-leaves the block the following statements may rely on the opposite of the
-condition. Group a run payload: `return (run.status make) when ready`; without
-parentheses `when ready` would become argv words.
+Both are sugar, defined by their expansions. `statement when cond`:
+
+```xsh
+{{.spec.when.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.when_expansion.source}}
+```
+
+and `statement unless cond`:
+
+```xsh
+{{.spec.unless.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.unless_expansion.source}}
+```
+
+So the condition runs first and the payload runs only if selected, the
+condition is a `Bool` or a `Status` and is never negated, and its diagnostics
+are those of an `if` condition (`check.if-condition`). A guarded statement can
+fall through, so it does not end a block, but when its payload leaves the
+block the following statements may rely on the opposite of the condition, as
+after the `if`. Group a run payload: `return (run.status make) when ready`;
+without parentheses `when ready` would become argv words.
 
 `guard cond else { ... }` continues when `cond` holds and otherwise runs the
-block, which must leave the enclosing continuation on every path (by `return`,
-`break`, `continue`, or a terminating call such as `abort`). A fallible call is
-not termination. The block takes no parameter and creates no boundary.
+block. It is sugar too:
+
+```xsh
+{{.spec.guard_else.source}}
+```
+
+means exactly
+
+```xsh
+{{.spec.guard_else_expansion.source}}
+```
+
+with one rule the `if` does not have: the block must leave the enclosing
+continuation on every path (by `return`, `break`, `continue`, or a terminating
+call such as `abort`), or the checker reports `check.guard-fallthrough`. A
+fallible call is not termination. The block takes no parameter and creates no
+boundary.
 
 `guard let target = expr else { |failure| ... }` binds the `Ok` payload of a
 `Result` (with an optional type annotation) and otherwise runs the block with
-the error. Inside a loop the block may `break` or `continue`.
+the error. Inside a loop the block may `break` or `continue`. It is a core
+form, not sugar: its binding belongs to the enclosing block, and no other
+statement binds a name there from inside a branch.
 
 `if let pattern = subject` and `while let pattern = subject` test a pattern.
 They do not unwrap `Result` or optional values implicitly: write
