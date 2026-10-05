@@ -3,8 +3,8 @@
 use crate::modules::process::{list_processes, signal_info};
 use crate::runtime::cgroup::{CgroupError, CgroupScope};
 use crate::runtime::process::{
-    ProcessInvocation, ProcessSegmentStatus, ProcessSegmentStatusKind, ProcessStatus,
-    resolve_executable,
+    ProcessInvocation, ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind,
+    ProcessStatus, RedirectionStream, apply_redirections, resolve_executable, validate_input_sources,
 };
 use crate::runtime::value::{LiveStream, RuntimeError, StreamValue, Value};
 use crate::source::Span;
@@ -12,7 +12,7 @@ use rustix::fd::BorrowedFd;
 use rustix::{fs as rfs, io as rio, pipe as rpipe, process as rprocess, stdio, termios};
 use std::ffi::{CString, OsString};
 use std::fs::File;
-use std::io;
+use std::io::{self, Seek, Write};
 use std::num::NonZeroI32;
 use std::os::fd::{AsRawFd, IntoRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -23,12 +23,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+mod process;
 mod sessions;
 mod tty;
 
-/// Whether `op` is a typed terminal or session primitive from the submodules.
+/// Whether `op` is a typed Unix primitive from the submodules.
 pub(crate) fn is_prim(op: crate::modules::RuntimeOp) -> bool {
-    tty::handles(op) || sessions::handles(op)
+    tty::handles(op) || sessions::handles(op) || process::handles(op)
 }
 
 pub(crate) fn prim_call(
@@ -37,8 +38,10 @@ pub(crate) fn prim_call(
 ) -> Result<Value, RuntimeError> {
     if tty::handles(op) {
         tty::call(op, args)
-    } else {
+    } else if sessions::handles(op) {
         sessions::call(op, args)
+    } else {
+        process::call(op, args)
     }
 }
 
@@ -426,8 +429,46 @@ pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, 
         Ok(command) => command,
         Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
     };
+    if let Err(error) = exec_redirections(&mut command, invocation, span) {
+        return Ok(Value::err(Value::Error(Box::new(error))));
+    }
     let error = command.exec();
     Ok(io_error("unix-exec", error, span))
+}
+
+// Exec replaces every thread, so bytes input cannot be fed by the usual
+// writer thread. An anonymous file owns all input before the image changes.
+fn exec_redirections(
+    command: &mut Command,
+    invocation: &ProcessInvocation,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let map_error = |error: crate::runtime::value::RunError| {
+        RuntimeError::new(error.kind, error.message).with_span(span)
+    };
+    validate_input_sources(&invocation.redirections).map_err(map_error)?;
+    let mut input = None;
+    let mut redirections = invocation.redirections.clone();
+    for redirection in &mut redirections {
+        if let ProcessRedirection::Input { bytes } = redirection {
+            let file = unsafe { libc::tmpfile() };
+            if file.is_null() {
+                return Err(RuntimeError::host("unix-exec", &io::Error::last_os_error()).with_span(span));
+            }
+            let fd = unsafe { libc::fileno(file) };
+            let owned = unsafe { rio::fcntl_dupfd_cloexec(BorrowedFd::borrow_raw(fd), 3) };
+            unsafe { libc::fclose(file) };
+            let owned = owned.map_err(|error| RuntimeError::host("unix-exec", &io::Error::from(error)).with_span(span))?;
+            let mut file = File::from(owned);
+            file.write_all(bytes).and_then(|()| file.rewind())
+                .map_err(|error| RuntimeError::host("unix-exec", &error).with_span(span))?;
+            *redirection = ProcessRedirection::Dup { stream: RedirectionStream::Stdin, fd: file.as_raw_fd() };
+            input = Some(file);
+        }
+    }
+    apply_redirections(command, &redirections).map_err(map_error)?;
+    drop(input);
+    Ok(())
 }
 
 pub(crate) fn set_hostname(hostname: &str, span: Span) -> Result<Value, RuntimeError> {

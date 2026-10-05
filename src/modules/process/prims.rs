@@ -69,6 +69,17 @@ impl<'a> Args<'a> {
         }
     }
 
+    pub(crate) fn ints(&self, index: usize) -> Result<Vec<i64>, RuntimeError> {
+        match self.get(index) {
+            Some(Value::List(values)) => values.iter().map(|value| match value {
+                Value::Int(value) => Ok(*value),
+                other => Err(self.type_error("Int", other)),
+            }).collect(),
+            Some(other) => Err(self.type_error("List[Int]", other)),
+            None => Err(self.missing()),
+        }
+    }
+
     pub(crate) fn int_or(&self, index: usize, default: i64) -> Result<i64, RuntimeError> {
         match self.get(index) {
             Some(Value::Int(value)) => Ok(*value),

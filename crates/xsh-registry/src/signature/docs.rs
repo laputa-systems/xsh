@@ -1366,8 +1366,28 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("unix", "exec") => Some((
             "Replaces the current Unix process with a typed command.",
-            "Successful execution does not return; setup and exec failures remain errors in the calling process.",
+            "Successful execution does not return. Command cwd, environment and ordered file or byte redirections are applied; descriptors without a redirection are inherited. Byte input is materialized before replacement. Setup and exec failures remain errors in the calling process.",
             &["unix", "process", "exec", "privileged"],
+        )),
+        ("unix", "redirect_fd") => Some((
+            "Replaces a current process descriptor with an opened path.",
+            "fd must be in 0..2147483647. Read mode never creates a file; write creates and truncates, or appends when append is true. append requires write. mode defaults to 438 (0666), must be in 0..4095, and is filtered by the process umask only on creation. The descriptor survives exec; write-only stdin refuses reads. This mutates process state beyond the current scope.",
+            &["unix", "descriptor", "process"],
+        )),
+        ("unix", "dup_fd") => Some((
+            "Duplicates a current process descriptor onto another descriptor.",
+            "source and target must be in 0..2147483647. Replaces target, shares the open file offset and clears close-on-exec even when source equals target. Invalid or closed descriptors remain host errors.",
+            &["unix", "descriptor", "process"],
+        )),
+        ("unix", "set_groups") => Some((
+            "Replaces the current process supplementary groups with explicit numeric IDs.",
+            "Every ID must be in 0..4294967294. An empty list clears supplementary groups. All IDs are validated before changing state; host permission failures remain errors. No account lookup or inherited-group default is applied.",
+            &["unix", "credentials", "privileged"],
+        )),
+        ("unix", "set_credentials") => Some((
+            "Changes current process credentials using explicit numeric UID, GID and supplementary groups.",
+            "uid, gid and groups require named arguments. All IDs must be in 0..4294967294 and are validated before mutation. Replaces supplementary groups first, then primary GID, then UID. Empty groups clears supplementary groups. A host failure can retain completed earlier changes; callers must abort after any error. No account lookup or inherited-group default is applied.",
+            &["unix", "credentials", "privileged"],
         )),
         ("unix", "set_hostname") => Some((
             "Changes the Unix host name.",
