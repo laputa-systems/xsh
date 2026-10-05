@@ -100,18 +100,22 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
     }
   }
   if source == "file" {
-    var contents = ""
+    if file != "-" and (fp"{file}".is_dir() ?? false) { gnu.error(f"expected file, got directory {gnu.quote(file)}"); exit 1 }
+    var contents = b""
     match gnu.read_operand(file) {
-      Ok(data) => {
-        match data.utf8() {
-          Ok(text) => contents = text
-          Err(failure) => { gnu.error("date input is not UTF-8"); exit 1 }
-        }
-      }
+      Ok(data) => contents = data
       Err(failure) => { gnu.name_error(file, failure); exit 1 }
     }
     var success = true
-    for line in contents.lines() { if ! emit_date(line, format, utc) { success = false } }
+    for raw_line in contents.lines() {
+      var end = 0
+      while end < raw_line.len() and raw_line.byte_at(end) != 0 { end += 1 }
+      let line = raw_line[0..end]
+      match line.utf8() {
+        Ok(text) => { if ! emit_date(text, format, utc) { success = false } }
+        Err(failure) => { gnu.error(f"invalid date {gnu.quote_value_bytes(line)}"); success = false }
+      }
+    }
     if ! success { exit 1 }
     return
   }
