@@ -1,44 +1,6 @@
 use super::common::*;
 
 #[test]
-fn xsht_lint_uses_nested_config_for_discovered_files() {
-    let parent = temp_path("lint-nested-config-parent");
-    let project = parent.join("project");
-    let lib = project.join("lib");
-    let app = project.join("app");
-    let ignored = project.join("ignored");
-    let _ = std::fs::remove_dir_all(&parent);
-    std::fs::create_dir_all(&lib).expect("create lib dir");
-    std::fs::create_dir_all(&app).expect("create app dir");
-    std::fs::create_dir_all(&ignored).expect("create ignored dir");
-    std::fs::write(
-        project.join("xsht-config.ini"),
-        "exclude = ignored/**\nmodule_path = lib\n",
-    )
-    .expect("write nested config");
-    std::fs::write(
-        lib.join("helper.xsh"),
-        "##! Nested config helper module.\n## Returns the configured helper value.\nexport pure value() -> Str {\n  \"ok\"\n}\n",
-    )
-    .expect("write helper module");
-    std::fs::write(app.join("main.xsh"), "use helper\nprint helper.value()\n")
-        .expect("write app script");
-    std::fs::write(ignored.join("bad.xsh"), "let =\n").expect("write ignored script");
-
-    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsht"))
-        .arg("lint")
-        .current_dir(&parent)
-        .output()
-        .expect("run xsht");
-
-    assert_ok(&output);
-    assert_eq!(stdout_text(&output), "");
-    assert_eq!(stderr_text(&output), "");
-
-    let _ = std::fs::remove_dir_all(parent);
-}
-
-#[test]
 fn xsht_test_uses_current_directory_as_default_module_path() {
     let root = temp_path("xsht-default-module-path");
     let _ = std::fs::remove_dir_all(&root);

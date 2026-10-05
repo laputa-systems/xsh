@@ -187,6 +187,25 @@ test test_lint_explicit_directory_lints_xsh_files { |ctx|
   assert linted.status.exited_with(0), linted.stderr
 }
 
+# A file found by discovery from a directory above its project is governed by
+# the project's config: the config's `exclude` drops it and its `module_path`
+# resolves its imports, exactly as when the command starts in the project.
+test test_lint_discovery_applies_the_nearest_config_of_each_file { |ctx|
+  let root = project(
+    ctx,
+    {
+      "project/xsht-config.ini": "exclude = ignored/**\nmodule_path = lib\n",
+      "project/lib/helper.xsh": "##! Nested config helper module.\n## Returns the configured helper value.\nexport pure value() -> Str {\n  \"ok\"\n}\n",
+      "project/app/main.xsh": "use helper\nprint helper.value()\n",
+      "project/ignored/bad.xsh": "let =\n",
+    },
+  )?
+  let linted = xsht(root, ["lint"])?
+  assert linted.status.exited_with(0), linted.stderr
+  assert linted.stdout == ""
+  assert diagnostics(linted.stderr) == ""
+}
+
 test test_lint_fix_deduplicates_diagnostics_from_imported_modules { |ctx|
   let entry = "use helper\nprint helper.exported\n"
   let root = project(ctx, {"helper.xsh": orphan_doc_helper, "first.xsh": entry, "second.xsh": entry})?

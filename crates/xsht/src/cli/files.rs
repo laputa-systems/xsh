@@ -186,8 +186,12 @@ pub(crate) fn is_path_excluded(root: &Path, path: &Path, excludes: &[String]) ->
         absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
         absolute.as_path()
     } else {
-        path
+        // Discovery from the current directory yields `./project/a.xsh` while
+        // a config below it is named `project`: both are compared without the
+        // leading `.`, or the config's patterns would never see the file.
+        Path::new(normalized)
     };
+    let root = root.strip_prefix(".").unwrap_or(root);
     let Ok(stripped) = path.strip_prefix(root) else {
         return false;
     };
