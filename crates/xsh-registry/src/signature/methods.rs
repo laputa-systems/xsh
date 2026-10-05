@@ -147,6 +147,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::PathEndsWith,
                 ),
                 method(
+                    "components",
+                    Vec::new(),
+                    Type::List(Box::new(Type::Path)),
+                    true,
+                    RuntimeOp::PathComponents,
+                ),
+                method(
                     "exists",
                     Vec::new(),
                     result(Type::Bool),

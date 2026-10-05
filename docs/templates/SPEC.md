@@ -493,10 +493,13 @@ with `txt`; an absolute suffix matches only an equal path;
 filesystem. Components are read as `strip_prefix` reads them (repeated
 separators, a trailing separator, and a `.` after the first component do not
 count; `..` is compared as written), and `p.starts_with(q)` is true exactly
-when `p.strip_prefix(q)` succeeds. `name()`, `ext()`, and `parent()` answer
-the remaining component questions. A text test on `.display()` is a different
+when `p.strip_prefix(q)` succeeds. `p.components()` is that same reading as
+a `List[Path]`, one path per component with its native bytes: `/usr//lib/`
+gives `/`, `usr`, `lib`, and the empty path gives an empty list. `name()`,
+`ext()`, and `parent()` answer the remaining component questions. A text test on `.display()` is a different
 question, one about bytes: `p.display().starts_with("/us")` is true for
-`/usr/lib`.
+`/usr/lib`, and `p.display().split("/")` yields text with an empty piece for
+the root and for each repeated separator.
 
 ```xsh
 {{.spec.path_queries.source}}

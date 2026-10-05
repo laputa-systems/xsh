@@ -1408,6 +1408,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Whole components are compared, never bytes: `a/b.txt` ends with `b.txt` and not with `txt`, and an absolute suffix matches only an equal path. Use ext for an extension test; lexical, with no filesystem access.",
             &["path", "component", "suffix"],
         )),
+        ("Path", "components") => Some((
+            "Splits a path into its components, each a Path.",
+            "The components starts_with, ends_with, and strip_prefix compare: a root is the component `/`, repeated and trailing separators and a `.` after the first component yield nothing, `..` is kept, and the empty path has none. Native bytes are preserved; lexical, with no filesystem access.",
+            &["path", "component", "split"],
+        )),
         ("Path", "with_ext") => Some((
             "Replaces a path extension.",
             "The operation changes spelling only and does not rename or touch the filesystem path.",

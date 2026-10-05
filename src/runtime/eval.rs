@@ -2924,6 +2924,7 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "read_lines",
     "glob",
     "rglob",
+    "components",
     "wait",
     "cancel",
     "context",

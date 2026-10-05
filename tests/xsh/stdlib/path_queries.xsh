@@ -114,3 +114,29 @@ false false false
   assert repeated.status.exited_with(0)
   assert "lint.path-text-query" not in repeated.stderr
 }
+
+test test_path_components_split_as_the_component_queries_read {
+  assert p"/usr/lib/libz.so".components() == [/, p"usr", p"lib", p"libz.so"]
+  assert p"usr/lib".components() == [p"usr", p"lib"]
+  assert p"/".components() == [/]
+  assert p"".components() == []
+
+  # Repeated and trailing separators and an inner `.` are not components.
+  assert p"/usr//lib/".components() == [/, p"usr", p"lib"]
+  assert p"a/./b".components() == [p"a", p"b"]
+  assert p"./a/../b".components() == [p".", p"a", p"..", p"b"]
+
+  # Text splitting answers a different question.
+  assert p"/usr//lib/".display().split("/") == ["", "usr", "", "lib", ""]
+
+  # A leading run of the components is exactly a component prefix.
+  let whole = /srv/data/set/a.bin
+  let parts = whole.components()
+  assert whole.starts_with(fp"{parts[0]}{parts[1]}/{parts[2]}")
+  assert parts[parts.len() - 1].display() == whole.name()
+
+  # Each component keeps its native bytes.
+  let raw = Path.parse_bytes(b"dir/bad\xffname")?
+  assert raw.components() == [p"dir", Path.parse_bytes(b"bad\xffname")?]
+  assert raw.components()[1] != Path.parse_bytes(b"bad\xfename")?
+}

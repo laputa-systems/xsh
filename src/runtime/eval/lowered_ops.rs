@@ -2114,6 +2114,17 @@ pub(super) fn lowered_path_method_value(
         "starts_with" | "ends_with" if args.len() == 1 => {
             path_component_predicate(&path, name, &args[0], span).map(LoweredValue::Bool)
         }
+        // The same split `path_component_predicate` compares, so a prefix
+        // test and a prefix of this list cannot disagree.
+        "components" if args.is_empty() => pathbuf_from_path_value(&path)
+            .components()
+            .map(|component| {
+                let bytes = std::os::unix::ffi::OsStrExt::as_bytes(component.as_os_str());
+                PathValue::new(bytes.to_vec()).map(LoweredValue::Path)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(LoweredValue::List)
+            .map_err(|error| error.with_span(span)),
         "display" if args.is_empty() => Ok(LoweredValue::Str(path.display().into())),
         "name" if args.is_empty() => path_text_field(&path, "name")
             .map(|value| LoweredValue::Str(value.into()))
