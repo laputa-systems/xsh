@@ -4703,6 +4703,24 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::FsIsDir | RuntimeOp::FsIsFile | RuntimeOp::FsIsSymlink
+                if values.len() == 1 =>
+            {
+                let (operation, kind) = match op {
+                    RuntimeOp::FsIsDir => ("Path.is_dir", fs_module::PathKind::Dir),
+                    RuntimeOp::FsIsFile => ("Path.is_file", fs_module::PathKind::File),
+                    _ => ("Path.is_symlink", fs_module::PathKind::Symlink),
+                };
+                let path = lowered_path_arg(
+                    values.pop().expect("checked value length"),
+                    operation,
+                    span,
+                )?;
+                match fs_module::path_is_kind(self.host_path(&path), kind, span) {
+                    Ok(found) => lowered_result_ok(LoweredValue::Bool(found)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::FsExecutable if values.len() == 1 => {
                 match values.pop().expect("checked value length") {
                     LoweredValue::Path(path) => {

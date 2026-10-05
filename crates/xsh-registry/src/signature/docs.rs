@@ -1433,6 +1433,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The result describes the host at lookup time; permission and other lookup failures remain errors.",
             &["path", "filesystem", "metadata"],
         )),
+        ("Path", "is_dir" | "is_file" | "is_symlink") => Some((
+            "Tests what kind of filesystem entry a path is.",
+            "The answer is the kind metadata reports for the path itself: a symbolic link in the last component is not followed, so only is_symlink is true for a link. A path that does not exist is an error, as it is for metadata.",
+            &["path", "filesystem", "metadata", "kind"],
+        )),
         ("Path", "du") => Some((
             "Calculates disk usage for a path.",
             "The count follows host allocation semantics rather than only logical file length.",

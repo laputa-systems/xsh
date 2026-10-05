@@ -81,6 +81,9 @@ mod lint_write_mode;
 #[path = "lint_prefer_fail.rs"]
 mod lint_prefer_fail;
 
+#[path = "lint_path_kind.rs"]
+mod lint_path_kind;
+
 #[cfg(test)]
 #[path = "lint_literal_migration_tests.rs"]
 mod literal_migration_tests;
@@ -10626,6 +10629,15 @@ impl<'a> Linter<'a> {
             expr,
         );
         self.diagnostics.extend(search_paths);
+        let fs_is_shadowed = self.scopes.iter().any(|scope| scope.contains_key("fs"));
+        let kind = lint_path_kind::path_kind_comparison(
+            self.arena,
+            self.source,
+            &self.expr_types,
+            fs_is_shadowed,
+            expr,
+        );
+        self.diagnostics.extend(kind);
     }
 
     fn lint_redundant_named_bool(

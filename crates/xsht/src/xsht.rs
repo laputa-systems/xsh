@@ -55,3 +55,7 @@ pub(crate) mod test {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "path_method_lowering_tests.rs"]
+mod path_method_lowering_tests;

@@ -364,6 +364,27 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     false,
                     RuntimeOp::FsRglob,
                 ),
+                method(
+                    "is_dir",
+                    Vec::new(),
+                    result(Type::Bool),
+                    false,
+                    RuntimeOp::FsIsDir,
+                ),
+                method(
+                    "is_file",
+                    Vec::new(),
+                    result(Type::Bool),
+                    false,
+                    RuntimeOp::FsIsFile,
+                ),
+                method(
+                    "is_symlink",
+                    Vec::new(),
+                    result(Type::Bool),
+                    false,
+                    RuntimeOp::FsIsSymlink,
+                ),
             ]),
         },
         MethodReceiverSig {

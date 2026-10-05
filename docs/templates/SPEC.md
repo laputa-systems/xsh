@@ -2853,6 +2853,22 @@ Contracts worth knowing without consulting the reference:
 {{.spec.path_glob.source}}
 ```
 
+- `Path.is_dir()`, `Path.is_file()`, and `Path.is_symlink()` each return
+  `Result[Bool]` and ask what the path itself is:
+
+  ```xsh
+  {{.spec.path_kind.source}}
+  ```
+
+  `p.is_dir()` is exactly `p.metadata()?.kind == "dir"`, and likewise for
+  `"file"` and `"symlink"`, without building the entry. None of them follows
+  a symbolic link in the last component: for a link `is_symlink` is `true`
+  and the other two are `false`, whatever the link names. A path that does
+  not exist is an error (`fs-metadata`), as it is for `metadata`, not
+  `false`; ask `exists()` first where absence is expected. Every other kind
+  of entry (a socket, a device) is `false` for all three.
+  `lint.prefer-path-kind` rewrites the comparison, and `!=` to the negated
+  call.
 - `Path.write(data, mode: M)` and `fs.write(path, data, mode: M)` write a
   file whose permission bits are exactly `M` (`0` through `0o7777`), as
   `chmod` would set them, before any of the data is in it:

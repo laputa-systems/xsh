@@ -1213,6 +1213,32 @@ fn metadata_unnamed(path: PathBuf, span: Span) -> Result<Value, RuntimeError> {
     fs_entry_record(&path, &metadata).map_err(|error| error.with_span(span))
 }
 
+/// The kinds a path can be asked about directly.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PathKind {
+    Dir,
+    File,
+    Symlink,
+}
+
+/// Whether the path itself is of the kind: the answer `metadata` gives in
+/// its `kind` field, from the same lookup and with the same failure, so a
+/// symlink is not followed and a missing path is an error.
+pub(crate) fn path_is_kind(path: PathBuf, kind: PathKind, span: Span) -> Result<bool, RuntimeError> {
+    let shown = path.display().to_string();
+    let found = std::fs::symlink_metadata(&path)
+        .map(|metadata| {
+            let file_type = metadata.file_type();
+            match kind {
+                PathKind::Dir => file_type.is_dir(),
+                PathKind::File => file_type.is_file(),
+                PathKind::Symlink => file_type.is_symlink(),
+            }
+        })
+        .map_err(|error| RuntimeError::host("fs-metadata", &error).with_span(span));
+    name_error_path(&shown, found)
+}
+
 /// A `cd` target follows symlinks, unlike the public `fs.metadata` entry.
 pub(crate) fn cd_target_is_dir(path: &Path) -> std::io::Result<bool> {
     std::fs::metadata(path).map(|metadata| metadata.is_dir())

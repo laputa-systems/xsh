@@ -449,6 +449,9 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsProjectRoot
             | RuntimeOp::FsUserRoot
             | RuntimeOp::FsGitroot
+            | RuntimeOp::FsIsDir
+            | RuntimeOp::FsIsFile
+            | RuntimeOp::FsIsSymlink
             | RuntimeOp::GroupCurrent
             | RuntimeOp::GroupLookup
             | RuntimeOp::GroupByGid
@@ -9061,6 +9064,25 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         Some((checked.get("data")?, checked.get("mode")?))
     }
 
+    /// The module operation a checked `Path` method runs as when it has no
+    /// lowering of its own, with its operands after the receiver in parameter
+    /// order. The registry gives such a method the operation of the function
+    /// that takes the path first, so a method added there needs only that
+    /// operation to be executable.
+    fn path_method_module_operands(
+        &self,
+        call: ExprId,
+        name: Name,
+        args: &[ArenaCallArg],
+    ) -> Option<(RuntimeOp, Vec<Option<ExprId>>)> {
+        if lowered_method_name(&name.as_str()) {
+            return None;
+        }
+        let checked = self.checked_path_method_arguments(call, args)?;
+        let op = checked.sig.op;
+        lowered_module_op_supported(op).then(|| (op, checked.ordered()))
+    }
+
     fn checked_api_arguments(
         &self,
         call: ExprId,
@@ -10425,6 +10447,34 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             }
                         ));
                     }
+                    if let Some((op, operands)) = self.path_method_module_operands(id, name, &args_vec)
+                    {
+                        let mut args = vec![Some(self.lower_expr(base, slots, current_function, item_slot)?)];
+                        for operand in operands {
+                            args.push(match operand {
+                                Some(operand) => {
+                                    Some(self.lower_expr(operand, slots, current_function, item_slot)?)
+                                }
+                                None => None,
+                            });
+                        }
+                        return Some(push_build_row!(
+                            self,
+                            expr,
+                            BuildExprRow::ModuleCall {
+                                cli_plan: None,
+                                op,
+                                args,
+                                span,
+                            }
+                        ));
+                    }
+                    // A checked `Path` method that reaches here has no route. A
+                    // dynamic call would find no such method at run time, so
+                    // the call is refused now.
+                    if self.checked_path_method_arguments(id, &args_vec).is_some() {
+                        return None;
+                    }
                     let args =
                         self.lower_call_args(&args_vec, slots, current_function, item_slot)?;
                     return Some(push_build_row!(
@@ -10788,6 +10838,40 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                             span,
                         }
                     ));
+                }
+                if let Some((op, operands)) = self.path_method_module_operands(id, name, &args_vec)
+                {
+                    let mut args = vec![Some(self.lower_postfix_receiver(
+                        base,
+                        slots,
+                        current_function,
+                        item_slot,
+                    )?)];
+                    for operand in operands {
+                        args.push(match operand {
+                            Some(operand) => {
+                                Some(self.lower_expr(operand, slots, current_function, item_slot)?)
+                            }
+                            None => None,
+                        });
+                    }
+                    return Some(push_build_row!(
+                        self,
+                        expr,
+                        BuildExprRow::ModuleCall {
+                            cli_plan: None,
+                            op,
+                            args,
+                            span,
+                        }
+                    ));
+                }
+                // A checked `Path` method without a route is refused here
+                // too, instead of becoming a dynamic call that fails when run.
+                if !lowered_method_name(&name.as_str())
+                    && self.checked_path_method_arguments(id, &args_vec).is_some()
+                {
+                    return None;
                 }
                 let method_args = self.checked_method_call_args(id, &args_vec).or_else(|| {
                     positional_call_args(&args_vec)
