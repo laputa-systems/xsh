@@ -63,6 +63,9 @@ pub(super) enum TypeTag {
     // A base type narrowed by a validation. `lhs` is the base type id and
     // `rhs` the validation's code.
     Validated,
+    // A nominal record type. `lhs` is the id of the record type it is the
+    // identity of and `rhs` the symbol of the declaration's name.
+    Nominal,
 }
 
 impl TypeTag {
@@ -443,6 +446,13 @@ impl SemanticPools {
                     })?,
                 ))
             }
+            TypeTag::Nominal => Type::Validated(Box::new(
+                ValidatedType::new(
+                    Validation::Nominal(Name::from_symbol(Symbol::from_raw(data.rhs))),
+                    child(data.lhs)?,
+                )
+                .map_err(|_| IrVerifyError::new("nominal type is not over a record type"))?,
+            )),
             TypeTag::Union => Type::Union(
                 self.union_members(id)?
                     .iter()
@@ -585,7 +595,9 @@ impl SemanticPools {
                 Name::from_symbol(Symbol::from_raw(data.lhs)),
                 Name::from_symbol(Symbol::from_raw(data.rhs))
             )),
-            TypeTag::Validated => Ok(self.to_type_inner(id, depth)?.to_string()),
+            TypeTag::Validated | TypeTag::Nominal => {
+                Ok(self.to_type_inner(id, depth)?.to_string())
+            }
             TypeTag::Union => {
                 let mut members = Vec::new();
                 for raw in self.union_members(id)? {
@@ -725,6 +737,17 @@ impl SemanticPools {
                     let id =
                         TypeId::new(index).map_err(|_| IrVerifyError::new("type id overflows"))?;
                     self.to_type(id)?;
+                }
+                // A nominal type is stored as the record it names, so its
+                // base is a record type and nothing else; the runtime reads
+                // a value of the type through that record's shape.
+                TypeTag::Nominal => {
+                    let base = verify_type_raw(self, data.lhs, Some(index))?;
+                    if self.type_tags[base.index()] != TypeTag::Record {
+                        return Err(IrVerifyError::new(
+                            "nominal type is not over a record type",
+                        ));
+                    }
                 }
                 // The checker never publishes a union it would have to
                 // simplify, and the runtime tries members in order, so a
@@ -889,6 +912,8 @@ enum TypeKey {
     Callable(TypeTag, SignatureId),
     /// A validation code and the base type it narrows.
     Validated(u32, TypeId),
+    /// A nominal declaration's name and the record type it names.
+    Nominal(Name, TypeId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -1105,12 +1130,23 @@ impl SemanticPoolBuilder {
             }
             Type::Validated(validated) => {
                 let base = self.intern_type(pools, validated.base())?;
-                let code = validated.validation().code();
-                (
-                    TypeKey::Validated(code, base),
-                    IrData::new(base.raw(), code),
-                    Vec::new(),
-                )
+                match validated.validation() {
+                    Validation::Nominal(name) => (
+                        TypeKey::Nominal(name, base),
+                        IrData::new(base.raw(), name.symbol().raw()),
+                        Vec::new(),
+                    ),
+                    validation => {
+                        let code = validation
+                            .code()
+                            .expect("a validation without a name has a code");
+                        (
+                            TypeKey::Validated(code, base),
+                            IrData::new(base.raw(), code),
+                            Vec::new(),
+                        )
+                    }
+                }
             }
             Type::Callable(callable) => {
                 let signature = self.intern_signature(pools, &callable.sig)?;
@@ -1140,6 +1176,7 @@ impl SemanticPoolBuilder {
             TypeKey::Union(_) => TypeTag::Union,
             TypeKey::Callable(tag, _) => *tag,
             TypeKey::Validated(_, _) => TypeTag::Validated,
+            TypeKey::Nominal(_, _) => TypeTag::Nominal,
         };
         pools.type_tags.push(tag);
         pools.type_data.push(data);
@@ -1589,8 +1626,78 @@ mod tests {
         assert_eq!(pools.display_type(rel_id).unwrap(), "RelPath");
         assert_ne!(rel_id, builder.intern_type(&mut pools, &Type::Path).unwrap());
         let mut swapped = pools.clone();
-        swapped.type_data[rel_id.index()].rhs = Validation::NonEmpty.code();
+        swapped.type_data[rel_id.index()].rhs = Validation::NonEmpty.code().unwrap();
         assert!(swapped.verify().is_err());
+    }
+
+    // A nominal type's row names its declaration and the record type it is
+    // the identity of. Two declarations over one record are two types, and
+    // neither is the record.
+    #[test]
+    fn nominal_types_round_trip_and_reject_corruption() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut pools = SemanticPools::default();
+            let mut builder = SemanticPoolBuilder::default();
+            let record = Type::Record(
+                [(Name::intern("id"), Type::Str), (Name::intern("version"), Type::Str)]
+                    .into_iter()
+                    .collect(),
+            );
+            let package = Type::nominal(Name::intern("Package"), record.clone()).unwrap();
+            let release = Type::nominal(Name::intern("Release"), record.clone()).unwrap();
+            let text = builder.intern_type(&mut pools, &Type::Str).unwrap();
+            let list = builder
+                .intern_type(&mut pools, &Type::List(Box::new(Type::Str)))
+                .unwrap();
+            let record_id = builder.intern_type(&mut pools, &record).unwrap();
+            let package_id = builder.intern_type(&mut pools, &package).unwrap();
+            let release_id = builder.intern_type(&mut pools, &release).unwrap();
+            assert_ne!(package_id, record_id);
+            assert_ne!(package_id, release_id);
+            assert_eq!(builder.intern_type(&mut pools, &package).unwrap(), package_id);
+            assert_eq!(pools.to_type(package_id).unwrap(), package);
+            assert_eq!(pools.to_type(release_id).unwrap(), release);
+            assert_eq!(pools.display_type(package_id).unwrap(), "Package");
+            pools.verify().unwrap();
+
+            // The row's name is the identity: renamed, it is the other type.
+            let mut renamed = pools.clone();
+            renamed.type_data[package_id.index()].rhs = Name::intern("Release").symbol().raw();
+            assert_eq!(renamed.to_type(package_id).unwrap(), release);
+
+            // A base that is not a record type.
+            for base in [text, list] {
+                let mut wrong_base = pools.clone();
+                wrong_base.type_data[package_id.index()].lhs = base.raw();
+                let error = wrong_base.verify().unwrap_err();
+                assert!(
+                    error.message.contains("nominal type is not over a record type"),
+                    "{}",
+                    error.message
+                );
+                assert!(wrong_base.to_type(package_id).is_err());
+            }
+
+            // A base that does not precede the type, or is no type at all.
+            for base in [package_id.raw(), release_id.raw(), 0, u32::MAX] {
+                let mut bad_base = pools.clone();
+                bad_base.type_data[package_id.index()].lhs = base;
+                assert!(bad_base.verify().is_err());
+            }
+
+            // A nominal row cannot be read as a validation by code, nor a
+            // validation row as a nominal type.
+            let mut as_validation = pools.clone();
+            as_validation.type_tags[package_id.index()] = TypeTag::Validated;
+            assert!(as_validation.verify().is_err());
+            let names = builder
+                .intern_type(&mut pools, &Type::non_empty(Type::Str))
+                .unwrap();
+            pools.verify().unwrap();
+            let mut as_nominal = pools.clone();
+            as_nominal.type_tags[names.index()] = TypeTag::Nominal;
+            assert!(as_nominal.verify().is_err());
+        });
     }
 
     #[test]

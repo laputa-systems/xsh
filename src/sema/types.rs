@@ -351,6 +351,17 @@ pub fn union_member_error(members: &[Type]) -> Option<String> {
                     "every `{right}` already fits the member `{left}`; list one of them"
                 ));
             }
+            // A nominal identity is not in the value, so the runtime tells
+            // a nominal member from another only by the record's fields.
+            for (nominal, other) in [(left, right), (right, left)] {
+                if nominal.nominal_name().is_some()
+                    && other.unvalidated().matches_expected(nominal.unvalidated())
+                {
+                    return Some(format!(
+                        "a `{other}` has the fields of the nominal type `{nominal}`, and nothing at run time tells them apart; list one of them"
+                    ));
+                }
+            }
         }
     }
     None

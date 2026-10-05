@@ -13,6 +13,7 @@
 
 use super::types::Type;
 use crate::modules::MethodReceiver;
+use crate::symbol::Name;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -22,6 +23,12 @@ pub enum Validation {
     /// `RelPath`: a `Path` that is not absolute and whose `..` components
     /// never climb above where the path starts.
     RelPath,
+    /// `nominal type Name = {...}`: a record that came from the type's
+    /// constructor or from `.require(Name)`. The payload is the identity of
+    /// the declaration. Unlike the others this is not a property of the
+    /// value: nothing at run time tells such a record from another with the
+    /// same fields, so the checker alone decides where one is accepted.
+    Nominal(Name),
 }
 
 /// Whether the native bytes of a path are a `RelPath`. This is the whole
@@ -65,20 +72,25 @@ pub fn rel_path_failure(bytes: &[u8]) -> Option<&'static str> {
 }
 
 impl Validation {
+    /// The validations that are a property of a value, which a code alone
+    /// identifies. A nominal identity is named by its declaration instead.
     pub const ALL: [Self; 2] = [Self::NonEmpty, Self::RelPath];
 
-    /// The identity a lowered program stores for the validation.
-    pub const fn code(self) -> u32 {
+    /// The identity a lowered program stores for a validation that is a
+    /// property of a value, and `None` for a nominal identity, which a
+    /// lowered program stores by name.
+    pub const fn code(self) -> Option<u32> {
         match self {
-            Self::NonEmpty => 1,
-            Self::RelPath => 2,
+            Self::NonEmpty => Some(1),
+            Self::RelPath => Some(2),
+            Self::Nominal(_) => None,
         }
     }
 
     pub fn from_code(code: u32) -> Option<Self> {
         Self::ALL
             .into_iter()
-            .find(|validation| validation.code() == code)
+            .find(|validation| validation.code() == Some(code))
     }
 
     /// Why `base` cannot carry this validation, or `None` when it can.
@@ -88,6 +100,8 @@ impl Validation {
                 .then(|| format!("`NonEmpty` validates a List, not {base}")),
             Self::RelPath => (!matches!(base, Type::Path))
                 .then(|| format!("`RelPath` validates a Path, not {base}")),
+            Self::Nominal(name) => (!matches!(base, Type::Record(_)))
+                .then(|| format!("nominal type `{name}` is a record, not {base}")),
         }
     }
 
@@ -98,6 +112,7 @@ impl Validation {
         match self {
             Self::NonEmpty => Some(MethodReceiver::NonEmpty),
             Self::RelPath => Some(MethodReceiver::RelPath),
+            Self::Nominal(_) => None,
         }
     }
 
@@ -106,7 +121,7 @@ impl Validation {
     pub fn survives_concatenation(self) -> bool {
         match self {
             Self::NonEmpty => true,
-            Self::RelPath => false,
+            Self::RelPath | Self::Nominal(_) => false,
         }
     }
 
@@ -115,7 +130,7 @@ impl Validation {
     pub fn survives_mapping(self) -> bool {
         match self {
             Self::NonEmpty => true,
-            Self::RelPath => false,
+            Self::RelPath | Self::Nominal(_) => false,
         }
     }
 
@@ -130,6 +145,7 @@ impl Validation {
         match self {
             Self::NonEmpty => "an empty list",
             Self::RelPath => "a path that is empty, absolute, or climbs above where it starts",
+            Self::Nominal(_) => "a record that did not come from the type's constructor",
         }
     }
 
@@ -145,6 +161,13 @@ impl Validation {
                 )
             }
             Self::RelPath => "a path is a RelPath only once it is known to stay beneath where it starts: validate it with `.require(RelPath)?`, or write a path literal where RelPath is expected".to_string(),
+            Self::Nominal(name) => {
+                let name = name.as_str();
+                let name = name.rsplit('.').next().unwrap_or(&name);
+                format!(
+                    "`{ty}` is a nominal type, so a record with the same fields is not one: build the value with the constructor `{name}(...)`, or convert a record with `.require({name})?`"
+                )
+            }
         }
     }
 
@@ -153,6 +176,7 @@ impl Validation {
             (Self::NonEmpty, Type::List(item)) => write!(f, "NonEmpty[{item}]"),
             (Self::NonEmpty, base) => write!(f, "NonEmpty<{base}>"),
             (Self::RelPath, _) => f.write_str("RelPath"),
+            (Self::Nominal(name), _) => write!(f, "{name}"),
         }
     }
 
@@ -163,6 +187,7 @@ impl Validation {
             }
             (Self::NonEmpty, _) => None,
             (Self::RelPath, _) => Some("RelPath".to_string()),
+            (Self::Nominal(name), _) => Some(name.to_string()),
         }
     }
 }
@@ -242,6 +267,20 @@ impl Type {
         }))
     }
 
+    /// The nominal type `name` over the record type `base`.
+    pub fn nominal(name: Name, base: Type) -> Result<Self, String> {
+        ValidatedType::new(Validation::Nominal(name), base)
+            .map(|validated| Self::Validated(Box::new(validated)))
+    }
+
+    /// The declaration this type is the nominal identity of.
+    pub fn nominal_name(&self) -> Option<Name> {
+        match self.validated()?.validation() {
+            Validation::Nominal(name) => Some(name),
+            _ => None,
+        }
+    }
+
     pub fn validated(&self) -> Option<&ValidatedType> {
         match self {
             Self::Validated(validated) => Some(validated),
@@ -276,6 +315,27 @@ impl Type {
             Self::Record(fields) => fields.values().any(Self::holds_validated),
             Self::Union(members) => members.iter().any(Self::holds_validated),
             _ => false,
+        }
+    }
+
+    /// A nominal type that is this type or sits inside it. A runtime test of
+    /// such a type cannot see the identity, so the checker allows the test
+    /// only where the tested value's static type already carries it.
+    pub fn held_nominal(&self) -> Option<&Type> {
+        match self {
+            Self::Validated(validated) => match validated.validation() {
+                Validation::Nominal(_) => Some(self),
+                _ => validated.base().held_nominal(),
+            },
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+                inner.held_nominal()
+            }
+            Self::Map(key, value) | Self::Result(key, value) => {
+                key.held_nominal().or_else(|| value.held_nominal())
+            }
+            Self::Record(fields) => fields.values().find_map(Self::held_nominal),
+            Self::Union(members) => members.iter().find_map(Self::held_nominal),
+            _ => None,
         }
     }
 
@@ -359,14 +419,80 @@ mod tests {
 
     #[test]
     fn a_validation_names_one_base_form_and_one_code() {
-        assert!(ValidatedType::new(Validation::NonEmpty, Type::Str).is_err());
-        assert!(
-            ValidatedType::new(Validation::NonEmpty, Type::List(Box::new(Type::Int))).is_ok()
-        );
-        for validation in Validation::ALL {
-            assert_eq!(Validation::from_code(validation.code()), Some(validation));
-        }
-        assert_eq!(Validation::from_code(0), None);
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            assert!(ValidatedType::new(Validation::NonEmpty, Type::Str).is_err());
+            assert!(
+                ValidatedType::new(Validation::NonEmpty, Type::List(Box::new(Type::Int))).is_ok()
+            );
+            for validation in Validation::ALL {
+                assert_eq!(
+                    Validation::from_code(validation.code().unwrap()),
+                    Some(validation)
+                );
+            }
+            assert_eq!(Validation::from_code(0), None);
+            assert_eq!(Validation::Nominal(Name::intern("Package")).code(), None);
+        });
+    }
+
+    #[test]
+    fn a_nominal_type_fits_its_record_and_nothing_else_fits_it() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let record = |fields: &[&str]| {
+                Type::Record(
+                    fields
+                        .iter()
+                        .map(|field| (Name::intern(*field), Type::Str))
+                        .collect(),
+                )
+            };
+            let base = record(&["id", "version"]);
+            let package = Type::nominal(Name::intern("Package"), base.clone()).unwrap();
+            let release = Type::nominal(Name::intern("Release"), base.clone()).unwrap();
+            assert!(Type::nominal(Name::intern("Package"), Type::Str).is_err());
+            assert_eq!(package.to_string(), "Package");
+            assert_eq!(package.nominal_name(), Some(Name::intern("Package")));
+            assert_eq!(package.unvalidated(), &base);
+
+            assert!(package.matches_expected(&package));
+            assert!(package.matches_expected(&base));
+            // The base is a record, so the nominal value fits a narrower schema
+            // as any record with those fields does.
+            assert!(package.matches_expected(&record(&["id"])));
+            assert!(package.matches_expected(&Type::ErasedRecord));
+            assert!(package.matches_expected(&Type::Any));
+            assert!(!base.matches_expected(&package));
+            assert!(!record(&["id", "version", "arch"]).matches_expected(&package));
+            assert!(!Type::Any.matches_expected(&package));
+            assert!(!Type::ErasedRecord.matches_expected(&package));
+            assert!(!package.matches_expected(&release));
+            assert!(!release.matches_expected(&package));
+
+            let list = |item: Type| Type::List(Box::new(item));
+            assert!(list(package.clone()).matches_expected(&list(base.clone())));
+            assert!(!list(base.clone()).matches_expected(&list(package.clone())));
+            assert!(!list(package.clone()).matches_expected(&list(release.clone())));
+            assert_eq!(list(package.clone()).held_nominal(), Some(&package));
+            assert_eq!(list(base.clone()).held_nominal(), None);
+
+            // The runtime tells a nominal member from another by fields alone.
+            for other in [base.clone(), release, record(&["id", "version", "arch"])] {
+                assert!(
+                    crate::sema::types::union_member_error(&[package.clone(), other.clone()])
+                        .is_some(),
+                    "{other}"
+                );
+                assert!(crate::sema::types::union_member_error(&[other, package.clone()]).is_some());
+            }
+            assert_eq!(
+                crate::sema::types::union_member_error(&[package.clone(), Type::Int]),
+                None
+            );
+            assert_eq!(
+                crate::sema::types::union_member_error(&[package, record(&["name"])]),
+                None
+            );
+        });
     }
 
     #[test]

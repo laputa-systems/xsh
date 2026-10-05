@@ -336,8 +336,8 @@ cannot be sugar, because declaration scans do not look inside a surface form:
 A validated type is a base type plus a property the checker tracks
 (`docs/SPEC.md` 4.13): `Type::Validated` holds a `ValidatedType`, a
 `Validation` and the base it narrows. There is one mechanism, in
-`src/sema/validated.rs`; `NonEmpty[T]` over `List[T]` and `RelPath` over
-`Path` are its instances. The rules
+`src/sema/validated.rs`; `NonEmpty[T]` over `List[T]`, `RelPath` over
+`Path`, and a `nominal type` over its record schema are its instances. The rules
 that make a validated type sound are written once, for every instance:
 
 - **Assignability.** `Type::matches_expected` lets a validated type fit its
@@ -381,6 +381,22 @@ An instance is one `Validation` variant. Adding it makes each `match` on
 A property that is a function of the value alone is one function read by the
 literal case, the constant case, and the runtime case, so the three cannot
 disagree: `validated::is_rel_path` is the whole definition of `RelPath`.
+
+`Validation::Nominal(name)` is the one instance that is not a property of
+the value. Its payload is the declaration's qualified name
+(`RecordConstructors::nominal_names`), and `RecordConstructors::instantiate`
+is the only place that produces the type, for a type definition marked
+`nominal`; the constructor and `.require` get it from there. Its runtime test
+is the base test and nothing more, so the checker never lets a program ask
+it of a value whose static type does not already carry the identity:
+`check_type_pattern_applicability` rejects a tested type that holds a nominal
+type (`Type::held_nominal`) unless the subject is a union listing it, and
+`union_member_error` rejects a nominal member beside a type whose values have
+its fields. A site that asks "is this a record?" of a value asks it of
+`ty.unvalidated()`, as a scalar instance's sites do. The type pool stores it
+as its own row, `TypeTag::Nominal` (the record type id and the name's
+symbol), not as a validation code: `Validation::code` is `None` for it, and
+`SemanticPools::verify` requires its base to be a record row.
 
 A validation over a scalar base is where erasure is easiest to miss, because
 checker and lowering code compares scalar types by equality. A site that asks

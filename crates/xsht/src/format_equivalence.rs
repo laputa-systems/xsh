@@ -252,7 +252,7 @@ impl CanonicalWriter<'_> {
             }
             ArenaStmtKind::TypeDef(id) => {
                 let def = self.arena.type_def(*id);
-                self.put("type;");
+                self.put(if def.nominal { "nominal type;" } else { "type;" });
                 self.debug(&def.name);
                 for name in self.arena.names(def.type_parameters) {
                     self.debug(&name);

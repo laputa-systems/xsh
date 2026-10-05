@@ -148,6 +148,8 @@ impl<'a> Parser<'a> {
                     self.parse_expr_statement_arena_only(start, arena)
                 } else if self.lookahead_is_error_def() {
                     self.parse_error_def_arena_only(start, arena)
+                } else if self.lookahead_is_nominal_type() {
+                    self.parse_type_def_arena_only(start, arena)
                 } else if self.current_name().is_some_and(|name| name == "on")
                     && self.lookahead_is_signal_hook()
                 {
@@ -290,6 +292,9 @@ impl<'a> Parser<'a> {
             (TokenTag::Ident, _) if self.lookahead_is_error_def() => {
                 self.parse_error_def_arena_only(start, arena)?
             }
+            (TokenTag::Ident, _) if self.lookahead_is_nominal_type() => {
+                self.parse_type_def_arena_only(start, arena)?
+            }
             _ => {
                 let message = "`export` applies only to const, let, proc, pure, stream, type, enum, or error definitions";
                 let mut diagnostic = Diagnostic::error(message)
@@ -317,6 +322,11 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        // `nominal` is a word only here, directly before `type`.
+        let nominal = self.lookahead_is_nominal_type();
+        if nominal {
+            self.bump();
+        }
         let introducer_start = self.current_start();
         self.bump();
         let name = self.expect_ident("expected type name")?;
@@ -391,8 +401,18 @@ impl<'a> Parser<'a> {
         };
         let end = self.expect_terminator();
         let span = self.span(start, end);
-        arena.push_parameterized_type_def(name, parameters, body, span);
+        let statement = arena.push_parameterized_type_def(name, parameters, body, span);
+        if nominal {
+            arena.mark_type_def_nominal(statement);
+        }
         Some(())
+    }
+
+    /// `nominal type`: the word is a name everywhere else.
+    fn lookahead_is_nominal_type(&self) -> bool {
+        self.current_tag() == TokenTag::Ident
+            && self.current_name() == Some(Name::intern("nominal"))
+            && self.peek_keyword(1) == Some(Keyword::Type)
     }
 
     fn skip_enum_trivia(&mut self) {

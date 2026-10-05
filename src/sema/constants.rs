@@ -874,7 +874,9 @@ impl RecordConstructors {
         namespace: Option<Name>,
     ) -> Option<Type> {
         let id = self.constructor_definition(arena, callee, namespace)?;
-        let ty = self.instantiate_checked(arena, id, &[]).ok()?;
+        // The fields a constructor takes are those of the record, whether
+        // or not the type it returns is nominal.
+        let ty = self.instantiate_checked(arena, id, &[]).ok()?.into_unvalidated();
         matches!(ty, Type::Record(_)).then_some(ty)
     }
 
@@ -901,7 +903,9 @@ impl RecordConstructors {
             .map(|_| constraints.fresh(span))
             .collect::<Vec<_>>();
         let ty = self.instantiate_checked(arena, definition, &arguments)?;
-        if !matches!(ty, Type::Record(_)) {
+        if !matches!(ty.unvalidated(), Type::Record(_))
+            || ty.validated().is_some_and(|_| ty.nominal_name().is_none())
+        {
             return Err(SchemaTypeError::new(
                 DiagnosticCode::CheckRecordConstructor,
                 "constructor requires a record schema",
@@ -935,7 +939,7 @@ impl RecordConstructors {
             };
             if matches!(expected, Type::Record(_) | Type::Inference(_)) {
                 constraints
-                    .constrain(&ty, expected, span)
+                    .constrain(ty.unvalidated(), expected, span)
                     .map_err(|conflict| {
                         SchemaTypeError::new(
                             DiagnosticCode::CheckTypeMismatch,
@@ -1252,6 +1256,20 @@ impl RecordConstructors {
             .zip(arguments.iter().cloned())
             .collect();
         let namespace = self.namespace(id);
+        // A nominal identity names one record type, so the declaration is a
+        // record schema without parameters.
+        if definition.nominal
+            && (!matches!(definition.body, ArenaTypeDefBody::RecordSchema(_))
+                || !definition.type_parameters.is_empty())
+        {
+            return Err(SchemaTypeError::new(
+                DiagnosticCode::CheckSchema,
+                format!(
+                    "`nominal type {}` must be a record schema without type parameters",
+                    definition.name
+                ),
+            ));
+        }
         active.push(id);
         let result = match definition.body {
             ArenaTypeDefBody::RecordSchema(fields) => arena
@@ -1262,7 +1280,14 @@ impl RecordConstructors {
                         .map(|ty| (field.name, ty))
                 })
                 .collect::<Result<BTreeMap<_, _>, _>>()
-                .map(Type::Record),
+                .map(Type::Record)
+                .and_then(|record| {
+                    if !definition.nominal {
+                        return Ok(record);
+                    }
+                    Type::nominal(self.nominal_names[&id], record)
+                        .map_err(|reason| SchemaTypeError::new(DiagnosticCode::CheckSchema, reason))
+                }),
             ArenaTypeDefBody::Alias(ty) => {
                 self.resolve_instance_annotation(arena, ty, namespace, &bindings, active)
             }
@@ -3285,7 +3310,7 @@ impl ConstantPreparation<'_> {
                         &mut self.type_constraints,
                     )
                     .map_err(|error| (expr.span, error.message))?;
-                let Type::Record(field_types) = inference.ty else {
+                let Type::Record(field_types) = inference.ty.into_unvalidated() else {
                     return Err(failure());
                 };
                 self.constructor_group_depth += 1;
@@ -3709,6 +3734,10 @@ fn constant_passes_validation(
         crate::sema::validated::Validation::RelPath => {
             matches!(value, LiteralConstant::Path(text) if crate::sema::validated::is_rel_path(text.as_bytes()))
         }
+        // A constant carries no record of how it was built, so whether a
+        // constant record came from the constructor is the statement
+        // check's to decide from the initializer's checked type.
+        crate::sema::validated::Validation::Nominal(_) => true,
     }
 }
 

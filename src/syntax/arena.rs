@@ -3232,12 +3232,21 @@ impl<'a> ArenaProgramBuilder<'a> {
         statement
     }
 
+    /// Marks the type definition `statement` declares as a `nominal type`.
+    pub fn mark_type_def_nominal(&mut self, statement: StmtId) {
+        let ArenaStmtKind::TypeDef(id) = self.lowerer.arena.stmt(statement).kind else {
+            unreachable!("only a type definition is nominal")
+        };
+        self.lowerer.arena.type_defs[id.index()].nominal = true;
+    }
+
     pub fn push_type_def(&mut self, name: Name, body: ArenaTypeDefBody, span: Span) -> StmtId {
         let type_def_id = TypeDefId::new(self.lowerer.arena.type_defs.len());
         self.lowerer.arena.type_defs.push(ArenaTypeDef {
             name,
             type_parameters: ArenaRange::default(),
             body,
+            nominal: false,
         });
         let id = self
             .lowerer
@@ -5965,6 +5974,9 @@ pub struct ArenaTypeDef {
     pub name: Name,
     pub type_parameters: ArenaRange,
     pub body: ArenaTypeDefBody,
+    /// `nominal type`: the declared name is an identity of its own, which a
+    /// value has only from the constructor or a validation.
+    pub nominal: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

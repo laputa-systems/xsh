@@ -350,6 +350,7 @@ fn expression_statement_stops() -> Vec<Vec<Term>> {
             tag_term(T::LBrace),
         ],
     ]);
+    leads.push(vec![word_term("nominal", false), keyword_term(Keyword::Type)]);
     leads.extend(BUILDER_APIS.map(|(module, function)| {
         vec![
             word_term(module, false),
@@ -762,9 +763,12 @@ pub(super) fn rules() -> Vec<super::Rule> {
             .chain([
                 r("assignment"),
                 r("error_declaration"),
+                r("nominal_type_declaration"),
                 seq([
                     kw(Keyword::Export),
-                    alt(exported(false).into_iter().chain([r("error_declaration")])),
+                    alt(exported(false)
+                        .into_iter()
+                        .chain([r("error_declaration"), r("nominal_type_declaration")])),
                 ]),
                 seq([r("context_scope"), opt(t(T::Question))]),
                 seq([r("tempdir_scope"), opt(t(T::Question))]),
@@ -843,6 +847,11 @@ pub(super) fn rules() -> Vec<super::Rule> {
                     r("type_expr"),
                 ]),
             ]),
+        ),
+        rule(
+            Declarations,
+            "nominal_type_declaration",
+            seq([w("nominal"), r("type_declaration")]),
         ),
         rule(
             Declarations,

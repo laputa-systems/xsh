@@ -28,7 +28,7 @@ impl Checker {
             // An element written out is there whatever the splices hold, and
             // a splice of a non-empty list contributes at least one.
             // No list type carries this validation.
-            Validation::RelPath => false,
+            Validation::RelPath | Validation::Nominal(_) => false,
             Validation::NonEmpty => arena.arena.list_elements(range).any(|item| {
                 item.splice_span.is_none()
                     || self
@@ -73,7 +73,7 @@ impl Checker {
     ) -> Type {
         let failure = match expected.validation() {
             Validation::RelPath => rel_path_failure(bytes),
-            Validation::NonEmpty => return Type::Invalid,
+            Validation::NonEmpty | Validation::Nominal(_) => return Type::Invalid,
         };
         let ty = Type::Validated(Box::new(expected.clone()));
         if let Some(failure) = failure {

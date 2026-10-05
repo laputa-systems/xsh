@@ -1004,6 +1004,9 @@ impl<'a> Writer<'a> {
             }
             return;
         }
+        if def.nominal {
+            output.push_str("nominal ");
+        }
         output.push_str(if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) {
             "enum "
         } else {

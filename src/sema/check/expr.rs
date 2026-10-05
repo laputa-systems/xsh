@@ -1669,7 +1669,11 @@ impl Checker {
                 ArenaRecordFieldKind::Spread { expr, span } => {
                     has_spread = true;
                     last_span = arena.arena.span(*span);
-                    let ty = self.check_expr_arena(arena, source, *expr, None);
+                    // A spread copies fields, so a validated record spreads
+                    // as the record it is and the result is structural.
+                    let ty = self
+                        .check_expr_arena(arena, source, *expr, None)
+                        .into_unvalidated();
                     match ty {
                         Type::Record(spread_fields) => {
                             for (k, v) in spread_fields {
@@ -3182,7 +3186,8 @@ impl Checker {
             );
             return Type::Unknown;
         }
-        let field_ty = match &inner {
+        // A field is read from the value, which is a value of the base.
+        let field_ty = match inner.unvalidated() {
             Type::ErasedRecord => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
                 Some(ty) => ty.clone(),

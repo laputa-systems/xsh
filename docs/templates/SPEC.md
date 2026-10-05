@@ -100,8 +100,9 @@ true try type unless use var wait when while with yield
 
 Contextual words keep their special meaning only in their syntactic position
 and remain ordinary identifiers elsewhere: `as`, `cli`, `ctx`, `error`, `is`,
-`on`, `tempdir`, `test`, `repeat` and `times` in the head of a `repeat`
-statement (8.6), `at` in the head of a `tempdir NAME at PATH` scope (10.4),
+`on`, `tempdir`, `test`, `nominal` directly before `type` (4.7), `repeat` and
+`times` in the head of a `repeat` statement (8.6), `at` in the head of a
+`tempdir NAME at PATH` scope (10.4),
 `fail` at the start of a `fail` statement and `because` after its first
 operand (8.6),
 `atomically` and `replace` at the start of an `atomically replace` statement
@@ -639,6 +640,57 @@ not decide them, and conflicting evidence is an error, never a guessed `Any`
 substitution. Functions, enums, error families, and module contracts are not
 generic, and there is no expression-level type-argument syntax.
 
+A schema is structural: any record with its fields fits it. `nominal type`
+declares a schema whose name is also an identity, for a value whose fields
+alone do not say what it is:
+
+```xsh
+{{.spec.nominal_type.source}}
+```
+
+```text
+{{.spec.nominal_type.output}}
+```
+
+A value has a nominal type from two places only: the type's constructor, and
+`.require(Name)` (5.3), which is the explicit conversion from any value,
+dynamic or already typed, and checks the fields as it does for the structural
+schema. A record literal never has the type, wherever it is written, and
+neither does a value of another type with the same fields, including another
+nominal type; the mismatch says to use the constructor. A nominal type is
+the validated type (4.13) whose base is its record schema, so the rest
+follows from that base:
+
+- **Fields** are read as the record's: `pkg.id`. Identity is all the
+  declaration adds; fields are as visible as those of any schema.
+- **Assignability.** The value fits its structural base and any schema the
+  base fits, at any depth (5.2). Nothing fits the nominal type but itself.
+- **Spread.** `{...pkg, version: v}` copies fields and is a structural record.
+- **JSON.** `.require(Package)` on decoded data checks the fields and
+  constructs the value. Encoding writes the record; no name is written.
+- **Equality** compares the records. A `Package` and a record with equal
+  fields are equal.
+- **Patterns.** Record patterns and destructuring match the fields.
+- **Type tests.** The identity is not in the value, so a runtime test could
+  only compare fields. `value is Package` and the type pattern
+  `name is Package` are allowed where the static type already says which
+  types the value can be: a `Union` that lists `Package`. On `Any`, on a
+  structural record, or on any other type they are `check.pattern-type`, with
+  a note to convert with `.require(Package)?`; the same holds for a tested
+  type that contains one, such as `List[Package]`. A `Union` cannot list a
+  nominal type beside a type whose values have its fields
+  (`check.union-type`): the runtime could not tell the members apart.
+- **Dynamic calls.** `Pure.call` and `Proc.call` check an argument against a
+  nominal parameter where the call runs, as `.require` would: by its fields.
+
+A nominal type is a record schema without type parameters (`check.schema`).
+Two modules may declare nominal types of one name and shape; they are
+different types, and an exported one is built with `module.Name(...)`.
+
+```xsh
+{{.spec.nominal_type_forged.source}}
+```
+
 ### 4.8 Enums
 
 ```xsh
@@ -913,6 +965,9 @@ not merely a `List[Str]`.
 {{.spec.non_empty.source}}
 ```
 
+A `nominal type` (4.7) is the validated type over its record schema whose
+values came from its constructor or from `.require`.
+
 `RelPath` is the validated type over `Path` whose values stay beneath where
 they start. The rule is lexical and exact, on the path's native bytes:
 
@@ -1060,7 +1115,9 @@ is expected. Incompatible contributions are errors; inference never widens to
   `NonEmpty[Any]`). In a `Union`, a validated
   type and its base cannot both be members. `RelPath` fits `Path`, so every
   parameter that takes a path takes a `RelPath`; a `Path` fits `RelPath`
-  only through a judged literal, `.require(RelPath)`, or a type test.
+  only through a judged literal, `.require(RelPath)`, or a type test. A
+  `nominal type` (4.7) fits its record schema; a record fits it only through
+  the constructor or `.require`.
 - That rule is general: it holds at any depth inside another type. A type
   fits an expected type that differs from it only by having the base where it
   has a validated type, so `List[RelPath]` fits `List[Path]`, `RelPath?` fits

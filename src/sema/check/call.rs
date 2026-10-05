@@ -1188,7 +1188,7 @@ impl Checker {
         schema: Option<&crate::sema::constants::SchemaExpectation>,
         span: Span,
     ) -> Type {
-        let Type::Record(fields) = &expected else {
+        let Type::Record(fields) = expected.unvalidated() else {
             return Type::Invalid;
         };
         let defaults = self

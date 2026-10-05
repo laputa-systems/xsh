@@ -1,4 +1,4 @@
-use super::Diagnostic;
+use super::{Diagnostic, Label};
 use super::{Binding, Checker, FxHashSet, Name, Span, Type, result_types};
 use crate::diagnostic::DiagnosticCode;
 use crate::syntax::arena::{ArenaPatternKind, ArenaProgram, PatternId};
@@ -241,6 +241,37 @@ impl Checker {
     fn check_type_pattern_applicability(&mut self, tested: &Type, value_ty: &Type, span: Span) {
         if self.reject_typed_callable_test(tested, span) {
             return;
+        }
+        // A nominal identity is not in the value, so a test for it reads
+        // only the record's fields. That decides nothing unless the static
+        // type already says the value is the nominal type or one member of
+        // a union that lists it, where the other members differ in shape.
+        if let Some(nominal) = tested.held_nominal() {
+            let subject = value_ty.optional_inner().unwrap_or(value_ty);
+            let vouched = match (subject, tested) {
+                (Type::Union(members), Type::Union(tested)) => {
+                    tested.iter().all(|member| members.contains(member))
+                }
+                (Type::Union(members), tested) => members.contains(tested),
+                (subject, tested) => subject == tested,
+            };
+            if !vouched {
+                let written = nominal
+                    .annotation_source()
+                    .unwrap_or_else(|| nominal.to_string());
+                let name = written.rsplit('.').next().unwrap_or(&written).to_string();
+                self.diagnostics.push(
+                    Diagnostic::error(format!(
+                        "`{tested}` cannot be tested on a value of type {value_ty}: `{nominal}` is a nominal type, and a value does not carry that identity at run time"
+                    ))
+                    .with_code(DiagnosticCode::CheckPatternType)
+                    .with_label(Label::primary(span, "this test could only compare fields"))
+                    .with_note(format!(
+                        "convert the value with `.require({name})?`, which checks the fields and returns a `{nominal}`"
+                    )),
+                );
+                return;
+            }
         }
         if type_pattern_input_is_dynamic(value_ty) {
             return;
@@ -590,7 +621,7 @@ impl Checker {
                 }
             }
             ArenaPatternKind::Record { fields, .. } => {
-                let record_fields = match value_ty {
+                let record_fields = match value_ty.unvalidated() {
                     Type::ErasedRecord => None,
                     Type::Record(fields) => Some(fields),
                     Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {

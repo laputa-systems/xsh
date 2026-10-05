@@ -531,7 +531,7 @@ impl Checker {
                 );
             }
             ArenaBindingTargetKind::Record { fields, .. } => {
-                let record_fields = match ty {
+                let record_fields = match ty.unvalidated() {
                     Type::Record(fields) => Some(fields),
                     Type::Unknown => None,
                     _ => {

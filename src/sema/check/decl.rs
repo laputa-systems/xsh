@@ -1185,6 +1185,23 @@ impl Checker {
         def: &ArenaTypeDef,
         span: Span,
     ) {
+        // A nominal identity names one record type. Resolution rejects the
+        // same declaration where the type is used; a declaration nothing
+        // uses is reported here.
+        if def.nominal
+            && (!matches!(def.body, ArenaTypeDefBody::RecordSchema(_))
+                || !def.type_parameters.is_empty())
+        {
+            self.error(
+                span,
+                &format!(
+                    "`nominal type {}` must be a record schema without type parameters",
+                    def.name
+                ),
+                DiagnosticCode::CheckSchema,
+            );
+            return;
+        }
         if !def.type_parameters.is_empty() {
             let mut names = FxHashSet::default();
             for parameter in arena.arena.names(def.type_parameters) {

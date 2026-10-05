@@ -11,6 +11,10 @@ pub(super) fn value_passes(validation: Validation, value: &Value) -> bool {
     match validation {
         Validation::NonEmpty => matches!(value, Value::List(items) if !items.is_empty()),
         Validation::RelPath => matches!(value, Value::Path(path) if is_rel_path(&path.bytes)),
+        // A nominal identity has no runtime representation: a value of the
+        // base record is all `.require(Name)` can ask for, and the checker
+        // allows no other test of the type on a value it cannot vouch for.
+        Validation::Nominal(_) => true,
     }
 }
 
@@ -25,5 +29,6 @@ pub(super) fn lowered_value_passes(validation: Validation, value: &LoweredValue)
         Validation::RelPath => {
             matches!(value, LoweredValue::Path(path) if is_rel_path(&path.bytes))
         }
+        Validation::Nominal(_) => true,
     }
 }
