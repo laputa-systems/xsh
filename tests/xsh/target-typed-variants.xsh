@@ -303,3 +303,326 @@ print ${[inferred].len()}
   let linted = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
   assert linted.status.exited_with(0), linted.stderr
 }
+
+const variant_pattern_kinds = """##! Kinds.
+
+## A file kind.
+export enum Kind { File, Binary, Tree(Int) }
+
+## Why ownership is unknown.
+export error OwnerError {
+    Unowned
+    Conflict(file: Path, owner: Str)
+}
+"""
+
+test test_target_typed_variant_patterns_match_like_their_qualified_spellings { |ctx|
+  let root = test.temp_dir(ctx, name: "inferred-variant-patterns")?
+  fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)?
+  let executed = test.run_script(
+    ctx,
+    r"""use kinds as k
+
+enum Level { Info, Warn, Fault(Str) }
+
+error FetchError {
+    Usage
+    Offline : Timeout
+    Rejected(url: Str, status: Int)
+}
+
+pure fetch(step: Int) -> Result[Level, FetchError] {
+  return Err(.Usage("bad flag")) when step == 0
+  return Err(.Offline()) when step == 1
+  return Err(.Rejected(url: "u", status: 503)) when step == 2
+  return Ok(.Fault("disk")) when step == 3
+  return Ok(.Warn) when step == 4
+  Ok(.Info)
+}
+
+pure describe(step: Int) -> Str {
+  match fetch(step) {
+    Err(.Usage {message}) => f"usage: {message}"
+    Err(.Offline) => "offline"
+    Err(.Rejected {url, status}) => f"{url} {status}"
+    Ok(.Fault(reason)) => f"fault {reason}"
+    Ok(.Warn | .Info) => "calm"
+    _ => "other"
+  }
+}
+
+pure owner(kind: k.Kind) -> Result[k.Kind, k.OwnerError] {
+  return Err(.Unowned("nobody")) when kind == k.File
+  return Err(.Conflict(file: p"bin", owner: "base")) when kind == k.Binary
+  Ok(kind)
+}
+
+pure owned(kind: k.Kind) -> Str {
+  match owner(kind) {
+    Ok(.Tree(depth)) => f"tree {depth}"
+    Ok(k.Binary | .File) => "plain"
+    Err(.Unowned {message}) => f"unowned: {message}"
+    Err(.Conflict {owner, ..}) => f"conflict with {owner}"
+    _ => "other"
+  }
+}
+
+for step in range(6) {
+  print describe(step)
+}
+print owned(k.File)
+print owned(k.Binary)
+print owned(k.Tree(3))
+
+let level: Level = .Warn
+let kind: k.Kind = .Binary
+print (level is .Warn) (level is .Info) (kind is .Binary) (kind is .Tree(_))
+if level is .Warn {
+  print "warn body"
+}
+let failure: FetchError = .Rejected(url: "x", status: 1)
+if failure is .Rejected {status: 1, ..} {
+  print "rejected 1"
+}
+if let .Rejected {status, ..} = failure {
+  print f"if-let rejected {status}"
+}
+if let Err(.Usage {message}) = fetch(0) {
+  print f"if-let {message}"
+}
+let guarded = match level {
+  Warn if failure
+    .message != "" => "a guard still continues onto a .name line"
+  _ => "other"
+}
+print $guarded
+""",
+    [],
+    {XSH_MODULE_PATH: root},
+  )?
+  assert executed.success, executed.stderr
+  assert executed.stdout == """usage: bad flag
+offline
+u 503
+fault disk
+calm
+calm
+unowned: nobody
+conflict with base
+tree 3
+true false true false
+warn body
+rejected 1
+if-let rejected 1
+if-let bad flag
+a guard still continues onto a .name line
+"""
+}
+
+test test_target_typed_variant_patterns_cannot_head_a_match_arm { |ctx|
+  for source in [
+    """enum Level { Info, Warn }
+let level: Level = Warn
+match level {
+  .Info => print "info"
+  _ => print "other"
+}
+""",
+    """enum Level { Info, Warn, Fault(Str) }
+let level: Level = Warn
+let label = match level {
+  Info => "info"
+  .Fault(reason) => reason
+  _ => "other"
+}
+""",
+    """error E = Usage | Other(code: Int)
+let failure: E = .Usage("x")
+match failure {
+  E.Usage => print "usage"
+  .Other {code} => print "other"
+}
+""",
+    """enum Level { Info, Warn }
+let level: Level = Warn
+let label = match level { .Info => "info", _ => "other" }
+""",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    assert ! rejected.success, source
+    assert "parse.inferred-variant-arm" in rejected.stderr, rejected.stderr
+    assert "continues the line before it" in rejected.stderr, rejected.stderr
+  }
+}
+
+test test_target_typed_variant_patterns_need_a_matched_type_that_names_them { |ctx|
+  let prelude = """enum Level { Info, Warn, Fault(Str) }
+error E = Usage | Other(code: Int)
+proc broad() -> Result[Level] { Ok(Info) }
+pure narrow() -> Result[Level, E] { Ok(Info) }
+let text = "x"
+"""
+  for {tested, code, reason} in [
+    {
+      tested: "broad() is Err(.Usage)",
+      code: "check.inferred-variant",
+      reason: "names no single error family",
+    },
+    {
+      tested: "narrow() is Ok(.Missing)",
+      code: "check.inferred-variant",
+      reason: "has no variant `Missing`",
+    },
+    {
+      tested: "text is .Info",
+      code: "check.inferred-variant",
+      reason: "is not an enum or error family",
+    },
+    {
+      tested: "narrow() is Ok(.Fault)",
+      code: "check.pattern-arity",
+      reason: "match them as `.Fault(...)`",
+    },
+    {
+      tested: "narrow() is Ok(.Info {message: _})",
+      code: "check.pattern-constructor",
+      reason: "is an enum variant",
+    },
+    {
+      tested: "narrow() is Err(.Other(_))",
+      code: "check.pattern-constructor",
+      reason: "is an error variant",
+    },
+    {
+      tested: "narrow() is Err(.Other {missing: _})",
+      code: "check.pattern-field",
+      reason: "unknown error payload field",
+    },
+  ] {
+    let rejected = test.run_script(ctx, f"{prelude}let found = {tested}\n")?
+    assert ! rejected.success, tested
+    assert code in rejected.stderr, rejected.stderr
+    assert reason in rejected.stderr, rejected.stderr
+  }
+}
+
+test test_prefer_inferred_variant_fix_reaches_patterns_but_not_arm_heads { |ctx|
+  let root = test.temp_dir(ctx, name: "inferred-variant-pattern-lint")?
+  fp"{root}/xsht-config.ini".write_atomic("[lint]\nprefer-inferred-variants = true\n")?
+  fp"{root}/kinds.xsh".write_atomic(variant_pattern_kinds)?
+  let source = r"""use kinds as k
+
+error FetchError {
+    Usage
+    Rejected(url: Str, status: Int)
+}
+
+pure fetch(step: Int) -> Result[k.Kind, FetchError] {
+  return Err(.Usage("bad flag")) when step == 0
+  return Err(.Rejected(url: "u", status: 503)) when step == 1
+  return Ok(.Tree(2)) when step == 2
+  Ok(.Binary)
+}
+
+proc broad(step: Int) -> Result[k.Kind] {
+  fetch(step)
+}
+
+pure describe(step: Int) -> Str {
+  match fetch(step) {
+    Err(FetchError.Usage {message}) => f"usage: {message}"
+    Err(FetchError.Rejected {url, status}) => f"{url} {status}"
+    Ok(k.Tree(depth)) => f"tree {depth}"
+    Ok(k.Binary | k.File) => "plain"
+    _ => "other"
+  }
+}
+
+for step in range(4) {
+  print describe(step)
+  let kind = fetch(step) ?? .File
+  let label = match kind {
+    k.File | k.Binary => "leaf"
+    k.Tree(_) => "tree"
+    _ => "other"
+  }
+  print $label (kind is k.Binary) (fetch(step) is Err(FetchError.Usage))
+  match broad(step) {
+    Err(FetchError.Usage {message}) => print f"broad usage {message}"
+    _ => print "broad other"
+  }
+}
+"""
+  let module_env = {XSH_MODULE_PATH: root.display()}
+  let before = test.run_script(ctx, source, [], module_env)?
+  assert before.success, before.stderr
+  let candidate = fp"{root}/main.xsh"
+  candidate.write_atomic(source)?
+  let first = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
+  assert first.status.exited_with(1), first.stderr
+  assert "the matched value's type already selects this variant" in first.stderr, first.stderr
+  let fixing = run.capture --text "xsht" lint --fix --only lint.prefer-inferred-variant $candidate ?
+  assert fixing.status.exited_with(0), fixing.stderr
+  let fixed = candidate.read_text()?
+  # An arm head keeps its qualifier, while a later alternative needs none.
+  # `Result[k.Kind]` carries the broad `Error`, which names no family.
+  for kept in [
+    "    Err(.Usage {message}) => f\"usage: {message}\"",
+    "    Err(.Rejected {url, status}) => f\"{url} {status}\"",
+    "    Ok(.Tree(depth)) => f\"tree {depth}\"",
+    "    Ok(.Binary | .File) => \"plain\"",
+    "    k.File | .Binary => \"leaf\"",
+    "    k.Tree(_) => \"tree\"",
+    "(kind is .Binary) (fetch(step) is Err(.Usage))",
+    "    Err(FetchError.Usage {message}) => print f\"broad usage {message}\"",
+  ] {
+    assert kept in fixed, fixed
+  }
+
+  let after = test.run_script(ctx, fixed, [], module_env)?
+  assert after.success, after.stderr
+  assert after.stdout == before.stdout
+  let second = run.capture --text "xsht" lint --only lint.prefer-inferred-variant $candidate ?
+  assert second.status.exited_with(0), second.stderr
+}
+
+test test_target_typed_variant_patterns_with_unions_and_else_arms { |ctx|
+  let prelude = """enum Level { Info, Warn }
+error FetchError = Usage | Rejected(url: Str, status: Int)
+pure pick(step: Int) -> Union[Str, FetchError] {
+  return FetchError.Usage("bad") when step == 0
+  "text"
+}
+"""
+  # A union names no single family; its narrowed member does.
+  let narrowed = test.run_script(
+    ctx,
+    prelude + """let value = pick(0)
+if value is FetchError {
+  print (value is .Usage) (value is .Rejected {status: 1, ..})
+}
+""",
+  )?
+  assert narrowed.success, narrowed.stderr
+  assert narrowed.stdout == "true false\n"
+
+  let union = test.run_script(ctx, prelude + "let found = pick(0) is .Usage\n")?
+  assert ! union.success, union.stdout
+  assert "check.inferred-variant" in union.stderr, union.stderr
+  assert "test the member first" in union.stderr, union.stderr
+
+  # After an `else` arm's body too, a `.Name` line is read as an arm head.
+  let after_else = test.run_script(
+    ctx,
+    prelude + """let level: Level = Warn
+let label = match level {
+  Info => "info"
+  else => "other"
+  .Warn => "warn"
+}
+""",
+  )?
+  assert ! after_else.success, after_else.stdout
+  assert "parse.inferred-variant-arm" in after_else.stderr, after_else.stderr
+  assert "parse.match-else-arm" in after_else.stderr, after_else.stderr
+}

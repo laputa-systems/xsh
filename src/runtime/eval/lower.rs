@@ -12911,8 +12911,19 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         }
     }
 
+    /// A pattern's kind, with a target-typed `.Name` replaced by the
+    /// qualified pattern the checker resolved it to. `None` when the checker
+    /// published no resolution, so such a pattern is never lowered by name.
+    fn qualified_pattern_kind(&self, id: PatternId) -> Option<ArenaPatternKind> {
+        let kind = &self.program.arena.pattern(id).kind;
+        if !kind.is_inferred_variant() {
+            return Some(kind.clone());
+        }
+        Some(self.bodies.inferred_variant_patterns.get(&id)?.qualify(kind))
+    }
+
     fn pattern_tag_name(&mut self, pattern: PatternId) -> Option<Option<Arc<str>>> {
-        let lowered = match self.program.arena.pattern(pattern).kind {
+        let lowered = match self.qualified_pattern_kind(pattern)? {
             ArenaPatternKind::Wildcard => Some(None),
             ArenaPatternKind::Constructor { name, arg: None }
                 if self.compact_tag_variant_arity(name) == Some(0) =>
@@ -13187,7 +13198,8 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
         err_binding_ty: Option<&Type>,
     ) -> Option<(BuildPatternId, Vec<(Name, usize)>)> {
         self.output.patterns += 1;
-        let lowered = match &self.program.arena.pattern(id).kind {
+        let kind = self.qualified_pattern_kind(id)?;
+        let lowered = match &kind {
             ArenaPatternKind::Group(pattern) => {
                 self.lower_pattern(*pattern, slots, ok_binding_ty, err_binding_ty)
             }
@@ -13578,7 +13590,7 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                         family,
                         variant,
                         fields,
-                    } = self.program.arena.pattern(*arg).kind
+                    } = self.qualified_pattern_kind(*arg)?
                 {
                     return self
                         .lower_error_variant_pattern(family, variant, fields, true, slots)

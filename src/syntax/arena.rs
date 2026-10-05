@@ -5940,6 +5940,20 @@ pub enum ArenaPatternKind {
     Tuple(ArenaRange),
 }
 
+impl ArenaPatternKind {
+    /// A target-typed `.Name` pattern, whose enum or error family the type
+    /// of the matched value supplies. The parser stores it under its
+    /// spelling: `.Name(args)` is a constructor named `.Name`, and `.Name`
+    /// or `.Name {fields}` is an error variant of the empty family.
+    pub fn is_inferred_variant(&self) -> bool {
+        match self {
+            Self::Constructor { name, .. } => name.as_str().starts_with('.'),
+            Self::ErrorVariant { family, .. } => family.as_str().is_empty(),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaRecordPatternField {
     pub name: Name,

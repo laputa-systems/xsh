@@ -219,6 +219,7 @@ diagnostic_codes! {
         ParseForeignSyntax = "parse.foreign-syntax", error, "Reject syntax from other languages such as `++`, `catch`, `? :`, `elif`, or `[ ... ]` tests";
         ParseGenericErrorFamily = "parse.generic-error-family", error, "Reject generic parameters on an `error` family declaration";
         ParseIfExpressionElse = "parse.if-expression-else", error, "Reject an `if` expression without an `else` branch";
+        ParseInferredVariantArm = "parse.inferred-variant-arm", error, "Reject a match arm head that begins with a target-typed `.Name` variant";
         ParseKeywordLabelBinding = "parse.keyword-label-binding", error, "Reject a field label that is a keyword used as an implicit binding name";
         ParseLegacyStderrRedirection = "parse.legacy-stderr-redirection", error, "Reject the legacy stderr redirection spelling in favor of `2>` or `2>>`";
         ParseLineContinuation = "parse.line-continuation", error, "Reject a `\\` line continuation that is not between the parts of a command";

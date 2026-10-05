@@ -1973,8 +1973,10 @@ impl<'a> Parser<'a> {
             let stmt_start = self.current_start();
             let previous = self.comma_is_terminator;
             self.comma_is_terminator = true;
+            let outer_arm_body = self.arm_body_start.replace(self.index);
             arena.begin_block();
             let stmt = self.parse_statement_arena_only(arena);
+            self.arm_body_start = outer_arm_body;
             self.comma_is_terminator = previous;
             if stmt.is_none() {
                 arena.discard_block();

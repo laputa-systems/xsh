@@ -96,6 +96,9 @@ pub struct CompactBodyFacts {
     pub path_literals: FxHashSet<ExprId>,
     /// The schema field each record constructor argument supplies, keyed by call.
     pub record_constructor_fields: FxHashMap<ExprId, Vec<Name>>,
+    /// What each `.Name` pattern stands for.
+    pub inferred_variant_patterns:
+        FxHashMap<crate::syntax::arena::PatternId, super::InferredVariantPattern>,
     /// The argument binding of each error constructor, keyed by call.
     pub error_constructors: FxHashMap<ExprId, super::CheckedErrorConstructor>,
     /// `if let` and `while let` conditions that bind the non-null value of an
@@ -159,6 +162,19 @@ impl CompactBodyFacts {
                 && checked.optional_binding_spans.contains(&span)
             {
                 facts.optional_binding_conditions.insert(id);
+            }
+        }
+        if !checked.inferred_variant_patterns.is_empty() {
+            for (index, pattern) in arena.patterns.iter().enumerate() {
+                if pattern.kind.is_inferred_variant()
+                    && let Some(resolved) = checked
+                        .inferred_variant_patterns
+                        .get(&arena.span(pattern.span))
+                {
+                    facts
+                        .inferred_variant_patterns
+                        .insert(crate::syntax::arena::PatternId::from_index(index), resolved.clone());
+                }
             }
         }
         for index in 0..arena.stmt_tags.len() {

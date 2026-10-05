@@ -49,6 +49,9 @@ pub struct Parser<'a> {
     token_table: TokenTable,
     index: usize,
     comma_is_terminator: bool,
+    /// The first token of the match arm body being parsed, when its `=>`
+    /// has been read and the body is not a braced block.
+    arm_body_start: Option<usize>,
     pipe_is_boundary: bool,
     trailing_statement_try: bool,
     command_arg_expr: bool,
@@ -168,6 +171,7 @@ impl<'a> Parser<'a> {
             stray_line_continuations,
             index: 0,
             comma_is_terminator: false,
+            arm_body_start: None,
             pipe_is_boundary: false,
             trailing_statement_try: true,
             command_arg_expr: false,
@@ -254,7 +258,60 @@ impl<'a> Parser<'a> {
             self.token_table.tag_at(first + 1),
             self.token_table.keyword_at(first + 1),
         )?;
+        // An arm body has no `=>` of its own, so `.Name ... =>` on the line
+        // after one is a mistaken arm head, not a member access. Leaving it
+        // for the arm parser lets it say that the head must be qualified.
+        if continuation == LineContinuation::Member
+            && self.line_has_top_level_fat_arrow(first)
+            && self.at_arm_body_top_level(first)
+        {
+            return None;
+        }
         Some((continuation, first))
+    }
+
+    /// Whether token `at` follows the current arm body with every bracket
+    /// the body opened closed again.
+    fn at_arm_body_top_level(&self, at: usize) -> bool {
+        let Some(start) = self.arm_body_start else {
+            return false;
+        };
+        let mut depth = 0usize;
+        for index in start..at {
+            match self.token_table.tag_at(index) {
+                Some(TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace) => depth += 1,
+                Some(TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace) => {
+                    let Some(shallower) = depth.checked_sub(1) else {
+                        return false;
+                    };
+                    depth = shallower;
+                }
+                _ => {}
+            }
+        }
+        depth == 0
+    }
+
+    /// Whether the line starting at token `first` has `=>` outside brackets.
+    fn line_has_top_level_fat_arrow(&self, first: usize) -> bool {
+        let mut depth = 0usize;
+        let mut index = first;
+        loop {
+            match self.token_table.tag_at(index) {
+                Some(TokenTag::FatArrow) if depth == 0 => return true,
+                Some(TokenTag::LParen | TokenTag::LBracket | TokenTag::LBrace) => depth += 1,
+                Some(TokenTag::RParen | TokenTag::RBracket | TokenTag::RBrace) => {
+                    let Some(shallower) = depth.checked_sub(1) else {
+                        return false;
+                    };
+                    depth = shallower;
+                }
+                Some(TokenTag::Newline) if depth == 0 => return false,
+                Some(TokenTag::Eof) | None => return false,
+                Some(_) => {}
+            }
+            index += 1;
+        }
     }
 
     /// If the current token is a newline/comment and the next line starts with

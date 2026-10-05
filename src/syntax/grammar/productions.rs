@@ -360,6 +360,19 @@ fn pattern_primary(payload: &'static str) -> Item {
             ])),
             t(TokenTag::RParen),
         ]),
+        // A variant of the matched value's enum or error family.
+        seq([
+            t(TokenTag::Dot),
+            t(TokenTag::Ident),
+            t(TokenTag::LParen),
+            opt(seq([
+                r("pattern"),
+                star(seq([t(TokenTag::Comma), r("pattern")])),
+                opt(t(TokenTag::Comma)),
+            ])),
+            t(TokenTag::RParen),
+        ]),
+        seq([t(TokenTag::Dot), t(TokenTag::Ident), opt(r(payload))]),
         seq([
             not([vec![word_term("is", false)], vec![word_term("_", false)]]),
             class(Class::Name),
@@ -1264,6 +1277,9 @@ pub(super) fn rules() -> Vec<super::Rule> {
             Statements,
             "arm_head",
             seq([
+                // A line beginning with `.name` continues the line before
+                // it, so a head never begins with a target-typed variant.
+                not([vec![tag_term(T::Dot), tag_term(T::Ident)]]),
                 r("pattern"),
                 opt(seq([kw(Keyword::If), r("expression")])),
                 t(T::FatArrow),

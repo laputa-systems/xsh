@@ -1000,7 +1000,7 @@ from its family. The checker never chooses among candidates: `.Name` with no
 expected type (an unannotated `let`, an inferred return type), with `Error` or
 a facet (which name no single family, as in `Result[T]`), with a type that has
 no such variant, or with an enum whose variants are not visible in the module
-is `check.inferred-variant`. Patterns keep the qualified spellings.
+is `check.inferred-variant`.
 
 `.` is the current item inside a stream stage block (13.1), so there `.name`
 always reads the item's field, and a variant needs its qualified name.
@@ -1010,6 +1010,33 @@ the first statement of a block.
 
 ```xsh
 {{.spec.inferred_variant_context.source}}
+```
+
+A pattern selects a variant the same way, from the type of the value it
+matches: `.Name`, `.Name(p, ...)` for an enum payload, and `.Name {field, ..}`
+for an error variant's fields are exactly the qualified patterns.
+
+```xsh
+{{.spec.inferred_variant_patterns.source}}
+```
+
+```text
+{{.spec.inferred_variant_patterns.output}}
+```
+
+A `.Name` pattern is written only where it cannot begin a line: inside a
+constructor, list, or record pattern (`Err(.Usage {message})`), after `is` or
+`if let`, and as a later alternative (`kinds.File | .Binary`). The head of a
+`match` arm keeps its qualified spelling, because a line beginning with
+`.name` continues the line before it (2.5); an arm that begins with `.Name` is
+`parse.inferred-variant-arm`. The matched value's type must name one enum or
+error family: a `Result[T]` error is the broad `Error`, so `Err(.Name)` there is
+`check.inferred-variant` and the pattern stays qualified. A union (4.12) gives
+no member priority either: test the member first (`value is Family`), and the
+narrowed value selects the variant.
+
+```xsh
+{{.spec.inferred_variant_arm.source}}
 ```
 
 ## 6. Expressions
@@ -1235,6 +1262,7 @@ Patterns appear in `match` arms, `if let`, `while let`, `is` tests, and
 | literal | an equal value |
 | `Ok(p)`, `Err(p)`, `Variant(p, ...)` | constructors |
 | `Family.Variant { field, .. }` | an error variant, binding payload fields |
+| `.Variant`, `.Variant(p, ...)`, `.Variant { field, .. }` | the variant of the matched value's enum or error family (5.5); not at the head of a `match` arm |
 | `is Facet` | any error implementing a facet |
 | `{field: p, other, ..}` | records with those fields |
 | `[a, b]`, `[head, ..tail]`, `[..]` | lists of exact length, or a prefix with a rest |

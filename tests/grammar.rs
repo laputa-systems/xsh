@@ -375,6 +375,55 @@ fn line_continuation_spellings_come_from_the_operator_table() {
     );
 }
 
+/// A target-typed `.Name` pattern is accepted inside patterns and after `is`,
+/// and never as the head of a match arm; the parser and the productions agree.
+#[test]
+fn inferred_variant_patterns_are_parsed_and_recognized_alike() {
+    let recognizer = Recognizer::new(grammar());
+    for source in [
+        "match r {\n  Err(.Usage {message}) => f(message)\n  Ok(.Tree(depth, _)) => g(depth)\n  Ok(k.File | .Binary) => h()\n  _ => i()\n}\n",
+        "let found = kind is .Binary\n",
+        "if kind is .Binary {\n  f()\n}\n",
+        "if failure is .Rejected {status: 1, ..} {\n  f()\n}\n",
+        "if let .Rejected {status, ..} = failure {\n  f(status)\n}\n",
+        "let v = match r { [.A, .B] => 1, {kind: .A} => 2, _ => 3 }\n",
+        "let v = match level {\n  Warn if box\n    .ok => 1\n  _ => 2\n}\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed.diagnostics.is_empty(),
+            "the parser rejects {source:?}: {:?}",
+            parsed.diagnostics
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_ok(),
+            "the grammar rejects {source:?}"
+        );
+    }
+    for source in [
+        "match kind {\n  .File => f()\n  _ => g()\n}\n",
+        "match kind {\n  File => f()\n  .Binary => g()\n}\n",
+        "let v = match kind { .File => 1, _ => 2 }\n",
+        "let v = match kind {\n  File => 1\n  .Tree(depth) => depth\n}\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(
+            parsed
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.code == Some(DiagnosticCode::ParseInferredVariantArm)),
+            "the parser does not report the arm head of {source:?}: {:?}",
+            parsed.diagnostics
+        );
+        let tokens = lex_grammar_tokens(source).expect("lexes");
+        assert!(
+            recognizer.recognize(&tokens).is_err(),
+            "the grammar accepts {source:?}"
+        );
+    }
+}
+
 /// An error family has an `=` form and a brace form with one variant per
 /// line; the parser and the productions agree on both and on what the brace
 /// form rejects.

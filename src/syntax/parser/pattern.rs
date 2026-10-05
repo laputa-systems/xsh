@@ -52,6 +52,27 @@ impl<'a> Parser<'a> {
                 span,
             ));
         }
+        if self.at_inferred_variant_pattern()
+            && self.condition_expr
+            && self.peek_tag(2) == Some(TokenTag::LBrace)
+            && !self.pattern_test_brace_is_payload(2)
+        {
+            // A target-typed predicate can end immediately before a control
+            // body, like a qualified one.
+            let start = self.current_start();
+            self.bump();
+            let variant = self.expect_ident("expected variant name after `.`")?;
+            let span = self.span(start, self.previous_end());
+            return Some((
+                arena.push_pattern_error_variant(
+                    crate::symbol::Name::intern(""),
+                    variant,
+                    &[],
+                    span,
+                ),
+                span,
+            ));
+        }
         if self.current_name().is_some()
             && matches!(
                 self.peek_tag(offset),
@@ -116,7 +137,7 @@ impl<'a> Parser<'a> {
             (arena.push_pattern_wildcard(span), ArenaArmSpelling::Else)
         } else {
             (
-                self.parse_pattern_arena_only(arena)?.0,
+                self.parse_match_arm_pattern_arena_only(arena)?.0,
                 ArenaArmSpelling::Pattern,
             )
         };
@@ -137,6 +158,38 @@ impl<'a> Parser<'a> {
         };
         self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
         Some((pattern, guard, spelling))
+    }
+
+    /// `.Name` at the current token: a variant selected by the type of the
+    /// matched value. `..` is a rest marker, never a variant.
+    pub(super) fn at_inferred_variant_pattern(&self) -> bool {
+        self.current_tag() == TokenTag::Dot && self.peek_tag(1) == Some(TokenTag::Ident)
+    }
+
+    /// The pattern of a match arm head. A head cannot begin with `.Name`:
+    /// a line that begins with `.name` continues the expression on the line
+    /// before it, so only the first arm could be written that way.
+    pub(super) fn parse_match_arm_pattern_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        if self.at_inferred_variant_pattern() {
+            let span = self.span(self.current_start(), self.peek_end(1)?);
+            self.diagnostics.push(
+                crate::diagnostic::Diagnostic::error(
+                    "a match arm head must qualify its variant",
+                )
+                .with_code(DiagnosticCode::ParseInferredVariantArm)
+                .with_label(crate::diagnostic::Label::primary(
+                    span,
+                    "spell the variant in full, as `Variant`, `module.Variant`, or `Family.Variant`",
+                ))
+                .with_note(
+                    "a line that begins with `.name` continues the line before it, so an arm cannot start with a target-typed variant; inside a pattern, as in `Err(.Name)`, it can",
+                ),
+            );
+        }
+        self.parse_pattern_arena_only(arena)
     }
 
     pub(super) fn parse_pattern_arena_only(
@@ -198,11 +251,12 @@ impl<'a> Parser<'a> {
         let span = arena.ast_arena().span(node.span);
         match node.kind {
             ArenaPatternKind::Binding(name) => arena.push_pattern_test_name(name, span),
+            // A target-typed `.Name` has no spelled type to test by name.
             ArenaPatternKind::ErrorVariant {
                 family,
                 variant,
                 fields,
-            } if fields.len == 0 => arena.push_pattern_test_name(
+            } if fields.len == 0 && !family.as_str().is_empty() => arena.push_pattern_test_name(
                 crate::symbol::Name::intern(format!("{family}.{variant}")),
                 span,
             ),
@@ -332,29 +386,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 if self.consume(TokenKindMatch::LParen).is_some() {
-                    let arg = if self.at(TokenKindMatch::RParen) {
-                        None
-                    } else {
-                        let (first, first_span) = self.parse_pattern_arena_only(arena)?;
-                        if self.consume(TokenKindMatch::Comma).is_some() {
-                            let mut tuple = vec![first];
-                            while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof)
-                            {
-                                tuple.push(self.parse_pattern_arena_only(arena)?.0);
-                                if self.consume(TokenKindMatch::Comma).is_none() {
-                                    break;
-                                }
-                            }
-                            let tuple_span = self.span(first_span.start(), self.previous_end());
-                            Some(arena.push_pattern_tuple(&tuple, tuple_span))
-                        } else {
-                            Some(first)
-                        }
-                    };
-                    self.expect(
-                        TokenKindMatch::RParen,
-                        "expected `)` after constructor pattern",
-                    );
+                    let arg = self.parse_constructor_pattern_args_arena_only(arena)?;
                     let span = self.span(span.start(), self.previous_end());
                     return Some((arena.push_pattern_constructor(name, arg, span), span, None));
                 }
@@ -362,6 +394,39 @@ impl<'a> Parser<'a> {
                     arena.push_pattern_binding(name, span),
                     span,
                     Some(Some(name)),
+                ))
+            }
+            TokenTag::Dot if self.at_inferred_variant_pattern() => {
+                self.bump();
+                let variant = self.expect_ident("expected variant name after `.`")?;
+                if self.consume(TokenKindMatch::LParen).is_some() {
+                    let arg = self.parse_constructor_pattern_args_arena_only(arena)?;
+                    let span = self.span(span.start(), self.previous_end());
+                    return Some((
+                        arena.push_pattern_constructor(
+                            crate::symbol::Name::intern(format!(".{variant}")),
+                            arg,
+                            span,
+                        ),
+                        span,
+                        None,
+                    ));
+                }
+                let fields = if self.at(TokenKindMatch::LBrace) {
+                    self.parse_record_pattern_fields_arena_only(arena)?.0
+                } else {
+                    Vec::new()
+                };
+                let span = self.span(span.start(), self.previous_end());
+                Some((
+                    arena.push_pattern_error_variant(
+                        crate::symbol::Name::intern(""),
+                        variant,
+                        &fields,
+                        span,
+                    ),
+                    span,
+                    None,
                 ))
             }
             TokenTag::Keyword
@@ -464,6 +529,37 @@ impl<'a> Parser<'a> {
                 None
             }
         }
+    }
+
+    /// The arguments of a constructor pattern after its `(`, through the
+    /// `)`: none, one pattern, or several as a tuple.
+    fn parse_constructor_pattern_args_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<Option<crate::syntax::arena::PatternId>> {
+        let arg = if self.at(TokenKindMatch::RParen) {
+            None
+        } else {
+            let (first, first_span) = self.parse_pattern_arena_only(arena)?;
+            if self.consume(TokenKindMatch::Comma).is_some() {
+                let mut tuple = vec![first];
+                while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
+                    tuple.push(self.parse_pattern_arena_only(arena)?.0);
+                    if self.consume(TokenKindMatch::Comma).is_none() {
+                        break;
+                    }
+                }
+                let tuple_span = self.span(first_span.start(), self.previous_end());
+                Some(arena.push_pattern_tuple(&tuple, tuple_span))
+            } else {
+                Some(first)
+            }
+        };
+        self.expect(
+            TokenKindMatch::RParen,
+            "expected `)` after constructor pattern",
+        );
+        Some(arg)
     }
 
     fn parse_record_pattern_fields_arena_only(

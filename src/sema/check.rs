@@ -173,6 +173,8 @@ pub struct CheckOutput {
     /// `message: Str`, the field a variant without a payload already carries,
     /// keyed by call expression.
     pub message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
+    /// What each `.Name` pattern stands for, keyed by pattern.
+    pub inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     /// How each well-formed error constructor call binds its arguments, keyed
     /// by call expression.
     pub error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
@@ -184,6 +186,58 @@ pub struct CheckOutput {
     /// Embedded implementation bodies were checked, so every body lowering
     /// builds has published facts.
     pub embedded_bodies_checked: bool,
+}
+
+/// The qualified pattern a target-typed `.Name` pattern was resolved to from
+/// the type of the value it matches, so later stages never resolve the bare
+/// name again.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum InferredVariantPattern {
+    /// An enum variant, by a constructor spelling visible where the pattern
+    /// is written: `Binary`, or `kinds.Binary` for an imported enum.
+    Tag { constructor: Name },
+    /// A variant of this error family, as `Type::ErrorFamily` names it.
+    Error { family: Name },
+}
+
+impl InferredVariantPattern {
+    /// The pattern the qualified spelling parses to, given the `.Name`
+    /// pattern as parsed.
+    pub fn qualify(
+        &self,
+        kind: &crate::syntax::arena::ArenaPatternKind,
+    ) -> crate::syntax::arena::ArenaPatternKind {
+        use crate::syntax::arena::ArenaPatternKind;
+        match (self, kind) {
+            (Self::Tag { constructor }, ArenaPatternKind::Constructor { arg, .. }) => {
+                ArenaPatternKind::Constructor {
+                    name: *constructor,
+                    arg: *arg,
+                }
+            }
+            (Self::Tag { constructor }, ArenaPatternKind::ErrorVariant { fields, .. }) => {
+                match constructor.as_str().split_once('.') {
+                    Some((namespace, variant)) => ArenaPatternKind::ErrorVariant {
+                        family: Name::intern(namespace),
+                        variant: Name::intern(variant),
+                        fields: *fields,
+                    },
+                    None => ArenaPatternKind::Binding(*constructor),
+                }
+            }
+            (
+                Self::Error { family },
+                ArenaPatternKind::ErrorVariant {
+                    variant, fields, ..
+                },
+            ) => ArenaPatternKind::ErrorVariant {
+                family: *family,
+                variant: *variant,
+                fields: *fields,
+            },
+            _ => kind.clone(),
+        }
+    }
 }
 
 /// The argument binding of one error constructor call.
@@ -596,6 +650,7 @@ pub struct Checker {
     message_payload_constructors: BTreeMap<Span, MessagePayloadConstructor>,
     error_constructors: BTreeMap<Span, CheckedErrorConstructor>,
     optional_binding_spans: BTreeSet<Span>,
+    inferred_variant_patterns: BTreeMap<Span, InferredVariantPattern>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     parameter_types: BTreeMap<Span, Type>,
@@ -730,6 +785,7 @@ impl Checker {
                 message_payload_constructors: checker.message_payload_constructors,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
+                inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: options.embedded_bodies,
             }
         })
@@ -875,6 +931,7 @@ impl Checker {
                 message_payload_constructors: checker.message_payload_constructors,
                 error_constructors: checker.error_constructors,
                 optional_binding_spans: checker.optional_binding_spans,
+                inferred_variant_patterns: checker.inferred_variant_patterns,
                 embedded_bodies_checked: false,
             }
         })
@@ -944,6 +1001,7 @@ impl Checker {
             message_payload_constructors: BTreeMap::new(),
             error_constructors: BTreeMap::new(),
             optional_binding_spans: BTreeSet::new(),
+            inferred_variant_patterns: BTreeMap::new(),
             options,
             function_return_types: BTreeMap::new(),
             parameter_types: BTreeMap::new(),

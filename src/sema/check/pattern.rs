@@ -122,7 +122,23 @@ impl Checker {
             }
             ArenaPatternKind::ErrorVariant {
                 family, variant, ..
-            } => Some(Type::ErrorVariant { family, variant }),
+            } => {
+                let node = arena.arena.pattern(pattern);
+                if !node.kind.is_inferred_variant() {
+                    return Some(Type::ErrorVariant { family, variant });
+                }
+                // A target-typed variant narrows as the family it resolved to.
+                match self
+                    .inferred_variant_patterns
+                    .get(&arena.arena.span(node.span))?
+                {
+                    super::InferredVariantPattern::Error { family } => Some(Type::ErrorVariant {
+                        family: *family,
+                        variant,
+                    }),
+                    super::InferredVariantPattern::Tag { .. } => None,
+                }
+            }
             ArenaPatternKind::Facet(facet) => Some(Type::ErrorFacet(facet)),
             _ => None,
         }
@@ -268,6 +284,27 @@ impl Checker {
         }
     }
 
+    /// Checks what a `.Name` pattern binds after its variant failed to
+    /// resolve, so the names it introduces are still defined.
+    fn check_unresolved_variant_subpatterns(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        kind: &ArenaPatternKind,
+    ) {
+        match kind {
+            ArenaPatternKind::Constructor { arg: Some(arg), .. } => {
+                self.check_pattern_arena(arena, source, *arg, &Type::Unknown);
+            }
+            ArenaPatternKind::ErrorVariant { fields, .. } => {
+                for field in arena.arena.pattern_fields(*fields) {
+                    self.check_pattern_arena(arena, source, field.pattern, &Type::Unknown);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn check_pattern_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -277,7 +314,23 @@ impl Checker {
     ) {
         let pattern = arena.arena.pattern(pattern_id);
         let span = arena.arena.span(pattern.span);
-        match &pattern.kind {
+        // A `.Name` pattern is checked as the qualified pattern the matched
+        // value's type selects.
+        let qualified;
+        let kind = if pattern.kind.is_inferred_variant() {
+            let Some(resolved) =
+                self.resolve_inferred_variant_pattern(&pattern.kind, value_ty, span)
+            else {
+                self.check_unresolved_variant_subpatterns(arena, source, &pattern.kind);
+                return;
+            };
+            qualified = resolved;
+            &qualified
+        } else {
+            self.note_pattern_qualifier(&pattern.kind, value_ty, span);
+            &pattern.kind
+        };
+        match kind {
             ArenaPatternKind::Group(child) => {
                 self.check_pattern_arena(arena, source, *child, value_ty)
             }

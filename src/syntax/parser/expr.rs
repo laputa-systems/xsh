@@ -263,7 +263,10 @@ impl<'a> Parser<'a> {
                 .0
                 .id
         } else {
-            self.parse_expr_id_arena_only(arena)?
+            let outer_arm_body = self.arm_body_start.replace(self.index);
+            let value = self.parse_expr_id_arena_only(arena);
+            self.arm_body_start = outer_arm_body;
+            value?
         };
         let value_end = self.previous_end();
         if self.consume(TokenKindMatch::Comma).is_some() {

@@ -24,6 +24,9 @@ mod inferred_proc_return;
 pub use inferred_proc_return::ReturnProofContext;
 #[path = "lint_implicit_message.rs"]
 mod lint_implicit_message;
+
+#[path = "lint_inferred_variant_pattern.rs"]
+mod lint_inferred_variant_pattern;
 #[path = "lint_path_text_query.rs"]
 mod lint_path_text_query;
 
@@ -694,6 +697,14 @@ impl<'a> Linter<'a> {
             linter
                 .diagnostics
                 .extend(lint_callable_alias::lint_callable_aliases(program, source));
+        }
+        if linter.prefer_inferred_variants {
+            let patterns = lint_inferred_variant_pattern::lint_inferred_variant_patterns(
+                program,
+                source,
+                &linter.redundant_variant_qualifiers,
+            );
+            linter.diagnostics.extend(patterns);
         }
         if prefer_implicit_messages {
             linter
