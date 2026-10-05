@@ -783,7 +783,9 @@ pure perfect_power(n: List[Int]) -> Power {
 # The factorization of one number.
 type Factors = {primes: List[Str], incomplete: Bool}
 
-type Stripped = {primes: List[Str], rest: List[Int]}
+# What is left after the small primes are divided out. `proven` says the rest
+# is itself prime: no prime up to its square root divides it.
+type Stripped = {primes: List[Str], rest: List[Int], proven: Bool}
 
 pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
   var primes: List[Str] = []
@@ -793,7 +795,9 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
     var value = big_to_int(rest)
 
     for p in small {
-      break when p * p > value and value > 1
+      if p * p > value and value > 1 {
+        return {primes: primes, rest: big_from_int(value), proven: true}
+      }
 
       while value > 1 and value % p == 0 {
         primes += [f"{p}"]
@@ -801,7 +805,7 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
       }
     }
 
-    return {primes: primes, rest: big_from_int(value)}
+    return {primes: primes, rest: big_from_int(value), proven: value < 4194304 and value > 1}
   }
 
   for p in small {
@@ -814,7 +818,7 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
     }
   }
 
-  {primes: primes, rest: rest}
+  {primes: primes, rest: rest, proven: rest.len() <= 1 and big_to_int(rest) < 4194304 and rest.len() > 0 and big_to_int(rest) > 1}
 }
 
 # One nontrivial factor of an odd composite with no factor below 2048, as
@@ -872,7 +876,9 @@ pure factorize(n: List[Int], small: List[Int]) -> Factors {
   var primes = stripped.primes
   var work: List[List[Int]] = []
 
-  if stripped.rest.len() > 0 and ! big_is_one(stripped.rest) {
+  if stripped.proven {
+    primes += [big_text(stripped.rest)]
+  } else if stripped.rest.len() > 0 and ! big_is_one(stripped.rest) {
     work = [stripped.rest]
   }
 
