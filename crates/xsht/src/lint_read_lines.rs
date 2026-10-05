@@ -9,10 +9,12 @@ use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, AstArena, Ex
 /// are `P.read_lines()?`: the same read, the same decoding, the same split,
 /// and the same failure propagated from the same place.
 ///
-/// A line-by-line loop over that shape is skipped. `lint.prefer-file-lines`
-/// reports it and recommends the lazy `P.lines()?`, and rewriting it here
-/// would silence that advice; `reported` holds the diagnostics so far, which
-/// include that lint's for the loop being visited.
+/// A `for` loop directly over that shape belongs to `lint.prefer-file-lines`,
+/// which recommends the lazy `P.lines()?` and cannot fix it (laziness moves a
+/// decoding failure into the loop). Rewriting the loop here would silence
+/// that advice and report one site twice, so it is skipped; `reported` holds
+/// the diagnostics so far, which include that lint's for the loop being
+/// visited.
 pub(super) fn read_lines(
     arena: &AstArena,
     source: &str,
@@ -70,7 +72,7 @@ pub(super) fn read_lines(
 
 /// The Path that `expr` reads when it is `P.read_text()?.lines()` or
 /// `fs.read_text(P)?.lines()` on a checked Path, and whether the read is
-/// spelled as a method.
+/// spelled as a method. Both lints over this shape share the one definition.
 pub(super) fn read_text_lines_path(
     arena: &AstArena,
     expr: ExprId,
@@ -200,5 +202,31 @@ mod tests {
         let diagnostics = lint(source);
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         assert!(diagnostics[0].fix_hints.is_empty());
+    }
+
+    // One site, one diagnostic: a loop directly over the lines is advised
+    // toward lazy lines and is not rewritten; every other use, including a
+    // loop over a list built from them, is rewritten to `read_lines`.
+    #[test]
+    fn a_line_loop_is_owned_by_the_lazy_lines_lint() {
+        let source = "proc load(source: Path) [fs, error] -> Result[Int] {\n  for line in source.read_text()?.lines() {\n    print $line\n  }\n\n  for line in source.read_text()?.lines().push(\"end\") {\n    print $line\n  }\n\n  let kept = source.read_text()?.lines()\n  kept.len()\n}\n";
+        let sites = lint(source)
+            .iter()
+            .map(|diagnostic| {
+                let line = source[..diagnostic.labels[0].span.start()]
+                    .matches('\n')
+                    .count()
+                    + 1;
+                (diagnostic.code.unwrap(), line, diagnostic.fix_hints.len())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sites,
+            [
+                (DiagnosticCode::LintPreferFileLines, 2, 0),
+                (DiagnosticCode::LintPreferReadLines, 6, 1),
+                (DiagnosticCode::LintPreferReadLines, 10, 1),
+            ]
+        );
     }
 }

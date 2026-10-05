@@ -212,3 +212,21 @@ print (describe(p"ROOT/binary"))
   assert repeated.status.exited_with(0)
   assert "lint.prefer-read-lines" not in repeated.stderr
 }
+
+test test_line_loop_is_reported_once_for_lazy_lines_and_not_rewritten { |ctx|
+  let source = r"""proc show(source: Path) [fs, error] {
+  for line in source.read_text()?.lines() {
+    print $line
+  }
+}
+"""
+  let candidate = test.temp_file(ctx, name: "line-loop.xsh", contents: bytes.from_text(source))?
+  let reported = run.capture --text "xsht" lint --only lint.prefer-file-lines,lint.prefer-read-lines --fix $candidate ?
+  assert "lint.prefer-file-lines" in reported.stderr, reported.stderr
+  assert "lint.prefer-read-lines" not in reported.stderr, reported.stderr
+  assert reported.stderr.split("warn[").len() == 2, reported.stderr
+
+  # Lazy lines move a decoding failure into the loop, so the loop is advice
+  # for a person and `--fix` leaves it alone.
+  assert candidate.read_text()? == source
+}
