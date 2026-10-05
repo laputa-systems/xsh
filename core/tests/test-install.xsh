@@ -109,3 +109,14 @@ test test_install_directory_trailing_dot_creates_directory { |ctx|
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -d $directory
   assert fp"{root}/directory".is_dir()?
 }
+
+test test_install_missing_directory_target_does_not_create_it { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let target = fp"{root}/missing/"
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -D $source $target
+  assert status.exited_with(1)
+  assert ! target.exists()?
+  assert source.read_text()? == "payload"
+}
