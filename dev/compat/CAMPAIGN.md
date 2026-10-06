@@ -26,7 +26,40 @@ verification from historical compatibility results.
   four exclusions, but preceded final integration. It is not final-head
   evidence and is not substituted for the historical canonical report.
 
-Final verification results are recorded here after the integration gates.
+### Final verification
+
+Implementation revision: `60549b3c`. All builds and Linux runs used the
+`Dockerfile.test` image, pinned nightly compiler and static musl symbol flags.
+Release snapshots were fixed for each run; native suites ran as UID/GID 1000.
+
+| Check | Result |
+|---|---|
+| Core check | All 443 XSH files checked, no diagnostics |
+| Full core native suite, x86_64 musl | 1,057 passed, 0 failed, 14 skipped |
+| Full standard-library suite, x86_64 musl | 688 passed, 0 failed, 22 skipped |
+| DNS Rust fixture integration | 1 passed; owned loopback server |
+| Generic exec environment and login | 7 focused tests passed |
+| Documentation generation/check | Passed, including 3 tour project tests |
+| Compatibility stage regression | 1 native test passed |
+| GNU runner harness | 3 Python tests passed, 1 platform test skipped |
+| Offline inventory, ownership and ratchets | Passed; 0 ignored buckets, 0 direct readers, 4 unchanged exclusions |
+| Strict aarch64-musl release build | Passed with the exact target flags |
+
+The x86_64 runs are iteration evidence, not a substitute for the pinned
+aarch64 Linux support gate. AArch64 binaries were also run through QEMU in
+an isolated user/mount namespace with UID/GID 1000 and no effective
+capabilities. Eight focused command checks passed. The broader standard-library
+run had 683 passes, 2 failures and 22 skips: one sampling test fixture was
+subsequently corrected and passes in the final iteration run; the identity
+test sees a parent PID of zero under emulation. The broad emulated core run
+was stopped after 105 passes and one machine-name mismatch against native
+host tools. Neither broad emulated run establishes a passing native AArch64
+gate. Tests were retained; no exclusions were added to hide these results.
+
+Logs remain in ignored scratch directories `target/compat-winddown` and
+`target/aarch64-verification/evidence`. Session containers were stopped after
+verification. No push or formatter was run. The campaign is incomplete; this
+wind-down report releases the lanes rather than claiming its remaining gates.
 
 ## Operational handoff (2026-10-05)
 

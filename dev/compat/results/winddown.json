@@ -1,0 +1,68 @@
+{
+  "implementation_revision": "60549b3c",
+  "date": "2026-10-06",
+  "status": "wound-down-at-user-request",
+  "campaign_complete": false,
+  "inventory": {
+    "in_scope": 106,
+    "present_in_scope": 106,
+    "expanded": 125,
+    "present_expanded": 99
+  },
+  "environment": {
+    "image": "Dockerfile.test / xsh-test",
+    "compiler": "nightly-2026-09-15",
+    "iteration_target": "x86_64-unknown-linux-musl",
+    "support_target": "aarch64-unknown-linux-musl",
+    "uid": 1000,
+    "gid": 1000,
+    "release": true
+  },
+  "verification": {
+    "core_check": {
+      "files": 443,
+      "diagnostics": 0
+    },
+    "core_native_iteration": {
+      "pass": 1057,
+      "fail": 0,
+      "skip": 14
+    },
+    "stdlib_iteration": {
+      "pass": 688,
+      "fail": 0,
+      "skip": 22
+    },
+    "dns_integration": {
+      "pass": 1,
+      "fail": 0
+    },
+    "docs_check": "passed",
+    "aarch64_build": "passed",
+    "aarch64_native_support_gate": "incomplete",
+    "aarch64_emulated_core": {
+      "pass": 105,
+      "fail": 1,
+      "complete": false,
+      "reason": "stopped after machine-name mismatch with native host oracle; emulation also reports parent PID zero"
+    },
+    "aarch64_emulated_stdlib_before_final_fixture_correction": {
+      "pass": 683,
+      "fail": 2,
+      "skip": 22
+    },
+    "aarch64_focused_commands": {
+      "pass": 8,
+      "fail": 0
+    }
+  },
+  "ratchets": {
+    "ignored_option_buckets": 0,
+    "direct_applet_kernel_readers": 0,
+    "upstream_exclusions": 4
+  },
+  "canonical_compatibility_reports": "historical; not replaced by an intermediate or incomplete session run",
+  "remaining_gaps": "dev/compat/gaps.json",
+  "source_policy": "Command semantics and domain policy in XSH; shared codec, byte and OS boundaries in Rust",
+  "dependencies": "Standing user approval for campaign dependencies; zstd 0.13.3 added with default features disabled"
+}
