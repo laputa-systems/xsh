@@ -140,7 +140,7 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
     expected = line.byte_slice(0, length: width)
     if line.byte_slice(width, length: 1) != " " { return null }
     let marker = line.byte_slice(width + 1, length: 1)
-    name = line.byte_slice(width + if marker == " " or marker == "*" { 2 } else { 1 })
+    name = line.byte_slice(width + (if marker == " " or marker == "*" { 2 } else { 1 }))
   }
   let width = if selected == "blake2b" { bits / 4 } else { digest_length(selected) }
   if width < 2 or expected.byte_len() != width or expected.lower().translate("0123456789abcdef", "") != "" or name == "" { return null }
@@ -229,7 +229,7 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
 }
 
 ## Parse conventional checksum options, hash files or stdin, and verify lists.
-export proc main(argv: List[Str], default_algorithm: Str, cksum = false) [fs, io, error, process, env] -> Unit {
+export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs, io, error, process, env] -> Unit {
   let opts: Options = cli.applet(argv, {
     gnu: {status: 1},
     binary: {form: "-b --binary", default: false},

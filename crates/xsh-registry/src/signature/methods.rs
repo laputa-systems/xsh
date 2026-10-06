@@ -431,6 +431,8 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
         MethodReceiverSig {
             receiver: MethodReceiver::Float,
             methods: method_map(vec![
+                method("atan2", vec![param("other", Type::Float)], Type::Float, true, RuntimeOp::FloatAtan2),
+                method("format_number", vec![param("conversion", Type::Str), default_param("precision", Type::Int)], result(Type::Str), true, RuntimeOp::FloatFormatNumber),
                 method(
                     "floor",
                     Vec::new(),

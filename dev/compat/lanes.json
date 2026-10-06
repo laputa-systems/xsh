@@ -3,13 +3,14 @@
   "lanes": {
     "awk": {
       "wave": 1,
-      "kind": "rust",
+      "kind": "script",
       "utilities": [],
       "extra_files": [
-        "core/awk.xsh"
+        "core/awk.xsh",
+        "core/lib/awk.xsh"
       ],
       "depends": [],
-      "note": "Long-running: credible POSIX awk parser and runtime."
+      "note": "Long-running: credible POSIX awk lexer, parser and runtime implemented in XSH; request only reusable low-level primitives."
     },
     "bytes-enc": {
       "wave": 1,
@@ -247,13 +248,14 @@
     },
     "sed": {
       "wave": 1,
-      "kind": "rust",
+      "kind": "script",
       "utilities": [],
       "extra_files": [
-        "core/sed.xsh"
+        "core/sed.xsh",
+        "core/lib/sed.xsh"
       ],
       "depends": [],
-      "note": "Long-running: a real parser and addressing model; uutils/sed and its GNU shim are the reference."
+      "note": "Long-running: XSH parser, addressing model and execution engine over shared byte matching; uutils/sed and its GNU shim are the reference."
     },
     "sort": {
       "wave": 1,

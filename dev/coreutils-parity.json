@@ -9,43 +9,9 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 73,
-    "present_in_scope": 73,
-    "missing_in_scope": [
-      "b2sum",
-      "base32",
-      "base64",
-      "basenc",
-      "chroot",
-      "cksum",
-      "dd",
-      "dircolors",
-      "expand",
-      "fmt",
-      "install",
-      "md5sum",
-      "mkfifo",
-      "mknod",
-      "mktemp",
-      "nl",
-      "nohup",
-      "od",
-      "pathchk",
-      "pr",
-      "sha1sum",
-      "sha224sum",
-      "sha256sum",
-      "sha384sum",
-      "sha512sum",
-      "shred",
-      "stdbuf",
-      "sum",
-      "sync",
-      "timeout",
-      "truncate",
-      "unexpand",
-      "unlink"
-    ]
+    "present": 106,
+    "present_in_scope": 106,
+    "missing_in_scope": []
   },
   "utilities": [
     {
@@ -69,9 +35,9 @@
     {
       "utility": "base32",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/base32.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-base32.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
         "pass": 0,
@@ -87,9 +53,9 @@
     {
       "utility": "base64",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/base64.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-base64.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
         "pass": 0,
@@ -122,15 +88,15 @@
         "test_basename::test_version"
       ],
       "known_semantic_gaps": [
-        "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
+        "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments."
       ]
     },
     {
       "utility": "basenc",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/basenc.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-basenc.xsh",
       "uutils_test_count": 38,
       "uutils_integration": {
         "pass": 0,
@@ -164,9 +130,9 @@
     {
       "utility": "cksum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cksum.xsh",
       "uutils_test_count": 132,
       "uutils_integration": {
         "pass": 3,
@@ -182,9 +148,9 @@
     {
       "utility": "b2sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/b2sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-b2sum.xsh",
       "uutils_test_count": 15,
       "uutils_integration": {
         "pass": 0,
@@ -200,9 +166,9 @@
     {
       "utility": "md5sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/md5sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-md5sum.xsh",
       "uutils_test_count": 40,
       "uutils_integration": {
         "pass": 0,
@@ -236,9 +202,9 @@
     {
       "utility": "sha1sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sha1sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha1sum.xsh",
       "uutils_test_count": 10,
       "uutils_integration": {
         "pass": 0,
@@ -254,9 +220,9 @@
     {
       "utility": "sha224sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sha224sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha224sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
         "pass": 0,
@@ -272,9 +238,9 @@
     {
       "utility": "sha256sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sha256sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha256sum.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
         "pass": 0,
@@ -290,9 +256,9 @@
     {
       "utility": "sha384sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sha384sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha384sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
         "pass": 0,
@@ -308,9 +274,9 @@
     {
       "utility": "sha512sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sha512sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha512sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
         "pass": 0,
@@ -416,9 +382,9 @@
     {
       "utility": "dd",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/dd.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dd.xsh",
       "uutils_test_count": 155,
       "uutils_integration": {
         "pass": 4,
@@ -452,9 +418,9 @@
     {
       "utility": "dircolors",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/dircolors.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dircolors.xsh",
       "uutils_test_count": 20,
       "uutils_integration": {
         "pass": 0,
@@ -506,9 +472,9 @@
     {
       "utility": "expand",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/expand.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-expand.xsh",
       "uutils_test_count": 46,
       "uutils_integration": {
         "pass": 0,
@@ -578,9 +544,9 @@
     {
       "utility": "fmt",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/fmt.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-fmt.xsh",
       "uutils_test_count": 39,
       "uutils_integration": {
         "pass": 0,
@@ -718,13 +684,12 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
+        "SELinux contexts (-Z, --context), ACL/context mode markers and capability colors remain incomplete despite the shared xattr API.",
         "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
         "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
         "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
-        "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
         "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
-        "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
+        "Directories are read eagerly: /proc/self/fd can expose a directory descriptor after it closes. unix.window_size exists but terminal-width selection still needs parity verification."
       ]
     },
     {
@@ -748,9 +713,9 @@
     {
       "utility": "mktemp",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/mktemp.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mktemp.xsh",
       "uutils_test_count": 47,
       "uutils_integration": {
         "pass": 0,
@@ -784,9 +749,9 @@
     {
       "utility": "nl",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/nl.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nl.xsh",
       "uutils_test_count": 67,
       "uutils_integration": {
         "pass": 0,
@@ -820,9 +785,9 @@
     {
       "utility": "od",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/od.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-od.xsh",
       "uutils_test_count": 80,
       "uutils_integration": {
         "pass": 5,
@@ -856,9 +821,9 @@
     {
       "utility": "pathchk",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/pathchk.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pathchk.xsh",
       "uutils_test_count": 9,
       "uutils_integration": {
         "pass": 0,
@@ -874,9 +839,9 @@
     {
       "utility": "pr",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/pr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pr.xsh",
       "uutils_test_count": 84,
       "uutils_integration": {
         "pass": 0,
@@ -1054,9 +1019,9 @@
     {
       "utility": "shred",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/shred.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-shred.xsh",
       "uutils_test_count": 31,
       "uutils_integration": {
         "pass": 1,
@@ -1146,9 +1111,9 @@
     {
       "utility": "sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sum.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
         "pass": 0,
@@ -1292,9 +1257,9 @@
     {
       "utility": "truncate",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/truncate.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-truncate.xsh",
       "uutils_test_count": 49,
       "uutils_integration": {
         "pass": 2,
@@ -1364,9 +1329,9 @@
     {
       "utility": "unexpand",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/unexpand.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-unexpand.xsh",
       "uutils_test_count": 44,
       "uutils_integration": {
         "pass": 0,
@@ -1400,9 +1365,9 @@
     {
       "utility": "unlink",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/unlink.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-unlink.xsh",
       "uutils_test_count": 7,
       "uutils_integration": {
         "pass": 0,
@@ -1562,9 +1527,9 @@
     {
       "utility": "nohup",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/nohup.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nohup.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
         "pass": 1,
@@ -1612,9 +1577,9 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Commands are read a line at a time (RETURN ends each): there is no unbuffered or timed stdin read, so single-key paging, Ctrl-C handling and window-resize redraws are missing (request: an `io.stdin_read`/`unix.read_fd` primitive).",
-        "A pipe on standard input is printed in full instead of paged: the commands would have to come from /dev/tty, which has no read primitive.",
-        "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv): test_more::test_more_non_utf8_paths.",
+        "Single-key paging, Ctrl-C handling and resize redraws remain missing; unix.read_fd and unix.poll_fd now provide the required descriptor operations.",
+        "A pipe on standard input is printed in full instead of paged; command input from /dev/tty is not integrated.",
+        "Non-UTF-8 operands cannot be passed (this text applet requires UTF-8 argv): test_more::test_more_non_utf8_paths.",
         "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
         "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
       ]
@@ -1622,9 +1587,9 @@
     {
       "utility": "sync",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sync.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sync.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
         "pass": 1,
@@ -1640,9 +1605,9 @@
     {
       "utility": "timeout",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/timeout.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-timeout.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
         "pass": 1,
@@ -1653,7 +1618,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor."
+      ]
     },
     {
       "utility": "uptime",
@@ -1752,9 +1719,9 @@
     {
       "utility": "chroot",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/chroot.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chroot.xsh",
       "uutils_test_count": 21,
       "uutils_integration": {
         "pass": 0,
@@ -1806,9 +1773,9 @@
     {
       "utility": "install",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/install.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-install.xsh",
       "uutils_test_count": 124,
       "uutils_integration": {
         "pass": 3,
@@ -1842,9 +1809,9 @@
     {
       "utility": "mkfifo",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/mkfifo.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mkfifo.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
         "pass": 1,
@@ -1860,9 +1827,9 @@
     {
       "utility": "mknod",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/mknod.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mknod.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
         "pass": 0,
@@ -1921,9 +1888,9 @@
     {
       "utility": "stdbuf",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/stdbuf.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stdbuf.xsh",
       "uutils_test_count": 21,
       "uutils_integration": {
         "pass": 1,
@@ -1934,7 +1901,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Child libc buffering cannot be controlled by parent pipes or XSH byte streams. GNU/uutils stdbuf requires an ABI-compatible preload shared library with a setvbuf constructor; the standalone static musl release ships no such library. The applet validates options and exits 125 explicitly without launching a command."
+      ]
     },
     {
       "utility": "pinky",
@@ -2031,132 +2000,35 @@
   "linux_surface": {
     "totals": {
       "commands": 125,
-      "present": 2,
+      "present": 99,
       "optional": 6,
       "missing": [
         "arp",
-        "awk",
-        "blkid",
-        "blockdev",
-        "bunzip2",
-        "bzcat",
-        "bzip2",
-        "chattr",
         "chrt",
-        "clear",
-        "cmp",
         "cpio",
         "curl",
-        "depmod",
-        "diff",
-        "dig",
-        "dmesg",
         "efibootmgr",
-        "egrep",
         "ethtool",
-        "fatlabel",
-        "fdisk",
-        "fgrep",
-        "file",
-        "find",
-        "findmnt",
-        "flock",
-        "free",
-        "fsck.fat",
-        "fsck.vfat",
-        "fsfreeze",
-        "fstrim",
-        "fuser",
-        "getcap",
-        "getent",
-        "getfacl",
-        "getfattr",
-        "grep",
-        "gunzip",
-        "gzip",
-        "halt",
-        "hwclock",
         "ifconfig",
-        "insmod",
         "ionice",
-        "iostat",
         "iw",
-        "killall",
-        "ldd",
-        "login",
-        "losetup",
-        "lsattr",
-        "lsblk",
-        "lscpu",
-        "lsmod",
         "lsns",
-        "lsof",
-        "lspci",
-        "lsusb",
-        "lzcat",
-        "lzma",
-        "mkfs.fat",
-        "mkfs.vfat",
-        "mkswap",
-        "modinfo",
-        "modprobe",
-        "mount",
         "nc",
         "nsenter",
-        "nslookup",
         "nvme",
-        "partprobe",
-        "partx",
-        "patch",
-        "pgrep",
-        "pidof",
-        "pidstat",
         "ping",
         "ping6",
-        "pivot_root",
-        "pkill",
-        "poweroff",
         "prlimit",
-        "ps",
-        "reboot",
-        "reset",
-        "rfkill",
-        "rmmod",
         "route",
-        "sed",
-        "sensors",
-        "setcap",
-        "setfacl",
-        "setfattr",
         "setpriv",
-        "setsid",
-        "sfdisk",
         "smartctl",
         "ss",
-        "swapoff",
-        "swapon",
-        "switch_root",
-        "sysctl",
         "taskset",
-        "top",
         "tracepath",
         "traceroute",
         "udevadm",
-        "umount",
-        "unlzma",
         "unshare",
-        "unxz",
-        "unzstd",
-        "vmstat",
-        "watch",
-        "wget",
-        "wipefs",
-        "xargs",
-        "xz",
-        "xzcat",
-        "zcat",
-        "zstd",
-        "zstdcat"
+        "wget"
       ]
     },
     "commands": [
@@ -2166,9 +2038,9 @@
         "domain": "linux.device",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/lscpu.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lscpu.xsh"
       },
       {
         "command": "rfkill",
@@ -2176,9 +2048,9 @@
         "domain": "linux.device",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/rfkill.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-rfkill.xsh"
       },
       {
         "command": "lspci",
@@ -2186,9 +2058,9 @@
         "domain": "linux.pci",
         "reference": "pciutils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/lspci.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lspci.xsh"
       },
       {
         "command": "lsusb",
@@ -2196,9 +2068,9 @@
         "domain": "linux.usb",
         "reference": "usbutils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/lsusb.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsusb.xsh"
       },
       {
         "command": "sensors",
@@ -2206,9 +2078,9 @@
         "domain": "linux.sensor",
         "reference": "lm-sensors",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/sensors.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-sensors.xsh"
       },
       {
         "command": "swapon",
@@ -2216,8 +2088,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/swapon.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2226,8 +2098,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/swapoff.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2236,8 +2108,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/mkswap.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2246,9 +2118,9 @@
         "domain": "linux.device",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/dmesg.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-dmesg.xsh"
       },
       {
         "command": "sysctl",
@@ -2256,9 +2128,9 @@
         "domain": "linux.sysctl",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/sysctl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-sysctl.xsh"
       },
       {
         "command": "hwclock",
@@ -2266,9 +2138,9 @@
         "domain": "linux.clock",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/hwclock.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-hwclock.xsh"
       },
       {
         "command": "flock",
@@ -2276,9 +2148,9 @@
         "domain": "linux.process",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/flock.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-flock.xsh"
       },
       {
         "command": "setsid",
@@ -2286,9 +2158,9 @@
         "domain": "linux.process",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/setsid.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setsid.xsh"
       },
       {
         "command": "pivot_root",
@@ -2296,9 +2168,9 @@
         "domain": "linux.mount",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/pivot_root.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-pivot_root.xsh"
       },
       {
         "command": "switch_root",
@@ -2306,9 +2178,9 @@
         "domain": "linux.mount",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/switch_root.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-switch_root.xsh"
       },
       {
         "command": "reboot",
@@ -2316,9 +2188,9 @@
         "domain": "linux.power",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/reboot.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-reboot.xsh"
       },
       {
         "command": "poweroff",
@@ -2326,9 +2198,9 @@
         "domain": "linux.power",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/poweroff.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-poweroff.xsh"
       },
       {
         "command": "halt",
@@ -2336,9 +2208,9 @@
         "domain": "linux.power",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/halt.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-halt.xsh"
       },
       {
         "command": "lsmod",
@@ -2346,9 +2218,9 @@
         "domain": "linux.module",
         "reference": "kmod",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/lsmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsmod.xsh"
       },
       {
         "command": "modinfo",
@@ -2356,9 +2228,9 @@
         "domain": "linux.module",
         "reference": "kmod",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/modinfo.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-modinfo.xsh"
       },
       {
         "command": "modprobe",
@@ -2366,9 +2238,9 @@
         "domain": "linux.module",
         "reference": "kmod",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/modprobe.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-modprobe.xsh"
       },
       {
         "command": "insmod",
@@ -2376,9 +2248,9 @@
         "domain": "linux.module",
         "reference": "kmod",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/insmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-insmod.xsh"
       },
       {
         "command": "rmmod",
@@ -2386,9 +2258,9 @@
         "domain": "linux.module",
         "reference": "kmod",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/rmmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-rmmod.xsh"
       },
       {
         "command": "depmod",
@@ -2396,9 +2268,9 @@
         "domain": "linux.module",
         "reference": "kmod",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/depmod.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-depmod.xsh"
       },
       {
         "command": "ps",
@@ -2406,8 +2278,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/ps.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2416,8 +2288,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/pgrep.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2426,8 +2298,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/pkill.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2436,8 +2308,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/pidof.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2446,8 +2318,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/free.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2456,8 +2328,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/top.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2466,8 +2338,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/watch.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2476,8 +2348,8 @@
         "domain": "linux.process",
         "reference": "procps-ng",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/vmstat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2486,8 +2358,8 @@
         "domain": "linux.process",
         "reference": "psmisc",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/killall.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2506,8 +2378,8 @@
         "domain": "linux.process",
         "reference": "psmisc",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/fuser.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2516,8 +2388,8 @@
         "domain": "linux.process",
         "reference": "lsof",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/lsof.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2526,8 +2398,8 @@
         "domain": "linux.process",
         "reference": "sysstat",
         "optional": true,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/iostat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2536,8 +2408,8 @@
         "domain": "linux.process",
         "reference": "sysstat",
         "optional": true,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/pidstat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2626,9 +2498,9 @@
         "domain": "linux.accounts",
         "reference": "shadow",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/login.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-login.xsh"
       },
       {
         "command": "getent",
@@ -2636,9 +2508,9 @@
         "domain": "linux.accounts",
         "reference": "glibc",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/getent.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getent.xsh"
       },
       {
         "command": "grep",
@@ -2646,9 +2518,9 @@
         "domain": "xsh.search",
         "reference": "gnu-grep",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/grep.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-grep.xsh"
       },
       {
         "command": "egrep",
@@ -2656,9 +2528,9 @@
         "domain": "xsh.search",
         "reference": "gnu-grep",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/egrep.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-egrep.xsh"
       },
       {
         "command": "fgrep",
@@ -2666,9 +2538,9 @@
         "domain": "xsh.search",
         "reference": "gnu-grep",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/fgrep.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fgrep.xsh"
       },
       {
         "command": "find",
@@ -2676,9 +2548,9 @@
         "domain": "xsh.search",
         "reference": "findutils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/find.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-find.xsh"
       },
       {
         "command": "xargs",
@@ -2686,9 +2558,9 @@
         "domain": "xsh.search",
         "reference": "findutils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/xargs.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-xargs.xsh"
       },
       {
         "command": "sed",
@@ -2696,9 +2568,9 @@
         "domain": "xsh.text",
         "reference": "gnu-sed",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/sed.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-sed.xsh"
       },
       {
         "command": "awk",
@@ -2706,9 +2578,9 @@
         "domain": "xsh.text",
         "reference": "gawk",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/awk.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-awk.xsh"
       },
       {
         "command": "cmp",
@@ -2716,9 +2588,9 @@
         "domain": "xsh.text",
         "reference": "diffutils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/cmp.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-cmp.xsh"
       },
       {
         "command": "diff",
@@ -2726,9 +2598,9 @@
         "domain": "xsh.text",
         "reference": "diffutils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/diff.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-diff.xsh"
       },
       {
         "command": "patch",
@@ -2736,9 +2608,9 @@
         "domain": "xsh.text",
         "reference": "patch",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/patch.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-patch.xsh"
       },
       {
         "command": "gzip",
@@ -2746,8 +2618,8 @@
         "domain": "compression",
         "reference": "gzip",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/gzip.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2756,8 +2628,8 @@
         "domain": "compression",
         "reference": "gzip",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/gunzip.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2766,8 +2638,8 @@
         "domain": "compression",
         "reference": "gzip",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/zcat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2776,8 +2648,8 @@
         "domain": "compression",
         "reference": "bzip2",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/bzip2.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2786,8 +2658,8 @@
         "domain": "compression",
         "reference": "bzip2",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/bunzip2.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2796,8 +2668,8 @@
         "domain": "compression",
         "reference": "bzip2",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/bzcat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2806,8 +2678,8 @@
         "domain": "compression",
         "reference": "xz",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/xz.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2816,8 +2688,8 @@
         "domain": "compression",
         "reference": "xz",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/unxz.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2826,8 +2698,8 @@
         "domain": "compression",
         "reference": "xz",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/xzcat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2836,8 +2708,8 @@
         "domain": "compression",
         "reference": "xz",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/lzma.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2846,8 +2718,8 @@
         "domain": "compression",
         "reference": "xz",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/unlzma.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2856,8 +2728,8 @@
         "domain": "compression",
         "reference": "xz",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/lzcat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2866,8 +2738,8 @@
         "domain": "compression",
         "reference": "zstd",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/zstd.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2876,8 +2748,8 @@
         "domain": "compression",
         "reference": "zstd",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/unzstd.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2886,8 +2758,8 @@
         "domain": "compression",
         "reference": "zstd",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/zstdcat.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2896,9 +2768,9 @@
         "domain": "xsh.misc",
         "reference": "file",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/file.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-file.xsh"
       },
       {
         "command": "ldd",
@@ -2906,9 +2778,9 @@
         "domain": "xsh.misc",
         "reference": "glibc",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/ldd.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ldd.xsh"
       },
       {
         "command": "clear",
@@ -2916,9 +2788,9 @@
         "domain": "xsh.misc",
         "reference": "ncurses",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/clear.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-clear.xsh"
       },
       {
         "command": "reset",
@@ -2926,9 +2798,9 @@
         "domain": "xsh.misc",
         "reference": "ncurses",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/reset.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-reset.xsh"
       },
       {
         "command": "lsblk",
@@ -2936,8 +2808,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/lsblk.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2946,8 +2818,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/blkid.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2956,8 +2828,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/findmnt.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2966,8 +2838,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/mount.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2976,8 +2848,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/umount.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2986,8 +2858,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/losetup.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -2996,8 +2868,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/blockdev.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3006,8 +2878,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/wipefs.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3016,8 +2888,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/partx.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3026,8 +2898,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/partprobe.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3036,8 +2908,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/fstrim.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3046,8 +2918,8 @@
         "domain": "linux.block",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/fsfreeze.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3056,8 +2928,8 @@
         "domain": "linux.partition",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/sfdisk.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3066,8 +2938,8 @@
         "domain": "linux.partition",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
+        "xsh_implementation": "core/fdisk.xsh",
+        "present": true,
         "native_tests": null
       },
       {
@@ -3076,9 +2948,9 @@
         "domain": "linux.fs",
         "reference": "dosfstools",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/mkfs.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-mkfs.fat.xsh"
       },
       {
         "command": "mkfs.vfat",
@@ -3086,9 +2958,9 @@
         "domain": "linux.fs",
         "reference": "dosfstools",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/mkfs.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-mkfs.fat.xsh"
       },
       {
         "command": "fsck.fat",
@@ -3096,9 +2968,9 @@
         "domain": "linux.fs",
         "reference": "dosfstools",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/fsck.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fsck.fat.xsh"
       },
       {
         "command": "fsck.vfat",
@@ -3106,9 +2978,9 @@
         "domain": "linux.fs",
         "reference": "dosfstools",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/fsck.fat.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fsck.fat.xsh"
       },
       {
         "command": "fatlabel",
@@ -3116,9 +2988,9 @@
         "domain": "linux.fs",
         "reference": "dosfstools",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/fatlabel.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-fatlabel.xsh"
       },
       {
         "command": "lsattr",
@@ -3126,9 +2998,9 @@
         "domain": "linux.fs",
         "reference": "e2fsprogs",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/lsattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsattr.xsh"
       },
       {
         "command": "chattr",
@@ -3136,9 +3008,9 @@
         "domain": "linux.fs",
         "reference": "e2fsprogs",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/chattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-chattr.xsh"
       },
       {
         "command": "getfattr",
@@ -3146,9 +3018,9 @@
         "domain": "linux.xattr",
         "reference": "attr",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/getfattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getfattr.xsh"
       },
       {
         "command": "setfattr",
@@ -3156,9 +3028,9 @@
         "domain": "linux.xattr",
         "reference": "attr",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/setfattr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setfattr.xsh"
       },
       {
         "command": "getfacl",
@@ -3166,9 +3038,9 @@
         "domain": "linux.acl",
         "reference": "acl",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/getfacl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getfacl.xsh"
       },
       {
         "command": "setfacl",
@@ -3176,9 +3048,9 @@
         "domain": "linux.acl",
         "reference": "acl",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/setfacl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setfacl.xsh"
       },
       {
         "command": "getcap",
@@ -3186,9 +3058,9 @@
         "domain": "linux.capability",
         "reference": "libcap",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/getcap.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-getcap.xsh"
       },
       {
         "command": "setcap",
@@ -3196,9 +3068,9 @@
         "domain": "linux.capability",
         "reference": "libcap",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/setcap.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setcap.xsh"
       },
       {
         "command": "smartctl",
@@ -3346,9 +3218,9 @@
         "domain": "linux.net",
         "reference": "bind",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/dig.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-dig.xsh"
       },
       {
         "command": "nslookup",
@@ -3356,9 +3228,9 @@
         "domain": "linux.net",
         "reference": "bind",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/nslookup.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nslookup.xsh"
       },
       {
         "command": "nc",

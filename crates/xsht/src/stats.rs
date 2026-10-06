@@ -162,7 +162,7 @@ fn parse_runtime_stats(args: Vec<String>) -> Result<Option<RuntimeStatsRun>, Str
         report: PathBuf::from(report),
         options: RunOptions {
             script: script.clone(),
-            args: script_args,
+            args: script_args.into_iter().map(Into::into).collect(),
             coverage_trace_dir: None,
         },
     }))

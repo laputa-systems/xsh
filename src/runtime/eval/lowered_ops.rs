@@ -1503,6 +1503,26 @@ fn lowered_float_method_value(
         "floor" if args.is_empty() => Ok(lowered_float_to_int_result(value.0.floor(), span)),
         "ceil" if args.is_empty() => Ok(lowered_float_to_int_result(value.0.ceil(), span)),
         "round" if args.is_empty() => Ok(lowered_float_to_int_result(value.0.round(), span)),
+        "atan2" if args.len() == 1 => {
+            let LoweredValue::Float(other) = args[0] else {
+                return Err(RuntimeError::new("type-error", "atan2 expected Float").with_span(span));
+            };
+            Ok(LoweredValue::Float(crate::runtime::value::FloatValue::new(value.0.atan2(other.0))))
+        }
+        "format_number" if (1..=2).contains(&args.len()) => {
+            let Some(LoweredValue::Str(conversion)) = args.first() else {
+                return Err(RuntimeError::new("type-error", "format_number conversion expected Str").with_span(span));
+            };
+            let precision = match args.get(1) {
+                None => 6,
+                Some(LoweredValue::Int(precision)) => *precision,
+                Some(_) => return Err(RuntimeError::new("type-error", "format_number precision expected Int").with_span(span)),
+            };
+            Ok(match crate::modules::text::format_number(value.0, conversion, precision, span) {
+                Ok(output) => LoweredValue::ResultOk(Box::new(LoweredValue::Str(output.into()))),
+                Err(error) => LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error)))),
+            })
+        }
         "format" if args.is_empty() || args.len() == 1 => {
             let precision = match args.first() {
                 Some(LoweredValue::Int(value)) => *value,

@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.date_parse
 
 type TouchOptions = {
   obsolete_force: Bool, no_create: Bool, reference: Str?, access: Bool, modify: Bool,
@@ -89,9 +90,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
   }
   if let text = stamp {
-    let base = time.parse("now")?
-    let access_time = time.parse(text, base_ns: atime ?? base)
-    let modify_time = time.parse(text, base_ns: mtime ?? base)
+    let base = date_parse.parse("now")?
+    let access_time = date_parse.parse(text, base_ns: atime ?? base)
+    let modify_time = date_parse.parse(text, base_ns: mtime ?? base)
     match access_time {
       Ok(value) => atime = value + (if leap_second { 1000000000 } else { 0 })
       Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")

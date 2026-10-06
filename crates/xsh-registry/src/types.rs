@@ -91,6 +91,7 @@ pub enum Type {
     Null,
     Bool,
     Int,
+    UInt,
     Float,
     Duration,
     Str,

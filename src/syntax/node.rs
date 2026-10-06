@@ -48,7 +48,7 @@ impl Effect {
     /// the checker (enforcement) so the two stay in sync.
     pub fn from_module_call(module: &str, function: &str) -> Option<Self> {
         match module {
-            "fs" | "archive" | "diff" | "elf" | "patch" | "user" | "group" | "module" => {
+            "fs" | "archive" | "compression" | "fat" | "diff" | "elf" | "patch" | "user" | "group" | "module" => {
                 Some(Self::Fs)
             }
             "io" => Some(Self::Io),
@@ -68,6 +68,7 @@ impl Effect {
             "applet" => Some(Self::Process),
             "process" | "unix" | "linux" => match function {
                 "command_argv" | "argv_words" => None,
+                "sample" if module == "linux" => Some(Self::Fs),
                 _ => Some(Self::Process),
             },
             "json" => match function {

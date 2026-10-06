@@ -37,12 +37,13 @@ Byte inspection, encoding, decoding, copying, and hashing helpers.
 - `bytes.human(size: Int) -> Str` — Formats a byte count for human-readable display.
 - `bytes.pack_be(value: Int, width: Int) -> Result[Bytes, Error]` — Packs an integer into fixed-width little- or big-endian bytes.
 - `bytes.pack_le(value: Int, width: Int) -> Result[Bytes, Error]` — Packs an integer into fixed-width little- or big-endian bytes.
-- `bytes.read_at(path: Path, offset: Int, length: Int) -> Result[Bytes, Error]` — Reads, writes, or clears a byte range at an explicit offset.
-- `bytes.unpack_be(data: Bytes, width: Int, offset: Int = default) -> Result[Int, Error]` — Unpacks fixed-width little- or big-endian bytes into an integer.
-- `bytes.unpack_le(data: Bytes, width: Int, offset: Int = default) -> Result[Int, Error]` — Unpacks fixed-width little- or big-endian bytes into an integer.
-- `bytes.write_at(path: Path, offset: Int, data: Bytes, create: Bool = default) -> Result[Int, Error]` — Reads, writes, or clears a byte range at an explicit offset.
+- `bytes.read_at(path: Path, offset: UInt, length: Int, regular: Bool = default) -> Result[Bytes, Error]` — Reads, writes, or clears a byte range at an explicit offset.
+- `bytes.resize(path: Path, size: Int, create: Bool = default, exclusive: Bool = default, regular: Bool = default) -> Result[Unit, Error]` — Resizes a file through its opened descriptor.
+- `bytes.unpack_be(data: Bytes, width: Int, offset: UInt = default) -> Result[Int, Error]` — Unpacks fixed-width little- or big-endian bytes into an integer.
+- `bytes.unpack_le(data: Bytes, width: Int, offset: UInt = default) -> Result[Int, Error]` — Unpacks fixed-width little- or big-endian bytes into an integer.
+- `bytes.write_at(path: Path, offset: UInt, data: Bytes, create: Bool = default, regular: Bool = default) -> Result[Int, Error]` — Reads, writes, or clears a byte range at an explicit offset.
 - `bytes.zero(length: Int) -> Result[Bytes, Error]` — Allocates a zero-filled byte buffer.
-- `bytes.zero_at(path: Path, offset: Int, length: Int, create: Bool = default) -> Result[Int, Error]` — Reads, writes, or clears a byte range at an explicit offset.
+- `bytes.zero_at(path: Path, offset: UInt, length: Int, create: Bool = default, regular: Bool = default) -> Result[Int, Error]` — Reads, writes, or clears a byte range at an explicit offset.
 
 ### `cli`
 
@@ -54,6 +55,13 @@ Script command-line parsing into typed option records.
 - `cli.parse_full(argv: List[Str], schema: Record, env: Record = default, command: Str = default) -> Result[{sources: Record, values: Record, warnings: List[Str]}, Error]` — Parses the complete script argument schema including help and usage policy.
 - `cli.tokens(argv: List[Str], value_flags: List[Str] = default) -> Result[List[{kind: Str, name: Str, value: Str}], Error]` — Tokenizes command-line flags without executing them.
 - `cli.usage(schema: Record, command: Str = default) -> Str` — Renders usage text from a command-line descriptor.
+
+### `compression`
+
+Bounded compression of files or standard streams.
+
+- `compression.gzip_name(source: Path) -> Result[Path?, Error]` — Reads a gzip header filename.
+- `compression.transform(source: Path? = default, destination: Path? = default, format: Str = default, decode: Bool = default, level: Int = default, test: Bool = default, metadata: Bool = default, overwrite: Bool = default, pass_through: Bool = default) -> Result[Unit, Error]` — Compresses or decompresses a byte stream.
 
 ### `cpu`
 
@@ -106,10 +114,11 @@ Expected validation failure construction.
 
 Filesystem reads, writes, metadata, links, permissions, locking, and installation.
 
+- `fs.access(path: Path, read: Bool = default, write: Bool = default, execute: Bool = default, follow_symlinks: Bool = default) -> Result[Bool, Error]` — Checks path access using effective credentials.
 - `fs.chgrp(path: Path, group: {gid: Int, members: List[Str], name: Str}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
 - `fs.children(path: Path, stat: Bool = default, ordered: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Lists immediate filesystem children as structured entries.
 - `fs.chown(path: Path, owner: {gid: Int, home: Path, name: Str, shell: Str, uid: Int}, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes filesystem ownership metadata.
-- `fs.copy_file(source: Path, dest: Path, sparse: Str = default, reflink: Str = default, overwrite: Bool = default, mode: Int? = default) -> Result[{bytes: Int, hole_bytes: Int, method: Str}, Error]` — Copies a regular file's bytes with sparse and reflink control.
+- `fs.copy_file(source: Path, dest: Path, sparse: Str = default, reflink: Str = default, overwrite: Bool = default, mode: Int? = default, force: Bool = default) -> Result[{bytes: Int, destination_replaced: Bool, hole_bytes: Int, method: Str}, Error]` — Copies file, FIFO, or device bytes with sparse and reflink control.
 - `fs.copy_tree(source: Path, dest: Path, parents: Bool = default, overwrite: Bool = default, follow_symlinks: Bool = default) -> Result[{dirs: Int, files: Int, symlinks: Int}, Error]` — Copies a directory tree and returns copy statistics.
 - `fs.cwd() -> Result[Path, Error]` — Returns the evaluator's current working directory.
 - `fs.data_ranges(path: Path) -> Result[List[{length: Int, offset: Int}], Error]` — Lists the runs of allocated data in a possibly sparse file.
@@ -134,8 +143,10 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.open_root(path: Path) -> Result[FsRoot, Error]` — Creates or accesses a rooted filesystem capability.
 - `fs.other_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.owner_executable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
+- `fs.path_limits(path: Path) -> Result[{name_max: Int, path_max: Int}, Error]` — Reads the host name and path byte limits for a path.
 - `fs.project_root(kind: Str, qualifier: Str, organization: Str, application: Str) -> Result[FsRoot, Error]` — Finds the project root from a starting path.
 - `fs.remove_manifest(root: Path, manifest: List[Path], missing_ok: Bool = default, prune_dirs: Bool = default) -> Result[{missing: Int, pruned_dirs: Int, removed: Int}, Error]` — Removes files and empty parents listed by a manifest.
+- `fs.rename_exchange(source: Path, dest: Path) -> Result[Unit, Error]` — Atomically exchanges two existing directory entries.
 - `fs.rename_noreplace(source: Path, dest: Path) -> Result[Unit, Error]` — Renames a path atomically without replacing an existing destination.
 - `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot, dest: Path, mode: Int, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `fs.set_owner(path: Path, uid: Int? = default, gid: Int? = default, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Changes a path's owner and group by numeric ID in one call.
@@ -147,6 +158,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.sticky(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
 - `fs.symlink(target: Path, path: Path) -> Result[Unit, Error]` — Creates a symbolic link with explicit target and link paths.
 - `fs.sync() -> Result[Unit, Error]` — Flushes file or filesystem state to the host.
+- `fs.sync_path(path: Path, mode: Str = default) -> Result[Unit, Error]` — Synchronizes a file or its containing filesystem.
 - `fs.temp_sibling(path: Path) -> Result[Path, Error]` — Names a hidden temporary path beside a path, for producing a file that is then renamed over it.
 - `fs.tempdir() -> Result[FsRoot, Error]` — Creates a temporary resource under XSH ownership.
 - `fs.tempfile() -> Result[{path: Path, root: FsRoot}, Error]` — Creates a temporary resource under XSH ownership.
@@ -155,6 +167,10 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.user_root(kind: Str) -> Result[FsRoot, Error]` — Returns the current user's filesystem root path.
 - `fs.walk(path: Path, gitignore: Bool = default, stat: Bool = default, hidden: Bool = default) -> Result[Stream[{accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}], Error]` — Produces lazy structured filesystem entries.
 - `fs.world_writable(mode: Int) -> Bool` — Inspects one permission bit on a filesystem path.
+- `fs.xattr_get(path: Path, name: Str, follow_symlinks: Bool = default) -> Result[Bytes, Error]` — Reads an extended attribute as raw bytes.
+- `fs.xattr_list(path: Path, follow_symlinks: Bool = default) -> Result[List[Str], Error]` — Lists extended attribute names in sorted order.
+- `fs.xattr_remove(path: Path, name: Str, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Removes one extended attribute.
+- `fs.xattr_set(path: Path, name: Str, value: Bytes, mode: Str = default, follow_symlinks: Bool = default) -> Result[Unit, Error]` — Writes raw extended attribute bytes.
 
 ### `group`
 
@@ -170,8 +186,12 @@ Unix group lookup records.
 
 Digest calculation and checksum verification.
 
+- `hash.checksum(path: Path, algorithm: Str) -> Result[{checksum: Int, size: Int}, Error]` — Calculates a bounded streaming checksum and content byte count.
+- `hash.checksum_stdin(algorithm: Str) -> Result[{checksum: Int, size: Int}, Error]` — Calculates a bounded streaming checksum and content byte count.
 - `hash.crc32(data: Bytes) -> Int` — Calculates a CRC checksum for bytes.
 - `hash.crc32c(data: Bytes) -> Int` — Calculates a CRC checksum for bytes.
+- `hash.digest_file(path: Path, algorithm: Str, length: Int = default) -> Result[Digest, Error]` — Calculates a digest using bounded file or remaining stdin reads.
+- `hash.digest_stdin(algorithm: Str, length: Int = default) -> Result[Digest, Error]` — Calculates a digest using bounded file or remaining stdin reads.
 - `hash.md5(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.parse_check_line(line: Str) -> Result[{binary: Bool, hex: Str, path: Str}, Error]` — Parses one checksum-file verification line.
 - `hash.sha1(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
@@ -192,10 +212,13 @@ INI decoding, encoding, and file helpers.
 
 Script stdin and stdout helpers.
 
+- `io.flush_stderr() -> Result[Unit, Error]` — Writes buffered standard error to the host and reports write failures.
 - `io.flush_stdout() -> Result[Unit, Error]` — Writes the buffered standard output to the host and reports the outcome.
 - `io.stdin_bytes() -> Result[Bytes, Error]` — Reads all standard input as Bytes.
 - `io.stdin_line() -> Result[Str, Error]` — Reads one line from standard input.
+- `io.stdin_read(max_bytes: Int) -> Result[Bytes, Error]` — Reads up to max_bytes bytes from standard input without reading ahead.
 - `io.stdin_text() -> Result[Str, Error]` — Reads all standard input as UTF-8 text.
+- `io.write_stderr(text: Str) -> Result[Unit, Error]` — Buffers UTF-8 text on standard error without a newline.
 - `io.write_stdout(text: Str) -> Result[Unit, Error]` — Writes UTF-8 text to standard output.
 - `io.write_stdout_bytes(data: Bytes) -> Result[Unit, Error]` — Writes raw Bytes to standard output.
 
@@ -220,6 +243,11 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.add_default_ipv4_route(gateway: Str, interface: Str = default) -> Result[Unit, Error]` — Changes Linux network link or route configuration.
 - `linux.blkid(device: Path) -> Result[{label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}, Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.block_devices() -> Result[Stream[{name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}], Error]` — Reads or changes Linux block-device state.
+- `linux.block_signatures(path: Path) -> Result[List[{kind: Str, magic: Bytes, offset: UInt, type: Str}], Error]` — Probes recognized storage signatures.
+- `linux.blockdev_flush(path: Path) -> Result[Unit, Error]` — Controls mounts, filesystems and block devices.
+- `linux.blockdev_info(path: Path) -> Result[{logical_sector_bytes: UInt, physical_sector_bytes: UInt, read_only: Bool, size_bytes: UInt}, Error]` — Controls mounts, filesystems and block devices.
+- `linux.blockdev_reread_partition_table(path: Path) -> Result[Unit, Error]` — Controls mounts, filesystems and block devices.
+- `linux.blockdev_set_read_only(path: Path, read_only: Bool) -> Result[Unit, Error]` — Controls mounts, filesystems and block devices.
 - `linux.chroot(path: Path) -> Result[Unit, Error]` — Changes the Linux process root or root-transition state.
 - `linux.del_default_ipv4_route(gateway: Str, interface: Str) -> Result[Unit, Error]` — Changes Linux network link or route configuration.
 - `linux.depmod(version: Str = default) -> Result[Unit, Error]` — Loads, removes, or indexes Linux kernel modules.
@@ -231,9 +259,12 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.disk_usage(path: Path = default) -> Result[Stream[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.dmesg() -> Result[Stream[Str], Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.file_attrs(path: Path) -> Result[{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}, Error]` — Reads a Linux host-state record or inspection stream.
+- `linux.file_project(path: Path) -> Result[Int, Error]` — Reads Linux sysctl configuration values.
 - `linux.file_version(path: Path) -> Result[Int, Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.flush_ipv4_addresses(interface: Str) -> Result[Unit, Error]` — Changes Linux network link or route configuration.
 - `linux.fsck(device: Path, fstype: Str = default, repair: Bool = default) -> Result[{errors: List[Str], status: Int}, Error]` — Runs filesystem consistency checking through the Linux boundary.
+- `linux.fsfreeze(path: Path, freeze: Bool) -> Result[Unit, Error]` — Controls mounts, filesystems and block devices.
+- `linux.fstrim(path: Path, offset: UInt = default, length: UInt? = default, minlen: UInt = default) -> Result[UInt, Error]` — Controls mounts, filesystems and block devices.
 - `linux.halt() -> Result[Unit, Error]` — Requests a Linux system power-state transition.
 - `linux.hwclock() -> Result[Int, Error]` — Reads or changes Linux hardware and system clock state.
 - `linux.insmod(path: Path, params: Str = default) -> Result[Unit, Error]` — Loads, removes, or indexes Linux kernel modules.
@@ -245,16 +276,17 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.loop_attach(file: Path, device: Path = default) -> Result[Path, Error]` — Attaches or detaches a Linux loop device.
 - `linux.loop_detach(device: Path) -> Result[Unit, Error]` — Attaches or detaches a Linux loop device.
 - `linux.loop_list() -> Result[Stream[{device: Path, file: Path, offset: Int, size: Int}], Error]` — Reads a Linux host-state record or inspection stream.
-- `linux.meminfo() -> Result[{available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}, Error]` — Reads a Linux host-state record or inspection stream.
+- `linux.meminfo() -> Result[{available: Int, buffers: Int, cached: Int, free: Int, shared: Int, sreclaimable: Int, swap_free: Int, swap_total: Int, total: Int}, Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.mknod(path: Path, kind: Str, major: Int, minor: Int) -> Result[Unit, Error]` — Creates a Linux device node.
 - `linux.mkswap(device: Path) -> Result[Unit, Error]` — Initializes a filesystem path as Linux swap space.
-- `linux.modinfo(name: Str) -> Result[{description: Str, filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}, Error]` — Reads a Linux host-state record or inspection stream.
-- `linux.modprobe(name: Str, params: Str = default) -> Result[Unit, Error]` — Loads, removes, or indexes Linux kernel modules.
-- `linux.modules() -> Result[Stream[{name: Str, size: Int, used_by: List[Str]}], Error]` — Reads a Linux host-state record or inspection stream.
+- `linux.modinfo(name: Str) -> Result[{description: Str, fields: List[{name: Str, value: Str}], filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}, Error]` — Reads a Linux host-state record or inspection stream.
+- `linux.modprobe(name: Str, params: Str = default, remove: Bool = default) -> Result[Unit, Error]` — Loads, removes, or indexes Linux kernel modules.
+- `linux.module_plan(name: Str, params: Str = default, remove: Bool = default) -> Result[List[{filename: Path, loaded: Bool, name: Str, params: Str}], Error]` — Resolves kernel module dependencies and options.
+- `linux.modules() -> Result[Stream[{name: Str, ref_count: Int, size: Int, used_by: List[Str]}], Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.mount(source: Str, target: Path, fstype: Str = default, options: List[Str] = default) -> Result[Unit, Error]` — Changes Linux mount or swap state.
 - `linux.mount_all() -> Result[Unit, Error]` — Changes Linux mount or swap state.
 - `linux.network_dump() -> Result[{addresses: List[{address: Str?, attributes: List[{data: Bytes, kind: Int}], broadcast: Str?, family: Str, flags: Int, ifindex: Int, label: Str?, local: Str?, preferred_lifetime_seconds: Int?, prefix_length: Int, scope: Int, valid_lifetime_seconds: Int?}], enumeration_succeeded: Bool, issues: List[{errno: Int?, error_kind: Str, message: Str, object: Str, state: Str}], links: List[{address: Bytes?, attributes: List[{data: Bytes, kind: Int}], broadcast: Bytes?, flags: Int, hardware_type: Int, ifindex: Int, kind: Str?, lower_ifindex: Int?, master_ifindex: Int?, mtu: Int?, name: Str?, name_bytes: Bytes?, operstate: Int?, rx_bytes: Int?, tx_bytes: Int?}], routes: List[{attributes: List[{data: Bytes, kind: Int}], destination: Str?, destination_prefix_length: Int, family: Str, flags: Int, gateway: Str?, input_ifindex: Int?, nexthops: List[{flags: Int, gateway: Str?, hops: Int, ifindex: Int}], output_ifindex: Int?, preferred_source: Str?, priority: Int?, protocol: Int, route_type: Int, scope: Int, source: Str?, source_prefix_length: Int, table: Int}], rules: List[{action: Int, attributes: List[{data: Bytes, kind: Int}], destination: Str?, destination_prefix_length: Int, family: Str, flags: Int, fwmark: Int?, fwmask: Int?, input_name: Str?, output_name: Str?, priority: Int?, source: Str?, source_prefix_length: Int, table: Int}], state: Str}, Error]` — Reads links, assigned addresses, routes, policy rules, and their raw route-netlink attributes.
-- `linux.open_files(pid: Int = default) -> Result[Stream[{command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error]` — Reads a Linux host-state record or inspection stream.
+- `linux.open_files(pid: Int = default) -> Result[Stream[{access: Str, command: Str, dev: Int?, fd: Int, fd_label: Str, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}], Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.partition_table(device: Path) -> Result[{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}, Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.pivot_root(new_root: Path, put_old: Path) -> Result[Unit, Error]` — Changes the Linux process root or root-transition state.
 - `linux.poweroff() -> Result[Unit, Error]` — Requests a Linux system power-state transition.
@@ -266,7 +298,9 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.rmmod(name: Str, force: Bool = default) -> Result[Unit, Error]` — Loads, removes, or indexes Linux kernel modules.
 - `linux.root_device() -> Result[Str, Error]` — Reads or changes Linux block-device state.
 - `linux.routes() -> Result[Stream[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error]` — Reads Linux network interface or route records.
+- `linux.sample(proc_root: Path? = default) -> Result[{blocked: Int, context_switches: Int, cpu: {idle: Int, iowait: Int, irq: Int, nice: Int, softirq: Int, steal: Int, system: Int, user: Int}, disks: List[{in_flight: Int, io_ms: Int, major: Int, minor: Int, name: Str, read_ms: Int, reads_completed: Int, reads_merged: Int, sectors_read: Int, sectors_written: Int, weighted_io_ms: Int, write_ms: Int, writes_completed: Int, writes_merged: Int}], interrupts: Int, memory: {available: Int, buffers: Int, cached: Int, free: Int, shared: Int, sreclaimable: Int, swap_free: Int, swap_total: Int, total: Int}, page_in_kib: Int, page_out_kib: Int, page_size: Int, processes: List[{argv: Str, argv0: Str, command: Str, cpu_ticks: Int, nice: Int, parent_pid: Int, pgrp: Int, pid: Int, priority: Int, processor: Int, rss_bytes: Int, runtime_seconds: Int, session: Int, start_ticks: Int, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int, thread_count: Int, ticks_per_second: Int, tty: Str, tty_number: Int, uid: Int, user: Str, user_ticks: Int, vsize_bytes: Int}], processes_created: Int, running: Int, sampled_at_ms: Int, swap_in_pages: Int, swap_out_pages: Int, ticks_per_second: Int, uptime_ms: Int}, Error]` — Samples Linux CPU, memory, process and disk counters.
 - `linux.set_file_attrs(path: Path, flags: Int) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
+- `linux.set_file_project(path: Path, project: Int) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
 - `linux.set_file_version(path: Path, version: Int) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
 - `linux.set_hwclock(epoch_ms: Int) -> Result[Unit, Error]` — Reads or changes Linux hardware and system clock state.
 - `linux.set_ipv4_address(interface: Str, address: Str, netmask: Str) -> Result[Unit, Error]` — Changes Linux network link or route configuration.
@@ -280,7 +314,9 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.sysctl_load_dirs(dirs: List[Path], fallback: Path = default) -> Result[Unit, Error]` — Reads Linux sysctl configuration values.
 - `linux.sysctl_set(key: Str, value: Str) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
 - `linux.uevent_stream() -> Result[Stream[{action: Str, devname: Str, devpath: Str, env: List[{name: Str, value: Str}], subsystem: Str}], Error]` — Reads Linux network interface or route records.
+- `linux.umount(target: Path, lazy: Bool = default, force: Bool = default) -> Result[Unit, Error]` — Controls mounts, filesystems and block devices.
 - `linux.umount_all(types: List[Str] = default) -> Result[Unit, Error]` — Changes Linux mount or swap state.
+- `linux.wipe_block_signatures(path: Path, offsets: List[UInt]) -> Result[Unit, Error]` — Erases selected recognized storage signatures.
 - `linux.write_device(device: Path, source: Path) -> Result[Unit, Error]` — Reads or changes Linux block-device state.
 - `linux.write_partition_table(device: Path, table: Record) -> Result[Unit, Error]` — Writes a Linux partition table description.
 
@@ -341,7 +377,7 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.group_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
 - `process.kill(pid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a selected signal to a process.
 - `process.kill_group(pgid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a signal to every member of a process group.
-- `process.list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.
+- `process.list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, cpu_ticks: Int?, nice: Int?, parent_pid: Int, pgrp: Int?, pid: Int, priority: Int?, processor: Int?, rss_bytes: Int?, runtime_seconds: Int, session: Int?, start_ticks: Int?, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int?, thread_count: Int?, ticks_per_second: Int?, tty: Str?, tty_number: Int?, uid: Int, user: Str, user_ticks: Int?, vsize_bytes: Int?}], Error]` — Reads structured process or listener information from the host.
 - `process.new_session() -> Result[Int, Error]` — Moves a process into a process group, or makes this process a session leader.
 - `process.nice(increment: Int) -> Result[Int, Error]` — Reads or changes scheduling priority (niceness).
 - `process.parent_pid() -> Result[Int, Error]` — Returns the parent process ID of this process.
@@ -372,7 +408,9 @@ Process discovery, command construction, execution, spawning, and signals.
 
 Regex compilation, matching, captures, and replacement.
 
+- `regex.captures_bytes(pattern: Str, input: Bytes, offset: Int = default, extended: Bool = default, ignore_case: Bool = default) -> Result[List[{end: Int, start: Int}?], Error]` — Matches POSIX byte captures at an input offset.
 - `regex.compile(pattern: Str) -> Result[Regex, Error]` — Compiles a regular expression into a reusable Regex value.
+- `regex.find_bytes(pattern: Str, input: Bytes, extended: Bool = default, ignore_case: Bool = default) -> Result[List[{end: Int, start: Int}], Error]` — Finds nonoverlapping POSIX regular expression matches as byte offsets.
 
 ### `set`
 
@@ -431,12 +469,16 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 
 Clock, sleep, command measurement, and duration display.
 
+- `time.clock_resolution() -> Result[Int, Error]` — Reads the host wall-clock resolution in nanoseconds.
 - `time.duration_compact(seconds: Int) -> Str` — Formats a duration using compact fixed-width units.
+- `time.format(epoch_ns: Int, format: Str, utc: Bool = default) -> Result[Str, Error]` — Formats an epoch nanosecond timestamp as calendar text.
+- `time.from_calendar(year: Int, month: Int, day: Int, hour: Int = default, minute: Int = default, second: Int = default, utc: Bool = default, normalize: Bool = default) -> Result[Int, Error]` — Converts typed calendar fields to nanoseconds since the Unix epoch.
 - `time.measure(command: Command, quiet: Bool = default) -> Result[{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}, Error]` — Measures a command or block and returns structured timing data.
 - `time.millis(ms: Int) -> Duration` — Converts an Int count of milliseconds or seconds into Duration.
 - `time.now() -> Int` — Reads the current wall-clock time.
 - `time.seconds(seconds: Int) -> Duration` — Converts an Int count of milliseconds or seconds into Duration.
 - `time.sleep(duration: Duration) -> Result[Unit, Error]` — Suspends the current XSH operation for a duration.
+- `time.to_calendar(epoch_ns: Int, utc: Bool = default) -> Result[{day: Int, hour: Int, minute: Int, month: Int, nanosecond: Int, offset_seconds: Int, second: Int, weekday: Int, year: Int}, Error]` — Converts a Unix nanosecond timestamp into calendar fields.
 
 ### `tui`
 
@@ -468,7 +510,9 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 
 - `unix.close_fd(fd: Int) -> Result[Unit, Error]` — Opens a path as a bare descriptor number, or closes one.
 - `unix.controlling_tty() -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
+- `unix.dup_fd(source: Int, target: Int) -> Result[Unit, Error]` — Duplicates a current process descriptor onto another descriptor.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
+- `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default) -> Result[Unit, Error]` — Replaces the current process with an explicit environment and optional argv0.
 - `unix.foreground_group(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
 - `unix.isatty(fd: Int = default) -> Bool` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
@@ -480,11 +524,18 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.open_fd(path: Path, write: Bool = default, nonblock: Bool = default) -> Result[Int, Error]` — Opens a path as a bare descriptor number, or closes one.
 - `unix.open_pty() -> Result[{master: Int, name: Str, replica: Int}, Error]` — Opens a pseudo-terminal pair.
 - `unix.pid1_setup(signals: List[Str], subreaper: Bool = default, allow_non_pid1: Bool = default) -> Result[Unit, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
+- `unix.poll_fd(fd: Int, events: List[Str], timeout_ms: Int = default) -> Result[List[Str], Error]` — Waits for descriptor readiness and reports terminal conditions.
+- `unix.read_fd(fd: Int, max_bytes: Int) -> Result[Bytes, Error]` — Reads one bounded chunk from a descriptor.
 - `unix.read_utmp(path: Path = default) -> Result[List[{addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}], Error]` — Reads the login session records of a utmp or wtmp file.
 - `unix.reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error]` — Reaps available Unix child events.
+- `unix.redirect_fd(fd: Int, path: Path, write: Bool = default, append: Bool = default, mode: Int = default) -> Result[Unit, Error]` — Replaces a current process descriptor with an opened path.
+- `unix.set_credentials(uid: Int, gid: Int, groups: List[Int]) -> Result[Unit, Error]` — Changes current process credentials using explicit numeric UID, GID and supplementary groups.
 - `unix.set_foreground_group(pgid: Int, fd: Int = default) -> Result[Unit, Error]` — Reads or changes the foreground process group of a terminal, or its session.
+- `unix.set_gid(gid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
+- `unix.set_groups(groups: List[Int]) -> Result[Unit, Error]` — Replaces the current process supplementary groups with explicit numeric IDs.
 - `unix.set_hostname(hostname: Str) -> Result[Unit, Error]` — Changes the Unix host name.
 - `unix.set_tty_attrs(attrs: Record, fd: Int = default, when: Str = default) -> Result[Unit, Error]` — Reads or changes Unix terminal state.
+- `unix.set_uid(uid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
 - `unix.set_window_size(rows: Int, cols: Int, xpixel: Int = default, ypixel: Int = default, fd: Int = default) -> Result[Unit, Error]` — Reads or sets a terminal's window size.
 - `unix.shutdown_process_groups(groups: List[Int], term_timeout: Duration, kill_timeout: Duration = default) -> Result[{kill_sent: Int, reaped: List[{pid: Int, status: Status}], remaining: List[Int], term_sent: Int}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
 - `unix.spawn_logged_process_group(command: Command, logger: Command) -> Result[{argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}, Error]` — Starts a Unix process group with explicit lifecycle and terminal options.
@@ -508,6 +559,7 @@ Unix user lookup records.
 - `user.add(name: Str, uid: Int = default, gid: Int = default, home: Path = default, shell: Path = default, gecos: Str = default) -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]` — Adds or removes a Unix user entry.
 - `user.by_uid(uid: Int) -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]` — Looks up a Unix user by name or numeric ID.
 - `user.current() -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]` — Returns the current process user record.
+- `user.groups(name: Str, primary_gid: Int? = default) -> Result[List[Int], Error]` — Looks up all Unix group IDs for a named user through the host account database.
 - `user.lookup(name: Str) -> Result[{gid: Int, home: Path, name: Str, shell: Str, uid: Int}, Error]` — Looks up a Unix user by name or numeric ID.
 - `user.remove(name: Str, remove_home: Bool = default) -> Result[Unit, Error]` — Adds or removes a Unix user entry.
 
@@ -557,11 +609,13 @@ Process-scoped utility helpers.
 ### Float
 
 - `Float.abs() -> Float` — Computes a floating-point mathematical function.
+- `Float.atan2(other: Float) -> Float` — Returns the angle of a Cartesian coordinate pair.
 - `Float.ceil() -> Result[Int, Error]` — Rounds a floating-point value to an integer.
 - `Float.cos() -> Float` — Computes a floating-point mathematical function.
 - `Float.exp() -> Float` — Computes a floating-point mathematical function.
 - `Float.floor() -> Result[Int, Error]` — Rounds a floating-point value to an integer.
 - `Float.format(precision: Int = default) -> Str` — Formats a floating-point value with an optional precision.
+- `Float.format_number(conversion: Str, precision: Int = default) -> Result[Str, Error]` — Formats one numeric value using a portable conversion.
 - `Float.ln() -> Float` — Computes a floating-point mathematical function.
 - `Float.log(base: Float) -> Float` — Computes a floating-point mathematical function.
 - `Float.pow(exp: Float) -> Float` — Computes a floating-point mathematical function.
@@ -774,7 +828,7 @@ Process-scoped utility helpers.
 - `ElfInfo {class: Str, dynamic_tags: List[{tag: Str, value: Int}], endian: Str, flags: List[Str], interpreter: Str, machine: Str, needed: List[Str], os_abi: Str, path: Path, rpath: Str, runpath: Str, soname: Str, type: Str}` — Describes ELF headers and dynamic dependencies.
 - `EnvEntry {name: Str, value: Str}` — Describes one environment variable entry.
 - `EnvPathEntry {empty: Bool, index: Int, path: Path, raw: Str}` — Describes one component of an environment path list.
-- `FsCopyFileResult {bytes: Int, hole_bytes: Int, method: Str}` — Reports how fs.copy_file moved bytes into the destination.
+- `FsCopyFileResult {bytes: Int, destination_replaced: Bool, hole_bytes: Int, method: Str}` — Reports how fs.copy_file moved bytes into the destination.
 - `FsCopyTreeResult {dirs: Int, files: Int, symlinks: Int}` — Reports files and directories copied by a tree operation.
 - `FsDataRange {length: Int, offset: Int}` — Describes one run of allocated data in a file.
 - `FsEntry {accessed: Int, blocks_512: Int, executable: Bool, ext: Str, gid: Int, group_executable: Bool, kind: Str, mode: Int, modified: Int, name: Str, other_executable: Bool, owner_executable: Bool, path: Path, setgid: Bool, setuid: Bool, size: Int, sticky: Bool, uid: Int, world_writable: Bool}` — Describes one filesystem directory entry and its metadata.
@@ -791,16 +845,20 @@ Process-scoped utility helpers.
 - `Group {gid: Int, members: List[Str], name: Str}` — Describes a Unix group account.
 - `LinuxBlkid {label: Str, part_entry_uuid: Str, part_table_type: Str, type: Str, uuid: Str}` — Describes Linux block-device identification data.
 - `LinuxBlockDevice {name: Str, partitioned: Bool, partitions: List[Path], path: Path, removable: Bool, rotational: Bool, sector_size: Int, sectors: Int, size: Int}` — Describes one Linux block device.
+- `LinuxBlockdevInfo {logical_sector_bytes: UInt, physical_sector_bytes: UInt, read_only: Bool, size_bytes: UInt}` — Block device dimensions and read-only state.
+- `LinuxCpuSample {idle: Int, iowait: Int, irq: Int, nice: Int, softirq: Int, steal: Int, system: Int, user: Int}` — Linux counters from a bounded host snapshot.
+- `LinuxDiskSample {in_flight: Int, io_ms: Int, major: Int, minor: Int, name: Str, read_ms: Int, reads_completed: Int, reads_merged: Int, sectors_read: Int, sectors_written: Int, weighted_io_ms: Int, write_ms: Int, writes_completed: Int, writes_merged: Int}` — Linux counters from a bounded host snapshot.
 - `LinuxDiskUsage {available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}` — Reports Linux filesystem disk usage.
 - `LinuxFileAttrs {append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}` — Describes Linux extended file attributes.
 - `LinuxFsck {errors: List[Str], status: Int}` — Reports a Linux filesystem check result.
 - `LinuxInterface {addresses: List[{addr: Str, family: Str, prefix_len: Int}], flags: List[Str], mac: Str, mtu: Int, name: Str}` — Describes one Linux network interface.
 - `LinuxInterfaceAddress {addr: Str, family: Str, prefix_len: Int}` — Describes one address assigned to a Linux interface.
 - `LinuxLoopDevice {device: Path, file: Path, offset: Int, size: Int}` — Describes one Linux loop device.
-- `LinuxMemInfo {available: Int, buffers: Int, cached: Int, free: Int, swap_free: Int, swap_total: Int, total: Int}` — Reports Linux memory counters.
-- `LinuxModinfo {description: Str, filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}` — Describes Linux kernel-module metadata.
-- `LinuxModule {name: Str, size: Int, used_by: List[Str]}` — Describes one loaded Linux kernel module.
+- `LinuxMemInfo {available: Int, buffers: Int, cached: Int, free: Int, shared: Int, sreclaimable: Int, swap_free: Int, swap_total: Int, total: Int}` — Reports Linux memory counters.
+- `LinuxModinfo {description: Str, fields: List[{name: Str, value: Str}], filename: Path, license: Str, name: Str, params: List[{description: Str, name: Str, type: Str}], version: Str}` — Describes Linux kernel-module metadata.
+- `LinuxModule {name: Str, ref_count: Int, size: Int, used_by: List[Str]}` — Describes one loaded Linux kernel module.
 - `LinuxModuleParam {description: Str, name: Str, type: Str}` — Describes one Linux kernel-module parameter.
+- `LinuxModulePlan {filename: Path, loaded: Bool, name: Str, params: Str}` — One resolved kernel module operation.
 - `LinuxNetlinkAttribute {data: Bytes, kind: Int}` — Preserves one raw route-netlink attribute, including its type flags and payload bytes.
 - `LinuxNetworkAddress {address: Str?, attributes: List[{data: Bytes, kind: Int}], broadcast: Str?, family: Str, flags: Int, ifindex: Int, label: Str?, local: Str?, preferred_lifetime_seconds: Int?, prefix_length: Int, scope: Int, valid_lifetime_seconds: Int?}` — Describes one interface address reported by route netlink.
 - `LinuxNetworkDump {addresses: List[{address: Str?, attributes: List[{data: Bytes, kind: Int}], broadcast: Str?, family: Str, flags: Int, ifindex: Int, label: Str?, local: Str?, preferred_lifetime_seconds: Int?, prefix_length: Int, scope: Int, valid_lifetime_seconds: Int?}], enumeration_succeeded: Bool, issues: List[{errno: Int?, error_kind: Str, message: Str, object: Str, state: Str}], links: List[{address: Bytes?, attributes: List[{data: Bytes, kind: Int}], broadcast: Bytes?, flags: Int, hardware_type: Int, ifindex: Int, kind: Str?, lower_ifindex: Int?, master_ifindex: Int?, mtu: Int?, name: Str?, name_bytes: Bytes?, operstate: Int?, rx_bytes: Int?, tx_bytes: Int?}], routes: List[{attributes: List[{data: Bytes, kind: Int}], destination: Str?, destination_prefix_length: Int, family: Str, flags: Int, gateway: Str?, input_ifindex: Int?, nexthops: List[{flags: Int, gateway: Str?, hops: Int, ifindex: Int}], output_ifindex: Int?, preferred_source: Str?, priority: Int?, protocol: Int, route_type: Int, scope: Int, source: Str?, source_prefix_length: Int, table: Int}], rules: List[{action: Int, attributes: List[{data: Bytes, kind: Int}], destination: Str?, destination_prefix_length: Int, family: Str, flags: Int, fwmark: Int?, fwmask: Int?, input_name: Str?, output_name: Str?, priority: Int?, source: Str?, source_prefix_length: Int, table: Int}], state: Str}` — Groups one bounded route-netlink snapshot of links, addresses, routes, and policy rules.
@@ -809,11 +867,13 @@ Process-scoped utility helpers.
 - `LinuxNetworkNexthop {flags: Int, gateway: Str?, hops: Int, ifindex: Int}` — Describes one nexthop in a multipath route.
 - `LinuxNetworkRoute {attributes: List[{data: Bytes, kind: Int}], destination: Str?, destination_prefix_length: Int, family: Str, flags: Int, gateway: Str?, input_ifindex: Int?, nexthops: List[{flags: Int, gateway: Str?, hops: Int, ifindex: Int}], output_ifindex: Int?, preferred_source: Str?, priority: Int?, protocol: Int, route_type: Int, scope: Int, source: Str?, source_prefix_length: Int, table: Int}` — Describes one route-netlink route with table, protocol, scope, and multipath data.
 - `LinuxNetworkRule {action: Int, attributes: List[{data: Bytes, kind: Int}], destination: Str?, destination_prefix_length: Int, family: Str, flags: Int, fwmark: Int?, fwmask: Int?, input_name: Str?, output_name: Str?, priority: Int?, source: Str?, source_prefix_length: Int, table: Int}` — Describes one policy-routing rule reported by route netlink.
-- `LinuxOpenFile {command: Str, fd: Int, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}` — Describes one open file held by a Linux process.
+- `LinuxOpenFile {access: Str, command: Str, dev: Int?, fd: Int, fd_label: Str, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}` — Describes one open file held by a Linux process.
 - `LinuxPartition {end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}` — Describes one Linux partition.
 - `LinuxPartitionTable {id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}` — Describes a Linux partition table.
+- `LinuxProcessSample {argv: Str, argv0: Str, command: Str, cpu_ticks: Int, nice: Int, parent_pid: Int, pgrp: Int, pid: Int, priority: Int, processor: Int, rss_bytes: Int, runtime_seconds: Int, session: Int, start_ticks: Int, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int, thread_count: Int, ticks_per_second: Int, tty: Str, tty_number: Int, uid: Int, user: Str, user_ticks: Int, vsize_bytes: Int}` — Linux counters from a bounded host snapshot.
 - `LinuxRfkill {hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}` — Describes Linux radio-block state.
 - `LinuxRoute {dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}` — Describes one Linux routing-table entry.
+- `LinuxSample {blocked: Int, context_switches: Int, cpu: {idle: Int, iowait: Int, irq: Int, nice: Int, softirq: Int, steal: Int, system: Int, user: Int}, disks: List[{in_flight: Int, io_ms: Int, major: Int, minor: Int, name: Str, read_ms: Int, reads_completed: Int, reads_merged: Int, sectors_read: Int, sectors_written: Int, weighted_io_ms: Int, write_ms: Int, writes_completed: Int, writes_merged: Int}], interrupts: Int, memory: {available: Int, buffers: Int, cached: Int, free: Int, shared: Int, sreclaimable: Int, swap_free: Int, swap_total: Int, total: Int}, page_in_kib: Int, page_out_kib: Int, page_size: Int, processes: List[{argv: Str, argv0: Str, command: Str, cpu_ticks: Int, nice: Int, parent_pid: Int, pgrp: Int, pid: Int, priority: Int, processor: Int, rss_bytes: Int, runtime_seconds: Int, session: Int, start_ticks: Int, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int, thread_count: Int, ticks_per_second: Int, tty: Str, tty_number: Int, uid: Int, user: Str, user_ticks: Int, vsize_bytes: Int}], processes_created: Int, running: Int, sampled_at_ms: Int, swap_in_pages: Int, swap_out_pages: Int, ticks_per_second: Int, uptime_ms: Int}` — Linux counters from a bounded host snapshot.
 - `LinuxUevent {action: Str, devname: Str, devpath: Str, env: List[{name: Str, value: Str}], subsystem: Str}` — Describes one Linux device uevent.
 - `MeasuredCommand {duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}` — Reports status and elapsed time for a measured command.
 - `MimeInfo {exts: List[Str], mime: Str}` — Describes a MIME type lookup result.
@@ -822,7 +882,7 @@ Process-scoped utility helpers.
 - `NetPool {idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}` — Represents an evaluator-owned HTTP connection pool.
 - `NetResponse {body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` — Describes one structured HTTP response.
 - `PatchResult {files: Int, hunks: Int}` — Reports files changed by a rooted patch.
-- `ProcessEntry {argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}` — Describes one process-table entry.
+- `ProcessEntry {argv: Str, argv0: Str, command: Str, cpu_ticks: Int?, nice: Int?, parent_pid: Int, pgrp: Int?, pid: Int, priority: Int?, processor: Int?, rss_bytes: Int?, runtime_seconds: Int, session: Int?, start_ticks: Int?, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int?, thread_count: Int?, ticks_per_second: Int?, tty: Str?, tty_number: Int?, uid: Int, user: Str, user_ticks: Int?, vsize_bytes: Int?}` — Describes one process-table entry.
 - `ProcessPort {argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}` — Describes one process-owned network port.
 - `ProcessThread {argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}` — Describes one thread belonging to a process.
 - `Rlimit {hard: Int?, resource: Str, soft: Int?}` — Describes one resource limit of the calling process.
@@ -833,6 +893,7 @@ Process-scoped utility helpers.
 - `SystemOsRelease {id: Str, name: Str, pretty_name: Str, version: Str, version_id: Str}` — Describes host operating-system release metadata.
 - `TestCall {args: Record, op: Str}` — Describes one recorded native-test mock call.
 - `TestContext {core_dir: Path, file: Path, name: Str, temp_root: Path, xsh_bin: Path}` — Carries native-test resources and assertion context.
+- `TimeCalendar {day: Int, hour: Int, minute: Int, month: Int, nanosecond: Int, offset_seconds: Int, second: Int, weekday: Int, year: Int}` — Calendar fields for a Unix timestamp.
 - `Uname {machine: Str, nodename: Str, release: Str, sysname: Str, version: Str}` — Describes the host kernel identity returned by uname.
 - `UnixChildEvent {pid: Int, status: Status}` — Describes one reaped Unix child event.
 - `UnixGroupId {gid: Int, name: Str}` — Describes Unix group identity numbers.

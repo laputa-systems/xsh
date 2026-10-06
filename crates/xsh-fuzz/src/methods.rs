@@ -111,6 +111,7 @@ fn shape_of(ty: &Type) -> Option<Shape> {
     use BuiltinTypeParameter::{Element, Key, Receiver, Value};
     Some(match ty {
         Type::Int => Shape::Int,
+        Type::UInt => Shape::Int,
         Type::Float => Shape::Float,
         Type::Str => Shape::Str,
         Type::Bool => Shape::Bool,

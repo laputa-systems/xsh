@@ -1,7 +1,7 @@
 use super::block::{
     blkid_info, blkid_record, fsck_impl, io_error, partition_table_impl, write_partition_table_impl,
 };
-use super::kernel::{depmod_impl, modinfo_impl, modprobe_impl};
+use super::kernel::{depmod_impl, modinfo_impl, modprobe_impl_with, module_plan_impl};
 use super::process::open_files_impl;
 use crate::runtime::value::{RecordMap, RuntimeError, Value};
 use crate::source::Span;
@@ -22,8 +22,8 @@ pub(crate) fn modinfo(name: &str, span: Span) -> Result<Value, RuntimeError> {
     }
 }
 
-pub(crate) fn modprobe(name: &str, params: &str, span: Span) -> Result<Value, RuntimeError> {
-    match modprobe_impl(name, params, span) {
+pub(crate) fn modprobe(name: &str, params: &str, remove: bool, span: Span) -> Result<Value, RuntimeError> {
+    match modprobe_impl_with(name, params, remove, span) {
         Ok(()) => Ok(Value::ok(Value::Unit)),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
@@ -79,6 +79,13 @@ pub(crate) fn fsck(
 ) -> Result<Value, RuntimeError> {
     match fsck_impl(device, fstype, repair, span) {
         Ok(record) => Ok(Value::ok(record)),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
+pub(crate) fn module_plan(name: &str, params: &str, remove: bool, span: Span) -> Result<Value, RuntimeError> {
+    match module_plan_impl(name, params, remove, span) {
+        Ok(value) => Ok(Value::ok(value)),
         Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
     }
 }

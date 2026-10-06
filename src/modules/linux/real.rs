@@ -177,10 +177,10 @@ pub(crate) use device::{
     write_device,
 };
 pub(crate) use fs::{
-    disk_usage, file_attrs, file_version, is_mountpoint, set_file_attrs, set_file_version,
+    disk_usage, file_attrs, file_version, file_project, set_file_project, is_mountpoint, set_file_attrs, set_file_version,
     sysctl_get, sysctl_load_dirs, sysctl_set,
 };
-pub(crate) use kernel::{dmesg, meminfo, modules};
+pub(crate) use kernel::{dmesg, meminfo, modules, parse_meminfo};
 pub(crate) use mount::{mount, mount_all, root_device, swapoff_all, swapon_all, umount_all};
 pub(crate) use net::{
     add_default_ipv4_route, del_default_ipv4_route, dhcp_close, dhcp_recv, dhcp_send,
@@ -189,6 +189,6 @@ pub(crate) use net::{
 };
 pub(crate) use netlink::network_dump;
 pub(crate) use parity::{
-    blkid, block_devices, depmod, fsck, modinfo, modprobe, open_files, partition_table,
+    blkid, block_devices, depmod, fsck, modinfo, open_files, partition_table,
     write_partition_table,
 };

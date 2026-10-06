@@ -412,6 +412,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Null => Type::Null,
         xsh_registry::types::Type::Bool => Type::Bool,
         xsh_registry::types::Type::Int => Type::Int,
+        xsh_registry::types::Type::UInt => Type::UInt,
         xsh_registry::types::Type::Float => Type::Float,
         xsh_registry::types::Type::Duration => Type::Duration,
         xsh_registry::types::Type::Str => Type::Str,

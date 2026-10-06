@@ -714,6 +714,7 @@ pub struct Checker {
     /// A statement-shaped scope consumes its body only in a value tail.
     context_scope_tail_value: bool,
     procs: FxHashMap<Name, FunctionSig>,
+    byte_script_arguments: bool,
     pures: FxHashMap<Name, FunctionSig>,
     streams: FxHashMap<Name, FunctionSig>,
     // Imported signatures and module contracts change only while
@@ -890,14 +891,28 @@ impl Checker {
         program.symbol_owner().with_current(|| {
             // Resolve bodies once to collect dependencies, then check against the
             // fixed-point contracts so callers never depend on source order.
+            let mut byte_script_arguments = false;
             let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
-                let mut probe = Self::new(options);
-                probe.collecting_effects = true;
-                probe.effect_summaries = summaries;
-                probe.check_program_arena_with_type_program(program, source, type_program.clone());
-                probe
+                loop {
+                    let mut probe = Self::new(options);
+                    probe.byte_script_arguments = byte_script_arguments;
+                    probe.define_standard_values();
+                    probe.collecting_effects = true;
+                    probe.effect_summaries = summaries.clone();
+                    probe.check_program_arena_with_type_program(program, source, type_program.clone());
+                    // Resolve the entry signature before committing any body facts.
+                    // Rechecking also gives imported modules the same argument type.
+                    if options.interactive_commands.is_none() && !byte_script_arguments
+                        && byte_argument_main(program, &probe.parameter_types) {
+                        byte_script_arguments = true;
+                        continue;
+                    }
+                    break probe;
+                }
             });
             let mut checker = Self::new(options);
+            checker.byte_script_arguments = byte_script_arguments;
+            checker.define_standard_values();
             checker.effect_summaries = effect_summaries;
             checker.effect_graph = effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
@@ -1072,13 +1087,24 @@ impl Checker {
                 }
             }
 
+            let mut byte_script_arguments = false;
             let (effect_graph, effect_summaries) = Self::solve_effect_probes(|summaries| {
-                let mut probe = Self::new(CheckOptions::default());
-                probe.collecting_effects = true;
-                probe.effect_summaries = summaries;
-                probe.check_program_arena(&main_program, main.1);
-                probe
+                loop {
+                    let mut probe = Self::new(CheckOptions::default());
+                    probe.byte_script_arguments = byte_script_arguments;
+                    probe.define_standard_values();
+                    probe.collecting_effects = true;
+                    probe.effect_summaries = summaries.clone();
+                    probe.check_program_arena(&main_program, main.1);
+                    if !byte_script_arguments && byte_argument_main(&main_program, &probe.parameter_types) {
+                        byte_script_arguments = true;
+                        continue;
+                    }
+                    break probe;
+                }
             });
+            checker.byte_script_arguments = byte_script_arguments;
+            checker.define_standard_values();
             checker.effect_summaries = effect_summaries;
             checker.effect_graph = effect_graph;
             checker.check_program_arena(&main_program, main.1);
@@ -1144,6 +1170,7 @@ impl Checker {
             context_scope_depths: Vec::new(),
             context_scope_tail_value: false,
             procs: FxHashMap::default(),
+            byte_script_arguments: false,
             pures: FxHashMap::default(),
             streams: FxHashMap::default(),
             qualified_procs: Arc::default(),
@@ -1331,7 +1358,8 @@ impl Checker {
     }
 
     pub(crate) fn define_standard_values(&mut self) {
-        self.define_builtin_value("args", Binding::new(Type::List(Box::new(Type::Str)), false));
+        let item = if self.byte_script_arguments { Type::Bytes } else { Type::Str };
+        self.define_builtin_value("args", Binding::new(Type::List(Box::new(item)), false));
     }
 
     pub(crate) fn check_program_arena(
@@ -1395,6 +1423,24 @@ impl Checker {
                 && !statements
                     .last()
                     .is_some_and(|&stmt| calls_main(program, stmt));
+        if self.options.interactive_commands.is_none() && main_runs_after {
+            if let Some(signature) = self.procs.get(&Name::intern("main")) {
+                let has_bytes = signature.params.iter().any(|parameter| {
+                    parameter.ty == Type::Bytes || matches!(&parameter.ty,
+                        Type::List(item) if item.as_ref() == &Type::Bytes)
+                });
+                let single_byte_rest = matches!(signature.params.as_slice(), [parameter]
+                    if parameter.rest && !parameter.defaulted
+                    && matches!(&parameter.ty, Type::List(item) if item.as_ref() == &Type::Bytes));
+                if has_bytes && !single_byte_rest {
+                    if let Some(span) = signature.definition {
+                        self.error(span,
+                            "byte script arguments require a single spread parameter `(...argv: List[Bytes])`",
+                            DiagnosticCode::CompactMainArgs);
+                    }
+                }
+            }
+        }
         self.exit_status_statement = statements
             .last()
             .filter(|_| !main_runs_after)
@@ -1687,4 +1733,30 @@ fn calls_main(program: &ArenaProgram, stmt: crate::syntax::arena::StmtId) -> boo
     }
     matches!(program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. }
         if matches!(program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "main"))
+}
+
+/// Only a single byte rest parameter opts an entry into raw OS arguments.
+/// Parameter facts come from checking, so aliases use their resolved types.
+pub(crate) fn byte_argument_main(
+    program: &ArenaProgram,
+    parameter_types: &BTreeMap<Span, Type>,
+) -> bool {
+    fn entry(program: &ArenaProgram, id: crate::syntax::arena::StmtId) -> Option<crate::syntax::arena::FunctionDefId> {
+        match program.arena.stmt(id).kind {
+            ArenaStmtKind::Export(inner) => entry(program, inner),
+            ArenaStmtKind::ProcDef(id) => {
+                let definition = program.arena.function_def(id);
+                (!definition.test_declaration && definition.name == "main").then_some(id)
+            }
+            _ => None,
+        }
+    }
+    let Some(definition) = program.statement_ids().find_map(|id| entry(program, id)) else {
+        return false;
+    };
+    let parameters = program.arena.params(program.arena.function_def(definition).params);
+    let [parameter] = parameters else { return false; };
+    parameter.rest && parameter.default.is_none()
+        && matches!(parameter_types.get(&program.arena.span(parameter.span)),
+            Some(Type::List(item)) if item.as_ref() == &Type::Bytes)
 }

@@ -44,7 +44,7 @@ def install_script(src: Path, dst: Path, interpreter: str, mode: int) -> None:
     lines = src.read_bytes().split(b"\n", 1)
     body = lines[1] if len(lines) > 1 else b""
     if lines[0].startswith(b"#!"):
-        data = b"#!" + interpreter.encode() + b"\n" + body
+        data = b"#!" + interpreter.encode() + b" --\n" + body
     else:
         data = src.read_bytes()
     dst.write_bytes(data)

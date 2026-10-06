@@ -2,16 +2,15 @@
   "comment": "Known semantic gaps per utility, each a short sentence naming the option or behavior. Lanes update their own utilities.",
   "utilities": {
     "basename": [
-      "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
+      "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments."
     ],
     "ls": [
-      "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
+      "SELinux contexts (-Z, --context), ACL/context mode markers and capability colors remain incomplete despite the shared xattr API.",
       "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
       "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
       "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
-      "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
       "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
-      "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
+      "Directories are read eagerly: /proc/self/fd can expose a directory descriptor after it closes. unix.window_size exists but terminal-width selection still needs parity verification."
     ],
     "stty": [
       "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
@@ -22,9 +21,9 @@
       "`-g` prints 32 control characters like glibc, but the kernel keeps 19: a saved state that sets later ones is applied and then refused as GNU does."
     ],
     "more": [
-      "Commands are read a line at a time (RETURN ends each): there is no unbuffered or timed stdin read, so single-key paging, Ctrl-C handling and window-resize redraws are missing (request: an `io.stdin_read`/`unix.read_fd` primitive).",
-      "A pipe on standard input is printed in full instead of paged: the commands would have to come from /dev/tty, which has no read primitive.",
-      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv): test_more::test_more_non_utf8_paths.",
+      "Single-key paging, Ctrl-C handling and resize redraws remain missing; unix.read_fd and unix.poll_fd now provide the required descriptor operations.",
+      "A pipe on standard input is printed in full instead of paged; command input from /dev/tty is not integrated.",
+      "Non-UTF-8 operands cannot be passed (this text applet requires UTF-8 argv): test_more::test_more_non_utf8_paths.",
       "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
       "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
     ],
@@ -52,6 +51,66 @@
     ],
     "timeout": [
       "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor."
+    ],
+    "awk": [
+      "Parser and interpreter are implemented in XSH; full GNU awk language, locale and regex parity remains unverified."
+    ],
+    "sed": [
+      "Parser and execution are implemented in XSH; GNU extensions and multibyte locale parity remain incomplete."
+    ],
+    "mkfs.fat": [
+      "Regular image files only; full device and dosfstools option parity remains incomplete."
+    ],
+    "fsck.fat": [
+      "Regular images only; primary BPB recovery, active-FAT selection, root expansion and dot-entry repair remain incomplete."
+    ],
+    "getfacl": [
+      "POSIXLY_CORRECT and terminal indentation parity remain incomplete."
+    ],
+    "setfacl": [
+      "Conditional X uses original mode; recursive traversal aborts on a child failure. Validated sequential writes can retain earlier changes after a later syscall failure."
+    ],
+    "setcap": [
+      "Force coercion is unsupported; stdin EOF and blank-line behavior still differ."
+    ],
+    "dig": [
+      "A/AAAA over UDP only; full resolver, TCP fallback and dig option parity remain incomplete."
+    ],
+    "nslookup": [
+      "A/AAAA over UDP only; full interactive and resolver behavior remains incomplete."
+    ],
+    "getent": [
+      "XSH account parsing is implemented; complete NSS database parity remains incomplete."
+    ],
+    "login": [
+      "Authentication policy is XSH; full PAM, session accounting and controlling-terminal parity remains incomplete."
+    ],
+    "dmesg": [
+      "Metadata, follow, clear and console controls are unsupported."
+    ],
+    "sysctl": [
+      "Key reads and writes are implemented; enumeration remains incomplete."
+    ],
+    "hwclock": [
+      "RTC drift, device selection and local-time modes remain incomplete."
+    ],
+    "flock": [
+      "Descriptor operands, unlock and timeout modes remain incomplete."
+    ],
+    "setsid": [
+      "Controlling-terminal setup remains incomplete."
+    ],
+    "switch_root": [
+      "Additional command argv and full root-transition fidelity remain incomplete."
+    ],
+    "reboot": [
+      "Direct syscall requires explicit --force; service-manager shutdown is unsupported."
+    ],
+    "poweroff": [
+      "Direct syscall requires explicit --force; service-manager shutdown is unsupported."
+    ],
+    "halt": [
+      "Direct syscall requires explicit --force; service-manager shutdown is unsupported."
     ]
   }
 }

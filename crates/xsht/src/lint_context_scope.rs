@@ -373,8 +373,8 @@ mod tests {
                 run_script(RunOptions {
                     script: path.to_string_lossy().into_owned(),
                     args: vec![
-                        target.to_string_lossy().into_owned(),
-                        outer.to_string_lossy().into_owned(),
+                        target.as_os_str().to_owned(),
+                        outer.as_os_str().to_owned(),
                     ],
                     coverage_trace_dir: None,
                 })

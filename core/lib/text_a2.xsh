@@ -54,7 +54,15 @@ export pure records(data: Bytes, mark = 10) -> List[Bytes] {
 ## Repeat a character only when output requires it.
 export pure padding(count: Int, character = " ") -> Str {
   return "" when count <= 0
-  [character for _ in range(count)].join("")
+  var remaining = count
+  var block = character
+  var result = ""
+  while remaining > 0 {
+    if remaining % 2 == 1 { result += block }
+    remaining /= 2
+    if remaining > 0 { block += block }
+  }
+  result
 }
 
 ## Parse GNU tab lists, including final /N and +N continuation stops.
@@ -155,19 +163,20 @@ export proc expand(data: Bytes, spec: Tabs, initial = false, tab_byte = 9) -> By
   bytes.concat([@out, data[held..]])
 }
 
-pure blank_size(data: Bytes, at: Int) -> Int {
+## Number of bytes in an ASCII or Unicode blank character, or zero.
+export pure blank_size(data: Bytes, at: Int) -> Int {
   let byte = data.byte_at(at) ?? 0
   if byte == 32 or byte == 9 { return 1 }
   let unit = character(data, at)
-  if unit.size > 1 and rx"[\x{a0}\x{1680}\x{2000}-\x{200a}\x{202f}\x{205f}\x{3000}]".matches(data[at..at + unit.size].utf8() ?? "") { unit.size } else { 0 }
+  if unit.size > 1 and rx"[\x{1680}\x{2000}-\x{2006}\x{2008}-\x{200a}\x{205f}\x{3000}]".matches(data[at..at + unit.size].utf8() ?? "") { unit.size } else { 0 }
 }
 
 ## Compress blank runs while keeping isolated noninitial spaces unchanged.
-export proc unexpand(data: Bytes, spec: Tabs, all: Bool) -> Bytes {
+export proc unexpand(data: Bytes, spec: Tabs, all: Bool, column_start = 0) -> Bytes {
   var out: List[Bytes] = []
   var held = 0
   var at = 0
-  var column = 0
+  var column = column_start
   var leading = true
   while at < data.len() {
     let value = data.byte_at(at) ?? 0
@@ -223,4 +232,29 @@ export proc finish(failed: Bool) -> Int {
     return 1
   }
   if failed { 1 } else { 0 }
+}
+
+## A borrowed stdin cursor or an owned descriptor for one operand.
+export enum TextSource { Stdin, File(Int) }
+
+## Open a byte source without reading or seeking it.
+export proc open_source(name: Str) -> Result[TextSource, Error] {
+  if name == "-" { return Ok(Stdin) }
+  Ok(File(unix.open_fd(fp"{name}")?))
+}
+
+## Read one bounded chunk, allowing a short read and returning empty at EOF.
+export proc read_source(source: TextSource, max_bytes = 65536) -> Result[Bytes, Error] {
+  match source {
+    Stdin => io.stdin_read(max_bytes)
+    File(fd) => unix.read_fd(fd, max_bytes)
+  }
+}
+
+## Close an owned source; stdin stays with its caller.
+export proc close_source(source: TextSource) -> Result[Unit, Error] {
+  match source {
+    Stdin => Ok()
+    File(fd) => unix.close_fd(fd)
+  }
 }

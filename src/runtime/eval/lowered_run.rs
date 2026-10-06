@@ -941,7 +941,10 @@ fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, Ru
         .try_into()
         .map_err(|_| RuntimeError::new("fs-read", "file is too large").with_span(span))?;
     if len == 0 {
-        return Ok(Arc::from([]));
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+        return Ok(bytes.into());
     }
 
     let mut bytes = Arc::<[u8]>::new_uninit_slice(len);
@@ -2530,14 +2533,17 @@ fn lowered_command_redirections(
     let mut redirections = Vec::new();
 
     if let Some(value) = stdin {
-        if let LoweredValue::Bytes(bytes) = value {
-            redirections.push(CommandRedirection::Input { bytes });
-        } else {
-            redirections.push(CommandRedirection::File {
+        match value {
+            LoweredValue::Bytes(bytes) => redirections.push(CommandRedirection::Input { bytes }),
+            // A child owns its stdin bytes after the evaluator frame ends.
+            LoweredValue::BytesView(view) => redirections.push(CommandRedirection::Input {
+                bytes: Arc::from(view.as_slice()),
+            }),
+            value => redirections.push(CommandRedirection::File {
                 stream: CommandRedirectionStream::Stdin,
                 mode: CommandRedirectionMode::Read,
                 path: lowered_path_like_arg(value, operation, span)?,
-            });
+            }),
         }
     }
 
@@ -4092,6 +4098,18 @@ impl Evaluator {
         values: NativeArgumentValues,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
+        if matches!(op, RuntimeOp::UnixRedirectFd | RuntimeOp::UnixDupFd) {
+            let index = if op == RuntimeOp::UnixDupFd { 1 } else { 0 };
+            let fd = lowered_int_arg(values.get(index).cloned(), "unix descriptor target", span)?;
+            let flushed = match fd {
+                1 => self.flush_stdout_checked(span),
+                2 => self.flush_stderr_checked(span),
+                _ => Ok(()),
+            };
+            if let Err(error) = flushed {
+                return Ok(lowered_result_err_value(error));
+            }
+        }
         let values = values.into_host_values(self, span)?;
         let args = process_module::Args::new(op, &values, span);
         let result = if process_module::is_prim(op) {
@@ -5815,8 +5833,9 @@ impl Evaluator {
                 let path = lowered_path_arg(values.remove(0), "fs.data_ranges", span)?;
                 lowered_runtime_result(fs_module::data_ranges(self.host_path(&path), span), span)?
             }
-            RuntimeOp::FsCopyFile if (2..=6).contains(&values.len()) => {
+            RuntimeOp::FsCopyFile if (2..=7).contains(&values.len()) => {
                 let operation = "fs.copy_file";
+                let force = lowered_bool_arg_or(values.get(6).cloned(), false, operation, span)?;
                 let mode = lowered_optional_int_arg(values.get(5), operation, span)?;
                 let overwrite = lowered_bool_arg_or(values.get(4).cloned(), true, operation, span)?;
                 let reflink =
@@ -5837,6 +5856,7 @@ impl Evaluator {
                             self.host_path(&source),
                             self.host_path(&dest),
                             fs_module::CopyFile {
+                                force,
                                 sparse,
                                 reflink,
                                 overwrite,
@@ -5855,6 +5875,56 @@ impl Evaluator {
                     span,
                 )?;
                 lowered_unit_result(fs_module::fsync_path(self.host_path(&path), span))
+            }
+            RuntimeOp::FsAccess if (1..=5).contains(&values.len()) => {
+                let operation = "fs.access";
+                let read = lowered_bool_arg_or(values.get(1).cloned(), false, operation, span)?;
+                let write = lowered_bool_arg_or(values.get(2).cloned(), false, operation, span)?;
+                let execute = lowered_bool_arg_or(values.get(3).cloned(), false, operation, span)?;
+                let follow = lowered_bool_arg_or(values.get(4).cloned(), true, operation, span)?;
+                let path = lowered_path_arg(values.remove(0), operation, span)?;
+                lowered_runtime_result(fs_module::access(self.host_path(&path), read, write, execute, follow, span).map(Value::Bool), span)?
+            }
+            RuntimeOp::FsXattrList if (1..=2).contains(&values.len()) => {
+                let follow = lowered_bool_arg_or(values.get(1).cloned(), true, "fs.xattr_list", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.xattr_list", span)?;
+                lowered_runtime_result(fs_module::xattr_list(self.host_path(&path), follow, span), span)?
+            }
+            RuntimeOp::FsXattrGet if (2..=3).contains(&values.len()) => {
+                let follow = lowered_bool_arg_or(values.get(2).cloned(), true, "fs.xattr_get", span)?;
+                let name = lowered_str_arg_owned(values.get(1).cloned(), "", "fs.xattr_get", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.xattr_get", span)?;
+                lowered_runtime_result(fs_module::xattr_get(self.host_path(&path), &name, follow, span), span)?
+            }
+            RuntimeOp::FsXattrSet if (3..=5).contains(&values.len()) => {
+                let operation = "fs.xattr_set";
+                let follow = lowered_bool_arg_or(values.get(4).cloned(), true, operation, span)?;
+                let mode = lowered_str_arg_owned(values.get(3).cloned(), "upsert", operation, span)?;
+                let name = lowered_str_arg_owned(values.get(1).cloned(), "", operation, span)?;
+                let data_value = values.remove(2);
+                let data = lowered_bytes_arg(&data_value, operation, span)?;
+                let path = lowered_path_arg(values.remove(0), operation, span)?;
+                lowered_unit_result(fs_module::xattr_set(self.host_path(&path), &name, data, &mode, follow, span))
+            }
+            RuntimeOp::FsXattrRemove if (2..=3).contains(&values.len()) => {
+                let follow = lowered_bool_arg_or(values.get(2).cloned(), true, "fs.xattr_remove", span)?;
+                let name = lowered_str_arg_owned(values.get(1).cloned(), "", "fs.xattr_remove", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.xattr_remove", span)?;
+                lowered_unit_result(fs_module::xattr_remove(self.host_path(&path), &name, follow, span))
+            }
+            RuntimeOp::FsSyncPath if (1..=2).contains(&values.len()) => {
+                let mode = lowered_str_arg_owned(values.get(1).cloned(), "all", "fs.sync_path", span)?;
+                let path = lowered_path_arg(values.remove(0), "fs.sync_path", span)?;
+                lowered_unit_result(fs_module::sync_path(self.host_path(&path), &mode, span))
+            }
+            RuntimeOp::FsRenameExchange if values.len() == 2 => {
+                let dest = lowered_path_arg(values.remove(1), "fs.rename_exchange", span)?;
+                let source = lowered_path_arg(values.remove(0), "fs.rename_exchange", span)?;
+                lowered_unit_result(fs_module::rename_exchange(self.host_path(&source), self.host_path(&dest), span))
+            }
+            RuntimeOp::FsPathLimits if values.len() == 1 => {
+                let path = lowered_path_arg(values.remove(0), "fs.path_limits", span)?;
+                lowered_runtime_result(fs_module::path_limits(self.host_path(&path), span), span)?
             }
             RuntimeOp::FsSync if values.is_empty() => {
                 fs_module::sync_filesystems();
@@ -6003,6 +6073,26 @@ impl Evaluator {
             RuntimeOp::GroupRemove if values.len() == 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "", "group.remove", span)?;
                 lowered_runtime_result(group_module::remove(&name, span), span)?
+            }
+            RuntimeOp::HashDigestFile if (2..=3).contains(&values.len()) => {
+                let algorithm = lowered_str_arg_owned(values.get(1).cloned(), "", "hash.digest_file", span)?;
+                let length = lowered_int_arg_or(values.get(2).cloned(), 512, "hash.digest_file", span)?;
+                let path = lowered_path_arg(values.remove(0), "hash.digest_file", span)?;
+                lowered_runtime_result(hash_module::named_digest_file(&algorithm, length, &self.host_path(&path), span).map(Value::digest), span)?
+            }
+            RuntimeOp::HashDigestStdin if (1..=2).contains(&values.len()) => {
+                let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.digest_stdin", span)?;
+                let length = lowered_int_arg_or(values.get(1).cloned(), 512, "hash.digest_stdin", span)?;
+                lowered_runtime_result(hash_module::named_digest_reader(&algorithm, length, &mut std::io::stdin().lock(), span).map(Value::digest), span)?
+            }
+            RuntimeOp::HashChecksum if values.len() == 2 => {
+                let algorithm = lowered_str_arg_owned(values.get(1).cloned(), "", "hash.checksum", span)?;
+                let path = lowered_path_arg(values.remove(0), "hash.checksum", span)?;
+                lowered_runtime_result(hash_module::checksum_file(&algorithm, &self.host_path(&path), span), span)?
+            }
+            RuntimeOp::HashChecksumStdin if values.len() == 1 => {
+                let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.checksum_stdin", span)?;
+                lowered_runtime_result(hash_module::checksum_reader(&algorithm, &mut std::io::stdin().lock(), span), span)?
             }
             RuntimeOp::HashMd5
             | RuntimeOp::HashSha1
@@ -6220,6 +6310,45 @@ impl Evaluator {
             RuntimeOp::MapEmpty if values.is_empty() => {
                 LoweredValue::Map(Arc::new(BTreeMap::new()))
             }
+            RuntimeOp::TimeToCalendar => {
+                let epoch = lowered_int_arg(values.first().cloned(), "time.to_calendar", span)?;
+                let utc = lowered_bool_arg_or(values.get(1).cloned(), false, "time.to_calendar", span)?;
+                match crate::modules::time::to_calendar(epoch, utc) {
+                    Ok(calendar) => lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+                        (Arc::from("year"), LoweredValue::Int(calendar.year)),
+                        (Arc::from("month"), LoweredValue::Int(calendar.month)),
+                        (Arc::from("day"), LoweredValue::Int(calendar.day)),
+                        (Arc::from("hour"), LoweredValue::Int(calendar.hour)),
+                        (Arc::from("minute"), LoweredValue::Int(calendar.minute)),
+                        (Arc::from("second"), LoweredValue::Int(calendar.second)),
+                        (Arc::from("weekday"), LoweredValue::Int(calendar.weekday)),
+                        (Arc::from("offset_seconds"), LoweredValue::Int(calendar.offset_seconds)),
+                        (Arc::from("nanosecond"), LoweredValue::Int(calendar.nanosecond)),
+                    ])))),
+                    Err(message) => lowered_result_err_value(RuntimeError::new("time-calendar", message).with_span(span)),
+                }
+            }
+            RuntimeOp::TimeFormat if (2..=3).contains(&values.len()) => {
+                let epoch = lowered_int_arg(values.get(0).cloned(), "time.format", span)?;
+                let format = lowered_str_arg_owned(values.get(1).cloned(), "", "time.format", span)?;
+                let utc = lowered_bool_arg_or(values.get(2).cloned(), false, "time.format", span)?;
+                lowered_runtime_result(crate::modules::time::format(epoch, &format, utc).map(|text| Value::Str(text.into())).map_err(|message| RuntimeError::new("time-format", message).with_span(span)), span)?
+            }
+            RuntimeOp::TimeFromCalendar if (3..=8).contains(&values.len()) => {
+                let operation = "time.from_calendar";
+                let year = lowered_int_arg(values.get(0).cloned(), operation, span)?;
+                let month = lowered_int_arg(values.get(1).cloned(), operation, span)?;
+                let day = lowered_int_arg(values.get(2).cloned(), operation, span)?;
+                let hour = lowered_int_arg_or(values.get(3).cloned(), 0, operation, span)?;
+                let minute = lowered_int_arg_or(values.get(4).cloned(), 0, operation, span)?;
+                let second = lowered_int_arg_or(values.get(5).cloned(), 0, operation, span)?;
+                let utc = lowered_bool_arg_or(values.get(6).cloned(), false, operation, span)?;
+                let normalize = lowered_bool_arg_or(values.get(7).cloned(), false, operation, span)?;
+                lowered_runtime_result(crate::modules::time::from_calendar(year, month, day, hour, minute, second, utc, normalize).map(Value::Int).map_err(|message| RuntimeError::new("time-calendar", message).with_span(span)), span)?
+            }
+            RuntimeOp::TimeClockResolution if values.is_empty() => {
+                lowered_runtime_result(crate::modules::time::clock_resolution().map(Value::Int).map_err(|message| RuntimeError::new("time-resolution", message).with_span(span)), span)?
+            }
             RuntimeOp::TimeNow if values.is_empty() => {
                 LoweredValue::Int(crate::modules::time::now_epoch_ms())
             }
@@ -6427,7 +6556,18 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesReadAt if values.len() == 3 => {
+            RuntimeOp::BytesResize => {
+                let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "bytes.resize", span)?, "bytes.resize", span)?;
+                let size = lowered_int_arg(values.get(1).cloned(), "bytes.resize", span)?;
+                let create = lowered_bool_arg_or(values.get(2).cloned(), false, "bytes.resize", span)?;
+                let exclusive = lowered_bool_arg_or(values.get(3).cloned(), false, "bytes.resize", span)?;
+                let regular = lowered_bool_arg_or(values.get(4).cloned(), false, "bytes.resize", span)?;
+                match bytes_module::resize(self.host_path(&path), size, create, exclusive, regular, span) {
+                    Ok(()) => lowered_result_ok(LoweredValue::Unit), Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::BytesReadAt if (3..=4).contains(&values.len()) => {
+                let regular = if values.len() == 4 { lowered_bool_arg_or(values.pop(), false, "bytes.read_at", span)? } else { false };
                 let length = lowered_int_arg(values.pop(), "bytes.read_at", span)?;
                 let offset = lowered_int_arg(values.pop(), "bytes.read_at", span)?;
                 let path = lowered_path_arg(
@@ -6435,30 +6575,32 @@ impl Evaluator {
                     "bytes.read_at",
                     span,
                 )?;
-                match bytes_module::read_at(self.host_path(&path), offset, length, span) {
+                match bytes_module::read_at(self.host_path(&path), offset, length, regular, span) {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesWriteAt if values.len() == 3 || values.len() == 4 => {
+            RuntimeOp::BytesWriteAt if (3..=5).contains(&values.len()) => {
+                let regular = lowered_bool_arg_or(values.get(4).cloned(), false, "bytes.write_at", span)?;
                 let create =
                     lowered_bool_arg_or(values.get(3).cloned(), false, "bytes.write_at", span)?;
                 let data_value = values.remove(2);
                 let data = lowered_bytes_arg(&data_value, "bytes.write_at", span)?;
                 let offset = lowered_int_arg(Some(values.remove(1)), "bytes.write_at", span)?;
                 let path = lowered_path_arg(values.remove(0), "bytes.write_at", span)?;
-                match bytes_module::write_at(self.host_path(&path), offset, data, create, span) {
+                match bytes_module::write_at(self.host_path(&path), offset, data, create, regular, span) {
                     Ok(written) => lowered_result_ok(LoweredValue::Int(written)),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::BytesZeroAt if values.len() == 3 || values.len() == 4 => {
+            RuntimeOp::BytesZeroAt if (3..=5).contains(&values.len()) => {
+                let regular = lowered_bool_arg_or(values.get(4).cloned(), false, "bytes.zero_at", span)?;
                 let create =
                     lowered_bool_arg_or(values.get(3).cloned(), false, "bytes.zero_at", span)?;
                 let length = lowered_int_arg(Some(values.remove(2)), "bytes.zero_at", span)?;
                 let offset = lowered_int_arg(Some(values.remove(1)), "bytes.zero_at", span)?;
                 let path = lowered_path_arg(values.remove(0), "bytes.zero_at", span)?;
-                match bytes_module::zero_at(self.host_path(&path), offset, length, create, span) {
+                match bytes_module::zero_at(self.host_path(&path), offset, length, create, regular, span) {
                     Ok(written) => lowered_result_ok(LoweredValue::Int(written)),
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -8058,6 +8200,71 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::RegexCapturesBytes => {
+                let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.captures_bytes", span)?;
+                let input = lowered_bytes_arg_or_empty(values.get(1).cloned(), "regex.captures_bytes", span)?;
+                let offset = lowered_int_arg_or(values.get(2).cloned(), 0, "regex.captures_bytes", span)?;
+                let extended = lowered_bool_arg_or(values.get(3).cloned(), false, "regex.captures_bytes", span)?;
+                let ignore_case = lowered_bool_arg_or(values.get(4).cloned(), false, "regex.captures_bytes", span)?;
+                match regex_module::captures_bytes(&pattern, &input, offset, extended, ignore_case, span) {
+                    Ok(value) => lowered_result_ok(lowered_runtime_value(value, span)?), Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::UnixReadFd => {
+                let fd = lowered_int_arg(values.first().cloned(), "unix.read_fd", span)?;
+                let max_bytes = lowered_int_arg(values.get(1).cloned(), "unix.read_fd", span)?;
+                lowered_runtime_result(unix_module::read_fd(fd, max_bytes, span), span)?
+            }
+            RuntimeOp::RegexFindBytes if (2..=4).contains(&values.len()) => {
+                let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.find_bytes", span)?;
+                let input = lowered_bytes_arg_or_empty(values.get(1).cloned(), "regex.find_bytes", span)?;
+                let extended = lowered_bool_arg_or(values.get(2).cloned(), false, "regex.find_bytes", span)?;
+                let ignore_case = lowered_bool_arg_or(values.get(3).cloned(), false, "regex.find_bytes", span)?;
+                match regex_module::find_bytes(&pattern, &input, extended, ignore_case, span) {
+                    Ok(found) => lowered_result_ok(lowered_runtime_value(found, span)?),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::CompressionTransform => {
+                let source = match values.first().cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "compression.transform", span)?) };
+                let destination = match values.get(1).cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "compression.transform", span)?) };
+                let source = source.as_ref().map(|path| self.host_path(path));
+                let destination = destination.as_ref().map(|path| self.host_path(path));
+                let format = lowered_str_arg_owned(values.get(2).cloned(), "gzip", "compression.transform", span)?;
+                let request = crate::modules::compression::TransformRequest {
+                    source: source.as_deref(), destination: destination.as_deref(), format: &format,
+                    decode: lowered_bool_arg_or(values.get(3).cloned(), false, "compression.transform", span)?,
+                    level: lowered_int_arg_or(values.get(4).cloned(), 6, "compression.transform", span)?,
+                    test: lowered_bool_arg_or(values.get(5).cloned(), false, "compression.transform", span)?,
+                    metadata: lowered_bool_arg_or(values.get(6).cloned(), true, "compression.transform", span)?,
+                    overwrite: lowered_bool_arg_or(values.get(7).cloned(), false, "compression.transform", span)?,
+                    pass_through: lowered_bool_arg_or(values.get(8).cloned(), false, "compression.transform", span)?,
+                };
+                self.flush_stdout_checked(span)?;
+                match crate::modules::compression::transform(request, span) {
+                    Ok(()) => lowered_result_ok(LoweredValue::Unit), Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::CompressionGzipName => {
+                let source = lowered_path_arg(unix_require_arg(values.first().cloned(), "compression.gzip_name", span)?, "compression.gzip_name", span)?;
+                match crate::modules::compression::gzip_name(&self.host_path(&source), span) {
+                    Ok(path) => lowered_result_ok(match path { Some(path) => lowered_runtime_value(Value::Path(path_value_from_pathbuf(path)?), span)?, None => LoweredValue::Null }),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::LinuxSample => {
+                let root = match values.first().cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_path_arg(value, "linux.sample", span)?) };
+                let root = root.as_ref().map(|path| self.host_path(path));
+                match linux_module::sampling::sample(root.as_deref(), span) {
+                    Ok(value) => lowered_result_ok(lowered_runtime_value(value, span)?), Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::UnixPollFd if (2..=3).contains(&values.len()) => {
+                let fd = lowered_int_arg(values.first().cloned(), "unix.poll_fd", span)?;
+                let events = lowered_str_list_arg(values.get(1).cloned(), "unix.poll_fd", span)?;
+                let timeout = lowered_int_arg_or(values.get(2).cloned(), 0, "unix.poll_fd", span)?;
+                lowered_runtime_result(unix_module::poll_fd(fd, &events, timeout, span), span)?
+            }
             // Lowering builds both from the checked call; these are what a
             // call that reaches the module operation itself evaluates to.
             RuntimeOp::SetEmpty if values.is_empty() => {
@@ -8514,9 +8721,15 @@ impl Evaluator {
             | RuntimeOp::UnixNotifyReady
             | RuntimeOp::UnixNotifyClose
             | RuntimeOp::UnixKillProcessGroup
-            | RuntimeOp::UnixExec => self.eval_lowered_unix_call(op, values, span)?,
+            | RuntimeOp::UnixExec
+            | RuntimeOp::UnixExecEnv => self.eval_lowered_unix_call(op, values, span)?,
             RuntimeOp::UserCurrent if values.is_empty() => {
                 lowered_runtime_result(user_module::current(span), span)?
+            }
+            RuntimeOp::UserGroups if (1..=2).contains(&values.len()) => {
+                let name = lowered_str_arg_owned(values.get(0).cloned(), "", "user.groups", span)?;
+                let gid = lowered_optional_int_arg(values.get(1), "user.groups", span)?;
+                lowered_runtime_result(user_module::groups(&name, gid, span), span)?
             }
             RuntimeOp::UserLookup if values.len() == 1 => {
                 let name = lowered_str_arg_owned(values.pop(), "", "user.lookup", span)?;
@@ -8731,7 +8944,19 @@ impl Evaluator {
             | RuntimeOp::LinuxMknod
             | RuntimeOp::LinuxMkswap
             | RuntimeOp::LinuxModinfo
+            | RuntimeOp::LinuxUmount
+            | RuntimeOp::LinuxBlockdevInfo
+            | RuntimeOp::LinuxBlockdevSetReadOnly
+            | RuntimeOp::LinuxBlockdevFlush
+            | RuntimeOp::LinuxBlockdevRereadPartitionTable
+            | RuntimeOp::LinuxFstrim
+            | RuntimeOp::LinuxFsfreeze
             | RuntimeOp::LinuxModprobe
+            | RuntimeOp::LinuxModulePlan
+            | RuntimeOp::LinuxBlockSignatures
+            | RuntimeOp::LinuxWipeBlockSignatures
+            | RuntimeOp::LinuxFileProject
+            | RuntimeOp::LinuxSetFileProject
             | RuntimeOp::LinuxModules
             | RuntimeOp::LinuxMount
             | RuntimeOp::LinuxMountAll
@@ -9036,6 +9261,37 @@ impl Evaluator {
                     Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
                 };
                 unix_module::kill_process_group(pid, signal.number, span)
+            }
+            RuntimeOp::UnixExecEnv => {
+                let plan = lowered_command_arg(unix_require_arg(values.first().cloned(), "unix.exec_env", span)?, "unix.exec_env", span)?;
+                let mut invocation = self.invocation_from_command_plan(&plan, span)?;
+                let Some(LoweredValue::Map(environment)) = values.get(1) else {
+                    return Err(RuntimeError::new("type-error", "unix.exec_env expected Map[Str, Str]").with_span(span));
+                };
+                let mut replacement = BTreeMap::new();
+                for (key, value) in environment.iter() {
+                    let Some(key) = key.as_str() else { return Err(RuntimeError::new("type-error", "unix.exec_env expected Str keys").with_span(span)); };
+                    let LoweredValue::Str(value) = value else { return Err(RuntimeError::new("type-error", "unix.exec_env expected Str values").with_span(span)); };
+                    if key.is_empty() || key.as_bytes().contains(&0) || key.contains('=') || value.as_bytes().contains(&0) {
+                        return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "invalid environment key or value").with_span(span)))));
+                    }
+                    replacement.insert(key.as_bytes().to_vec(), value.as_bytes().to_vec());
+                }
+                let argv0 = match values.get(2).cloned() {
+                    None | Some(LoweredValue::Null) => None,
+                    Some(value) => Some(lowered_str_arg_owned(Some(value), "", "unix.exec_env", span)?),
+                };
+                if argv0.as_ref().is_some_and(|value| value.as_bytes().contains(&0)) {
+                    return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "argv0 contains NUL").with_span(span)))));
+                }
+                invocation.env = replacement;
+                invocation.env_overlay.clear();
+                if self.unix_fake_active() {
+                    self.unix_fake_log("exec_env", &[("command", String::from_utf8_lossy(&plan.target).into_owned()), ("argv", display_spawn_argv(&plan.target, &plan.argv)), ("argv0", argv0.unwrap_or_default())], span)?;
+                    return Ok(Value::ok(Value::Unit));
+                }
+                self.flush_shared_stdio();
+                unix_module::exec_env(&invocation, argv0.as_deref(), span)
             }
             RuntimeOp::UnixExec => {
                 let plan = lowered_command_arg(
@@ -9720,12 +9976,62 @@ impl Evaluator {
                     let host_device = self.host_path(&device);
                     linux_module::mkswap(&host_device, span)
                 }
-                RuntimeOp::LinuxModprobe => {
+                RuntimeOp::LinuxBlockSignatures => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.block_signatures", span)?, "linux.block_signatures", span)?;
+                    linux_module::block_signatures(&self.host_path(&path), span)
+                }
+                RuntimeOp::LinuxWipeBlockSignatures => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.wipe_block_signatures", span)?, "linux.wipe_block_signatures", span)?;
+                    linux_module::wipe_block_signatures(&self.host_path(&path), &lowered_int_list_arg(values.get(1).cloned(), "linux.wipe_block_signatures", span)?, span)
+                }
+                RuntimeOp::LinuxFileProject => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.file_project", span)?, "linux.file_project", span)?;
+                    linux_module::file_project(&self.host_path(&path), span)
+                }
+                RuntimeOp::LinuxSetFileProject => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.set_file_project", span)?, "linux.set_file_project", span)?;
+                    linux_module::set_file_project(&self.host_path(&path), lowered_int_arg(values.get(1).cloned(), "linux.set_file_project", span)?, span)
+                }
+                RuntimeOp::LinuxModulePlan => {
+                    let name = lowered_str_arg_owned(values.first().cloned(), "", "linux.module_plan", span)?;
+                    let params = lowered_str_arg_owned(values.get(1).cloned(), "", "linux.module_plan", span)?;
+                    let remove = lowered_bool_arg_or(values.get(2).cloned(), false, "linux.module_plan", span)?;
+                    linux_module::module_plan(&name, &params, remove, span)
+                }
+                RuntimeOp::LinuxUmount => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.umount", span)?, "linux.umount", span)?;
+                    linux_module::umount(&self.host_path(&path), lowered_bool_arg_or(values.get(1).cloned(), false, "linux.umount", span)?, lowered_bool_arg_or(values.get(2).cloned(), false, "linux.umount", span)?, span)
+                }
+                RuntimeOp::LinuxBlockdevInfo => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.blockdev_info", span)?, "linux.blockdev_info", span)?;
+                    linux_module::blockdev_info(&self.host_path(&path), span)
+                }
+                RuntimeOp::LinuxBlockdevSetReadOnly => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.blockdev_set_read_only", span)?, "linux.blockdev_set_read_only", span)?;
+                    linux_module::blockdev_set_read_only(&self.host_path(&path), lowered_bool_arg_or(values.get(1).cloned(), false, "linux.blockdev_set_read_only", span)?, span)
+                }
+                RuntimeOp::LinuxBlockdevFlush => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.blockdev_flush", span)?, "linux.blockdev_flush", span)?;
+                    linux_module::blockdev_flush(&self.host_path(&path), span)
+                }
+                RuntimeOp::LinuxBlockdevRereadPartitionTable => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.blockdev_reread_partition_table", span)?, "linux.blockdev_reread_partition_table", span)?;
+                    linux_module::blockdev_reread_partition_table(&self.host_path(&path), span)
+                }
+                RuntimeOp::LinuxFstrim => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.fstrim", span)?, "linux.fstrim", span)?;
+                    linux_module::fstrim(&self.host_path(&path), lowered_int_arg_or(values.get(1).cloned(), 0, "linux.fstrim", span)?, match values.get(2).cloned() { None | Some(LoweredValue::Null) => None, Some(value) => Some(lowered_int_arg(Some(value), "linux.fstrim", span)?) }, lowered_int_arg_or(values.get(3).cloned(), 0, "linux.fstrim", span)?, span)
+                }
+                RuntimeOp::LinuxFsfreeze => {
+                    let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.fsfreeze", span)?, "linux.fsfreeze", span)?;
+                    linux_module::fsfreeze(&self.host_path(&path), lowered_bool_arg_or(values.get(1).cloned(), false, "linux.fsfreeze", span)?, span)
+                }
+            RuntimeOp::LinuxModprobe => {
                     let name =
                         lowered_str_arg_owned(values.first().cloned(), "", "linux.modprobe", span)?;
                     let params =
                         lowered_str_arg_owned(values.get(1).cloned(), "", "linux.modprobe", span)?;
-                    linux_module::modprobe(&name, &params, span)
+                    linux_module::modprobe(&name, &params, lowered_bool_arg_or(values.get(2).cloned(), false, "linux.modprobe", span)?, span)
                 }
                 RuntimeOp::LinuxMount => {
                     let source =
@@ -9968,6 +10274,8 @@ impl Evaluator {
                     (Arc::from("available"), Value::Int(512 * 1024 * 1024)),
                     (Arc::from("buffers"), Value::Int(64 * 1024 * 1024)),
                     (Arc::from("cached"), Value::Int(128 * 1024 * 1024)),
+                    (Arc::from("shared"), Value::Int(0)),
+                    (Arc::from("sreclaimable"), Value::Int(0)),
                     (Arc::from("swap_total"), Value::Int(512 * 1024 * 1024)),
                     (Arc::from("swap_free"), Value::Int(384 * 1024 * 1024)),
                 ]))))
@@ -9979,6 +10287,7 @@ impl Evaluator {
                     vec![Value::Record(RecordMap::from([
                         (Arc::from("name"), Value::Str("xsh_demo".into())),
                         (Arc::from("size"), Value::Int(4096)),
+                        (Arc::from("ref_count"), Value::Int(1)),
                         (
                             Arc::from("used_by"),
                             Value::List(vec![Value::Str("xsh_dep".into())]),
@@ -10451,6 +10760,7 @@ impl Evaluator {
                     ),
                     (Arc::from("license"), Value::Str("GPL".into())),
                     (Arc::from("version"), Value::Str("1".into())),
+                    (Arc::from("fields"), Value::List([("description", "dry-run module"), ("license", "GPL"), ("version", "1"), ("parm", "debug:enable debug"), ("parmtype", "debug:bool")].into_iter().map(|(name, value)| Value::Record(RecordMap::from([(Arc::from("name"), Value::Str(name.into())), (Arc::from("value"), Value::Str(value.into()))]))).collect())),
                     (
                         Arc::from("params"),
                         Value::List(vec![Value::Record(RecordMap::from([
@@ -10461,12 +10771,38 @@ impl Evaluator {
                     ),
                 ]))))
             }
+            RuntimeOp::LinuxUmount | RuntimeOp::LinuxBlockdevInfo | RuntimeOp::LinuxBlockdevSetReadOnly
+            | RuntimeOp::LinuxBlockdevFlush | RuntimeOp::LinuxBlockdevRereadPartitionTable
+            | RuntimeOp::LinuxFstrim | RuntimeOp::LinuxFsfreeze | RuntimeOp::LinuxBlockSignatures
+            | RuntimeOp::LinuxWipeBlockSignatures => {
+                Err(RuntimeError::new("linux-fake-unsupported", "this block operation has no Linux fake implementation").with_span(span))
+            }
+            RuntimeOp::LinuxFileProject | RuntimeOp::LinuxSetFileProject => {
+                let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "linux.file_project", span)?, "linux.file_project", span)?;
+                let project = if op == RuntimeOp::LinuxSetFileProject { lowered_int_arg(values.get(1).cloned(), "linux.set_file_project", span)? } else { self.linux_fake_value("file_project", "0").parse::<i64>().map_err(|_| RuntimeError::new("linux-file-project", "invalid fake project ID").with_span(span))? };
+                if !(0..=i64::from(u32::MAX)).contains(&project) { return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("linux-file-project", "project ID must fit in u32").with_span(span))))); }
+                self.linux_fake_log(if op == RuntimeOp::LinuxFileProject { "file_project" } else { "set_file_project" }, &[("path", path.display()), ("project", project.to_string())], span)?;
+                Ok(Value::ok(if op == RuntimeOp::LinuxFileProject { Value::Int(project) } else { Value::Unit }))
+            }
+                RuntimeOp::LinuxModulePlan => {
+                let name = lowered_str_arg_owned(values.first().cloned(), "", "linux.module_plan", span)?;
+                let params = lowered_str_arg_owned(values.get(1).cloned(), "", "linux.module_plan", span)?;
+                let remove = lowered_bool_arg_or(values.get(2).cloned(), false, "linux.module_plan", span)?;
+                self.linux_fake_log("module_plan", &[("name", name.clone()), ("params", params.clone()), ("remove", remove.to_string())], span)?;
+                Ok(Value::ok(Value::List(vec![Value::Record(RecordMap::from([
+                    (Arc::from("name"), Value::Str(name.into())),
+                    (Arc::from("filename"), Value::Path(path_value_from_pathbuf(PathBuf::from("/lib/modules/dry-run/demo.ko"))?)),
+                    (Arc::from("params"), Value::Str(params.into())),
+                    (Arc::from("loaded"), Value::Bool(false)),
+                ]))])))
+            }
             RuntimeOp::LinuxModprobe => {
                 let name =
                     lowered_str_arg_owned(values.first().cloned(), "", "linux.modprobe", span)?;
                 let params =
                     lowered_str_arg_owned(values.get(1).cloned(), "", "linux.modprobe", span)?;
-                self.linux_fake_log("modprobe", &[("name", name), ("params", params)], span)?;
+                let remove = lowered_bool_arg_or(values.get(2).cloned(), false, "linux.modprobe", span)?;
+                self.linux_fake_log("modprobe", &[("name", name), ("params", params), ("remove", remove.to_string())], span)?;
                 Ok(Value::ok(Value::Unit))
             }
             RuntimeOp::LinuxDepmod => {
@@ -10488,6 +10824,9 @@ impl Evaluator {
                         (Arc::from("pid"), Value::Int(pid_value)),
                         (Arc::from("command"), Value::Str("xsh".into())),
                         (Arc::from("fd"), Value::Int(1)),
+                        (Arc::from("fd_label"), Value::Str("1".into())),
+                        (Arc::from("access"), Value::Str("w".into())),
+                        (Arc::from("dev"), Value::Null),
                         (Arc::from("type"), Value::Str("file".into())),
                         (
                             Arc::from("path"),

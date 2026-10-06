@@ -30,6 +30,7 @@ struct Inst {
 fn sample(ty: &Type, inst: &Inst) -> Option<String> {
     Some(match ty {
         Type::Int => "2".into(),
+        Type::UInt => "2".into(),
         Type::Float => "1.5".into(),
         Type::Str => "\"a,b c\"".into(),
         Type::Bool => "true".into(),

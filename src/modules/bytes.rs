@@ -4,6 +4,7 @@ use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use data_encoding::{BASE32, BASE32_NOPAD, BASE64, BASE64_NOPAD};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -195,30 +196,72 @@ pub(crate) fn unpack_int_be(
     unpack_int(bytes, offset, width, false, span)
 }
 
+// Check the opened descriptor so changing a pathname cannot substitute a
+// device after validation. Nonblocking opens keep FIFO guards from hanging.
+fn guard_regular_file(
+    file: &std::fs::File,
+    regular: bool,
+    kind: &str,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    if regular {
+        let metadata = file.metadata()
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+        if !metadata.is_file() {
+            return Err(RuntimeError::host(kind,
+                &std::io::Error::from_raw_os_error(libc::ENOTSUP)).with_span(span));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn read_at(
     path: PathBuf,
     offset: i64,
     length: i64,
+    regular: bool,
     span: Span,
 ) -> Result<Vec<u8>, RuntimeError> {
+    let kind = "bytes-read-at";
     if offset < 0 {
-        return Err(
-            RuntimeError::new("bytes-read-at", "offset cannot be negative").with_span(span),
-        );
+        return Err(RuntimeError::new(kind, "offset cannot be negative").with_span(span));
     }
-    if length < 0 {
-        return Err(
-            RuntimeError::new("bytes-read-at", "length cannot be negative").with_span(span),
-        );
-    }
-    let mut file = std::fs::File::open(&path)
-        .map_err(|error| RuntimeError::host("bytes-read-at", &error).with_span(span))?;
+    let length = usize::try_from(length)
+        .map_err(|_| RuntimeError::new(kind, "length must fit a non-negative byte count").with_span(span))?;
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(if regular { libc::O_NONBLOCK } else { 0 })
+        .open(&path)
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+    guard_regular_file(&file, regular, kind, span)?;
     file.seek(SeekFrom::Start(offset as u64))
-        .map_err(|error| RuntimeError::host("bytes-read-at", &error).with_span(span))?;
-    let mut data = vec![0_u8; length as usize];
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(length)
+        .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+    data.resize(length, 0);
     file.read_exact(&mut data)
-        .map_err(|error| RuntimeError::host("bytes-read-at", &error).with_span(span))?;
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     Ok(data)
+}
+
+// Mutating byte operations reject symlinks at open, rather than checking a
+// pathname that another process could replace before the descriptor is opened.
+fn open_byte_output(
+    path: &PathBuf,
+    create: bool,
+    regular: bool,
+    kind: &str,
+    span: Span,
+) -> Result<std::fs::File, RuntimeError> {
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(create)
+        .custom_flags(libc::O_NOFOLLOW | if regular { libc::O_NONBLOCK } else { 0 })
+        .open(path)
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+    guard_regular_file(&file, regular, kind, span)?;
+    Ok(file)
 }
 
 pub(crate) fn write_at(
@@ -226,27 +269,18 @@ pub(crate) fn write_at(
     offset: i64,
     data: &[u8],
     create: bool,
+    regular: bool,
     span: Span,
 ) -> Result<i64, RuntimeError> {
+    let kind = "bytes-write-at";
     if offset < 0 {
-        return Err(
-            RuntimeError::new("bytes-write-at", "offset cannot be negative").with_span(span),
-        );
+        return Err(RuntimeError::new(kind, "offset cannot be negative").with_span(span));
     }
-    if let Ok(metadata) = std::fs::symlink_metadata(&path)
-        && metadata.file_type().is_symlink()
-    {
-        return Err(RuntimeError::new("bytes-write-at", "path is a symlink").with_span(span));
-    }
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(create)
-        .open(&path)
-        .map_err(|error| RuntimeError::host("bytes-write-at", &error).with_span(span))?;
+    let mut file = open_byte_output(&path, create, regular, kind, span)?;
     file.seek(SeekFrom::Start(offset as u64))
-        .map_err(|error| RuntimeError::host("bytes-write-at", &error).with_span(span))?;
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     file.write_all(data)
-        .map_err(|error| RuntimeError::host("bytes-write-at", &error).with_span(span))?;
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
     Ok(data.len() as i64)
 }
 
@@ -255,16 +289,53 @@ pub(crate) fn zero_at(
     offset: i64,
     length: i64,
     create: bool,
+    regular: bool,
     span: Span,
 ) -> Result<i64, RuntimeError> {
-    if length < 0 {
-        return Err(
-            RuntimeError::new("bytes-zero-at", "length cannot be negative").with_span(span),
-        );
+    let kind = "bytes-zero-at";
+    if offset < 0 || length < 0 {
+        return Err(RuntimeError::new(kind, "offset and length cannot be negative").with_span(span));
     }
-    let data = vec![0_u8; length as usize];
-    write_at(path, offset, &data, create, span)
-        .map_err(|error| RuntimeError::new("bytes-zero-at", error.message).with_span(span))
+    let mut file = open_byte_output(&path, create, regular, kind, span)?;
+    file.seek(SeekFrom::Start(offset as u64))
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+    let zeros = [0_u8; 65_536];
+    let mut remaining = length as u64;
+    while remaining > 0 {
+        let count = remaining.min(zeros.len() as u64) as usize;
+        file.write_all(&zeros[..count])
+            .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+        remaining -= count as u64;
+    }
+    Ok(length)
+}
+
+pub(crate) fn resize(
+    path: PathBuf,
+    size: i64,
+    create: bool,
+    exclusive: bool,
+    regular: bool,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let kind = "bytes-resize";
+    if size < 0 {
+        return Err(RuntimeError::new(kind, "size cannot be negative").with_span(span));
+    }
+    if exclusive && !create {
+        return Err(RuntimeError::new(kind, "exclusive requires create: true").with_span(span));
+    }
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(create)
+        .create_new(exclusive)
+        .custom_flags(libc::O_NOFOLLOW | if regular { libc::O_NONBLOCK } else { 0 })
+        .open(&path)
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))?;
+    guard_regular_file(&file, regular, kind, span)?;
+    file.set_len(size as u64)
+        .map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }
 
 fn pack_int(

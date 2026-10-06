@@ -7,10 +7,8 @@
 ##! 1 for most utilities, 2 for ls, cmp, diff, and grep, and 125 for env, nice,
 ##! nohup, timeout, stdbuf, and chroot.
 ##!
-##! `print`, `io.write_stdout`, and `io.write_stdout_bytes` only buffer, so a
-##! closed stdout is not observable from XSH yet; `write_text` and
-##! `write_bytes` route write failures through `write_failed` once the runtime
-##! reports them.
+##! Output helpers explicitly flush buffered writes so a closed or full
+##! stdout is reported before the applet can return success.
 
 const VERSION = "0.0.1"
 
@@ -353,11 +351,17 @@ export proc write_text(text: Str) [process, env, io] -> Unit {
   if let Err(failure) = io.write_stdout(text) {
     write_failed(failure)
   }
+  if let Err(failure) = io.flush_stdout() {
+    write_failed(failure)
+  }
 }
 
 ## Write raw bytes to stdout, ending the applet on a write failure.
 export proc write_bytes(data: Bytes) [process, env, io] -> Unit {
   if let Err(failure) = io.write_stdout_bytes(data) {
+    write_failed(failure)
+  }
+  if let Err(failure) = io.flush_stdout() {
     write_failed(failure)
   }
 }

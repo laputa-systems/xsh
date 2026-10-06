@@ -156,6 +156,79 @@ pub(crate) fn set_file_version(
     }
 }
 
+// The filesystem ioctl ABI uses five fixed-width words and eight reserved
+// bytes, independent of the host's long and pointer widths.
+#[repr(C)]
+#[derive(Default)]
+struct InodeXattrs {
+    xflags: u32,
+    extent_size: u32,
+    extent_count: u32,
+    project: u32,
+    cow_extent_size: u32,
+    reserved: [u8; 8],
+}
+
+const _: () = assert!(std::mem::size_of::<InodeXattrs>() == 28);
+const _: () = assert!(std::mem::offset_of!(InodeXattrs, project) == 12);
+
+fn inode_xattrs(fd: &OwnedFd, span: Span) -> Result<InodeXattrs, RuntimeError> {
+    let mut attrs = InodeXattrs::default();
+    let request = rustix::ioctl::opcode::read::<InodeXattrs>(b'X', 31);
+    // SAFETY: `fd` is live, the read request describes the fixed ABI above,
+    // and `attrs` is initialized writable storage for the entire payload.
+    let result = unsafe { libc::ioctl(fd.as_raw_fd(), request as _, &mut attrs) };
+    if result == 0 {
+        Ok(attrs)
+    } else {
+        Err(RuntimeError::host("linux-file-project", &io::Error::last_os_error()).with_span(span))
+    }
+}
+
+pub(crate) fn file_project(path: &Path, span: Span) -> Result<Value, RuntimeError> {
+    let attrs = open_path(path, "linux-file-project", span)
+        .and_then(|fd| inode_xattrs(&fd, span));
+    match attrs {
+        Ok(attrs) => Ok(Value::ok(Value::Int(i64::from(attrs.project)))),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
+// Read and write through one descriptor: a concurrent path replacement cannot
+// redirect the update. Only the project ID changes; inode flags, allocation
+// hints, and the remaining kernel fields retain their observed values.
+pub(crate) fn set_file_project(
+    path: &Path,
+    project: i64,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    if !(0..=u32::MAX as i64).contains(&project) {
+        return Ok(error_value(
+            "linux-file-project",
+            "project identifier must be between 0 and 4294967295",
+            span,
+        ));
+    }
+    let result = (|| -> Result<(), RuntimeError> {
+        let fd = open_path(path, "linux-file-project", span)?;
+        let mut attrs = inode_xattrs(&fd, span)?;
+        attrs.project = project as u32;
+        let request = rustix::ioctl::opcode::write::<InodeXattrs>(b'X', 32);
+        // SAFETY: `fd` is the descriptor used to read `attrs`; the write
+        // request consumes the initialized payload without retaining it.
+        let result = unsafe { libc::ioctl(fd.as_raw_fd(), request as _, &attrs) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(RuntimeError::host("linux-file-project", &io::Error::last_os_error()).with_span(span))
+        }
+    })();
+    match result {
+        Ok(()) => Ok(ok_unit()),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
 pub(crate) fn sysctl_load_dirs(
     dirs: &[PathBuf],
     fallback: Option<&Path>,
@@ -313,10 +386,10 @@ fn ioctl_set_u32(
 fn open_path(path: &Path, kind: &str, span: Span) -> Result<OwnedFd, RuntimeError> {
     rfs::open(
         path,
-        rfs::OFlags::RDONLY | rfs::OFlags::NONBLOCK | rfs::OFlags::CLOEXEC,
+        rfs::OFlags::RDONLY | rfs::OFlags::NONBLOCK | rfs::OFlags::CLOEXEC | rfs::OFlags::NOFOLLOW,
         rfs::Mode::empty(),
     )
-    .map_err(|error| RuntimeError::new(kind, io::Error::from(error).to_string()).with_span(span))
+    .map_err(|error| RuntimeError::host(kind, &error).with_span(span))
 }
 
 #[cfg(any(target_arch = "powerpc", target_arch = "mips"))]

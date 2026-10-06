@@ -57,6 +57,20 @@ private. Trace data belongs to `libxsh`; trace presentation belongs to
 a separate core crate without a concrete consumer. `tests/libxsh_api.rs` guards
 the façade.
 
+`RunOptions.args` carries `OsString` words so the execution façade does not
+discard bytes at the OS boundary. Checking selects the entry argument domain:
+ordinary entries use UTF-8 `List[Str]`, while a sole `main` rest parameter of
+`List[Bytes]` selects byte arguments. The same context reaches imported module
+checking and runtime bindings; an import cannot be checked with text arguments
+and then receive byte arguments. Launcher operands remain UTF-8.
+
+Command and shared domain behavior belongs in XSH libraries under `core/lib/`.
+This includes awk and sed parsers and interpreters, FAT geometry and repair
+decisions, and human date parsing. Rust provides reusable syscall, descriptor,
+codec, numerical and byte operations. A native performance exception requires
+an XSH implementation and measurements that identify the smallest operation
+needing acceleration.
+
 Module resolution has one owner. `loader::resolve_module_path_candidates`
 fixes the search order (beside the importing file, `XSH_MODULE_PATH`, project
 module roots), and `src/project.rs` finds a project's `xsht-config.ini` and

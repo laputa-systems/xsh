@@ -18,3 +18,17 @@ test test_fold_unicode_display_and_character_width { |ctx|
   let chars = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fold.xsh" -- -c -w 4 $input
   assert chars == "中中中\n"
 }
+
+test test_fold_starts_columns_again_for_each_unterminated_file { |ctx|
+  let first = test.temp_file(ctx, name: "first", contents: b"a")?
+  let second = test.temp_file(ctx, name: "second", contents: b"b")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fold.xsh" -- -w1 $first $second
+  assert output == "ab"
+}
+
+test test_fold_preserves_a_character_split_between_input_chunks { |ctx|
+  let prefix = ["a" for _ in range(65535)].join("")
+  let input = test.temp_file(ctx, name: "unicode", contents: bytes.concat([bytes.from_text(prefix), b"\xe4\xb8\xadb\n"]))?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fold.xsh" -- -c -w65536 $input
+  assert output == prefix + "中\nb\n"
+}

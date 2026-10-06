@@ -1,8 +1,9 @@
 #!/bin/xsh
 use lib.gnu
+use lib.date_parse
 
-proc emit_date(text: Str, format: Str, utc: Bool) [time, process, env, io] -> Bool {
-  match time.parse(text, utc:) {
+proc emit_date(text: Str, format: Str, utc: Bool) [time, process, env, io, error] -> Bool {
+  match date_parse.parse(text, utc:) {
     Ok(epoch) => {
       match time.format(epoch, format, utc:) {
         Ok(output) => { gnu.write_text(f"{output}\n"); return true }
@@ -120,7 +121,7 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
     return
   }
   if setting {
-    match time.parse(date, utc:) {
+    match date_parse.parse(date, utc:) {
       Ok(epoch) => {
         if let Err(failure) = linux.set_system_clock(epoch / 1000000) {
           gnu.error(f"cannot set date: {gnu.strerror(failure)}")

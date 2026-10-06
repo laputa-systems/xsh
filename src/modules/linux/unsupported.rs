@@ -288,7 +288,7 @@ pub(crate) fn modinfo(_name: &str, span: Span) -> Result<Value, RuntimeError> {
     Ok(unsupported(span))
 }
 
-pub(crate) fn modprobe(_name: &str, _params: &str, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn modprobe(_name: &str, _params: &str, _remove: bool, span: Span) -> Result<Value, RuntimeError> {
     Ok(unsupported(span))
 }
 
@@ -346,3 +346,8 @@ fn unsupported(span: Span) -> Value {
         .with_span(span),
     )))
 }
+
+pub(crate) fn module_plan(_name: &str, _params: &str, _remove: bool, span: Span) -> Result<Value, RuntimeError> { Ok(unsupported(span)) }
+
+pub(crate) fn file_project(_path: &Path, span: Span) -> Result<Value, RuntimeError> { Ok(unsupported(span)) }
+pub(crate) fn set_file_project(_path: &Path, _project: i64, span: Span) -> Result<Value, RuntimeError> { Ok(unsupported(span)) }

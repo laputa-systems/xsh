@@ -1,6 +1,38 @@
 use crate::runtime::value::RuntimeError;
 use crate::source::Span;
 
+pub(crate) mod posix;
+
+pub(crate) fn find_bytes(pattern: &str, input: &[u8], extended: bool, ignore_case: bool, span: Span) -> Result<crate::runtime::value::Value, RuntimeError> {
+    use crate::runtime::value::{RecordMap, Value};
+    let fail = |message| RuntimeError::new("regex-match", message).with_span(span);
+    let regex = posix::PosixRegex::compile(pattern, extended, ignore_case).map_err(fail)?;
+    let mut matches = Vec::new();
+    let mut offset = 0;
+    while let Some(found) = regex.captures(input, offset).map_err(fail)? {
+        let Some((start, end)) = found[0] else { break; };
+        let mut record = RecordMap::new();
+        record.insert("start".into(), Value::Int(start as i64));
+        record.insert("end".into(), Value::Int(end as i64));
+        matches.push(Value::Record(record));
+        if end == input.len() { break; }
+        offset = if end > start { end } else { end + 1 };
+    }
+    Ok(Value::List(matches))
+}
+
+pub(crate) fn captures_bytes(pattern: &str, input: &[u8], offset: i64, extended: bool, ignore_case: bool, span: Span) -> Result<crate::runtime::value::Value, RuntimeError> {
+    use crate::runtime::value::{RecordMap, Value};
+    let fail = |message| RuntimeError::new("regex-match", message).with_span(span);
+    let regex = posix::PosixRegex::compile(pattern, extended, ignore_case).map_err(fail)?;
+    let offset = usize::try_from(offset).map_err(|_| fail("match offset must be nonnegative".to_string()))?;
+    let found = regex.captures(input, offset).map_err(fail)?;
+    Ok(Value::List(found.unwrap_or_default().into_iter().map(|capture| match capture {
+        Some((start, end)) => Value::Record(RecordMap::from([("start".into(), Value::Int(start as i64)), ("end".into(), Value::Int(end as i64))])),
+        None => Value::Null,
+    }).collect()))
+}
+
 #[allow(clippy::single_call_fn)]
 pub(crate) fn compile(pattern: &str, span: Span) -> Result<regex_lite::Regex, RuntimeError> {
     regex_lite::Regex::new(pattern)

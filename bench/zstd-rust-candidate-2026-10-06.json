@@ -1,0 +1,52 @@
+{
+  "candidate": "libzstd 1.5.7 through zstd 0.13.3",
+  "adapter": "Rust streaming wrapper, 64 KiB input/output buffers",
+  "level": 3,
+  "checksum": true,
+  "runs": [
+    {
+      "input_bytes": 33554432,
+      "encode": {
+        "seconds": 0.01,
+        "peak_rss_kib": 3888
+      },
+      "decode": {
+        "seconds": 0.01,
+        "peak_rss_kib": 2636
+      },
+      "compressed_bytes": 4334918
+    },
+    {
+      "input_bytes": 67108864,
+      "encode": {
+        "seconds": 0.03,
+        "peak_rss_kib": 4024
+      },
+      "decode": {
+        "seconds": 0.02,
+        "peak_rss_kib": 2648
+      },
+      "compressed_bytes": 8669819
+    },
+    {
+      "input_bytes": 268435456,
+      "encode": {
+        "seconds": 0.22,
+        "peak_rss_kib": 3888
+      },
+      "decode": {
+        "seconds": 0.22,
+        "peak_rss_kib": 2916
+      },
+      "compressed_bytes": 34711912
+    }
+  ],
+  "correctness": [
+    "binary round trip",
+    "concatenated frames",
+    "truncated frame rejected",
+    "checksum corruption rejected"
+  ],
+  "corpus": "repetitive binary text with fresh seeded random data in each block",
+  "measurement": "one child process per operation, elapsed time at 10 ms resolution and child peak RSS"
+}

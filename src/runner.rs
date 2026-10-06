@@ -7,12 +7,14 @@ use crate::loader::{
 use crate::mem_track::{self, AllocTraffic, WorkerStageTraffic};
 use crate::runtime::eval::Evaluator;
 use crate::runtime::process::path_bytes;
-use crate::sema::check::{CheckOptions, Checker};
+use crate::sema::check::{CheckOptions, Checker, byte_argument_main};
 use crate::source::SourceMap;
 
 use crate::syntax::parser::Parser;
 use crate::trace::{TraceEvent, TracebackRenderer};
 use std::fs;
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 #[cfg(test)]
@@ -271,7 +273,7 @@ fn render_checked_diagnostics(
     script: &str,
     entry_source: EntrySource,
     module_roots: Vec<PathBuf>,
-    args: Vec<String>,
+    args: Vec<OsString>,
     _coverage_trace_dir: Option<PathBuf>,
 ) -> ScriptOutput {
     let checked_program = parse_load_check_entry_source_with_token_table(
@@ -295,12 +297,17 @@ fn render_checked_diagnostics(
             stderr: text_bytes(checked_program.render_check_diagnostics()),
         };
     }
-    let diagnostics = Evaluator::compact_indexed_diagnostics(
-        &checked_program.parsed.arena,
-        checked_program.entry_source_id,
-        checked_program.sources.clone(),
-        args,
-        script_command_name(script),
+    let byte_arguments = checked_program.checked.as_ref().is_some_and(|check| {
+        byte_argument_main(&checked_program.parsed.arena, &check.parameter_types)
+    });
+    let evaluator = match evaluator_with_script_arguments(
+        &args, byte_arguments, checked_program.sources.clone(), script_command_name(script),
+    ) {
+        Ok(evaluator) => evaluator,
+        Err(output) => return output,
+    };
+    let diagnostics = evaluator.compact_indexed_diagnostics_for_evaluator(
+        &checked_program.parsed.arena, checked_program.entry_source_id,
     );
     if !diagnostics.is_empty() {
         return ScriptOutput {
@@ -318,6 +325,26 @@ fn render_checked_diagnostics(
             "xsh: indexed execution not available for '{script}'\n"
         )),
     }
+}
+
+fn evaluator_with_script_arguments(
+    arguments: &[OsString],
+    byte_arguments: bool,
+    sources: SourceMap,
+    command_name: String,
+) -> Result<Evaluator, ScriptOutput> {
+    if byte_arguments {
+        let words = arguments.iter().map(|word| word.as_bytes().to_vec()).collect();
+        return Ok(Evaluator::new_with_byte_sources_and_command(words, sources, command_name));
+    }
+    let words = arguments.iter().enumerate().map(|(index, word)| {
+        word.to_str().map(str::to_owned).ok_or_else(|| ScriptOutput {
+            status: 2,
+            stdout: Vec::new(),
+            stderr: text_bytes(format!("xsh: argument {} is not valid UTF-8\n", index + 2)),
+        })
+    }).collect::<Result<Vec<_>, _>>()?;
+    Ok(Evaluator::new_with_sources_and_command(words, sources, command_name))
 }
 
 fn try_run_program(options: &RunOptions) -> Result<RunAttempt, std::io::Error> {
@@ -416,12 +443,10 @@ fn prepare_entry_source(
         }));
     }
 
-    let mut evaluator = Evaluator::new_with_sources_and_command(
-        options.args.clone(),
-        sources,
-        script_command_name(&options.script),
-    )
-    .with_module_roots(module_roots.clone());
+    let byte_arguments = byte_argument_main(&arena, &check.parameter_types);
+    let mut evaluator = evaluator_with_script_arguments(
+        &options.args, byte_arguments, sources, script_command_name(&options.script),
+    ).map_err(RunAttempt::Output)?.with_module_roots(module_roots.clone());
     let coverage_trace_dir = options
         .coverage_trace_dir
         .clone()
@@ -770,7 +795,7 @@ print $root
         );
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec!["/tmp/xsh-compact".to_string()],
+            args: vec!["/tmp/xsh-compact".into()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")
@@ -796,7 +821,7 @@ print $child
         );
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec!["/tmp/xsh-compact".to_string()],
+            args: vec!["/tmp/xsh-compact".into()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")
@@ -936,7 +961,7 @@ print $root
         );
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec!["/tmp/xsh-compact-use".to_string()],
+            args: vec!["/tmp/xsh-compact-use".into()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")
@@ -1004,7 +1029,7 @@ export pure label(value: Str) -> Str {
         );
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec!["one".to_string(), "two".to_string()],
+            args: vec!["one".into(), "two".into()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")
@@ -1030,7 +1055,7 @@ print $root
         let before = COMPACT_RUNNER_SUCCESSES.load(Ordering::Relaxed);
         let output = run_script(RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec!["/tmp/xsh-compact-default".to_string()],
+            args: vec!["/tmp/xsh-compact-default".into()],
             coverage_trace_dir: None,
         });
         let after = COMPACT_RUNNER_SUCCESSES.load(Ordering::Relaxed);
@@ -1100,7 +1125,7 @@ print $root
         );
         let options = RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec!["/tmp/xsh-prepared-benchmark".to_string()],
+            args: vec!["/tmp/xsh-prepared-benchmark".into()],
             coverage_trace_dir: None,
         };
         let expected = run_script(options.clone());
@@ -1186,7 +1211,7 @@ for row in counts {
 
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec![corpus.to_string_lossy().into_owned()],
+            args: vec![corpus.as_os_str().to_owned()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")
@@ -1288,7 +1313,7 @@ for row in rows {
 
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec![corpus.to_string_lossy().into_owned()],
+            args: vec![corpus.as_os_str().to_owned()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")
@@ -1363,7 +1388,7 @@ print ${manifest |> count()} $total_size manifest[0].path manifest[0].sha256 man
 
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec![corpus.to_string_lossy().into_owned()],
+            args: vec![corpus.as_os_str().to_owned()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")
@@ -1423,7 +1448,7 @@ print ${entries |> count()} config.count_lines() payload.sha256().hex()
 
         let output = try_run_compact_indexed_script(&RunOptions {
             script: path.to_string_lossy().into_owned(),
-            args: vec![corpus.to_string_lossy().into_owned()],
+            args: vec![corpus.as_os_str().to_owned()],
             coverage_trace_dir: None,
         })
         .expect("compact runner attempt")

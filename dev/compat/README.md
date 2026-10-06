@@ -10,6 +10,12 @@ subagent, including routine work. Set both explicitly when spawning.
 `python3 dev/compat/lanes.py brief LANE` renders this requirement and paths
 for the current checkout; see `LANES.md` for ownership and integration.
 
+Command behavior and shared semantic domains are implemented in XSH. Native
+requests are limited to necessary host, codec and byte boundaries, or a
+measured XSH bottleneck. Parsers and interpreters belong in XSH. The user has
+granted standing dependency approval for this campaign; record each addition's
+reason without requesting approval again.
+
 ## Setup
 
 ```sh
@@ -24,11 +30,25 @@ GNU runs also need a C toolchain, autotools, perl and the packages uutils'
 `build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
 sandbox where `apt` cannot open `/dev/null` as its `_apt` user, add
 `-o APT::Sandbox::User=root` to `apt-get update` and `install` (signature
-verification stays on). GNU `configure` refuses to run as root, so `run-gnu.sh` bypasses that check
-for configure only and runs the test suites in a user namespace that maps
-`GNU_RUN_UID` (default 1000) to the invoking user: tests see an unprivileged uid,
-because many GNU tests change behavior as root, without a second account or any
-chown. `GNU_JOBS` (default 3) sets `make -j`.
+verification stays on). GNU `configure` refuses to run as root, so `run-gnu.sh`
+bypasses that check for configure only. Root suite runs use `setpriv` with an
+existing account: `GNU_RUN_UID` and `GNU_RUN_GID` fall back to the corresponding
+`UUTESTS_RUN_UID/GID` settings, then UID 1000 and the same GID. The prepared GNU
+tree, including `Makefile.in`, must be writable by that account; the runner
+reports permission failures and does not change ownership. `GNU_JOBS`
+(default 3) sets `make -j`.
+
+Root invocations run reference tests through `setpriv` as an existing
+unprivileged account (`UUTESTS_RUN_UID=1000`, GID defaults to that UID).
+Provision the account inside the test container first. This preserves
+permission fixtures and protected device nodes; build and report publication
+still belong to the invoking user. Staged executable shebangs pass `--` before
+the script path so an applet's own leading option separator is preserved.
+
+`COMPAT_RESULTS_DIR` selects scratch report storage for both suite runners.
+They share `UUTILS_SUITE_LOCK` and serialize reference runs. GNU reports are
+published only when fresh logs, per-test results and complete summary counts
+agree; the differential requires identical test selections on both sides.
 
 ## Commands
 

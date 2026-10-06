@@ -1,4 +1,5 @@
 use std::process::ExitCode;
+use std::ffi::OsString;
 use xsh::execution::script::{
     RunOptions, ScriptOutput, on_preparation_stack, run_script_with_shared_stdio, run_startup,
 };
@@ -29,23 +30,13 @@ pub fn main() -> ExitCode {
     };
     clear_cancellation_request();
 
-    let args: Vec<String> = match std::env::args_os()
-        .skip(1)
-        .enumerate()
-        .map(|(index, arg)| {
-            arg.into_string()
-                .map_err(|_| format!("argument {} is not valid UTF-8", index + 1))
-        })
-        .collect()
-    {
-        Ok(args) => args,
-        Err(message) => {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+
+    if args.first().and_then(|word| word.to_str()) == Some("--startup") {
+        if let Err(message) = validate_text_arguments(&args) {
             eprintln!("xsh: {message}");
             return ExitCode::from(2);
         }
-    };
-
-    if args.first().map(String::as_str) == Some("--startup") {
         return finish(run_startup());
     }
 
@@ -65,14 +56,16 @@ pub fn main() -> ExitCode {
     }
 }
 
-fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
-    if args.is_empty() || matches!(args.first().map(String::as_str), Some("--help" | "-h")) {
+fn parse_run(args: Vec<OsString>) -> Result<Option<RunOptions>, String> {
+    if args.is_empty() || matches!(args.first().and_then(|word| word.to_str()), Some("--help" | "-h")) {
+        validate_text_arguments(&args)?;
         return Ok(None);
     }
 
     let mut index = 0;
     if let Some(arg) = args.get(index) {
-        match arg.as_str() {
+        let text = arg.to_str().ok_or_else(|| format!("argument {} is not valid UTF-8", index + 1))?;
+        match text {
             "--" => {}
             "-i" | "--interactive" => {
                 return Err("interactive mode moved to `xshi`; run `xshi` instead".to_string());
@@ -95,21 +88,13 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
             _ => {}
         }
     }
-    if let Some(arg) = args.get(index)
-        && matches!(
-            arg.as_str(),
-            "run" | "check" | "fmt" | "lint" | "ast" | "trace"
-        )
-    {
-        return Err("xsh does not take subcommands; use xsht for tools".to_string());
-    }
-
-    if matches!(args.get(index).map(String::as_str), Some("--")) {
+    if matches!(args.get(index).and_then(|word| word.to_str()), Some("--")) {
         index += 1;
         let script = args
             .get(index)
             .ok_or_else(|| "SCRIPT is required after `--`".to_string())?
-            .clone();
+            .to_str().ok_or_else(|| format!("argument {} is not valid UTF-8", index + 1))?
+            .to_owned();
         index += 1;
         return Ok(Some(RunOptions {
             script,
@@ -121,9 +106,10 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
     let script = args
         .get(index)
         .ok_or_else(|| "SCRIPT is required".to_string())?
-        .clone();
+        .to_str().ok_or_else(|| format!("argument {} is not valid UTF-8", index + 1))?
+        .to_owned();
     index += 1;
-    let script_args = if matches!(args.get(index).map(String::as_str), Some("--")) {
+    let script_args = if matches!(args.get(index).and_then(|word| word.to_str()), Some("--")) {
         args[index + 1..].to_vec()
     } else {
         args[index..].to_vec()
@@ -134,6 +120,15 @@ fn parse_run(args: Vec<String>) -> Result<Option<RunOptions>, String> {
         args: script_args,
         coverage_trace_dir: None,
     }))
+}
+
+fn validate_text_arguments(arguments: &[OsString]) -> Result<(), String> {
+    for (index, argument) in arguments.iter().enumerate() {
+        if argument.to_str().is_none() {
+            return Err(format!("argument {} is not valid UTF-8", index + 1));
+        }
+    }
+    Ok(())
 }
 
 fn trace_moved_message() -> String {

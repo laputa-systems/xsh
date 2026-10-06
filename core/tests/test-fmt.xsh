@@ -23,3 +23,12 @@ test test_fmt_preserves_invalid_utf8_bytes { |ctx|
   assert status.exited_with(0)
   assert output.read_bytes()? == b"=\xa0=\n"
 }
+
+test test_fmt_avoids_false_sentence_breaks_and_sentence_widows { |ctx|
+  let initials = test.temp_file(ctx, name: "initials", contents: b"Donald E. Knuth and Michael F. Plass wrote this paragraph formatting algorithm.")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- -g25 -w30 $initials
+  assert output == "Donald E. Knuth and Michael\nF. Plass wrote this paragraph\nformatting algorithm.\n"
+  let sentences = test.temp_file(ctx, name: "sentences", contents: b"One short sentence.  A slightly longer sentence follows the first sentence.")?
+  let balanced = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- -g25 -w30 $sentences
+  assert balanced == "One short sentence.\nA slightly longer sentence\nfollows the first sentence.\n"
+}

@@ -1,4 +1,5 @@
 #!/bin/xsh
+use lib.gnu
 error AppletError = Usage : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
@@ -55,8 +56,21 @@ pure render(fmt: Str, values: List[Str]) -> Str {
   unescape(fmt)
 }
 
-proc main(fmt = "", ...values: List[Str]) [error, io] {
-  return Err(usage_error("printf", "FORMAT [ARG...]")) when fmt == ""
-
-  io.write_stdout(render(fmt, values))
+# Once FORMAT begins, every later argument is data, including option-looking
+# strings. The explicit terminator is recognized only before FORMAT.
+proc main(...argv: List[Str]) [error, io, process, env] {
+  var arguments = argv
+  if ! arguments.is_empty() {
+    if arguments[0] == "--" {
+      arguments = arguments[1..]
+    } else if arguments[0] == "--help" {
+      gnu.help("Usage: printf FORMAT [ARGUMENT]...\nPrint arguments according to FORMAT.\n")
+      return
+    } else if arguments[0] == "--version" {
+      gnu.version("printf")
+      return
+    }
+  }
+  return Err(usage_error("printf", "FORMAT [ARG...]")) when arguments.is_empty()
+  io.write_stdout(render(arguments[0], arguments[1..]))
 }

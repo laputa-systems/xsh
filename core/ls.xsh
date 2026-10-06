@@ -2838,7 +2838,9 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
     let display = lossy(dir.raw)
     let target = raw_path(dir.raw)
 
-    let opened = fs.children(target)
+    # Stat each child separately so failed metadata still leaves a printable
+    # entry and contributes a minor error instead of failing the directory.
+    let opened = fs.children(target, stat: false)
 
     guard let lister = opened else { |problem|
       gnu.cannot("open directory", display, problem)

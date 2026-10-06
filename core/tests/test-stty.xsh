@@ -522,7 +522,8 @@ test test_stty_that_cannot_use_the_terminal_names_the_device { |ctx|
   let silent = stty_plain(ctx, [], input: b"")?
   assert silent.status == 1
   assert silent.stdout == ""
-  assert silent.stderr == "stty: 'standard input': Inappropriate ioctl for device\n", silent.stderr
+  # The C libraries spell ENOTTY differently.
+  assert silent.stderr in ["stty: 'standard input': Inappropriate ioctl for device\n", "stty: 'standard input': Not a tty\n"], silent.stderr
 
   let missing = stty_plain(ctx, ["--file", "/nonexistent/device"])?
   assert missing.status == 1
@@ -530,8 +531,8 @@ test test_stty_that_cannot_use_the_terminal_names_the_device { |ctx|
 
   let device = stty_plain(ctx, ["-F", "/dev/null", "-a"])?
   assert device.status == 1
-  assert device.stderr == "stty: /dev/null: Inappropriate ioctl for device\n", device.stderr
-  assert stty_plain(ctx, ["-F", "/dev/null", "echo"])?.stderr == "stty: /dev/null: Inappropriate ioctl for device\n"
+  assert device.stderr in ["stty: /dev/null: Inappropriate ioctl for device\n", "stty: /dev/null: Not a tty\n"], device.stderr
+  assert stty_plain(ctx, ["-F", "/dev/null", "echo"])?.stderr in ["stty: /dev/null: Inappropriate ioctl for device\n", "stty: /dev/null: Not a tty\n"]
 }
 
 test test_stty_help_and_version_go_to_stdout { |ctx|

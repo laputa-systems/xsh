@@ -1696,7 +1696,7 @@ impl RunError {
     pub fn variant_name(&self) -> &'static str {
         match self.kind.as_str() {
             "not-found" => "NotFound",
-            "permission-denied" => "PermissionDenied",
+            "permission-denied" | "not-executable" => "PermissionDenied",
             "nonzero-exit" => "NonzeroExit",
             "unexpected-exit" => "UnexpectedExit",
             "signal" => "Signal",

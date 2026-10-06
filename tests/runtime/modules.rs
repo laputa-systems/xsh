@@ -407,6 +407,25 @@ fn native_xsh_dns_explicit_server_transport() {
 
 #[cfg(feature = "net")]
 #[test]
+fn native_xsh_core_dns_clients() {
+    let server = LocalDnsServer::spawn(2);
+    for test_name in [
+        "core/tests/test-dig.xsh::test_dig_owned_dns_server",
+        "core/tests/test-nslookup.xsh::test_nslookup_owned_dns_server",
+    ] {
+        let output = run_native_xsh_test(
+            test_name,
+            &[("XSH_DNS_TEST_SERVER", &server.addr)],
+            false,
+        );
+        assert_native_xsh_test(test_name, output);
+    }
+    let summary = server.join().expect("DNS server");
+    assert_eq!(summary.handled, 2);
+}
+
+#[cfg(feature = "net")]
+#[test]
 fn native_xsh_net_http_contracts() {
     let server = LocalHttpServer::spawn(11);
     let output = run_native_xsh_test(

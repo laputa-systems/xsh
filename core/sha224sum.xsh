@@ -2,5 +2,5 @@
 use lib.checksums
 
 proc main(...argv: List[Str]) [fs, io, error, process, env] {
-  checksums.main(argv, "sha224")
+  checksums.execute(argv, "sha224")
 }

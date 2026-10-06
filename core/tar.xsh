@@ -24,7 +24,7 @@ proc main(...argv: List[Str]) [fs, error] {
   var mode = ""
   var archive_path = p""
   var root = p"."
-  var compression = "auto"
+  var archive_codec = "auto"
   var strip = 0
   var overwrite = false
   let operands = collect {
@@ -35,9 +35,9 @@ proc main(...argv: List[Str]) [fs, error] {
             "c" => mode = "create"
             "t" => mode = "list"
             "x" => mode = "extract"
-            "z" => compression = "gz"
-            "j" => compression = "bz2"
-            "J" => compression = "xz"
+            "z" => archive_codec = "gz"
+            "j" => archive_codec = "bz2"
+            "J" => archive_codec = "xz"
             "f" => archive_path = fp"{token.value}"
             "C" => root = fp"{token.value}"
             else => return Err(reject_unsupported("tar", f"-{token.name}"))
@@ -59,9 +59,9 @@ proc main(...argv: List[Str]) [fs, error] {
   if mode == "create" {
     return Err(usage_error("tar", "expected entries to archive")) when operands.is_empty()
 
-    archive.tar_create(archive_path, root, operands, compression, overwrite:)
+    archive.tar_create(archive_path, root, operands, archive_codec, overwrite:)
   } else if mode == "list" {
-    for entry in archive.tar_list(archive_path, compression, members: operands)? {
+    for entry in archive.tar_list(archive_path, archive_codec, members: operands)? {
       print --flush $entry.path
     }
   } else if mode == "extract" {
@@ -71,7 +71,7 @@ proc main(...argv: List[Str]) [fs, error] {
       archive_path,
       root,
       strip_components: strip,
-      compression:,
+      compression: archive_codec,
       overwrite:,
       members: operands,
     )

@@ -86,7 +86,10 @@ pub(crate) fn loop_attach(
             Err(error) => return Ok(io_error("linux-loop", error, span)),
         },
     };
-    let backing = match File::open(file) {
+    // The kernel forces a loop read-only when its backing descriptor lacks
+    // write access. Attachment requests a writable device and fails if the
+    // backing file cannot provide that access.
+    let backing = match OpenOptions::new().read(true).write(true).open(file) {
         Ok(file) => file,
         Err(error) => return Ok(io_error("linux-loop", error, span)),
     };

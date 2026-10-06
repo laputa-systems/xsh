@@ -6,8 +6,9 @@ use crate::runtime::value::{LiveStream, RuntimeError, Value};
 use crate::source::Span;
 use rustc_hash::FxHashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
 pub(super) fn open_files_impl(
     pid: Option<i64>,
@@ -45,30 +46,43 @@ pub(super) struct OpenFilesStream {
 struct OpenFilesPid {
     pid: i32,
     command: String,
-    entries: std::vec::IntoIter<(i64, PathBuf)>,
+    entries: std::vec::IntoIter<(i64, String, PathBuf)>,
 }
 
 impl LiveStream for OpenFilesStream {
     fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
         loop {
             if let Some(current) = &mut self.current {
-                for (fd, path) in current.entries.by_ref() {
+                for (fd, fd_label, path) in current.entries.by_ref() {
                     let Ok(target) = fs::read_link(&path) else {
                         continue;
                     };
                     let target_text = target.to_string_lossy().into_owned();
-                    let (kind, inode, protocol, local, remote) = describe_fd_target(
+                    let (mut kind, inode, protocol, local, remote) = describe_fd_target(
                         &target_text,
                         self.sockets.get(&socket_inode(&target_text)),
                     );
+                    let metadata = fs::metadata(&path).ok();
+                    if let Some(metadata) = &metadata {
+                        let file_type = metadata.file_type();
+                        if file_type.is_char_device() { kind = "character".to_string(); }
+                        else if file_type.is_block_device() { kind = "block".to_string(); }
+                        else if file_type.is_dir() { kind = "directory".to_string(); }
+                        else if file_type.is_fifo() { kind = "pipe".to_string(); }
+                    }
+                    let device = metadata.as_ref().map(|metadata| metadata.dev());
+                    let inode = metadata.as_ref().map_or(inode, |metadata| metadata.ino() as i64);
                     return Ok(Some(Value::Record(crate::runtime::value::RecordMap::from(
                         [
                             (Arc::from("pid"), Value::Int(current.pid as i64)),
                             (Arc::from("command"), str_value(current.command.clone())),
                             (Arc::from("fd"), Value::Int(fd)),
+                            (Arc::from("fd_label"), str_value(fd_label)),
+                            (Arc::from("access"), str_value(descriptor_access(&path))),
                             (Arc::from("type"), str_value(kind)),
                             (Arc::from("path"), Value::Path(path_value(&target, span)?)),
                             (Arc::from("inode"), Value::Int(inode)),
+                            (Arc::from("dev"), device.map(|device| Value::Int(device as i64)).unwrap_or(Value::Null)),
                             (Arc::from("protocol"), str_value(protocol)),
                             (Arc::from("local"), str_value(local)),
                             (Arc::from("remote"), str_value(remote)),
@@ -88,10 +102,13 @@ impl LiveStream for OpenFilesStream {
                 .flatten()
                 .filter_map(|entry| {
                     let fd = entry.file_name().to_str()?.parse::<i64>().ok()?;
-                    Some((fd, entry.path()))
+                    Some((fd, fd.to_string(), entry.path()))
                 })
                 .collect::<Vec<_>>();
-            entries.sort_unstable_by_key(|(fd, _)| *fd);
+            entries.sort_unstable_by_key(|(fd, _, _)| *fd);
+            for (link, label) in [("exe", "txt"), ("root", "rtd"), ("cwd", "cwd")] {
+                entries.insert(0, (-1, label.to_string(), PathBuf::from(format!("/proc/{pid}/{link}"))));
+            }
             self.current = Some(OpenFilesPid {
                 pid,
                 command: process_command(pid),
@@ -99,6 +116,21 @@ impl LiveStream for OpenFilesStream {
             });
         }
     }
+}
+
+// A vanished or inaccessible fdinfo record leaves access explicitly unknown.
+// Special cwd/root/exe links are references, not open descriptors.
+fn descriptor_access(path: &Path) -> String {
+    let Some(number) = path.file_name().and_then(|name| name.to_str()).filter(|name| name.bytes().all(|byte| byte.is_ascii_digit())) else {
+        return String::new();
+    };
+    let Some(process_root) = path.parent().and_then(Path::parent) else { return "?".to_string(); };
+    let Ok(text) = fs::read_to_string(process_root.join("fdinfo").join(number)) else { return "?".to_string(); };
+    let Some(flags) = text.lines().find_map(|line| line.strip_prefix("flags:\t"))
+        .and_then(|flags| u32::from_str_radix(flags.trim(), 8).ok()) else { return "?".to_string(); };
+    match flags & libc::O_ACCMODE as u32 {
+        0 => "r", 1 => "w", 2 => "u", _ => "?",
+    }.to_string()
 }
 
 struct SocketInfo {

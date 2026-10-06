@@ -52,3 +52,41 @@ test test_cut_unicode_field_delimiter { |ctx|
   let output = run.text env LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -d "🗿" -f 2 $input
   assert output == "X\n"
 }
+
+test test_cut_utf8_character_positions { |ctx|
+  let input = test.temp_file(ctx, name: "unicode", contents: b"\xc3\xa9Z\n")?
+  let output = run.text env LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -c2 $input
+  assert output == "Z\n"
+}
+
+test test_cut_rejects_repeated_modes_and_keeps_fields_abbreviation { |ctx|
+  let input = test.temp_file(ctx, name: "table", contents: b"a:b\n")?
+  let abbreviated = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- --fie=2 -d: $input
+  assert abbreviated == "b\n"
+  let error = test.temp_path(ctx, name: "error")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -f1 -f2 $input 2> $error
+  assert status.exited_with(1)
+  assert "only one list may be specified" in error.read_text()?
+}
+
+test test_cut_whitespace_delimiter_uses_unicode_blank_characters { |ctx|
+  let input = test.temp_file(ctx, name: "words", contents: b"one\xe3\x80\x80two three\n")?
+  let output = run.text env LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -w -f2 $input
+  assert output == "two\n"
+}
+
+test test_cut_preserves_gb18030_character_boundaries { |ctx|
+  let input = test.temp_file(ctx, name: "gb", contents: b"\xb0\xa1w\xd6\xd0\n")?
+  let output = run.text env LC_ALL=zh_CN.GB18030 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -c2 $input
+  assert output == "w\n"
+  let selected = test.temp_path(ctx, name: "selected")
+  let status = run.status env LC_ALL=zh_CN.GB18030 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -b2 -n $input > $selected
+  assert status.exited_with(0)
+  assert selected.read_bytes()? == b"\xb0\xa1\n"
+}
+
+test test_cut_unicode_nobreak_spaces_are_not_blank_delimiters { |ctx|
+  let input = test.temp_file(ctx, name: "spaces", contents: bytes.from_text("x\u{a0}y\nx\u{2007}y\nx\u{202f}y\n"))?
+  let output = run.text env LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -s -w -f2 $input
+  assert output == ""
+}

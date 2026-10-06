@@ -769,6 +769,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let input_name = opts.files.get(0) ?? "-"
 
+  var input_ino = -1
+  var input_dev = -1
+
+  if input_name != "-" {
+    if let Ok(found) = fs.stat(fp"{input_name}", follow_symlinks: true) {
+      input_ino = found.ino
+      input_dev = found.dev
+
+      # Size-dependent chunks must reject virtual devices before reading:
+      # a zero metadata size does not imply a finite or empty byte stream.
+      if chunks.n > 0 and found.kind != "file" and input_name != "/dev/null" {
+        gnu.error(f"{gnu.quote_maybe(input_name)}: cannot determine file size")
+        exit 1
+      }
+    }
+  }
+
   guard let data = gnu.read_operand(input_name) else { |failure|
     if gnu.errno(failure) == 21 {
       gnu.error_reading(input_name, failure)
@@ -779,20 +796,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 1
   }
 
-  var input_ino = -1
-  var input_dev = -1
-
-  if input_name != "-" {
-    if let Ok(found) = fs.stat(fp"{input_name}", follow_symlinks: true) {
-      input_ino = found.ino
-      input_dev = found.dev
-
-      if chunks.n > 0 and found.kind != "file" and input_name != "/dev/null" and data.is_empty() {
-        gnu.error(f"{gnu.quote_maybe(input_name)}: cannot determine file size")
-        exit 1
-      }
-    }
-  } else if chunks.n > 0 and data.len() > blksize {
+  if input_name == "-" and chunks.n > 0 and data.len() > blksize {
     gnu.error("-: cannot determine input size")
     exit 1
   }

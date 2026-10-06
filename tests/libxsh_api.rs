@@ -31,7 +31,7 @@ fn facade_exposes_frontend_execution_process_and_trace_contracts() {
         args: Vec::new(),
         coverage_trace_dir: None,
     };
-    assert_eq!(options.args, Vec::<String>::new());
+    assert_eq!(options.args, Vec::<std::ffi::OsString>::new());
 
     let output = ScriptOutput {
         status: 0,
@@ -82,4 +82,25 @@ fn facade_keeps_source_identity_explicit() {
     assert_eq!(span.source_id, source_id);
     assert_eq!(span.start(), 2);
     assert_eq!(span.end(), 5);
+}
+
+#[test]
+fn script_api_preserves_non_utf8_arguments_for_a_byte_entry() {
+    use std::os::unix::ffi::OsStringExt;
+    let root = tempfile::tempdir().expect("create byte API entry directory");
+    let script = root.path().join("bytes.xsh");
+    std::fs::write(
+        &script,
+        "proc main(...argv: List[Bytes]) [io, error] { io.write_stdout_bytes(argv[0])? }\n",
+    )
+    .expect("write byte API entry");
+    let output = run_script(RunOptions {
+        script: script.to_str().expect("UTF-8 fixture path").to_owned(),
+        args: vec![std::ffi::OsString::from_vec(b"word\xff".to_vec())],
+        coverage_trace_dir: None,
+    });
+
+    assert_eq!(output.status, 0, "{:?}", output.stderr);
+    assert_eq!(output.stdout, b"word\xff");
+    assert!(output.stderr.is_empty());
 }

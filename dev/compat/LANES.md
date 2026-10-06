@@ -18,6 +18,12 @@ part of the local protocol.
 
 ## Principles
 
+XSH owns command and domain semantics: parsers, interpreters, selection,
+traversal, formatting policy, and repair decisions. Native lanes provide
+necessary syscall, descriptor, codec and byte boundaries. Require a measured
+XSH bottleneck before moving an algorithm to Rust, and extract the smallest
+reusable operation. See the 2026-10-06 working constraints in `CAMPAIGN.md`.
+
 1. **Foundation before fan-out.** Wave 0 (shared option grammar, diagnostics,
    invoked name, byte helpers, harness, baseline) lands serially. Lanes that
    start earlier reinvent the parser and the error printer once each.
@@ -201,8 +207,8 @@ the wave follows the dependency column.
 | `process-cmds` | script | `kill`, `nice`, `nohup`, `timeout`, `stdbuf`, `stty`, `more`, `uptime`, `users`, `who`, `pinky` | `native-proc-tty` |
 | `legacy-buckets` | script | `getty`, `ifdown`, `ifup`, `pstree`, `which` (non-uutils applets carrying discard buckets) | Wave 0 |
 | `sysreport-extract` | script | `core/lib/system_report*.xsh`, `core/system-report.xsh`, new typed collector modules under `core/lib/` | none; must keep `dev/system_report_check.xsh` green |
-| `sed` | Rust | new native module for the sed parser/runtime, `core/sed.xsh` | Wave 0; long-running |
-| `awk` | Rust | new native module for the awk parser/runtime, `core/awk.xsh` | Wave 0; long-running |
+| `sed` | XSH | `core/sed.xsh`, XSH parser and addressing/execution library in `core/lib/` | Wave 0; long-running |
+| `awk` | XSH | `core/awk.xsh`, XSH lexer/parser/runtime libraries in `core/lib/` | Wave 0; long-running |
 | `gnu-patch-classify` | routine | `dev/compat/gnu-patches.json` (temporary ownership) | none |
 
 `dev/compat/lanes.json` is the authoritative ownership table (`lanes.py check`
@@ -258,7 +264,7 @@ as in Wave 1; paths of new native modules are chosen by the lane and reported.
 | `block-inventory` | script | `lsblk`, `blkid`, `findmnt` | `native-block` |
 | `block-control` | script | `mount`, `umount`, `losetup`, `blockdev`, `wipefs`, `partx`, `partprobe`, `fstrim`, `fsfreeze` | `native-block` |
 | `partition-tools` | script | `sfdisk` (with `--json`), `fdisk` over GPT and MBR | `native-block` |
-| `native-fat` | Rust or XSH module | typed FAT12/16/32 module: layout, build, parse, check, repair | `native-block` |
+| `native-fat` | XSH with byte/descriptor primitives | typed FAT12/16/32 module: layout, build, parse, check, repair | `native-block` |
 | `fat-cli` | script | `mkfs.fat`, `mkfs.vfat`, `fsck.fat`, `fsck.vfat`, `fatlabel`; the `laputa-fs` migration note | `native-fat` |
 | `attr-tools` | script | `lsattr`, `chattr`, `getfattr`, `setfattr`, `getfacl`, `setfacl`, `getcap`, `setcap` | `native-xattr-cap` |
 | `native-ns-proc` | Rust | `setns`, `unshare`, namespace fds, affinity, scheduler, I/O priority, rlimits, credentials, capabilities, securebits, `no_new_privs`, parent-death signal | Wave 1 `native-proc-tty` |

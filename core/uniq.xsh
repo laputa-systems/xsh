@@ -84,7 +84,7 @@ proc size_or_die(text: Str, what: Str) [process, env] -> Int {
   let digits = if text.starts_with("+") { text.byte_slice(1) } else { text }
 
   if digits == "" or ! rx"^[0-9]+$".matches(digits) {
-    gnu.error(f"{text}: {what}")
+    gnu.error(f"{gnu.quote_value(text)}: {what}")
     exit 1
   }
 

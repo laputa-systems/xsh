@@ -4,6 +4,43 @@ use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use rustc_hash::FxHashSet;
 
+// The fixed conversion and length modifier determine the C vararg type.
+// Caller code owns printf syntax, flags, padding and argument selection.
+pub(crate) fn format_number(value: f64, conversion: &str, precision: i64, span: Span) -> Result<String, RuntimeError> {
+    let fail = |message: &str| RuntimeError::new("text-format-number", message).with_span(span);
+    if !(0..=1_000_000).contains(&precision) {
+        return Err(fail("precision must be between zero and 1000000"));
+    }
+    let integer = matches!(conversion, "d" | "i" | "o" | "u" | "x" | "X");
+    if !integer && !matches!(conversion, "g" | "G" | "e" | "E" | "f" | "F") {
+        return Err(fail("unsupported numeric conversion"));
+    }
+    if integer && (!value.is_finite() || value < i64::MIN as f64 || value >= -(i64::MIN as f64)) {
+        return Err(fail("integer conversion requires a finite signed 64-bit value"));
+    }
+    let modifier = if integer { "ll" } else { "" };
+    let format = std::ffi::CString::new(format!("%.{precision}{modifier}{conversion}"))
+        .map_err(|_| fail("invalid numeric conversion"))?;
+    let render = |buffer: *mut libc::c_char, length: usize| unsafe {
+        match conversion {
+            "d" | "i" => libc::snprintf(buffer, length, format.as_ptr(), value as libc::c_longlong),
+            "o" | "u" | "x" | "X" => libc::snprintf(buffer, length, format.as_ptr(), value as i64 as libc::c_ulonglong),
+            _ => libc::snprintf(buffer, length, format.as_ptr(), value),
+        }
+    };
+    let size = render(std::ptr::null_mut(), 0);
+    if !(0..=1_000_000).contains(&size) {
+        return Err(fail("numeric conversion failed or exceeded the output limit"));
+    }
+    let mut bytes = vec![0u8; size as usize + 1];
+    let written = render(bytes.as_mut_ptr().cast(), bytes.len());
+    if written != size {
+        return Err(fail("numeric conversion changed between sizing and rendering"));
+    }
+    bytes.pop();
+    String::from_utf8(bytes).map_err(|_| fail("numeric conversion produced invalid UTF-8"))
+}
+
 pub(crate) fn split_text(text: &str, separator: &str, maxsplit: Option<i64>) -> Vec<Value> {
     if separator.is_empty() {
         let Some(maxsplit) = maxsplit.filter(|value| *value >= 0) else {

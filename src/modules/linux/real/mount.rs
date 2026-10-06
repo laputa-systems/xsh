@@ -171,13 +171,7 @@ fn mount_one(
         rustix::mount::mount(source, target, fstype, spec.flags, data_c.as_deref())
     };
 
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) if error == Errno::BUSY && target_is_mounted(target) => Ok(()),
-        Err(error) => Err(
-            RuntimeError::new("linux-mount", io::Error::from(error).to_string()).with_span(span),
-        ),
-    }
+    result.map_err(|error| RuntimeError::host("linux-mount", &error).with_span(span))
 }
 
 /// Parsed mount options, split the way rustix's typed mount API expects: plain
@@ -279,13 +273,6 @@ fn parse_mount_line(line: &str) -> Option<MountEntry> {
         target: unescape_field(fields[1]),
         fstype: fields[2].to_string(),
     })
-}
-
-fn target_is_mounted(target: &Path) -> bool {
-    let target = target.to_string_lossy();
-    read_mounts("/proc/mounts")
-        .ok()
-        .is_some_and(|mounts| mounts.iter().any(|mount| mount.target == target))
 }
 
 fn option_present(options: &[String], target: &str) -> bool {

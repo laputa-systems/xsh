@@ -112,3 +112,80 @@ test test_tee_getopt_diagnostics_and_help { |ctx|
   assert "Usage: tee [OPTION]... [FILE]..." in tee_run(ctx, root, ["--help"])?.stdout as Str
   assert tee_run(ctx, root, ["--version"])?.stdout.starts_with(b"tee")
 }
+
+test test_tee_stdout_write_failure_preserves_other_outputs { |ctx|
+  if ! p"/dev/full".exists() { test.skip("/dev/full is not available") }
+  assert p"/dev/full".metadata()?.mode / 4096 % 16 == 2, "/dev/full must be a character device"
+  let root = test.temp_dir(ctx, name: "tee-stdout-failure")?
+  let input = test.temp_file(ctx, name: "tee-input", contents: bytes.concat([b"data\0\xff" for _ in range(20000)]))?
+  let script = fp"{ctx.core_dir}/tee.xsh"
+  let out = fp"{root}/copied"
+  let err = fp"{root}/error"
+  for mode in ["warn", "warn-nopipe", "default"] {
+    let option = if mode == "default" { "--" } else { f"--output-error={mode}" }
+    let status = run.status sh -c "exec \"$0\" \"$1\" \"$2\" \"$3\" < \"$4\" > /dev/full 2> \"$5\"" ${ctx.xsh_bin} $script $option $out $input $err
+    assert status.exited_with(1), mode
+    assert out.read_bytes()? == input.read_bytes()?, mode
+    assert err.read_text()? == "tee: 'standard output': No space left on device\n", err.read_text()?
+  }
+}
+
+test test_tee_streams_multiple_chunks_without_reopening_outputs { |ctx|
+  let root = test.temp_dir(ctx, name: "tee-chunks")?
+  let input = bytes.concat([b"\0\xffline\n" for _ in range(20000)])
+  fp"{root}/out".write(b"prefix")
+  let result = tee_run(ctx, root, ["-a", "out"], input)?
+  assert result.status == 0, result.stderr
+  assert result.stdout == input
+  assert fp"{root}/out".read_bytes()? == bytes.concat([b"prefix", input])
+}
+
+test test_tee_broken_stdout_pipe_modes_keep_file_writes { |ctx|
+  let root = test.temp_dir(ctx, name: "tee-pipe-error")?
+  let input = test.temp_file(ctx, name: "tee-pipe-input", contents: bytes.concat([b"data\0\xff" for _ in range(20000)]))?
+  let script = fp"{ctx.core_dir}/tee.xsh"
+  let out = fp"{root}/copied"
+  let err = fp"{root}/error"
+  let code = fp"{root}/status"
+  for mode in ["warn", "warn-nopipe", "exit-nopipe"] {
+    let option = f"--output-error={mode}"
+    let status = run.status sh -c "(\"$0\" \"$1\" \"$2\" \"$3\" < \"$4\" 2> \"$6\"; printf '%s' \"$?\" > \"$5\") | head -c 0" ${ctx.xsh_bin} $script $option $out $input $code $err
+    assert status.exited_with(0)
+    assert code.read_text()? == (if mode == "warn" { "1" } else { "0" }), code.read_text()?
+    assert out.read_bytes()? == input.read_bytes()?, mode
+    assert err.read_text()? == (if mode == "warn" { "tee: 'standard output': Broken pipe\n" } else { "" }), err.read_text()?
+  }
+}
+
+test test_tee_exit_mode_stops_file_writes_after_stdout_failure { |ctx|
+  if ! p"/dev/full".exists() { test.skip("/dev/full is not available") }
+  assert p"/dev/full".metadata()?.mode / 4096 % 16 == 2, "/dev/full must be a character device"
+  let root = test.temp_dir(ctx, name: "tee-stdout-exit")?
+  let input = test.temp_file(ctx, name: "tee-exit-input", contents: b"data")?
+  let out = fp"{root}/copied"
+  let err = fp"{root}/error"
+  let script = fp"{ctx.core_dir}/tee.xsh"
+  let status = run.status sh -c "exec \"$0\" \"$1\" --output-error=exit \"$2\" < \"$3\" > /dev/full 2> \"$4\"" ${ctx.xsh_bin} $script $out $input $err
+  assert status.exited_with(1)
+  assert out.read_bytes()? == b""
+  assert err.read_text()? == "tee: 'standard output': No space left on device\n"
+}
+
+test test_tee_nopipe_mode_does_not_wait_for_idle_input_when_stdout_is_broken { |ctx|
+  let root = test.temp_dir(ctx, name: "tee-idle-pipe")?
+  let input = fp"{root}/input"
+  let output = fp"{root}/output"
+  let script = fp"{ctx.core_dir}/tee.xsh"
+  let status = run.status timeout -s KILL 2 sh -c "mkfifo \"$2\" \"$3\"; exec 3<> \"$2\"; (exec 4< \"$3\") & reader=$!; exec 4> \"$3\"; wait \"\$reader\"; exec \"$0\" \"$1\" -p < \"$2\" >&4" ${ctx.xsh_bin} $script $input $output
+  assert status.exited_with(0), "tee blocked on idle input after its only output pipe broke"
+}
+
+test test_tee_nopipe_mode_stops_when_stdout_and_file_fifo_readers_are_gone { |ctx|
+  let root = test.temp_dir(ctx, name: "tee-idle-file-pipe")?
+  let input = fp"{root}/input"
+  let output = fp"{root}/stdout"
+  let file = fp"{root}/file"
+  let script = fp"{ctx.core_dir}/tee.xsh"
+  let status = run.status timeout -s KILL 2 sh -c "mkfifo \"$2\" \"$3\" \"$4\"; exec 3<> \"$2\"; (exec 4< \"$3\") & reader=$!; exec 4> \"$3\"; wait \"\$reader\"; (exec 5< \"$4\") & exec \"$0\" \"$1\" -p \"$4\" < \"$2\" >&4" ${ctx.xsh_bin} $script $input $output $file
+  assert status.exited_with(0), "tee blocked on idle input after all output pipe readers closed"
+}

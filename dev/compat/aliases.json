@@ -10,6 +10,14 @@
       "target": "ls"
     },
     {
+      "name": "fsck.vfat",
+      "target": "fsck.fat"
+    },
+    {
+      "name": "mkfs.vfat",
+      "target": "mkfs.fat"
+    },
+    {
       "name": "vdir",
       "target": "ls"
     }

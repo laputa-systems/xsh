@@ -1,0 +1,40 @@
+{
+  "candidate": "libzstd 1.5.7",
+  "adapter": "Python ctypes, 128 KiB input/output buffers",
+  "level": 3,
+  "checksum": true,
+  "runs": [
+    {
+      "input_bytes": 33554432,
+      "encode": {
+        "seconds": 0.07,
+        "peak_rss_kib": 22112
+      },
+      "decode": {
+        "seconds": 0.05,
+        "peak_rss_kib": 21104
+      },
+      "compressed_bytes": 4334918
+    },
+    {
+      "input_bytes": 67108864,
+      "encode": {
+        "seconds": 0.09,
+        "peak_rss_kib": 21108
+      },
+      "decode": {
+        "seconds": 0.07,
+        "peak_rss_kib": 20644
+      },
+      "compressed_bytes": 8669819
+    }
+  ],
+  "correctness": [
+    "binary round trip",
+    "concatenated frames",
+    "truncated frame rejected",
+    "checksum corruption rejected"
+  ],
+  "corpus": "repetitive binary text with fresh seeded random data in each block",
+  "measurement": "one child process per operation, elapsed time at 10 ms resolution and child peak RSS"
+}

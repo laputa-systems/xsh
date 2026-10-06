@@ -344,6 +344,7 @@ test test_linux_meminfo_reads_the_host_text {
   assert memory.free >= 0 and memory.free <= memory.total
   assert memory.available >= 0 and memory.available <= memory.total
   assert memory.buffers >= 0 and memory.cached >= 0
+  assert memory.shared >= 0 and memory.sreclaimable >= 0
   assert memory.swap_free >= 0 and memory.swap_free <= memory.swap_total
 }
 
@@ -380,15 +381,12 @@ test test_linux_modules_streams_the_host_text {
   }
 }
 
-# The kernel-module policy the entry now implements: the query normalizes like
-# the scan does, the presentation keeps the first value of each field and every
-# `parm` value, and `depmod` writes one line per module with the dependencies
-# the tree actually holds.
-#
-# The nested run is what makes the fixture reach the entry: `XSH_MODULES_DIR`
-# selects the tree, and it is read from the *process* environment by the
-# retained scan, so a scoped `env` block around the call would not be visible
-# to it.
+# Minimal ELF64 section table: .modinfo is the only source of module fields.
+pure linux_module_fixture(metadata: Bytes) -> Result[Bytes] {
+  let prefix = "f0VMRgIBAQAAAAAAAAAAAAEAPgABAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAEAAAAAAAEAAAwABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAAAAwAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAABQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACwAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAFAEAAAAAAAA=".base64_decode()?
+  return bytes.concat([prefix, bytes.pack_le(metadata.len(), 8)?, bytes.zero(24)?, b"\0.shstrtab\0.modinfo\0", metadata])
+}
+
 test test_linux_module_policy_uses_the_configured_tree { |ctx|
   guard system.uname()?.sysname == "Linux" else {
     # On other platforms the binding is still native, so there is nothing to
@@ -399,10 +397,10 @@ test test_linux_module_policy_uses_the_configured_tree { |ctx|
 
   let root = test.temp_dir(ctx, name: "linux-modules")?
   fp"{root}/demo-name.ko".write(
-    "description=Demo module\0license=MIT\0version=2\0depends=dep,missing\0parm=debug:Enable debug (bool)\0parm=mode:Mode (charp)\0",
+    linux_module_fixture(b"description=Demo module\0license=MIT\0version=2\0depends=dep\0parm=debug:Enable debug\0parmtype=debug:bool\0parm=mode:Mode\0parmtype=mode:charp\0")?,
   )
   fp"{root}/dep.ko".write(
-    "description=dep module\0license=GPL\0version=1\0",
+    linux_module_fixture(b"description=dep module\0license=GPL\0version=1\0")?,
   )
 
   # The nested source is a template rather than an f-string: its `${...}`

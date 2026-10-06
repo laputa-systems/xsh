@@ -56,7 +56,7 @@ pub(crate) fn digest_file(
     algorithm: HashAlgorithm,
     path: &Path,
     span: Span,
-) -> Result<DigestValue, RuntimeError, Value> {
+) -> Result<DigestValue, RuntimeError> {
     let mut file = std::fs::File::open(path)
         .map_err(|error| RuntimeError::host("hash-read", &error).with_span(span))?;
     digest_reader(algorithm, &mut file, span)
@@ -122,7 +122,7 @@ fn digest_reader(
     algorithm: HashAlgorithm,
     reader: &mut dyn Read,
     span: Span,
-) -> Result<DigestValue, RuntimeError, Value> {
+) -> Result<DigestValue, RuntimeError> {
     let bytes = match algorithm {
         HashAlgorithm::Md5 => digest_stream::<md5::Md5>(reader, span)?,
         HashAlgorithm::Sha1 => digest_stream::<sha1::Sha1>(reader, span)?,

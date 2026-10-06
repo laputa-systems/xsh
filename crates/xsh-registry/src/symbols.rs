@@ -115,6 +115,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::Null
         | Type::Bool
         | Type::Int
+        | Type::UInt
         | Type::Float
         | Type::Duration
         | Type::Str
@@ -289,6 +290,7 @@ mod tests {
             | Type::Null
             | Type::Bool
             | Type::Int
+            | Type::UInt
             | Type::Float
             | Type::Duration
             | Type::Str

@@ -34,7 +34,8 @@ pub mod script {
     #[derive(Clone, Debug, Eq, PartialEq)]
     pub struct RunOptions {
         pub script: String,
-        pub args: Vec<String>,
+        /// Native words, decoded only when the checked entry requires text.
+        pub args: Vec<std::ffi::OsString>,
         pub coverage_trace_dir: Option<PathBuf>,
     }
 

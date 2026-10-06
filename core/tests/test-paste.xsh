@@ -48,3 +48,11 @@ test test_paste_unicode_and_control_delimiters { |ctx|
   let control = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/paste.xsh" -- -s -d "\\r\\n" $input
   assert control == "a\rb\nc\n"
 }
+
+test test_paste_streams_a_record_before_its_terminator { |ctx|
+  let command = "ulimit -v 131072; timeout 10 \"$1\" \"$2\" -- /dev/zero | /usr/bin/head -c1"
+  let output = test.temp_path(ctx, name: "output")
+  let status = run.status sh -c $command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/paste.xsh" > $output
+  assert status.exited_with(0)
+  assert output.read_bytes()? == b"\0"
+}

@@ -11,10 +11,6 @@ pub(crate) fn modinfo(name: &str, span: Span) -> Result<Value, RuntimeError> {
     api::modinfo(name, span)
 }
 
-pub(crate) fn modprobe(name: &str, params: &str, span: Span) -> Result<Value, RuntimeError> {
-    api::modprobe(name, params, span)
-}
-
 pub(crate) fn depmod(version: &str, span: Span) -> Result<Value, RuntimeError> {
     api::depmod(version, span)
 }

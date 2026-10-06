@@ -1,0 +1,137 @@
+{
+  "corpus": "seeded mixed repetitive and random binary",
+  "input_bytes": 33554432,
+  "runs": [
+    {
+      "codec": "gzip",
+      "implementation": "BusyBox",
+      "compressed_bytes": 4495400,
+      "encode": {
+        "seconds": 0.21,
+        "peak_rss_kib": 1064
+      },
+      "decode": {
+        "seconds": 0.1,
+        "peak_rss_kib": 816
+      }
+    },
+    {
+      "codec": "gzip",
+      "implementation": "XSH",
+      "compressed_bytes": 4608739,
+      "encode": {
+        "seconds": 0.08,
+        "peak_rss_kib": 32256
+      },
+      "decode": {
+        "seconds": 0.03,
+        "peak_rss_kib": 30212
+      }
+    },
+    {
+      "codec": "bzip2",
+      "implementation": "bzip2, a block-sorting file compressor.  Version 1.0.8, 13-Jul-2019.",
+      "compressed_bytes": 4369420,
+      "encode": {
+        "seconds": 4.42,
+        "peak_rss_kib": 7884
+      },
+      "decode": {
+        "seconds": 0.25,
+        "peak_rss_kib": 3932
+      }
+    },
+    {
+      "codec": "bzip2",
+      "implementation": "XSH",
+      "compressed_bytes": 4369420,
+      "encode": {
+        "seconds": 3.54,
+        "peak_rss_kib": 40452
+      },
+      "decode": {
+        "seconds": 0.4,
+        "peak_rss_kib": 32256
+      }
+    },
+    {
+      "codec": "xz",
+      "implementation": "xz (XZ Utils) 5.8.4",
+      "compressed_bytes": 4390508,
+      "encode": {
+        "seconds": 0.96,
+        "peak_rss_kib": 228672
+      },
+      "decode": {
+        "seconds": 0.06,
+        "peak_rss_kib": 53028
+      }
+    },
+    {
+      "codec": "xz",
+      "implementation": "XSH",
+      "compressed_bytes": 4390228,
+      "encode": {
+        "seconds": 1.91,
+        "peak_rss_kib": 132620
+      },
+      "decode": {
+        "seconds": 0.19,
+        "peak_rss_kib": 38496
+      }
+    },
+    {
+      "codec": "lzma",
+      "implementation": "xz (XZ Utils) 5.8.4",
+      "compressed_bytes": 4389542,
+      "encode": {
+        "seconds": 1.08,
+        "peak_rss_kib": 95560
+      },
+      "decode": {
+        "seconds": 0.08,
+        "peak_rss_kib": 8876
+      }
+    },
+    {
+      "codec": "lzma",
+      "implementation": "XSH",
+      "compressed_bytes": 4389540,
+      "encode": {
+        "seconds": 1.76,
+        "peak_rss_kib": 131988
+      },
+      "decode": {
+        "seconds": 0.13,
+        "peak_rss_kib": 38404
+      }
+    },
+    {
+      "codec": "zstd",
+      "implementation": "libzstd 1.5.7 through zstd 0.13.3",
+      "compressed_bytes": 4334918,
+      "encode": {
+        "seconds": 0.01,
+        "peak_rss_kib": 3948
+      },
+      "decode": {
+        "seconds": 0.01,
+        "peak_rss_kib": 2856
+      }
+    },
+    {
+      "codec": "zstd",
+      "implementation": "XSH",
+      "compressed_bytes": 4334918,
+      "encode": {
+        "seconds": 0.03,
+        "peak_rss_kib": 33220
+      },
+      "decode": {
+        "seconds": 0.02,
+        "peak_rss_kib": 32640
+      }
+    }
+  ],
+  "interoperability": "reference and XSH streams decoded by both implementations"
+}

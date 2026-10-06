@@ -541,7 +541,10 @@ pub(super) fn record_optional_positive_u64(
 }
 
 pub(super) fn run_error_to_runtime(error: RunError, span: Span) -> RuntimeError {
-    RuntimeError::new(error.kind, error.message).with_span(span)
+    let facets = error.facets();
+    let mut runtime = RuntimeError::new(error.kind, error.message).with_span(span);
+    runtime.facets = facets;
+    runtime
 }
 
 pub(super) fn record_int_field(

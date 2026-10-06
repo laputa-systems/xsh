@@ -19,12 +19,13 @@ pub struct LinuxFake {
 impl LinuxFake {
     /// Settings a fake accepts: the call log path and the fixed values some
     /// queries report.
-    pub const KEYS: [&'static str; 6] = [
+    pub const KEYS: [&'static str; 7] = [
         "log",
         "root_device",
         "sysctl_value",
         "file_attrs_flags",
         "file_version",
+        "file_project",
         "hwclock_epoch_ms",
     ];
 
@@ -35,7 +36,13 @@ impl LinuxFake {
                 Self::KEYS.join(", ")
             ));
         };
-        self.values.insert(key, value.into());
+        let value = value.into();
+        if key == "file_project" {
+            let project = value.parse::<u32>().map_err(|_| "linux fake file_project must fit in u32".to_string())?;
+            self.values.insert(key, project.to_string());
+        } else {
+            self.values.insert(key, value);
+        }
         Ok(())
     }
 

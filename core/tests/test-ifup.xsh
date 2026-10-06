@@ -154,3 +154,27 @@ auto eth0
 
   assert "\"address\":\"10.0.1.42\"" in linux_log.read_text()?
 }
+
+
+test test_ifup_verbose_reports_typed_actions_and_hook_environment { |ctx|
+  let root = test.temp_dir(ctx, name: "ifup-verbose")?
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
+  let hook_log = fp"{root}/verbosity"
+  interfaces.write(f"""iface eth0 inet static
+    address 10.0.1.42
+    netmask 255.255.255.0
+    up printf '%s' \$VERBOSITY > {hook_log}
+""")
+  let output = run_ifupdown(ctx, "ifup", ["--verbose", "eth0"], interfaces, state, linux_log)
+  assert output.success, output.stderr
+  assert "link_up eth0" in output.stdout
+  assert hook_log.read_text()? == "1"
+  assert "\"op\":\"link_up\"" in linux_log.read_text()?
+  state.remove(missing_ok: false)
+  let quiet = run_ifupdown(ctx, "ifup", ["eth0"], interfaces, state, linux_log)
+  assert quiet.success, quiet.stderr
+  assert quiet.stdout == ""
+  assert hook_log.read_text()? == "0"
+}

@@ -11,7 +11,19 @@ on exactly: the invoked name (`process.script_path()`, never symlink-resolved),
 `PROG: message` diagnostics with GNU name quoting and `strerror` text, usage
 errors with the `Try 'PHRASE --help'` hint and a caller-chosen exit status,
 `--help` and `--version` first lines, stdout write failures, and byte-stream
-operand and stdout helpers.
+operand and stdout helpers. The audited command families also share
+`lib/perm.xsh` for permission and ownership policy, `lib/file_publish.xsh` for
+move/link/install publication, `lib/fs_misc.xsh` for path and size policy,
+`lib/text_a2.xsh` for byte records and display columns, `lib/bytes_enc*.xsh` for
+binary encodings and conversion, `lib/checksums.xsh` for checksum formats and
+verification, and `lib/proc_launch.xsh` for executable lookup and exit status.
+
+Shared semantic libraries remain XSH: `lib/awk.xsh` owns its lexer, parser and
+interpreter, `lib/sed.xsh` owns addressing and execution, the `lib/fat*.xsh`
+family owns geometry and checking, and `lib/date_parse.xsh` owns human date
+grammar. Native operations supply reusable byte, numeric, codec and host
+boundaries. The search, hardware, procps, kmod, storage, compression and inode
+attribute families also share typed XSH helpers under `lib/`.
 
 `dev/release.xsh::package_core` installs applets without the `.xsh` suffix as
 executable commands. It keeps that suffix for `core/lib/` modules so adjacent
@@ -42,4 +54,6 @@ behavior through `core/tests/*.xsh`.
 accept non-UTF-8 input. Word counts still use `Str.count_words()` and require
 valid UTF-8.
 `core/cat.xsh` and `core/tee.xsh` preserve file and stdin bytes through stdout.
-`tee` append reads the existing destination and writes the concatenated bytes.
+`tee` keeps output descriptors open, streams bounded chunks, and appends in
+place. Its output-error modes isolate failed outputs and keep healthy outputs
+receiving data; no-pipe modes observe broken outputs while input is idle.

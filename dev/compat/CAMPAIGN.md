@@ -1,10 +1,32 @@
 # XSH Core Compatibility Campaign
 
-Status: the compatibility work was merged into `master` on 2026-10-05;
-completion of the campaign gates is unverified on the current head. Scope
-widened on 2026-10-04 from coreutils parity to the full systems-core surface
-below. Lane strategy is in [`LANES.md`](LANES.md); harness usage is in
-[`README.md`](README.md).
+Status: wound down on 2026-10-06 at the user’s request. Existing lanes are
+integrated on `master`; the full campaign remains incomplete. No new lanes
+were started during wind-down. The report below distinguishes current
+verification from historical compatibility results.
+
+## Wind-down report (2026-10-06)
+
+- All 106 in-scope coreutils applets are present. Presence does not establish
+  parity. 99 of 125 expanded commands are present; the denominator is unchanged.
+- Awk, sed, FAT geometry/checking and human date parsing now live in XSH
+  libraries. Whole-program Rust awk/sed/FAT/date-parser backends were removed.
+  Rust provides shared codecs, byte/regex operations and OS boundaries.
+- Campaign dependencies have standing user approval. Native zstd streaming
+  uses `zstd` 0.13.3 with default features disabled.
+- Existing account, ACL/capability, DNS and system-control lanes were integrated.
+  Unconsumed HTTP and namespace prototypes were removed.
+- Ignored-option buckets and direct applet kernel-reader ratchets are zero.
+  The four existing upstream exclusions are unchanged.
+- Remaining applet limits are recorded in `gaps.json`. Namespace applets,
+  storage health/EFI, broader network tools, BusyBox comparison, clean-image
+  smoke and a final zero-blocker GNU differential remain unfinished.
+- Committed compatibility reports below remain historical: the session’s
+  intermediate full uutils run reached 4,347 passes and 1,602 failures with
+  four exclusions, but preceded final integration. It is not final-head
+  evidence and is not substituted for the historical canonical report.
+
+Final verification results are recorded here after the integration gates.
 
 ## Operational handoff (2026-10-05)
 
@@ -85,6 +107,27 @@ not mean its legacy gaps are resolved.
 
 ### Working constraints
 
+The 2026-10-06 implementation direction is **XSH first**. Command grammar,
+parsers, interpreters, option semantics, traversal, selection, formatting
+policy, and repair decisions belong in XSH, including shared domain libraries.
+A command implemented mostly as a Rust program with an XSH entry wrapper does
+not meet this campaign's purpose. In particular, awk and sed parsers and
+execution engines, FAT geometry and checking, and human date parsing are XSH
+work. The Rust whole-program implementations were removed during this session.
+
+Rust supplies small reusable boundaries for syscalls, descriptors, codecs,
+binary representation, and operations that cannot be expressed faithfully in
+XSH. A performance exception requires an XSH implementation, a measured
+bottleneck, and a documented reason for the smallest native operation that
+addresses it. Complexity or a long implementation alone is not justification.
+Native API requests must state what XSH cannot express and why that primitive
+is reusable beyond one command; whole-program `execute` or `transform` APIs
+are not a substitute for implementing the program in XSH.
+
+The user granted standing approval on 2026-10-06 for any dependencies needed
+by this campaign. Record the reason and keep additions focused; further
+dependency approval requests are unnecessary within this campaign.
+
 No accepted option may be silently ignored; denominators never shrink;
 reference utilities are test oracles, never runtime dependencies; applets
 use typed native APIs instead of parsing another command's text output.
@@ -139,9 +182,9 @@ number of command names implemented.
    attribute/ACL/capability tools, namespace and process control, storage
    health (`smartctl`, `nvme`), network control and diagnostics (`ip`, `ss`,
    `ethtool`, `iw`, `dig`, `nc`, `curl`), `cpio` and EFI boot variables.
-4. Implement commands as thin XSH applets over typed native APIs; add Rust
-   primitives where syscalls, byte semantics, performance or kernel interfaces
-   demand it.
+4. Implement command behavior and shared domain logic in XSH. Use small Rust
+   primitives where syscalls, codecs, faithful byte operations, or measured
+   performance require them; keep parsers and interpreters in XSH.
 5. Never fake a command: an accepted option works, and unsupported behavior
    fails explicitly.
 6. Use canonical tools (dosfstools, smartmontools, nvme-cli, util-linux,
@@ -162,8 +205,9 @@ Two constraints govern every decision:
 
 - **Native XSH APIs** (`fs`, `process`, `unix`, `linux`, `system`, `hash`,
   `compression`, `archive`, `dns`, `net`, `cli`, ...) expose semantics as typed
-  records and operations. They live in `src/modules/` and are documented
-  through the registry behind `xsht api`.
+  records and operations. Rust implementations in `src/modules/` provide the
+  necessary host and byte boundaries, documented through `xsht api`. Shared
+  semantic domains are XSH modules wherever the language can express them.
 - **Compatibility CLIs** (`core/*.xsh`) translate conventional argv into those
   APIs and print conventional output.
 
@@ -424,7 +468,9 @@ as passing: implement or reject each discarded option.
 
 ## Native API growth
 
-Add primitives instead of contorting scripts. Expected areas:
+Use existing XSH facilities first. Add a narrow primitive when faithful host
+or byte behavior is missing, keeping command policy and algorithms in XSH.
+Expected boundary areas:
 
 - **fs**: complete nofollow metadata, ownership/mode preservation, ns
   timestamps (`utimensat`), hardlinks, FIFOs and device nodes, sparse files
@@ -442,7 +488,8 @@ Add primitives instead of contorting scripts. Expected areas:
 - **block/mount/partition**: `BLKRRPART`, `BLKGETSIZE64`, sector sizes,
   read-only state, discard, flush, `FITRIM`, `FIFREEZE`/`FITHAW`, signature
   probing and removal, partition reread (Phase 7A).
-- **fs (FAT)**: typed FAT12/16/32 parse, build and check (Phase 7B).
+- **fs (FAT)**: bounded descriptor I/O and byte encoding; FAT12/16/32 layout,
+  parsing, checking and repair policy belong in a typed XSH module (Phase 7B).
 - **xattr, acl, capability**: typed representations, including
   `security.capability` revisions (Phase 7C).
 - **storage_health, nvme**: ATA pass-through, `SG_IO`, NVMe admin commands,
@@ -505,13 +552,32 @@ truly supported), `find` (`-name -iname -type -path -regex -size -mtime
 -execdir -delete` with boolean composition), `xargs` (byte/NUL-safe `-0 -n -L
 -P -I -r`, correct exit codes), `sed` (a real parser and addressing model;
 uutils/sed and its GNU shim as reference and tests), `awk` (credible POSIX
-awk, Rust parser/runtime), `cmp`, `diff`, `patch` over the native diff/patch
-modules.
+awk with an XSH parser and runtime), `cmp`, `diff`, `patch` with shared XSH
+logic and necessary byte or filesystem primitives.
 
 Revised: `sed` and `awk` share nothing with coreutils and are each multi-week
 efforts, so they start in Wave 1 as long-running lanes.
 
 ## Phase 5: compression
+
+### Zstd implementation decision (2026-10-06)
+
+The integrated implementation uses `zstd` 0.13.3 with default features disabled,
+statically linking its contained upstream codec. The dependency and lockfile
+were updated after the user approved the measured candidate.
+The alternative `ruzstd` 0.9 encoder leaves its Default, Better and Best levels
+unimplemented, so it cannot supply the required level contract.
+
+The candidate's bounded streaming wrapper round-tripped binary input and
+concatenated frames and rejected truncated and checksum-corrupted input. On a
+256 MiB mixed corpus, encode and decode each took 0.22 s, with peak RSS of
+3,888 and 2,916 KiB respectively. These are single local measurements with
+10 ms timing resolution, not a performance guarantee. Reproduction details
+and smaller input measurements are in
+[`bench/zstd-rust-candidate-2026-10-06.json`](../../bench/zstd-rust-candidate-2026-10-06.json).
+The user approved this dependency and granted standing dependency approval
+for the campaign on 2026-10-06. Compression completion still requires the
+canonical differential tests.
 
 `gzip`/`gunzip`/`zcat`, `bzip2`/`bunzip2`/`bzcat`, `xz`/`unxz`/`xzcat`,
 `lzma`/`unlzma`/`lzcat` and `zstd`/`unzstd`/`zstdcat` as one family: thin XSH

@@ -155,3 +155,28 @@ test test_ifdown_logical_selection { |ctx|
   assert "\"interface\":\"eth0\"" in linux_log.read_text()?
   assert state.exists()? == false
 }
+
+
+test test_ifdown_verbose_reports_typed_actions_and_hook_environment { |ctx|
+  let root = test.temp_dir(ctx, name: "ifdown-verbose")?
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
+  let hook_log = fp"{root}/verbosity"
+  interfaces.write(f"""iface eth0 inet static
+    address 10.0.1.42
+    netmask 255.255.255.0
+    down printf '%s' \$VERBOSITY > {hook_log}
+""")
+  state.write("eth0=eth0")
+  let output = run_ifupdown(ctx, "ifdown", ["--verbose", "eth0"], interfaces, state, linux_log)
+  assert output.success, output.stderr
+  assert "link_down eth0" in output.stdout
+  assert hook_log.read_text()? == "1"
+  assert "\"op\":\"link_down\"" in linux_log.read_text()?
+  state.write("eth0=eth0")
+  let quiet = run_ifupdown(ctx, "ifdown", ["eth0"], interfaces, state, linux_log)
+  assert quiet.success, quiet.stderr
+  assert quiet.stdout == ""
+  assert hook_log.read_text()? == "0"
+}

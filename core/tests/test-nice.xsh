@@ -158,7 +158,9 @@ test test_nice_missing_and_unrunnable_commands { |ctx|
   assert missing.status == 127
   assert missing.stderr == "nice: '/definitely/not/here': No such file or directory\n", missing.stderr
 
-  let named = nice_run(ctx, ["no-such-command-anywhere"])?
+  # A missing name is distinct from a denied search through an inherited PATH.
+  let search_dir = test.temp_dir(ctx, name: "empty-command-path")?
+  let named = env ({PATH: search_dir}) { nice_run(ctx, ["no-such-command-anywhere"])? }?
   assert named.status == 127
   assert named.stderr == "nice: 'no-such-command-anywhere': No such file or directory\n", named.stderr
 

@@ -436,6 +436,26 @@ pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, 
     Ok(io_error("unix-exec", error, span))
 }
 
+pub(crate) fn exec_env(invocation: &ProcessInvocation, argv0: Option<&str>, span: Span) -> Result<Value, RuntimeError> {
+    if invocation.env.keys().any(|key| key.is_empty() || key.contains(&0) || key.contains(&b'='))
+        || invocation.env.values().any(|value| value.contains(&0))
+        || argv0.is_some_and(|value| value.as_bytes().contains(&0))
+    {
+        return Ok(Value::err(Value::Error(Box::new(RuntimeError::new(
+            "unix-exec-env", "invalid environment key, value, or argv0",
+        ).with_span(span)))));
+    }
+    let mut command = match command_from_invocation(invocation, span) {
+        Ok(command) => command,
+        Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+    };
+    if let Some(argv0) = argv0 { command.arg0(argv0); }
+    if let Err(error) = exec_redirections(&mut command, invocation, span) {
+        return Ok(Value::err(Value::Error(Box::new(error))));
+    }
+    Ok(io_error("unix-exec-env", command.exec(), span))
+}
+
 // Exec replaces every thread, so bytes input cannot be fed by the usual
 // writer thread. An anonymous file owns all input before the image changes.
 fn exec_redirections(
@@ -1349,6 +1369,9 @@ fn group_name(gid: libc::gid_t, span: Span) -> Result<String, RuntimeError> {
             buffer.resize(size, 0);
             continue;
         }
+        if rc == libc::ENOENT {
+            return Ok(gid.to_string());
+        }
         if rc != 0 {
             return Err(RuntimeError::host("unix-id", &io::Error::from_raw_os_error(rc)).with_span(span));
         }
@@ -1356,6 +1379,112 @@ fn group_name(gid: libc::gid_t, span: Span) -> Result<String, RuntimeError> {
             return Ok(gid.to_string());
         }
         return Ok(unsafe { std::ffi::CStr::from_ptr(group.gr_name) }.to_string_lossy().into_owned());
+    }
+}
+
+pub(crate) fn read_fd(fd: i64, max_bytes: i64, span: Span) -> Result<Value, RuntimeError> {
+    match read_fd_native(fd, max_bytes, span) {
+        Ok(data) => Ok(Value::ok(Value::Bytes(data.into()))),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
+// One descriptor read preserves short reads and leaves subsequent bytes for
+// the next reader, including child processes that inherit this descriptor.
+fn read_fd_native(fd: i64, max_bytes: i64, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    let kind = "unix-read-fd";
+    let fd = raw_fd_arg(fd, kind, span)?;
+    let count = usize::try_from(max_bytes).ok().filter(|count| *count > 0)
+        .ok_or_else(|| RuntimeError::new(kind, "max_bytes must be positive").with_span(span))?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(count)
+        .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+    data.resize(count, 0);
+    loop {
+        let read = unsafe { libc::read(fd, data.as_mut_ptr().cast(), data.len()) };
+        if read >= 0 {
+            data.truncate(read as usize);
+            return Ok(data);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(RuntimeError::host(kind, &error).with_span(span));
+    }
+}
+
+pub(crate) fn poll_fd(
+    fd: i64,
+    events: &[String],
+    timeout_ms: i64,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    match poll_fd_native(fd, events, timeout_ms, span) {
+        Ok(events) => Ok(Value::ok(Value::List(events.into_iter()
+            .map(|event| Value::Str(event.into())).collect()))),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
+// Error, hangup, and invalid-descriptor events are returned even when no
+// readiness was requested. A retry after a signal uses the original deadline.
+fn poll_fd_native(
+    fd: i64,
+    events: &[String],
+    timeout_ms: i64,
+    span: Span,
+) -> Result<Vec<&'static str>, RuntimeError> {
+    let kind = "unix-poll-fd";
+    let fd = raw_fd_arg(fd, kind, span)?;
+    if timeout_ms < -1 {
+        return Err(RuntimeError::new(kind, "timeout_ms must be -1 or non-negative").with_span(span));
+    }
+    let mut requested = 0;
+    for event in events {
+        requested |= match event.as_str() {
+            "readable" => libc::POLLIN,
+            "writable" => libc::POLLOUT,
+            _ => return Err(RuntimeError::new(kind,
+                format!("unknown requested event {event}; expected readable or writable")).with_span(span)),
+        };
+    }
+    let deadline = if timeout_ms == -1 {
+        None
+    } else {
+        Some(Instant::now().checked_add(Duration::from_millis(timeout_ms as u64))
+            .ok_or_else(|| RuntimeError::new(kind, "timeout_ms is too large").with_span(span))?)
+    };
+    let mut descriptor = libc::pollfd { fd, events: requested, revents: 0 };
+    loop {
+        let timeout = match deadline {
+            None => -1,
+            Some(deadline) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let millis = remaining.as_millis()
+                    + u128::from(remaining.subsec_nanos() % 1_000_000 != 0);
+                millis.min(libc::c_int::MAX as u128) as libc::c_int
+            }
+        };
+        let ready = unsafe { libc::poll(&mut descriptor, 1, timeout) };
+        if ready == -1 {
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(RuntimeError::host(kind, &error).with_span(span));
+        }
+        if ready == 0 && deadline.is_some_and(|deadline| Instant::now() < deadline) {
+            continue;
+        }
+        return Ok([
+            (libc::POLLIN, "readable"),
+            (libc::POLLOUT, "writable"),
+            (libc::POLLERR, "error"),
+            (libc::POLLHUP, "hangup"),
+            (libc::POLLNVAL, "invalid"),
+        ].into_iter().filter_map(|(flag, event)|
+            (descriptor.revents & flag != 0).then_some(event)).collect());
     }
 }
 

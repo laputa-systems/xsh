@@ -1,3 +1,5 @@
+use core.lib.date_parse
+
 test test_date_format { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u +%Y
   assert output.trim().count_chars() == 4
@@ -20,4 +22,73 @@ test test_date_batch_invalid_bytes_continue_and_nul_terminates { |ctx|
   assert output.status.exited_with(1)
   assert output.stdout == "2024-01-15 12:00:00\n2024-01-16 13:00:00\n"
   assert output.stderr == "date: invalid date 'Hello\\377x'\n"
+}
+
+test test_date_grammar_epoch_precision_and_boundaries {
+  assert date_parse.parse("1970-01-01T00:00:00Z")? == 0
+  assert date_parse.parse("1970-01-01 01:30:00+01:30")? == 0
+  assert date_parse.parse("1969-12-31 23:59:59.999999999Z")? == -1
+  assert date_parse.parse("@-0.000000001")? == -1
+  assert date_parse.parse("@9223372036.854775807")? == 9223372036854775807
+  assert date_parse.parse("@-9223372036.854775808")? == -9223372036854775807 - 1
+  assert date_parse.parse("@9223372036.854775808") is Err(_)
+  assert date_parse.parse("@-9223372036.854775809") is Err(_)
+  assert date_parse.parse("@99999999999999999999999999999999999999") is Err(_)
+  assert date_parse.parse("@1.1234567890") is Err(_)
+  assert date_parse.parse("@-+1") is Err(_)
+}
+
+test test_date_grammar_relative_baseline_and_civil_overflow {
+  assert date_parse.parse("+5 days", utc: true, base_ns: 0)? == 432000000000000
+  assert date_parse.parse("2 hours 3 minutes ago", utc: true, base_ns: 0)? == -7380000000000
+  assert date_parse.parse("last thu", utc: true, base_ns: 0)? == -604800000000000
+  assert date_parse.parse("this thu", utc: true, base_ns: 0)? == 0
+  assert date_parse.parse("next thu", utc: true, base_ns: 0)? == 604800000000000
+  assert date_parse.parse("yesterday 10:00 GMT", utc: true, base_ns: 0)? == -50400000000000
+  assert date_parse.parse("2000-02-29 + 2 years", utc: true)? == date_parse.parse("2002-03-01", utc: true)?
+  assert date_parse.parse("1996-01-31 + 1 month", utc: true)? == date_parse.parse("1996-03-02", utc: true)?
+  assert date_parse.parse("2003-08-31 12:00:00 +0 7 months ago", utc: true)? == date_parse.parse("2003-01-31 12:00:00", utc: true)?
+  assert date_parse.parse("now", base_ns: 123456789)? == 123456789
+  assert date_parse.parse("1 second", base_ns: -1)? == 999999999
+}
+
+test test_date_grammar_compact_clock_and_named_input {
+  assert date_parse.parse("200002290000.05", utc: true)? == 951782405000000000
+  assert date_parse.parse("0002290000.05", utc: true)? == 951782405000000000
+  assert date_parse.parse("0700", utc: true, base_ns: 0)? == 25200000000000
+  assert date_parse.parse("1230j", utc: true, base_ns: 0)? == 45000000000000
+  assert date_parse.parse("A", utc: true, base_ns: 0)? == -3600000000000
+  assert date_parse.parse("y", utc: true, base_ns: 0)? == 43200000000000
+  assert date_parse.parse("m9", utc: true, base_ns: 0)? == -10800000000000
+  assert date_parse.parse("2024-06-15 3:00 p.m.", utc: true)? == date_parse.parse("2024-06-15 15:00", utc: true)?
+  assert date_parse.parse("2026(comment)-01-05", utc: true)? == date_parse.parse("2026-01-05", utc: true)?
+  assert date_parse.parse("((ignored)2026-01-05)", utc: true, base_ns: 0)? == 0
+  assert date_parse.parse("2024-01-15 12:00 IST", utc: true)? == date_parse.parse("2024-01-15 06:30", utc: true)?
+  assert date_parse.parse("Sat 20 Mar 2021 14:53:01 AWST", utc: true)? == date_parse.parse("2021-03-20 06:53:01", utc: true)?
+  assert date_parse.parse("Thu Jan 01 12:34:00 2015", utc: true)? == date_parse.parse("2015-01-01 12:34:00", utc: true)?
+  assert date_parse.parse("2024-01-15\t12:00:00", utc: true)? == date_parse.parse("2024-01-15 12:00:00", utc: true)?
+  assert date_parse.parse("Jan 23\x0b 2026 1:00AM", utc: true)? == date_parse.parse("2026-01-23 01:00", utc: true)?
+  assert date_parse.parse("Jan 23\x0c2026 1:00AM", utc: true)? == date_parse.parse("2026-01-23 01:00", utc: true)?
+  assert date_parse.parse("not a date", utc: true) is Err(_)
+  assert date_parse.parse("2024-02-30", utc: true) is Err(_)
+  assert date_parse.parse("2024-01-01 12:00 UTC EST", utc: true) is Err(_)
+}
+
+test test_date_grammar_timezone_and_dst { |ctx|
+  let source = "use lib.date_parse\nprint time.format(date_parse.parse(\"2024-07-01 12:00:00\")?, \"%H:%M %z\")?"
+  let output = test.run_xsh(ctx, source, env: {TZ: "EST5EDT,M3.2.0,M11.1.0", XSH_MODULE_PATH: ctx.core_dir})?
+  assert output.success, output.stderr
+  assert output.stdout == "12:00 -0400\n"
+  let winter = test.run_xsh(ctx, source.replace("2024-07", with: "2024-01"), env: {TZ: "EST5EDT,M3.2.0,M11.1.0", XSH_MODULE_PATH: ctx.core_dir})?
+  assert winter.success, winter.stderr
+  assert winter.stdout == "12:00 -0500\n"
+  let missing = test.run_xsh(ctx, "use lib.date_parse\nassert date_parse.parse(\"2024-03-10 02:30:00\") is Err(_)", env: {TZ: "EST5EDT,M3.2.0,M11.1.0", XSH_MODULE_PATH: ctx.core_dir})?
+  assert missing.success, missing.stderr
+}
+
+test test_date_grammar_relative_dst_gap_matches_host_calendar { |ctx|
+  let source = "use lib.date_parse\nprint time.format(date_parse.parse(\"2024-03-09 02:30:00 1 day\")?, \"%F %T %z\")?\nprint time.format(date_parse.parse(\"2024-03-11 02:30:00 1 day ago\")?, \"%F %T %z\")?"
+  let output = test.run_xsh(ctx, source, env: {TZ: "EST5EDT,M3.2.0,M11.1.0", XSH_MODULE_PATH: ctx.core_dir})?
+  assert output.success, output.stderr
+  assert output.stdout == "2024-03-10 01:30:00 -0500\n2024-03-10 01:30:00 -0500\n"
 }

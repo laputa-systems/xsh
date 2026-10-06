@@ -9,26 +9,9 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   AppletError.Usage(usage(applet_name, summary))
 }
 
-type Process = {
-  pid: Int,
-  parent_pid: Int,
-  command: Str,
-  argv: Str,
-  argv0: Str,
-  user: Str,
-  uid: Int,
-  status: Str,
-  start_time: Str,
-  start_time_ms: Int,
-  runtime_seconds: Int,
-}
+type Process = ProcessEntry
 
-let host = system.uname()?
-let process_records: List[Process] = if host.sysname == "Darwin" and args.is_empty() {
-  []
-} else {
-  process.list()? |> sort-by .parent_pid * 100000000 + .pid
-}
+let process_records: List[Process] = process.list()? |> sort-by .parent_pid * 100000000 + .pid
 
 let process_groups = process_records
   |> group-by .parent_pid
@@ -127,17 +110,15 @@ pure vertical(ascii: Bool) -> Str {
 }
 
 proc print_help() [error] {
-  print "usage: pstree [-aAcGhlpstT] [PID|USER]"
+  print "usage: pstree [-aAchlpsT] [PID|USER]"
   print "options:"
   print "  -a, --arguments     show command line arguments"
   print "  -A, --ascii         use ASCII line drawing characters"
   print "  -c, --compact-not   don't compact identical subtrees"
-  print "  -G, --vt100         use VT100 line drawing characters"
   print "  -h, --help          show this help"
   print "  -l, --long          don't truncate long lines"
   print "  -p, --show-pids     show PIDs; implies -c"
   print "  -s, --show-parents  show parents of the selected process"
-  print "  -t, --thread-names  show full thread names"
   print "  -T, --hide-threads  hide threads, show only processes"
 }
 
@@ -241,7 +222,9 @@ proc print_parent_chain(
 type PstreeOptions = {
   show_args: Bool,
   ascii: Bool,
-  vt100: Bool,
+  long: Bool,
+  hide_threads: Bool,
+  compact_not: Bool,
   show_help: Bool,
   show_pids: Bool,
   show_parents: Bool,
@@ -249,52 +232,40 @@ type PstreeOptions = {
 }
 
 proc main(...argv: List[Str]) [fs, process, error] {
-  if host.sysname == "Darwin" and argv.is_empty() {
-    let tree = run.text pstree -w
-    print $tree
-    return
-  }
-
   let opts: PstreeOptions = cli.applet(
     argv,
     {
+      gnu: {status: 2, unsupported: {"-G": "VT100 drawing is unsupported", "--vt100": "VT100 drawing is unsupported", "-t": "thread name rendering is unsupported", "--thread-names": "thread name rendering is unsupported"}},
       show_args: {
         form: "-a --arguments",
-        default: true,
+        default: false,
       },
       ascii: {
         form: "-A --ascii",
         default: false,
-        conflicts: "vt100",
-      },
-      vt100: {
-        form: "-G --vt100",
-        default: false,
-        conflicts: "ascii",
       },
       show_help: {
-        form: "-h",
+        form: "-h --help",
         default: false,
       },
       show_pids: {
         form: "-p --show-pids",
-        default: true,
+        default: false,
       },
       show_parents: {
         form: "-s --show-parents",
         default: false,
       },
-      ignored: {
-        form: "-c --compact-not -l --long -t --thread-names -T --hide-threads",
-        default: false,
-      },
+      long: {form: "-l --long", default: false},
+      compact_not: {form: "-c --compact-not", default: false},
+      hide_threads: {form: "-T --hide-threads", default: false},
       operands: {
         form: "...ARG",
       },
     },
   )?
   let {show_args, show_pids, show_parents, show_help: help, ..} = opts
-  let ascii = opts.ascii and ! opts.vt100
+  let ascii = opts.ascii
   let operands = opts.operands
 
   if help {
@@ -302,7 +273,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     return
   }
 
-  return Err(usage_error("pstree", "[-aAcGhlpstT] [PID|USER]")) when operands.len() > 1
+  return Err(usage_error("pstree", "[-aAchlpsT] [PID|USER]")) when operands.len() > 1
 
   if show_parents and operands.is_empty() {
     return Err(AppletError.Usage("pstree: -s requires a PID selector"))

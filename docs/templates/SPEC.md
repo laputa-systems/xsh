@@ -320,17 +320,27 @@ A script's exit status is chosen as follows:
 
 ### 3.2 Script arguments, `main`, and `cli main`
 
-Script arguments are available as the immutable `args: List[Str]`. The `xsh`,
-`xshi`, and `xsht` command lines reject arguments that are not valid UTF-8
-with status `2` before loading anything; `Path` values built inside a script
-can still carry arbitrary bytes to child processes.
+Ordinary script arguments are available as the immutable `args: List[Str]`.
+Text entry points reject invalid UTF-8 arguments with status `2` before
+executing script code. Source loading and checking can precede that rejection.
+Launcher options and script operands remain UTF-8. `Path` values built inside
+a script can carry arbitrary bytes to child processes.
+
+A sole rest parameter in `proc main(...argv: List[Bytes])` opts the entry
+script into raw argument bytes. In that entry context, immutable `args` also
+has type `List[Bytes]`, including in imported modules. Empty arguments and
+option-like arguments retain their original bytes. Decode text explicitly
+with `.utf8()` and construct byte paths with `Path.parse_bytes`; there is no
+lossy decoding. Fixed or mixed byte parameters and `cli main` do not opt into
+this entry form.
 
 If the entry script defines a top-level `proc main` and the last top-level
 statement does not call it, `main` is called with the script arguments after
 all other top-level statements finish. Arguments bind positionally; a rest
 parameter collects the remainder, so the usual form is
-`proc main(...argv: List[Str])`. A `main` whose required parameter is neither
-`Str` nor `Path` can never bind an argument and is reported at check time.
+`proc main(...argv: List[Str])`. Apart from the sole byte rest entry form, a
+`main` whose required parameter is neither `Str` nor `Path` can never bind an
+argument and is reported at check time.
 
 `process.script_path()` returns the script operand of the running `xsh`
 exactly as it was passed, relative or absolute and never symlink-resolved, so
@@ -4115,7 +4125,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 | `json`, `ini` | data formats |
 | `text`, `bytes` | stream adapters and byte-level helpers; text operations are `Str` methods |
 | `regex` | runtime regex compilation; `Regex` methods match, find, capture, and replace |
-| `hash` | MD5, SHA-1, SHA-256, and SHA-512 digests of bytes and files |
+| `hash` | byte and bounded file/stdin digests (MD5, SHA-1, SHA-224/256/384/512, BLAKE2b), POSIX CRC and BSD/SysV checksums |
 | `archive` | tar, cpio, and zip listing, extraction, creation, and compression |
 | `diff`, `patch` | unified diffs and confined patch application |
 | `net`, `dns` | HTTP(S) requests, downloads, uploads, batches, pooled clients, `NetJob`; DNS lookups |
@@ -4249,6 +4259,36 @@ Contracts worth knowing without consulting the reference:
   back to a racy check on a filesystem that lacks it. A facility the host
   or filesystem lacks fails with its errno (`failure.errno`), so callers
   test for `EOPNOTSUPP`, `EXDEV`, or `EEXIST` rather than parse messages.
+- `Path.read_bytes()` reads through EOF even when the reported file size is
+  zero, as for procfs and FIFOs. Size is an allocation hint, not proof of EOF.
+  `fs.copy_file` also streams virtual files, FIFOs, and devices with bounded
+  buffers. A FIFO or device destination receives all bytes under every sparse
+  policy, keeps its file type, and reports zero hole bytes; `reflink: "always"`
+  fails there. Equal source/destination identities are refused before any
+  truncation. `force: true` retries only a failed destination open, after the
+  source is pinned, and never overrides `overwrite: false`.
+- `fs.xattr_list/get/set/remove` use raw `Bytes` values on Linux and macOS;
+  attribute names must be UTF-8. Following the final symlink is explicit and
+  defaults to true. Set modes distinguish upsert, create-only, and
+  replace-only; missing attributes retain the host errno. The APIs do not
+  interpret ACL, capability, or security-label payloads.
+- `fs.access` observes effective credentials, including ACL and group rules.
+  Permission denials are false; other failures remain errors. This is a
+  point-in-time observation, not an authorization token for a later operation.
+  `fs.sync_path` distinguishes file synchronization, Linux data-only
+  synchronization, and Linux filesystem synchronization; unsupported modes
+  fail. `fs.rename_exchange` swaps two entries atomically with no temporary-name
+  fallback. `fs.path_limits` reports host limits, including the NUL byte in
+  `path_max`, and fails when the host leaves a limit undefined.
+- Calendar conversion returns signed epoch nanoseconds, so dates outside that
+  integer range fail. Local conversion follows the process's timezone; UTC is
+  explicit. `time.from_calendar` rejects invalid civil dates and missing DST
+  hours by default. Explicit normalization delegates host calendar resolution
+  to libc. `time.to_calendar` reports civil fields, the UTC offset, and
+  nanoseconds without parsing formatted text. Formatting bounds directive
+  widths and total output to 64 KiB. Human and relative date grammar belongs
+  to the XSH `lib.date_parse` module used by `date` and `touch`; it can take an
+  explicit baseline and does not have a whole-parser native API.
 - `FsRoot` methods resolve relative paths against an open directory handle
   and refuse absolute paths, escaping `..`, and escaping symlinks. They confine
   path resolution, not the process. Their path parameters are `Path`, so they
@@ -4295,7 +4335,8 @@ Contracts worth knowing without consulting the reference:
   when it is refused.
 - Archive extraction and `patch.apply` reject absolute paths, parent
   traversal, symlink escapes, and overwrites unless asked.
-- `time` has no civil-time formatter; run `date` for locale-aware output.
+- Civil formatting uses the host calendar and locale through `time.format`;
+  date input grammar is implemented in XSH.
 - Regex syntax is the common Rust regex surface without Unicode property
   classes. Match offsets are byte offsets. `^` and `$` anchor to the start and
   end of the whole text, so `rx"(\d+)$"` does not match `"42\n"`: trim
@@ -4331,6 +4372,14 @@ Contracts worth knowing without consulting the reference:
   cancellation for that signal. `process.wait_timeout(handles, limit)` is
   `process.wait_any` that returns `null`, consuming nothing, once `limit`
   passes with no child finished.
+- `unix.redirect_fd` and `unix.dup_fd` replace explicit descriptors. Buffered
+  output is flushed before its descriptor is replaced. `unix.exec` honors
+  ordered file and byte-input redirections; replacement preserves descriptor
+  and signal state. Credential transitions validate all supplied IDs before
+  applying supplementary groups, GID, then UID; a host failure can leave
+  earlier changes applied. Separate UID/GID/group setters change only the
+  named credential. `user.groups` uses NSS with an optional selected primary
+  GID, without implicitly granting the account's original primary GID.
 - Terminal primitives in `unix` work on descriptor numbers: `isatty`,
   `ttyname`, `controlling_tty`, `window_size` and `set_window_size`,
   `foreground_group` and `set_foreground_group`, `tty_session`, and

@@ -54,23 +54,22 @@ proc resolve_mode(text: Str) [process, env] -> Str {
   exit 1
 }
 
-# Write `data` to one output. An existing regular file is extended in place
-# for `--append`; anything else (new file, device, FIFO) is opened and written.
-proc write_output(name: Str, data: Bytes, append: Bool) [fs, error] {
-  let target = fp"{name}"
+# Each output keeps one open descriptor for the entire copy. Rebinding
+# stdout lets the checked byte flush preserve short writes, append offsets,
+# FIFO readers and device behavior without reopening an operand per chunk.
+type Output = {name: Str, fd: Int, active: Bool, pollable: Bool}
 
-  if append {
-    if let Ok(resolved) = target.resolve() {
-      let entry = resolved.metadata()?
+# Only pipes and sockets use hangup/error readiness for broken readers.
+# Device errors are reported by the actual write, even in nopipe modes.
+proc output_pollable(fd: Int) [fs, error] -> Result[Bool] {
+  let metadata = fs.stat(fp"/dev/fd/{fd}", follow_symlinks: true)?
+  Ok(metadata.kind in ["fifo", "socket"])
+}
 
-      if entry.mode / 4096 % 16 == 8 {
-        let _ = bytes.write_at(resolved, entry.size, data, true)?
-        return
-      }
-    }
-  }
-
-  target.write(data)
+proc write_output(output: Output, data: Bytes) [process, error, io] -> Result[Unit] {
+  unix.dup_fd(output.fd, 1)?
+  io.write_stdout_bytes(data)?
+  io.flush_stdout()
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
@@ -137,30 +136,72 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     resolve_mode(opts.output_error)
   }
 
-  guard let data = io.stdin_bytes() else { |failure|
-    gnu.error(f"read error: {gnu.strerror(failure)}")
-    exit 1
-  }
-
-  gnu.write_bytes(data)
+  let original = unix.open_fd(/dev/null)?
+  unix.dup_fd(1, original)?
+  var outputs: List[Output] = [{name: "standard output", fd: original, active: true, pollable: output_pollable(original)?}]
   var failed = false
 
   for name in opts.files {
-    if let Err(failure) = write_output(name, data, opts.append) {
-      let ignored = gnu.errno(failure) == 32 and mode.ends_with("nopipe")
+    let descriptor = unix.open_fd(/dev/null)?
+    if let Err(failure) = unix.redirect_fd(descriptor, fp"{name}", write: true, append: opts.append) {
+      unix.close_fd(descriptor)?
+      gnu.name_error(name, failure)
+      failed = true
+      if mode.starts_with("exit") { exit 1 }
+    } else {
+      outputs += [{name: name, fd: descriptor, active: true, pollable: output_pollable(descriptor)?}]
+    }
+  }
 
-      if ! ignored {
-        gnu.name_error(name, failure)
-        failed = true
+  loop {
+    if mode.ends_with("nopipe") {
+      for index in range(outputs.len()) {
+        let output = outputs[index]
+        continue when ! output.active or ! output.pollable
+        let events = unix.poll_fd(output.fd, [])?
+        if "invalid" in events {
+          gnu.error(f"{gnu.quote(output.name)}: Bad file descriptor")
+          failed = true
+          outputs[index] = {...output, active: false}
+        } else if "error" in events or "hangup" in events {
+          outputs[index] = {...output, active: false}
+          if index > 0 { unix.close_fd(output.fd)? }
+        }
       }
+    }
+    break when [output for output in outputs if output.active].is_empty()
+    # A bounded readiness wait keeps checking outputs while the producer is
+    # idle; a blocking read alone would miss a pipe that loses its reader.
+    if mode.ends_with("nopipe") and unix.poll_fd(0, ["readable"], timeout_ms: 50)?.is_empty() { continue }
+    guard let data = io.stdin_read(32768) else { |failure|
+      gnu.error(f"read error: {gnu.strerror(failure)}")
+      failed = true
+      break
+    }
+    break when data.is_empty()
 
-      if mode.starts_with("exit") and ! ignored {
-        exit 1
+    for index in range(outputs.len()) {
+      let output = outputs[index]
+      continue when ! output.active
+      if let Err(failure) = write_output(output, data) {
+        let pipe = gnu.errno(failure) == 32
+        if pipe and mode == "" { exit 141 }
+        let ignored = pipe and mode.ends_with("nopipe")
+        if ! ignored {
+          if index == 0 { gnu.error(f"'standard output': {gnu.strerror(failure)}") } else { gnu.name_error(output.name, failure) }
+          failed = true
+        }
+        outputs[index] = {...output, active: false}
+        if index > 0 { unix.close_fd(output.fd)? }
+        if mode.starts_with("exit") and ! ignored { exit 1 }
       }
     }
   }
 
-  if failed {
-    exit 1
+  unix.dup_fd(original, 1)?
+  for output in outputs {
+    if output.active and output.fd != original { unix.close_fd(output.fd)? }
   }
+  unix.close_fd(original)?
+  if failed { exit 1 }
 }

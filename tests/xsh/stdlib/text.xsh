@@ -149,3 +149,20 @@ print $lines.len()
   assert "text-wrap" in negative.stderr
   assert "width must be positive" in negative.stderr
 }
+
+test test_text_number_conversion_rounding_and_errors {
+  assert 12.375.format_number("f", precision: 2)? == "12.38"
+  assert 12.375.format_number("g", precision: 3)? == "12.4"
+  assert 12.0.format_number("e", precision: 1)? == "1.2e+01"
+  assert (-12.9).format_number("d", precision: 1)? == "-12"
+  assert 255.0.format_number("X", precision: 1)? == "FF"
+  test.error_kind(1.0.format_number("%f"), "text-format-number")
+  test.error_kind(1.0.format_number("f", precision: -1), "text-format-number")
+}
+
+test test_float_atan2_preserves_coordinate_order {
+  assert 0.0.atan2(1.0) == 0.0
+  assert 1.0.atan2(0.0) > 1.5
+  assert 1.0.atan2(0.0) < 1.6
+  assert (-1.0).atan2(0.0) < -1.5
+}

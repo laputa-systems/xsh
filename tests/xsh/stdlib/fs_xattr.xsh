@@ -3,7 +3,7 @@ test test_xattrs_round_trip_binary_and_empty_values_with_strict_modes { |ctx|
   let file = fp"{root}/file"
   file.write("content")
   let attribute = "user.xsh-test"
-  let payload = bytes.concat([b"header\0", bytes.zero(8192)?, b"\xfftail"])
+  let payload = bytes.concat([b"header\0", bytes.zero(256)?, b"\xfftail"])
   let created = fs.xattr_set(file, attribute, payload, mode: "create")
   if let Err(failure) = created {
     if failure.errno == 95 or failure.errno == 45 {

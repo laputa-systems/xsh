@@ -49,7 +49,7 @@ pure word_parts(line: Bytes) -> List[Word] {
   }
 }
 
-type Layout = {end: Int, cost: Float, ratio: Float, breaks: List[Int]}
+type Layout = {cost: Int, length: Int, next: Int}
 
 pure sentence(word: Bytes) -> Bool {
   var at = word.len() - 1
@@ -61,8 +61,25 @@ pure spacing(previous: Word, current: Word, uniform: Bool) -> Int {
   if uniform or current.new_line { if sentence(previous.data) { 2 } else { 1 } } else { current.gap }
 }
 
-# Keep the best complete path for each candidate line ending, including the
-# change in fullness between adjacent lines and short sentence-final words.
+pure final_word(words: List[Word], index: Int) -> Bool {
+  index + 1 == words.len() or (sentence(words[index].data) and (words[index + 1].new_line or words[index + 1].gap > 1))
+}
+
+pure break_cost(words: List[Word], begin: Int) -> Int {
+  var cost = 4900
+  if begin > 0 {
+    let previous = words[begin - 1].data
+    let last = previous.byte_at(previous.len() - 1) ?? 0
+    if sentence(previous) { cost += if final_word(words, begin - 1) { -2500 } else { 360000 } } else if (last >= 33 and last <= 47) or (last >= 58 and last <= 64) or (last >= 91 and last <= 96) or (last >= 123 and last <= 126) { cost -= 1600 } else if begin > 1 and final_word(words, begin - 2) { cost += 40000 / (previous.len() + 2) }
+  }
+  let first = words[begin].data.byte_at(0) ?? 0
+  if first in [34, 39, 40, 91, 96] { cost -= 1600 } else if final_word(words, begin) { cost += 22500 / (words[begin].data.len() + 2) }
+  cost
+}
+
+# Optimize each suffix once. Costs favor sentence boundaries, discourage
+# false sentence breaks after initials, and balance neighboring filled lines.
+
 proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: Str, later: Str, uniform: Bool) {
   let words = lines |> flat-map { |line| word_parts(line) }
   if words.is_empty() { return }
@@ -80,39 +97,30 @@ proc paragraph(lines: List[Bytes], width: Int, goal: Int, quick: Bool, first: St
       breaks += [end]; begin = end
     }
   } else {
-    var paths: List[Layout] = [{end: 0, cost: 0.0, ratio: 0.0, breaks: []}]
-    let stretch = if width > goal { width - goal } else { 1 }
-    let minimum = if goal <= 10 { 1 } else if goal > stretch { goal - stretch } else { 1 }
-    for begin in range(words.len()) {
-      let active = paths |> where .end == begin
-      if active.is_empty() { continue }
-      paths = paths |> where .end != begin
+    var layouts: List[Layout] = [{cost: 0, length: 0, next: words.len()}]
+    for offset in range(words.len()) {
+      let begin = words.len() - offset - 1
       var length = if begin == 0 { first.byte_len() } else { later.byte_len() }
+      var best = {cost: 9223372036854775807, length: 0, next: begin + 1}
       for end in range(begin + 1, words.len() + 1) {
         length += words[end - 1].data.len() + (if end > begin + 1 { spacing(words[end - 2], words[end - 1], uniform) } else { 0 })
         break when length > width and end > begin + 1
-        if length < minimum and end != words.len() { continue }
-        let ratio = (goal - length).float() / stretch.float()
-        let word_len = words[end - 1].data.len()
-        let short = if word_len < stretch and stretch > 1 { (stretch - word_len).float() / (stretch - 1).float() } else { 0.0 }
-        var best = active[0]
-        var best_cost = 1.0e100
-        for layout in active {
-          let delta = if begin == 0 { 0.0 } else { (ratio - layout.ratio) / 2.0 }
-          let base = 1.0 + 200.0 * (ratio * ratio * ratio).abs() + 10.0 * (short * short * short).abs() + 600.0 * (delta * delta * delta).abs()
-          let orphan = end < words.len() and (end + 1 == words.len() or sentence(words[end].data))
-          let penalty = if end == words.len() { 0.0 } else { base * base + (if orphan { 250000000.0 } else { 0.0 }) }
-          let cost = layout.cost + penalty
-          if cost < best_cost { best_cost = cost; best = layout }
+        let suffix = layouts[words.len() - end]
+        var cost = suffix.cost
+        if end < words.len() {
+          let departure = goal - length
+          cost += 100 * departure * departure
+          if suffix.next < words.len() { let difference = length - suffix.length; cost += 50 * difference * difference }
         }
-        paths += [{end: end, cost: best_cost, ratio: ratio, breaks: best.breaks + [end]}]
+        if cost < best.cost { best = {cost: cost, length: length, next: end} }
       }
+      layouts += [{cost: best.cost + break_cost(words, begin), length: best.length, next: best.next}]
     }
-    let finished = paths |> where .end == words.len()
-    if finished.is_empty() { gnu.error("unable to lay out paragraph"); exit 1 }
-    var best = finished[0]
-    for layout in finished { if layout.cost < best.cost { best = layout } }
-    breaks = best.breaks
+    var begin = 0
+    while begin < words.len() {
+      let next = layouts[words.len() - begin].next
+      breaks += [next]; begin = next
+    }
   }
   var begin = 0
   for end in breaks {

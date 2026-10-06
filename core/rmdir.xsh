@@ -3,6 +3,18 @@ use lib.gnu
 
 type RmdirOptions = {parents: Bool, ignore_nonempty: Bool, verbose: Bool, help: Bool, version: Bool, targets: List[Str]}
 
+# The kernel can report permission or mount errors before checking emptiness.
+# Ignore those only when directory enumeration proves a retained child exists.
+proc ignored_nonempty(target: Path, failure: Error) [fs] -> Bool {
+  let code = gnu.errno(failure)
+  return true when code in [17, 39, 66]
+  return false unless code in [1, 13, 16, 30]
+  if let Ok(children) = fs.children(target, stat: false, ordered: false) {
+    for child in children { return true }
+  }
+  false
+}
+
 # A trailing slash asks the kernel for a directory, so ENOTDIR can hide
 # a symbolic link. Explain that the link was left untouched.
 proc removal_reason(target: Path, failure: Error) [fs, error] -> Str {
@@ -48,7 +60,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       match current.remove_dir() {
         Ok(_) => {}
         Err(failure) => {
-          if ! (opts.ignore_nonempty and gnu.errno(failure) in [17, 39, 66]) {
+          if ! (opts.ignore_nonempty and ignored_nonempty(current, failure)) {
             gnu.error(f"failed to remove {gnu.quote(current.display())}: {removal_reason(current, failure)}")
             failed = true
           }

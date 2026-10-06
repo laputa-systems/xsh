@@ -96,7 +96,7 @@ impl LiveStream for KernelMessageStream {
     }
 }
 
-fn parse_meminfo(text: &str, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn parse_meminfo(text: &str, span: Span) -> Result<Value, RuntimeError> {
     let mut values = FxHashMap::default();
     for line in text.lines() {
         let Some((key, value)) = parse_meminfo_line(line, span)? else {
@@ -125,6 +125,14 @@ fn parse_meminfo(text: &str, span: Span) -> Result<Value, RuntimeError> {
         (
             Arc::from("cached"),
             Value::Int(required_meminfo_value(&values, "Cached", span)?),
+        ),
+        (
+            Arc::from("shared"),
+            Value::Int(required_meminfo_value(&values, "Shmem", span)?),
+        ),
+        (
+            Arc::from("sreclaimable"),
+            Value::Int(required_meminfo_value(&values, "SReclaimable", span)?),
         ),
         (
             Arc::from("swap_total"),
@@ -182,7 +190,7 @@ fn parse_module_line(line: &str, span: Span) -> Result<Value, RuntimeError> {
         .ok_or_else(|| malformed_modules_line(span))?
         .to_string();
     let size = parse_i64_field(fields.next(), "size", span)?;
-    let _used_by_count = parse_i64_field(fields.next(), "use count", span)?;
+    let ref_count = parse_i64_field(fields.next(), "use count", span)?;
     let used_by = fields.next().ok_or_else(|| malformed_modules_line(span))?;
     if fields.next().is_none() || fields.next().is_none() {
         return Err(malformed_modules_line(span));
@@ -191,6 +199,7 @@ fn parse_module_line(line: &str, span: Span) -> Result<Value, RuntimeError> {
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
         (Arc::from("name"), str_value(name)),
         (Arc::from("size"), Value::Int(size)),
+        (Arc::from("ref_count"), Value::Int(ref_count)),
         (
             Arc::from("used_by"),
             Value::List(
@@ -313,13 +322,17 @@ mod tests {
     #[test]
     fn meminfo_parser_preserves_units_duplicates_and_saturation() {
         let valid = include_str!("../../../../tests/fixtures/stdlib/meminfo/valid.txt");
-        let value = parse_meminfo(valid, span()).expect("valid meminfo");
+        let valid = format!("{valid}Shmem: 32 kB\nSReclaimable: 64 kB\n");
+        let value = parse_meminfo(&valid, span()).expect("valid meminfo");
         assert_eq!(field(&value, "total"), 16_384_000 * 1024);
         assert_eq!(field(&value, "free"), 2_097_152 * 1024);
         assert_eq!(field(&value, "buffers"), 262_144 * 1024);
+        assert_eq!(field(&value, "shared"), 32 * 1024);
+        assert_eq!(field(&value, "sreclaimable"), 64 * 1024);
 
         let saturation = include_str!("../../../../tests/fixtures/stdlib/meminfo/saturation.txt");
-        let value = parse_meminfo(saturation, span()).expect("saturating values");
+        let saturation = format!("{saturation}Shmem: 0 kB\nSReclaimable: 0 kB\n");
+        let value = parse_meminfo(&saturation, span()).expect("saturating values");
         assert_eq!(field(&value, "total"), i64::MAX - 1023);
         assert_eq!(field(&value, "free"), i64::MAX);
         assert_eq!(field(&value, "available"), i64::MIN);
@@ -371,6 +384,7 @@ mod tests {
         };
         assert_eq!(record.get("name"), Some(&Value::Str("core".into())));
         assert_eq!(record.get("size"), Some(&Value::Int(4096)));
+        assert_eq!(record.get("ref_count"), Some(&Value::Int(2)));
         assert_eq!(
             record.get("used_by"),
             Some(&Value::List(vec![
@@ -384,6 +398,7 @@ mod tests {
             panic!("module row record")
         };
         assert_eq!(record.get("used_by"), Some(&Value::List(vec![])));
+        assert_eq!(record.get("ref_count"), Some(&Value::Int(0)));
         let third = parse_module_line(rows.next().expect("third row"), span()).expect("valid row");
         let Value::Record(record) = third else {
             panic!("module row record")

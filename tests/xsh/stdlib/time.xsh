@@ -25,11 +25,12 @@ test test_time_module {
 test test_time_calendar_round_trip {
   assert time.from_calendar(1970, 1, 1, utc: true)? == 0
   assert time.from_calendar(2000, 2, 29, utc: true)? == 951782400000000000
-  assert time.parse("1970-01-01T00:00:00Z")? == 0
-  assert time.parse("1970-01-01 01:30:00+01:30")? == 0
-  assert time.parse("1969-12-31 23:59:59.999999999Z")? == -1
-  assert time.parse("@-0.000000001")? == -1
-  assert time.parse("200002290000.05", utc: true)? == 951782405000000000
+  let fields = time.to_calendar(-1, utc: true)?
+  assert fields.year == 1969 and fields.month == 12 and fields.day == 31
+  assert fields.hour == 23 and fields.minute == 59 and fields.second == 59
+  assert fields.weekday == 3 and fields.offset_seconds == 0 and fields.nanosecond == 999999999
+  let leap = time.to_calendar(951782400000000000, utc: true)?
+  assert time.from_calendar(leap.year, leap.month, leap.day, leap.hour, leap.minute, leap.second, utc: true)? == 951782400000000000
   assert time.format(-1, "%Y-%m-%d %H:%M:%S.%N %s", utc: true)? == "1969-12-31 23:59:59.999999999 -1"
   assert time.format(0, "%q %z %:z %::z %:::z", utc: true)? == "1 +0000 +00:00 +00:00:00 +00"
   assert time.format(123456789, "%3N %12N", utc: true)? == "123 123456789000"
@@ -41,18 +42,17 @@ test test_time_calendar_rejects_invalid_input {
   assert time.from_calendar(2024, 2, 30, utc: true) is Err(_)
   assert time.from_calendar(2024, 1, 1, hour: 24, utc: true) is Err(_)
   assert time.from_calendar(2500, 1, 1, utc: true) is Err(_)
-  assert time.parse("not a date", utc: true) is Err(_)
-  assert time.parse("2024-02-30", utc: true) is Err(_)
-  assert time.parse("@99999999999999999999999999999999999999") is Err(_)
   assert time.format(0, "%999999999999999999999Y", utc: true) is Err(_)
 }
 
 test test_time_calendar_timezone_and_dst { |ctx|
-  let output = test.run_xsh(ctx, "print time.format(time.parse(\"2024-07-01 12:00:00\")?, \"%H:%M %z\")?", env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
+  let source = "let epoch = time.from_calendar(2024, 7, 1, 12)?\nlet fields = time.to_calendar(epoch)?\nassert fields.hour == 12\nassert fields.offset_seconds == -14400\nprint time.format(epoch, \"%H:%M %z\")?"
+  let output = test.run_xsh(ctx, source, env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
   assert output.stdout == "12:00 -0400\n"
-  let winter = test.run_xsh(ctx, "print time.format(time.parse(\"2024-01-01 12:00:00\")?, \"%H:%M %z\")?", env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
+  let winter_source = source.replace("2024, 7", with: "2024, 1").replace("-14400", with: "-18000")
+  let winter = test.run_xsh(ctx, winter_source, env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
   assert winter.stdout == "12:00 -0500\n"
-  let missing = test.run_xsh(ctx, "assert time.parse(\"2024-03-10 02:30:00\") is Err(_)", env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
+  let missing = test.run_xsh(ctx, "assert time.from_calendar(2024, 3, 10, 2, 30) is Err(_)", env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
   assert missing.success
 }
 
@@ -60,6 +60,11 @@ test test_time_clock_resolution {
   assert time.clock_resolution()? > 0
   assert time.format(0, "%65536Y%65536Y", utc: true) is Err(_)
   assert time.format(0, "%! %_::::z", utc: true)? == "%! %_::::z"
-  assert time.parse("A", utc: true, base_ns: 0)? == -3600000000000
-  assert time.parse("y", utc: true, base_ns: 0)? == 43200000000000
+}
+
+test test_time_explicit_calendar_normalization { |ctx|
+  let source = "assert time.from_calendar(2024, 3, 10, 2, 30) is Err(_)\nlet epoch = time.from_calendar(2024, 3, 10, 2, 30, normalize: true)?\nprint time.format(epoch, \"%F %T %z\")?"
+  let output = test.run_xsh(ctx, source, env: {TZ: "EST5EDT,M3.2.0,M11.1.0"})?
+  assert output.success, output.stderr
+  assert output.stdout == "2024-03-10 01:30:00 -0500\n"
 }

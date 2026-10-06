@@ -8,7 +8,7 @@
 #
 # Environment: UUTILS_ROOT (required), XSH_BIN (interpreter for the stage; default
 # target/release/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
-# UUTESTS_THREADS (default 3), UUTILS_SUITE_LOCK.
+# UUTESTS_THREADS (default 3), UUTILS_SUITE_LOCK, UUTESTS_RUN_UID/GID (root runs).
 #
 # Build notes:
 # - The uutils test crate needs `env!("CARGO_BIN_EXE_coreutils")` and gates each
@@ -93,13 +93,30 @@ else
 	filter="all()"
 fi
 
+# Reference tests assume an unprivileged caller, including permission-denied
+# fixtures and attempts to install over protected device nodes.
+test_runner=""
+if [ "$(id -u)" -eq 0 ]; then
+    run_uid=${UUTESTS_RUN_UID:-1000}
+    run_gid=${UUTESTS_RUN_GID:-$run_uid}
+    for value in "$run_uid" "$run_gid"; do
+        case "$value" in
+            *[!0-9]* | "") echo "test uid and gid must be numeric" >&2; exit 2 ;;
+        esac
+    done
+    [ "$run_uid" -ne 0 ] && [ "$run_gid" -ne 0 ] || { echo "reference tests require nonzero uid and gid" >&2; exit 2; }
+    command -v setpriv >/dev/null || { echo "root runs require setpriv" >&2; exit 2; }
+    getent passwd "$run_uid" >/dev/null || { echo "create an unprivileged test account for uid $run_uid" >&2; exit 2; }
+    test_runner="setpriv --reuid=$run_uid --regid=$run_gid --clear-groups --"
+fi
+
 profile_dir=$uutils/.config
 mkdir -p "$profile_dir"
 cat >"$profile_dir/nextest-xsh.toml" <<'EOF'
 experimental = ["wrapper-scripts"]
 
 [scripts.wrapper.xsh-memcap]
-command = ["sh", "-c", "ulimit -v @TEST_MEM_KB@; exec \"$@\"", "sh"]
+command = ["sh", "-c", "ulimit -v @TEST_MEM_KB@; exec @TEST_RUNNER@ \"$@\"", "sh"]
 
 [[profile.xsh.scripts]]
 filter = "all()"
@@ -115,6 +132,7 @@ store-success-output = false
 store-failure-output = true
 EOF
 sed -i "s/@TEST_MEM_KB@/${UUTESTS_TEST_MEM_KB:-4194304}/" "$profile_dir/nextest-xsh.toml"
+sed -i "s|@TEST_RUNNER@|$test_runner|" "$profile_dir/nextest-xsh.toml"
 
 # Never convert a report this run did not produce: a killed nextest (the host's
 # memory cgroup OOM-kills it) would otherwise leave the previous run's JUnit in

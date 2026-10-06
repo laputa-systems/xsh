@@ -166,12 +166,19 @@ mod unsupported;
 #[cfg(not(target_os = "linux"))]
 use unsupported as imp;
 
+mod block_control;
+pub(crate) mod sampling;
+pub(crate) use block_control::{block_signatures, wipe_block_signatures, umount, blockdev_info, blockdev_set_read_only, blockdev_flush, blockdev_reread_partition_table, fstrim, fsfreeze};
+#[cfg(target_os = "linux")]
+pub(crate) use api::{module_plan, modprobe};
+#[cfg(not(target_os = "linux"))]
+pub(crate) use unsupported::{module_plan, modprobe};
 pub(crate) use imp::{
     add_default_ipv4_route, blkid, block_devices, chroot, del_default_ipv4_route, depmod,
     dhcp_close, dhcp_recv, dhcp_send, dhcp_send_release, dhcp_socket, disk_usage, dmesg,
-    file_attrs, file_version, flush_ipv4_addresses, fsck, halt, hwclock, insmod, interfaces,
+    file_attrs, file_version, file_project, set_file_project, flush_ipv4_addresses, fsck, halt, hwclock, insmod, interfaces,
     is_mountpoint, kill_all, link_down, link_up, loop_attach, loop_detach, loop_list, meminfo,
-    mknod, mkswap, modinfo, modprobe, modules, mount, mount_all, network_dump, open_files,
+    mknod, mkswap, modinfo, modules, mount, mount_all, network_dump, open_files,
     partition_table, pivot_root, poweroff, read_device, reboot_system, rfkill_list, rfkill_set,
     rmmod, root_device, routes, set_file_attrs, set_file_version, set_hwclock, set_ipv4_address,
     set_system_clock, swapoff, swapoff_all, swapon, swapon_all, switch_root, sysctl_get,

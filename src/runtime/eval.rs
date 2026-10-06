@@ -2957,11 +2957,13 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "ceil",
     "round",
     "format",
+    "format_number",
     "sqrt",
     "pow",
     "exp",
     "ln",
     "log",
+    "atan2",
     "sin",
     "cos",
     "tan",
@@ -3394,7 +3396,10 @@ impl Evaluator {
         sources: SourceMap,
         command_name: String,
     ) -> Self {
-        Self::new_with_sources_and_command_inner(argv, Arc::new(sources), command_name, None)
+        Self::new_with_sources_and_command_inner(
+            argv.into_iter().map(|word| Value::Str(word.into())).collect(),
+            Arc::new(sources), command_name, None,
+        )
     }
 
     pub fn new_with_shared_sources_and_command(
@@ -3402,11 +3407,14 @@ impl Evaluator {
         sources: Arc<SourceMap>,
         command_name: String,
     ) -> Self {
-        Self::new_with_sources_and_command_inner(argv, sources, command_name, None)
+        Self::new_with_sources_and_command_inner(
+            argv.into_iter().map(|word| Value::Str(word.into())).collect(),
+            sources, command_name, None,
+        )
     }
 
     fn new_with_sources_and_command_inner(
-        argv: Vec<String>,
+        argv: Vec<Value>,
         sources: Arc<SourceMap>,
         command_name: String,
         cwd: Option<PathBuf>,
@@ -3498,7 +3506,7 @@ impl Evaluator {
             #[cfg(feature = "native-tests")]
             test_temp_counter: 0,
         };
-        let argv = Value::List(argv.into_iter().map(|s| Value::Str(s.into())).collect());
+        let argv = Value::List(argv);
         evaluator.define(
             "args",
             Binding {
@@ -3507,6 +3515,18 @@ impl Evaluator {
             },
         );
         evaluator
+    }
+
+    /// Construct a byte entry's argument binding without decoding OS words.
+    pub(crate) fn new_with_byte_sources_and_command(
+        arguments: Vec<Vec<u8>>,
+        sources: SourceMap,
+        command_name: String,
+    ) -> Self {
+        Self::new_with_sources_and_command_inner(
+            arguments.into_iter().map(|word| Value::Bytes(word.into())).collect(),
+            Arc::new(sources), command_name, None,
+        )
     }
 
     pub fn into_sources(self) -> SourceMap {
@@ -4531,6 +4551,22 @@ impl Evaluator {
         allow_checker_only: bool,
         declarations: CompactDeclOutput,
     ) -> Result<CompactIndexedRunPlan, Diagnostic> {
+        // Text-only embedding APIs supply UTF-8 words; a checked byte entry
+        // exposes their exact bytes through both main and imported args readers.
+        if !self.interactive && crate::sema::check::byte_argument_main(program, &declarations.parameter_types) {
+            let Some(Binding { value: Value::List(words), .. }) = self.lookup(Name::intern("args")) else {
+                return Err(compact_lowerability_diagnostic(zero_span(),
+                    "script argument binding is not a list", DiagnosticCode::CompactMainArgs));
+            };
+            let words = words.iter().map(|word| match word {
+                Value::Str(text) => Some(Value::Bytes(text.as_bytes().to_vec().into())),
+                Value::Bytes(bytes) => Some(Value::Bytes(bytes.clone())),
+                _ => None,
+            }).collect::<Option<Vec<_>>>().ok_or_else(|| compact_lowerability_diagnostic(
+                zero_span(), "byte script arguments must be bytes or UTF-8 words",
+                DiagnosticCode::CompactMainArgs))?;
+            self.define("args", Binding { value: Value::List(words), mutable: false });
+        }
         self.install_compact_runtime_declarations(&declarations);
         let source_id = program.source_text_source_id().unwrap_or(source_id);
         let Some(source) = self.sources.get(source_id).map(|source| source.text()) else {
@@ -4810,9 +4846,17 @@ impl Evaluator {
         argv: Vec<String>,
         command_name: String,
     ) -> Vec<Diagnostic> {
+        Self::new_with_sources_and_command(argv, sources, command_name)
+            .compact_indexed_diagnostics_for_evaluator(program, source_id)
+    }
+
+    pub(crate) fn compact_indexed_diagnostics_for_evaluator(
+        mut self,
+        program: &ArenaProgram,
+        source_id: SourceId,
+    ) -> Vec<Diagnostic> {
         program.symbol_owner().with_current(|| {
-            let mut evaluator = Self::new_with_sources_and_command(argv, sources, command_name);
-            match evaluator.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
+            match self.prepare_compact_indexed_only_or_diagnostic(program, source_id, false) {
                 Ok(_) => Vec::new(),
                 Err(diagnostic) => vec![diagnostic],
             }

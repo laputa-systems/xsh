@@ -149,6 +149,9 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
     exit 1
   }
 
+  process.set_signal_action("INT", "default")?
+  process.set_signal_action("TERM", "default")?
+
   var remaining = total * 1000.0
 
   while remaining > 0.0 {

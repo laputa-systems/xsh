@@ -232,7 +232,7 @@ fn parse_test_fake_run(args: &[String]) -> Result<Command, String> {
     Ok(Command::TestFakeRun {
         options: xsh::execution::script::RunOptions {
             script: script.clone(),
-            args: script_args.to_vec(),
+            args: script_args.iter().map(Into::into).collect(),
             coverage_trace_dir: None,
         },
         linux,
@@ -499,7 +499,7 @@ fn parse_trace(args: &[String]) -> Result<Command, String> {
         Ok(Command::Trace {
             options: TraceOptions {
                 script: script.clone(),
-                args: script_args.to_vec(),
+                args: script_args.iter().map(Into::into).collect(),
                 raw: parsed.flag("--raw"),
                 format,
                 file: parsed.value("--trace-file").map(str::to_string),

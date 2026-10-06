@@ -1,4 +1,5 @@
 #![allow(clippy::single_call_fn)]
+use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type};
 
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
@@ -42,6 +43,10 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
             ModuleEntry {
                 name: "cli",
                 sig: cli_module(),
+            },
+            ModuleEntry {
+                name: "compression",
+                sig: compression_module(),
             },
             ModuleEntry {
                 name: "cpu",
@@ -754,7 +759,7 @@ fn bytes_module() -> ModuleSig {
                 vec![
                     param("data", Type::Bytes),
                     param("width", Type::Int),
-                    default_param("offset", Type::Int),
+                    default_param("offset", Type::UInt),
                 ],
                 result(Type::Int),
                 true,
@@ -767,20 +772,22 @@ fn bytes_module() -> ModuleSig {
                 vec![
                     param("data", Type::Bytes),
                     param("width", Type::Int),
-                    default_param("offset", Type::Int),
+                    default_param("offset", Type::UInt),
                 ],
                 result(Type::Int),
                 true,
                 RuntimeOp::BytesUnpackBe,
             ),
         ),
+        ("resize", sig(vec![param("path", Type::Path), param("size", Type::Int), default_param("create", Type::Bool), default_param("exclusive", Type::Bool), default_param("regular", Type::Bool)], result(Type::Unit), false, RuntimeOp::BytesResize)),
         (
             "read_at",
             sig(
                 vec![
                     param("path", Type::Path),
-                    param("offset", Type::Int),
+                    param("offset", Type::UInt),
                     param("length", Type::Int),
+                    default_param("regular", Type::Bool),
                 ],
                 result(Type::Bytes),
                 false,
@@ -792,9 +799,10 @@ fn bytes_module() -> ModuleSig {
             sig(
                 vec![
                     param("path", Type::Path),
-                    param("offset", Type::Int),
+                    param("offset", Type::UInt),
                     param("data", Type::Bytes),
                     default_param("create", Type::Bool),
+                    default_param("regular", Type::Bool),
                 ],
                 result(Type::Int),
                 false,
@@ -806,9 +814,10 @@ fn bytes_module() -> ModuleSig {
             sig(
                 vec![
                     param("path", Type::Path),
-                    param("offset", Type::Int),
+                    param("offset", Type::UInt),
                     param("length", Type::Int),
                     default_param("create", Type::Bool),
+                    default_param("regular", Type::Bool),
                 ],
                 result(Type::Int),
                 false,
@@ -1008,7 +1017,10 @@ fn mime_module() -> ModuleSig {
 }
 
 fn regex_module() -> ModuleSig {
-    module_sig(vec![(
+    module_sig(vec![
+        ("captures_bytes", sig(vec![param("pattern", Type::Str), param("input", Type::Bytes), default_param("offset", Type::Int), default_param("extended", Type::Bool), default_param("ignore_case", Type::Bool)], result(Type::List(Box::new(Type::Optional(Box::new(Type::Record(btree_map(vec![("start", Type::Int), ("end", Type::Int)]))))))), true, RuntimeOp::RegexCapturesBytes)),
+        ("find_bytes", sig(vec![param("pattern", Type::Str), param("input", Type::Bytes), default_param("extended", Type::Bool), default_param("ignore_case", Type::Bool)], result(Type::List(Box::new(Type::Record(btree_map(vec![("start", Type::Int), ("end", Type::Int)]))))), true, RuntimeOp::RegexFindBytes)),
+        (
         "compile",
         sig(
             vec![param("pattern", Type::Str)],
@@ -1017,6 +1029,13 @@ fn regex_module() -> ModuleSig {
             RuntimeOp::RegexCompile,
         ),
     )])
+}
+
+fn compression_module() -> ModuleSig {
+    module_sig(vec![
+        ("transform", sig(vec![default_param("source", Type::Optional(Box::new(Type::Path))), default_param("destination", Type::Optional(Box::new(Type::Path))), default_param("format", Type::Str), default_param("decode", Type::Bool), default_param("level", Type::Int), default_param("test", Type::Bool), default_param("metadata", Type::Bool), default_param("overwrite", Type::Bool), default_param("pass_through", Type::Bool)], result(Type::Unit), false, RuntimeOp::CompressionTransform)),
+        ("gzip_name", sig(vec![param("source", Type::Path)], result(Type::Optional(Box::new(Type::Path))), false, RuntimeOp::CompressionGzipName)),
+    ])
 }
 
 fn shlex_module() -> ModuleSig {
@@ -2169,6 +2188,28 @@ fn linux_module() -> ModuleSig {
     let list_str = || Type::List(Box::new(Type::Str));
     let list_path = || Type::List(Box::new(Type::Path));
     module_sig(vec![
+        ("block_signatures", sig(vec![param("path", Type::Path)], result(Type::List(Box::new(Type::Record(btree_map(vec![("offset", Type::UInt), ("type", Type::Str), ("kind", Type::Str), ("magic", Type::Bytes)]))))), false, RuntimeOp::LinuxBlockSignatures)),
+        ("wipe_block_signatures", sig(vec![param("path", Type::Path), param("offsets", Type::List(Box::new(Type::UInt)))], result(Type::Unit), false, RuntimeOp::LinuxWipeBlockSignatures)),
+        ("file_project", sig(vec![param("path", Type::Path)], result(Type::Int), false, RuntimeOp::LinuxFileProject)),
+        ("set_file_project", sig(vec![param("path", Type::Path), param("project", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxSetFileProject)),
+        ("sample", sig(vec![default_param("proc_root", Type::Optional(Box::new(Type::Path)))], result(linux_sample_type()), false, RuntimeOp::LinuxSample)),
+
+        ("module_plan", sig(vec![param("name", Type::Str), default_param("params", Type::Str), default_param("remove", Type::Bool)], result(Type::List(Box::new(linux_module_plan_type()))), false, RuntimeOp::LinuxModulePlan)),
+
+        ("umount", sig(vec![param("target", Type::Path), default_param("lazy", Type::Bool), default_param("force", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxUmount)),
+
+        ("blockdev_info", sig(vec![param("path", Type::Path)], result(linux_blockdev_info_type()), false, RuntimeOp::LinuxBlockdevInfo)),
+
+        ("blockdev_set_read_only", sig(vec![param("path", Type::Path), param("read_only", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxBlockdevSetReadOnly)),
+
+        ("blockdev_flush", sig(vec![param("path", Type::Path)], result(Type::Unit), false, RuntimeOp::LinuxBlockdevFlush)),
+
+        ("blockdev_reread_partition_table", sig(vec![param("path", Type::Path)], result(Type::Unit), false, RuntimeOp::LinuxBlockdevRereadPartitionTable)),
+
+        ("fstrim", sig(vec![param("path", Type::Path), default_param("offset", Type::UInt), default_param("length", Type::Optional(Box::new(Type::UInt))), default_param("minlen", Type::UInt)], result(Type::UInt), false, RuntimeOp::LinuxFstrim)),
+
+        ("fsfreeze", sig(vec![param("path", Type::Path), param("freeze", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxFsfreeze)),
+
         (
             "write_device",
             sig(
@@ -2725,7 +2766,7 @@ fn linux_module() -> ModuleSig {
         (
             "modprobe",
             sig(
-                vec![param("name", Type::Str), default_param("params", Type::Str)],
+                vec![param("name", Type::Str), default_param("params", Type::Str), default_param("remove", Type::Bool)],
                 result(Type::Unit),
                 false,
                 RuntimeOp::LinuxModprobe,
@@ -2822,6 +2863,8 @@ fn path_module() -> ModuleSig {
 
 fn unix_module() -> ModuleSig {
     module_sig(vec![
+        ("read_fd", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int)], result(Type::Bytes), false, RuntimeOp::UnixReadFd)),
+
         (
             "reap_child_events",
             sig(
@@ -2939,6 +2982,7 @@ fn unix_module() -> ModuleSig {
                 RuntimeOp::UnixKillProcessGroup,
             ),
         ),
+        ("exec_env", sig(vec![param("command", Type::Command), param("environment", Type::Map(Box::new(Type::Str), Box::new(Type::Str))), default_param("argv0", Type::Optional(Box::new(Type::Str)))], result(Type::Unit), false, RuntimeOp::UnixExecEnv)),
         (
             "exec",
             sig(
@@ -2962,6 +3006,7 @@ fn unix_module() -> ModuleSig {
             sig(vec![param("source", Type::Int), param("target", Type::Int)],
                 result(Type::Unit), false, RuntimeOp::UnixDupFd),
         ),
+        ("poll_fd", sig(vec![param("fd", Type::Int), param("events", Type::List(Box::new(Type::Str))), default_param("timeout_ms", Type::Int)], result(Type::List(Box::new(Type::Str))), false, RuntimeOp::UnixPollFd)),
         (
             "set_uid",
             sig(vec![param("uid", Type::Int)], result(Type::Unit), false,
@@ -4077,11 +4122,12 @@ fn template_module() -> ModuleSig {
 
 fn time_module() -> ModuleSig {
     module_sig(vec![
+        ("to_calendar", sig(vec![param("epoch_ns", Type::Int), default_param("utc", Type::Bool)], result(crate::records::time_calendar_type()), false, RuntimeOp::TimeToCalendar)),
+
         ("now", sig(Vec::new(), Type::Int, false, RuntimeOp::TimeNow)),
         ("clock_resolution", sig(Vec::new(), result(Type::Int), false, RuntimeOp::TimeClockResolution)),
         ("format", sig(vec![param("epoch_ns", Type::Int), param("format", Type::Str), default_param("utc", Type::Bool)], result(Type::Str), false, RuntimeOp::TimeFormat)),
-        ("parse", sig(vec![param("text", Type::Str), default_param("utc", Type::Bool), default_param("base_ns", Type::Optional(Box::new(Type::Int)))], result(Type::Int), false, RuntimeOp::TimeParse)),
-        ("from_calendar", sig(vec![param("year", Type::Int), param("month", Type::Int), param("day", Type::Int), default_param("hour", Type::Int), default_param("minute", Type::Int), default_param("second", Type::Int), default_param("utc", Type::Bool)], result(Type::Int), false, RuntimeOp::TimeFromCalendar)),
+        ("from_calendar", sig(vec![param("year", Type::Int), param("month", Type::Int), param("day", Type::Int), default_param("hour", Type::Int), default_param("minute", Type::Int), default_param("second", Type::Int), default_param("utc", Type::Bool), default_param("normalize", Type::Bool)], result(Type::Int), false, RuntimeOp::TimeFromCalendar)),
         (
             "sleep",
             sig(
@@ -4510,6 +4556,13 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "Exit/status fields remain data; a check result does not imply that repair was performed.",
             &["linux", "filesystem", "status-data"],
         ),
+        "LinuxSample" | "LinuxCpuSample" | "LinuxDiskSample" | "LinuxProcessSample" => (
+            "Linux counters from a bounded host snapshot.",
+            "Counters are read from several files; PID and start_ticks identify a process across snapshots.",
+            &["linux", "sampling"],
+        ),
+        "LinuxModulePlan" => ("One resolved kernel module operation.", "Planning reads module indexes and configuration without executing commands or loading modules.", &["linux", "kernel"]),
+        "LinuxBlockdevInfo" => ("Block device dimensions and read-only state.", "Values reflect device state at query time.", &["linux", "device"]),
         "LinuxModinfo" => (
             "Describes Linux kernel-module metadata.",
             "The record is inspection data and does not load the named module.",
@@ -4550,6 +4603,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             "The record is an event snapshot from the host kernel stream and is not replayable by construction.",
             &["linux", "device", "streaming"],
         ),
+        "TimeCalendar" => ("Calendar fields for a Unix timestamp.", "weekday uses Sunday zero; nanosecond is the fractional timestamp part and offset_seconds is the local UTC offset.", &["time", "calendar"]),
         "MeasuredCommand" => (
             "Reports status and elapsed time for a measured command.",
             "Timing is additional data; the command retains its normal process status and error distinction.",

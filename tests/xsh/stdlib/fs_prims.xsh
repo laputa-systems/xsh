@@ -618,7 +618,7 @@ test test_copy_file_streams_fifo_bytes_and_refuses_same_fifo_without_a_writer { 
   let root = test.temp_dir(ctx, name: "fs-copy-fifo")?
   let fifo = fp"{root}/fifo"
   let dest = fp"{root}/dest"
-  fs.mkfifo(fifo, 0o600)
+  fs.mknod(fifo, "fifo", 0o600)
   assert fs.copy_file(fifo, fifo) is Err(_)
   let writer = spawn run sh -c "printf \"fifo payload\" > \"$1\"" sh $fifo ?
   let report = fs.copy_file(fifo, dest)?
@@ -663,7 +663,7 @@ test test_copy_file_streams_to_devices_without_truncating_or_claiming_holes { |c
     assert fs.stat(/dev/null)?.kind == "char"
   }
   assert fs.copy_file(source, /dev/null, reflink: "always") is Err(_)
-  if /dev/full.exists()? {
+  if p"/dev/full".exists()? {
     let full = fs.copy_file(source, /dev/full)
     assert full is Err(_)
     if let Err(failure) = full {
@@ -680,9 +680,9 @@ test test_copy_file_streams_every_byte_to_a_fifo_destination { |ctx|
   let received = fp"{root}/received"
   let payload = bytes.concat([bytes.zero(131072)?, b"tail"])
   source.write(payload)
-  fs.mkfifo(fifo, 0o600)
-  // The child owns the reader and exits at EOF; the native spawn lifecycle
-  // cleans it up if copying or an assertion fails.
+  fs.mknod(fifo, "fifo", 0o600)
+  # The child owns the reader and exits at EOF; the native spawn lifecycle
+  # cleans it up if copying or an assertion fails.
   let reader = spawn run sh -c "cat < \"$1\" > \"$2\"" sh $fifo $received ?
   let report = fs.copy_file(source, fifo, sparse: "always", reflink: "auto")?
   assert (wait reader?).ok

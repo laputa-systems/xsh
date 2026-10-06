@@ -1,0 +1,111 @@
+{
+  "corpus": "seeded mixed repetitive and random binary",
+  "input_bytes": 67108864,
+  "runs": [
+    {
+      "codec": "gzip",
+      "implementation": "BusyBox",
+      "compressed_bytes": 8990767,
+      "encode": {
+        "seconds": 0.45,
+        "peak_rss_kib": 1092
+      },
+      "decode": {
+        "seconds": 0.23,
+        "peak_rss_kib": 900
+      }
+    },
+    {
+      "codec": "gzip",
+      "implementation": "XSH",
+      "compressed_bytes": 9217501,
+      "encode": {
+        "seconds": 0.12,
+        "peak_rss_kib": 31680
+      },
+      "decode": {
+        "seconds": 0.05,
+        "peak_rss_kib": 29632
+      }
+    },
+    {
+      "codec": "bzip2",
+      "implementation": "bzip2, a block-sorting file compressor.  Version 1.0.8, 13-Jul-2019.",
+      "compressed_bytes": 8738727,
+      "encode": {
+        "seconds": 11.14,
+        "peak_rss_kib": 7692
+      },
+      "decode": {
+        "seconds": 0.92,
+        "peak_rss_kib": 4104
+      }
+    },
+    {
+      "codec": "bzip2",
+      "implementation": "XSH",
+      "compressed_bytes": 8738727,
+      "encode": {
+        "seconds": 11.72,
+        "peak_rss_kib": 40260
+      },
+      "decode": {
+        "seconds": 1.47,
+        "peak_rss_kib": 32056
+      }
+    },
+    {
+      "codec": "xz",
+      "implementation": "xz (XZ Utils) 5.8.4",
+      "compressed_bytes": 8780696,
+      "encode": {
+        "seconds": 2.19,
+        "peak_rss_kib": 360048
+      },
+      "decode": {
+        "seconds": 0.36,
+        "peak_rss_kib": 94148
+      }
+    },
+    {
+      "codec": "xz",
+      "implementation": "XSH",
+      "compressed_bytes": 8780080,
+      "encode": {
+        "seconds": 13.42,
+        "peak_rss_kib": 132412
+      },
+      "decode": {
+        "seconds": 1.86,
+        "peak_rss_kib": 37972
+      }
+    },
+    {
+      "codec": "lzma",
+      "implementation": "xz (XZ Utils) 5.8.4",
+      "compressed_bytes": 8778759,
+      "encode": {
+        "seconds": 4.0,
+        "peak_rss_kib": 95780
+      },
+      "decode": {
+        "seconds": 0.21,
+        "peak_rss_kib": 8948
+      }
+    },
+    {
+      "codec": "lzma",
+      "implementation": "XSH",
+      "compressed_bytes": 8778758,
+      "encode": {
+        "seconds": 4.87,
+        "peak_rss_kib": 132416
+      },
+      "decode": {
+        "seconds": 0.31,
+        "peak_rss_kib": 38260
+      }
+    }
+  ],
+  "interoperability": "reference and XSH streams decoded by both implementations"
+}

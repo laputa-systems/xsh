@@ -1,4 +1,6 @@
 use crate::types::Type;
+mod sampling;
+pub use sampling::{linux_sample_type, linux_cpu_sample_type, linux_disk_sample_type, linux_process_sample_type};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
@@ -56,6 +58,12 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxNetworkDump", linux_network_dump_type()),
         ("LinuxLoopDevice", linux_loop_device_type()),
         ("LinuxMemInfo", linux_meminfo_type()),
+        ("LinuxSample", linux_sample_type()),
+        ("LinuxCpuSample", linux_cpu_sample_type()),
+        ("LinuxDiskSample", linux_disk_sample_type()),
+        ("LinuxProcessSample", linux_process_sample_type()),
+        ("LinuxModulePlan", linux_module_plan_type()),
+        ("LinuxBlockdevInfo", linux_blockdev_info_type()),
         ("LinuxBlkid", linux_blkid_type()),
         ("LinuxFsck", linux_fsck_type()),
         ("LinuxModinfo", linux_modinfo_type()),
@@ -67,6 +75,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxRfkill", linux_rfkill_type()),
         ("LinuxUevent", linux_uevent_type()),
         ("MeasuredCommand", measured_command_type()),
+        ("TimeCalendar", time_calendar_type()),
         ("MimeInfo", mime_info_type()),
         ("MimeParse", mime_parse_type()),
         ("NetHeader", net_header_type()),
@@ -467,6 +476,21 @@ pub fn process_entry_type() -> Type {
         ("start_time".to_string(), Type::Str),
         ("start_time_ms".to_string(), Type::Int),
         ("runtime_seconds".to_string(), Type::Int),
+        ("user_ticks".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("system_ticks".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("cpu_ticks".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("start_ticks".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("ticks_per_second".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("rss_bytes".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("vsize_bytes".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("pgrp".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("session".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("tty_number".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("nice".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("priority".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("thread_count".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("processor".to_string(), Type::Optional(Box::new(Type::Int))),
+        ("tty".to_string(), Type::Optional(Box::new(Type::Str))),
     ]))
 }
 
@@ -547,6 +571,8 @@ pub fn linux_meminfo_type() -> Type {
         ("available".to_string(), Type::Int),
         ("buffers".to_string(), Type::Int),
         ("cached".to_string(), Type::Int),
+        ("shared".to_string(), Type::Int),
+        ("sreclaimable".to_string(), Type::Int),
         ("swap_total".to_string(), Type::Int),
         ("swap_free".to_string(), Type::Int),
     ]))
@@ -819,6 +845,7 @@ pub fn linux_module_type() -> Type {
     Type::Record(name_type_map(vec![
         ("name".to_string(), Type::Str),
         ("size".to_string(), Type::Int),
+        ("ref_count".to_string(), Type::Int),
         ("used_by".to_string(), Type::List(Box::new(Type::Str))),
     ]))
 }
@@ -862,6 +889,7 @@ pub fn linux_modinfo_type() -> Type {
             "params".to_string(),
             Type::List(Box::new(linux_module_param_type())),
         ),
+        ("fields".to_string(), Type::List(Box::new(env_entry_type()))),
     ]))
 }
 
@@ -876,6 +904,9 @@ pub fn linux_open_file_type() -> Type {
         ("protocol".to_string(), Type::Str),
         ("local".to_string(), Type::Str),
         ("remote".to_string(), Type::Str),
+        ("fd_label".to_string(), Type::Str),
+        ("access".to_string(), Type::Str),
+        ("dev".to_string(), Type::Optional(Box::new(Type::Int))),
     ]))
 }
 
@@ -1168,4 +1199,16 @@ pub fn group_record_type() -> Type {
         ("gid".to_string(), Type::Int),
         ("members".to_string(), Type::List(Box::new(Type::Str))),
     ]))
+}
+
+pub fn linux_module_plan_type() -> Type {
+    Type::Record(name_type_map(vec![("name", Type::Str), ("filename", Type::Path), ("params", Type::Str), ("loaded", Type::Bool)]))
+}
+
+pub fn linux_blockdev_info_type() -> Type {
+    Type::Record(name_type_map(vec![("size_bytes", Type::UInt), ("logical_sector_bytes", Type::UInt), ("physical_sector_bytes", Type::UInt), ("read_only", Type::Bool)]))
+}
+
+pub fn time_calendar_type() -> Type {
+    Type::Record(name_type_map(["year", "month", "day", "hour", "minute", "second", "weekday", "offset_seconds", "nanosecond"].into_iter().map(|name| (name, Type::Int)).collect()))
 }

@@ -73,6 +73,7 @@ pub(crate) fn path_limits(path: PathBuf, span: Span) -> Result<Value, RuntimeErr
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     let result = (|| -> std::io::Result<Value> {
         use std::os::unix::ffi::OsStrExt;
+        std::fs::metadata(&path)?;
         let path = std::ffi::CString::new(path.as_os_str().as_bytes())
             .map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
         let name_max = path_limit(&path, libc::_PC_NAME_MAX)?;

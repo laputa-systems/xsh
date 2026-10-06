@@ -129,3 +129,21 @@ test test_split_separator_verbose_filter_and_errors { |ctx|
   assert split_run(ctx, root, [], b"")?.status == 0
   assert piece(root, "xaa")? == b"keep", "empty input creates no output and leaves existing files alone"
 }
+
+test test_split_numbered_virtual_input_is_rejected_before_read { |ctx|
+  let root = test.temp_dir(ctx, name: "split-device")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/split.xsh"
+  for number in ["3", "l/3"] {
+    # Bound both allocation and time if size validation regresses and the
+    # child attempts to read the device's endless byte stream.
+    let status = process.run(process.command_argv(p"/bin/sh",
+      ["sh", "-c", "ulimit -v 131072; exec \"$@\"", "split-device-probe",
+        ctx.xsh_bin.display(), "--", script.display(), "-n", number, "/dev/zero"],
+      root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+    assert status.exited_with(1), "numbered virtual input must fail before its endless byte stream is read"
+    assert stderr.read_text()? == "split: /dev/zero: cannot determine file size\n"
+    assert ! fp"{root}/xaa".exists()?
+  }
+}

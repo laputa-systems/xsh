@@ -108,6 +108,7 @@ fn module_docs(module: &str) -> ApiDocs {
             "Script command-line parsing into typed option records.",
             "Descriptors define the stable script-facing command-line contract.",
         ),
+        "compression" => ("Bounded compression of files or standard streams.", "Null paths select standard input and output; named destinations are created exclusively unless overwrite is true."),
         "cpu" => ("CPU capability queries.", ""),
         "diff" => ("Unified diff generation.", ""),
         "dns" => (
@@ -185,10 +186,6 @@ fn module_docs(module: &str) -> ApiDocs {
         "test" => (
             "Native XSH test assertions, temp resources, and host-effect mocks.",
             "Use native tests for focused XSH behavior coverage.",
-        ),
-        "text" => (
-            "Text splitting, joining, replacement, counting, and character transforms.",
-            "Text APIs operate on UTF-8 Str values.",
         ),
         "template" => (
             "Text templates for configuration files and generated documents.",
@@ -471,9 +468,10 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The input length must match the requested width and the selected signedness is explicit.",
             &["bytes", "decoding", "endian"],
         )),
+        ("bytes", "resize") => Some(("Resizes a file through its opened descriptor.", "size must be nonnegative. create permits creation; exclusive requires create and fails if the path exists. regular opens without blocking and rejects nonregular descriptors before resizing. Host errors retain errno.", &["bytes", "filesystem"])),
         ("bytes", "read_at" | "write_at" | "zero_at") => Some((
             "Reads, writes, or clears a byte range at an explicit offset.",
-            "Offsets and lengths are bounds-checked; an out-of-range operation returns an error without partial mutation.",
+            "Offsets and lengths are bounds-checked; an out-of-range operation returns an error without partial mutation. regular true opens without blocking and rejects nonregular descriptors before I/O.",
             &["bytes", "offset", "bounds"],
         )),
         ("bytes", "copy") => Some((
@@ -994,12 +992,14 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The result is a point-in-time observation and is unavailable or restricted on hosts without the corresponding Linux interface.",
             &["linux", "inspection", "host-state"],
         )),
-        ("linux", "sysctl_get" | "sysctl_load_dirs") => Some((
+        ("linux", "block_signatures") => Some(("Probes recognized storage signatures.", "Reports exact byte offsets and signature bytes. GPT probing validates header and partition array checksums. Probing does not establish filesystem consistency.", &["linux", "storage"])),
+        ("linux", "wipe_block_signatures") => Some(("Erases selected recognized storage signatures.", "Validates all requested offsets against current probe results before writing. Selected signature bytes are zeroed; later host write errors may leave earlier signatures erased.", &["linux", "storage", "destructive"])),
+        ("linux", "sysctl_get" | "sysctl_load_dirs" | "file_project") => Some((
             "Reads Linux sysctl configuration values.",
             "Values are read from the host kernel interface and path or permission failures remain errors.",
             &["linux", "sysctl", "host-state"],
         )),
-        ("linux", "sysctl_set" | "set_file_attrs" | "set_file_version") => Some((
+        ("linux", "sysctl_set" | "set_file_attrs" | "set_file_version" | "set_file_project") => Some((
             "Changes Linux kernel or filesystem attributes.",
             "The mutation is host-global or persistent filesystem state and requires explicit privilege.",
             &["linux", "mutation", "privileged"],
@@ -1046,7 +1046,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("linux", "write_partition_table") => Some((
             "Writes a Linux partition table description.",
-            "Partition changes are destructive host storage effects; validate the complete table before calling this operation.",
+            "Partition writes reject invalid records before mutation: sector geometry must match, positive consistent extents must not overlap. DOS permits at most four primary partitions, no extended partitions and valid nonzero hexadecimal type/id. GPT permits at most 128 partitions and valid nonzero GUIDs; empty disk/partition GUIDs request UUIDv4. Names permit at most 36 UTF-16 code units and no NUL.",
             &["linux", "storage", "destructive", "privileged"],
         )),
         ("linux", "fsck") => Some((
@@ -1204,6 +1204,24 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Dynamic patterns return structured regex-compile errors. Static patterns can use raw rx literals validated once during checked program preparation.",
             &["regex", "parsing", "compiled"],
         )),
+        ("regex", "find_bytes") => Some((
+            "Finds nonoverlapping POSIX regular expression matches as byte offsets.",
+            "Defaults to basic, case-sensitive regular expressions. Extended syntax and case folding are explicit. Offsets are half-open; empty matches advance one byte. NUL input returns an error on platforms whose POSIX engine cannot match it.",
+            &["regex", "bytes", "search"],
+        )),
+        ("compression", "transform") => Some(("Compresses or decompresses a byte stream.", "Null source/destination select standard input/output. Formats are gzip, bzip2, xz, lzma and zstd. Level defaults to 6, metadata to true; test requires decode and no destination. pass_through requires decoding, test false and null destination, and copies uncompressed input. gzip/xz/lzma levels are 0..9; bzip2 levels are 1..9; zstd levels are -131072..22, with 0 selecting the codec default. Named destinations publish through a temporary file; failures preserve the existing destination. Standard output may contain a partial stream. File mode and times are preserved; gzip header timestamps are used only with metadata true.", &["compression", "io", "filesystem"])),
+        ("compression", "gzip_name") => Some(("Reads a gzip header filename.", "Returns only a safe filename component, or null when the header has no usable filename.", &["compression", "filesystem"])),
+        ("linux", "sample") => Some(("Samples Linux CPU, memory, process and disk counters.", "Cross-file snapshots are not atomic. Times use milliseconds; disk sectors are 512 bytes, paging counters use KiB and swap counters use host pages. PID and start_ticks identify a process. proc_root selects a fixture root; missing or malformed required counters fail.", &["linux", "sampling"])),
+        ("linux", "module_plan") => Some(("Resolves kernel module dependencies and options.", "Reads indexes and configuration without running commands. remove chooses reverse dependency removal order; loaded reports current kernel state.", &["linux", "kernel"])),
+        ("linux", "umount" | "blockdev_info" | "blockdev_set_read_only" | "blockdev_flush" | "blockdev_reread_partition_table" | "fstrim" | "fsfreeze") => Some(("Controls mounts, filesystems and block devices.", "Host errors retain errno. Mutations require the relevant kernel permissions. fstrim reports discarded bytes; freeze holds filesystem writes until explicitly thawed.", &["linux", "filesystem", "privileged"])),
+        ("regex", "captures_bytes") => Some(("Matches POSIX byte captures at an input offset.", "Returns an empty list for no match; a match has ten nullable ranges, index zero for the full match and one through nine for captures. Offsets are absolute byte positions. Basic syntax is default; extended and ignore_case select POSIX flags. Patterns are validated even for empty input; NUL input and GNU word boundary escapes are rejected. A nonzero offset does not create a new beginning-of-line anchor.", &["regex", "bytes"])),
+
+        ("unix", "read_fd") => Some(("Reads one bounded chunk from a descriptor.", "max_bytes must be positive. A single descriptor read returns short reads as they occur and empty bytes at EOF, without read-ahead; EINTR retries and host errors retain errno.", &["unix", "io"])),
+        ("unix", "poll_fd") => Some((
+            "Waits for descriptor readiness and reports terminal conditions.",
+            "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",
+            &["unix", "io", "poll"],
+        )),
         ("set", "empty") => Some((
             "Creates the empty set.",
             "The element type comes from where the call is written: an annotated binding, a parameter, a field, or a return type that is a Set[T].",
@@ -1314,14 +1332,10 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Uses the process TZ and system timezone rules unless utc is true. Supports strftime directives plus nanoseconds (%N), epoch seconds (%s), quarter (%q), and colon timezone offsets. Format widths and total output are limited to 65536 bytes; embedded NUL and non-UTF-8 output are errors.",
             &["time", "calendar", "timezone"],
         )),
-        ("time", "parse") => Some((
-            "Parses calendar text into nanoseconds since the Unix epoch.",
-            "Accepts @seconds with up to nine fractional digits, numeric ISO dates and times, explicit numeric timezone offsets, common English month dates, compact touch timestamps, now/today/yesterday/tomorrow, and relative calendar or duration units with optional ago. Relative dates use base_ns when supplied and otherwise observe the wall clock. Local dates use TZ unless utc is true. Invalid dates and nanosecond overflow are errors.",
-            &["time", "calendar", "timezone"],
-        )),
+        ("time", "to_calendar") => Some(("Converts a Unix nanosecond timestamp into calendar fields.", "utc false selects the host local timezone. weekday uses Sunday zero and offset_seconds is the UTC offset. Native calendar conversion errors remain Result data.", &["time", "calendar"])),
         ("time", "from_calendar") => Some((
             "Converts typed calendar fields to nanoseconds since the Unix epoch.",
-            "Month is 1 through 12; day is validated against the month and leap year. Hour, minute and second default to zero. Local TZ and DST rules apply unless utc is true; impossible dates and missing DST hours are rejected. Ambiguous DST hours follow the host calendar library. The signed Int nanosecond range is approximately 1677 through 2262.",
+            "Month is 1 through 12; day is validated against the month and leap year. Hour, minute and second default to zero. Local TZ and DST rules apply unless utc is true; impossible dates and missing DST hours are rejected. Ambiguous DST hours follow the host calendar library. The signed Int nanosecond range is approximately 1677 through 2262. By default, nonexistent local times and invalid calendar fields fail. normalize true explicitly permits libc calendar normalization, including DST gaps.",
             &["time", "calendar", "timezone"],
         )),
         ("time", "clock_resolution") => Some((
@@ -1399,6 +1413,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Target selection and signal are explicit host effects; permission and liveness failures remain visible.",
             &["unix", "process", "signal", "privileged"],
         )),
+        ("unix", "exec_env") => Some(("Replaces the current process with an explicit environment and optional argv0.", "The supplied map replaces both inherited and command environment completely. Keys must be nonempty and contain neither NUL nor equals; values and argv0 must contain no NUL. Command cwd and ordered redirections apply. Successful exec does not return; validation, setup and host exec failures remain Result data. argv0 changes the argument presented to the executable, subject to kernel interpreter handling for scripts.", &["unix", "process", "exec"])),
         ("unix", "exec") => Some((
             "Replaces the current Unix process with a typed command.",
             "Successful execution does not return. Command cwd, environment and ordered file or byte redirections are applied; descriptors without a redirection are inherited. Byte input is materialized before replacement. Setup and exec failures remain errors in the calling process.",
@@ -1811,6 +1826,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Non-finite values and values outside the integer range return an error.",
             &["numeric", "rounding"],
         )),
+        ("Float", "atan2") => Some(("Returns the angle of a Cartesian coordinate pair.", "The receiver is y and other is x; the result is radians, preserving IEEE floating behavior including signed zero and NaN.", &["numeric", "math"])),
+        ("Float", "format_number") => Some(("Formats one numeric value using a portable conversion.", "Conversions are g/G, e/E, f/F, d/i, o/u and x/X. Precision defaults to six and is bounded to 0..1000000. Floating conversions use libc rounding. Integer conversions truncate toward zero and require finite signed 64-bit range; unsigned conversions render the resulting two-complement bit pattern. Width, padding and format-string parsing belong to the caller.", &["text", "numeric"])),
         ("Float", "format") => Some((
             "Formats a floating-point value with an optional precision.",
             "The result is display text and is not a lossless numeric serialization contract.",

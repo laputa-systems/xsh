@@ -8,7 +8,7 @@ mod tests {
         fsck_impl_with_path, page_size, write_partition_table_impl,
     };
     use crate::modules::linux::kernel::{
-        depmod_impl_in_root, modinfo_impl_in_root, module_info_record,
+        depmod_impl_in_root, modinfo_impl_in_root, module_info_record, test_module_plan,
     };
     #[cfg(target_os = "linux")]
     use crate::modules::linux::process::open_files_impl;
@@ -95,10 +95,35 @@ mod tests {
     }
 
     fn module_bytes(fields: &[&str]) -> Vec<u8> {
-        let mut bytes = Vec::new();
+        let mut metadata = Vec::new();
         for field in fields {
-            bytes.extend_from_slice(field.as_bytes());
-            bytes.push(0);
+            metadata.extend_from_slice(field.as_bytes());
+            metadata.push(0);
+        }
+        let strings = b"\0.shstrtab\0.modinfo\0";
+        let mut bytes = vec![0u8; 64 + 3 * 64];
+        bytes[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+        bytes[16..18].copy_from_slice(&1u16.to_le_bytes());
+        bytes[18..20].copy_from_slice(&62u16.to_le_bytes());
+        bytes[20..24].copy_from_slice(&1u32.to_le_bytes());
+        bytes[40..48].copy_from_slice(&64u64.to_le_bytes());
+        bytes[52..54].copy_from_slice(&64u16.to_le_bytes());
+        bytes[58..60].copy_from_slice(&64u16.to_le_bytes());
+        bytes[60..62].copy_from_slice(&3u16.to_le_bytes());
+        bytes[62..64].copy_from_slice(&1u16.to_le_bytes());
+        let strings_offset = bytes.len() as u64;
+        bytes.extend_from_slice(strings);
+        let metadata_offset = bytes.len() as u64;
+        bytes.extend_from_slice(&metadata);
+        for (index, name, kind, offset, size) in [
+            (1, 1u32, 3u32, strings_offset, strings.len() as u64),
+            (2, 11u32, 1u32, metadata_offset, metadata.len() as u64),
+        ] {
+            let start = 64 + index * 64;
+            bytes[start..start + 4].copy_from_slice(&name.to_le_bytes());
+            bytes[start + 4..start + 8].copy_from_slice(&kind.to_le_bytes());
+            bytes[start + 24..start + 32].copy_from_slice(&offset.to_le_bytes());
+            bytes[start + 32..start + 40].copy_from_slice(&size.to_le_bytes());
         }
         bytes
     }
@@ -118,8 +143,9 @@ mod tests {
             (Arc::from("label"), str_value(label.to_string())),
             (
                 Arc::from("id"),
-                str_value("11111111-2222-3333-4444-555555555555"),
+                str_value(if label == "dos" { "0x12345678" } else { "11111111-2222-3333-4444-555555555555" }),
             ),
+            (Arc::from("sector_size"), Value::Int(512)),
             (Arc::from("partitions"), Value::List(partitions)),
         ])
     }
@@ -260,7 +286,10 @@ mod tests {
                 ("index", Value::Int(1)),
                 ("start", Value::Int(2048)),
                 ("size", Value::Int(4096)),
+                ("end", Value::Int(6143)),
                 ("type", str_value("83")),
+                ("uuid", str_value("")),
+                ("name", str_value("")),
             ])],
         );
 
@@ -290,6 +319,7 @@ mod tests {
                 ("index", Value::Int(1)),
                 ("start", Value::Int(2048)),
                 ("end", Value::Int(4095)),
+                ("size", Value::Int(2048)),
                 ("type", str_value(type_guid.to_string())),
                 ("uuid", str_value(part_guid.to_string())),
                 ("name", str_value("rootfs")),
@@ -297,6 +327,35 @@ mod tests {
         );
 
         write_partition_table_impl(&gpt, &gpt_table, span()).expect("write gpt");
+        // Byte-level format checks use an independent CRC implementation so
+        // matching bugs in the native reader and writer cannot satisfy them.
+        let bytes = fs::read(&gpt).expect("read GPT bytes");
+        let oracle_crc = |data: &[u8]| {
+            let mut crc = !0_u32;
+            for byte in data {
+                crc ^= u32::from(*byte);
+                for _ in 0..8 {
+                    crc = if crc & 1 == 1 { (crc >> 1) ^ 0xedb88320 } else { crc >> 1 };
+                }
+            }
+            !crc
+        };
+        let primary = &bytes[512..1024];
+        let backup = &bytes[bytes.len() - 512..];
+        let entries = &bytes[1024..1024 + 128 * 128];
+        assert_eq!(bytes[450], 0xee);
+        assert_eq!(&bytes[510..512], &[0x55, 0xaa]);
+        for header in [primary, backup] {
+            assert_eq!(&header[..8], b"EFI PART");
+            let stored = u32::from_le_bytes(header[16..20].try_into().unwrap());
+            let mut checked = header[..92].to_vec();
+            checked[16..20].fill(0);
+            assert_eq!(oracle_crc(&checked), stored);
+            assert_eq!(oracle_crc(entries), u32::from_le_bytes(header[88..92].try_into().unwrap()));
+        }
+        assert_eq!(entries, &bytes[bytes.len() - 512 - 128 * 128..bytes.len() - 512]);
+        assert_eq!(u64::from_le_bytes(primary[32..40].try_into().unwrap()), (bytes.len() / 512 - 1) as u64);
+        assert_eq!(u64::from_le_bytes(backup[32..40].try_into().unwrap()), 1);
         let record = ok_record(partition_table(&gpt, span()).expect("read gpt"));
         assert_eq!(str_field(&record, "label"), "gpt");
         assert_eq!(
@@ -316,6 +375,47 @@ mod tests {
             str_field(&blkid_record, "part_entry_uuid"),
             "11111111-2222-3333-4444-555555555555"
         );
+        let mut corrupt = bytes.clone();
+        corrupt[1024 + 32] ^= 1;
+        fs::write(&gpt, &corrupt).unwrap();
+        assert!(matches!(partition_table(&gpt, span()).unwrap(), Value::Result(ResultValue::Err(_))));
+        corrupt = bytes;
+        corrupt[512 + 16] ^= 1;
+        fs::write(&gpt, &corrupt).unwrap();
+        assert!(matches!(partition_table(&gpt, span()).unwrap(), Value::Result(ResultValue::Err(_))));
+    }
+
+    #[test]
+    fn partition_writer_rejects_invalid_input_without_mutation() {
+        let root = TempDir::new().expect("tempdir");
+        let image = root.path().join("disk.img");
+        let original = vec![0xa5; 1024 * 1024];
+        fs::write(&image, &original).unwrap();
+        let valid = partition_record(&[
+            ("index", Value::Int(1)), ("start", Value::Int(64)),
+            ("end", Value::Int(127)), ("size", Value::Int(64)),
+            ("type", str_value("83")), ("uuid", str_value("")), ("name", str_value("")),
+        ]);
+        let mut invalid = Vec::new();
+        for (field, value) in [
+            ("index", Value::Int(0)), ("index", Value::Int(5)),
+            ("start", Value::Int(-1)), ("size", Value::Int(0)),
+            ("end", Value::Int(128)), ("type", str_value("bad")),
+            ("type", str_value("05")),
+        ] {
+            let mut part = record_value(&valid).clone();
+            part.insert(Arc::from(field), value);
+            invalid.push(table_record("dos", vec![Value::Record(part)]));
+        }
+        invalid.push(table_record("dos", vec![valid.clone(); 5]));
+        invalid.push(table_record("dos", vec![valid.clone(), valid.clone()]));
+        let mut wrong_sector = table_record("dos", vec![valid]);
+        wrong_sector.insert(Arc::from("sector_size"), Value::Int(4096));
+        invalid.push(wrong_sector);
+        for table in invalid {
+            assert!(write_partition_table_impl(&image, &table, span()).is_err(), "accepted {table:?}");
+            assert_eq!(fs::read(&image).unwrap(), original);
+        }
     }
 
     #[test]
@@ -363,6 +463,121 @@ mod tests {
             fs::read_to_string(root.path().join("modules.dep")).expect("read modules.dep"),
             "kernel/drivers/demo-name.ko: kernel/drivers/dep.ko\nkernel/drivers/dep.ko:\n"
         );
+    }
+
+    #[test]
+    fn module_metadata_preserves_only_ordered_modinfo_fields() {
+        let root = TempDir::new().expect("tempdir");
+        let mut bytes = module_bytes(&["alias=pci:first", "description=Démo", "alias=pci:second"]);
+        bytes.extend_from_slice(b"\0alias=outside-section\0");
+        fs::write(root.path().join("demo.ko"), bytes).expect("module fixture");
+        let record = modinfo_impl_in_root("demo", root.path(), span()).expect("modinfo");
+        let fields = list_field(record_value(&record), "fields");
+        let observed = fields.iter().map(|field| {
+            let field = record_value(field);
+            (str_field(field, "name"), str_field(field, "value"))
+        }).collect::<Vec<_>>();
+        assert_eq!(observed, vec![
+            ("alias".into(), "pci:first".into()),
+            ("description".into(), "Démo".into()),
+            ("alias".into(), "pci:second".into()),
+        ]);
+    }
+
+    #[test]
+    fn module_metadata_reads_elf32_big_endian_and_rejects_overflowing_tables() {
+        let root = TempDir::new().expect("tempdir");
+        let strings = b"\0.shstrtab\0.modinfo\0";
+        let metadata = b"description=big endian module\0";
+        let mut image = vec![0u8; 52 + 3 * 40];
+        image[..7].copy_from_slice(b"\x7fELF\x01\x02\x01");
+        for (offset, value) in [(16, 1u16), (18, 40), (40, 52), (46, 40), (48, 3), (50, 1)] {
+            image[offset..offset + 2].copy_from_slice(&value.to_be_bytes());
+        }
+        image[20..24].copy_from_slice(&1u32.to_be_bytes());
+        image[32..36].copy_from_slice(&52u32.to_be_bytes());
+        let strings_offset = image.len() as u32;
+        image.extend_from_slice(strings);
+        let metadata_offset = image.len() as u32;
+        image.extend_from_slice(metadata);
+        for (index, name, kind, offset, length) in [(1, 1u32, 3u32, strings_offset, strings.len() as u32), (2, 11, 1, metadata_offset, metadata.len() as u32)] {
+            let start = 52 + index * 40;
+            for (field, value) in [(0, name), (4, kind), (16, offset), (20, length)] {
+                image[start + field..start + field + 4].copy_from_slice(&value.to_be_bytes());
+            }
+        }
+        let path = root.path().join("big.ko");
+        fs::write(&path, &image).unwrap();
+        let value = modinfo_impl_in_root("big", root.path(), span()).unwrap();
+        assert_eq!(str_field(record_value(&value), "description"), "big endian module");
+        image[32..36].copy_from_slice(&u32::MAX.to_be_bytes());
+        fs::write(&path, image).unwrap();
+        assert!(modinfo_impl_in_root("big", root.path(), span()).is_err());
+    }
+
+    #[test]
+    fn depmod_rejects_missing_dependencies_without_rewriting_indices() {
+        let root = TempDir::new().expect("tempdir");
+        fs::write(root.path().join("demo.ko"), module_bytes(&["depends=missing"]))
+            .expect("module fixture");
+        fs::write(root.path().join("modules.dep"), "retained\n").expect("prior index");
+        let failure = depmod_impl_in_root(root.path(), span()).expect_err("missing dependency");
+        assert!(failure.message.contains("missing"));
+        assert_eq!(fs::read_to_string(root.path().join("modules.dep")).unwrap(), "retained\n");
+    }
+
+    #[test]
+    fn module_plan_resolves_alias_options_and_soft_dependencies_without_loading() {
+        let root = TempDir::new().expect("tempdir");
+        for (name, fields) in [
+            ("pre", vec!["description=pre"]),
+            ("hard", vec!["description=hard"]),
+            ("post", vec!["description=post", "depends=demo"]),
+            ("demo", vec!["alias=pci:v1234*", "depends=hard", "softdep=pre: pre post: post"]),
+        ] {
+            fs::write(root.path().join(format!("{name}.ko")), module_bytes(&fields)).unwrap();
+        }
+        let config = "alias test-alias demo\noptions demo debug=1\noptions test-alias mode=2\noptions hard limit=3\n";
+        let plan = test_module_plan(root.path(), config, "test-alias", "extra=4", false).unwrap();
+        assert_eq!(plan, vec![
+            ("pre".into(), "".into()), ("hard".into(), "limit=3".into()),
+            ("demo".into(), "debug=1 mode=2 extra=4".into()), ("post".into(), "".into()),
+        ]);
+        let removal = test_module_plan(root.path(), config, "demo", "", true).unwrap();
+        assert_eq!(removal.iter().map(|row| row.0.as_str()).collect::<Vec<_>>(), vec!["post", "demo", "hard", "pre"]);
+        let alias = test_module_plan(root.path(), "", "pci:v1234dFFFF", "", false).unwrap();
+        assert_eq!(alias[2].0, "demo");
+        assert!(test_module_plan(root.path(), "blacklist demo\n", "pci:v1234dFFFF", "", false).is_err());
+        assert!(test_module_plan(root.path(), "blacklist demo\n", "demo", "", false).is_ok());
+        assert!(test_module_plan(root.path(), "install demo /bin/false\n", "demo", "", false).is_err());
+        assert!(test_module_plan(root.path(), "alias a b\nalias b a\n", "a", "", false).is_err());
+    }
+
+    #[test]
+    fn module_plan_reports_missing_dependencies_cycles_and_builtin_dependencies() {
+        let root = TempDir::new().expect("tempdir");
+        fs::write(root.path().join("demo.ko"), module_bytes(&["depends=missing"])).unwrap();
+        assert!(test_module_plan(root.path(), "", "demo", "", false).unwrap_err().contains("missing"));
+        fs::write(root.path().join("modules.builtin"), "kernel/missing.ko\n").unwrap();
+        assert_eq!(test_module_plan(root.path(), "", "demo", "", false).unwrap(), vec![("demo".into(), "".into())]);
+        assert!(test_module_plan(root.path(), "", "missing", "", true).unwrap().is_empty());
+        fs::write(root.path().join("modules.builtin"), "").unwrap();
+        fs::write(root.path().join("missing.ko"), module_bytes(&["depends=demo"])).unwrap();
+        assert!(test_module_plan(root.path(), "", "demo", "", false).unwrap_err().contains("cycle"));
+        assert!(depmod_impl_in_root(root.path(), span()).unwrap_err().message.contains("cycle"));
+    }
+
+    #[test]
+    fn depmod_writes_alias_and_softdep_indices_and_preserves_declared_fields() {
+        let root = TempDir::new().expect("tempdir");
+        fs::write(root.path().join("demo.ko"), module_bytes(&["alias=pci:a*", "alias=pci:b*", "softdep=pre: before post: after", "parm=debug:Debug", "parmtype=debug:bool"])).unwrap();
+        let record = modinfo_impl_in_root("demo", root.path(), span()).unwrap();
+        assert_eq!(str_field(record_value(&list_field(record_value(&record), "params")[0]), "type"), "bool");
+        depmod_impl_in_root(root.path(), span()).unwrap();
+        assert_eq!(fs::read_to_string(root.path().join("modules.alias")).unwrap(), "alias pci:a* demo\nalias pci:b* demo\n");
+        assert_eq!(fs::read_to_string(root.path().join("modules.softdep")).unwrap(), "softdep demo pre: before post: after\n");
+        fs::write(root.path().join("broken.ko"), b"not ELF").unwrap();
+        assert!(ModuleIndex::scan(root.path()).is_err());
     }
 
     #[test]

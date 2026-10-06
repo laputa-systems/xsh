@@ -122,3 +122,148 @@ print "credentials-changed"
   assert status.ok, errors.read_text()?
   assert output.read_text()? == "credentials-changed\n"
 }
+
+
+test test_unix_identity_does_not_require_a_group_database { |ctx|
+  if system.uname()?.sysname != "Linux" or unix.id()?.uid != 0 {
+    test.skip("chroot needs Linux root privileges")
+  }
+  let jail = test.temp_dir(ctx)?
+  let output = test.run_xsh(ctx, f"linux.chroot(fp\"{jail}\")?; assert unix.id() is Ok(_)")?
+  assert output.success, output.stderr
+}
+
+test test_unix_poll_fd_validates_requests {
+  test.error_kind(unix.poll_fd(-1, ["readable"]), "unix-poll-fd")
+  test.error_kind(unix.poll_fd(2147483648, ["readable"]), "unix-poll-fd")
+  test.error_kind(unix.poll_fd(0, ["unknown"]), "unix-poll-fd")
+  test.error_kind(unix.poll_fd(0, ["hangup"]), "unix-poll-fd")
+  test.error_kind(unix.poll_fd(0, ["error"]), "unix-poll-fd")
+  test.error_kind(unix.poll_fd(0, ["invalid"]), "unix-poll-fd")
+  test.error_kind(unix.poll_fd(0, [], timeout_ms: -2), "unix-poll-fd")
+  assert unix.poll_fd(2147483647, ["readable", "writable"])? == ["invalid"]
+}
+
+test test_unix_poll_fd_regular_file_ready_and_closed { |ctx|
+  let file = test.temp_file(ctx, contents: b"payload")?
+  let result = test.run_script(ctx, r"""
+let fd = unix.open_fd(Path(args[0]))?
+assert unix.poll_fd(fd, ["readable"], timeout_ms: -1)? == ["readable"]
+assert unix.poll_fd(fd, ["readable", "readable"])? == ["readable"]
+unix.close_fd(fd)?
+assert unix.poll_fd(fd, [])? == ["invalid"]
+""", args: [file])?
+  assert result.success, result.stderr
+}
+
+test test_unix_poll_fd_fifo_timeout_and_writer_error { |ctx|
+  let root = test.temp_dir(ctx)?
+  let fifo = fp"{root}/pipe"
+  fs.mkfifo(fifo, mode: 384)?
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  var reader_open = true
+  defer { if reader_open { unix.close_fd(reader) } }
+  assert unix.poll_fd(reader, ["readable"], timeout_ms: 5)? == []
+  {
+    let writer = unix.open_fd(fifo, write: true, nonblock: true)?
+    defer unix.close_fd(writer)
+    assert unix.poll_fd(writer, ["writable"])? == ["writable"]
+  }
+  assert "hangup" in unix.poll_fd(reader, ["readable"])?
+  run sh -c "printf payload > \"$1\"" sh $fifo
+  let ready = unix.poll_fd(reader, ["readable"])?
+  assert "readable" in ready and "hangup" in ready
+  unix.close_fd(reader)?
+  reader_open = false
+  let result = test.run_script(ctx, r"""
+let fifo = Path(args[0])
+let reader = unix.open_fd(fifo, nonblock: true)?
+unix.redirect_fd(100, fifo, write: true)?
+unix.close_fd(reader)?
+assert "error" in unix.poll_fd(100, ["writable"])?
+unix.close_fd(100)?
+""", args: [fifo])?
+  assert result.success, result.stderr
+}
+
+test test_unix_read_fd_validates_fd_and_count { |ctx|
+  test.error_kind(unix.read_fd(-1, 1), "unix-read-fd")
+  test.error_kind(unix.read_fd(2147483648, 1), "unix-read-fd")
+  test.error_kind(unix.read_fd(0, 0), "unix-read-fd")
+  test.error_kind(unix.read_fd(0, -1), "unix-read-fd")
+  assert unix.read_fd(2147483647, 1) is Err(is HostIo)
+  let file = test.temp_file(ctx, contents: b"payload")?
+  let result = test.run_script(ctx, r"""
+unix.redirect_fd(100, Path(args[0]), write: true)?
+assert unix.read_fd(100, 1) is Err(is HostIo)
+unix.close_fd(100)?
+""", args: [file])?
+  assert result.success, result.stderr
+}
+
+test test_unix_read_fd_preserves_byte_cursor_and_eof { |ctx|
+  let file = test.temp_file(ctx, contents: b"\0\xffabc")?
+  let result = test.run_script(ctx, r"""
+let reader = unix.open_fd(Path(args[0]))?
+assert unix.read_fd(reader, 2)? == b"\0\xff"
+assert unix.read_fd(reader, 1)? == b"a"
+assert unix.read_fd(reader, 8)? == b"bc"
+assert unix.read_fd(reader, 1)? == b""
+unix.close_fd(reader)?
+assert unix.read_fd(reader, 1) is Err(is HostIo)
+""", args: [file])?
+  assert result.success, result.stderr
+}
+
+test test_unix_read_fd_and_stdin_read_share_descriptor_cursor { |ctx|
+  let result = test.run_script(ctx, """
+assert unix.read_fd(0, 1)? == b"a"
+assert io.stdin_read(1)? == b"b"
+assert unix.read_fd(0, 1)? == b"c"
+assert io.stdin_line()? == "d"
+assert unix.read_fd(0, 8)? == b"ef"
+assert io.stdin_bytes()? == b""
+""", stdin: b"abcd\nef")?
+  assert result.success, result.stderr
+}
+
+test test_unix_read_fd_reads_fifo_without_seeking_or_waiting_for_requested_size { |ctx|
+  let root = test.temp_dir(ctx)?
+  let fifo = fp"{root}/pipe"
+  fs.mkfifo(fifo, mode: 384)?
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  defer unix.close_fd(reader)
+  run sh -c "printf payload > \"$1\"" sh $fifo
+  assert unix.read_fd(reader, 2)? == b"pa"
+  assert unix.read_fd(reader, 100)? == b"yload"
+  assert unix.read_fd(reader, 1)? == b""
+}
+
+test test_unix_exec_env_replaces_inherited_and_command_environment { |ctx|
+  let result = test.expect(ctx, r"""let command = process.command_argv(p"/usr/bin/env", ["env"], env: {COMMAND_ONLY: "discard"})
+let environment: Map[Str, Str] = {"ONLY": "kept"}
+unix.exec_env(command, environment)?
+""", status: 0, env: {INHERITED_ONLY: "discard"})?
+  assert result.stdout == "ONLY=kept\n"
+}
+
+test test_unix_exec_env_applies_explicit_argv0 { |ctx|
+  let result = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "printf '%s' \"$0\""])
+let environment: Map[Str, Str] = {}
+unix.exec_env(command, environment, argv0: "-sh")?
+""", status: 0)?
+  assert result.stdout == "-sh"
+}
+
+test test_unix_exec_env_rejects_invalid_strings_before_redirection { |ctx|
+  let root = test.temp_dir(ctx, name: "exec-env-validation")?
+  let output = fp"{root}/must-not-exist"
+  let command = process.command_argv(p"/bin/true", ["true"], stdout: output)
+  let bad_key: Map[Str, Str] = {"BAD=KEY": "value"}
+  let bad_value: Map[Str, Str] = {"VALID": "bad\u{0}value"}
+  let empty: Map[Str, Str] = {}
+  test.error_kind(unix.exec_env(command, bad_key), "unix-exec-env")
+  test.error_kind(unix.exec_env(command, bad_value), "unix-exec-env")
+  test.error_kind(unix.exec_env(command, empty, argv0: "bad\u{0}name"), "unix-exec-env")
+  assert ! output.exists()?
+}

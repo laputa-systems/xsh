@@ -321,7 +321,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
     }
     if crate::modules::process::is_prim(op)
         || crate::modules::unix::is_prim(op)
-        || matches!(op, RuntimeOp::ProcessWaitTimeout | RuntimeOp::IoFlushStdout)
+        || matches!(op, RuntimeOp::ProcessWaitTimeout | RuntimeOp::IoFlushStdout | RuntimeOp::IoFlushStderr)
     {
         return true;
     }
@@ -365,6 +365,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::BytesUnpackLe
             | RuntimeOp::BytesUnpackBe
             | RuntimeOp::BytesReadAt
+            | RuntimeOp::BytesResize
             | RuntimeOp::BytesWriteAt
             | RuntimeOp::BytesZeroAt
             | RuntimeOp::BytesZero
@@ -454,6 +455,14 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsCopyFile
             | RuntimeOp::FsFsync
             | RuntimeOp::FsSync
+            | RuntimeOp::FsAccess
+            | RuntimeOp::FsXattrList
+            | RuntimeOp::FsXattrGet
+            | RuntimeOp::FsXattrSet
+            | RuntimeOp::FsXattrRemove
+            | RuntimeOp::FsSyncPath
+            | RuntimeOp::FsRenameExchange
+            | RuntimeOp::FsPathLimits
             | RuntimeOp::FsSymlink
             | RuntimeOp::FsLock
             | RuntimeOp::FsUnlock
@@ -473,15 +482,21 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::GroupByGid
             | RuntimeOp::GroupAdd
             | RuntimeOp::GroupRemove
+            | RuntimeOp::HashDigestFile
+            | RuntimeOp::HashDigestStdin
+            | RuntimeOp::HashChecksum
+            | RuntimeOp::HashChecksumStdin
             | RuntimeOp::HashMd5
             | RuntimeOp::HashSha1
             | RuntimeOp::HashSha256
             | RuntimeOp::HashSha512
             | RuntimeOp::HashCrc32
             | RuntimeOp::HashCrc32c
+            | RuntimeOp::IoStdinRead
             | RuntimeOp::IoStdinBytes
             | RuntimeOp::IoStdinText
             | RuntimeOp::IoStdinLine
+            | RuntimeOp::IoWriteStderr
             | RuntimeOp::IoWriteStdout
             | RuntimeOp::IoWriteStdoutBytes
             | RuntimeOp::IniDecode
@@ -541,6 +556,25 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::ProcessWaitAny
             | RuntimeOp::ProcessWaitReady
             | RuntimeOp::RegexCompile
+            | RuntimeOp::RegexFindBytes
+            | RuntimeOp::RegexCapturesBytes
+            | RuntimeOp::UnixReadFd
+            | RuntimeOp::CompressionTransform
+            | RuntimeOp::CompressionGzipName
+            | RuntimeOp::LinuxModulePlan
+            | RuntimeOp::LinuxBlockSignatures
+            | RuntimeOp::LinuxWipeBlockSignatures
+            | RuntimeOp::LinuxFileProject
+            | RuntimeOp::LinuxSetFileProject
+            | RuntimeOp::LinuxSample
+            | RuntimeOp::LinuxUmount
+            | RuntimeOp::LinuxBlockdevInfo
+            | RuntimeOp::LinuxBlockdevSetReadOnly
+            | RuntimeOp::LinuxBlockdevFlush
+            | RuntimeOp::LinuxBlockdevRereadPartitionTable
+            | RuntimeOp::LinuxFstrim
+            | RuntimeOp::LinuxFsfreeze
+            | RuntimeOp::UnixPollFd
             | RuntimeOp::SetEmpty
             | RuntimeOp::SetFrom
             | RuntimeOp::ShlexQuote
@@ -551,6 +585,10 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::SystemExecutionUnits
             | RuntimeOp::SystemOsRelease
             | RuntimeOp::TimeNow
+            | RuntimeOp::TimeClockResolution
+            | RuntimeOp::TimeFormat
+            | RuntimeOp::TimeToCalendar
+            | RuntimeOp::TimeFromCalendar
             | RuntimeOp::TimeSleep
             | RuntimeOp::TimeMillis
             | RuntimeOp::TimeSeconds
@@ -612,6 +650,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::LinuxUmountAll
             | RuntimeOp::LinuxWritePartitionTable
             | RuntimeOp::UnixExec
+            | RuntimeOp::UnixExecEnv
             | RuntimeOp::UnixId
             | RuntimeOp::UnixKillAll
             | RuntimeOp::UnixKillProcessGroup
@@ -631,6 +670,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::UnixUptimeSeconds
             | RuntimeOp::UnixWaitPid1Event
             | RuntimeOp::UserCurrent
+            | RuntimeOp::UserGroups
             | RuntimeOp::UserLookup
             | RuntimeOp::UserByUid
             | RuntimeOp::UserAdd
@@ -16072,7 +16112,8 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
                 arg_count == 0
             }
             "format" => arg_count <= 1,
-            "pow" | "log" => arg_count == 1,
+            "format_number" => (1..=2).contains(&arg_count),
+            "pow" | "log" | "atan2" => arg_count == 1,
             _ => false,
         },
         Type::Str => match name.as_str().as_str() {

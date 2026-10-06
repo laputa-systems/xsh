@@ -63,6 +63,34 @@ pub(crate) fn clock_resolution() -> Result<i64, String> {
         .ok_or_else(|| "clock resolution out of range".into())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Calendar {
+    pub(crate) year: i64,
+    pub(crate) month: i64,
+    pub(crate) day: i64,
+    pub(crate) hour: i64,
+    pub(crate) minute: i64,
+    pub(crate) second: i64,
+    pub(crate) weekday: i64,
+    pub(crate) offset_seconds: i64,
+    pub(crate) nanosecond: i64,
+}
+
+pub(crate) fn to_calendar(epoch_ns: i64, utc: bool) -> Result<Calendar, String> {
+    let tm = calendar(epoch_ns.div_euclid(NANOS_PER_SECOND), utc)?;
+    Ok(Calendar {
+        year: tm.tm_year as i64 + 1900,
+        month: tm.tm_mon as i64 + 1,
+        day: tm.tm_mday as i64,
+        hour: tm.tm_hour as i64,
+        minute: tm.tm_min as i64,
+        second: tm.tm_sec as i64,
+        weekday: tm.tm_wday as i64,
+        offset_seconds: tm.tm_gmtoff as i64,
+        nanosecond: epoch_ns.rem_euclid(NANOS_PER_SECOND),
+    })
+}
+
 fn calendar(seconds: i64, utc: bool) -> Result<libc::tm, String> {
     let seconds = seconds.try_into().map_err(|_| "timestamp out of range")?;
     let mut tm = unsafe { std::mem::zeroed() };
@@ -73,9 +101,10 @@ fn calendar(seconds: i64, utc: bool) -> Result<libc::tm, String> {
     if result.is_null() { Err("timestamp out of range".into()) } else { Ok(tm) }
 }
 
-// Calendar conversion rejects normalization: February 30 and a missing local
-// hour during a DST jump are errors rather than silently becoming another date.
-pub(crate) fn from_calendar(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, utc: bool) -> Result<i64, String> {
+// Strict conversion rejects impossible civil dates and missing DST hours.
+// Explicit normalization delegates gap resolution to the host calendar library
+// after a script has performed its own civil arithmetic.
+pub(crate) fn from_calendar(year: i64, month: i64, day: i64, hour: i64, minute: i64, second: i64, utc: bool, normalize: bool) -> Result<i64, String> {
     if !(1..=12).contains(&month) || !(1..=31).contains(&day) || !(0..=23).contains(&hour)
         || !(0..=59).contains(&minute) || !(0..=59).contains(&second) {
         return Err("invalid calendar date".into());
@@ -90,11 +119,15 @@ pub(crate) fn from_calendar(year: i64, month: i64, day: i64, hour: i64, minute: 
     tm.tm_isdst = -1;
     let seconds = unsafe { if utc { libc::timegm(&mut tm) } else { libc::mktime(&mut tm) } } as i64;
     let back = calendar(seconds, utc)?;
-    if back.tm_year as i64 + 1900 != year || back.tm_mon as i64 + 1 != month
-        || back.tm_mday as i64 != day || back.tm_hour as i64 != hour
-        || back.tm_min as i64 != minute || back.tm_sec as i64 != second {
-        return Err("invalid calendar date".into());
-    }
+    let valid = if normalize {
+        back.tm_year == tm.tm_year && back.tm_mon == tm.tm_mon && back.tm_mday == tm.tm_mday
+            && back.tm_hour == tm.tm_hour && back.tm_min == tm.tm_min && back.tm_sec == tm.tm_sec
+    } else {
+        back.tm_year as i64 + 1900 == year && back.tm_mon as i64 + 1 == month
+            && back.tm_mday as i64 == day && back.tm_hour as i64 == hour
+            && back.tm_min as i64 == minute && back.tm_sec as i64 == second
+    };
+    if !valid { return Err("invalid calendar date".into()); }
     seconds.checked_mul(NANOS_PER_SECOND).ok_or_else(|| "timestamp out of nanosecond range".into())
 }
 
@@ -192,194 +225,6 @@ pub(crate) fn format(epoch_ns: i64, format: &str, utc: bool) -> Result<String, S
         out.push_str(&piece);
     }
     Ok(out)
-}
-
-fn parse_epoch(text: &str) -> Result<i64, String> {
-    let (negative, value) = if let Some(rest) = text.strip_prefix('-') { (true, rest) } else { (false, text.strip_prefix('+').unwrap_or(text)) };
-    let mut parts = value.split('.');
-    let digits = parts.next().unwrap_or("");
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return Err("invalid epoch timestamp".into()); }
-    let whole = digits.parse::<i128>().map_err(|_| "invalid epoch timestamp")?;
-    let fraction = parts.next().unwrap_or("");
-    if parts.next().is_some() || fraction.len() > 9 || !fraction.bytes().all(|b| b.is_ascii_digit()) { return Err("invalid epoch timestamp".into()); }
-    let sub = if fraction.is_empty() { 0 } else { fraction.parse::<i128>().map_err(|_| "invalid epoch timestamp")? * 10i128.pow(9 - fraction.len() as u32) };
-    if whole < 0 { return Err("invalid epoch timestamp".into()); }
-    let ns = whole.checked_mul(NANOS_PER_SECOND as i128).and_then(|v| v.checked_add(sub)).ok_or("timestamp out of nanosecond range")?;
-    i64::try_from(if negative { -ns } else { ns }).map_err(|_| "timestamp out of nanosecond range".into())
-}
-
-pub(crate) fn parse(text: &str, utc: bool, base_ns: Option<i64>) -> Result<i64, String> {
-    let mut uncommented = String::new();
-    let mut comment_depth = 0usize;
-    for ch in text.chars() {
-        if ch == '(' { comment_depth += 1; }
-        else if ch == ')' && comment_depth > 0 { comment_depth -= 1; }
-        else if comment_depth == 0 { uncommented.push(ch); }
-    }
-    let text = uncommented.trim();
-    if let Some(value) = text.strip_prefix('@') { return parse_epoch(value); }
-    let now = match base_ns { Some(value) => value, None => now_epoch_ms().checked_mul(1_000_000).ok_or("timestamp out of range")? };
-    let lower = text.to_ascii_lowercase();
-    match lower.as_str() {
-        "now" => return Ok(now),
-        "" | "today" | "yesterday" | "tomorrow" => {
-            let tm = calendar(now / NANOS_PER_SECOND, utc)?;
-            let midnight = from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, utc)?;
-            let delta = if lower == "yesterday" { -86_400_000_000_000 } else if lower == "tomorrow" { 86_400_000_000_000 } else { 0 };
-            return if delta == 0 { Ok(midnight) } else { parse(if delta < 0 { "-1 day" } else { "+1 day" }, utc, Some(midnight)) };
-        }
-        _ => {}
-    }
-    let weekdays = [("sun", "sunday"), ("mon", "monday"), ("tue", "tuesday"), ("wed", "wednesday"), ("thu", "thursday"), ("fri", "friday"), ("sat", "saturday")];
-    let words: Vec<&str> = lower.split_whitespace().collect();
-    let weekday_word = words.last().copied().unwrap_or("");
-    if let Some(day) = weekdays.iter().position(|&(short, full)| weekday_word == short || weekday_word == full) {
-        if words.len() <= 2 && (words.len() == 1 || matches!(words[0], "last" | "this" | "next")) {
-            let tm = calendar(now.div_euclid(NANOS_PER_SECOND), utc)?;
-            let mut days = (day as i64 - tm.tm_wday as i64).rem_euclid(7);
-            if words.first() == Some(&"last") { days -= 7; }
-            else if days == 0 && words.first() == Some(&"next") { days = 7; }
-            let midnight = from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, utc)?;
-            return parse(&std::format!("{days} days"), utc, Some(midnight));
-        }
-    }
-    let digits = lower.strip_suffix('j').unwrap_or(&lower);
-    if lower == "j" || (!digits.is_empty() && digits.len() <= 4 && digits.bytes().all(|b| b.is_ascii_digit())) {
-        let numeric = if lower == "j" { 0 } else { digits.parse::<i64>().map_err(|_| "invalid time")? };
-        let (hour, minute) = if digits.len() <= 2 { (numeric, 0) } else { (numeric / 100, numeric % 100) };
-        let tm = calendar(now.div_euclid(NANOS_PER_SECOND), utc)?;
-        return from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, hour, minute, 0, utc);
-    }
-    if lower.len() >= 2 && lower.len() <= 3 && lower.as_bytes()[0].is_ascii_alphabetic()
-        && lower.as_bytes()[1..].iter().all(|b| b.is_ascii_digit()) {
-        let hours = lower[1..].parse::<i64>().map_err(|_| "invalid time")?;
-        if hours > 23 { return Err("invalid time".into()); }
-        return parse(&lower[..1], utc, Some(now))?.checked_add(hours * 3600 * NANOS_PER_SECOND).ok_or_else(|| "timestamp out of range".into());
-    }
-    // Peel relative units from the end so an absolute calendar prefix and
-    // multiple relative adjustments share exactly one baseline observation.
-    let words: Vec<&str> = text.split_whitespace().collect();
-    if !words.is_empty() {
-        let ago = words.last().is_some_and(|w| w.eq_ignore_ascii_case("ago"));
-        let end = words.len() - usize::from(ago);
-        if end > 0 {
-            let unit = words[end - 1].to_ascii_lowercase();
-            let unit = unit.strip_suffix('s').unwrap_or(&unit);
-            let scale: Option<i64> = match unit {
-                "sec" | "second" => Some(1), "min" | "minute" => Some(60),
-                "hour" => Some(3600), "day" => Some(86400), "week" => Some(604800),
-                "fortnight" => Some(1209600), _ => None,
-            };
-            if scale.is_some() || unit == "month" || unit == "year" {
-                let (count, mut prefix_end) = if end >= 2 {
-                    if let Ok(n) = words[end - 2].parse::<i64>() { (n, end - 2) }
-                    else if words[end - 2].eq_ignore_ascii_case("next") { (1, end - 2) }
-                    else if words[end - 2].eq_ignore_ascii_case("last") { (-1, end - 2) }
-                    else if words[end - 2].eq_ignore_ascii_case("this") { (0, end - 2) }
-                    else { (1, end - 1) }
-                } else { (1, 0) };
-                let mut count = count;
-                if prefix_end > 0 && matches!(words[prefix_end - 1], "+" | "-") {
-                    if words[prefix_end - 1] == "-" { count = count.checked_neg().ok_or("relative date overflow")?; }
-                    prefix_end -= 1;
-                }
-                let count = count.checked_mul(if ago { -1 } else { 1 }).ok_or("relative date overflow")?;
-                let prefix = words[..prefix_end].join(" ");
-                let prefix_relative = words.get(prefix_end.saturating_sub(1)).is_some_and(|word| {
-                    matches!(word.trim_end_matches('s').to_ascii_lowercase().as_str(), "second" | "sec" | "minute" | "min" | "hour" | "day" | "week" | "fortnight" | "month" | "year")
-                });
-                let base = if prefix.is_empty() { now }
-                    else if ago && prefix_relative { parse(&std::format!("{prefix} ago"), utc, Some(now))? }
-                    else { parse(&prefix, utc, Some(now))? };
-                if let Some(scale) = scale.filter(|_| !matches!(unit, "day" | "week" | "fortnight")) {
-                    return count.checked_mul(scale).and_then(|v| v.checked_mul(NANOS_PER_SECOND)).and_then(|v| base.checked_add(v)).ok_or_else(|| "relative date overflow".into());
-                }
-                let mut tm = calendar(base.div_euclid(NANOS_PER_SECOND), utc)?;
-                let delta: i32 = count.try_into().map_err(|_| "relative date overflow")?;
-                if unit == "month" { tm.tm_mon = tm.tm_mon.checked_add(delta).ok_or("relative date overflow")?; }
-                else if unit == "year" { tm.tm_year = tm.tm_year.checked_add(delta).ok_or("relative date overflow")?; }
-                else {
-                    let days = delta.checked_mul(if unit == "week" { 7 } else if unit == "fortnight" { 14 } else { 1 }).ok_or("relative date overflow")?;
-                    tm.tm_mday = tm.tm_mday.checked_add(days).ok_or("relative date overflow")?;
-                }
-                tm.tm_isdst = -1;
-                let seconds = unsafe { if utc { libc::timegm(&mut tm) } else { libc::mktime(&mut tm) } } as i64;
-                return seconds.checked_mul(NANOS_PER_SECOND).and_then(|v| v.checked_add(base.rem_euclid(NANOS_PER_SECOND))).ok_or_else(|| "relative date overflow".into());
-            }
-        }
-    }
-    let mut input = text.to_owned();
-    let mut explicit_offset = None;
-    for (suffix, offset) in [(" IST", 19800), (" MEZ", 3600), (" MESZ", 7200), (" KST", 32400), (" JST", 32400), (" AWST", 28800), (" ACST", 34200), (" ACDT", 37800), (" AEST", 36000), (" AEDT", 39600), (" WET", 0), (" WEST", 3600), (" CET", 3600), (" CEST", 7200), (" MET", 3600), (" MEST", 7200), (" UTC", 0), (" GMT", 0), ("Z", 0), (" EST", -18000), (" EDT", -14400), (" CST", -21600), (" CDT", -18000), (" MST", -25200), (" MDT", -21600), (" PST", -28800), (" PDT", -25200)] {
-        if input.eq_ignore_ascii_case(suffix.trim()) { input.clear(); explicit_offset = Some(offset); break; }
-        if input.to_ascii_uppercase().ends_with(suffix) { input.truncate(input.len() - suffix.len()); input = input.trim_end().into(); explicit_offset = Some(offset); break; }
-    }
-    if explicit_offset.is_none() {
-        let last = input.split_whitespace().last().unwrap_or("");
-        if last.len() == 1 {
-            let code = last.as_bytes()[0].to_ascii_uppercase();
-            let hours = match code {
-                b'A'..=b'I' => Some((code - b'A' + 1) as i64),
-                b'K'..=b'M' => Some((code - b'K' + 10) as i64),
-                b'N'..=b'Y' => Some(-((code - b'N' + 1) as i64)),
-                b'Z' => Some(0), _ => None,
-            };
-            if let Some(hours) = hours {
-                explicit_offset = Some(hours * 3600);
-                input.truncate(input.len() - last.len());
-                input = input.trim_end().into();
-            }
-        }
-    }
-    if explicit_offset.is_none() {
-        if let Some(pos) = input.char_indices().rev().find_map(|(i,c)| ((c == '+' || c == '-') && i > 9).then_some(i)) {
-            let tail = &input[pos + 1..];
-            let digits = tail.replace(':', "");
-            if matches!(digits.len(), 1 | 2 | 4 | 6) && digits.bytes().all(|b| b.is_ascii_digit()) {
-                let h = digits[..digits.len().min(2)].parse::<i64>().unwrap();
-                let m = if digits.len() >= 4 { digits[2..4].parse::<i64>().unwrap() } else { 0 };
-                let s = if digits.len() == 6 { digits[4..].parse::<i64>().unwrap() } else { 0 };
-                if h > 23 || m > 59 || s > 59 { return Err("invalid timezone offset".into()); }
-                explicit_offset = Some((h*3600+m*60+s) * if input.as_bytes()[pos] == b'-' { -1 } else { 1 });
-                input.truncate(pos); input = input.trim_end().into();
-            }
-        }
-    }
-    if input.is_empty() && explicit_offset.is_some() {
-        let tm = calendar(now.div_euclid(NANOS_PER_SECOND), true)?;
-        return from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, 0, 0, 0, true)?
-            .checked_sub(explicit_offset.unwrap() * NANOS_PER_SECOND).ok_or_else(|| "timestamp out of range".into());
-    }
-    for word in ["today", "yesterday", "tomorrow"] {
-        if let Some(time) = input.strip_prefix(&std::format!("{word} ")) {
-            let zone_utc = utc || explicit_offset.is_some();
-            let midnight = parse(word, zone_utc, Some(now))?;
-            return parse(time, zone_utc, Some(midnight))?.checked_sub(explicit_offset.unwrap_or(0) * NANOS_PER_SECOND).ok_or_else(|| "timestamp out of range".into());
-        }
-    }
-    let mut nanos = 0;
-    if let Some(dot) = input.rfind('.') {
-        let digits = &input[dot + 1..];
-        if input[..dot].contains(':') && !digits.is_empty() && digits.len() <= 9 && digits.bytes().all(|b| b.is_ascii_digit()) {
-            nanos = digits.parse::<i64>().unwrap() * 10i64.pow(9 - digits.len() as u32);
-            input.truncate(dot);
-        }
-    }
-    input = input.replace("a.m.", "AM").replace("p.m.", "PM").replace("A.M.", "AM").replace("P.M.", "PM");
-    let text_c = std::ffi::CString::new(input.as_str()).map_err(|_| "date contains NUL")?;
-    let current = calendar(now / NANOS_PER_SECOND, utc)?;
-    let formats = ["%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %I:%M%p", "%Y-%m-%d %I:%M %p", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y%m%d", "%Y/%m/%d", "%m/%d/%Y", "%d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M:%S", "%a %d %b %Y %H:%M", "%d %b %Y", "%b %d %Y %H:%M:%S", "%b %d %Y %I:%M%p", "%b %d %Y", "%a %b %d %H:%M:%S %Y", "%a %b %d %H:%M %Y", "%a, %d %b %Y %H:%M:%S", "%H:%M:%S", "%H:%M", "%I:%M%p", "%I%p", "%Y%m%d%H%M.%S", "%Y%m%d%H%M", "%y%m%d%H%M.%S", "%y%m%d%H%M", "%m%d%H%M.%S", "%m%d%H%M"];
-    for pattern in formats {
-        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-        tm.tm_year = current.tm_year; tm.tm_mon = current.tm_mon; tm.tm_mday = current.tm_mday;
-        let pattern = std::ffi::CString::new(pattern).unwrap();
-        let end = unsafe { libc::strptime(text_c.as_ptr(), pattern.as_ptr(), &mut tm) };
-        if end.is_null() || unsafe { *end } != 0 { continue; }
-        if let Ok(ns) = from_calendar(tm.tm_year as i64 + 1900, tm.tm_mon as i64 + 1, tm.tm_mday as i64, tm.tm_hour as i64, tm.tm_min as i64, tm.tm_sec as i64, utc || explicit_offset.is_some()) {
-            return ns.checked_sub(explicit_offset.unwrap_or(0) * NANOS_PER_SECOND).and_then(|v| v.checked_add(nanos)).ok_or_else(|| "timestamp out of nanosecond range".into());
-        }
-    }
-    Err(std::format!("invalid date: {text}"))
 }
 
 #[cfg(test)]

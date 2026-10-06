@@ -27,8 +27,14 @@ static K_RUNTIME_SECONDS: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("runti
 static K_OWNER_PID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("owner_pid"));
 static K_THREAD_ID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("thread_id"));
 static K_THREAD_NAME: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("thread_name"));
+const PROCESS_SAMPLE_INTS: [&str; 14] = [
+    "user_ticks", "system_ticks", "cpu_ticks", "start_ticks", "ticks_per_second",
+    "rss_bytes", "vsize_bytes", "pgrp", "session", "tty_number", "nice", "priority",
+    "thread_count", "processor",
+];
+
 static PROCESS_SHAPE: LazyLock<RecordShape> = LazyLock::new(|| {
-    RecordShape::new(vec![
+    let mut fields = vec![
         K_ARGV.clone(),
         K_ARGV0.clone(),
         K_COMMAND.clone(),
@@ -40,7 +46,10 @@ static PROCESS_SHAPE: LazyLock<RecordShape> = LazyLock::new(|| {
         K_STATUS.clone(),
         K_UID.clone(),
         K_USER.clone(),
-    ])
+    ];
+    fields.extend(PROCESS_SAMPLE_INTS.map(Arc::from));
+    fields.push(Arc::from("tty"));
+    RecordShape::new(fields)
 });
 static PROCESS_THREAD_SHAPE: LazyLock<RecordShape> = LazyLock::new(|| {
     RecordShape::new(vec![
@@ -764,6 +773,13 @@ struct ProcessRecord {
     uid: i64,
     status: String,
     start_time_ms: i64,
+    sampling: Option<ProcessSampling>,
+}
+
+#[derive(Clone, Debug)]
+struct ProcessSampling {
+    counters: [i64; 14],
+    tty: String,
 }
 
 #[derive(Clone, Debug)]
@@ -820,9 +836,7 @@ fn process_record_value(record: ProcessRecord, now_ms: i64) -> Value {
     } else {
         String::new()
     };
-    Value::Record(RecordMap::shaped(
-        &PROCESS_SHAPE,
-        vec![
+    let mut fields = vec![
             Value::Str(record.argv.into()),
             Value::Str(record.argv0.into()),
             Value::Str(record.command.into()),
@@ -834,8 +848,15 @@ fn process_record_value(record: ProcessRecord, now_ms: i64) -> Value {
             Value::Str(record.status.into()),
             Value::Int(record.uid),
             Value::Str(record.user.into()),
-        ],
-    ))
+        ];
+    match record.sampling {
+        Some(sampling) => {
+            fields.extend(sampling.counters.map(Value::Int));
+            fields.push(Value::Str(sampling.tty.into()));
+        }
+        None => fields.extend(std::iter::repeat_n(Value::Null, 15)),
+    }
+    Value::Record(RecordMap::shaped(&PROCESS_SHAPE, fields))
 }
 
 fn thread_record_value(record: ThreadRecord, now_ms: i64) -> Value {
@@ -1217,6 +1238,18 @@ fn linux_socket_inode(path: &std::path::Path) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
+fn linux_stat_text(path: &std::path::Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)?;
+    let mut text = String::new();
+    file.take(65_537).read_to_string(&mut text)?;
+    if text.len() > 65_536 {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "process stat exceeds 64 KiB"));
+    }
+    Ok(text)
+}
+
+#[cfg(target_os = "linux")]
 fn linux_process_record(
     pid: i64,
     path: &std::path::Path,
@@ -1224,8 +1257,21 @@ fn linux_process_record(
     ticks_per_second: i64,
     uid: u32,
 ) -> Option<ProcessRecord> {
-    let stat = std::fs::read_to_string(path.join("stat")).ok()?;
+    let stat = linux_stat_text(&path.join("stat")).ok()?;
     let parsed = parse_linux_stat(&stat)?;
+    Some(linux_process_from_stat(pid, path, boot_time_ms, ticks_per_second, uid, parsed))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_process_from_stat(
+    pid: i64,
+    path: &std::path::Path,
+    boot_time_ms: i64,
+    ticks_per_second: i64,
+    uid: u32,
+    mut parsed: LinuxStat,
+) -> ProcessRecord {
+    parsed.counters[4] = ticks_per_second;
     let is_kernel_thread = parsed.command.starts_with('[') && parsed.command.ends_with(']');
     let argv_parts = if is_kernel_thread {
         Vec::new()
@@ -1249,7 +1295,7 @@ fn linux_process_record(
             .saturating_mul(1000)
             .saturating_div(ticks_per_second),
     );
-    Some(ProcessRecord {
+    ProcessRecord {
         pid,
         parent_pid: parsed.parent_pid,
         command,
@@ -1259,7 +1305,11 @@ fn linux_process_record(
         uid: uid as i64,
         status: parsed.status,
         start_time_ms,
-    })
+        sampling: Some(ProcessSampling {
+            counters: parsed.counters,
+            tty: linux_tty_name(parsed.counters[9]),
+        }),
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1269,6 +1319,7 @@ struct LinuxStat {
     status: String,
     parent_pid: i64,
     start_ticks: i64,
+    counters: [i64; 14],
 }
 
 #[cfg(target_os = "linux")]
@@ -1281,12 +1332,72 @@ fn parse_linux_stat(stat: &str) -> Option<LinuxStat> {
     let status = fields.first()?.to_string();
     let parent_pid = fields.get(1)?.parse::<i64>().ok()?;
     let start_ticks = fields.get(19)?.parse::<i64>().ok()?;
+    let integer = |index: usize| fields.get(index)?.parse::<i64>().ok();
+    let user_ticks = integer(11)?;
+    let system_ticks = integer(12)?;
+    let rss_bytes = integer(21)?.checked_mul(rustix::param::page_size() as i64)?;
+    let counters = [
+        user_ticks, system_ticks, user_ticks.checked_add(system_ticks)?, start_ticks,
+        0, rss_bytes, integer(20)?, integer(2)?, integer(3)?, integer(4)?,
+        integer(16)?, integer(15)?, integer(17)?, integer(36)?,
+    ];
+    if [0, 1, 2, 3, 5, 6, 7, 8, 12, 13].into_iter().any(|index| counters[index] < 0) {
+        return None;
+    }
     Some(LinuxStat {
         command,
         status,
         parent_pid,
         start_ticks,
+        counters,
     })
+}
+
+#[cfg(target_os = "linux")]
+fn linux_tty_name(number: i64) -> String {
+    if number == 0 { return "?".to_string(); }
+    let device = number as u32;
+    let major = (device >> 8) & 0xfff;
+    let minor = (device & 0xff) | ((device >> 12) & 0xfff00);
+    match (major, minor) {
+        (4, minor) if minor < 64 => format!("tty{minor}"),
+        (4, minor) => format!("ttyS{}", minor - 64),
+        (136..=143, minor) => format!("pts/{}", (major - 136) * 256 + minor),
+        (5, 0) => "tty".to_string(),
+        (5, 1) => "console".to_string(),
+        (5, 2) => "ptmx".to_string(),
+        _ => format!("{major}:{minor}"),
+    }
+}
+
+/// The sampling collector shares stat decoding and process metadata with
+/// inventory, but fails on malformed visible records. Exited and inaccessible
+/// processes can disappear between directory enumeration and stat reads.
+#[cfg(target_os = "linux")]
+pub(crate) fn sample_processes(root: &std::path::Path, boot_time_ms: i64, ticks_per_second: i64, span: Span) -> Result<Vec<Value>, RuntimeError> {
+    let mut entries = std::fs::read_dir(root)
+        .map_err(|error| RuntimeError::host("linux-sample", &error).with_span(span))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| RuntimeError::host("linux-sample", &error).with_span(span))?;
+    entries.sort_unstable_by_key(|entry| entry.file_name().to_str().and_then(|name| name.parse::<i64>().ok()));
+    let now_ms = now_epoch_ms();
+    let mut records = Vec::new();
+    for entry in entries {
+        let Some(pid) = entry.file_name().to_str().and_then(|name| name.parse::<i64>().ok()) else { continue; };
+        let text = match linux_stat_text(&entry.path().join("stat")) {
+            Ok(text) => text,
+            Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied) => continue,
+            Err(error) => return Err(RuntimeError::host("linux-sample", &error).with_span(span)),
+        };
+        let parsed = parse_linux_stat(&text).ok_or_else(|| RuntimeError::new("linux-sample", format!("malformed stat for pid {pid}")).with_span(span))?;
+        let uid = match entry.metadata() {
+            Ok(metadata) => metadata.uid(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(RuntimeError::host("linux-sample", &error).with_span(span)),
+        };
+        records.push(process_record_value(linux_process_from_stat(pid, &entry.path(), boot_time_ms, ticks_per_second, uid, parsed), now_ms));
+    }
+    Ok(records)
 }
 
 #[cfg(target_os = "linux")]
@@ -1767,6 +1878,7 @@ fn macos_process_record(pid: i32) -> Option<ProcessRecord> {
         uid: info.pbi_uid as i64,
         status: macos_status(info.pbi_status),
         start_time_ms,
+        sampling: None,
     })
 }
 
@@ -1909,6 +2021,7 @@ fn macos_process_records(span: Span) -> Result<Vec<ProcessRecord>, RuntimeError>
             uid: metadata.uid,
             status: metadata.status.clone(),
             start_time_ms: metadata.start_time_ms,
+            sampling: None,
         });
     }
     records.sort_unstable_by_key(|record| record.pid);

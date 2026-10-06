@@ -284,11 +284,23 @@ pub(super) fn partition_table_impl(device: &Path, span: Span) -> Result<Value, R
         && sector0[MBR_SIGNATURE_OFFSET] == 0x55
         && sector0[MBR_SIGNATURE_OFFSET + 1] == 0xaa
     {
+        let partitions = parse_mbr_partitions(&sector0);
+        if partitions.iter().any(|part| matches!(part.kind.as_str(), "05" | "0f" | "85")) {
+            return Err(RuntimeError::new("linux-partition-table", "extended DOS partition tables are unsupported").with_span(span));
+        }
+        if partitions.iter().any(|part| part.start < 1 || part.size < 1 || part.end as u64 >= device.total_bytes / device.sector_size || part.kind == "00") {
+            return Err(RuntimeError::new("linux-partition-table", "invalid DOS partition extent").with_span(span));
+        }
+        let mut extents = partitions.iter().map(|part| (part.start, part.end)).collect::<Vec<_>>();
+        extents.sort_unstable();
+        if extents.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
+            return Err(RuntimeError::new("linux-partition-table", "DOS partition extents overlap").with_span(span));
+        }
         return Ok(partition_table_record(
             "dos",
-            "",
+            &format!("0x{:08x}", read_u32_le(&sector0, 440)),
             device.sector_size as i64,
-            parse_mbr_partitions(&sector0),
+            partitions,
         ));
     }
     Ok(partition_table_record(
@@ -307,8 +319,15 @@ pub(super) fn write_partition_table_impl(
     let mut device = open_device(device, true, span)?;
     let label = record_str_field(table, "label")?;
     let partitions = record_list_field(table, "partitions")?;
+    if record_int_field(table, "sector_size")? != device.sector_size as i64
+        || device.sector_size < 512
+        || !device.sector_size.is_power_of_two()
+        || !device.total_bytes.is_multiple_of(device.sector_size)
+    {
+        return Err(partition_write_error("table sector size does not match device geometry", span));
+    }
     match label.as_str() {
-        "dos" => write_mbr_table(&mut device, partitions, span)?,
+        "dos" => write_mbr_table(&mut device, table, partitions, span)?,
         "gpt" => write_gpt_table(&mut device, table, partitions, span)?,
         _ => {
             return Err(RuntimeError::new(
@@ -322,8 +341,9 @@ pub(super) fn write_partition_table_impl(
         RuntimeError::host("linux-write-partition-table", &error).with_span(span)
     })?;
     if device.is_block {
-        unsafe {
-            libc::ioctl(device.file.as_raw_fd(), BLKRRPART as _, 0);
+        let rc = unsafe { libc::ioctl(device.file.as_raw_fd(), BLKRRPART as _, 0) };
+        if rc < 0 {
+            return Err(RuntimeError::host("linux-write-partition-table", &io::Error::last_os_error()).with_span(span));
         }
     }
     Ok(())
@@ -400,15 +420,19 @@ fn open_device(path: &Path, write: bool, span: Span) -> Result<Device, RuntimeEr
         if rc == 0 && size > 0 {
             size as u64
         } else {
-            512
+            return Err(RuntimeError::host("linux-partition-table", &io::Error::last_os_error()).with_span(span));
         }
-    } else {
+    } else if metadata.is_file() {
         512
+    } else {
+        return Err(RuntimeError::new("linux-partition-table", "device must be a regular file or block device").with_span(span));
     };
     let total_bytes = if is_block {
         let mut size = 0_u64;
         let rc = unsafe { libc::ioctl(file.as_raw_fd(), BLKGETSIZE64 as _, &mut size) };
-        if rc == 0 { size } else { metadata.len() }
+        if rc == 0 { size } else {
+            return Err(RuntimeError::host("linux-partition-table", &io::Error::last_os_error()).with_span(span));
+        }
     } else {
         metadata.len()
     };
@@ -432,7 +456,13 @@ fn read_lba(
     let byte_count = sectors.checked_mul(device.sector_size).ok_or_else(|| {
         RuntimeError::new("linux-partition-table", "disk size overflow").with_span(span)
     })?;
-    let mut buffer = vec![0_u8; byte_count as usize];
+    if offset.checked_add(byte_count).is_none_or(|end| end > device.total_bytes) {
+        return Err(RuntimeError::new("linux-partition-table", "disk read exceeds device geometry").with_span(span));
+    }
+    let len = usize::try_from(byte_count).map_err(|_| RuntimeError::new("linux-partition-table", "disk read is too large").with_span(span))?;
+    let mut buffer = Vec::new();
+    buffer.try_reserve_exact(len).map_err(|error| RuntimeError::new("linux-partition-table", error.to_string()).with_span(span))?;
+    buffer.resize(len, 0);
     device
         .file
         .seek(SeekFrom::Start(offset))
@@ -468,7 +498,7 @@ fn parse_mbr_partitions(sector0: &[u8]) -> Vec<PartitionRecord> {
             Some(PartitionRecord {
                 index: slot as i64 + 1,
                 start: start as i64,
-                end: start.saturating_add(sectors).saturating_sub(1) as i64,
+                end: i64::from(start) + i64::from(sectors) - 1,
                 size: sectors as i64,
                 kind: format!("{type_code:02x}"),
                 uuid: String::new(),
@@ -486,24 +516,71 @@ fn read_gpt_table(device: &mut Device, header: &[u8], span: Span) -> Result<Valu
     }
     let disk_guid = format_guid(&guid_from_gpt(&header[56..72]));
     let entries_lba = read_u64_le(header, 72);
-    let entry_count = read_u32_le(header, 80).max(1);
-    let entry_size = read_u32_le(header, 84).max(GPT_ENTRY_SIZE as u32);
-    let entries_bytes = entry_count as usize * entry_size as usize;
-    let sectors = div_ceil(entries_bytes as u64, device.sector_size);
-    let mut entries = read_lba(device, entries_lba, sectors, span)?;
-    entries.truncate(entries_bytes);
+    let header_size = read_u32_le(header, 12) as usize;
+    let total_sectors = device.total_bytes / device.sector_size;
+    let entry_count = read_u32_le(header, 80);
+    let entry_size = read_u32_le(header, 84);
+    let first_usable = read_u64_le(header, 40);
+    let last_usable = read_u64_le(header, 48);
+    let invalid = || RuntimeError::new("linux-partition-table", "invalid GPT geometry or checksum").with_span(span);
+    if header_size < GPT_HEADER_SIZE || header_size > header.len()
+        || entry_count == 0 || entry_size < GPT_ENTRY_SIZE as u32 || !entry_size.is_multiple_of(128)
+        || read_u64_le(header, 24) != 1 || read_u64_le(header, 32) != total_sectors.saturating_sub(1)
+        || first_usable > last_usable || last_usable >= total_sectors
+    {
+        return Err(invalid());
+    }
+    let mut checked_header = header[..header_size].to_vec();
+    checked_header[16..20].fill(0);
+    if crc32(&checked_header) != read_u32_le(header, 16) {
+        return Err(invalid());
+    }
+    let entries_bytes = u64::from(entry_count).checked_mul(u64::from(entry_size)).ok_or_else(invalid)?;
+    let sectors = div_ceil(entries_bytes, device.sector_size);
+    if entries_lba < 2 || entries_lba.checked_add(sectors).is_none_or(|end| end > first_usable) {
+        return Err(invalid());
+    }
+    let entries_offset = entries_lba.checked_mul(device.sector_size).ok_or_else(invalid)?;
+    if entries_offset.checked_add(entries_bytes).is_none_or(|end| end > device.total_bytes) {
+        return Err(invalid());
+    }
+    let mut remaining = entries_bytes;
+    let mut offset = entries_offset;
+    let mut crc = !0_u32;
+    let mut chunk = [0_u8; 65536];
+    while remaining > 0 {
+        let len = remaining.min(chunk.len() as u64) as usize;
+        read_at(&mut device.file, offset, &mut chunk[..len])
+            .map_err(|error| RuntimeError::host("linux-partition-table", &error).with_span(span))?;
+        crc = crc32_update(crc, &chunk[..len]);
+        remaining -= len as u64;
+        offset += len as u64;
+    }
+    if !crc != read_u32_le(header, 88) {
+        return Err(invalid());
+    }
     let mut partitions = Vec::new();
+    let mut identifiers = std::collections::HashSet::from([guid_from_gpt(&header[56..72])]);
+    if identifiers.contains(&[0; 16]) {
+        return Err(invalid());
+    }
     for index in 0..entry_count {
-        let offset = index as usize * entry_size as usize;
-        if offset + GPT_ENTRY_SIZE > entries.len() {
-            break;
-        }
-        let entry = &entries[offset..offset + entry_size as usize];
+        let mut entry = [0_u8; GPT_ENTRY_SIZE];
+        let offset = entries_offset + u64::from(index) * u64::from(entry_size);
+        read_at(&mut device.file, offset, &mut entry)
+            .map_err(|error| RuntimeError::host("linux-partition-table", &error).with_span(span))?;
         if entry[0..16].iter().all(|byte| *byte == 0) {
             continue;
         }
-        let first = read_u64_le(entry, 32);
-        let last = read_u64_le(entry, 40);
+        let uuid = guid_from_gpt(&entry[16..32]);
+        if uuid == [0; 16] || !identifiers.insert(uuid) {
+            return Err(invalid());
+        }
+        let first = read_u64_le(&entry, 32);
+        let last = read_u64_le(&entry, 40);
+        if first < first_usable || last > last_usable || first > last || last > i64::MAX as u64 {
+            return Err(invalid());
+        }
         partitions.push(PartitionRecord {
             index: index as i64 + 1,
             start: first as i64,
@@ -513,6 +590,11 @@ fn read_gpt_table(device: &mut Device, header: &[u8], span: Span) -> Result<Valu
             uuid: format_guid(&guid_from_gpt(&entry[16..32])),
             name: decode_gpt_name(&entry[56..128]),
         });
+    }
+    let mut extents = partitions.iter().map(|part| (part.start, part.end)).collect::<Vec<_>>();
+    extents.sort_unstable();
+    if extents.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
+        return Err(invalid());
     }
     Ok(partition_table_record(
         "gpt",
@@ -538,40 +620,97 @@ fn partition_table_info(device: &Path) -> io::Result<(String, String)> {
     }
 }
 
+fn partition_write_error(message: &str, span: Span) -> RuntimeError {
+    RuntimeError::new("linux-write-partition-table", message).with_span(span)
+}
+
+// Validate every entry before writing: duplicate slots and overlapping extents
+// would otherwise overwrite data or silently discard a requested partition.
+fn validate_partition_extents(
+    partitions: &[Value],
+    max_index: i64,
+    first_usable: u64,
+    last_usable: u64,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    if partitions.len() > max_index as usize {
+        return Err(partition_write_error("too many partitions for table", span));
+    }
+    let mut extents = Vec::new();
+    let mut indices = std::collections::HashSet::new();
+    for value in partitions {
+        let Value::Record(record) = value else {
+            return Err(partition_write_error("partition must be a record", span));
+        };
+        let index = record_int_field(record, "index")?;
+        let start = record_int_field(record, "start")?;
+        let end = record_int_field(record, "end")?;
+        let size = record_int_field(record, "size")?;
+        if !(1..=max_index).contains(&index) || !indices.insert(index) {
+            return Err(partition_write_error("partition index is invalid or duplicated", span));
+        }
+        if start < 0 || end < start || size <= 0
+            || end.checked_sub(start).and_then(|n| n.checked_add(1)) != Some(size)
+            || (start as u64) < first_usable || (end as u64) > last_usable
+        {
+            return Err(partition_write_error("partition extent is invalid or outside the usable LBA range", span));
+        }
+        extents.push((start, end));
+    }
+    extents.sort_unstable();
+    if extents.windows(2).any(|pair| pair[0].1 >= pair[1].0) {
+        return Err(partition_write_error("partition extents overlap", span));
+    }
+    Ok(())
+}
+
 fn write_mbr_table(
     device: &mut Device,
+    table: &RecordMap,
     partitions: &[Value],
     span: Span,
 ) -> Result<(), RuntimeError> {
-    if device.sector_size < 512 {
-        return Err(
-            RuntimeError::new("linux-write-partition-table", "sector size is too small")
-                .with_span(span),
-        );
+    let total_sectors = device.total_bytes / device.sector_size;
+    if total_sectors < 2 {
+        return Err(partition_write_error("device is too small for DOS", span));
     }
-    let mut sector0 = vec![0_u8; device.sector_size as usize];
-    for value in partitions.iter().take(4) {
-        let Value::Record(record) = value else {
-            continue;
-        };
-        let index = record_int_field(record, "index")?;
-        if !(1..=4).contains(&index) {
-            continue;
+    validate_partition_extents(partitions, 4, 1, total_sectors - 1, span)?;
+    let mut sector0 = read_lba(device, 0, 1, span)?;
+    let had_protective_mbr = sector0[MBR_SIGNATURE_OFFSET..MBR_SIGNATURE_OFFSET + 2] == [0x55, 0xaa]
+        && (0..4).any(|slot| sector0[MBR_PARTITION_OFFSET + slot * 16 + 4] == 0xee);
+    sector0[MBR_PARTITION_OFFSET..MBR_SIGNATURE_OFFSET].fill(0);
+    let id = record_str_field(table, "id")?;
+    if !id.is_empty() {
+        let hex = id.strip_prefix("0x").unwrap_or(&id);
+        if hex.is_empty() || hex.len() > 8 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(partition_write_error("invalid DOS disk identifier", span));
         }
+        let signature = u32::from_str_radix(hex, 16)
+            .map_err(|_| partition_write_error("invalid DOS disk identifier", span))?;
+        sector0[440..444].copy_from_slice(&signature.to_le_bytes());
+    }
+    for value in partitions {
+        let Value::Record(record) = value else { unreachable!() };
+        let index = record_int_field(record, "index")?;
         let offset = MBR_PARTITION_OFFSET + (index as usize - 1) * 16;
         let start = record_int_field(record, "start")?;
         let size = record_int_field(record, "size")?;
-        if !(0..=u32::MAX as i64).contains(&start) || !(0..=u32::MAX as i64).contains(&size) {
-            return Err(RuntimeError::new(
-                "linux-write-partition-table",
-                "DOS partition values are out of range",
-            )
-            .with_span(span));
+        if start > u32::MAX as i64 || size > u32::MAX as i64 {
+            return Err(partition_write_error("DOS partition size is out of range", span));
         }
-        let kind = record_str_field(record, "type")
-            .or_else(|_| record_str_field(record, "kind"))
-            .unwrap_or_else(|_| "83".to_string());
-        let type_code = u8::from_str_radix(kind.trim_start_matches("0x"), 16).unwrap_or(0x83);
+        let kind = record_str_field(record, "type")?;
+        let hex = kind.strip_prefix("0x").unwrap_or(&kind);
+        if hex.is_empty() || hex.len() > 2 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(partition_write_error("invalid DOS partition type", span));
+        }
+        let type_code = u8::from_str_radix(hex, 16)
+            .map_err(|_| partition_write_error("invalid DOS partition type", span))?;
+        if type_code == 0 || matches!(type_code, 0x05 | 0x0f | 0x85) {
+            return Err(partition_write_error("empty and extended DOS partition types are unsupported", span));
+        }
+        if !record_str_field(record, "uuid")?.is_empty() || !record_str_field(record, "name")?.is_empty() {
+            return Err(partition_write_error("DOS partitions cannot store UUIDs or names", span));
+        }
         sector0[offset] = 0;
         sector0[offset + 1..offset + 4].copy_from_slice(&[0xff, 0xff, 0xff]);
         sector0[offset + 4] = type_code;
@@ -581,7 +720,32 @@ fn write_mbr_table(
     }
     sector0[MBR_SIGNATURE_OFFSET] = 0x55;
     sector0[MBR_SIGNATURE_OFFSET + 1] = 0xaa;
+    // Retire old GPT headers only after validating the replacement table.
+    if had_protective_mbr && total_sectors > 2 {
+        let zero = vec![0; device.sector_size as usize];
+        for lba in [1, total_sectors - 1] {
+            if read_lba(device, lba, 1, span)?.starts_with(b"EFI PART") {
+                write_lba(device, lba, &zero, span)?;
+            }
+        }
+    }
     write_lba(device, 0, &sector0, span)
+}
+
+// Empty identifiers request a new UUID. Malformed and zero UUIDs must never
+// become an apparently successful table containing unusable identifiers.
+fn table_guid(record: &RecordMap, field: &str, generate: bool, span: Span) -> Result<[u8; 16], RuntimeError> {
+    let value = record_str_field(record, field)?;
+    if value.is_empty() && generate {
+        let mut bytes = [0; 16];
+        File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes))
+            .map_err(|error| RuntimeError::host("linux-write-partition-table", &error).with_span(span))?;
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        return Ok(bytes);
+    }
+    parse_guid(&value).filter(|guid| *guid != [0; 16])
+        .ok_or_else(|| partition_write_error(&format!("invalid GPT {field} GUID"), span))
 }
 
 fn write_gpt_table(
@@ -616,44 +780,30 @@ fn write_gpt_table(
         )
         .with_span(span));
     }
-    let disk_guid = record_str_field(table, "id")
-        .ok()
-        .and_then(|value| parse_guid(&value))
-        .unwrap_or([0; 16]);
+    validate_partition_extents(partitions, entry_count as i64, first_usable, last_usable, span)?;
+    let disk_guid = table_guid(table, "id", true, span)?;
+    let mut identifiers = std::collections::HashSet::from([disk_guid]);
     let mut entries = vec![0_u8; entry_count as usize * entry_size as usize];
-    for value in partitions.iter().take(entry_count as usize) {
-        let Value::Record(record) = value else {
-            continue;
-        };
+    for value in partitions {
+        let Value::Record(record) = value else { unreachable!() };
         let index = record_int_field(record, "index")?;
-        if !(1..=entry_count as i64).contains(&index) {
-            continue;
-        }
         let start = record_int_field(record, "start")? as u64;
         let end = record_int_field(record, "end")? as u64;
-        if start < first_usable || end > last_usable || end < start {
-            return Err(RuntimeError::new(
-                "linux-write-partition-table",
-                "GPT partition is outside the usable LBA range",
-            )
-            .with_span(span));
-        }
         let offset = (index as usize - 1) * entry_size as usize;
-        let type_guid = record_str_field(record, "type")
-            .ok()
-            .and_then(|value| parse_guid(&value))
-            .unwrap_or(GUID_LINUX_FILESYSTEM);
-        let part_guid = record_str_field(record, "uuid")
-            .ok()
-            .and_then(|value| parse_guid(&value))
-            .unwrap_or([0; 16]);
+        let type_guid = table_guid(record, "type", false, span)?;
+        let part_guid = table_guid(record, "uuid", true, span)?;
+        if !identifiers.insert(part_guid) {
+            return Err(partition_write_error("GPT UUIDs must be distinct", span));
+        }
         entries[offset..offset + 16].copy_from_slice(&guid_to_gpt(&type_guid));
         entries[offset + 16..offset + 32].copy_from_slice(&guid_to_gpt(&part_guid));
         entries[offset + 32..offset + 40].copy_from_slice(&start.to_le_bytes());
         entries[offset + 40..offset + 48].copy_from_slice(&end.to_le_bytes());
-        if let Ok(name) = record_str_field(record, "name") {
-            entries[offset + 56..offset + 128].copy_from_slice(&encode_gpt_name(&name));
+        let name = record_str_field(record, "name")?;
+        if name.encode_utf16().count() > 36 || name.contains('\0') {
+            return Err(partition_write_error("GPT name exceeds 36 UTF-16 units or contains NUL", span));
         }
+        entries[offset + 56..offset + 128].copy_from_slice(&encode_gpt_name(&name));
     }
     let entries_crc = crc32(&entries);
     let primary_entries_lba = 2;
@@ -697,10 +847,6 @@ fn write_gpt_table(
     write_padded_lba(device, backup_entries_lba, entry_sectors, &entries, span)?;
     write_lba(device, total_sectors - 1, &backup_header, span)
 }
-
-const GUID_LINUX_FILESYSTEM: [u8; 16] = [
-    0x0f, 0xc6, 0x3d, 0xaf, 0x84, 0x83, 0x47, 0x72, 0x8e, 0x79, 0x3d, 0x69, 0xd8, 0x47, 0x7d, 0xe4,
-];
 
 struct GptHeaderSpec {
     current_lba: u64,
@@ -880,6 +1026,9 @@ fn guid_to_gpt(guid: &[u8; 16]) -> [u8; 16] {
 }
 
 fn parse_guid(value: &str) -> Option<[u8; 16]> {
+    if value.len() != 36 || [8, 13, 18, 23].iter().any(|index| value.as_bytes()[*index] != b'-') {
+        return None;
+    }
     let hex = value.replace('-', "");
     if hex.len() != 32 || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
@@ -915,7 +1064,10 @@ fn encode_gpt_name(name: &str) -> [u8; 72] {
 }
 
 fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc = 0xffff_ffff_u32;
+    !crc32_update(!0_u32, bytes)
+}
+
+fn crc32_update(mut crc: u32, bytes: &[u8]) -> u32 {
     for byte in bytes {
         crc ^= u32::from(*byte);
         for _ in 0..8 {
@@ -923,7 +1075,7 @@ fn crc32(bytes: &[u8]) -> u32 {
             crc = (crc >> 1) ^ (0xedb8_8320 & mask);
         }
     }
-    !crc
+    crc
 }
 
 fn read_c_string(bytes: &[u8]) -> Option<String> {

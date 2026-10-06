@@ -229,7 +229,11 @@ proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
   Err(IfdownError.Config(f"unknown interface {logical}"))
 }
 
-proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [process, error] {
+proc report_action(verbose: Bool, action: Str) [io, error] {
+  if verbose { io.write_stdout(action + "\n") }
+}
+
+proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str, verbose: Bool) [process, error, io] {
   return when command == ""
 
   let env_record = {
@@ -239,12 +243,13 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
     METHOD: stanza.method,
     MODE: "stop",
     PHASE: phase,
-    VERBOSITY: "0",
+    VERBOSITY: if verbose { "1" } else { "0" },
     IF_ADDRESS: stanza.address,
     IF_NETMASK: stanza.netmask,
     IF_GATEWAY: stanza.gateway,
   }
 
+  report_action(verbose, f"hook {phase} {physical}: {command}")
   let status = process.run(process.command_argv("/bin/sh", ["sh", "-c", command], env: env_record))?
 
   if ! status.ok {
@@ -252,7 +257,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
   }
 }
 
-proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, process, error] {
+proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str, verbose: Bool) [fs, process, error, io] {
   guard dir.exists() else {
     return
   }
@@ -267,12 +272,13 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
       METHOD: stanza.method,
       MODE: "stop",
       PHASE: phase,
-      VERBOSITY: "0",
+      VERBOSITY: if verbose { "1" } else { "0" },
       IF_ADDRESS: stanza.address,
       IF_NETMASK: stanza.netmask,
       IF_GATEWAY: stanza.gateway,
     }
 
+    report_action(verbose, f"hook {phase} {physical}: {entry.path}")
     let status = process.run(process.command_argv(entry.path, [entry.path], env: env_record))?
 
     return Err(IfdownError.Hook(f"{entry.path} failed for {physical}")) unless status.ok
@@ -301,7 +307,7 @@ proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
   state_path.write_atomic(new_lines.join("\n"))
 }
 
-proc teardown_dhcp(physical: Str) [fs, process, error] {
+proc teardown_dhcp(physical: Str, verbose: Bool) [fs, process, error, io] {
   let interfaces = linux.interfaces()?
   var address = ""
 
@@ -319,34 +325,40 @@ proc teardown_dhcp(physical: Str) [fs, process, error] {
 
   for route in routes {
     if route.dst == "default" and route.dev == physical and "." in route.gateway {
+      report_action(verbose, f"del_default_ipv4_route {physical} {route.gateway}")
       linux.del_default_ipv4_route(route.gateway, interface: physical)
     }
   }
 
   if address != "" {
+    report_action(verbose, f"flush_ipv4_addresses {physical}")
     linux.flush_ipv4_addresses(physical)
   }
 
+  report_action(verbose, f"link_down {physical}")
   linux.link_down(physical)
 }
 
-proc teardown_static(physical: Str, stanza: Interface) [fs, process, error] {
+proc teardown_static(physical: Str, stanza: Interface, verbose: Bool) [fs, process, error, io] {
   let routes = linux.routes()?
 
   for route in routes {
     if route.dst == "default" and route.dev == physical and "." in route.gateway {
+      report_action(verbose, f"del_default_ipv4_route {physical} {route.gateway}")
       linux.del_default_ipv4_route(route.gateway, interface: physical)
     }
   }
 
   if stanza.address != "" {
+    report_action(verbose, f"flush_ipv4_addresses {physical}")
     linux.flush_ipv4_addresses(physical)
   }
 
+  report_action(verbose, f"link_down {physical}")
   linux.link_down(physical)
 }
 
-proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logical: Str) [fs, process, error] {
+proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logical: Str, verbose: Bool) [fs, process, error, io] {
   guard state_path.exists() else {
     return
   }
@@ -371,27 +383,30 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
   }
 
   for command in stanza.pre_down {
-    run_hook(command, physical, stanza, "pre-down")
+    run_hook(command, physical, stanza, "pre-down", verbose)
   }
 
-  run_parts(/etc/network/if-pre-down.d, physical, stanza, "pre-down")
+  run_parts(/etc/network/if-pre-down.d, physical, stanza, "pre-down", verbose)
 
   match stanza.method {
-    "loopback" | "manual" => linux.link_down(physical)
-    "static" => teardown_static(physical, stanza)
-    "dhcp" => teardown_dhcp(physical)
+    "loopback" | "manual" => {
+      report_action(verbose, f"link_down {physical}")
+      linux.link_down(physical)
+    }
+    "static" => teardown_static(physical, stanza, verbose)
+    "dhcp" => teardown_dhcp(physical, verbose)
     else => return Err(IfdownError.Config(f"{stanza.logical}: unsupported method {stanza.method}"))
   }
 
   for command in stanza.down {
-    run_hook(command, physical, stanza, "down")
+    run_hook(command, physical, stanza, "down", verbose)
   }
 
   for command in stanza.post_down {
-    run_hook(command, physical, stanza, "post-down")
+    run_hook(command, physical, stanza, "post-down", verbose)
   }
 
-  run_parts(/etc/network/if-post-down.d, physical, stanza, "post-down")
+  run_parts(/etc/network/if-post-down.d, physical, stanza, "post-down", verbose)
   state_remove_iface(state_path, physical)
 }
 
@@ -403,7 +418,7 @@ pure split_iface_arg(arg: Str) -> InterfaceSelection {
   {physical: arg, logical: arg}
 }
 
-type IfdownOptions = {all: Bool, operands: List[Str]}
+type IfdownOptions = {all: Bool, verbose: Bool, operands: List[Str]}
 
 stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[InterfaceSelection] {
   guard state_path.exists() else {
@@ -421,7 +436,7 @@ stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Interface
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: IfdownOptions = cli.applet(
     argv,
     {
@@ -429,7 +444,7 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
         form: "-a --all",
         default: false,
       },
-      ignored: {
+      verbose: {
         form: "-v --verbose",
         default: false,
       },
@@ -438,7 +453,7 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
       },
     },
   )?
-  let {all, operands, ..} = opts
+  let {all, verbose, operands} = opts
 
   if ! all and operands.is_empty() {
     return Err(IfdownError.Usage("ifdown: expected -a or interface name"))
@@ -449,12 +464,12 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
 
   if all {
     for item in state_configured_ifaces(state_path) {
-      deconfigure_interface(config, state_path, item.physical, item.logical)
+      deconfigure_interface(config, state_path, item.physical, item.logical, verbose)
     }
   }
 
   for operand in operands {
     let selection = split_iface_arg(operand)
-    deconfigure_interface(config, state_path, selection.physical, selection.logical)
+    deconfigure_interface(config, state_path, selection.physical, selection.logical, verbose)
   }
 }

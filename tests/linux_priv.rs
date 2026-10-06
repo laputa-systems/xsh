@@ -453,6 +453,7 @@ let image = Path({})
   test.ok(! (linux.loop_list()?.collect() |> any .device == device))?
   let attached = linux.loop_attach(image, device)?
   test.ok(attached == device)?
+  test.ok(! linux.blockdev_info(attached)?.read_only)?
   test.ok(linux.loop_list()?.collect() |> any .device == attached)?
   linux.loop_detach(attached)?
   var gone = false

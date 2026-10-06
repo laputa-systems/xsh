@@ -57,6 +57,24 @@ test test_ls_lists_names_sorted_one_per_line { |ctx|
   assert ls_in(ctx, work, ["-r"])?.text == "dir\nb\na\n"
 }
 
+test test_ls_long_reports_inaccessible_entries_as_minor_failure { |ctx|
+  if user.current()?.uid == 0 { test.skip("root bypasses directory search permissions") }
+  let work = sandbox(ctx)?
+  let dir = fp"{work}/dir"
+  dir.mkdir()
+  fp"{dir}/file".write("")
+  fp"{dir}/link".symlink(to: p"/")
+  dir.chmod(0o600)
+  defer { dir.chmod(0o700) }
+
+  let result = ls_in(ctx, work, ["-l", "dir"])?
+  assert result.status == 1, result.err
+  assert "? file" in result.text, result.text
+  assert "? link" in result.text, result.text
+  assert "cannot access 'dir/file': Permission denied" in result.err, result.err
+  assert "cannot access 'dir/link': Permission denied" in result.err, result.err
+}
+
 test test_ls_directory_operands_and_headers { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/x".mkdir()
