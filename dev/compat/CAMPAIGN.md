@@ -118,6 +118,10 @@ remain historical evidence only.
   Gate 3 slice remains 43/174 with no regressions; its `test_blanks` also
   invokes `--debug`, which this applet does not yet implement. The report is
   in `results/sort-blanks-followup/`.
+- Follow-up `5f7eedf1` adds GNU `sort --version` output. Focused native sort
+  tests pass 9/9; the optimized debug Gate 3 slice improves from 43/174 to
+  44/173 across 217 tests, fixing `test_no_error_for_version` with no
+  regressions. Reports are in `results/sort-version-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail

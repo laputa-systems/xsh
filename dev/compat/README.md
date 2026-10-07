@@ -147,6 +147,10 @@ line tie-break, and uses the same order for `-c`. Focused native sort tests pass
 8/8, and a pinned GNU C-locale probe matches. Its Gate 3 slice stays 43/174
 with no regressions; the upstream `test_blanks` also invokes unsupported
 `--debug`. The report is in `results/sort-blanks-followup/`.
+Follow-up `5f7eedf1` adds GNU `sort --version` output. Native sort tests pass
+9/9; the optimized debug Gate 3 slice improves from 43/174 to 44/173 across
+217 tests, fixing `test_no_error_for_version` with no regressions. Reports are
+in `results/sort-version-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
