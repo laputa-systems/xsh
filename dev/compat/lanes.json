@@ -22,7 +22,10 @@
         "od",
         "dd"
       ],
-      "extra_files": [],
+      "extra_files": [
+        "core/lib/bytes_enc.xsh",
+        "core/lib/bytes_enc_dd.xsh"
+      ],
       "depends": [
         "native-bytes-hash"
       ],
