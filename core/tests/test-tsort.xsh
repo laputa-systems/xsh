@@ -10,6 +10,22 @@ proc tsort_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, 
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+test test_tsort_help_version_aliases { |ctx|
+  let root = test.temp_dir(ctx, name: "tsort-options")?
+  let help = tsort_run(ctx, root, ["--help"])?
+  let short_help = tsort_run(ctx, root, ["-h"])?
+  let version = tsort_run(ctx, root, ["--version"])?
+  let short_version = tsort_run(ctx, root, ["-V"])?
+
+  assert help.status == 0
+  assert help.stdout.utf8()?.starts_with("Usage: tsort")
+  assert short_help.status == 0
+  assert short_help.stdout == help.stdout
+  assert version.status == 0
+  assert short_version.status == 0
+  assert short_version.stdout == version.stdout
+}
+
 test test_tsort_orders_by_dependency_then_name { |ctx|
   let root = test.temp_dir(ctx, name: "tsort")?
 
@@ -33,6 +49,11 @@ test test_tsort_reports_and_breaks_loops { |ctx|
   let two = tsort_run(ctx, root, [], b"a b b c c b b d d b")?
   assert two.stdout == b"a\nb\nd\nc\n"
   assert two.stderr == "tsort: -: input contains a loop:\ntsort: b\ntsort: c\ntsort: -: input contains a loop:\ntsort: b\ntsort: d\n", two.stderr
+
+  let warn = tsort_run(ctx, root, ["-w"], b"a a\na b\na c\nc a\nb a")?
+  assert warn.status == 1
+  assert warn.stdout == b"a\nc\nb\n"
+  assert warn.stderr == "tsort: -: input contains a loop:\ntsort: a\ntsort: b\ntsort: -: input contains a loop:\ntsort: a\ntsort: c\n", warn.stderr
 
   fp"{root}/f".write("t b\nt s\ns t\n")
   let named = tsort_run(ctx, root, ["f"])?

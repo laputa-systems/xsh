@@ -14,6 +14,14 @@ pure sorted_lines(data: Bytes) -> List[Str] {
   [line for line in (data.utf8() ?? "").lines() |> sort-by .]
 }
 
+pure decimal_in_range(value: Str, lower: Str, upper: Str) -> Bool {
+  return false when ! rx"^[0-9]+$".matches(value)
+  return false when value.byte_len() < lower.byte_len() or value.byte_len() > upper.byte_len()
+  return false when value.byte_len() == lower.byte_len() and value < lower
+  return false when value.byte_len() == upper.byte_len() and value > upper
+  true
+}
+
 test test_shuf_permutes_head_counts_and_repeats { |ctx|
   let root = test.temp_dir(ctx, name: "shuf")?
   fp"{root}/ten".write("1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n")
@@ -49,7 +57,7 @@ test test_shuf_random_source_matches_gnu { |ctx|
   let exhausted = shuf_run(ctx, root, ["--random-source=short", "-r", "-i", "1-99"])?
   assert exhausted.status == 1
   assert exhausted.stdout == b"38\n30\n10\n26\n23\n61\n46\n99\n75\n43\n10\n89\n10\n44\n24\n59\n22\n51\n"
-  assert exhausted.stderr == "shuf: 'short': end of file\n", exhausted.stderr
+  assert exhausted.stderr == "shuf: end of random source\n", exhausted.stderr
 }
 
 test test_shuf_output_file_and_errors { |ctx|
@@ -135,4 +143,51 @@ test test_shuf_argument_diagnostics_match_uutils { |ctx|
   let count = shuf_run(ctx, root, ["-n", "a"])?
   assert count.status == 1
   assert "invalid value 'a' for '--head-count <COUNT>': invalid digit found in string" in count.stderr, count.stderr
+}
+
+test test_shuf_large_ranges { |ctx|
+  let root = test.temp_dir(ctx, name: "shuf-large-ranges")?
+  let cases = [
+    {args: ["-n1", "-i", "1-18446744073709551615"], lower: "1", upper: "18446744073709551615"},
+    {args: ["-rn1", "-i", "1-18446744073709551615"], lower: "1", upper: "18446744073709551615"},
+    {args: ["-n1", "-i", "0-18446744073709551614"], lower: "0", upper: "18446744073709551614"},
+    {args: ["-rn1", "-i", "0-18446744073709551614"], lower: "0", upper: "18446744073709551614"},
+  ]
+
+  for case in cases {
+    let result = shuf_run(ctx, root, case.args)?
+    assert result.status == 0, result.stderr
+    let records = result.stdout.utf8()?.trim().lines()
+    assert records.len() == 1, records.join(",")
+    assert decimal_in_range(records[0], case.lower, case.upper), records.join(",")
+  }
+
+  let singleton = shuf_run(ctx, root, ["-n1", "-i", "18446744073709551615-18446744073709551615"])?
+  assert singleton.status == 0, singleton.stderr
+  assert singleton.stdout == b"18446744073709551615\n"
+
+  let uncounted_singleton = shuf_run(ctx, root, ["-i", "18446744073709551615-18446744073709551615"])?
+  assert uncounted_singleton.status == 0, uncounted_singleton.stderr
+  assert uncounted_singleton.stdout == b"18446744073709551615\n"
+
+  let unique = shuf_run(ctx, root, ["-n2", "-i", "18446744073709551613-18446744073709551615"])?
+  assert unique.status == 0, unique.stderr
+  let selected = unique.stdout.utf8()?.trim().lines()
+  assert selected.len() == 2, selected.join(",")
+  assert selected[0] != selected[1], selected.join(",")
+  assert decimal_in_range(selected[0], "18446744073709551613", "18446744073709551615"), selected[0]
+  assert decimal_in_range(selected[1], "18446744073709551613", "18446744073709551615"), selected[1]
+
+  fp"{root}/random".write(b"\0\0\0\0\0\0\0\0")
+  let sourced = shuf_run(ctx, root, ["--random-source=random", "-n1", "-i", "1-18446744073709551615"])?
+  assert sourced.status == 0, sourced.stderr
+  assert sourced.stdout == b"1\n"
+
+  let full_range = shuf_run(ctx, root, ["-n1", "-i", "0-18446744073709551615"])?
+  assert full_range.status == 1
+  assert "input ranges beyond 2^63 - 2 are not supported" in full_range.stderr, full_range.stderr
+
+  let descending = shuf_run(ctx, root, ["-n1", "-i", "18446744073709551615-18446744073709551614"])?
+  assert descending.status == 1
+  assert "start exceeds end" in descending.stderr, descending.stderr
 }

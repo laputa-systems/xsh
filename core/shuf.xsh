@@ -38,6 +38,9 @@ type ShufOptions = {
 # window and the leftover entropy GNU's `randint` recycles between draws. A
 # draw that runs out of window bytes is not `ok` and is resumed after a refill.
 type Draw = {value: Int, pos: Int, state: Int, entropy: Int, ok: Bool}
+type WideRange = {low: List[Int], count: List[Int]}
+type WideDraw = {value: List[Int], pos: Int, ok: Bool}
+type WideSum = {value: List[Int], overflow: Bool}
 
 # Output stops here for an unbounded `-r`: stdout is flushed only when the
 # script ends, so endless output could never be delivered.
@@ -45,6 +48,145 @@ const OUTPUT_LIMIT = 262144
 
 # The largest range one draw supports: its entropy has to fit in an Int.
 const DRAW_LIMIT = 36028797018963968
+
+pure parse_wide_integer(text: Str) -> List[Int]? {
+  return null when ! rx"^[0-9]+$".matches(text)
+
+  var value = [0, 0, 0, 0, 0, 0, 0, 0]
+
+  for digit_at in range(text.byte_len()) {
+    var carry = text.byte_slice(digit_at, length: 1).parse_int() ?? 0
+
+    for offset in range(8) {
+      let index = 7 - offset
+      let expanded = value[index] * 10 + carry
+      value[index] = expanded % 256
+      carry = expanded / 256
+    }
+
+    return null when carry != 0
+  }
+
+  value
+}
+
+pure wide_less(left: List[Int], right: List[Int]) -> Bool {
+  for index in range(8) {
+    return left[index] < right[index] when left[index] != right[index]
+  }
+
+  false
+}
+
+pure wide_add(left: List[Int], right: List[Int]) -> WideSum {
+  var value = [0, 0, 0, 0, 0, 0, 0, 0]
+  var carry = 0
+
+  for offset in range(8) {
+    let index = 7 - offset
+    let sum = left[index] + right[index] + carry
+    value[index] = sum % 256
+    carry = sum / 256
+  }
+
+  {value: value, overflow: carry != 0}
+}
+
+pure wide_subtract(left: List[Int], right: List[Int]) -> List[Int] {
+  var value = [0, 0, 0, 0, 0, 0, 0, 0]
+  var borrow = 0
+
+  for offset in range(8) {
+    let index = 7 - offset
+    var difference = left[index] - right[index] - borrow
+
+    if difference < 0 {
+      difference += 256
+      borrow = 1
+    } else {
+      borrow = 0
+    }
+
+    value[index] = difference
+  }
+
+  value
+}
+
+pure wide_bit_length(value: List[Int]) -> Int {
+  for index in range(8) {
+    let byte = value[index]
+
+    if byte != 0 {
+      var top = byte
+      var byte_bits = 0
+
+      while top > 0 {
+        byte_bits += 1
+        top = top / 2
+      }
+
+      return (7 - index) * 8 + byte_bits
+    }
+  }
+
+  0
+}
+
+# Draws below COUNT with enough random bits to keep rejection sampling efficient
+# for both narrow and full-width unsigned ranges.
+pure wide_draw(window: Bytes, at: Int, count: List[Int]) -> WideDraw {
+  let one = [0, 0, 0, 0, 0, 0, 0, 1]
+  let bits = wide_bit_length(wide_subtract(count, one))
+  let byte_count = (bits + 7) / 8
+  let high_bits = bits % 8
+  var pos = at
+
+  while pos + byte_count <= window.len() {
+    var candidate = [0, 0, 0, 0, 0, 0, 0, 0]
+    let start = 8 - byte_count
+
+    for index in range(byte_count) {
+      candidate[start + index] = window.byte_at(pos + index) ?? 0
+    }
+
+    if high_bits != 0 and byte_count > 0 {
+      var limit = 1
+
+      for _ in range(high_bits) { limit *= 2 }
+      candidate[start] = candidate[start] % limit
+    }
+
+    pos += byte_count
+
+    if wide_less(candidate, count) {
+      return {value: candidate, pos: pos, ok: true}
+    }
+  }
+
+  {value: [0, 0, 0, 0, 0, 0, 0, 0], pos: pos, ok: false}
+}
+
+pure wide_to_decimal(value: List[Int]) -> Str {
+  var remainder_value = value
+  var digits = ""
+
+  while wide_bit_length(remainder_value) > 0 {
+    var quotient = [0, 0, 0, 0, 0, 0, 0, 0]
+    var remainder = 0
+
+    for index in range(8) {
+      let expanded = remainder * 256 + remainder_value[index]
+      quotient[index] = expanded / 10
+      remainder = expanded % 10
+    }
+
+    digits = "0123456789".byte_slice(remainder, length: 1) + digits
+    remainder_value = quotient
+  }
+
+  if digits == "" { "0" } else { digits }
+}
 
 # Records of `data` separated by `sep`; one trailing separator is ignored.
 pure split_records(data: Bytes, sep: Int) -> List[Bytes] {
@@ -199,6 +341,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var lo = 0
   var hi = -1
+  var wide_range: WideRange? = null
 
   if ! opts.range.is_empty() {
     let text = opts.range[0]
@@ -223,17 +366,54 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     if from >= tio.MAX_COUNT or to >= tio.MAX_COUNT {
-      if ! opts.repeat and head == tio.MAX_COUNT {
+      let wide_low = parse_wide_integer(text.byte_slice(0, length: cut))
+      let wide_high = parse_wide_integer(text.byte_slice(cut + 1))
+
+      if wide_low != null and wide_high != null {
+        if wide_less(wide_high, wide_low) {
+          gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': start exceeds end")
+          exit 1
+        }
+
+        let difference = wide_subtract(wide_high, wide_low)
+        let size = wide_add(difference, [0, 0, 0, 0, 0, 0, 0, 1])
+
+        if ! size.overflow {
+          let small_range = if let Ok(size_as_int) = wide_to_decimal(size.value).parse_int() { size_as_int <= DRAW_LIMIT } else { false }
+          let small_head = counted and head < DRAW_LIMIT
+          let bounded_repeat = counted and opts.repeat and head == tio.MAX_COUNT
+
+          if small_range or small_head or bounded_repeat {
+            wide_range = {low: wide_low, count: size.value}
+            lo = 0
+            hi = 0
+          } else if ! opts.repeat and head == tio.MAX_COUNT {
+            gnu.error("memory exhausted")
+            exit 1
+          } else {
+            gnu.error("input ranges beyond 2^63 - 2 are not supported")
+            exit 1
+          }
+        } else if ! opts.repeat and head == tio.MAX_COUNT {
+          gnu.error("memory exhausted")
+          exit 1
+        } else {
+          gnu.error("input ranges beyond 2^63 - 2 are not supported")
+          exit 1
+        }
+      } else if ! opts.repeat and head == tio.MAX_COUNT {
         gnu.error("memory exhausted")
+        exit 1
       } else {
         gnu.error("input ranges beyond 2^63 - 2 are not supported")
+        exit 1
       }
-
-      exit 1
     }
 
-    lo = from
-    hi = to
+    if wide_range == null {
+      lo = from
+      hi = to
+    }
   }
 
   let sep = if opts.zero { 0 } else { 10 }
@@ -270,6 +450,84 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let device_path = if opts.source != null { fp"{opts.source}" } else { /dev/urandom }
+
+  if wide_range != null {
+    let wide = wide_range
+    let count_text = wide_to_decimal(wide.count)
+    let count_as_int = count_text.parse_int() ?? tio.MAX_COUNT
+    let amount = if opts.repeat { head } else if head < count_as_int { head } else { count_as_int }
+    var random_bytes = if device { bytes.read_at(device_path, 0, 4096) ?? b"" } else { source }
+    var random_at = 0
+    var produced = 0
+    var output_size = 0
+    var failed = false
+    var limited = false
+    var selected: List[List[Int]] = []
+    var output_parts: List[Bytes] = []
+
+    while produced < amount and ! failed and ! limited {
+      var found = false
+      var chosen = [0, 0, 0, 0, 0, 0, 0, 0]
+
+      while ! found and ! failed {
+        let candidate = wide_draw(random_bytes, random_at, wide.count)
+        random_at = candidate.pos
+
+        if candidate.ok {
+          let value = wide_add(wide.low, candidate.value).value
+
+          if opts.repeat or value not in selected {
+            chosen = value
+            found = true
+          }
+        } else if device {
+          random_bytes = bytes.read_at(device_path, 0, 4096) ?? b""
+          random_at = 0
+          failed = random_bytes.is_empty()
+        } else {
+          failed = true
+        }
+      }
+
+      if found {
+        let text = wide_to_decimal(chosen)
+        selected = selected.extend([chosen])
+        output_parts = output_parts.extend([@[bytes.from_text(text), mark]])
+        output_size += text.byte_len() + 1
+        produced += 1
+
+        if opts.repeat and head == tio.MAX_COUNT and output_size > OUTPUT_LIMIT {
+          limited = true
+        }
+      }
+    }
+
+    if failed {
+      gnu.error("end of random source")
+      exit 1
+    }
+
+    let result = bytes.concat(output_parts)
+
+    if output == "-" {
+      gnu.write_bytes(result)
+    } else if let Err(failure) = fp"{output}".write(result) {
+      if gnu.errno(failure) == 28 {
+        gnu.error(f"write error: {gnu.strerror(failure)}")
+      } else {
+        gnu.error(f"failed to open {gnu.quote(output)} for writing: {gnu.strerror(failure)}")
+      }
+
+      exit 1
+    }
+
+    if limited {
+      gnu.error("unbounded output stopped at 256 KiB: stdout is only flushed when the script ends")
+      exit 1
+    }
+
+    return
+  }
 
   var items: List[Bytes] = []
   var total = 0
@@ -437,7 +695,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # A permutation is written only once complete; repeated output goes out as
   # it is drawn.
   if failed and ! opts.repeat {
-    gnu.error(f"{gnu.quote(opts.source ?? "")}: end of file")
+    gnu.error("end of random source")
     exit 1
   }
 
@@ -454,7 +712,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if failed {
-    gnu.error(f"{gnu.quote(opts.source ?? "")}: end of file")
+    gnu.error("end of random source")
     exit 1
   }
 

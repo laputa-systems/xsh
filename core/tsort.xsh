@@ -10,7 +10,7 @@ With no FILE, or when FILE is -, read standard input.
       --version     output version information and exit
 """
 
-type TsortOptions = {help: Bool, version: Bool, files: List[Str]}
+type TsortOptions = {help: Bool, version: Bool, warn: Bool, files: List[Str]}
 
 const HEX = "0123456789abcdef"
 
@@ -121,8 +121,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     argv,
     {
       gnu: {status: 1},
-      help: {form: "--help", default: false, stop: true},
-      version: {form: "--version", default: false, stop: true},
+      help: {form: "-h --help", default: false, stop: true},
+      version: {form: "-V --version", default: false, stop: true},
+      warn: {form: "-w", default: false},
       files: {form: "...FILE"},
     },
   )?
@@ -138,7 +139,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.files.len() > 1 {
-    gnu.extra_operand(opts.files[1])
+    gnu.error(f"extra operand {gnu.quote(opts.files[1])}\nTry 'tsort --help' for more information.")
+    exit 1
   }
 
   let name = opts.files.get(0) ?? "-"
