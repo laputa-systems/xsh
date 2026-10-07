@@ -13,6 +13,16 @@ proc invoke_with_env(ctx: TestContext, args: List[Str], variables: Record, input
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc invoke_with_path_args(ctx: TestContext, args: List[Union[Path, Str]], input = b"") [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "dd-path-args")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/dd.xsh"
+  let argv: List[Union[Path, Str]] = [ctx.xsh_bin, script, @args]
+  let status = process.run(process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, input, out, err))?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 test test_dd_forced_rich_diagnostics_point_at_operands { |ctx|
   let unknown = invoke_with_env(ctx, ["bsx=1"], {LC_ALL: "C", UUTILS_DIAG: "always"})?
   assert unknown.status == 1, unknown.stderr
@@ -33,6 +43,30 @@ test test_dd_forced_rich_diagnostics_point_at_operands { |ctx|
   assert count.status == 1
   assert "dd:1:10" in count.stderr, count.stderr
   assert "a number may be followed by a multiplier" in count.stderr, count.stderr
+}
+
+test test_dd_reads_and_writes_non_utf8_operand_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-non-utf8")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/in-\xff\xfe"]))?
+  let output = Path.parse_bytes(bytes.concat([root.bytes(), b"/out-\xff\xfe"]))?
+  let contents = b"dd accepts path operands whose bytes are not UTF-8\n"
+  input.write(contents)
+  let args: List[Union[Path, Str]] = ["status=none", Path.parse_bytes(bytes.concat([b"if=", input.bytes()]))?, Path.parse_bytes(bytes.concat([b"of=", output.bytes()]))?]
+
+  let result = invoke_with_path_args(ctx, args)?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b""
+  assert output.read_bytes()? == contents
+}
+
+test test_dd_empty_file_operands_keep_the_open_error { |ctx|
+  let input = invoke(ctx, ["if="])?
+  assert input.status == 1
+  assert input.stderr == "dd: failed to open '': No such file or directory\n", input.stderr
+
+  let output = invoke(ctx, ["status=none", "of="])?
+  assert output.status == 1
+  assert output.stderr == "dd: failed to open '': No such file or directory\n", output.stderr
 }
 
 test test_dd_binary_counts_and_conversions { |ctx|

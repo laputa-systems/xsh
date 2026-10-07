@@ -3,7 +3,7 @@ use lib.gnu
 use lib.bytes_enc_dd as charset
 use lib.textio_a1 as tio
 
-type Options = {input: Str, output: Str, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, bs: Int}
+type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, bs: Int}
 type BlockOutput = {data: Bytes, padding: Int, pad_byte: Int}
 type Converted = {data: Bytes, blocks: List[BlockOutput], truncated: Int}
 
@@ -28,7 +28,7 @@ proc rich_diagnostics_enabled() [env, process] -> Bool {
 }
 
 ## Reconstruct the operand location because dd parses each KEY=VALUE argument directly.
-proc render_operand_error(argv: List[Str], arg_index: Int, message: Str, span_start: Int, span_length: Int, label: Str?, help: Str, usage: Bool, status: Int) [env, process, error] {
+proc render_operand_error(argv: List[Bytes], arg_index: Int, message: Str, span_start: Int, span_length: Int, label: Str?, help: Str, usage: Bool, status: Int) [env, process, error] {
   if ! rich_diagnostics_enabled() {
     gnu.error(message)
     if usage { gnu.try_help() }
@@ -37,9 +37,9 @@ proc render_operand_error(argv: List[Str], arg_index: Int, message: Str, span_st
 
   gnu.error(message)
   let program = gnu.prog()
-  let command = [program].extend(argv).join(" ")
+  let command = [program].extend([argument.utf8() ?? gnu.quote_bytes(argument) for argument in argv]).join(" ")
   var column = program.byte_len() + 1
-  for index in range(arg_index) { column += argv[index].byte_len() + 1 }
+  for index in range(arg_index) { column += argv[index].len() + 1 }
   column += span_start
   let marker = if label == null { ["─" for _ in range(span_length)].join("") } else { "─┬" }
   let spacing = [" " for _ in range(column)].join("")
@@ -58,15 +58,34 @@ proc render_operand_error(argv: List[Str], arg_index: Int, message: Str, span_st
   exit status
 }
 
-proc parse(argv: List[Str]) [process, env, io, error] -> Options {
-  var opts: Options = {input: "-", output: "-", ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, bs: 0}
+pure assignment_separator(arg: Bytes) -> Int? {
+  for at in range(arg.len()) { if arg.byte_at(at) == 61 { return at } }
+  null
+}
+
+proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
+  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, bs: 0}
   for arg_index in range(argv.len()) {
-    let arg = argv[arg_index]
+    let raw_arg = argv[arg_index]
+    let separator = assignment_separator(raw_arg)
+    let byte_key = if let at = separator { raw_arg[0..at].utf8() ?? "" } else { "" }
+    if let at = separator {
+      if byte_key in ["if", "of"] {
+        let value = raw_arg[at + 1..]
+        let operand_path: Path? = if value == b"-" { null } else { Path.parse_bytes(value)? }
+        opts = if byte_key == "if" { {...opts, input: operand_path} } else { {...opts, output: operand_path} }
+        continue
+      }
+    }
+    guard let arg = raw_arg.utf8() else {
+      render_operand_error(argv, arg_index, f"invalid UTF-8 in operand: {gnu.quote_bytes(raw_arg)}", 0, raw_arg.len(), null, "file names may contain arbitrary bytes", false, 1)
+      exit 1
+    }
     let parts = arg.split("=")
     if parts.len() < 2 { render_operand_error(argv, arg_index, f"unrecognized operand {gnu.quote(arg)}", 0, arg.byte_len(), null, "an operand is KEY=VALUE, as in if=file bs=4k count=10", true, 1) }
     let key = parts[0]
     let text = arg.byte_slice(key.byte_len() + 1)
-    if key == "if" { opts = {...opts, input: text} } else if key == "of" { opts = {...opts, output: text} } else if key in ["ibs", "obs", "bs", "cbs", "count", "skip", "seek", "iseek", "oseek"] {
+    if key in ["ibs", "obs", "bs", "cbs", "count", "skip", "seek", "iseek", "oseek"] {
       let factors = text.split("x")
       for index in range(factors.len() - 1) {
         if factors[index] == "0" { gnu.error("warning: '0x' is a zero multiplier; use '00x' if that is intended") }
@@ -118,6 +137,19 @@ proc parse(argv: List[Str]) [process, env, io, error] -> Options {
   if opts.cbs > 0 and ("ebcdic" in opts.conv or "ibm" in opts.conv) and ! ("block" in opts.conv or "unblock" in opts.conv) { opts = {...opts, conv: opts.conv.extend(["block"])} }
   if opts.bs > 0 { opts = {...opts, ibs: opts.bs, obs: opts.bs} }
   opts
+}
+
+# Keep dd's path operands byte-native while matching textio's source classification.
+proc open_dd_source(source_path: Path) [fs, error] -> Result[tio.Source] {
+  let target = source_path.resolve()?
+  let entry = target.metadata()?
+  let kind = entry.mode / 4096 % 16
+  let mode = if kind == 8 and entry.size > 0 { "file" } else if kind == 2 or kind == 6 { "device" } else { "whole" }
+  Ok({name: target.display(), path: target, mode: mode, kind: kind, size: entry.size})
+}
+
+proc quoted_path(file_path: Path) [env] -> Str {
+  gnu.quote_bytes(file_path.bytes())
 }
 
 pure encode_charset(data: Bytes, opts: Options) -> Result[Bytes] {
@@ -238,10 +270,10 @@ proc prepare_stdout_seek(offset: Int) [error, io, env, process] {
 }
 
 proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
-  let dest = fp"{opts.output}"
+  let dest = if let output = opts.output { output } else { p"" }
   var output_fd: Int? = null
   var output_kind = 0
-  if opts.output != "-" {
+  if opts.output != null {
     if "nocreat" in opts.conv and ! dest.exists() { fail "No such file or directory" }
     if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"")? }
     output_kind = dest.metadata()?.mode / 4096 % 16
@@ -252,13 +284,16 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
     }
   }
   var source: tio.Source? = null
-  if opts.input != "-" { source = tio.open_source(opts.input)? }
+  if let input = opts.input { source = open_dd_source(input)? }
   var input_fd: Int? = null
   if let file = source {
     if file.kind in [1, 2, 6] { input_fd = unix.open_fd(file.path, nonblock: false)? }
-    if file.mode == "file" and opts.output != "-" and output_kind == 8 and ! ("sparse" in opts.conv) {
+    if file.mode == "file" and opts.output != null and output_kind == 8 and ! ("sparse" in opts.conv) {
       let size = file.path.metadata()?.size
-      if skip > size { gnu.error(f"{gnu.quote(opts.input)}: cannot skip to specified offset") }
+      if skip > size {
+        let input = opts.input ?? p""
+        gnu.error(f"{quoted_path(input)}: cannot skip to specified offset")
+      }
       let available = if size > skip { size - skip } else { 0 }
       let length = if available < limit { available } else { limit }
       if let fd = output_fd { unix.close_fd(fd)?; output_fd = null }
@@ -330,7 +365,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       complete = total / opts.ibs
       partial = if total % opts.ibs == 0 { 0 } else { 1 }
     } else if block.len() == opts.ibs { complete += 1 } else { partial += 1 }
-    if opts.output == "-" {
+    if opts.output == null {
       gnu.write_bytes(block)
       io.flush_stdout()?
       written += block.len()
@@ -374,9 +409,9 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   Ok({complete: complete, partial: partial, written: written, failure: failure})
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
-  if "--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock oflag=seek_bytes\nNative descriptor flags are not supported."); return }
-  if "--version" in argv { gnu.version("dd"); return }
+proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
+  if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock oflag=seek_bytes\nNative descriptor flags are not supported."); return }
+  if b"--version" in argv { gnu.version("dd"); return }
   let started = time.now()
   let opts = parse(argv)
   if "sync" in opts.conv and opts.ibs > 67108864 { gnu.error("memory exhausted"); exit 1 }
@@ -385,14 +420,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   if opts.seek > 0 and ! opts.seek_bytes and opts.seek > 9223372036854775807 / opts.obs { gnu.error("Value too large for defined data type"); exit 1 }
   let skip = if opts.skip_bytes { opts.skip } else { opts.skip * opts.ibs }
   let seek = if opts.seek_bytes { opts.seek } else { opts.seek * opts.obs }
-  if opts.output == "-" { prepare_stdout_seek(seek) }
+  if opts.output == null { prepare_stdout_seek(seek) }
   if opts.count > 0 and ! opts.count_bytes and opts.count > 9223372036854775807 / opts.ibs { gnu.error("count is too large"); exit 1 }
   let limit = if opts.count < 0 { 9223372036854775807 } else if opts.count_bytes { opts.count } else { opts.count * opts.ibs }
-  if opts.input == "" or opts.output == "" { gnu.error("failed to open '': No such file or directory"); exit 1 }
-  if opts.input != "-" {
-    if let Err(failure) = tio.open_source(opts.input) { gnu.error(f"failed to open {gnu.quote(opts.input)}: {gnu.strerror(failure)}"); exit 1 }
+  if let input = opts.input {
+    if input.bytes().is_empty() { gnu.error("failed to open '': No such file or directory"); exit 1 }
+    if let Err(failure) = open_dd_source(input) { gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
   }
-  if opts.output != "-" and "nocreat" in opts.conv and ! fp"{opts.output}".exists() { gnu.error(f"failed to open {gnu.quote(opts.output)}: No such file or directory"); exit 1 }
+  if let output = opts.output {
+    if output.bytes().is_empty() { gnu.error("failed to open '': No such file or directory"); exit 1 }
+    if "nocreat" in opts.conv and ! output.exists() { gnu.error(f"failed to open {quoted_path(output)}: No such file or directory"); exit 1 }
+  }
   let plain = [flag for flag in opts.conv if ! (flag in ["notrunc", "nocreat", "sparse"])].is_empty()
   if plain {
     guard let copied = plain_copy(opts, skip, seek, limit) else { |failure| gnu.error(gnu.strerror(failure)); exit 1 }
@@ -402,8 +440,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   }
   var records: List[Bytes] = []
   var fifo_fd: Int? = null
-  if opts.input != "-" {
-    guard let source = tio.open_source(opts.input) else { |failure| gnu.error(f"failed to open {gnu.quote(opts.input)}: {gnu.strerror(failure)}"); exit 1 }
+  if let input = opts.input {
+    guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
     if source.kind == 1 { fifo_fd = unix.open_fd(source.path, nonblock: false)? }
   }
   if let fd = fifo_fd {
@@ -438,15 +476,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
     unix.close_fd(fd)?
   } else if limit > 0 {
-    if opts.input != "-" {
-      guard let source = tio.open_source(opts.input) else { |failure| gnu.error(f"failed to open {gnu.quote(opts.input)}: {gnu.strerror(failure)}"); exit 1 }
+    if let input = opts.input {
+      guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
       var chunks: List[Bytes] = []
       var at = skip
       var remaining = limit
       loop {
         let width = if remaining < opts.ibs { remaining } else { opts.ibs }
         break when width == 0
-        guard let block = tio.read_chunk(source, at, width) else { |failure| gnu.error(f"error reading {gnu.quote(opts.input)}: {gnu.strerror(failure)}"); exit 1 }
+        guard let block = tio.read_chunk(source, at, width) else { |failure| gnu.error(f"error reading {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
         break when block.is_empty()
         let part = block.slice(0, length: remaining)
         chunks += [part]
@@ -489,7 +527,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let converted = transform(records, opts)?
   var written = 0
   var write_failure: Str? = null
-  if opts.output == "-" {
+  if opts.output == null {
     if converted.blocks.is_empty() {
       gnu.write_bytes(converted.data)
       written = converted.data.len()
@@ -509,8 +547,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
     io.flush_stdout()?
   } else {
-    let dest = fp"{opts.output}"
-    if "nocreat" in opts.conv and ! dest.exists() { gnu.error(f"failed to open {gnu.quote(opts.output)}: No such file or directory"); exit 1 }
+    let dest = opts.output ?? p""
+    if "nocreat" in opts.conv and ! dest.exists() { gnu.error(f"failed to open {quoted_path(dest)}: No such file or directory"); exit 1 }
     if ! ("notrunc" in opts.conv) {
       if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"")? }
       if dest.metadata()?.mode / 4096 % 16 == 8 { dest.truncate(seek)? }
