@@ -159,6 +159,20 @@ test test_csplit_operand_and_format_errors { |ctx|
   assert missing.stderr == "csplit: cannot open 'in' for reading: No such file or directory\n", missing.stderr
 }
 
+test test_csplit_stdout_write_error { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+
+  let root = test.temp_dir(ctx, name: "csplit")?
+  fp"{root}/n".write(numbers(1, 5))
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/csplit.xsh".display(), fp"{root}/n".display(), "1"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", p"/dev/full", err)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+  assert err.read_text()? == "csplit: No space left on device\n", err.read_text()?
+}
+
 test test_csplit_matches_gnu_current_line_rules { |ctx|
   let root = test.temp_dir(ctx, name: "csplit")?
   fp"{root}/n".write(numbers(1, 21))

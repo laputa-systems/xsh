@@ -130,6 +130,21 @@ test test_split_separator_verbose_filter_and_errors { |ctx|
   assert piece(root, "xaa")? == b"keep", "empty input creates no output and leaves existing files alone"
 }
 
+test test_split_missing_separator_and_invalid_obsolete_cluster { |ctx|
+  let root = test.temp_dir(ctx, name: "split-options")?
+
+  let missing = split_run(ctx, root, ["-t"], b"a\n")?
+  assert missing.stderr.find("a value is required for '--separator <SEP>'") != null, missing.stderr
+  assert missing.status == 1, missing.stderr
+
+  let literal = split_run(ctx, root, ["--", "--", "-t"])?
+  assert literal.stderr.find("cannot open '-t'") != null, literal.stderr
+
+  let invalid = split_run(ctx, root, ["-2fb", "input"], b"a\n")?
+  assert invalid.stderr.find("unexpected argument '-f' found") != null, invalid.stderr
+  assert invalid.status == 1, invalid.stderr
+}
+
 test test_split_numbered_virtual_input_is_rejected_before_read { |ctx|
   let root = test.temp_dir(ctx, name: "split-device")?
   let stdout = fp"{root}/stdout"

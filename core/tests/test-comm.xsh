@@ -54,7 +54,7 @@ test test_comm_order_checks { |ctx|
   let checked = comm_run(ctx, root, ["--check-order", "bad1", "bad2"])?
   assert checked.status == 1
   assert checked.stdout == b"\t\te\n"
-  assert checked.stderr == "comm: file 1 is not in sorted order\n", checked.stderr
+  assert checked.stderr == "comm: file 2 is not in sorted order\n", checked.stderr
 
   let unchecked = comm_run(ctx, root, ["--nocheck-order", "bad1", "bad2"])?
   assert unchecked.status == 0
@@ -71,8 +71,24 @@ test test_comm_order_checks { |ctx|
   assert sorted.stderr == "comm: file 2 is not in sorted order\ncomm: input is not in sorted order\n", sorted.stderr
 
   let same = comm_run(ctx, root, ["bad1", "bad1"])?
-  assert same.status == 0, "identical unsorted files still pair line by line"
+  assert same.status == 0, "a fully pairable sequence does not activate default disorder checking"
   assert same.stdout == b"\t\te\n\t\td\n\t\tb\n\t\ta\n"
+  assert same.stderr == ""
+}
+
+test test_comm_checks_file_two_first_and_default_order { |ctx|
+  let root = test.temp_dir(ctx, name: "comm-order")?
+  fp"{root}/one".write("e\nd\nb\na\n")
+  fp"{root}/two".write("e\nc\nb\na\n")
+
+  let checked = comm_run(ctx, root, ["--check-order", "one", "two"])?
+  assert checked.stderr == "comm: file 2 is not in sorted order\n", checked.stderr
+
+  fp"{root}/one".write("m\nh\nn\no\nc\np\n")
+  fp"{root}/two".write("m\nh\nn\no\np\n")
+  let default = comm_run(ctx, root, ["one", "two"])?
+  assert default.status == 1
+  assert default.stderr.starts_with("comm: file 1 is not in sorted order\n"), default.stderr
 }
 
 test test_comm_operand_and_file_errors { |ctx|

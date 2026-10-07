@@ -156,7 +156,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let lead2 = if opts.hide2 { "" } else { delim }
   let tab2 = bytes.from_text(lead1)
   let tab3 = bytes.from_text(lead1 + lead2)
-  let mode = if opts.check_order { "always" } else if opts.nocheck_order { "never" } else { "differ" }
+  let mode = if opts.check_order { "always" } else if opts.nocheck_order { "never" } else { "default" }
 
   var out: List[Bytes] = []
   var first = 0
@@ -168,10 +168,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var bad1 = false
   var bad2 = false
 
-  # GNU checks a line against its predecessor as the next line is read, and the
-  # default mode only once an unpairable line has been seen, so a disorder
-  # among lines read before that goes unnoticed. The last line of a file is
-  # checked again when it is consumed.
+  # Check only lines selected by the merge step. The default mode starts
+  # checking once the streams differ; --check-order checks immediately and
+  # stops at the first disorder. Equal rows check file 1 first.
   while first < left.len() or second < right.len() {
     let step = if first >= left.len() {
       1
@@ -183,6 +182,30 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     if step != 0 {
       unpairable = true
+    }
+
+    let checking = mode == "always" or (mode == "default" and unpairable)
+
+    if checking {
+      if step <= 0 and first > 0 and first < left.len() and order(left[first - 1], left[first]) > 0 and ! bad1 {
+        gnu.error("file 1 is not in sorted order")
+        bad1 = true
+
+        if mode == "always" {
+          gnu.write_bytes(bytes.concat(out))
+          exit 1
+        }
+      }
+
+      if step >= 0 and second > 0 and second < right.len() and order(right[second - 1], right[second]) > 0 and ! bad2 {
+        gnu.error("file 2 is not in sorted order")
+        bad2 = true
+
+        if mode == "always" {
+          gnu.write_bytes(bytes.concat(out))
+          exit 1
+        }
+      }
     }
 
     if step < 0 {
@@ -205,50 +228,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       both += 1
     }
 
-    let checking = mode == "always" or (mode == "differ" and unpairable)
+    if step >= 0 {
+      second += 1
+    }
 
     if step <= 0 {
       first += 1
-
-      if checking {
-        let unsorted = if first < left.len() {
-          order(left[first - 1], left[first]) > 0
-        } else {
-          first >= 2 and order(left[first - 2], left[first - 1]) > 0
-        }
-
-        if unsorted and ! bad1 {
-          gnu.error("file 1 is not in sorted order")
-          bad1 = true
-
-          if mode == "always" {
-            gnu.write_bytes(bytes.concat(out))
-            exit 1
-          }
-        }
-      }
-    }
-
-    if step >= 0 {
-      second += 1
-
-      if checking {
-        let unsorted = if second < right.len() {
-          order(right[second - 1], right[second]) > 0
-        } else {
-          second >= 2 and order(right[second - 2], right[second - 1]) > 0
-        }
-
-        if unsorted and ! bad2 {
-          gnu.error("file 2 is not in sorted order")
-          bad2 = true
-
-          if mode == "always" {
-            gnu.write_bytes(bytes.concat(out))
-            exit 1
-          }
-        }
-      }
     }
   }
 

@@ -78,11 +78,16 @@ test test_uniq_obsolete_numeric_options { |ctx|
   let root = test.temp_dir(ctx, name: "uniq")?
 
   assert uniq_run(ctx, root, ["-1"], b"a a\nb a\n")?.stdout == b"a a\n", "-N skips N fields"
+  assert uniq_run(ctx, root, ["-21"], b"a a\nb a\n")?.stdout == b"a a\n", "multi-digit -N skips N fields"
   assert uniq_run(ctx, root, ["+1"], b"aaa\nbaa\n", "199209")?.stdout == b"aaa\n", "+N skips N characters under the old POSIX"
 
   let plain = uniq_run(ctx, root, ["+1"], b"aaa\n")?
   assert plain.status == 1, "without the old POSIX, +1 is a file name"
   assert plain.stderr == "uniq: +1: No such file or directory\n", plain.stderr
+
+  let invalid = uniq_run(ctx, root, ["-5q"], b"a\n")?
+  assert invalid.status == 1
+  assert invalid.stderr == "uniq: error: unexpected argument '-q' found\nTry 'uniq --help' for more information.\n", invalid.stderr
 }
 
 test test_uniq_zero_terminated { |ctx|

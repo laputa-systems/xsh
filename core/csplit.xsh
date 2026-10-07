@@ -315,6 +315,25 @@ pure flags_has(spec: Format, flag: Str) -> Bool {
   spec.flags.find(flag) != null
 }
 
+# csplit reports count-output failures as the bare operating-system message.
+proc write_count(count: Int) [process, env, io] {
+  let text = f"{count}\n"
+
+  if let Err(failure) = io.write_stdout(text) {
+    if gnu.errno(failure) == 32 { exit 141 }
+
+    gnu.error(gnu.strerror(failure))
+    exit 1
+  }
+
+  if let Err(failure) = io.flush_stdout() {
+    if gnu.errno(failure) == 32 { exit 141 }
+
+    gnu.error(gnu.strerror(failure))
+    exit 1
+  }
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: CsplitOptions = cli.applet(
     argv,
@@ -603,7 +622,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     if ! opts.quiet {
-      gnu.write_text(f"{size}\n")
+      write_count(size)
     }
   }
 

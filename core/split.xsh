@@ -151,6 +151,101 @@ pure modernize(argv: List[Str]) -> Rewritten {
   {argv: out, obsolete: obsolete, blksize: blksize}
 }
 
+# uutils reports an invalid short option left behind by the obsolete -NUM
+# spelling with its argv-parser wording rather than GNU's single-letter hint.
+pure invalid_obsolete_short(argv: List[Str]) -> Str? {
+  var options = true
+  var value = false
+
+  for item in argv {
+    if item == "--" {
+      options = false
+      continue
+    }
+
+    if ! options or value {
+      value = false
+      continue
+    }
+
+    if item.starts_with("--") {
+      value = item in [
+        "--suffix-length",
+        "--additional-suffix",
+        "--bytes",
+        "--line-bytes",
+        "--filter",
+        "--lines",
+        "--number",
+        "--separator",
+      ]
+      continue
+    }
+
+    if item.starts_with("-") and item.byte_len() > 1 {
+      var at = 1
+
+      while at < item.byte_len() and item.byte_slice(at, length: 1) in DIGITS {
+        at += 1
+      }
+
+      if at > 1 and at < item.byte_len() {
+        let option = item.byte_slice(at, length: 1)
+
+        return "-" + option when option not in ["a", "b", "C", "d", "e", "l", "n", "t", "u", "x"]
+      }
+    }
+
+    value = item in ["-a", "-b", "-C", "-l", "-n", "-t"]
+  }
+
+  null
+}
+
+pure missing_separator_value(argv: List[Str]) -> Bool {
+  var options = true
+  var value = false
+
+  for item in argv {
+    if value {
+      value = false
+      continue
+    }
+
+    if item == "--" {
+      options = false
+      continue
+    }
+
+    if options and item in ["-t", "--separator"] {
+      return true when item == argv[-1]
+      value = true
+      continue
+    }
+
+    if options {
+      value = item in [
+        "-a",
+        "-b",
+        "-C",
+        "-l",
+        "-n",
+        "-t",
+        "--suffix-length",
+        "--additional-suffix",
+        "--bytes",
+        "--line-bytes",
+        "--filter",
+        "--lines",
+        "--number",
+        "--separator",
+      ]
+    }
+  }
+
+  false
+}
+
 # An unsigned decimal; values past u64 are null, values past Int clamp.
 pure parse_u64(text: Str) -> Int? {
   return null when ! rx"^[0-9]+$".matches(text)
@@ -441,6 +536,21 @@ pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let rewritten = modernize(argv)
+
+  if rewritten.obsolete != "" {
+    if let option = invalid_obsolete_short(argv) {
+      gnu.error(f"error: unexpected argument '{option}' found")
+      gnu.error("For more information, try '--help'.")
+      exit 1
+    }
+  }
+
+  if missing_separator_value(argv) {
+    gnu.error("error: a value is required for '--separator <SEP>' but none was supplied")
+    gnu.error("For more information, try '--help'.")
+    exit 1
+  }
+
   let opts: SplitOptions = cli.applet(
     rewritten.argv,
     {

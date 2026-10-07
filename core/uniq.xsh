@@ -121,6 +121,41 @@ proc modernize(argv: List[Str]) [env] -> List[Str] {
   out
 }
 
+# Report an unknown flag left after uniq's obsolete `-NUM` spelling with its
+# option parser's normal unexpected-argument wording.
+pure invalid_obsolete_short(argv: List[Str]) -> Str? {
+  var options = true
+  var value = false
+
+  for item in argv {
+    if item == "--" {
+      options = false
+      continue
+    }
+
+    if ! options or value {
+      value = false
+      continue
+    }
+
+    let legacy = rx"^-[0-9]+([^0-9].*)$".captures(item)
+
+    if ! legacy.is_empty() {
+      let tail = legacy[1]
+
+      for at in range(tail.byte_len()) {
+        let option = tail.byte_slice(at, length: 1)
+
+        return "-" + option when option not in ["c", "d", "D", "f", "i", "s", "u", "w", "z"]
+      }
+    }
+
+    value = item in ["-f", "-s", "-w", "--skip-fields", "--skip-chars", "--check-chars"]
+  }
+
+  null
+}
+
 proc utf8_locale() [env] -> Bool {
   var value = ""
 
@@ -232,6 +267,12 @@ pure number_prefix(count: Int) -> Str {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  if let option = invalid_obsolete_short(argv) {
+    gnu.error(f"error: unexpected argument '{option}' found")
+    gnu.try_help()
+    exit 1
+  }
+
   let opts: UniqOptions = cli.applet(
     modernize(argv),
     {
