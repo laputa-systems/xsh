@@ -120,3 +120,18 @@ test test_sort_zero_terminated_output { |ctx|
   assert stdout.read_bytes()? == b"a\x00b\x00"
   assert stderr.read_bytes()?.is_empty()
 }
+
+test test_sort_keeps_unterminated_input_files_separate { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-input-boundaries")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let first = test.temp_file(ctx, name: "first", contents: b"a\nb")?
+  let second = test.temp_file(ctx, name: "second", contents: b"b")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\nb\nb\n"
+  assert stderr.read_bytes()?.is_empty()
+}

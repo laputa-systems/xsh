@@ -1,6 +1,5 @@
 #!/bin/xsh
 use lib.gnu
-use lib.text_input
 
 type SortOptions = {
   reverse: Bool,
@@ -83,6 +82,22 @@ pure input_records(input: Str, zero_terminated: Bool) -> List[Str] {
   } else {
     input.lines().collect()
   }
+}
+
+## A final unterminated record in one operand ends before the next operand starts.
+proc read_sort_input(paths: List[Str], separator: Str) [fs, io, error] -> Result[Str, Error] {
+  var sources = paths
+  if sources.is_empty() { sources = ["-"] }
+
+  var input = ""
+  for source in sources {
+    let part = if source == "-" { io.stdin_text()? } else { fp"{source}".read_text()? }
+    if input != "" and ! input.ends_with(separator) {
+      input += separator
+    }
+    input += part
+  }
+  input
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
@@ -175,7 +190,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  let input = text_input.read_text(paths)?
+  let input_separator = if opts.zero_terminated { "\0" } else { "\n" }
+  let input = read_sort_input(paths, input_separator)?
   let input_lines = input_records(input, opts.zero_terminated)
 
   if check_enabled {
