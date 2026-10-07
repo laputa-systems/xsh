@@ -173,6 +173,14 @@ remain historical evidence only.
   Native sort tests pass 23/23; the optimized debug Gate 3 slice improves from
   63/154 to 69/148 across 217 tests, fixing six cases with no regressions.
   Reports are in `results/sort-general-numeric-followup/`.
+- Follow-up `55e6549e` replaces integer-only `-n` keys with exact decimal
+  ordering, including fractional and trailing-text prefixes, numeric
+  uniqueness, `--sort=n` aliases, numeric key character offsets, and reverse
+  text keys. It also omits the secondary whole-line `--debug` annotation under
+  `-u`. The native sort suite passes 27/27; the optimized debug Gate 3 slice
+  improves from 69/148 to 88/129 across 217 tests, fixing 19 cases with no
+  regressions. Human numeric sort and remaining general-numeric cases remain
+  open. Reports are in `results/sort-numeric-debug-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
