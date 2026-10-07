@@ -140,6 +140,106 @@ test test_wc_files0_from { |ctx|
   assert missing.stderr == "wc: cannot open 'nope' for reading: No such file or directory\n", missing.stderr
 }
 
+test test_wc_files0_processes_each_name_before_list_eof { |ctx|
+  let root = test.temp_dir(ctx, name: "wc-progressive-files0")?
+  fp"{root}/a".write("one two\n")
+  fp"{root}/b".write("x\n")
+  let fifo = fp"{root}/names"
+  fs.mkfifo(fifo, mode: 384)?
+  let wc_output = fp"{root}/wc-output"
+  let wc_errors = fp"{root}/wc-errors"
+  let output = fp"{root}/stdout"
+  let errors = fp"{root}/stderr"
+  let script = r"""set -eu
+"$1" "$2" --files0-from=- < "$5" > "$6" 2> "$7" &
+child=$!
+{
+  printf '%s\0' "$3"
+  attempts=0
+  while [ ! -s "$6" ]; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      kill -KILL "$child" 2>/dev/null || :
+      wait "$child" 2>/dev/null || :
+      echo "wc did not print a file count before list EOF" >&2
+      exit 1
+    fi
+    sleep 0.01
+  done
+  printf '\0'
+  attempts=0
+  while [ ! -s "$7" ]; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 100 ]; then
+      kill -KILL "$child" 2>/dev/null || :
+      wait "$child" 2>/dev/null || :
+      echo "wc did not print a list error before the next name" >&2
+      exit 1
+    fi
+    sleep 0.01
+  done
+  printf '%s\0' "$4"
+} > "$5"
+child_status=0
+wait "$child" || child_status=$?
+cat "$6"
+cat "$7" >&2
+exit $child_status"""
+  let plan = process.command_argv(
+    "sh",
+    [
+      "sh",
+      "-c",
+      script,
+      "sh",
+      ctx.xsh_bin.display(),
+      fp"{ctx.core_dir}/wc.xsh".display(),
+      "a",
+      "b",
+      fifo.display(),
+      wc_output.display(),
+      wc_errors.display(),
+    ],
+    cwd: root,
+    stdout: output,
+    stderr: errors,
+    timeout: 5s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exited_with(1), errors.read_text()?
+  assert output.read_text()? == "1 2 8 a\n1 1 2 b\n2 3 10 total\n"
+  assert errors.read_text()? == "wc: -:2: invalid zero-length file name\n"
+}
+
+test test_wc_files0_stops_after_stdout_write_error { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+
+  let root = test.temp_dir(ctx, name: "wc-files0-write-error")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = r"""printf '%s\0' /dev/null /dev/null | "$1" "$2" --files0-from=- --total=never > /dev/full"""
+  let plan = process.command_argv(
+    "sh",
+    [
+      "sh",
+      "-c",
+      script,
+      "sh",
+      ctx.xsh_bin.display(),
+      fp"{ctx.core_dir}/wc.xsh".display(),
+    ],
+    cwd: root,
+    stdout: stdout,
+    stderr: stderr,
+    timeout: 5s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exited_with(1), stderr.read_text()?
+  assert stderr.read_text()? == "wc: failed to print result for /dev/null: No space left on device\n"
+}
+
 test test_wc_errors_are_reported_per_input_and_set_the_status { |ctx|
   let dir = test.temp_dir(ctx, name: "wc-errors")?
   fp"{dir}/a".write("x\n")
@@ -161,10 +261,10 @@ test test_wc_names_with_newlines_are_quoted_in_the_output { |ctx|
   assert wc_in(ctx, dir, ["12\n34.txt"])?.stdout == "0 0 0 '12'$'\\n''34.txt'\n"
 }
 
-test test_wc_debug_is_an_explicit_failure { |ctx|
+test test_wc_debug_reports_scalar_line_counting { |ctx|
   let result = wc_run(ctx, ["--debug"])?
-  assert result.status == 1
-  assert result.stderr.starts_with("wc: option '--debug' is not supported"), result.stderr
+  assert result.status == 0
+  assert result.stderr == "wc: debug: hardware support disabled\n", result.stderr
 }
 
 test test_wc_help_and_version { |ctx|

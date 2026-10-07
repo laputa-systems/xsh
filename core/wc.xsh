@@ -15,6 +15,7 @@ the following order: newline, word, character, byte, maximum line length.
   -c, --bytes            print the byte counts
   -m, --chars            print the character counts
   -l, --lines            print the newline counts
+      --debug            report line-count acceleration status
       --files0-from=F    read input from the files specified by
                            NUL-terminated names in file F;
                            If F is - then read names from standard input
@@ -29,6 +30,7 @@ the following order: newline, word, character, byte, maximum line length.
 type WcOptions = {
   bytes: Bool,
   chars: Bool,
+  debug: Bool,
   lines: Bool,
   max_line_length: Bool,
   words: Bool,
@@ -40,6 +42,8 @@ type WcOptions = {
 }
 
 type Counts = {lines: Int, words: Int, chars: Int, bytes: Int, longest: Int}
+type InputResult = {counts: Counts, output: Str, diagnostic: Str?, name_failure: Error?, flush: Bool}
+type WcState = {total: Counts, output: Str, seen: Int, failed: Bool}
 
 # Which counts are shown, in output order.
 type Shown = {lines: Bool, words: Bool, chars: Bool, bytes: Bool, longest: Bool}
@@ -311,13 +315,184 @@ proc read_file(file: Path) [fs, error] -> Result[Bytes, Error] {
   Ok(bytes.concat(pieces))
 }
 
+proc files0_input(name: Str, list: Str, index: Int, from_stdin: Bool) [env] -> Input {
+  if name == "" {
+    return {
+      name: "",
+      path: p"",
+      stdin: false,
+      issue: f"{gnu.quote_maybe(list)}:{index}: invalid zero-length file name",
+    }
+  }
+
+  if name == "-" and from_stdin {
+    return {
+      name: "",
+      path: p"",
+      stdin: false,
+      issue: "when reading file names from standard input, no file name of '-' allowed",
+    }
+  }
+
+  {name: name, path: fp"{name}", stdin: name == "-", issue: ""}
+}
+
+proc count_input(
+  input: Input,
+  shown: Shown,
+  posix: Bool,
+  only_bytes: Bool,
+  implicit: Bool,
+  mode: Str,
+  width: Int,
+) [fs, error, io] -> InputResult {
+  let zero = Counts(lines: 0, words: 0, chars: 0, bytes: 0, longest: 0)
+
+  if input.issue != "" {
+    return {counts: zero, output: "", diagnostic: input.issue, name_failure: null, flush: false}
+  }
+
+  var data = b""
+  var read_error: Str? = null
+  var counted: Counts? = null
+
+  if input.stdin and only_bytes {
+    var byte_count = 0
+
+    loop {
+      match io.stdin_read(65536) {
+        Ok(chunk) => {
+          if chunk.is_empty() { break }
+          byte_count += chunk.len()
+        }
+        Err(failure) => {
+          read_error = gnu.strerror(failure)
+          break
+        }
+      }
+    }
+
+    counted = {lines: 0, words: 0, chars: 0, bytes: byte_count, longest: 0}
+  } else if input.stdin {
+    match io.stdin_bytes() {
+      Ok(read) => data = read
+      Err(failure) => read_error = gnu.strerror(failure)
+    }
+  } else {
+    if only_bytes {
+      if let Ok(entry) = input.path.metadata() {
+        if entry.kind == "file" and entry.size > MEBIBYTE {
+          counted = {lines: 0, words: 0, chars: 0, bytes: entry.size, longest: 0}
+        }
+      }
+    }
+
+    if counted == null {
+      match read_file(input.path) {
+        Ok(read) => data = read
+        Err(failure) => {
+          if gnu.errno(failure) == 21 {
+            read_error = gnu.strerror(failure)
+          } else {
+            return {counts: zero, output: "", diagnostic: null, name_failure: failure, flush: false}
+          }
+        }
+      }
+    }
+  }
+
+  let counts = counted ?? count_data(data, shown, posix)
+  let title = if input.stdin and implicit {
+    ""
+  } else if input.name.find("\n") != null {
+    gnu.quote_bytes(bytes.from_text(input.name), always: false)
+  } else {
+    input.name
+  }
+  let output = if mode == "only" { "" } else { line_for(counts, shown, width, title) }
+
+  if let failure = read_error {
+    let label = if input.stdin { "standard input" } else { gnu.quote_maybe(input.name) }
+    return {
+      counts: counts,
+      output: output,
+      diagnostic: f"{label}: {failure}",
+      name_failure: null,
+      flush: true,
+    }
+  }
+
+  {counts: counts, output: output, diagnostic: null, name_failure: null, flush: false}
+}
+
+proc write_streamed_line(name: Str, output: Str) [process, env, io, error] {
+  if output == "" { return }
+
+  if let Err(failure) = io.write_stdout(output) {
+    gnu.error(f"failed to print result for {gnu.quote_maybe(name)}: {gnu.strerror(failure)}")
+    io.flush_stderr()?
+    exit 1
+  }
+
+  if let Err(failure) = io.flush_stdout() {
+    gnu.error(f"failed to print result for {gnu.quote_maybe(name)}: {gnu.strerror(failure)}")
+    io.flush_stderr()?
+    exit 1
+  }
+}
+
+proc count_one(
+  state: WcState,
+  input: Input,
+  shown: Shown,
+  posix: Bool,
+  only_bytes: Bool,
+  implicit: Bool,
+  mode: Str,
+  width: Int,
+  stream_output: Bool,
+) [fs, process, env, error, io] -> WcState {
+  let result = count_input(input, shown, posix, only_bytes, implicit, mode, width)
+  var output = state.output + result.output
+  let total = add_counts(state.total, result.counts)
+  let seen = state.seen + 1
+  var failed = state.failed
+
+  if let failure = result.name_failure {
+    gnu.name_error(input.name, failure)
+    if stream_output { io.flush_stderr()? }
+    return {total: total, output: output, seen: seen, failed: true}
+  }
+
+  if let diagnostic = result.diagnostic {
+    if result.flush {
+      gnu.write_text(output)
+      output = ""
+    }
+
+    gnu.error(diagnostic)
+    if stream_output { io.flush_stderr()? }
+    failed = true
+  }
+
+  if stream_output {
+    if output != "" {
+      write_streamed_line(input.name, output)?
+      output = ""
+    }
+  }
+
+  {total: total, output: output, seen: seen, failed: failed}
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: WcOptions = cli.applet(
     argv,
     {
-      gnu: {status: 1, unsupported: {"--debug": "SIMD diagnostics are not available"}},
+      gnu: {status: 1},
       bytes: {form: "-c --bytes", default: false},
       chars: {form: "-m --chars", default: false},
+      debug: {form: "--debug", default: false},
       lines: {form: "-l --lines", default: false},
       max_line_length: {form: "-L --max-line-length", default: false},
       words: {form: "-w --words", default: false},
@@ -339,6 +514,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
+  # The XSH line counter uses scalar code on every platform.
+  if opts.debug {
+    gnu.error("debug: hardware support disabled")
+    io.flush_stderr()?
+  }
+
   let mode = total_choice(opts.total)
 
   if mode == "" or mode == "?" {
@@ -356,7 +537,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     bytes: opts.bytes or ! any,
     longest: opts.max_line_length,
   }
-  var failed = false
   var inputs: List[Input] = []
   var implicit = false
   var streamed_list = false
@@ -370,64 +550,50 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     let from_stdin = list == "-"
-    var data = b""
+    streamed_list = from_stdin and tio.standard_file(0) == ""
 
-    if from_stdin {
-      match io.stdin_bytes() {
-        Ok(read) => data = read
-        Err(failure) => {
-          gnu.error(f"{gnu.quote_maybe("-")}: read error: {gnu.strerror(failure)}")
-          exit 1
-        }
-      }
+    if ! streamed_list {
+      var data = b""
 
-      streamed_list = tio.standard_file(0) == ""
-    } else {
-      match fp"{list}".read_bytes() {
-        Ok(read) => data = read
-        Err(failure) => {
-          if gnu.errno(failure) == 21 {
-            gnu.error(f"{gnu.quote_maybe(list)}: read error: {gnu.strerror(failure)}")
-          } else {
-            gnu.cannot_open(list, failure)
+      if from_stdin {
+        match io.stdin_bytes() {
+          Ok(read) => data = read
+          Err(failure) => {
+            gnu.error(f"{gnu.quote_maybe("-")}: read error: {gnu.strerror(failure)}")
+            exit 1
           }
+        }
+      } else {
+        match fp"{list}".read_bytes() {
+          Ok(read) => data = read
+          Err(failure) => {
+            if gnu.errno(failure) == 21 {
+              gnu.error(f"{gnu.quote_maybe(list)}: read error: {gnu.strerror(failure)}")
+            } else {
+              gnu.cannot_open(list, failure)
+            }
 
-          exit 1
+            exit 1
+          }
         }
       }
-    }
 
-    guard let text = data.utf8() else {
-      gnu.error("file names that are not valid UTF-8 are not supported")
-      exit 1
-    }
+      guard let text = data.utf8() else {
+        gnu.error("file names that are not valid UTF-8 are not supported")
+        exit 1
+      }
 
-    var names = text.split("\0")
+      var names = text.split("\0")
 
-    if ! names.is_empty() and names[-1] == "" {
-      names = names[..names.len() - 1]
-    }
+      if ! names.is_empty() and names[-1] == "" {
+        names = names[..names.len() - 1]
+      }
 
-    var index = 0
+      var index = 0
 
-    for name in names {
-      index += 1
-
-      if name == "" {
-        inputs += [
-          {name: "", path: p"", stdin: false, issue: f"{gnu.quote_maybe(list)}:{index}: invalid zero-length file name"},
-        ]
-      } else if name == "-" and from_stdin {
-        inputs += [
-          {
-            name: "",
-            path: p"",
-            stdin: false,
-            issue: "when reading file names from standard input, no file name of '-' allowed",
-          },
-        ]
-      } else {
-        inputs += [{name: name, path: fp"{name}", stdin: name == "-", issue: ""}]
+      for name in names {
+        index += 1
+        inputs += [files0_input(name, list, index, from_stdin)]
       }
     }
   } else if opts.files.is_empty() {
@@ -448,104 +614,71 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let posix = posix_mode()
-  var total = {lines: 0, words: 0, chars: 0, bytes: 0, longest: 0}
-  var out = ""
-  var seen = 0
   let only_bytes = shown.bytes and ! shown.lines and ! shown.words and ! shown.chars and ! shown.longest
+  var state: WcState = {
+    total: Counts(lines: 0, words: 0, chars: 0, bytes: 0, longest: 0),
+    output: "",
+    seen: 0,
+    failed: false,
+  }
 
-  for input in inputs {
-    seen += 1
+  if streamed_list {
+    # A pipe may wait for each count before it sends the next filename.
+    var pending = b""
+    var index = 0
 
-    if input.issue != "" {
-      gnu.error(input.issue)
-      failed = true
-      continue
+    loop {
+      guard let chunk = io.stdin_read(tio.CHUNK) else { |failure|
+        gnu.error(f"{gnu.quote_maybe("-")}: read error: {gnu.strerror(failure)}")
+        exit 1
+      }
+
+      break when chunk.is_empty()
+
+      let data = bytes.concat([pending, chunk])
+      var start = 0
+
+      for at in range(data.len()) {
+        if data.byte_at(at) != 0 {
+          continue
+        }
+
+        index += 1
+        guard let name = data[start..at].utf8() else {
+          gnu.error("file names that are not valid UTF-8 are not supported")
+          exit 1
+        }
+        state = count_one(state, files0_input(name, "-", index, true), shown, posix, only_bytes, implicit, mode, width, true)
+        start = at + 1
+      }
+
+      pending = data[start..]
     }
 
-    var data = b""
-    var read_error: Str? = null
-    var counted: Counts? = null
-
-    if input.stdin and only_bytes {
-      var byte_count = 0
-
-      loop {
-        match io.stdin_read(65536) {
-          Ok(chunk) => {
-            if chunk.is_empty() { break }
-            byte_count += chunk.len()
-          }
-          Err(failure) => {
-            read_error = gnu.strerror(failure)
-            break
-          }
-        }
+    if ! pending.is_empty() {
+      index += 1
+      guard let name = pending.utf8() else {
+        gnu.error("file names that are not valid UTF-8 are not supported")
+        exit 1
       }
-
-      counted = {lines: 0, words: 0, chars: 0, bytes: byte_count, longest: 0}
-    } else if input.stdin {
-      match io.stdin_bytes() {
-        Ok(read) => data = read
-        Err(failure) => read_error = gnu.strerror(failure)
-      }
-    } else {
-      if only_bytes {
-        if let Ok(entry) = input.path.metadata() {
-          if entry.kind == "file" and entry.size > MEBIBYTE {
-            counted = {lines: 0, words: 0, chars: 0, bytes: entry.size, longest: 0}
-          }
-        }
-      }
-
-      if counted == null {
-        match read_file(input.path) {
-          Ok(read) => data = read
-          Err(failure) => {
-            if gnu.errno(failure) == 21 {
-              read_error = gnu.strerror(failure)
-            } else {
-              gnu.name_error(input.name, failure)
-              failed = true
-              continue
-            }
-          }
-        }
-      }
+      state = count_one(state, files0_input(name, "-", index, true), shown, posix, only_bytes, implicit, mode, width, true)
     }
-
-    let counts = counted ?? count_data(data, shown, posix)
-
-    total = add_counts(total, counts)
-
-    if mode != "only" {
-      let title = if input.stdin and implicit {
-        ""
-      } else if input.name.find("\n") != null {
-        gnu.quote_bytes(bytes.from_text(input.name), always: false)
-      } else {
-        input.name
-      }
-      out += line_for(counts, shown, width, title)
-    }
-
-    if let failure = read_error {
-      let label = if input.stdin { "standard input" } else { gnu.quote_maybe(input.name) }
-      gnu.write_text(out)
-      out = ""
-      gnu.error(f"{label}: {failure}")
-      failed = true
+  } else {
+    for input in inputs {
+      state = count_one(state, input, shown, posix, only_bytes, implicit, mode, width, false)
     }
   }
 
-  let show_total = mode == "always" or mode == "only" or (mode == "auto" and seen > 1)
+  let show_total = mode == "always" or mode == "only" or (mode == "auto" and state.seen > 1)
+  var out = state.output
 
   if show_total {
-    out += line_for(total, shown, width, if mode == "only" { "" } else { "total" })
+    out += line_for(state.total, shown, width, if mode == "only" { "" } else { "total" })
   }
 
   gnu.write_text(out)
 
-  if failed {
+  if state.failed {
     exit 1
   }
 }
