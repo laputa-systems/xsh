@@ -25,7 +25,8 @@ Mandatory arguments to long options are mandatory for short options too.
   -F, --classify[=WHEN]      append indicator (one of */=>@|) to entries WHEN
       --file-type            likewise, except do not append '*'
       --format=WORD          across -x, commas -m, horizontal -x, long -l,
-                               single-column -1, verbose -l, vertical -C
+                               single-column -1, verbose -l, vertical -C,
+                               column(s) -C
       --full-time            like -l --time-style=full-iso
   -g                         like -l, but do not list owner
       --group-directories-first
@@ -51,7 +52,7 @@ Mandatory arguments to long options are mandatory for short options too.
   -I, --ignore=PATTERN       do not list implied entries matching shell PATTERN
   -k, --kibibytes            default to 1024-byte blocks for file system usage;
                                used only with -s and per directory totals
-  -l                         use a long listing format
+  -l, --long                 use a long listing format
   -L, --dereference          when showing file information for a symbolic
                                link, show information for the file the link
                                references rather than for the link itself
@@ -199,6 +200,7 @@ const OPTS: List[Opt] = [
   {short: "I", long: "ignore", arg: 1, id: "ignore"},
   {short: "k", long: "kibibytes", arg: 0, id: "kibibytes"},
   {short: "l", long: "", arg: 0, id: "long"},
+  {short: "", long: "long", arg: 0, id: "long"},
   {short: "L", long: "dereference", arg: 0, id: "deref_all"},
   {short: "m", long: "", arg: 0, id: "commas"},
   {short: "n", long: "numeric-uid-gid", arg: 0, id: "numeric"},
@@ -245,8 +247,8 @@ const QUOTING_NAMES = [
 ]
 const WHEN_NAMES = ["always", "yes", "force", "never", "no", "none", "auto", "tty", "if-tty"]
 const WHEN_VALUES = ["always", "always", "always", "never", "never", "never", "auto", "auto", "auto"]
-const FORMAT_NAMES = ["verbose", "long", "commas", "horizontal", "across", "vertical", "single-column"]
-const FORMAT_VALUES = ["long", "long", "commas", "across", "across", "columns", "single-column"]
+const FORMAT_NAMES = ["verbose", "long", "commas", "horizontal", "across", "vertical", "columns", "column", "single-column"]
+const FORMAT_VALUES = ["long", "long", "commas", "across", "across", "columns", "columns", "columns", "single-column"]
 const SORT_NAMES = ["none", "size", "time", "version", "extension", "width", "name"]
 const TIME_NAMES = ["atime", "access", "use", "ctime", "status", "birth", "creation", "mtime"]
 const TIME_VALUES = ["atime", "atime", "atime", "ctime", "ctime", "birth", "birth", "mtime"]
@@ -592,7 +594,11 @@ proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Pa
         var matches = [opt for opt in OPTS if opt.long == name]
 
         if matches.is_empty() {
-          matches = [opt for opt in OPTS if opt.long != "" and opt.long.starts_with(name)]
+          # Keep `--l` as an abbreviation for `--literal` while `--long` is an exact alias.
+          matches = [
+            opt for opt in OPTS
+            if opt.long != "" and opt.long.starts_with(name) and (opt.long != "long" or name == "long")
+          ]
         }
 
         let ids = [opt.id for opt in matches]

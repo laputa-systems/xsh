@@ -369,6 +369,23 @@ test test_ls_columns_use_tabs_to_reach_tab_stops { |ctx|
   assert ls_in(ctx, work, ["-C", "-w18", "-T0"])?.text == "aaaaaaaa  cccc\nbbbb      dddddddd\n"
 }
 
+test test_ls_layout_aliases { |ctx|
+  let work = sandbox(ctx)?
+  for name in ["first", "second", "third", "fourth"] {
+    fp"{work}/{name}".write("")
+  }
+  fp"{work}/two words".write("")
+
+  assert ls_in(ctx, work, ["--long", "first"])?.text == ls_in(ctx, work, ["-l", "first"])?.text
+  assert ls_in(ctx, work, ["--l", "two words"], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "c"})?.text == "two words\n"
+
+  let columns = ls_in(ctx, work, ["-C", "-w", "40"])?.text
+
+  for option in ["--format=column", "--format=columns", "--for=columns"] {
+    assert ls_in(ctx, work, [option, "-w", "40"])?.text == columns, option
+  }
+}
+
 test test_ls_commas_reserve_space_for_the_next_separator { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/a".write("")
@@ -599,6 +616,8 @@ test test_ls_help_and_version_go_to_stdout { |ctx|
   assert help.status == 0
   assert help.err == ""
   assert "--version" in help.text
+  assert "-l, --long" in help.text
+  assert "column(s) -C" in help.text
 
   let version = ls_in(ctx, work, ["--version"])?
   assert version.status == 0
