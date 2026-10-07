@@ -104,19 +104,24 @@ differential requires identical test selections on both sides.
 
 ## Status
 
-The campaign resumed on 2026-10-07. See the resume checkpoint in
-[`CAMPAIGN.md`](CAMPAIGN.md) for current verification and [`CLAIMS.md`](CLAIMS.md)
-for active ownership.
+The campaign resumed on 2026-10-07. See the current checkpoint in
+[`CAMPAIGN.md`](CAMPAIGN.md) and the completed 16-lane ownership record in
+[`CLAIMS.md`](CLAIMS.md).
 
-Committed reports are historical: the uutils report has 2,186/5,974 passing
-and four exclusions; the manifest has 73/106 in-scope applets present. The
-pinned-uutils GNU report has 571 PASS, 46 FAIL, 101 SKIP and one ERROR. No XSH
-GNU report or differential is committed. The full suites have not yet been
-rerun against the resumed integration head.
+Gate 3 was rerun at `fabe52f6` against pinned uutils
+`e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the `Dockerfile.test` image.
+The current report records 5,124 pass, 825 fail, and four exclusions across
+106 utilities; the previous full run had 5,110 pass at the same nonexcluded
+denominator, with no regressions in the new run. The pinned GNU baseline still
+has 571 PASS, 46 FAIL, 101 SKIP and one ERROR. The XSH-side GNU run and
+differential, BusyBox suite, expanded Linux surface, and clean-image smoke
+remain open.
 
-Before running a new baseline, preserve `results/uutils-integration.json`
-outside `results/` for `compare.py`, select debug-profile tools built from an
-exact revision, and record the reference pin and host/libc alongside the result.
-Run full suites serially. Offline manifest, lane-ownership, ignored-option,
-kernel-read and exclusion checks passed in the 2026-10-05 handoff refresh;
-this does not establish behavioral parity.
+The most recent full native suite passed at parent revision `a0b9ce93`
+(4,731 passed, 0 failed, 38 skipped). The changed applet suites at `fabe52f6`
+passed 57 focused tests. Full suites run serially; each new baseline records
+its exact source revision, reference pin, and test image. Offline manifest,
+lane-ownership, ignored-option, kernel-read and exclusion checks passed during
+the resumed campaign; these checks do not establish behavioral parity.
+The x86_64 results do not close the pinned `aarch64-unknown-linux-musl` gate;
+it still needs a debug-profile run in the test image.

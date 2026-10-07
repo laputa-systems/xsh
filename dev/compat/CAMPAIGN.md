@@ -45,15 +45,43 @@ remain historical evidence only.
   165 passed, 154 failed, and 1 was excluded. This is not a full-suite result;
   the report is scratch evidence under ignored `target/compat-resume-uutils`.
 - The resumed campaign uses only **`gpt-6-luna` at `xhigh`** for subagents.
-  Active file ownership is recorded in `CLAIMS.md`; the 16 assigned lanes have
-  disjoint applet and test files. XSH owns command behavior, with Rust limited
-  to necessary reusable OS and byte boundaries.
+  The 16 assigned lanes had disjoint applet and test files and have completed
+  their work. Their ownership record is in `CLAIMS.md`. XSH owns command
+  behavior, with Rust limited to necessary reusable OS and byte boundaries.
 
-The remaining campaign gates are still open. Do not use the earlier full-suite
-counts as current-head evidence; refresh the full gates after integrating the
-active lanes.
+### Current integration result (2026-10-07, `fabe52f6`)
 
-## Wind-down report (2026-10-06)
+- The full native suite passed at parent revision `a0b9ce93` in the pinned
+  `Dockerfile.test` image: 4,731 passed, 0 failed, 38 skipped. On
+  `fabe52f6`, the focused suites for the changed applets passed: cat 10/10,
+  chgrp 7/7, ls 34/34, dir 3/3, and vdir 3/3.
+- Gate 3 ran all 106 in-scope utilities against uutils commit
+  `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the pinned x86_64 musl image,
+  using the optimized debug profile, three nextest workers, and test children
+  as UID/GID 1000. The committed JSON report records 5,124 pass, 825 fail,
+  0 skip, and 4 excluded (5,949 nonexcluded tests). Nextest reported one
+  timeout at 120 seconds in `wc::test_files0_progressive_stream`; it remains
+  an open parity failure. The raw JUnit report is retained in local campaign
+  scratch results.
+- Comparing with the immediately preceding full run at the same denominator
+  changed 5,110 passing tests to 5,124, with 14 fixes and no new regressions.
+  Compared with the older committed baseline, four test IDs still differ:
+  `ls::test_explicit_color_always_works_with_f`,
+  `ls::test_ls_color_do_not_reset`, `ls::test_ls_zero`, and
+  `uname::test_uname_operating_system`. GNU 9.11 checks confirmed the three
+  color results follow its `TERM` and `--zero` behavior; `uname -o` reports
+  `GNU/Linux` on this Linux host while uutils' musl expectation is `Linux`.
+  The campaign-wide GNU differential remains open.
+- The generated per-utility manifest now uses this Gate 3 report. The focused
+  `ls` native suite passed 34/34 after the last source edit;
+  `parity.py --check` and `lanes.py check` passed.
+- These full native and uutils results are x86_64 musl evidence. The pinned
+  `aarch64-unknown-linux-musl` gate still needs a debug-profile run in the
+  `Dockerfile.test` image.
+
+The campaign remains active and incomplete. The 825 failing uutils cases,
+the timed-out `wc` case, the GNU differential, BusyBox comparison, expanded
+Linux surface, and clean-image smoke remain to be addressed.
 
 ## Wind-down report (2026-10-06)
 

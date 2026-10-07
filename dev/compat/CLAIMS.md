@@ -1,8 +1,10 @@
 # Lane claims
 
 The campaign resumed on 2026-10-07. The integrator owns shared APIs, generated
-reports, docs, and merges. The following 16 lanes have exclusive applet and
-test-file ownership; no lane may edit another lane's files or delegate further.
+reports, docs, and merges. The following 16 disjoint lanes completed their
+assigned applet and test-file scopes; their feature commits are integrated at
+`fabe52f6`. This table records that closed wave's ownership; during the wave,
+each lane stayed within its scope and did not delegate.
 
 | Lane | Branch | Worktree | Owned scope |
 |---|---|---|---|
