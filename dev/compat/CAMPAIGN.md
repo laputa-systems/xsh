@@ -137,6 +137,11 @@ remain historical evidence only.
   from 47/170 to 49/168 across 217 tests, fixing both punctuation-ordering
   tests with no regressions. The GNU 9.11 C-locale probe matches; reports are
   in `results/sort-fold-case/`.
+- Follow-up `252844d4` implements dictionary and nonprinting character keys,
+  including their conflicts with numeric sorting. Focused native sort tests
+  pass 14/14; Gate 3 improves from 49/168 to 51/166 across 217 tests, fixing
+  the Unicode character cases with no regressions. GNU 9.11 probes match;
+  reports are in `results/sort-char-modes/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail

@@ -168,6 +168,11 @@ breaker for `sort -f`. Native sort tests pass 12/12; the optimized debug Gate 3
 slice improves from 47/170 to 49/168 across 217 tests, fixing both punctuation
 ordering tests with no regressions. A GNU 9.11 C-locale probe matches; reports
 are in `results/sort-fold-case/`.
+Follow-up `252844d4` implements dictionary and nonprinting character keys,
+including their conflicts with numeric sorting. Native sort tests pass 14/14;
+the optimized debug Gate 3 slice improves from 49/168 to 51/166 across 217
+tests, fixing the Unicode character cases with no regressions. GNU 9.11 probes
+match; reports are in `results/sort-char-modes/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
