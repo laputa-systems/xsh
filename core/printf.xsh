@@ -57,9 +57,11 @@ pure consumed_arguments(next_argument: Int, index: Int, argument_count: Int) -> 
 pure parse_spec(text: Str, start: Int) -> PrintfSpec {
   var at = start + 1
   var position: Int? = null
+  var invalid_position_end: Int? = null
   let leading = scan_decimal(text, at)
   if leading.next > at and leading.next < text.byte_len() and text.byte_slice(leading.next, length: 1) == "$" {
     position = leading.value - 1
+    if leading.value == 0 { invalid_position_end = leading.next + 1 }
     at = leading.next + 1
   }
   var flags = ""
@@ -79,6 +81,7 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
     let numbered = scan_decimal(text, at)
     if numbered.next > at and numbered.next < text.byte_len() and text.byte_slice(numbered.next, length: 1) == "$" {
       width_position = numbered.value - 1
+      if numbered.value == 0 { invalid_position_end = numbered.next + 1 }
       at = numbered.next + 1
     }
   } else {
@@ -99,6 +102,7 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
       let numbered = scan_decimal(text, at)
       if numbered.next > at and numbered.next < text.byte_len() and text.byte_slice(numbered.next, length: 1) == "$" {
         precision_position = numbered.value - 1
+        if numbered.value == 0 { invalid_position_end = numbered.next + 1 }
         at = numbered.next + 1
       }
     } else {
@@ -116,9 +120,9 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
   let invalid_character_precision = conversion == "c" and precision != null
   let invalid_quote_parameters = conversion == "q" and (flags != "" or width != 0 or width_dynamic or precision != null or precision_dynamic)
   let invalid_escape_parameters = conversion == "b" and (flags != "" or width != 0 or width_dynamic or precision != null or precision_dynamic)
-  let valid = known_conversion and ! invalid_zero_flag and ! invalid_character_precision and ! invalid_quote_parameters and ! invalid_escape_parameters
+  let valid = known_conversion and invalid_position_end == null and ! invalid_zero_flag and ! invalid_character_precision and ! invalid_quote_parameters and ! invalid_escape_parameters
 
-  {end: if conversion == "" { at } else { at + 1 }, flags: flags, width: width, width_dynamic: width_dynamic, precision: precision, precision_dynamic: precision_dynamic, position: position, width_position: width_position, precision_position: precision_position, conversion: conversion, valid: valid}
+  {end: invalid_position_end ?? (if conversion == "" { at } else { at + 1 }), flags: flags, width: width, width_dynamic: width_dynamic, precision: precision, precision_dynamic: precision_dynamic, position: position, width_position: width_position, precision_position: precision_position, conversion: conversion, valid: valid}
 }
 
 pure digit_value(character: Str) -> Int? {

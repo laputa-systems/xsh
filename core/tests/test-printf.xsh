@@ -65,6 +65,14 @@ test test_printf_rejects_precision_above_printf_limit { |ctx|
   assert result.stderr == "printf: invalid precision: '2147483648'\n"
 }
 
+test test_printf_rejects_zero_positional_index { |ctx|
+  let result = printf_run(ctx, ["%0$d%d-", "5", "10", "6", "20"])?
+
+  assert result.status == 1
+  assert result.stdout == ""
+  assert result.stderr == "printf: %0$: invalid conversion specification\n"
+}
+
 test test_printf_warns_about_arguments_after_literal_format { |ctx|
   let literal = printf_run(ctx, ["a", "b"])?
   let repeated = printf_run(ctx, ["%s", "a", "b"])?
