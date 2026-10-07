@@ -108,13 +108,14 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
     }
   }
 
-  while at < text.byte_len() and "hlLzjtq".find(text.byte_slice(at, length: 1)) != null { at += 1 }
+  while at < text.byte_len() and "hlLzjt".find(text.byte_slice(at, length: 1)) != null { at += 1 }
 
   let conversion = if at < text.byte_len() { text.byte_slice(at, length: 1) } else { "" }
   let known_conversion = conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A", "s", "c", "b", "q"]
   let invalid_zero_flag = flags.find("0") != null and conversion in ["s", "c"]
   let invalid_character_precision = conversion == "c" and precision != null
-  let valid = known_conversion and ! invalid_zero_flag and ! invalid_character_precision
+  let invalid_quote_parameters = conversion == "q" and (flags != "" or width != 0 or width_dynamic or precision != null or precision_dynamic)
+  let valid = known_conversion and ! invalid_zero_flag and ! invalid_character_precision and ! invalid_quote_parameters
 
   {end: if conversion == "" { at } else { at + 1 }, flags: flags, width: width, width_dynamic: width_dynamic, precision: precision, precision_dynamic: precision_dynamic, position: position, width_position: width_position, precision_position: precision_position, conversion: conversion, valid: valid}
 }
@@ -519,7 +520,7 @@ pure shell_quote(text: Str) -> Str {
   var simple = true
   for at in range(text.count_chars()) {
     let ch = text[at..at + 1]
-    if "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-".find(ch) == null { simple = false }
+    if "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-~".find(ch) == null { simple = false }
   }
   return text when simple
   "'" + text.replace("'", with: "'\\''") + "'"
@@ -593,7 +594,7 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
   {text: pad_text(raw, field_width, left, if fill == "0" { " " } else { fill }), stop: false, failed: parsed.issue != null}
 }
 
-proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, process, env] -> Pass {
+proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, io, process, env] -> Pass {
   var output = ""
   var at = 0
   var argument_index = first_argument
@@ -619,6 +620,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, proce
       let spec = parse_spec(fmt, at)
       if ! spec.valid {
         let shown = fmt.byte_slice(at, length: if spec.end > at { spec.end - at } else { 1 })
+        io.write_stdout(output)
         gnu.error(f"{shown}: invalid conversion specification")
         exit 1
       }
@@ -643,6 +645,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, proce
         } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
       if width > 1000000 or width < -1000000 {
+        io.write_stdout(output)
         gnu.error("field width too large")
         exit 1
       }
@@ -665,7 +668,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, proce
   {text: output, next_argument: next_argument, conversions: conversions, stop: false, failed: failed}
 }
 
-proc render(fmt: Str, values: List[Str]) [error, process, env] -> PrintfOutput {
+proc render(fmt: Str, values: List[Str]) [error, io, process, env] -> PrintfOutput {
   let first = render_pass(fmt, values, 0)
   var output = first.text
   var failed = first.failed

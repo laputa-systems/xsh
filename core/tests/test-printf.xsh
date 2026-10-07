@@ -88,6 +88,26 @@ test test_printf_initial_help_version_and_empty_format { |ctx|
   assert empty.stdout == ""
 }
 
+test test_printf_shell_quote_conversion { |ctx|
+  let quoted = printf_run(ctx, ["%q|%q|%q|%q", "test~", "a b", "", "\"$test\""])?
+  let quote_then_literal = printf_run(ctx, ["%qd", "a b"])?
+
+  assert quoted.status == 0, quoted.stderr
+  assert quoted.stdout == "test~|'a b'|''|'\"$test\"'"
+  assert quoted.stderr == ""
+  assert quote_then_literal.status == 0, quote_then_literal.stderr
+  assert quote_then_literal.stdout == "'a b'd"
+  assert quote_then_literal.stderr == ""
+}
+
+test test_printf_rejects_width_for_shell_quote_conversion { |ctx|
+  let output = printf_run(ctx, ["prefix%7q", "world"])?
+
+  assert output.status == 1
+  assert output.stdout == "prefix"
+  assert output.stderr == "printf: %7q: invalid conversion specification\n"
+}
+
 test test_printf_numeric_string_and_character_conversions { |ctx|
   let output = printf_run(ctx, ["[%05d][%-5s][%.3s][%#x][%c]", "-12", "xy", "abcdef", "26", "65"])?
 
