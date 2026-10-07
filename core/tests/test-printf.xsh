@@ -307,6 +307,14 @@ test test_printf_reports_float_overflow_and_underflow { |ctx|
   }
 }
 
+test test_printf_shell_quote_control_bytes_with_quotes { |ctx|
+  let result = printf_run(ctx, ["%q", "\u{1}'\u{1}"])?
+
+  assert result.status == 0
+  assert result.stdout == "''$'\\001'\\'''$'\\001'"
+  assert result.stderr == ""
+}
+
 test test_printf_zero_precision_and_zero_integer { |ctx|
   let output = printf_run(ctx, ["%.0d|%#.0o|%.*d", "0", "0", "-1", "0"])?
 

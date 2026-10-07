@@ -556,8 +556,15 @@ pure float_conversion(value: Float, conversion: Str, precision: Int?) -> Str {
   }
 }
 
-pure shell_quote(text: Str) -> Str {
+proc shell_quote(text: Str) [env] -> Str {
   return "''" when text == ""
+  let raw = bytes.from_text(text)
+  var has_control = false
+  for byte in raw {
+    if byte < 32 or byte == 127 { has_control = true }
+  }
+  if has_control { return gnu.quote_bytes(raw, always: false) }
+
   var simple = true
   for at in range(text.count_chars()) {
     let ch = text[at..at + 1]
