@@ -128,6 +128,10 @@ remain historical evidence only.
   to 46/171 across 217 tests, fixing `test_error_on_multiple_output_flags`
   and `test_output_file_with_leading_dash` with no regressions. GNU probes
   match; reports are in `results/sort-output-followup/`.
+- Follow-up `5cd19a0e` reports failed `-o` destination opens with GNU's status
+  and diagnostic. Focused native sort tests pass 11/11; Gate 3 improves from
+  46/171 to 47/170 across 217 tests, fixing `test_verifies_out_file` with no
+  regressions. Reports are in `results/sort-output-open-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail

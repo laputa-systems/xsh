@@ -158,6 +158,11 @@ from 44/173 to 46/171 across 217 tests, fixing
 `test_error_on_multiple_output_flags` and `test_output_file_with_leading_dash`
 with no regressions. GNU probes match; reports are in
 `results/sort-output-followup/`.
+Follow-up `5cd19a0e` reports failed `-o` destination opens with GNU's status
+and diagnostic. Native sort tests pass 11/11; the optimized debug Gate 3 slice
+improves from 46/171 to 47/170 across 217 tests, fixing
+`test_verifies_out_file` with no regressions. Reports are in
+`results/sort-output-open-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
