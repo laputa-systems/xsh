@@ -20,7 +20,7 @@ type Escape = {text: Str, next: Int, stop: Bool, issue: Str?}
 type Rendered = {text: Str, stop: Bool, failed: Bool}
 type Pass = {text: Str, next_argument: Int, conversions: Int, stop: Bool, failed: Bool}
 type DecimalScan = {value: Int, next: Int}
-type IntegerParse = {value: Int, issue: Str?}
+type IntegerParse = {value: Int, issue: Str?, warning: Str?}
 type FloatParse = {value: Float, issue: Str?}
 type PrintfOutput = {text: Str, failed: Bool, next_argument: Int, stopped: Bool}
 
@@ -151,7 +151,11 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
   var start = 0
   while start < text.byte_len() and (text.byte_at(start) ?? 0) in [9, 10, 11, 12, 13, 32] { start += 1 }
   let trimmed = text.byte_slice(start)
-  if trimmed.starts_with("'") or trimmed.starts_with("\"") { return {value: codepoint_value(trimmed.byte_slice(1)), issue: null} }
+  if trimmed.starts_with("'") or trimmed.starts_with("\"") {
+    let character = trimmed.byte_slice(1)
+    let rest = character.byte_slice(utf8_width(character.byte_at(0) ?? 0))
+    return {value: codepoint_value(character), issue: null, warning: if rest == "" { null } else { rest }}
+  }
   let sign = if trimmed.starts_with("-") { -1 } else { 1 }
   var body = if trimmed.starts_with("-") or trimmed.starts_with("+") { trimmed.byte_slice(1) } else { trimmed }
   var base = 10
@@ -181,7 +185,7 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
   }
 
   let tail = if found { body.byte_slice(at) } else { body }
-  if ! found { {value: 0, issue: "expected a numeric value"} } else if overflow { {value: if sign < 0 { -9223372036854775807 - 1 } else { 9223372036854775807 }, issue: "Numerical result out of range"} } else if tail != "" { {value: sign * value, issue: "value not completely converted"} } else { {value: sign * value, issue: null} }
+  if ! found { {value: 0, issue: "expected a numeric value", warning: null} } else if overflow { {value: if sign < 0 { -9223372036854775807 - 1 } else { 9223372036854775807 }, issue: "Numerical result out of range", warning: null} } else if tail != "" { {value: sign * value, issue: "value not completely converted", warning: null} } else { {value: sign * value, issue: null, warning: null} }
 }
 
 pure float_parse(text: Str) -> FloatParse {
@@ -614,6 +618,9 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
 
   let auto_base = spec.conversion != "d"
   let parsed = integer_parse(argument, auto_base)
+  if let warning = parsed.warning {
+    if env.get("POSIXLY_CORRECT") is Err(_) { gnu.error(f"warning: {warning}: character(s) following character constant have been ignored") }
+  }
   if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument)}: {issue}") }
   let number = parsed.value
   let base = if spec.conversion == "o" { 8 } else if spec.conversion == "x" or spec.conversion == "X" { 16 } else { 10 }

@@ -27,14 +27,19 @@ test test_printf_escapes_and_usage { |ctx|
 
 type PrintfResult = {status: Int, stdout: Str, stderr: Str}
 
-proc printf_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[PrintfResult] {
+proc printf_run(ctx: TestContext, args: List[Str], posix: Bool = false) [fs, process, error] -> Result[PrintfResult] {
   let root = test.temp_dir(ctx, name: "printf-argv")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/printf.xsh"
-  let status = process.run(process.command_argv(ctx.xsh_bin,
+  let command = process.command_argv(ctx.xsh_bin,
     [ctx.xsh_bin.display(), "--", script.display()].extend(args), root,
-    {LC_ALL: "C"}, b"", stdout, stderr))?
+    {LC_ALL: "C"}, b"", stdout, stderr)
+  let status = if posix {
+    process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()].extend(args), root,
+      {LC_ALL: "C", POSIXLY_CORRECT: "1"}, b"", stdout, stderr))?
+  } else { process.run(command)? }
   {status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?}
 }
 
@@ -71,6 +76,19 @@ test test_printf_rejects_zero_positional_index { |ctx|
   assert result.status == 1
   assert result.stdout == ""
   assert result.stderr == "printf: %0$: invalid conversion specification\n"
+}
+
+test test_printf_warns_about_trailing_char_constant_after_failure { |ctx|
+  let args = ["%d\n", "bad", "'ab"]
+  let ordinary = printf_run(ctx, args)?
+  let posix = printf_run(ctx, args, true)?
+
+  assert ordinary.status == 1
+  assert ordinary.stdout == "0\n97\n"
+  assert ordinary.stderr == "printf: 'bad': expected a numeric value\nprintf: warning: b: character(s) following character constant have been ignored\n"
+  assert posix.status == 1
+  assert posix.stdout == "0\n97\n"
+  assert posix.stderr == "printf: 'bad': expected a numeric value\n"
 }
 
 test test_printf_warns_about_arguments_after_literal_format { |ctx|
