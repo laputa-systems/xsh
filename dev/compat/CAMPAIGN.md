@@ -188,6 +188,12 @@ remain historical evidence only.
   88/129 to 93/124 across 217 tests, fixing five cases with no regressions.
   Pinned GNU 9.12 probes match unit order and zero handling. Reports are in
   `results/sort-human-numeric-followup/`.
+- Follow-up `f7f34cd2` keeps the first input spelling for each equal `-n` key
+  when `-u` is combined with reverse sorting. The focused native sort suite
+  passes 31/31; Gate 3 improves from 93/124 to 94/123 across 217 tests, fixing
+  `test_mixed_floats_ints_chars_numeric_reverse` with no regressions. A pinned
+  GNU 9.12 probe matches the retained representatives. Reports are in
+  `results/sort-numeric-unique-reverse-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail

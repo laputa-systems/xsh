@@ -218,6 +218,12 @@ pass 30/30; the optimized debug Gate 3 slice improves from 88/129 to 93/124
 across 217 tests, fixing five cases with no regressions. Pinned GNU 9.12 probes
 match unit order and zero handling. Reports are in
 `results/sort-human-numeric-followup/`.
+Follow-up `f7f34cd2` keeps the first input spelling for each equal `-n` key
+when `-u` is combined with reverse sorting. The focused native sort suite passes
+31/31; Gate 3 improves from 93/124 to 94/123 across 217 tests, fixing
+`test_mixed_floats_ints_chars_numeric_reverse` with no regressions. A pinned
+GNU 9.12 probe matches the retained representatives. Reports are in
+`results/sort-numeric-unique-reverse-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
