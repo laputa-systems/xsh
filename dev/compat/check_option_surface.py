@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare a pilot uutils option declaration with its XSH cli.applet schema."""
+"""Compare pinned uutils option declarations with XSH applet declarations."""
 
 from __future__ import annotations
 
@@ -18,12 +18,14 @@ SUPPORTED_UTILITIES = (
     "basename",
     "cat",
     "dirname",
+    "false",
     "hostid",
     "logname",
     "nproc",
     "printenv",
     "pwd",
     "sleep",
+    "true",
     "tty",
     "uname",
     "wc",
@@ -34,12 +36,14 @@ SOURCE_PATHS = {
     "basename": ("basename/src/basename.rs", "basename.xsh"),
     "cat": ("cat/src/cat.rs", "cat.xsh"),
     "dirname": ("dirname/src/dirname.rs", "dirname.xsh"),
+    "false": ("false/src/false.rs", "false.xsh"),
     "hostid": ("hostid/src/hostid.rs", "hostid.xsh"),
     "logname": ("logname/src/logname.rs", "logname.xsh"),
     "nproc": ("nproc/src/nproc.rs", "nproc.xsh"),
     "printenv": ("printenv/src/printenv.rs", "printenv.xsh"),
     "pwd": ("pwd/src/pwd.rs", "pwd.xsh"),
     "sleep": ("sleep/src/sleep.rs", "sleep.xsh"),
+    "true": ("true/src/true.rs", "true.xsh"),
     "tty": ("tty/src/tty.rs", "tty.xsh"),
     "uname": ("uname/src/uname.rs", "uname.xsh"),
     "wc": ("wc/src/wc.rs", "wc.xsh"),
@@ -197,7 +201,7 @@ def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
         num_args = re.search(r"\.num_args\s*\(\s*(\d+)\s*\)", argument)
         if ".num_args(" in argument and not num_args:
             raise SurfaceParseError("variable or optional argument counts need an explicit parser")
-        if action_name in ("SetTrue", "SetFalse", "Count"):
+        if action_name in ("SetTrue", "SetFalse", "Count", "Help", "Version"):
             arity = 0
             if num_args and num_args.group(1) != "0":
                 raise SurfaceParseError("flag action declares value arguments")
@@ -212,7 +216,8 @@ def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
         field = arg_id.group(1).removeprefix("options::")
         disposition = (
             "implemented"
-            if re.search(rf"\b{re.escape(arg_id.group(1))}\b", behavior)
+            if action_name in ("Help", "Version")
+            or re.search(rf"\b{re.escape(arg_id.group(1))}\b", behavior)
             else "parsed-but-unused"
         )
 
@@ -311,11 +316,29 @@ def _form_entries(form: str, field: str) -> list[tuple[str, int]]:
     return entries
 
 
-def parse_xsh_declarations(source: str) -> dict[str, dict[str, int | str]]:
-    """Read spellings, operand counts, and source-field use from cli.applet."""
+def _manual_xsh_declarations(source: str, utility: str) -> dict[str, dict[str, int | str]]:
+    if utility not in ("true", "false"):
+        raise SurfaceParseError("XSH applet has no cli.applet schema")
+    if not re.search(r"argv\.len\(\)\s*(?:==|!=)\s*1", source):
+        raise SurfaceParseError(f"manual {utility} help/version guard is not recognized")
+    spellings = set(re.findall(r'argv\s*\[\s*0\s*\]\s*==\s*"(--[A-Za-z0-9-]+)"', source))
+    if spellings != {"--help", "--version"}:
+        raise SurfaceParseError(f"manual {utility} option branches are not recognized")
+    return {
+        spelling: {"arity": 0, "field": "manual", "disposition": "implemented"}
+        for spelling in sorted(spellings)
+    }
+
+
+def parse_xsh_declarations(
+    source: str, utility: str | None = None
+) -> dict[str, dict[str, int | str]]:
+    """Read option forms from cli.applet or a narrowly supported manual parser."""
     applet = re.search(r"\bcli\.applet\s*\(", source)
     if not applet:
-        raise SurfaceParseError("XSH applet has no cli.applet call")
+        if utility is None:
+            raise SurfaceParseError("XSH applet has no cli.applet call")
+        return _manual_xsh_declarations(source, utility)
     opening = source.find("{", applet.end())
     if opening < 0:
         raise SurfaceParseError("cli.applet schema is missing")
@@ -345,10 +368,10 @@ def parse_xsh_declarations(source: str) -> dict[str, dict[str, int | str]]:
     return declarations
 
 
-def parse_xsh_source(source: str) -> dict[str, int]:
+def parse_xsh_source(source: str, utility: str | None = None) -> dict[str, int]:
     return {
         spelling: int(declaration["arity"])
-        for spelling, declaration in parse_xsh_declarations(source).items()
+        for spelling, declaration in parse_xsh_declarations(source, utility).items()
     }
 
 
@@ -393,7 +416,9 @@ def main() -> int:
         uutils_declarations = parse_uutils_declarations(
             (root / "src/uu" / uutils_source).read_text()
         )
-        xsh_declarations = parse_xsh_declarations((REPO / "core" / xsh_source).read_text())
+        xsh_declarations = parse_xsh_declarations(
+            (REPO / "core" / xsh_source).read_text(), args.util
+        )
     except (OSError, SurfaceParseError) as error:
         print(f"option surface check: {error}", file=sys.stderr)
         return 2

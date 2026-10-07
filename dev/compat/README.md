@@ -82,7 +82,7 @@ differential requires identical test selections on both sides.
 | `dev/compat/run-gnu.sh uutils [TEST...]` | GNU tests against pinned uutils (cached baseline) |
 | `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
-| `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for 14 commands; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
+| `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for 16 commands; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
 | `python3 dev/compat/check_kernel_reads.py` | Gate 9 ratchet: no `/proc`/`/sys` literal in a top-level applet |
@@ -129,19 +129,22 @@ error; `tee/tee.sh` passes; `misc/yes.sh` still fails. See `CAMPAIGN.md` and
 `results/` for the reports and remaining limits.
 
 The Gate 5 pilot compares pinned Clap declarations with XSH's `cli.applet`
-schemas for fourteen commands:
+schemas for fourteen commands and separately recognizes the manual
+help/version branches in `true` and `false`:
 
 | Command | uutils spellings | XSH spellings | Differences |
 |---|---:|---:|---|
 | `basename` | 10 | 8 | uutils-only `-h`, `-V` |
 | `cat` | 21 | 19 | uutils-only `-h`, `-V` |
 | `dirname` | 6 | 4 | uutils-only `-h`, `-V` |
+| `false` | 2 | 2 | none |
 | `hostid` | 4 | 2 | uutils-only `-h`, `-V` |
 | `logname` | 4 | 2 | uutils-only `-h`, `-V` |
 | `nproc` | 6 | 4 | uutils-only `-h`, `-V` |
 | `printenv` | 6 | 4 | uutils-only `-h`, `-V` |
 | `pwd` | 8 | 6 | uutils-only `-h`, `-V` |
 | `sleep` | 4 | 2 | uutils-only `-h`, `-V` |
+| `true` | 2 | 2 | none |
 | `tty` | 7 | 5 | uutils-only `-h`, `-V` |
 | `uname` | 26 | 24 | uutils-only `-h`, `-V` |
 | `wc` | 17 | 15 | uutils-only `-h`, `-V` |
@@ -153,9 +156,9 @@ help/version flags that GNU 9.12 does not use. The strict checker exits 1 to
 report them, and `gaps.json` records each difference. Direct cat probes
 confirm both sides accept `--help` and `--version`, while only uutils accepts
 `-h` and `-V`. The comparison also reports `cat -u` as parsed-but-unused on
-both sides, matching cat's documented ignored option. The 14 comparisons cover
-127 uutils spellings and 99 XSH spellings; Gate 5 remains open for the other
-92 utilities. Nine parser tests pass.
+both sides, matching cat's documented ignored option. The 16 comparisons cover
+131 uutils spellings and 103 XSH spellings; Gate 5 remains open for the other
+90 utilities. Eleven parser tests pass.
 
 The historical full Gate 3 and Gate 4 results at `92a91b12` were 5,125/824/0
 with four exclusions for Gate 3, and 367 PASS, 189 FAIL, 25 ERROR, and 138

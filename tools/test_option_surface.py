@@ -83,6 +83,19 @@ pub fn uu_app() -> Command {
             {"--files0-from": 1, "--pair": 2, "-h": 0, "--help": 0},
         )
 
+    def test_uutils_explicit_help_and_version_actions_do_not_add_short_forms(self):
+        source = '''
+pub fn uu_app() -> Command {
+    Command::new("true")
+        .version("1.0")
+        .disable_help_flag(true)
+        .disable_version_flag(true)
+        .arg(Arg::new("help").long("help").action(ArgAction::Help))
+        .arg(Arg::new("version").long("version").action(ArgAction::Version))
+}
+'''
+        self.assertEqual(surface.parse_uutils_source(source), {"--help": 0, "--version": 0})
+
     def test_xsh_forms_capture_aliases_and_argument_arity(self):
         source = '''
 proc main(...argv: List[Str]) {
@@ -146,6 +159,19 @@ proc main(...argv: List[Str]) {
 }
 '''
         self.assertRaises(surface.SurfaceParseError, surface.parse_xsh_source, source)
+
+    def test_manual_xsh_true_and_false_help_version_are_declared(self):
+        source = '''
+proc main(...argv: List[Str]) {
+  return when argv.len() != 1
+  if argv[0] == "--help" { print "help" }
+  if argv[0] == "--version" { print "version" }
+}
+'''
+        for utility in ("true", "false"):
+            with self.subTest(utility=utility):
+                declarations = surface.parse_xsh_declarations(source, utility)
+                self.assertEqual(set(declarations), {"--help", "--version"})
 
 
 if __name__ == "__main__":
