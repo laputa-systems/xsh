@@ -13,6 +13,18 @@ proc invoke(ctx: TestContext, args: List[Str], input: Bytes) [fs, process, error
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc invoke_with_tunables(ctx: TestContext, args: List[Str], input: Bytes, tunables: Str) [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "cksum-run-tunables")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/cksum.xsh"
+  let plan = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "--"].extend(args),
+    root, {LC_ALL: "C", GLIBC_TUNABLES: tunables}, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 test test_cksum_stdin_known_vector { |ctx|
   let result = invoke(ctx, [], b"abc")?
   assert result.status == 0
@@ -49,6 +61,27 @@ test test_cksum_invalid_option_uses_gnu_exit_status { |ctx|
   let result = invoke(ctx, ["--definitely-invalid"], b"")?
   assert result.status == 1
   assert result.stderr.find("unrecognized option") != null
+}
+
+test test_cksum_debug_reports_cpu_features_and_honors_tunables { |ctx|
+  let info = system.uname()?
+  let features = unix.cpu_features()
+  let normal = invoke(ctx, [], b"test")?
+  let debug = invoke(ctx, ["--debug"], b"test")?
+  assert debug.status == 0
+  assert debug.stdout == normal.stdout
+
+  let names = if info.machine.starts_with("x86") or (info.machine.starts_with("i") and info.machine.ends_with("86")) { ["avx512", "avx2", "pclmul"] } else if info.machine == "aarch64" { ["vmull"] } else { [] }
+  for name in names {
+    let expected = if name in features { f"using {name} hardware support\n" } else { f"{name} support not detected\n" }
+    assert expected in debug.stderr
+  }
+
+  if "avx2" in features {
+    let disabled = invoke_with_tunables(ctx, ["--debug"], b"test", "glibc.cpu.hwcaps=-AVX2")?
+    assert disabled.status == 0
+    assert disabled.stderr.find("avx2 support not detected") != null
+  }
 }
 
 test test_cksum_short_blake2b_length { |ctx|

@@ -1403,6 +1403,34 @@ pub(crate) fn seek_fd(fd: i64, offset: i64, span: Span) -> Result<Value, Runtime
     }
 }
 
+/// Exposes runtime CPU feature detection to scripts that report SIMD policy.
+pub(crate) fn cpu_features() -> Value {
+    let mut features = Vec::new();
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    if !cfg!(target_os = "android") {
+        if std::arch::is_x86_feature_detected!("avx512f")
+            && std::arch::is_x86_feature_detected!("avx512bw")
+        {
+            features.push(Value::Str("avx512".into()));
+        }
+        if std::arch::is_x86_feature_detected!("avx2") {
+            features.push(Value::Str("avx2".into()));
+        }
+        if std::arch::is_x86_feature_detected!("pclmulqdq") {
+            features.push(Value::Str("pclmul".into()));
+        }
+        if std::arch::is_x86_feature_detected!("sse2") {
+            features.push(Value::Str("sse2".into()));
+        }
+    }
+    #[cfg(all(target_arch = "aarch64", target_endian = "little"))]
+    if !cfg!(target_os = "android") && std::arch::is_aarch64_feature_detected!("asimd") {
+        features.push(Value::Str("asimd".into()));
+        features.push(Value::Str("vmull".into()));
+    }
+    Value::List(features)
+}
+
 // A single descriptor write exposes short writes to the caller instead of
 // hiding stream progress behind a buffer or retry loop.
 fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeError> {

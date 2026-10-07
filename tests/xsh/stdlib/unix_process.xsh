@@ -1,3 +1,8 @@
+test test_unix_cpu_features_are_named {
+  let known = ["avx512", "avx2", "pclmul", "sse2", "asimd", "vmull"]
+  for feature in unix.cpu_features() { assert feature in known }
+}
+
 test test_unix_exec_preserves_command_redirections_and_cwd { |ctx|
   let root = test.temp_dir(ctx, name: "unix-exec-redirections")?
   let input = fp"{root}/input"

@@ -2877,6 +2877,7 @@ fn path_module() -> ModuleSig {
 
 fn unix_module() -> ModuleSig {
     module_sig(vec![
+        ("cpu_features", sig(Vec::new(), Type::List(Box::new(Type::Str)), false, RuntimeOp::UnixCpuFeatures)),
         ("read_fd", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int)], result(Type::Bytes), false, RuntimeOp::UnixReadFd)),
         ("write_fd", sig(vec![param("fd", Type::Int), param("data", Type::Bytes)], result(Type::Int), false, RuntimeOp::UnixWriteFd)),
         ("seek_fd", sig(vec![param("fd", Type::Int), param("offset", Type::Int)], result(Type::Int), false, RuntimeOp::UnixSeekFd)),

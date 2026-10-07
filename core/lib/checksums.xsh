@@ -1,11 +1,13 @@
 ##! Shared GNU checksum formatting and verification for the checksum applets.
 use gnu
+use system
+use unix
 
 type Options = {
   binary: Bool, text: Bool, check: Bool, tag: Bool, untagged: Bool,
   zero: Bool, quiet: Bool, status: Bool, warn: Bool, strict: Bool,
   ignore_missing: Bool, algorithm: Str, length: Str, base64: Bool, raw: Bool,
-  help: Bool, version: Bool, files: List[Str],
+  debug: Bool, help: Bool, version: Bool, files: List[Str],
 }
 type Numeric = {checksum: Int, size: Int}
 type Check = {digest: Str, base64: Bool, path: Bytes, alternate_path: Bytes?, algorithm: Str, length: Int}
@@ -59,6 +61,48 @@ pure warning_mode(argv: List[Str]) -> Bool {
     }
   }
   enabled
+}
+
+pure feature_aliases(feature: Str) -> List[Str] {
+  match feature {
+    "avx512" => ["AVX512", "AVX512F"]
+    "avx2" => ["AVX2"]
+    "pclmul" => ["PCLMUL", "PMULL"]
+    "vmull" => ["VMULL"]
+    _ => []
+  }
+}
+
+pure trim_leading_space(value: Str) -> Str {
+  var offset = 0
+  while offset < value.byte_len() and value.byte_slice(offset, length: 1) in [" ", "\t", "\n", "\r", "\u{b}", "\u{c}"] { offset += 1 }
+  value.byte_slice(offset)
+}
+
+pure feature_disabled(feature: Str, tunables: Str) -> Bool {
+  var disabled = ""
+  for setting in tunables.split(":") {
+    let fields = setting.split("=", maxsplit: 1)
+    if fields.len() == 2 and trim_leading_space(fields[0]) == "glibc.cpu.hwcaps" { disabled = fields[1] }
+  }
+  let aliases = feature_aliases(feature)
+  for token in disabled.split(",") {
+    let name = trim_leading_space(token)
+    if name.starts_with("-") and name.byte_slice(1) in aliases { return true }
+  }
+  false
+}
+
+proc cpu_feature_debug() [env, process, error] {
+  let machine = system.uname()?.machine
+  let features = unix.cpu_features()
+  let tunables = env.get("GLIBC_TUNABLES") ?? ""
+  let names = if machine.starts_with("x86") or (machine.starts_with("i") and machine.ends_with("86")) { ["avx512", "avx2", "pclmul"] } else if machine == "aarch64" { ["vmull"] } else { [] }
+  for name in names {
+    let enabled = name in features and ! feature_disabled(name, tunables)
+    let message = if enabled { f"using {name} hardware support" } else { f"{name} support not detected" }
+    eprint $message
+  }
 }
 
 # The default length is zero, so validation must distinguish an omitted length
@@ -510,7 +554,7 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
     length: {form: "-l --length BITS", default: "0"},
     base64: {form: "--base64", default: false},
     raw: {form: "--raw", default: false},
-    debug: {form: "--debug", unsupported: true},
+    debug: {form: "--debug", default: false},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     files: {form: "...FILE"},
@@ -530,6 +574,8 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
     return
   }
   if opts.version { gnu.version(gnu.prog()); return }
+  if opts.debug and !cksum { gnu.error("unrecognized option '--debug'"); exit 1 }
+  if opts.debug { cpu_feature_debug() }
   if !cksum and opts.algorithm != "" { gnu.usage_error("the --algorithm option is supported only by cksum") }
   if !cksum and (opts.untagged or opts.base64 or opts.raw) { gnu.usage_error("--untagged, --base64 and --raw are supported only by cksum") }
   let binary = binary_mode(argv)

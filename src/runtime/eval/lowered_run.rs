@@ -8257,6 +8257,9 @@ impl Evaluator {
                 let offset = lowered_int_arg(values.get(1).cloned(), "unix.seek_fd", span)?;
                 lowered_runtime_result(unix_module::seek_fd(fd, offset, span), span)?
             }
+            RuntimeOp::UnixCpuFeatures if values.is_empty() => {
+                lowered_runtime_value(unix_module::cpu_features(), span)?
+            }
             RuntimeOp::RegexFindBytes if (2..=4).contains(&values.len()) => {
                 let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.find_bytes", span)?;
                 let input = lowered_bytes_arg_or_empty(values.get(1).cloned(), "regex.find_bytes", span)?;

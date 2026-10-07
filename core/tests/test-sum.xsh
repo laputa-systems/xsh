@@ -39,3 +39,19 @@ test test_sum_sysv_stdin { |ctx|
   assert result.status == 0
   assert result.stdout == b"294 1\n"
 }
+
+test test_sum_accepts_non_utf8_path_arguments { |ctx|
+  let root = test.temp_dir(ctx, name: "sum-non-utf8")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/\xff\xfe"]))?
+  file.write("test content")
+  let stdout = fp"{root}/out"
+  let stderr = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/sum.xsh"
+  let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "--", file]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 0
+  assert stdout.read_bytes()?.ends_with(bytes.concat([b" ", file.bytes(), b"\n"]))
+  assert stderr.read_text()? == ""
+}
