@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.proc_launch
 
 const USAGE = """Usage: stdbuf OPTION... COMMAND [ARG]...
 Change the standard stream buffering of COMMAND.
@@ -42,6 +43,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   if let mode = opts.input { validate(mode) }
   if let mode = opts.output { validate(mode) }
   if let mode = opts.error { validate(mode) }
+  proc_launch.check_command(opts.command[0])
   # Buffering belongs to the child libc; stream pipes cannot change setvbuf.
   gnu.error("unsupported: changing child stdio buffering requires a compatible preload library; none is shipped")
   exit 125

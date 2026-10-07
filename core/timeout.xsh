@@ -17,6 +17,18 @@ A zero DURATION disables the timeout. Timeout status is 124; KILL is 137.
 
 type Options = {signal: Str, kill_after: Str?, preserve: Bool, foreground: Bool, verbose: Bool, help: Bool, version: Bool, command: List[Str]}
 
+const SIGNAL_POLL = 50ms
+
+# The evaluator forwards these signals to the managed child group when each
+# hook exits, while these statuses preserve timeout's shell-facing result.
+on INT [] {
+  exit 130
+}
+
+on TERM [] {
+  exit 143
+}
+
 # Options may follow DURATION, but parsing stops at COMMAND so its flags survive.
 pure normalize(argv: List[Str]) -> List[Str] {
   var prefix: List[Str] = []
@@ -69,6 +81,35 @@ proc send(handle: ProcessHandle, signal: Str, verbose: Bool, command: Str) [proc
   }
 }
 
+# Return to the evaluator between bounded waits so signal hooks can forward
+# signals to the child while its own timeout or kill-after deadline is pending.
+proc wait_for(handle: ProcessHandle, duration: Duration) [process, error] -> Result[Status?] {
+  var remaining = duration
+
+  while remaining > 0ms {
+    let slice = if remaining > SIGNAL_POLL { SIGNAL_POLL } else { remaining }
+    let completed = process.wait_timeout([handle], slice)?
+
+    if let finished = completed {
+      return Ok(finished.status)
+    }
+
+    remaining -= slice
+  }
+
+  Ok(null)
+}
+
+proc wait_until_exit(handle: ProcessHandle) [process, error] -> Result[Status] {
+  while true {
+    if let status = wait_for(handle, SIGNAL_POLL)? {
+      return Ok(status)
+    }
+  }
+
+  return Err(error.failure("process wait loop ended unexpectedly"))
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: Options = cli.applet(normalize(argv), {
     gnu: {status: 125, permute: false},
@@ -108,23 +149,24 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 126
   }
   let child = launched?
-  if limit == 0ms { exit (wait child?).shell_code()? }
-  let completed = process.wait_timeout([child], limit)?
-  if let finished = completed { exit finished.status.shell_code()? }
+  if limit == 0ms { exit (wait_until_exit(child)?).shell_code()? }
+  let completed = wait_for(child, limit)?
+  if let finished = completed { exit finished.shell_code()? }
   send(child, if named.number == 0 { "0" } else { named.name }, opts.verbose, command[0])
-  # A stopped command must resume to observe its pending termination signal.
-  if named.name != "KILL" and named.name != "CONT" {
+  # A stopped command must resume to observe a pending signal; signal zero
+  # only probes the process and leaves nothing pending.
+  if named.number != 0 and named.name != "KILL" and named.name != "CONT" {
     send(child, "CONT", false, command[0])
   }
   if grace != 0ms {
-    let stopped = process.wait_timeout([child], grace)?
+    let stopped = wait_for(child, grace)?
     if let finished = stopped {
-      exit if opts.preserve { finished.status.shell_code()? } else if named.number == 9 { 137 } else { 124 }
+      exit if opts.preserve { finished.shell_code()? } else if named.number == 9 { 137 } else { 124 }
     }
     send(child, "KILL", opts.verbose, command[0])
-    let _ = wait child?
+    let _ = wait_until_exit(child)?
     exit 137
   }
-  let status = wait child?
+  let status = wait_until_exit(child)?
   exit if opts.preserve { status.shell_code()? } else if named.number == 9 { 137 } else { 124 }
 }

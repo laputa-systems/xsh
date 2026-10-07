@@ -18,6 +18,27 @@ test stdbuf_refuses_unavailable_buffering_without_running_the_command { |ctx|
   assert "compatible preload library" in result.stderr
 }
 
+test stdbuf_rejects_each_valid_mode_when_child_buffering_is_unavailable { |ctx|
+  for args in [["-i0", "true"], ["-oL", "true"], ["-e1K", "true"]] {
+    let result = invoke(ctx, args)?
+    assert result.status == 125, args.join(" ")
+    assert result.stdout == "", args.join(" ")
+    assert "compatible preload library" in result.stderr, result.stderr
+  }
+}
+
+test stdbuf_reports_command_launch_failures_before_capability { |ctx|
+  let missing = invoke(ctx, ["-o1", "no-such-stdbuf-command"])?
+  assert missing.status == 127
+  assert "No such file or directory" in missing.stderr, missing.stderr
+  assert ! ("compatible preload library" in missing.stderr), missing.stderr
+
+  let directory = invoke(ctx, ["-o1", "/"])?
+  assert directory.status == 126
+  assert "Permission denied" in directory.stderr, directory.stderr
+  assert ! ("compatible preload library" in directory.stderr), directory.stderr
+}
+
 test stdbuf_checks_option_contract_before_capability { |ctx|
   assert "line buffering stdin is meaningless" in invoke(ctx, ["-iL", "true"])?.stderr
   assert "invalid mode 'bad'" in invoke(ctx, ["-o", "bad", "true"])?.stderr

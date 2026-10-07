@@ -102,7 +102,7 @@ test test_kill_signal_zero_only_probes { |ctx|
 
   let missing = kill_run(ctx, ["-0", "999999999"])?
   assert missing.status == 1
-  assert missing.stderr == "kill: '999999999': No such process\n", missing.stderr
+  assert missing.stderr == "kill: sending signal to 999999999 failed: No such process\n", missing.stderr
 
   child.cancel(signal: "KILL")
 }
@@ -122,7 +122,7 @@ test test_kill_reports_each_bad_operand_and_continues { |ctx|
   let child = spawn run sleep 30 ?
   let result = kill_run(ctx, ["abc", "999999999", f"{child.pid}", "1x", "99999999999"])?
   assert result.status == 1
-  assert result.stderr == "kill: 'abc': invalid process id\nkill: '999999999': No such process\nkill: '1x': invalid process id\nkill: '99999999999': invalid process id\n", result.stderr
+  assert result.stderr == "kill: 'abc': invalid process id\nkill: sending signal to 999999999 failed: No such process\nkill: '1x': invalid process id\nkill: '99999999999': invalid process id\n", result.stderr
 
   let status = wait child?
   assert status.signal_number()? == 15, "operands after a failure are still signaled"
@@ -174,7 +174,7 @@ test test_kill_rejects_invalid_signals_before_sending { |ctx|
 test test_kill_lowercase_obsolete_names_are_options { |ctx|
   let result = kill_run(ctx, ["-kill", "123"])?
   assert result.status == 1
-  assert result.stderr == "kill: invalid option -- 'k'\nTry 'kill --help' for more information.\n", result.stderr
+  assert result.stderr == "kill: unexpected argument '-kill' found\nTry 'kill --help' for more information.\n", result.stderr
 }
 
 test test_kill_signal_conflicts_with_listing { |ctx|

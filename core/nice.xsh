@@ -143,7 +143,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   if opts.command.is_empty() {
     if opts.adjustment != null {
-      gnu.usage_error("a command must be given with an adjustment", 125)
+      gnu.usage_error("A command must be given with an adjustment.", 125)
     }
 
     match process.priority() {
@@ -160,9 +160,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # A refused change is a warning when it is about privilege: the command
   # still runs, at the niceness it already had.
   if let Err(failure) = process.nice(adjustment) {
-    gnu.error(f"cannot set niceness: {failure_text(failure)}")
-
-    if (failure.errno ?? 0) != 1 and (failure.errno ?? 0) != 13 {
+    if (failure.errno ?? 0) == 1 or (failure.errno ?? 0) == 13 {
+      gnu.error(f"warning: setpriority: {failure_text(failure)}")
+    } else {
+      gnu.error(f"cannot set niceness: {failure_text(failure)}")
       exit 125
     }
   }

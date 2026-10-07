@@ -200,6 +200,8 @@ proc main(...argv: List[Str]) [process, env, error, io] {
         gnu.error(f"{gnu.quote_value(word)}: invalid signal")
         exit 1
       }
+    } else if find_signal(word) != null {
+      gnu.usage_error(f"unexpected argument {gnu.quote_value(args[0])} found")
     }
   }
 
@@ -273,7 +275,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       gnu.error(f"{gnu.quote_value(operand)}: signaling every process is not supported")
       failed = true
     } else if let Err(failure) = deliver(pid, chosen.name) {
-      gnu.error(f"{gnu.quote_value(operand)}: {delivery_text(failure)}")
+      gnu.error(f"sending signal to {pid} failed: {delivery_text(failure)}")
       failed = true
     }
   }
