@@ -1,0 +1,26 @@
+{
+  "suite": "gnu-differential",
+  "counts": {
+    "uutils_pass_xsh_pass": 1,
+    "uutils_pass_xsh_fail": 0,
+    "uutils_fail_xsh_pass": 0,
+    "uutils_fail_xsh_fail": 0
+  },
+  "cells": {
+    "uutils_pass_xsh_pass": [
+      "uniq/uniq-c-width.log"
+    ],
+    "uutils_pass_xsh_fail": [],
+    "uutils_fail_xsh_pass": [],
+    "uutils_fail_xsh_fail": []
+  },
+  "utilities": {
+    "uniq": {
+      "pass": 1,
+      "fail": 0,
+      "skip": 0,
+      "excluded": 0,
+      "blockers": []
+    }
+  }
+}

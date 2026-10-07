@@ -116,7 +116,12 @@ The pinned GNU 9.12 XSH run at the same revision records 367 PASS, 189 FAIL,
 25 ERROR, and 138 SKIP across 719 tests. Its four-cell differential has 358
 shared passes, 213 uutils-only passes, 9 XSH-only passes, and 52 shared
 failures. `wc::test_files0_progressive_stream` timed out at 120 seconds in
-Gate 3, and `uniq/uniq-c-width.sh` reached the GNU harness's 600-second limit.
+Gate 3. `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
+because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
+`yes` output and `uniq -c` input; the selected GNU stress test now passes on
+both XSH and pinned uutils with one shared pass and no mismatches. Its reports
+are in `results/gnu-uniq-followup/`; the full Gate 4 report above remains at
+`92a91b12`.
 The pinned GNU uutils baseline has 571 PASS, 46 FAIL, 101 SKIP and one ERROR.
 BusyBox comparison, the expanded Linux surface, aarch64 debug gate, and
 clean-image smoke remain open. See the current checkpoint and full results in

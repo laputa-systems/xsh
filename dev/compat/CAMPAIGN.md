@@ -68,20 +68,32 @@ remain historical evidence only.
   367 PASS, 189 FAIL, 25 ERROR, and 138 SKIP. The four-cell differential
   against the pinned uutils baseline records 358 tests passing on both sides,
   213 passing only on uutils, 9 passing only on XSH, and 52 failing on both.
-  `uniq/uniq-c-width.sh` reached the GNU harness's 600-second timeout. These
-  reports are in `results/gnu-xsh.json` and `results/gnu-differential.json`.
+  In `uniq/uniq-c-width.sh`, the pipeline counted 16,777,216 lines instead of
+  30,352,436 because XSH `yes` stopped after 32 MiB. These reports are in
+  `results/gnu-xsh.json` and `results/gnu-differential.json`.
+- Follow-up at `35faa674` removes that `yes` output cap and streams `uniq -c`
+  input. `bytes.repeat_prefix_count` lets XSH count repeated byte-exact records
+  within each buffer; other comparison keys stay on the XSH record path. The
+  selected `uniq/uniq-c-width.sh` test passes on both XSH and pinned uutils,
+  with one shared pass and no mismatches. Its reports are in
+  `results/gnu-uniq-followup/`. Focused native suites passed for bytes (5), API
+  docs (65), uniq (10), yes (2), head (9), cat (10), tac (8), tail (13), dd
+  (23), od (21), rev (5), and wc (13); `xsht check` passed the three changed
+  source modules.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
-  runs, `stat -` was changed to use `/dev/stdin` instead of a direct
-  `/proc/self/fd/0` path; its native suite passed 9/9 and the kernel-reader
-  ratchet returned zero direct readers. The complete suites have not been
-  rerun after that focused change.
+  runs, focused changes to `stat`, `yes`, and `uniq` have landed, but the
+  complete suites have not been rerun. `stat -` now uses `/dev/stdin`; its
+  native suite passed 9/9 and the kernel-reader ratchet returned zero direct
+  readers.
 - The generated per-utility manifest uses the current Gate 3 report.
   `parity.py --check`, `lanes.py check`, the ignored-option ratchet, and the
   four-exclusion check passed.
 
 The campaign remains active and incomplete. The 824 failing uutils cases,
-the `wc` and GNU `uniq` timeouts, the GNU differential gaps, BusyBox comparison,
+the `wc` timeout and remaining GNU differential gaps, BusyBox comparison,
 expanded Linux surface, aarch64 debug gate, and clean-image smoke remain open.
+The selected `uniq` stress case is fixed, but the full Gate 4 report still
+describes its earlier failure at `92a91b12`.
 
 ## Wind-down report (2026-10-06)
 
