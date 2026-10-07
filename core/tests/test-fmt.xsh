@@ -10,6 +10,14 @@ test test_fmt_prefix_leaves_other_lines { |ctx|
   assert output == "# one two\nplain\n"
 }
 
+test test_fmt_accepts_non_utf8_path_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "fmt-raw-path")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  input.write("one two\n")
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- $input
+  assert output == "one two\n"
+}
+
 test test_fmt_balances_paragraph_lines { |ctx|
   let input = test.temp_file(ctx, name: "words", contents: b"aa bb cc dd ee")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fmt.xsh" -- -w 7 $input

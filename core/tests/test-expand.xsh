@@ -23,3 +23,11 @@ test test_expand_unicode_display_columns { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/expand.xsh" -- $input
   assert output == "中      X"
 }
+
+test test_expand_accepts_non_utf8_path_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "expand-raw-path")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  input.write("a\tb\n")
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/expand.xsh" -- $input
+  assert output == "a       b\n"
+}

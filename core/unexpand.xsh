@@ -3,8 +3,9 @@ use lib.gnu
 use lib.text_a2 as text
 
 type Options = {tabs: List[Str], all: Bool, first: Bool, help: Bool, version: Bool, paths: List[Str]}
-proc main(...argv: List[Str]) {
-  let opts: Options = cli.applet(text.numeric_options(argv, "-t"), {
+proc main(...argv: List[Bytes]) {
+  let arguments = text.normalize_arguments(argv)
+  let opts: Options = cli.applet(text.numeric_options(arguments.values, "-t"), {
     gnu: {status: 1},
     tabs: {form: "-t --tabs LIST", repeated: true},
     all: {form: "-a --all", default: false}, first: {form: "-f --first-only", default: false},
@@ -16,11 +17,11 @@ proc main(...argv: List[Str]) {
   if opts.version { gnu.version("unexpand"); return }
   let stops = text.tabs(opts.tabs)
   var explicit_tabs = false
-  for arg in argv {
+  for arg in arguments.values {
     break when arg == "--"
     if arg.starts_with("-t") or arg.starts_with("--t") { explicit_tabs = true }
   }
-  let input = text.read(opts.paths)
+  let input = text.read_arguments(arguments, opts.paths)
   gnu.write_bytes(text.unexpand(input.data, stops, ! opts.first and (opts.all or explicit_tabs)))
   exit text.finish(input.failed)
 }

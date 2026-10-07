@@ -148,8 +148,9 @@ proc modernize(argv: List[Str]) -> List[Str] {
   argv
 }
 
-proc main(...argv: List[Str]) {
-  let opts: Options = cli.applet(modernize(argv), {
+proc main(...argv: List[Bytes]) {
+  let arguments = text.normalize_arguments(argv)
+  let opts: Options = cli.applet(modernize(arguments.values), {
     gnu: {status: 1},
     width: {form: "-w --width WIDTH", default: ""},
     goal: {form: "-g --goal WIDTH", default: ""},
@@ -174,8 +175,9 @@ proc main(...argv: List[Str]) {
   let goal = if opts.goal == "" { width * 93 / 100 } else { goal_value }
   if goal > width { gnu.error("GOAL cannot be greater than WIDTH."); exit 1 }
   var failed = false
-  for name in if opts.paths.is_empty() { ["-"] } else { opts.paths } {
-    guard let data = gnu.read_operand(name) else { |failure| gnu.cannot_open(name, failure); failed = true; continue }
+  let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
+  for name in paths {
+    guard let data = text.read_operand_bytes(name) else { |failure| text.cannot_open_bytes(name, failure); failed = true; continue }
     var lines: List[Bytes] = []
     var first = ""
     var later = ""

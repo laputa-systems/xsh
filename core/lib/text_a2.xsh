@@ -1,8 +1,47 @@
-##! Byte records and tab stops for the text applets.
+##! Byte-preserving arguments, input, and text operations for core text applets.
 use gnu
 
 ## Successful input and whether any operand failed.
 export type Input = {data: Bytes, failed: Bool}
+
+## UTF-8 option strings plus the original byte arguments for path operands.
+export type RawArguments = {values: List[Str], original: List[Bytes]}
+
+## Keep invalid UTF-8 operands in a form the string option parser can carry.
+export pure normalize_arguments(original: List[Bytes]) -> RawArguments {
+  var options = true
+  var values: List[Str] = []
+  for at in range(original.len()) {
+    let raw = original[at]
+    if raw == b"--" {
+      options = false
+      values += ["--"]
+    } else if let Ok(value) = raw.utf8() {
+      values += [value]
+    } else if options and raw.starts_with(b"-") {
+      # Keep undecodable options in option space so the parser still rejects them.
+      values += [f"--xsh-raw-arg:{at}"]
+    } else {
+      # NUL cannot occur in an OS argument, so this marker cannot alias a path.
+      values += [f"\u{0}xsh-raw-arg:{at}\u{0}"]
+    }
+  }
+  {values: values, original: original}
+}
+
+## Restore a parsed argument's original bytes when it was not valid UTF-8.
+export pure argument_bytes(arguments: RawArguments, value: Str) -> Bytes {
+  for at in range(arguments.original.len()) {
+    if value == f"\u{0}xsh-raw-arg:{at}\u{0}" or value == f"--xsh-raw-arg:{at}" { return arguments.original[at] }
+  }
+  bytes.from_text(value)
+}
+
+## Restore path operands in the order returned by the option parser.
+export pure argument_bytes_list(arguments: RawArguments, values: List[Str]) -> List[Bytes] {
+  collect { for value in values { yield argument_bytes(arguments, value) } }
+}
+
 ## Absolute stops and the continuation interval after the last stop.
 export type Tabs = {stops: List[Int], interval: Int, relative: Bool}
 
@@ -35,6 +74,36 @@ export proc read(paths: List[Str]) -> Input {
     }
   }
   {data: bytes.concat(chunks), failed: failed}
+}
+
+## Read a byte-preserving operand; `-` consumes standard input.
+export proc read_operand_bytes(name: Bytes) -> Result[Bytes, Error] {
+  return io.stdin_bytes() when name == b"-"
+  Path.parse_bytes(name)?.read_bytes()
+}
+
+## Report an operand read failure while keeping its original bytes.
+export proc name_error_bytes(name: Bytes, failure: Error) [process, env] {
+  gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+}
+
+## Read the parsed path operands without decoding their original bytes.
+export proc read_arguments(arguments: RawArguments, paths: List[Str]) -> Input {
+  var chunks: List[Bytes] = []
+  var failed = false
+  for value in if paths.is_empty() { ["-"] } else { paths } {
+    let name = argument_bytes(arguments, value)
+    match read_operand_bytes(name) {
+      Ok(data) => { chunks += [data] }
+      Err(failure) => { name_error_bytes(name, failure); failed = true }
+    }
+  }
+  {data: bytes.concat(chunks), failed: failed}
+}
+
+## Report a failed open with a byte-preserving file name.
+export proc cannot_open_bytes(name: Bytes, failure: Error) [process, env] {
+  gnu.error(f"cannot open {gnu.quote_bytes(name)} for reading: {gnu.strerror(failure)}")
 }
 
 ## Split on a byte delimiter, keeping an unterminated last record.

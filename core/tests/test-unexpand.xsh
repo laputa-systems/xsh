@@ -29,3 +29,11 @@ test test_unexpand_does_not_split_wide_blank_at_a_tab_stop { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a -t4 $input
   assert output == "   \u{3000}X\ty\n"
 }
+
+test test_unexpand_accepts_non_utf8_path_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "unexpand-raw-path")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  input.write("a       b\n")
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/unexpand.xsh" -- -a $input
+  assert output == "a\tb\n"
+}
