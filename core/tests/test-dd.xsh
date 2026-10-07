@@ -1,12 +1,38 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 proc invoke(ctx: TestContext, args: List[Str], input = b"", timeout = 3s) [fs, process, error] -> Result[Ran] {
+  invoke_with_env(ctx, args, {LC_ALL: "C"}, input, timeout:)
+}
+
+proc invoke_with_env(ctx: TestContext, args: List[Str], variables: Record, input = b"", timeout = 3s) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "dd")?
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display()].extend(args)
-  let status = process.run(process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, input, out, err, timeout:))?
+  let status = process.run(process.command_argv(ctx.xsh_bin, argv, root, variables, input, out, err, timeout:))?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
+test test_dd_forced_rich_diagnostics_point_at_operands { |ctx|
+  let unknown = invoke_with_env(ctx, ["bsx=1"], {LC_ALL: "C", UUTILS_DIAG: "always"})?
+  assert unknown.status == 1, unknown.stderr
+  assert unknown.stderr == "dd: unrecognized operand 'bsx=1'\n   ╭─[ dd:1:4 ]\n   │\n 1 │ dd bsx=1\n   │    ───\n   │\n   │ Help: an operand is KEY=VALUE, as in if=file bs=4k count=10\n───╯\nTry 'dd --help' for more information.\n", unknown.stderr
+
+  let conversion = invoke_with_env(ctx, ["conv=ucase,zap"], {LC_ALL: "C", UUTILS_DIAG: "always"})?
+  assert conversion.status == 1
+  assert "dd:1:15" in conversion.stderr, conversion.stderr
+  assert "not a known conversion" in conversion.stderr, conversion.stderr
+  assert "conv= is one of ascii" in conversion.stderr, conversion.stderr
+
+  let input_flag = invoke_with_env(ctx, ["iflag=fullblock,nope"], {LC_ALL: "C", UUTILS_DIAG: "always"})?
+  assert input_flag.status == 1
+  assert "dd: invalid input flag: 'nope'" in input_flag.stderr, input_flag.stderr
+  assert "dd:1:20" in input_flag.stderr, input_flag.stderr
+
+  let count = invoke_with_env(ctx, ["count=8x"], {LC_ALL: "C", UUTILS_DIAG: "always"})?
+  assert count.status == 1
+  assert "dd:1:10" in count.stderr, count.stderr
+  assert "a number may be followed by a multiplier" in count.stderr, count.stderr
 }
 
 test test_dd_binary_counts_and_conversions { |ctx|

@@ -20,11 +20,50 @@ pure amount(text: Str) -> Int? {
   result
 }
 
-proc parse(argv: List[Str]) [process, env, io] -> Options {
+proc rich_diagnostics_enabled() [env, process] -> Bool {
+  let requested = env.get_or("UUTILS_DIAG", "") ?? ""
+  return true when requested == "always"
+  return false when requested == "never"
+  unix.isatty(2)
+}
+
+## Reconstruct the operand location because dd parses each KEY=VALUE argument directly.
+proc render_operand_error(argv: List[Str], arg_index: Int, message: Str, span_start: Int, span_length: Int, label: Str?, help: Str, usage: Bool, status: Int) [env, process, error] {
+  if ! rich_diagnostics_enabled() {
+    gnu.error(message)
+    if usage { gnu.try_help() }
+    exit status
+  }
+
+  gnu.error(message)
+  let program = gnu.prog()
+  let command = [program].extend(argv).join(" ")
+  var column = program.byte_len() + 1
+  for index in range(arg_index) { column += argv[index].byte_len() + 1 }
+  column += span_start
+  let marker = if label == null { ["─" for _ in range(span_length)].join("") } else { "─┬" }
+  let spacing = [" " for _ in range(column)].join("")
+  eprint f"   ╭─[ {program}:1:{column + 1} ]"
+  eprint "   │"
+  eprint f" 1 │ {command}"
+  eprint f"   │ {spacing}{marker}"
+  if let note = label {
+    eprint f"   │ {spacing} ╰─ {note}"
+  } else {
+    eprint "   │"
+  }
+  if help != "" { eprint f"   │ Help: {help}" }
+  eprint "───╯"
+  if usage { gnu.try_help() }
+  exit status
+}
+
+proc parse(argv: List[Str]) [process, env, io, error] -> Options {
   var opts: Options = {input: "-", output: "-", ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, bs: 0}
-  for arg in argv {
+  for arg_index in range(argv.len()) {
+    let arg = argv[arg_index]
     let parts = arg.split("=")
-    if parts.len() < 2 { gnu.usage_error(f"unrecognized operand {gnu.quote(arg)}") }
+    if parts.len() < 2 { render_operand_error(argv, arg_index, f"unrecognized operand {gnu.quote(arg)}", 0, arg.byte_len(), null, "an operand is KEY=VALUE, as in if=file bs=4k count=10", true, 1) }
     let key = parts[0]
     let text = arg.byte_slice(key.byte_len() + 1)
     if key == "if" { opts = {...opts, input: text} } else if key == "of" { opts = {...opts, output: text} } else if key in ["ibs", "obs", "bs", "cbs", "count", "skip", "seek", "iseek", "oseek"] {
@@ -32,9 +71,11 @@ proc parse(argv: List[Str]) [process, env, io] -> Options {
       for index in range(factors.len() - 1) {
         if factors[index] == "0" { gnu.error("warning: '0x' is a zero multiplier; use '00x' if that is intended") }
       }
-      guard let n = amount(text) else { gnu.error(f"invalid number: {gnu.quote(text)}"); exit 1 }
-      if n == 9223372036854775807 { gnu.error(f"invalid number: {gnu.quote(text)}: Value too large for defined data type"); exit 1 }
-      if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { gnu.error(f"invalid number: {gnu.quote(text)}"); exit 1 }
+      let number_start = key.byte_len() + 1
+      let number_help = "a number may be followed by a multiplier: c, w, b, then K, M, G and so on for 1024, kB, MB, GB for 1000"
+      guard let n = amount(text) else { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1); exit 1 }
+      if n == 9223372036854775807 { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}: Value too large for defined data type", number_start, text.byte_len(), null, number_help, false, 1) }
+      if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1) }
       let byte_count = [factor for factor in text.split("x") if rx"^[0-9]+B$".matches(factor)].len() > 0
       if key == "bs" { opts = {...opts, ibs: n, obs: n, bs: n} } else if key == "ibs" { opts = {...opts, ibs: n} } else if key == "obs" { opts = {...opts, obs: n} } else if key == "cbs" { opts = {...opts, cbs: n} } else if key == "count" { opts = {...opts, count: n, count_bytes: byte_count} } else if key in ["skip", "iseek"] { opts = {...opts, skip: n, skip_bytes: byte_count} } else { opts = {...opts, seek: n, seek_bytes: byte_count} }
     } else if key == "status" {
@@ -44,12 +85,29 @@ proc parse(argv: List[Str]) [process, env, io] -> Options {
     } else if key in ["conv", "iflag", "oflag"] {
       for flag in text.split(",") {
         if key == "conv" {
-          if flag in ["lcase", "ucase", "swab", "sync", "block", "unblock", "notrunc", "nocreat", "ascii", "ebcdic", "ibm", "sparse"] { opts = {...opts, conv: opts.conv.extend([flag])} } else if flag in ["excl", "noerror", "fdatasync", "fsync"] { gnu.usage_error(f"unsupported conversion {gnu.quote(flag)}: native descriptor support required") } else { gnu.usage_error(f"invalid conversion: {gnu.quote(flag)}") }
+          if flag in ["lcase", "ucase", "swab", "sync", "block", "unblock", "notrunc", "nocreat", "ascii", "ebcdic", "ibm", "sparse"] { opts = {...opts, conv: opts.conv.extend([flag])} } else if flag in ["excl", "noerror", "fdatasync", "fsync"] { gnu.usage_error(f"unsupported conversion {gnu.quote(flag)}: native descriptor support required") } else {
+            var start = key.byte_len() + 1
+            for list_flag in text.split(",") {
+              if list_flag == flag { break }
+              start += list_flag.byte_len() + 1
+            }
+            render_operand_error(argv, arg_index, f"invalid conversion: {gnu.quote(flag)}", start, flag.byte_len(), "not a known conversion", "conv= is one of ascii, ebcdic, ibm, lcase, ucase, block, unblock, swab, sync, noerror, sparse, excl, nocreat, notrunc, fdatasync or fsync", true, 1)
+          }
         } else {
-          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else { gnu.usage_error(f"invalid {if key == "iflag" { "input" } else { "output" }} flag: {gnu.quote(flag)}") }
+          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
+            var start = key.byte_len() + 1
+            for list_flag in text.split(",") {
+              if list_flag == flag { break }
+              start += list_flag.byte_len() + 1
+            }
+            let direction = if key == "iflag" { "input" } else { "output" }
+            let label = if key == "iflag" { "not a known input flag" } else { "not a known output flag" }
+            let help = if key == "iflag" { "iflag= is one of direct, directory, dsync, sync, nocache, nonblock, noatime, noctty, nofollow, fullblock, count_bytes or skip_bytes" } else { "oflag= is one of direct, directory, dsync, sync, nocache, nonblock, noatime, noctty, nofollow, append or seek_bytes" }
+            render_operand_error(argv, arg_index, f"invalid {direction} flag: {gnu.quote(flag)}", start, flag.byte_len(), label, help, true, 1)
+          }
         }
       }
-    } else { gnu.usage_error(f"unrecognized operand {gnu.quote(arg)}") }
+    } else { render_operand_error(argv, arg_index, f"unrecognized operand {gnu.quote(arg)}", 0, key.byte_len(), null, "an operand is KEY=VALUE, as in if=file bs=4k count=10", true, 1) }
   }
   if "lcase" in opts.conv and "ucase" in opts.conv { gnu.usage_error("cannot combine lcase and ucase") }
   if "block" in opts.conv and "unblock" in opts.conv { gnu.usage_error("cannot combine block and unblock") }
