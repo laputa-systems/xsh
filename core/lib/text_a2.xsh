@@ -4,35 +4,62 @@ use gnu
 ## Successful input and whether any operand failed.
 export type Input = {data: Bytes, failed: Bool}
 
-## UTF-8 option strings plus the original byte arguments for path operands.
-export type RawArguments = {values: List[Str], original: List[Bytes]}
+## Parser strings paired with original argv bytes and offsets for attached values.
+export type RawArguments = {values: List[Str], original: List[Bytes], value_offsets: List[Int]}
+
+pure inline_value_prefix(raw: Bytes, options: List[Str]) -> Str? {
+  for option in options {
+    let option_bytes = bytes.from_text(option)
+    if option.starts_with("--") {
+      let prefix = bytes.concat([option_bytes, b"="])
+      if raw.len() > prefix.len() and raw[..prefix.len()] == prefix { return option + "=" }
+    } else if raw.len() > option_bytes.len() and raw[..option_bytes.len()] == option_bytes {
+      return option
+    }
+  }
+  null
+}
 
 ## Keep invalid UTF-8 operands in a form the string option parser can carry.
-export pure normalize_arguments(original: List[Bytes]) -> RawArguments {
+export pure normalize_arguments(original: List[Bytes], inline_value_options: List[Str] = []) -> RawArguments {
   var options = true
   var values: List[Str] = []
+  var value_offsets: List[Int] = []
   for at in range(original.len()) {
     let raw = original[at]
     if raw == b"--" {
       options = false
       values += ["--"]
+      value_offsets += [0]
     } else if let Ok(value) = raw.utf8() {
       values += [value]
+      value_offsets += [0]
     } else if options and raw.starts_with(b"-") {
-      # Keep undecodable options in option space so the parser still rejects them.
-      values += [f"--xsh-raw-arg:{at}"]
+      if let prefix = inline_value_prefix(raw, inline_value_options) {
+        values += [prefix + f"\u{0}xsh-raw-arg:{at}\u{0}"]
+        value_offsets += [bytes.from_text(prefix).len()]
+      } else {
+        # Keep undecodable options in option space so the parser still rejects them.
+        values += [f"--xsh-raw-arg:{at}"]
+        value_offsets += [0]
+      }
     } else {
       # NUL cannot occur in an OS argument, so this marker cannot alias a path.
       values += [f"\u{0}xsh-raw-arg:{at}\u{0}"]
+      value_offsets += [0]
     }
   }
-  {values: values, original: original}
+  {values: values, original: original, value_offsets: value_offsets}
 }
 
 ## Restore a parsed argument's original bytes when it was not valid UTF-8.
 export pure argument_bytes(arguments: RawArguments, value: Str) -> Bytes {
   for at in range(arguments.original.len()) {
-    if value == f"\u{0}xsh-raw-arg:{at}\u{0}" or value == f"--xsh-raw-arg:{at}" { return arguments.original[at] }
+    if value == f"\u{0}xsh-raw-arg:{at}\u{0}" or value == f"--xsh-raw-arg:{at}" {
+      let raw = arguments.original[at]
+      let offset = arguments.value_offsets[at]
+      return raw[offset..]
+    }
   }
   bytes.from_text(value)
 }
@@ -310,6 +337,12 @@ export enum TextSource { Stdin, File(Int) }
 export proc open_source(name: Str) -> Result[TextSource, Error] {
   if name == "-" { return Ok(Stdin) }
   Ok(File(unix.open_fd(fp"{name}")?))
+}
+
+## Open a byte-preserving file operand; `-` borrows standard input.
+export proc open_source_bytes(name: Bytes) -> Result[TextSource, Error] {
+  if name == b"-" { return Ok(Stdin) }
+  Ok(File(unix.open_fd(Path.parse_bytes(name)?)?))
 }
 
 ## Read one bounded chunk, allowing a short read and returning empty at EOF.

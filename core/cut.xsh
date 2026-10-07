@@ -85,8 +85,9 @@ pure selected(index: Int, spans: List[Span], complement: Bool) -> Bool {
   if complement { ! found } else { found }
 }
 
-proc main(...argv: List[Str]) {
-  let opts: Options = cli.applet(argv, {
+proc main(...argv: List[Bytes]) {
+  let arguments = text.normalize_arguments(argv, ["-d", "--delimiter", "-O", "--output-delimiter"])
+  let opts: Options = cli.applet(arguments.values, {
     gnu: {status: 1},
     bytes: {form: "-b --bytes LIST", repeated: true},
     characters: {form: "-c --characters LIST", repeated: true},
@@ -109,29 +110,31 @@ proc main(...argv: List[Str]) {
   if modes == 0 { gnu.usage_error("you must specify a list of bytes, characters, or fields") }
   if modes > 1 { gnu.usage_error("only one list may be specified") }
   let fields = ! opts.fields.is_empty() or ! opts.merged.is_empty()
+  let encoding = charset()
   if opts.whitespace != null and opts.delimiter != null { gnu.usage_error("-d and -w are mutually exclusive") }
   if ! fields and opts.separated { gnu.usage_error("suppressing non-delimited lines makes sense\n\tonly when operating on fields") }
   if ! fields and (opts.delimiter != null or opts.whitespace != null) { gnu.usage_error("an input delimiter makes sense\n\tonly when operating on fields") }
-  if (opts.delimiter ?? "\t").count_chars() > 1 or (bytes.from_text(opts.delimiter ?? "\t").len() > 1 and charset() != Utf8) { gnu.usage_error("the delimiter must be a single character") }
   let spans = ranges(if fields { opts.fields.get(0) ?? opts.merged.get(0) ?? "" } else { opts.bytes.get(0) ?? opts.characters.get(0) ?? "" }, fields)
   let delimiter_text = opts.delimiter ?? "\t"
-  let delimiter_bytes = if delimiter_text == "" { b"\0" } else { bytes.from_text(delimiter_text) }
+  let input_delimiter = text.argument_bytes(arguments, delimiter_text)
+  if delimiter_text != "" and char_width(input_delimiter, 0, encoding) != input_delimiter.len() { gnu.usage_error("the delimiter must be a single character") }
+  let delimiter_bytes = if delimiter_text == "" { b"\0" } else { input_delimiter }
   let delimiter = delimiter_bytes.byte_at(0) ?? 9
   let whitespace = opts.whitespace != null or (! opts.merged.is_empty() and opts.delimiter == null)
   let trimmed = ! opts.merged.is_empty() or (opts.whitespace != null and opts.whitespace != "untrimmed")
   if let mode = opts.whitespace {
     if mode != "untrimmed" and ! "trimmed".starts_with(mode) { gnu.usage_error(f"invalid argument {gnu.quote_value(mode)} for '--whitespace-delimited'") }
   }
-  let joiner = if let value = opts.output { if value == "" { b"\0" } else { bytes.from_text(value) } } else if ! opts.merged.is_empty() { b" " } else { delimiter_bytes }
+  let joiner = if let value = opts.output { if value == "" { b"\0" } else { text.argument_bytes(arguments, value) } } else if ! opts.merged.is_empty() { b" " } else { delimiter_bytes }
   let mark = if opts.zero { b"\0" } else { b"\n" }
-  let encoding = charset()
   let unicode = encoding != SingleByte
   let character_positions = ! opts.characters.is_empty() and unicode
   let multibyte = (opts.no_split or character_positions) and unicode
   var failed = false
-  for name in if opts.paths.is_empty() { ["-"] } else { opts.paths } {
-    guard let data = gnu.read_operand(name) else { |failure|
-      gnu.name_error(name, failure); failed = true; continue
+  let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
+  for name in paths {
+    guard let data = text.read_operand_bytes(name) else { |failure|
+      text.name_error_bytes(name, failure); failed = true; continue
     }
     let final_delimiter = fields and ! data.is_empty() and data[data.len() - 1..] == mark and delimiter == (if opts.zero { 0 } else { 10 })
     let records = if fields and delimiter == (if opts.zero { 0 } else { 10 }) { if data.is_empty() { [] } else { [if data[data.len() - 1..] == mark { data[..data.len() - 1] } else { data }] } } else { text.records(data, if opts.zero { 0 } else { 10 }) }

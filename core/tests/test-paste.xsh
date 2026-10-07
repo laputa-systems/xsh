@@ -57,3 +57,24 @@ test test_paste_streams_a_record_before_its_terminator { |ctx|
   assert status.exited_with(0)
   assert output.read_bytes()? == b"\0"
 }
+
+test test_paste_accepts_non_utf8_paths_and_delimiters { |ctx|
+  let root = test.temp_dir(ctx, name: "paste-raw-arguments")?
+  let left = Path.parse_bytes(bytes.concat([root.bytes(), b"/left\xff"]))?
+  let right = Path.parse_bytes(bytes.concat([root.bytes(), b"/right\xfe"]))?
+  left.write("1\n")
+  right.write("a\n")
+  let output = test.temp_path(ctx, name: "output")
+  let command = "delimiter=$(printf '\\255'); exec \"$1\" \"$2\" -- --delimiters=\"$delimiter\" \"$3\" \"$4\" > \"$5\""
+  let status = run.status env LC_ALL=C sh -c $command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/paste.xsh" $left $right $output
+  assert status.exited_with(0)
+  assert output.read_bytes()? == b"1\xada\n"
+}
+
+test test_paste_trailing_backslash_diagnostic_matches_gnu { |ctx|
+  let err = test.temp_path(ctx, name: "paste.err")
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/paste.xsh" -- -d "\\" 2> $err
+  assert ! status.exited_with(0)
+  let expected = bytes.concat([bytes.from_text("paste: delimiter list ends with an unescaped backslash: "), b"\\\n"])
+  assert err.read_bytes()? == expected
+}

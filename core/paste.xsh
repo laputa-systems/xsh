@@ -4,14 +4,22 @@ use lib.text_a2 as text
 
 type Options = {serial: Bool, delimiters: Str, zero: Bool, help: Bool, version: Bool, paths: List[Str]}
 
-proc delimiters(spec: Str) -> List[Bytes] {
-  let data = bytes.from_text(spec)
+## GNU leaves ordinary printable ASCII delimiter lists unquoted in this diagnostic.
+proc diagnostic_delimiters(data: Bytes) -> Str {
+  for at in range(data.len()) {
+    let value = data.byte_at(at) ?? 0
+    if value < 32 or value >= 127 { return gnu.quote_bytes(data, always: false) }
+  }
+  data.utf8() ?? gnu.quote_bytes(data, always: false)
+}
+
+proc delimiters(data: Bytes) -> List[Bytes] {
   var at = 0
   collect {
     while at < data.len() {
       let value = data.byte_at(at) ?? 0
       if value == 92 {
-        if at + 1 >= data.len() { gnu.error(f"delimiter list ends with an unescaped backslash: {spec}"); exit 1 }
+        if at + 1 >= data.len() { gnu.error(f"delimiter list ends with an unescaped backslash: {diagnostic_delimiters(data)}"); exit 1 }
         at += 1
         let escaped = data.byte_at(at) ?? 0
         if escaped == 48 { yield b"" } else if escaped in [97, 98, 102, 110, 114, 116, 118] {
@@ -63,8 +71,9 @@ proc next_record(reader: Reader, mark: Int, prefix: Bytes) -> Result[Step] {
   Ok({reader: current, found: found})
 }
 
-proc main(...argv: List[Str]) {
-  let opts: Options = cli.applet(argv, {
+proc main(...argv: List[Bytes]) {
+  let arguments = text.normalize_arguments(argv, ["-d", "--delimiters"])
+  let opts: Options = cli.applet(arguments.values, {
     gnu: {status: 1},
     serial: {form: "-s --serial", default: false},
     delimiters: {form: "-d --delimiters LIST", default: "\t"},
@@ -75,20 +84,20 @@ proc main(...argv: List[Str]) {
   })?
   if opts.help { gnu.help("Usage: paste [OPTION]... [FILE]...\nMerge lines of files.\n  -s, --serial\n  -d, --delimiters=LIST\n  -z, --zero-terminated"); return }
   if opts.version { gnu.version("paste"); return }
-  let paths = if opts.paths.is_empty() { ["-"] } else { opts.paths }
-  let separators = delimiters(opts.delimiters)
+  let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
+  let separators = delimiters(text.argument_bytes(arguments, opts.delimiters))
   let end = if opts.zero { b"\0" } else { b"\n" }
   let mark = if opts.zero { 0 } else { 10 }
   var failed = false
   if opts.serial {
     for name in paths {
-      guard let source = text.open_source(name) else { |failure| gnu.name_error(name, failure); failed = true; continue }
+      guard let source = text.open_source_bytes(name) else { |failure| text.name_error_bytes(name, failure); failed = true; continue }
       defer text.close_source(source)?
       var reader: Reader = {source: source, buffer: b"", eof: false}
       var index = 0
       loop {
         let prefix = if index == 0 { b"" } else { separators[(index - 1) % separators.len()] }
-        guard let step = next_record(reader, mark, prefix) else { |failure| gnu.name_error(name, failure); failed = true; break }
+        guard let step = next_record(reader, mark, prefix) else { |failure| text.name_error_bytes(name, failure); failed = true; break }
         reader = step.reader
         break when ! step.found
         index += 1
@@ -98,8 +107,8 @@ proc main(...argv: List[Str]) {
   } else {
     var readers: List[Reader] = []
     for name in paths {
-      guard let source = text.open_source(name) else { |failure|
-        gnu.name_error(name, failure)
+      guard let source = text.open_source_bytes(name) else { |failure|
+        text.name_error_bytes(name, failure)
         for reader in readers { text.close_source(reader.source)? }
         exit 1
       }
@@ -112,9 +121,9 @@ proc main(...argv: List[Str]) {
       var prefix = b""
       for column in range(readers.len()) {
         if column > 0 { prefix = bytes.concat([prefix, separators[(column - 1) % separators.len()]]) }
-        let reader = if paths[column] == "-" { stdin } else { readers[column] }
-        guard let step = next_record(reader, mark, prefix) else { |failure| gnu.name_error(paths[column], failure); exit 1 }
-        if paths[column] == "-" { stdin = step.reader } else { readers = [@readers[..column], step.reader, @readers[column + 1..]] }
+        let reader = if paths[column] == b"-" { stdin } else { readers[column] }
+        guard let step = next_record(reader, mark, prefix) else { |failure| text.name_error_bytes(paths[column], failure); exit 1 }
+        if paths[column] == b"-" { stdin = step.reader } else { readers = [@readers[..column], step.reader, @readers[column + 1..]] }
         if step.found { found = true; prefix = b"" }
       }
       break when ! found

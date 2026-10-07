@@ -90,3 +90,30 @@ test test_cut_unicode_nobreak_spaces_are_not_blank_delimiters { |ctx|
   let output = run.text env LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -s -w -f2 $input
   assert output == ""
 }
+
+test test_cut_accepts_non_utf8_path_and_delimiter_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "cut-raw-arguments")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  input.write(b"left\xadright\n")
+  let output = test.temp_path(ctx, name: "output")
+  let command = "delimiter=$(printf '\\255'); exec \"$1\" \"$2\" -- -d\"$delimiter\" -f2 \"$3\" > \"$4\""
+  let status = run.status env LC_ALL=C sh -c $command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" $input $output
+  assert status.exited_with(0)
+  assert output.read_bytes()? == b"right\n"
+}
+
+test test_cut_delimiters_follow_utf8_and_gb18030_encoding { |ctx|
+  let utf8 = test.temp_file(ctx, name: "utf8", contents: b"1\xe2\x82\xac2\xac3\n")?
+  let utf8_output = test.temp_path(ctx, name: "utf8-output")
+  let utf8_command = "delimiter=$(printf '\\254'); exec \"$1\" \"$2\" -- -d \"$delimiter\" -f2 \"$3\" > \"$4\""
+  let utf8_status = run.status env LC_ALL=C.UTF-8 sh -c $utf8_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" $utf8 $utf8_output
+  assert utf8_status.exited_with(0)
+  assert utf8_output.read_bytes()? == b"3\n"
+
+  let gb = test.temp_file(ctx, name: "gb-delimiter", contents: b"red\xb0\xa1green\xb0\xa1blue\n")?
+  let gb_output = test.temp_path(ctx, name: "gb-output")
+  let gb_command = "delimiter=$(printf '\\260\\241'); exec \"$1\" \"$2\" -- -d \"$delimiter\" -f3 \"$3\" > \"$4\""
+  let gb_status = run.status env LC_ALL=zh_CN.gb18030 sh -c $gb_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" $gb $gb_output
+  assert gb_status.exited_with(0)
+  assert gb_output.read_bytes()? == b"blue\n"
+}
