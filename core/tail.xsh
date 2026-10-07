@@ -47,7 +47,7 @@ type TailOptions = {
   retry: Bool,
   max_unchanged: Str,
   pid: Str,
-  sleep: Str,
+  sleep: Str?,
   quiet: Bool,
   verbose: Bool,
   zero: Bool,
@@ -284,7 +284,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       retry: {form: "--retry", default: false},
       max_unchanged: {form: "--max-unchanged-stats N", default: ""},
       pid: {form: "--pid PID", default: ""},
-      sleep: {form: "-s --sleep-interval N", default: ""},
+      sleep: {form: "-s --sleep-interval N"},
       quiet: {form: "-q --quiet --silent", default: false, conflicts: ["verbose"]},
       verbose: {form: "-v --verbose", default: false, conflicts: ["quiet"]},
       zero: {form: "-z --zero-terminated", default: false},
@@ -324,9 +324,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     exit 1
   }
 
-  if opts.sleep != "" and ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(opts.sleep) {
-    gnu.error(f"invalid number of seconds: {gnu.quote_value(opts.sleep)}")
-    exit 1
+  if let sleep_interval = opts.sleep {
+    if ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(sleep_interval) {
+      gnu.error(f"invalid number of seconds: {gnu.quote_value(sleep_interval)}")
+      exit 1
+    }
   }
 
   var pid = 0
@@ -375,7 +377,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
 
     if following and opts.pid != "" and source.kind == 1 {
-      let interval = if opts.sleep == "" { 1s } else { proc_launch.interval(opts.sleep) ?? 1s }
+      let interval = if let sleep_interval = opts.sleep { proc_launch.interval(sleep_interval) ?? 1s } else { 1s }
       guard let data = followed_fifo_data(source.path, spec, opts.zero, pid, interval) else { |failure|
         gnu.error_reading(label, failure)
         failed = true

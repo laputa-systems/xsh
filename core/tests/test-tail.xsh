@@ -89,6 +89,14 @@ test test_tail_counts_accept_gnu_suffixes_and_reject_others { |ctx|
   assert plus_error.stderr == "tail: invalid number of lines: '+1fb'\n", plus_error.stderr
 }
 
+test test_tail_rejects_an_explicitly_empty_sleep_interval { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-sleep-interval")?
+  let result = tail_run(ctx, root, ["--sleep-interval", ""])?
+
+  assert result.status == 1
+  assert result.stderr == "tail: invalid number of seconds: ''\n", result.stderr
+}
+
 test test_tail_zero_terminated_lines_and_non_utf8_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
 
