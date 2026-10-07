@@ -56,12 +56,12 @@ test test_tac_regex_separator { |ctx|
   assert "valid UTF-8" in bad.stderr
 }
 
-test test_tac_empty_separator_is_a_usage_error { |ctx|
+test test_tac_empty_separator_selects_nul { |ctx|
   let root = test.temp_dir(ctx, name: "tac")?
-  let result = tac_run(ctx, root, ["-s", ""], b"a")?
+  let result = tac_run(ctx, root, ["-s", ""], b"a\0b\0")?
 
-  assert result.status == 1
-  assert result.stderr == "tac: separator cannot be empty\n", result.stderr
+  assert result.status == 0
+  assert result.stdout == b"b\0a\0"
 }
 
 test test_tac_reports_open_and_read_errors { |ctx|

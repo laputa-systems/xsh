@@ -121,12 +121,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  if opts.separator == "" {
+  if opts.separator == "" and opts.regex {
     gnu.error("separator cannot be empty")
     exit 1
   }
 
-  let separator = bytes.from_text(opts.separator)
+  # An empty literal separator denotes a NUL byte.
+  let separator = if opts.separator == "" { b"\0" } else { bytes.from_text(opts.separator) }
   var failed = false
 
   for name in if opts.files.is_empty() { ["-"] } else { opts.files } {
@@ -165,7 +166,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       }
 
       found
-    } else if opts.separator == "\n" {
+    } else if separator == b"\n" {
       newline_cuts(data)
     } else {
       literal_cuts(data, separator)

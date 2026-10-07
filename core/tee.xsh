@@ -8,7 +8,7 @@ Copy standard input to each FILE, and also to standard output.
   -i, --ignore-interrupts   ignore interrupt signals
   -p                        operate in a more appropriate MODE with pipes.
       --output-error[=MODE]   set behavior on write error.  See MODE below
-      --help        display this help and exit
+  -h, --help        display this help and exit
       --version     output version information and exit
 
 MODE determines behavior with write errors on the outputs:
@@ -103,7 +103,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         ],
       },
       help: {
-        form: "--help",
+        form: "-h --help",
         default: false,
         stop: true,
       },
@@ -180,6 +180,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     break when data.is_empty()
 
+    # Exit modes report failures across the current chunk before stopping.
+    var stop_after_chunk = false
     for index in range(outputs.len()) {
       let output = outputs[index]
       continue when ! output.active
@@ -193,9 +195,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         }
         outputs[index] = {...output, active: false}
         if index > 0 { unix.close_fd(output.fd)? }
-        if mode.starts_with("exit") and ! ignored { exit 1 }
+        if mode.starts_with("exit") and ! ignored { stop_after_chunk = true }
       }
     }
+    break when stop_after_chunk
   }
 
   unix.dup_fd(original, 1)?

@@ -113,6 +113,16 @@ test test_tee_getopt_diagnostics_and_help { |ctx|
   assert tee_run(ctx, root, ["--version"])?.stdout.starts_with(b"tee")
 }
 
+test test_tee_short_help_matches_long_help { |ctx|
+  let root = test.temp_dir(ctx, name: "tee")?
+  let short = tee_run(ctx, root, ["-h"])?
+  let long = tee_run(ctx, root, ["--help"])?
+
+  assert short.status == 0
+  assert short.stderr == ""
+  assert short.stdout == long.stdout
+}
+
 test test_tee_stdout_write_failure_preserves_other_outputs { |ctx|
   if ! p"/dev/full".exists() { test.skip("/dev/full is not available") }
   assert p"/dev/full".metadata()?.mode / 4096 % 16 == 2, "/dev/full must be a character device"
@@ -147,17 +157,22 @@ test test_tee_broken_stdout_pipe_modes_keep_file_writes { |ctx|
   let out = fp"{root}/copied"
   let err = fp"{root}/error"
   let code = fp"{root}/status"
-  for mode in ["warn", "warn-nopipe", "exit-nopipe"] {
-    let option = f"--output-error={mode}"
+  for mode in ["default", "pipe", "warn", "warn-nopipe", "exit", "exit-nopipe"] {
+    let option = if mode == "default" { "--" } else if mode == "pipe" { "-p" } else { f"--output-error={mode}" }
     let status = run.status sh -c "(\"$0\" \"$1\" \"$2\" \"$3\" < \"$4\" 2> \"$6\"; printf '%s' \"$?\" > \"$5\") | head -c 0" ${ctx.xsh_bin} $script $option $out $input $code $err
     assert status.exited_with(0)
-    assert code.read_text()? == (if mode == "warn" { "1" } else { "0" }), code.read_text()?
-    assert out.read_bytes()? == input.read_bytes()?, mode
-    assert err.read_text()? == (if mode == "warn" { "tee: 'standard output': Broken pipe\n" } else { "" }), err.read_text()?
+    let tee_status = if mode == "default" { "141" } else if mode in ["warn", "exit"] { "1" } else { "0" }
+    assert code.read_text()? == tee_status, code.read_text()?
+    if mode in ["default", "exit"] {
+      assert out.read_bytes()?.len() < input.read_bytes()?.len(), mode
+    } else {
+      assert out.read_bytes()? == input.read_bytes()?, mode
+    }
+    assert err.read_text()? == (if mode in ["warn", "exit"] { "tee: 'standard output': Broken pipe\n" } else { "" }), err.read_text()?
   }
 }
 
-test test_tee_exit_mode_stops_file_writes_after_stdout_failure { |ctx|
+test test_tee_exit_mode_finishes_the_current_chunk_after_stdout_failure { |ctx|
   if ! p"/dev/full".exists() { test.skip("/dev/full is not available") }
   assert p"/dev/full".metadata()?.mode / 4096 % 16 == 2, "/dev/full must be a character device"
   let root = test.temp_dir(ctx, name: "tee-stdout-exit")?
@@ -167,8 +182,26 @@ test test_tee_exit_mode_stops_file_writes_after_stdout_failure { |ctx|
   let script = fp"{ctx.core_dir}/tee.xsh"
   let status = run.status sh -c "exec \"$0\" \"$1\" --output-error=exit \"$2\" < \"$3\" > /dev/full 2> \"$4\"" ${ctx.xsh_bin} $script $out $input $err
   assert status.exited_with(1)
-  assert out.read_bytes()? == b""
+  assert out.read_bytes()? == b"data"
   assert err.read_text()? == "tee: 'standard output': No space left on device\n"
+}
+
+test test_tee_exit_mode_reports_each_failed_output_in_the_current_chunk { |ctx|
+  if ! p"/dev/full".exists() { test.skip("/dev/full is not available") }
+  assert p"/dev/full".metadata()?.mode / 4096 % 16 == 2, "/dev/full must be a character device"
+  let root = test.temp_dir(ctx, name: "tee-exit-errors")?
+  let input = test.temp_file(ctx, name: "tee-exit-errors-input", contents: bytes.concat([b"data\0\xff" for _ in range(20000)]))?
+  let script = fp"{ctx.core_dir}/tee.xsh"
+  let out = fp"{root}/copied"
+  let err = fp"{root}/error"
+  let code = fp"{root}/status"
+  let status = run.status sh -c "(\"$0\" \"$1\" --output-error=exit \"$2\" /dev/full < \"$3\" 2> \"$5\"; printf '%s' \"$?\" > \"$4\") | head -c 0" ${ctx.xsh_bin} $script $out $input $code $err
+
+  assert status.exited_with(0)
+  assert code.read_text()? == "1"
+  assert err.read_text()? == "tee: 'standard output': Broken pipe\ntee: /dev/full: No space left on device\n", err.read_text()?
+  assert out.read_bytes()?.len() > 0
+  assert out.read_bytes()?.len() < input.read_bytes()?.len()
 }
 
 test test_tee_nopipe_mode_does_not_wait_for_idle_input_when_stdout_is_broken { |ctx|
