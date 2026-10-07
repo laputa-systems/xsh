@@ -162,6 +162,11 @@ incomplete universal character escapes while preserving preceding output.
 The native suite passes 24/24; the optimized debug Gate 3 slice improves from
 119/33 to 122/30 across 152 cases, with three fixes and no regressions.
 Reports are in `results/printf-escape-followup/`.
+Follow-up `21b619c0` formats NaN casing from its display text and uses spaces
+for zero-padded NaN and infinity, matching pinned GNU printf. The native suite
+passes 25/25; the optimized debug Gate 3 slice improves from 122/30 to 125/27
+across 152 cases, with three fixes and no regressions. Reports are in
+`results/printf-float-special-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

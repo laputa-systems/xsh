@@ -134,6 +134,11 @@ remain historical evidence only.
   error. The native printf suite passes 24/24; the optimized debug Gate 3
   slice improves from 119/33 to 122/30 across 152 cases, with three fixes and
   no regressions. Reports are in `results/printf-escape-followup/`.
+- Follow-up `21b619c0` formats NaN casing through explicit float display text
+  and disables zero padding for NaN and infinity, matching pinned GNU printf.
+  The native printf suite passes 25/25; the optimized debug Gate 3 slice
+  improves from 122/30 to 125/27 across 152 cases, with three fixes and no
+  regressions. Reports are in `results/printf-float-special-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
