@@ -103,14 +103,39 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     exit 1
   }
   if opts.parents { make_ancestors(target.parent(), opts.verbose)? }
-  let parent_root = fs.open_root(target.parent().resolve()?)?
+  let resolved_parent = match target.parent().resolve() {
+    Ok(parent) => parent
+    Err(failure) => {
+      if existing {
+        gnu.cannot("remove", target.display(), failure)
+        return Failed
+      }
+      return Err(failure)
+    }
+  }
+  let parent_root = match fs.open_root(resolved_parent) {
+    Ok(root) => root
+    Err(failure) => {
+      if existing {
+        gnu.cannot("remove", target.display(), failure)
+        return Failed
+      }
+      return Err(failure)
+    }
+  }
   defer parent_root.close()
   # Publishing a prepared regular file replaces a symlink entry without
   # touching the object it names, and leaves existing files intact on failure.
   let scratch = fs.tempfile()?
   defer scratch.root.close()
   let staged_dir_name = fp".xsh-install-{scratch.root.host_path()?.name()}"
-  parent_root.mkdir(staged_dir_name, mode: 0o700.clear_bits(fs.umask()?))?
+  if let Err(failure) = parent_root.mkdir(staged_dir_name, mode: 0o700.clear_bits(fs.umask()?)) {
+    if existing and gnu.strerror(failure) in ["No such file or directory", "Permission denied", "Operation not permitted", "Read-only file system"] {
+      gnu.cannot("remove", target.display(), failure)
+      return Failed
+    }
+    return Err(failure)
+  }
   let staged_dir = fp"{target.parent()}/{staged_dir_name}"
   defer staged_dir.remove()
   let staged = fp"{staged_dir}/{target.name()}"
@@ -245,8 +270,33 @@ proc main(...argv: List[Str]) {
   if mode == null {
     if rx"^[0-9]+$".matches(opts.mode.trim()) and ! rx"^[0-7]+$".matches(opts.mode.trim()) {
       gnu.usage_error("Invalid mode string: invalid digit found in string")
-    } else { gnu.usage_error(f"invalid mode {gnu.quote(opts.mode)}") }
-    return
+    }
+    var bad_operator = ""
+    var bad_operator_offset = 0
+    var mode_offset = 0
+    for character in opts.mode.trim() {
+      if character not in "ugoa=+-rwxXstugo," {
+        bad_operator = character
+        bad_operator_offset = mode_offset
+        break
+      }
+      mode_offset += character.byte_len()
+    }
+    if bad_operator != "" and bad_operator.byte_len() == 1 and ! rx"^[A-Za-z0-9]$".matches(bad_operator) {
+      if let Ok(_) = unix.tty_attrs(2) {
+        gnu.error(f"invalid operator {gnu.quote(bad_operator)}")
+        eprint f"╭─[ {gnu.prog()}:1:{4 + bad_operator_offset} ]"
+        eprint f"│ -m {opts.mode.trim()}"
+        let spaces = [" "] |> repeat(3 + bad_operator_offset) |> join("")
+        eprint f"│ {spaces}^"
+        eprint "╰─"
+      } else {
+        gnu.error(f"invalid operator {gnu.quote(bad_operator)}")
+      }
+    } else {
+      gnu.usage_error(f"invalid mode {gnu.quote(opts.mode)}")
+    }
+    exit 1
   }
   var uid: Int? = null
   var gid: Int? = null
@@ -302,7 +352,15 @@ proc main(...argv: List[Str]) {
   if ! opts.no_target_directory {
     match files.directory(dest, true) {
       Ok(found) => is_dir = found
-      Err(failure) => { gnu.cannot_access(dest.display(), failure); exit 1 }
+      Err(failure) => {
+        let reason = gnu.strerror(failure)
+        if opts.parents and reason in ["Filename too long", "File name too long"] {
+          gnu.cannot("create directory", dest.parent().display(), failure)
+        } else {
+          gnu.cannot_access(dest.display(), failure)
+        }
+        exit 1
+      }
     }
   }
   if opts.target != null and ! is_dir {

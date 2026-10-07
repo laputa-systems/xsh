@@ -195,6 +195,36 @@ test test_install_invalid_octal_mode_names_bad_digit { |ctx|
   assert ! target.exists()?
 }
 
+test test_install_invalid_symbolic_mode_names_bad_operator { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let target = fp"{root}/target"
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -m "u+rw?x" $source $target
+  assert result.status.exited_with(1)
+  assert "invalid operator" in result.stderr
+  assert ! target.exists()?
+}
+
+test test_install_failed_replacement_names_target_and_preserves_it { |ctx|
+  if user.current()?.uid == 0 { test.skip("requires an unprivileged test process"); return }
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("new")
+  let directory = fp"{root}/protected"
+  directory.mkdir()
+  let target = fp"{directory}/target"
+  target.write("old")
+  directory.chmod(0o555)
+  defer directory.chmod(0o755)
+
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- $source $target
+  assert result.status.exited_with(1)
+  assert f"cannot remove '{target}'" in result.stderr
+  assert target.read_text()? == "old"
+  assert source.read_text()? == "new"
+}
+
 test test_install_missing_target_directory_value_has_usage_error { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
@@ -203,6 +233,18 @@ test test_install_missing_target_directory_value_has_usage_error { |ctx|
   assert result.status.exited_with(1)
   assert "a value is required for '--target-directory <DIRECTORY>' but none was supplied" in result.stderr
   assert "For more information, try '--help'" in result.stderr
+}
+
+test test_install_parents_reports_long_component_as_directory_creation { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let long_component = ["d"] |> repeat(4097) |> join("")
+  let target = fp"{root}/{long_component}/target"
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -D $source $target
+  assert result.status.exited_with(1)
+  assert "cannot create directory" in result.stderr
+  assert source.read_text()? == "payload"
 }
 
 test test_install_strip_runs_program_before_publishing { |ctx|
