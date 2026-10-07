@@ -157,6 +157,11 @@ emits the preceding literal text before the error. The native suite passes
 23/23; the optimized debug Gate 3 slice improves from 118/34 to 119/33 across
 152 cases, with one fix and no regressions. Reports are in
 `results/printf-b-followup/`.
+Follow-up `6c4cfa63` reports missing hexadecimal escapes and invalid or
+incomplete universal character escapes while preserving preceding output.
+The native suite passes 24/24; the optimized debug Gate 3 slice improves from
+119/33 to 122/30 across 152 cases, with three fixes and no regressions.
+Reports are in `results/printf-escape-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

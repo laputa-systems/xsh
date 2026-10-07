@@ -129,6 +129,11 @@ remain historical evidence only.
   printf suite passes 23/23; the optimized debug Gate 3 slice improves from
   118/34 to 119/33 across 152 cases, with one fix and no regressions. Reports
   are in `results/printf-b-followup/`.
+- Follow-up `6c4cfa63` reports missing hexadecimal escapes and invalid or
+  incomplete universal character escapes, preserving text printed before the
+  error. The native printf suite passes 24/24; the optimized debug Gate 3
+  slice improves from 119/33 to 122/30 across 152 cases, with three fixes and
+  no regressions. Reports are in `results/printf-escape-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
