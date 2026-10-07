@@ -83,6 +83,26 @@ test test_sort_numeric_rejects_leading_plus_and_uses_line_tie_break { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_stable_preserves_equal_primary_keys { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-stable-tie")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let numeric = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-ns"], root,
+    {LC_ALL: "C"}, b"1\n01\n", stdout, stderr))?
+  assert numeric.exit_code()? == 0
+  assert stdout.read_bytes()? == b"1\n01\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let folded = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-fs"], root,
+    {LC_ALL: "C"}, b"a\nA\n", stdout, stderr))?
+  assert folded.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\nA\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "sort-input-check")?
   let fifo = fp"{root}/FIFO"

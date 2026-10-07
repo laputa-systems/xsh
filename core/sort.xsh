@@ -9,6 +9,7 @@ type SortOptions = {
   dictionary: Bool,
   ignore_nonprinting: Bool,
   blank: Bool,
+  stable: Bool,
   key: Str,
   delimiter: Str,
   output: List[Str],
@@ -21,18 +22,19 @@ type SortOptions = {
 }
 
 type NumericSortKey = {number: Int, raw: Str}
+type TextSortKey = {key: Str, raw: Str}
 
 pure numeric_key(line: Str) -> Int {
   let text = line.trim().words().get(0) ?? "0"
   if text.starts_with("+") { 0 } else { text.parse_int() ?? 0 }
 }
 
-pure numeric_sort_key(line: Str) -> NumericSortKey {
-  {number: numeric_key(line), raw: line}
+pure numeric_sort_key(line: Str, stable: Bool) -> NumericSortKey {
+  {number: numeric_key(line), raw: if stable { "" } else { line }}
 }
 
 pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
-  {number: numeric_field_key(line, delimiter, field, opts), raw: line}
+  {number: numeric_field_key(line, delimiter, field, opts), raw: if opts.stable { "" } else { line }}
 }
 
 pure key_index(spec: Str) -> Int {
@@ -65,6 +67,10 @@ pure field_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> Str 
   character_order_key(parts.get(field) ?? "", opts.dictionary, opts.ignore_nonprinting, opts.fold_case)
 }
 
+pure field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> TextSortKey {
+  {key: field_key(line, delimiter, field, opts), raw: if opts.stable { "" } else { line }}
+}
+
 pure numeric_field_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> Int {
   field_key(line, delimiter, field, opts).parse_int() ?? 0
 }
@@ -80,13 +86,25 @@ pure blank_text_key(line: Str, opts: SortOptions) -> Str {
   character_order_key(key, opts.dictionary, opts.ignore_nonprinting, opts.fold_case)
 }
 
+pure blank_sort_key(line: Str, opts: SortOptions) -> TextSortKey {
+  {key: blank_text_key(line, opts), raw: if opts.stable { "" } else { line }}
+}
+
 ## GNU sort uses the full line as a last-resort key after the blank-skipping key.
 pure blank_sorted(lines: List[Str], reverse: Bool, opts: SortOptions) -> List[Str] {
+  if opts.stable {
+    if reverse {
+      lines |> sort-by(desc: true) blank_text_key(., opts)
+    } else {
+      lines |> sort-by blank_text_key(., opts)
+    }
+  } else {
   let fallback = if reverse { lines |> sort-by(desc: true) . } else { lines |> sort }
   if reverse {
     fallback |> sort-by(desc: true) blank_text_key(., opts)
   } else {
     fallback |> sort-by blank_text_key(., opts)
+  }
   }
 }
 
@@ -95,16 +113,16 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
   let ordered = if opts.numeric and has_key {
     if opts.reverse { pair |> sort-by(desc: true) numeric_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by numeric_field_sort_key(., opts.delimiter, key_field, opts) }
   } else if has_key {
-    if opts.reverse { pair |> sort-by(desc: true) field_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_key(., opts.delimiter, key_field, opts) }
+    if opts.reverse { pair |> sort-by(desc: true) field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_sort_key(., opts.delimiter, key_field, opts) }
   } else if opts.numeric {
-    if opts.reverse { pair |> sort-by(desc: true) numeric_sort_key(.) } else { pair |> sort-by numeric_sort_key(.) }
+    if opts.reverse { pair |> sort-by(desc: true) numeric_sort_key(., opts.stable) } else { pair |> sort-by numeric_sort_key(., opts.stable) }
   } else if opts.blank {
     blank_sorted(pair, opts.reverse, opts)
   } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
     if opts.reverse {
-      pair |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: line} }
+      pair |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
     } else {
-      pair |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: line} }
+      pair |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
     }
   } else if opts.reverse {
     pair |> sort-by(desc: true) .
@@ -212,6 +230,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
       blank: {
         form: "-b --ignore-leading-blanks",
+        default: false,
+      },
+      stable: {
+        form: "-s --stable",
         default: false,
       },
       key: {
@@ -340,23 +362,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   } else if has_key {
     if opts.reverse {
-      input_lines |> sort-by(desc: true) field_key(., delimiter, key_field, opts)
+      input_lines |> sort-by(desc: true) field_sort_key(., delimiter, key_field, opts)
     } else {
-      input_lines |> sort-by field_key(., delimiter, key_field, opts)
+      input_lines |> sort-by field_sort_key(., delimiter, key_field, opts)
     }
   } else if opts.numeric {
     if opts.reverse {
-      input_lines |> sort-by(desc: true) numeric_sort_key(.)
+      input_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable)
     } else {
-      input_lines |> sort-by numeric_sort_key(.)
+      input_lines |> sort-by numeric_sort_key(., opts.stable)
     }
   } else if opts.blank {
     blank_sorted(input_lines, opts.reverse, opts)
   } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
     if opts.reverse {
-      input_lines |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: line} }
+      input_lines |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
     } else {
-      input_lines |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: line} }
+      input_lines |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
     }
   } else if opts.reverse {
     input_lines |> sort-by(desc: true) .
