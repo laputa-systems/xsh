@@ -592,3 +592,33 @@ test test_cp_force_readonly_destination_restores_creation_mode { |ctx|
   assert dest.read_text()? == "new"
   assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o740.clear_bits(fs.umask()?)
 }
+
+test test_cp_debug_reports_copy_policy_statuses { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-debug-status")?
+  let source = fp"{root}/source"
+  source.write("")
+  let automatic = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --reflink=auto $source fp"{root}/automatic"
+  assert automatic.status.ok
+  assert automatic.stdout.find("copy offload: unknown, reflink: unsupported, sparse detection: no") != null
+
+  let sparse = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --sparse=always --reflink=never $source fp"{root}/sparse"
+  assert sparse.status.ok
+  assert sparse.stdout.find("copy offload: avoided, reflink: no, sparse detection: zeros") != null
+
+  let never = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --sparse=never $source fp"{root}/never"
+  assert never.status.ok
+  assert never.stdout.find("copy offload: avoided, reflink: no, sparse detection: no") != null
+
+  let small_source = fp"{root}/small"
+  small_source.write("data")
+  let small = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug $small_source fp"{root}/small-copy"
+  assert small.status.ok
+  assert small.stdout.find("copy offload: yes, reflink: unsupported, sparse detection: no") != null
+
+  let holes_source = fp"{root}/holes"
+  holes_source.write("")
+  holes_source.truncate(4096)
+  let holes = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --debug --reflink=never --sparse=never $holes_source fp"{root}/holes-copy"
+  assert holes.status.ok
+  assert holes.stdout.find("copy offload: unknown, reflink: no, sparse detection: SEEK_HOLE") != null
+}

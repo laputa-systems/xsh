@@ -373,9 +373,40 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       let result = copied?
       created = created or result.destination_replaced
       if opts.debug {
-        let offload = if result.method == "copy_file_range" { "yes" } else if result.bytes == 0 { "unknown" } else { "avoided" }
-        let reflink = if result.method == "clone" { "yes" } else { "no" }
-        let sparse = if result.method == "clone" or opts.sparse == "never" { "no" } else if opts.sparse == "always" { "zeros" } else if meta.blocks_512 * 512 < meta.size { "SEEK_HOLE" } else { "no" }
+        # Virtual files can report a size that differs from the bytes read; use
+        # that together with allocated blocks to distinguish them from holes.
+        let source_has_holes = meta.blocks_512 < meta.size / 512
+        let virtual_source = meta.kind == "file" and meta.blocks_512 == 0 and meta.size != result.bytes
+        let source_has_data = if meta.kind != "file" or meta.size == 0 {
+          result.bytes > 0
+        } else {
+          meta.blocks_512 > 0 or virtual_source
+        }
+        let offload = if opts.reflink == "always" {
+          "unknown"
+        } else if opts.reflink == "auto" and opts.sparse == "auto" {
+          if source_has_data and (meta.size == 0 or (source_has_holes and meta.blocks_512 == 0)) {
+            "unsupported"
+          } else if (source_has_data and meta.size > 0) or (meta.size > 0 and meta.size < 512) {
+            "yes"
+          } else {
+            "unknown"
+          }
+        } else if meta.kind != "file" or source_has_data or meta.size < 512 {
+          "avoided"
+        } else {
+          "unknown"
+        }
+        let reflink = if opts.reflink == "always" { "yes" } else if opts.reflink == "never" or opts.sparse == "never" { "no" } else { "unsupported" }
+        let sparse = if opts.sparse == "always" {
+          if source_has_holes and source_has_data { "SEEK_HOLE + zeros" } else if source_has_holes { "SEEK_HOLE" } else { "zeros" }
+        } else if opts.reflink == "always" {
+          "no"
+        } else if source_has_holes {
+          "SEEK_HOLE"
+        } else {
+          "no"
+        }
         gnu.write_text(f"copy offload: {offload}, reflink: {reflink}, sparse detection: {sparse}\n")
       }
     }
