@@ -1,4 +1,5 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
+type FollowCase = {args: List[Str], expected: Bytes}
 
 # Runs core/tail.xsh by its real path inside `root`, capturing both streams.
 proc tail_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
@@ -240,18 +241,46 @@ test test_tail_pid_follow_does_not_block_on_fifo_open { |ctx|
   assert stderr.read_text()? == ""
 }
 
-test test_tail_follow_of_a_live_file_is_rejected_unless_the_pid_is_gone { |ctx|
+test test_tail_follow_with_a_dead_pid_exits_after_initial_output { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
   fp"{root}/log".write(b"1\n2\n")
-
-  let live = tail_run(ctx, root, ["-f", "log"])?
-  assert live.status == 1
-  assert live.stdout == b"1\n2\n"
-  assert "cannot follow 'log'" in live.stderr
 
   let done = tail_run(ctx, root, ["-f", "--pid=2147483647", "log"])?
   assert done.status == 0
   assert done.stdout == b"1\n2\n"
+}
+
+test test_tail_follows_descriptor_appends_and_zero_count { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-follow")?
+  let file = fp"{root}/log"
+  let other = fp"{root}/other"
+  file.write(b"initial\n")
+  other.write(b"other initial\n")
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let cases: List[FollowCase] = [
+    {args: ["-f", "-s.02", "log"], expected: b"initial\nlog appended\n"},
+    {args: ["-q", "-n0", "-f", "-s.02", "log", "other"], expected: b"other appended\nlog appended\n"},
+  ]
+
+  for case in cases {
+    let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $file.display() $other.display() ?
+    defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+    let stdout = fp"{root}/stdout"
+    let stderr = fp"{root}/stderr"
+    let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", ".5", ctx.xsh_bin.display(), tail.display(), @case.args]
+    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+    let status = process.run(plan)?
+
+    let exit_code = status.exit_code()?
+    let output = stdout.read_bytes()?
+    let diagnostic = stderr.read_text()?
+    assert exit_code == 124, f"exit={exit_code} stderr={diagnostic}"
+    assert output == case.expected
+    assert diagnostic == ""
+    assert (wait writer?).exited_with(0)
+  }
 }
 
 test test_tail_validates_follow_options { |ctx|

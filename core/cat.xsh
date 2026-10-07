@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.textio_a1 as tio
+use unix
 
 const USAGE = """Usage: cat [OPTION]... [FILE]...
 Concatenate FILE(s) to standard output.
@@ -59,6 +60,7 @@ type Style = {
 type State = {pending: Bytes, line: Int, blank: Bool}
 
 type Rendered = {out: Bytes, state: State}
+type StreamRendered = {out: Bytes, pending_cr: Bool}
 type RawArgument = {marker: Str, value: Bytes}
 type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
@@ -225,6 +227,41 @@ pure render(data: Bytes, final: Bool, style: Style, state: State) -> Rendered {
   {out: bytes.concat(pieces), state: {pending: pending, line: line, blank: blank}}
 }
 
+# Render bytes without line numbering or blank-line squeezing as they arrive.
+# Only a trailing CR needs to wait for the next chunk to distinguish CRLF.
+pure render_stream(data: Bytes, style: Style, pending_cr: Bool) -> StreamRendered {
+  var index = 0
+  var waiting_cr = pending_cr
+  let pieces: List[Bytes] = collect {
+    while index < data.len() {
+      let value = data.byte_at(index) ?? 0
+      if waiting_cr {
+        if value == 10 {
+          yield style.cr
+          yield if style.ends { b"$\n" } else { b"\n" }
+          waiting_cr = false
+          index += 1
+          continue
+        }
+        yield convert(b"\r", style)
+        waiting_cr = false
+      }
+
+      if value == 13 {
+        waiting_cr = true
+      } else if value == 10 {
+        yield if style.ends { b"$" } else { b"" }
+        yield b"\n"
+      } else {
+        yield convert(data[index..index + 1], style)
+      }
+      index += 1
+    }
+  }
+
+  {out: bytes.concat(pieces), pending_cr: waiting_cr}
+}
+
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let prepared = prepare_arguments(argv)
   let opts: CatOptions = cli.applet(
@@ -262,6 +299,8 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
   let out = tio.standard_file(1)
   var state = {pending: b"", line: 1, blank: false}
+  let streaming = ! (style.number or style.nonblank or style.squeeze)
+  var pending_cr = false
   var written = 0
   var failed = false
 
@@ -277,6 +316,31 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if tio.is_unsafe_overwrite(source, out, written) {
       gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: input file is output file")
       failed = true
+      continue
+    }
+
+    if source.mode == "device" and streaming {
+      guard let fd = unix.open_fd(source.path) else { |failure|
+        report_name_error(raw_name, failure)
+        failed = true
+        continue
+      }
+
+      loop {
+        guard let chunk = unix.read_fd(fd, tio.CHUNK) else { |failure|
+          report_name_error(raw_name, failure)
+          failed = true
+          break
+        }
+
+        break when chunk.is_empty()
+        let rendered = render_stream(chunk, style, pending_cr)
+        pending_cr = rendered.pending_cr
+        gnu.write_bytes(rendered.out)
+        written += rendered.out.len()
+      }
+
+      unix.close_fd(fd)?
       continue
     }
 
@@ -296,6 +360,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if plain {
         gnu.write_bytes(chunk)
         written += chunk.len()
+      } else if streaming {
+        let rendered = render_stream(chunk, style, pending_cr)
+        pending_cr = rendered.pending_cr
+        gnu.write_bytes(rendered.out)
+        written += rendered.out.len()
       } else {
         let rendered = render(bytes.concat([state.pending, chunk]), false, style, state)
         state = rendered.state
@@ -305,7 +374,9 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
   }
 
-  if ! plain {
+  if streaming and pending_cr {
+    gnu.write_bytes(convert(b"\r", style))
+  } else if ! plain and ! streaming {
     gnu.write_bytes(render(state.pending, true, style, {...state, pending: b""}).out)
   }
 

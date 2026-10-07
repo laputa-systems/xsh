@@ -133,3 +133,25 @@ test test_cat_accepts_non_utf8_file_path_arguments { |ctx|
   assert output.read_bytes()? == b"raw path data\n"
   assert error.read_text()? == ""
 }
+
+test test_cat_streams_show_all_from_an_unbounded_device { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+
+  let root = test.temp_dir(ctx, name: "cat-device")?
+  let script = fp"{ctx.core_dir}/cat.xsh"
+  let head = p"/usr/bin/head"
+  let output = fp"{root}/stdout"
+  let error = fp"{root}/stderr"
+  let command = "exec \"$1\" \"$2\" -A /dev/full | \"$3\" -c 2048 > \"$4\""
+  let timeout = p"/usr/bin/timeout"
+  let argv = [timeout.display(), "5s", "/bin/sh", "-c", command, "cat-device", ctx.xsh_bin.display(), script.display(), head.display(), output.display()]
+  let plan = process.command_argv(timeout, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", /dev/null, error, timeout: 5s)
+  let status = process.run(plan)?
+
+  let data = output.read_bytes()?
+  let code = status.shell_code()?
+  let diagnostic = error.read_text()?
+  assert data == bytes.concat([b"^@" for _ in range(1024)]), f"pipeline exited {code}: {diagnostic}"
+  assert code == 0
+  assert error.read_text()? == ""
+}
