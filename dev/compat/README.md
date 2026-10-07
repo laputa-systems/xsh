@@ -61,6 +61,14 @@ On a musl host, `run-uutils.sh` uses the C linker driver and disables static
 crt linking for the reference test harness's `stdbuf` cdylib; this does not
 change the XSH debug-profile flags.
 
+For campaign runs in this checkout, keep `TMPDIR` inside ignored `.work`.
+Create a private directory owned by the test UID, then set its mode to 0700
+after changing ownership so the setgid bit cannot be inherited from `.work`.
+The workspace's absolute path can make path-sensitive fixtures behave
+differently; when needed, expose the same `.work` directory through a
+temporary short container alias and remove that alias after the run. The test
+files remain inside `.work`.
+
 `COMPAT_RESULTS_DIR` selects scratch report storage for both suite runners.
 `run-uutils.sh` writes nextest's JUnit report there by absolute path, including
 when a lane selects a private `UUTILS_TARGET_DIR`. The runners share
@@ -112,16 +120,19 @@ The campaign resumed on 2026-10-07. See the current checkpoint in
 
 The latest focused integration includes the longer 16-lane follow-up, further
 module-owned byte-path and text fixes, and external `sort -S` spill runs. The
-sort native suite passes 45/45 and its current pinned slice passes 154/217;
+sort native suite passes 48/48 and its current pinned slice passes 164/217;
 selected GNU 9.12 sort tests have no XSH-only disagreement. Other focused
 uutils slices fixed additional cases in `cp`, `date`, filesystem applets,
-`stat`, text utilities, and `env`. The full optimized-debug native suite now
-passes 4,964/0/38 (pass/fail/skip) at source `89c4e143`. The runtime now
+`stat`, text utilities, `sum`, and `env`. The last full optimized-debug native
+suite passed 4,964/0/38 (pass/fail/skip) at source `89c4e143`. The runtime
 services pending termination signals while an XSH child waits on stdin, and
-unhooked SIGINT/SIGTERM completes with the default shell status. Current Gate 3 is
-5,469 pass, 480 fail, 0 skip, and 4 excluded. The before/after comparison has
-six `pr` expectation differences: direct GNU 9.11 probes match XSH diagnostics,
-while uutils expects different clap messages. Current Gate 4 is 412 PASS,
+unhooked SIGINT/SIGTERM completes with the default shell status. The latest
+full Gate 3 report used source `d53ed7d1`: 5,495 pass, 454 fail, 0 skip, and 4
+excluded. It fixes 26 tests over the previous full run with no regressions
+(cat +1, env +8, sort +10, tail +7). Six earlier `pr` expectation differences
+remain: direct GNU 9.11 probes match XSH diagnostics, while uutils expects
+different clap messages. The latest full Gate 4 report, at source `89c4e143`,
+is 412 PASS,
 156 FAIL, 17 ERROR, and 134 SKIP; its 633-cell differential records
 394 shared passes, 177 uutils-only passes, 18 XSH-only passes, and 44 shared
 failures. Relative to the prior full Gate 4 run, the new report has two more
@@ -137,7 +148,7 @@ for 363 passed, 24 failed, and 2 skipped. The tracked report is
 `.work/compat-results/busybox/full-wave4/` directory.
 
 The Gate 5 pilot compares pinned Clap declarations with XSH's `cli.applet`
-schemas for fifteen commands and separately recognizes the manual
+schemas for seventeen commands and separately recognizes the manual
 help/version branches in `true` and `false`:
 
 | Command | uutils spellings | XSH spellings | Differences |

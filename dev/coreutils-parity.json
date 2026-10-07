@@ -128,8 +128,8 @@
       "native_tests": "core/tests/test-cat.xsh",
       "uutils_test_count": 54,
       "uutils_integration": {
-        "pass": 51,
-        "fail": 2,
+        "pass": 52,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1445,8 +1445,8 @@
       "native_tests": "core/tests/test-sort.xsh",
       "uutils_test_count": 217,
       "uutils_integration": {
-        "pass": 154,
-        "fail": 63,
+        "pass": 164,
+        "fail": 53,
         "skip": 0,
         "excluded": 0
       },
@@ -1544,8 +1544,8 @@
       "native_tests": "core/tests/test-tail.xsh",
       "uutils_test_count": 170,
       "uutils_integration": {
-        "pass": 116,
-        "fail": 51,
+        "pass": 123,
+        "fail": 44,
         "skip": 0,
         "excluded": 0
       },
@@ -1993,8 +1993,8 @@
       "native_tests": "core/tests/test-env.xsh",
       "uutils_test_count": 102,
       "uutils_integration": {
-        "pass": 64,
-        "fail": 36,
+        "pass": 72,
+        "fail": 28,
         "skip": 0,
         "excluded": 0
       },

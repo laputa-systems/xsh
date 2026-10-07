@@ -131,7 +131,7 @@ the child's deferred cleanup marker. Focused suites passed: timeout 14/14,
 split 7/7, standard I/O 11/11, unix process 19 passed with 2 privilege skips,
 and signal hooks 13/13.
 
-### Current native gate (source `89c4e143`)
+### Last full native gate (source `89c4e143`)
 
 The full optimized-debug native suite passed in the pinned `Dockerfile.test`
 image as UID/GID 1000 with `HOME=/home/compat` and one worker: 4,964 passed,
@@ -139,30 +139,30 @@ image as UID/GID 1000 with `HOME=/home/compat` and one worker: 4,964 passed,
 refreshed for the already-intended `fs.tempdir_in` API addition; the focused API
 suite then passed 65/65.
 
-### Current full compatibility gates (source `89c4e143`)
+### Latest full compatibility gates
 
-- Gate 3 ran all 106 in-scope utilities against pinned uutils
+- Gate 3's latest full run used source `d53ed7d1` and pinned uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the x86_64 musl
-  `Dockerfile.test` image, using the optimized-debug profile, three workers,
-  and UID/GID 1000. It recorded 5,469 pass, 480 fail, 0 skip, and 4 excluded
-  (5,953 total; 5,949 applicable), with no timeout. The prior full report at
-  `92a91b12` had 5,125 pass and 824 fail at the same denominator. Six `pr`
-  tests changed from pass to fail because GNU-style diagnostics differ from
-  uutils' clap messages: `test_zero_column_width`, `test_zero_columns`,
-  `test_zero_columns_shortcut`, `test_zero_length`, `test_zero_page_width`,
-  and `test_zero_pages`. Direct GNU 9.11 probes match XSH's diagnostics; the
-  expectation difference is recorded in `gaps.json`, and the before/after
-  comparison reports those six changes rather than a regression-free result.
-- Gate 4 ran the selected 719 GNU 9.12 tests against XSH in the same image,
-  profile, and user, with three workers. Results: 412 PASS, 156 FAIL, 17
-  ERROR, and 134 SKIP. The four-cell differential records 394 shared passes,
-  177 uutils-only passes, 18 XSH-only passes, and 44 shared failures. Relative
-  to the prior full Gate 4 run, this adds two passes and removes one failure
-  and one skip. `split/filter.sh` remains an ERROR; `tee/tee.sh` passes and
-  `misc/yes.sh` fails. No runner processes or suite locks remain. Current
-  reports are `results/gnu-xsh.json` and
-  `results/gnu-differential.json`; the pinned uutils baseline is
-  `results/gnu-uutils.json`.
+  `Dockerfile.test` image, with the optimized-debug profile, three workers,
+  and UID/GID 1000. It recorded 5,495 pass, 454 fail, 0 skip, and 4 excluded
+  (5,953 total; 5,949 applicable). Compared with the previous full report at
+  source `89c4e143`, this fixes 26 tests with no regressions: `cat` +1, `env`
+  +8, `sort` +10, and `tail` +7. The report is `results/uutils-integration.json`.
+  Six earlier `pr` expectation differences remain: direct GNU 9.11 probes
+  match XSH's diagnostics, while uutils expects different clap messages; those
+  differences were recorded against the prior full report at `92a91b12`.
+  To keep fixtures under ignored `.work` while preserving their expected path
+  lengths, this run used a short container alias for a private `TMPDIR` inside
+  `.work`; the directory was owned by UID/GID 1000 with mode 0700 and no
+  inherited setgid bit.
+- Gate 4's latest full run used source `89c4e143`: 719 selected GNU 9.12 tests,
+  412 PASS, 156 FAIL, 17 ERROR, and 134 SKIP. The four-cell differential
+  records 394 shared passes, 177 uutils-only passes, 18 XSH-only passes, and
+  44 shared failures. Relative to the preceding full Gate 4 run, this adds
+  two passes and removes one failure and one skip. `split/filter.sh` remains
+  an ERROR; `tee/tee.sh` passes and `misc/yes.sh` fails. Reports are
+  `results/gnu-xsh.json`, `results/gnu-differential.json`, and the pinned
+  baseline `results/gnu-uutils.json`.
 
 The full BusyBox run at `8d92a7e2` selected 71 available staged XSH applet
 suites: 561 pass, 119 fail, and 65 skipped. The 50 in-scope coreutils applets

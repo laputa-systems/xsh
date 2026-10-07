@@ -60,13 +60,12 @@
       "applet": true
     },
     "cat": {
-      "pass": 51,
-      "fail": 2,
+      "pass": 52,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_cat::test_closes_file_descriptors",
-        "test_cat::test_dev_full_show_all"
+        "test_cat::test_closes_file_descriptors"
       ],
       "applet": true
     },
@@ -301,8 +300,8 @@
       "applet": true
     },
     "env": {
-      "pass": 64,
-      "fail": 36,
+      "pass": 72,
+      "fail": 28,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -321,18 +320,10 @@
         "test_env::test_empty_name_does_not_affect_other_assignments",
         "test_env::test_env_arg_argv0_overwrite",
         "test_env::test_env_arg_argv0_overwrite_mixed_with_string_args",
-        "test_env::test_env_arg_ignore_signal_all_signals",
-        "test_env::test_env_arg_ignore_signal_empty",
-        "test_env::test_env_arg_ignore_signal_invalid_signals",
-        "test_env::test_env_arg_ignore_signal_special_signals",
-        "test_env::test_env_arg_ignore_signal_valid_signals",
         "test_env::test_env_block_realtime_signal",
         "test_env::test_env_block_signal_flag",
-        "test_env::test_env_default_signal_all_signals",
-        "test_env::test_env_default_signal_pipe",
         "test_env::test_env_disallow_double_underscore_all",
         "test_env::test_env_french",
-        "test_env::test_env_list_signal_handling_reports_ignore",
         "test_env::test_env_overwrite_arg0",
         "test_env::test_env_parsing_errors",
         "test_env::test_env_split_quoted_with_backslash_space",
@@ -964,12 +955,11 @@
       "applet": true
     },
     "sort": {
-      "pass": 154,
-      "fail": 63,
+      "pass": 164,
+      "fail": 53,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_sort::diagnostics::test_plain_message_when_stderr_is_not_a_terminal",
         "test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key",
         "test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key",
         "test_sort::diagnostics::test_snippet_points_at_a_missing_number",
@@ -1005,14 +995,6 @@
         "test_sort::test_help_colors_disabled",
         "test_sort::test_help_colors_enabled",
         "test_sort::test_incompatible_options",
-        "test_sort::test_keys_invalid_char_zero",
-        "test_sort::test_keys_invalid_field",
-        "test_sort::test_keys_invalid_field_option",
-        "test_sort::test_keys_invalid_field_zero",
-        "test_sort::test_keys_invalid_number_formats",
-        "test_sort::test_keys_with_options",
-        "test_sort::test_keys_with_options_blanks_end",
-        "test_sort::test_keys_with_options_blanks_start",
         "test_sort::test_legacy_plus_minus_accepts_when_modern_posix2",
         "test_sort::test_legacy_plus_minus_accepts_with_size_max",
         "test_sort::test_locale_complex_utf8_sorting",
@@ -1030,8 +1012,7 @@
         "test_sort::test_random_source_shorter_than_the_salt",
         "test_sort::test_read_error_message",
         "test_sort::test_tmp_files_are_private",
-        "test_sort::test_tmp_files_deleted_on_sigint",
-        "test_sort::test_verifies_files_after_keys"
+        "test_sort::test_tmp_files_deleted_on_sigint"
       ],
       "applet": true
     },
@@ -1116,15 +1097,14 @@
       "applet": true
     },
     "tail": {
-      "pass": 116,
-      "fail": 51,
+      "pass": 123,
+      "fail": 44,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_tail::diagnostics::test_snippet_points_at_the_unknown_unit",
         "test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes",
         "test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry",
-        "test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_no_warning",
         "test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning",
         "test_tail::test_args_when_settings_check_warnings_follow_retry",
         "test_tail::test_capital_f_recovers_after_dir_swap",
@@ -1156,13 +1136,8 @@
         "test_tail::test_follow_name_truncate2",
         "test_tail::test_follow_name_truncate3",
         "test_tail::test_follow_name_truncate4",
-        "test_tail::test_follow_non_utf8_bytes",
-        "test_tail::test_follow_single",
         "test_tail::test_follow_symlink_target_change",
-        "test_tail::test_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size",
         "test_tail::test_follow_with_pid",
-        "test_tail::test_following_with_pid",
-        "test_tail::test_n0_with_follow",
         "test_tail::test_obsolete_encoding_unix",
         "test_tail::test_retry8",
         "test_tail::test_retry9",
@@ -1170,8 +1145,7 @@
         "test_tail::test_retry_descriptor_gives_up_on_untailable",
         "test_tail::test_retry_follow_name_waits_for_creation",
         "test_tail::test_small_file",
-        "test_tail::test_tail_obsolete_error_cases",
-        "test_tail::test_tail_obsolete_f_flag"
+        "test_tail::test_tail_obsolete_error_cases"
       ],
       "applet": true
     },
@@ -1397,8 +1371,8 @@
     }
   },
   "totals": {
-    "pass": 5469,
-    "fail": 480,
+    "pass": 5495,
+    "fail": 454,
     "skip": 0,
     "excluded": 4
   }
