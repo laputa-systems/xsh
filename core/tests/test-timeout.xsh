@@ -106,6 +106,23 @@ test timeout_checks_intervals_and_launch_status { |ctx|
   assert invoke(ctx, ["1", "/"])?.status == 126
 }
 
+test timeout_invalid_interval_diagnostics_use_gnu_locale_quotes { |ctx|
+  let multibyte = invoke(ctx, ["10€", "sleep", "0"])?
+  assert multibyte.status == 125
+  assert "invalid time interval '10\\342\\202\\254'" in multibyte.stderr, multibyte.stderr
+
+  let apostrophe = invoke(ctx, ["'1", "sleep", "0"])?
+  assert apostrophe.status == 125
+  assert "invalid time interval '\\'1'" in apostrophe.stderr, apostrophe.stderr
+}
+
+test timeout_foreground_requires_a_waitable_child_in_the_callers_group { |ctx|
+  let result = invoke(ctx, ["--foreground", ".05", "sleep", "10"])?
+  assert result.status == 125
+  assert "managed children require their own process group" in result.stderr
+  assert result.stdout == ""
+}
+
 test timeout_accepts_hex_intervals_and_saturates_large_intervals { |ctx|
   assert invoke(ctx, ["0x0.1d", "sleep", "10"])?.status == 124
   assert invoke(ctx, ["9223372036854775808d", "true"])?.status == 0

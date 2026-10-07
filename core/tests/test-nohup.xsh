@@ -20,6 +20,13 @@ test nohup_preserves_command_arguments_and_exit_status { |ctx|
   assert invoke(ctx, ["printf", "%s", "--help"])?.stdout == "--help"
 }
 
+test nohup_version_uses_the_xsh_core_identity { |ctx|
+  let result = invoke(ctx, ["--version"])?
+  assert result.status == 0
+  assert result.stdout.starts_with("nohup (XSH core) ")
+  assert result.stderr == ""
+}
+
 test nohup_ignores_hup_across_exec { |ctx|
   let result = invoke(ctx, ["sh", "-c", "kill -HUP $$; printf survived"])?
   assert result.status == 0
