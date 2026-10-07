@@ -39,6 +39,7 @@ use crate::trace::{
 };
 use directories::{ProjectDirs, UserDirs};
 use rustc_hash::FxHashMap;
+use rustix::event as revent;
 use std::collections::BTreeMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
@@ -1903,48 +1904,6 @@ fn lowered_bool_arg_or(
         .with_span(span)),
         None => Ok(default),
     }
-}
-
-// Reading the descriptor directly keeps all stdin operations on one cursor without
-// a buffered reader consuming bytes that a later operation still needs.
-fn io_read_stdin(data: &mut [u8]) -> std::io::Result<usize> {
-    loop {
-        match rustix::io::read(rustix::stdio::stdin(), &mut *data) {
-            Ok(count) => return Ok(count),
-            Err(rustix::io::Errno::INTR) => continue,
-            Err(error) => return Err(error.into()),
-        }
-    }
-}
-
-fn io_read_all_stdin() -> std::io::Result<Vec<u8>> {
-    let mut data = Vec::new();
-    let mut chunk = [0; 8192];
-    loop {
-        let count = io_read_stdin(&mut chunk)?;
-        if count == 0 {
-            return Ok(data);
-        }
-        data.extend_from_slice(&chunk[..count]);
-    }
-}
-
-fn io_read_stdin_line() -> std::io::Result<String> {
-    let mut data = Vec::new();
-    let mut byte = [0];
-    loop {
-        if io_read_stdin(&mut byte)? == 0 {
-            break;
-        }
-        if byte[0] == b'\n' {
-            if data.last() == Some(&b'\r') {
-                data.pop();
-            }
-            break;
-        }
-        data.push(byte[0]);
-    }
-    String::from_utf8(data).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
 }
 
 fn lowered_int_arg(
@@ -4111,6 +4070,100 @@ impl NativeArgumentValues {
 }
 
 impl Evaluator {
+    // Reading the descriptor directly keeps every stdin operation on one cursor.
+    // Polling gives the evaluator a checkpoint even when a signal is delivered
+    // to another thread and therefore cannot interrupt this thread's read.
+    fn stdin_shutdown_abort(&self, span: Span) -> RuntimeError {
+        match self.signal_state.shutdown_status {
+            Some(status) => RuntimeError::abort(status, self.signal_state.shutdown_force)
+                .with_span(span),
+            None => RuntimeError::new("canceled", "stdin read was interrupted during shutdown")
+                .with_span(span),
+        }
+    }
+
+    fn service_stdin_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
+        self.service_pending_signal(span)?;
+        if self.signal_state.shutdown_complete {
+            return Err(self.stdin_shutdown_abort(span));
+        }
+        Ok(())
+    }
+
+    fn read_stdin_chunk(
+        &mut self,
+        data: &mut [u8],
+        operation: &str,
+        span: Span,
+    ) -> Result<usize, RuntimeError> {
+        let stdin = rustix::stdio::stdin();
+        let timeout = revent::Timespec::try_from(WAIT_POLL).expect("WAIT_POLL fits Timespec");
+        loop {
+            let mut pollfds = [revent::PollFd::from_borrowed_fd(
+                stdin.as_fd(),
+                revent::PollFlags::IN,
+            )];
+            match revent::poll(&mut pollfds, Some(&timeout)) {
+                Ok(0) | Err(rustix::io::Errno::INTR) => {
+                    self.service_stdin_signal(span)?;
+                    continue;
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    return Err(RuntimeError::host(operation, &std::io::Error::from(error))
+                        .with_span(span));
+                }
+            }
+            match rustix::io::read(rustix::stdio::stdin(), &mut *data) {
+                Ok(count) => return Ok(count),
+                Err(rustix::io::Errno::INTR) => {
+                    self.service_stdin_signal(span)?;
+                }
+                Err(error) => {
+                    return Err(RuntimeError::host(operation, &std::io::Error::from(error))
+                        .with_span(span));
+                }
+            }
+        }
+    }
+
+    fn read_stdin_all(
+        &mut self,
+        operation: &str,
+        span: Span,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        let mut data = Vec::new();
+        let mut chunk = [0; 8192];
+        loop {
+            let count = self.read_stdin_chunk(&mut chunk, operation, span)?;
+            if count == 0 {
+                return Ok(data);
+            }
+            data.extend_from_slice(&chunk[..count]);
+        }
+    }
+
+    fn read_stdin_line_bytes(
+        &mut self,
+        operation: &str,
+        span: Span,
+    ) -> Result<Vec<u8>, RuntimeError> {
+        let mut data = Vec::new();
+        let mut byte = [0];
+        loop {
+            if self.read_stdin_chunk(&mut byte, operation, span)? == 0 {
+                return Ok(data);
+            }
+            if byte[0] == b'\n' {
+                if data.last() == Some(&b'\r') {
+                    data.pop();
+                }
+                return Ok(data);
+            }
+            data.push(byte[0]);
+        }
+    }
+
     /// Dispatches the typed process, terminal, and session primitives of
     /// `modules::process::prims`, `modules::unix::tty`, and
     /// `modules::unix::sessions`.
@@ -6294,7 +6347,7 @@ impl Evaluator {
             }
             RuntimeOp::IoStdinRead if values.len() == 1 => {
                 let count = lowered_int_arg(values.pop(), "io.stdin_read", span)?;
-                let result = (|| {
+                let result: Result<LoweredValue, RuntimeError> = (|| {
                     let count = usize::try_from(count).ok().filter(|count| *count > 0)
                         .ok_or_else(|| RuntimeError::new("io-stdin-read", "max_bytes must be positive").with_span(span))?;
                     let mut data = Vec::new();
@@ -6302,42 +6355,53 @@ impl Evaluator {
                         RuntimeError::new("io-stdin-read", error.to_string()).with_span(span)
                     })?;
                     data.resize(count, 0);
-                    let read = io_read_stdin(&mut data).map_err(|error| {
-                        RuntimeError::host("io.stdin_read", &error).with_span(span)
-                    })?;
+                    let read = self.read_stdin_chunk(&mut data, "io.stdin_read", span)?;
                     data.truncate(read);
                     Ok(LoweredValue::Bytes(data.into()))
                 })();
                 match result {
                     Ok(data) => lowered_result_ok(data),
+                    Err(error) if error.abort.is_some() => return Err(error),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
             RuntimeOp::IoStdinBytes if values.is_empty() => {
-                match io_read_all_stdin() {
+                match self.read_stdin_all("io.stdin_bytes", span) {
                     Ok(data) => lowered_result_ok(LoweredValue::Bytes(data.into())),
-                    Err(error) => lowered_result_err_value(
-                        RuntimeError::host("io.stdin_bytes", &error).with_span(span),
-                    ),
+                    Err(error) if error.abort.is_some() => return Err(error),
+                    Err(error) => lowered_result_err_value(error),
                 }
             }
             RuntimeOp::IoStdinText if values.is_empty() => {
-                let result = io_read_all_stdin().and_then(|data| {
-                    String::from_utf8(data).map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))
+                let result = self.read_stdin_all("io.stdin_text", span).and_then(|data| {
+                    String::from_utf8(data).map_err(|error| {
+                        RuntimeError::host(
+                            "io.stdin_text",
+                            &std::io::Error::new(std::io::ErrorKind::InvalidData, error),
+                        )
+                        .with_span(span)
+                    })
                 });
                 match result {
                     Ok(data) => lowered_result_ok(LoweredValue::Str(data.into())),
-                    Err(error) => lowered_result_err_value(
-                        RuntimeError::host("io.stdin_text", &error).with_span(span),
-                    ),
+                    Err(error) if error.abort.is_some() => return Err(error),
+                    Err(error) => lowered_result_err_value(error),
                 }
             }
             RuntimeOp::IoStdinLine if values.is_empty() => {
-                match io_read_stdin_line() {
+                let result = self.read_stdin_line_bytes("io.stdin_line", span).and_then(|data| {
+                    String::from_utf8(data).map_err(|error| {
+                        RuntimeError::host(
+                            "io.stdin_line",
+                            &std::io::Error::new(std::io::ErrorKind::InvalidData, error),
+                        )
+                        .with_span(span)
+                    })
+                });
+                match result {
                     Ok(line) => lowered_result_ok(LoweredValue::Str(line.into())),
-                    Err(error) => lowered_result_err_value(
-                        RuntimeError::host("io.stdin_line", &error).with_span(span),
-                    ),
+                    Err(error) if error.abort.is_some() => return Err(error),
+                    Err(error) => lowered_result_err_value(error),
                 }
             }
             RuntimeOp::IoWriteStderr if values.len() == 1 => {

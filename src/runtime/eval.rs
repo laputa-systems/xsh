@@ -3950,6 +3950,9 @@ impl Evaluator {
         if test_cancel != TestCancelRequest::None {
             return self.deliver_test_cancel(test_cancel, span);
         }
+        let snapshot = signal_snapshot();
+        // The entrypoint captures INT and TERM even when this script has no
+        // signal hooks, so the idle fast path must preserve pending shutdown.
         if self.signal_hooks.is_empty()
             && self.process_handles.is_empty()
             && self.live_process_streams == 0
@@ -3958,10 +3961,10 @@ impl Evaluator {
             && !self.signal_state.hook_running
             && !self.signal_state.hook_started
             && !self.signal_state.shutdown_complete
+            && snapshot.primary.is_none()
         {
             return Ok(());
         }
-        let snapshot = signal_snapshot();
         let Some(primary_number) = snapshot.primary else {
             return Ok(());
         };
@@ -4008,6 +4011,8 @@ impl Evaluator {
                 )
                 .with_span(span));
             }
+            self.signal_state.shutdown_status = Some(default_signal_status(&primary));
+            self.signal_state.shutdown_complete = true;
             return Ok(());
         };
         if hook.ignore_pending_primary {

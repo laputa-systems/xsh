@@ -68,6 +68,56 @@ test timeout_sends_selected_signal_and_preserves_status { |ctx|
   assert invoke(ctx, ["-s", "KILL", ".05", "sleep", "10"])?.status == 137
 }
 
+test timeout_stops_a_cpu_bound_xsh_child_and_runs_its_cleanup { |ctx|
+  let root = test.temp_dir(ctx, name: "timeout-xsh-signal")?
+  let marker = fp"{root}/cleanup"
+  let child = fp"{root}/child.xsh"
+  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nwhile time.now() >= 0 {}\n")?
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/timeout.xsh", ".05", ctx.xsh_bin.display(), child.display(), marker.display()],
+    root,
+    {},
+    b"",
+    fp"{root}/stdout",
+    fp"{root}/stderr",
+    timeout: 2s,
+  )
+  let status = process.run(plan)?.shell_code()?
+  let stderr = fp"{root}/stderr".read_text()?
+  assert status == 124, stderr
+  assert marker.read_text()? == "cleaned"
+}
+
+test timeout_stops_an_xsh_child_blocked_in_stdin_read { |ctx|
+  let root = test.temp_dir(ctx, name: "timeout-xsh-stdin")?
+  let marker = fp"{root}/cleanup"
+  let child = fp"{root}/child.xsh"
+  child.write("let marker = Path(args[0])\ndefer marker.write(\"cleaned\")?\nlet _ = io.stdin_bytes()?\n")?
+  let plan = process.command_argv(
+    p"/bin/sh",
+    [
+      "sh",
+      "-c",
+      "(printf x; while [ ! -e \"$4\" ]; do sleep 0.01; done) | \"$1\" \"$2\" .05 \"$1\" \"$3\" \"$4\"",
+      "timeout-stdin-probe",
+      ctx.xsh_bin.display(),
+      fp"{ctx.core_dir}/timeout.xsh".display(),
+      child.display(),
+      marker.display(),
+    ],
+    root,
+    {},
+    b"",
+    fp"{root}/stdout",
+    fp"{root}/stderr",
+    timeout: 2s,
+  )
+  let status = process.run(plan)?.shell_code()?
+  assert status == 124
+  assert marker.read_text()? == "cleaned"
+}
+
 test timeout_escalates_when_initial_signal_is_ignored { |ctx|
   let result = invoke(ctx, ["-v", "-s", "0", "-k", ".05", ".05", "sleep", "10"])?
   assert result.status == 137
