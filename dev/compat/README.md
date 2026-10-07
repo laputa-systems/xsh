@@ -220,6 +220,15 @@ with one root permission skip). The optimized debug Gate 3 printf slice
 improves from 137/15 to 141/11 across 152 cases with four fixes and no
 regressions. Pinned GNU 9.12 `printf-quote.sh` and `printf-mb.sh` both pass on
 XSH and uutils. Reports are in `results/printf-raw-bytes/`.
+Follow-ups `8fbf4847` and `981b1751` stream large printf fields in 64 KiB
+chunks, reject widths that overflow the C formatter's output count, validate
+conversion flags, and report malformed dynamic width or precision values. The
+native printf suite passes 39/39; the optimized debug Gate 3 slice improves
+from 141/11 to 142/10 across 152 cases with one fix and no regressions. Its
+remaining `test_large_width_format` failure expects an error for a valid
+20-million-character field, which GNU 9.11 accepts and writes. The pinned GNU
+9.12 `printf.sh` selection passes on both XSH and uutils with one shared pass
+and no mismatches. Reports are in `results/printf-width-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

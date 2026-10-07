@@ -194,6 +194,16 @@ remain historical evidence only.
   `%c`, multibyte character constants, and invalid UTF-8 arguments with no
   regressions. Pinned GNU 9.12 `printf-quote.sh` and `printf-mb.sh` both pass
   on XSH and uutils. Reports are in `results/printf-raw-bytes/`.
+- Follow-ups `8fbf4847` and `981b1751` stream large `printf` fields in 64 KiB
+  chunks, reject widths that overflow the C formatter's output count, validate
+  conversion flags, and report malformed dynamic width or precision values.
+  The native printf suite passes 39/39. The optimized debug Gate 3 slice
+  improves from 141/11 to 142/10 across 152 cases, with one fix and no
+  regressions. Its remaining `test_large_width_format` failure expects an
+  error for a valid 20-million-character field; a GNU 9.11 probe accepts and
+  writes that width. The pinned GNU 9.12 `printf.sh` selection passes on both
+  XSH and uutils with one shared pass and no mismatches. JSON reports are in
+  `results/printf-width-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
