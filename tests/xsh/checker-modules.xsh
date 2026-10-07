@@ -341,10 +341,6 @@ test test_checker_rejects_removed_verbose_apis { |ctx|
       code: "check.unknown-module-api",
     },
     {
-      source: "let _ = time.format(0, \"%Y\", utc: true)?\n",
-      code: "check.unknown-module-api",
-    },
-    {
       source: "let _ = [1] |> collect(1)\n",
       code: "check.arity",
     },
@@ -656,6 +652,7 @@ let mixed_argv = [Path("echo"), "hello", marker]
 let command_with_mixed_argv_var = process.command_argv(Path("echo"), mixed_argv)
 let planned_status = process.run(command_from_str)?
 let parsed_number = "0x2a".parse_int()?
+let formatted_time = time.format(0, "%Y", utc: true)?
 let tokens = cli.tokens(["-dc", "--wrap=0", "file"], ["wrap"])?
 let elf_info = elf.inspect(p)?
 let _elf_needed: Str = elf_info.needed[0]

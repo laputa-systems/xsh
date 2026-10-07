@@ -138,8 +138,9 @@ test test_dd_accepts_very_large_blocks_without_allocating_a_block_buffer { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "bs=4G", "if=/dev/null", "of=/dev/null", "skip=1", "count=0"]
+  # Keep the cap below the requested block size while leaving room for the debug interpreter stack.
   let status = process.run(process.command_argv(p"/bin/sh",
-    ["sh", "-c", "ulimit -v 131072; exec \"$@\"", "dd-large-bs"].extend(argv),
+    ["sh", "-c", "ulimit -v 524288; exec \"$@\"", "dd-large-bs"].extend(argv),
     root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
   assert status.exited_with(0), stderr.read_text()?
   assert stderr.read_text()? == ""
@@ -158,8 +159,9 @@ test test_dd_large_cbs_pads_until_output_fails { |ctx|
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "conv=block", "cbs=1PB", f"if={input}", "of=/dev/full"]
+  # Keep the cap far below the requested record size while leaving room for the debug interpreter stack.
   let status = process.run(process.command_argv(p"/bin/sh",
-    ["sh", "-c", "ulimit -v 131072; exec \"$@\"", "dd-large-cbs"].extend(argv),
+    ["sh", "-c", "ulimit -v 524288; exec \"$@\"", "dd-large-cbs"].extend(argv),
     root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
   assert status.exited_with(1)
   assert "No space left on device" in stderr.read_text()?

@@ -33,6 +33,17 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
   assert (fs.files(root) |> count()) == 50
 }
 
+test test_fs_children_for_yields_precollected_entries { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-children-for")?
+  fp"{root}/second".write("2")
+  fp"{root}/first".write("1")
+
+  var names: List[Str] = []
+  for entry in fs.children(root)? { names += [entry.name] }
+
+  assert names == ["first", "second"]
+}
+
 test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fp"{root}/file.txt".write("data")

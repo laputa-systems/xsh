@@ -151,10 +151,10 @@ test test_split_numbered_virtual_input_is_rejected_before_read { |ctx|
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/split.xsh"
   for number in ["3", "l/3"] {
-    # Bound both allocation and time if size validation regresses and the
-    # child attempts to read the device's endless byte stream.
+    # Bound both allocation and time if size validation regresses. The cap
+    # leaves room for the debug interpreter's preparation stack.
     let status = process.run(process.command_argv(p"/bin/sh",
-      ["sh", "-c", "ulimit -v 131072; exec \"$@\"", "split-device-probe",
+      ["sh", "-c", "ulimit -v 524288; exec \"$@\"", "split-device-probe",
         ctx.xsh_bin.display(), "--", script.display(), "-n", number, "/dev/zero"],
       root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
     assert status.exited_with(1), "numbered virtual input must fail before its endless byte stream is read"

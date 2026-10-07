@@ -64,7 +64,8 @@ test test_pr_supports_large_number_fields { |ctx|
 
 test test_pr_streams_large_indents { |ctx|
   let input = test.temp_file(ctx, name: "line", contents: b"x\n")?
-  let command = "ulimit -v 204800; timeout 10 \"$1\" \"$2\" -- -t -o999999999 \"$3\" >/dev/null"
+  # Leave room for the debug interpreter's preparation stack while bounding a regressed allocation.
+  let command = "ulimit -v 524288; timeout 10 \"$1\" \"$2\" -- -t -o999999999 \"$3\" >/dev/null"
   let status = run.status sh -c $command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" $input
   assert status.exited_with(0)
 }

@@ -3895,7 +3895,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::ForItems { target, body, span } => match value {
                 FrameValue::Value(value) => {
                     let value = match value {
-                        LoweredValue::Stream(stream) => {
+                        LoweredValue::Stream(stream)
+                            if stream.source.is_some() || stream.script().is_some() =>
+                        {
                             self.calls[index].work.push(FrameWork::ForStream {
                                 target,
                                 stream: *stream,
