@@ -462,6 +462,64 @@ test test_sort_separator_null_and_invalid_character_counts { |ctx|
   }
 }
 
+test test_sort_key_option_suffixes_and_blank_boundaries { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-key-options")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let numeric_input = b"aa 3 cc\ndd 1 ff\ngg 2 cc\n"
+  for args in [["-k", "2,2n"], ["-k", "2n,2"], ["-k", "2,2", "-n"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      {LC_ALL: "C"}, numeric_input, stdout, stderr))?
+    assert result.exit_code()? == 0
+    assert stdout.read_bytes()? == b"dd 1 ff\ngg 2 cc\naa 3 cc\n"
+    assert stderr.read_bytes()?.is_empty()
+  }
+
+  let blank_start_input = b"aa   3 cc\ndd  1 ff\ngg         2 cc\n"
+  for args in [["-k", "2b,2"], ["-k", "2,2", "-b"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      {LC_ALL: "C"}, blank_start_input, stdout, stderr))?
+    assert result.exit_code()? == 0
+    assert stdout.read_bytes()? == b"dd  1 ff\ngg         2 cc\naa   3 cc\n"
+    assert stderr.read_bytes()?.is_empty()
+  }
+
+  let blank_end = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-k", "1,2.1b", "-s"], root,
+    {LC_ALL: "C"}, b"a  b\na b\na   b\n", stdout, stderr))?
+  assert blank_end.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a   b\na  b\na b\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_key_spec_rejects_invalid_numbers_and_characters { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-key-invalid")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let cases = [
+    ["1.", "invalid number after '.': invalid count at start of ''"],
+    ["1.1x", "stray character in field spec: invalid field specification '1.1x'"],
+    ["0.1", "field number is zero: invalid field specification '0.1'"],
+    ["1.0", "character offset is zero: invalid field specification '1.0'"],
+    ["0", "field number is zero: invalid field specification '0'"],
+    ["2.,3", "invalid number after '.': invalid count at start of ',3'"],
+    ["2,", "invalid number after ',': invalid count at start of ''"],
+    ["1.1,-k0", "invalid number after ',': invalid count at start of '-k0'"],
+  ]
+  for case in cases {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), "-k", case[0]], root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert result.exit_code()? == 2
+    assert stderr.read_text()? == f"sort: {case[1]}\n"
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
 test test_sort_merge_reports_stdout_write_failure { |ctx|
   if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "sort-merge-write-failure")?
@@ -614,6 +672,19 @@ test test_sort_numeric_key_character_offset { |ctx|
     {LC_ALL: "C"}, b"19\n21\n3\n", stdout, stderr))?
   assert reverse_key.exit_code()? == 0
   assert stdout.read_bytes()? == b"3\n21\n19\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_numeric_key_offset_can_start_inside_utf8 { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-key-utf8-offset")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1.2"], root,
+    {LC_ALL: "C"}, b"é2\na1\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"é2\na1\n"
   assert stderr.read_bytes()?.is_empty()
 }
 

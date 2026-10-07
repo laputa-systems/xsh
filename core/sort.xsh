@@ -39,6 +39,7 @@ type GeneralNumericSortKey = {key: Str, raw: Str}
 type TextSortKey = {key: Str, raw: Str}
 type SortInput = {name: Bytes, path: Path, stdin: Bool}
 type SortMergeReader = {fd: Int, name: Bytes, pending: Bytes, eof: Bool, current: Str?}
+type SortKeyError = {kind: Str, value: Str}
 
 ## External sorts unwind their temp-root defer before returning shell status 130.
 on SIGINT [] {
@@ -432,8 +433,62 @@ pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOpt
   {number: numeric_field_key(line, delimiter, field, opts), raw: if opts.stable or opts.unique { "" } else { line }}
 }
 
+## Key positions have suffix modifiers, so read the leading decimal field number directly.
 pure key_index(spec: Str) -> Int {
-  (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
+  let segment = spec.split(",").get(0) ?? "1"
+  let input = bytes.from_text(segment)
+  var end = 0
+  while end < input.len() and is_ascii_digit(input.byte_at(end) ?? 0) { end += 1 }
+  if end == 0 { return 0 }
+  (segment.byte_slice(0, length: end).parse_int() ?? 9223372036854775807) - 1
+}
+
+## Validate field and character positions before any key slicing can hide malformed input.
+pure key_spec_error(spec: Str) -> SortKeyError? {
+  let input = bytes.from_text(spec)
+  var component_start = 0
+  var component = 0
+  loop {
+    var component_end = component_start
+    while component_end < input.len() and input.byte_at(component_end) != 44 { component_end += 1 }
+
+    var at = component_start
+    while at < component_end and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+    if at == component_start {
+      if component == 0 { return {kind: "field-start", value: spec} }
+      return {kind: "comma-count", value: spec.byte_slice(component_start)}
+    }
+
+    let field_text = spec.byte_slice(component_start, length: at - component_start)
+    let field = field_text.parse_int() ?? 9223372036854775807
+    if field == 0 { return {kind: "field-zero", value: spec} }
+
+    if at < component_end and input.byte_at(at) == 46 {
+      at += 1
+      let count_start = at
+      while at < component_end and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+      if at == count_start {
+        return {kind: "dot-count", value: spec.byte_slice(count_start)}
+      }
+      let count_text = spec.byte_slice(count_start, length: at - count_start)
+      let count = count_text.parse_int() ?? 9223372036854775807
+      if count == 0 { return {kind: "character-zero", value: spec} }
+    }
+
+    while at < component_end {
+      let option = input.byte_at(at) ?? 0
+      if option not in [98, 100, 102, 103, 104, 105, 77, 110, 82, 114, 86] {
+        return {kind: "stray", value: spec}
+      }
+      at += 1
+    }
+
+    if component_end == input.len() { break }
+    if component > 0 { return {kind: "stray", value: spec} }
+    component = 1
+    component_start = component_end + 1
+  }
+  null
 }
 
 pure primary_key_spec(opts: SortOptions) -> Str {
@@ -450,7 +505,7 @@ pure key_character_offset(spec: Str) -> Int {
   var end = 0
   while end < input.len() and is_ascii_digit(input.byte_at(end) ?? 0) { end += 1 }
   if end == 0 { return 0 }
-  let position = start.byte_slice(0, length: end).parse_int() ?? 1
+  let position = start.byte_slice(0, length: end).parse_int() ?? 9223372036854775807
   if position > 0 { position - 1 } else { 0 }
 }
 
@@ -465,7 +520,7 @@ pure key_end_character_count(spec: Str) -> Int {
   var digits = 0
   while digits < input.len() and is_ascii_digit(input.byte_at(digits) ?? 0) { digits += 1 }
   if digits == 0 { return 0 }
-  let position = end.byte_slice(0, length: digits).parse_int() ?? 0
+  let position = end.byte_slice(0, length: digits).parse_int() ?? 9223372036854775807
   if position > 0 { position } else { 0 }
 }
 
@@ -506,7 +561,7 @@ pure key_effective_options(spec: Str, opts: SortOptions) -> SortOptions {
     fold_case: "f" in flags,
     dictionary: "d" in flags,
     ignore_nonprinting: "i" in flags,
-    blank: "b" in flags,
+    blank: opts.blank,
   }
 }
 
@@ -543,55 +598,41 @@ pure character_order_sort_key(input: Bytes, dictionary: Bool, ignore_nonprinting
   key + (if reverse { "256" } else { "000" })
 }
 
+## Numeric key parsers require valid text; offsets inside UTF-8 cannot start a numeric prefix.
+pure key_text_boundary(line: Str, offset: Int) -> Bool {
+  if offset <= 0 or offset >= line.byte_len() { return true }
+  let byte = line.byte_at(offset) ?? 0
+  byte < 128 or byte > 191
+}
+
 pure key_field_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Str {
-  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  let start_field = key_index(spec)
-  if start_field >= parts.len() { return "" }
-  var start_prefix = ""
-  if delimiter == "" and start_field > 0 and ! opts.blank and ! ("b" in spec) {
-    let start = key_field_start_byte(line, delimiter, start_field)
-    let token = key_field_token_start_byte(line, delimiter, start_field)
-    start_prefix = line.byte_slice(start, length: token - start)
-  }
-  var start_value = start_prefix + parts[start_field]
-  if opts.blank or "b" in spec { start_value = trim_leading_blanks(start_value) }
-  var selected = start_value.split("") |> drop(key_character_offset(spec)).join("")
-  if let end_field = key_end_field_index(spec) {
-    if end_field < start_field or end_field >= parts.len() { return "" }
-    let end_value = parts[end_field]
-    let end_count = key_end_character_count(spec)
-    if end_field == start_field {
-      if end_count > 0 {
-        let length = if end_count > key_character_offset(spec) { end_count - key_character_offset(spec) } else { 0 }
-        return selected.split("") |> take(length).join("")
-      }
-      return selected
-    }
-    let joiner = if delimiter == "" { " " } else { delimiter }
-    var middle = ""
-    for field in range(start_field + 1, end_field) {
-      middle += f"{joiner}{parts[field]}"
-    }
-    let end = if end_count > 0 { end_value.split("") |> take(end_count).join("") } else { end_value }
-    selected + middle + joiner + end
+  let start = key_start_byte(line, delimiter, spec, opts)
+  if ! key_text_boundary(line, start) { return "" }
+  if let end = key_range_end_byte(line, delimiter, spec, opts) {
+    var aligned_end = end
+    while aligned_end > start and ! key_text_boundary(line, aligned_end) { aligned_end -= 1 }
+    if aligned_end > start { line.byte_slice(start, length: aligned_end - start) } else { "" }
   } else {
-    let joiner = if delimiter == "" { " " } else { delimiter }
-    for field in range(start_field + 1, parts.len()) {
-      selected += f"{joiner}{parts[field]}"
-    }
-    selected
+    ""
   }
 }
 
-pure key_range_end_byte(line: Str, delimiter: Str, spec: Str) -> Int? {
+## Blank separators belong to a key boundary; a `b` on that boundary skips them only there.
+pure key_range_end_byte(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int? {
   let start_field = key_index(spec)
   if let end_field = key_end_field_index(spec) {
     if end_field < start_field { return null }
     if let field_end = key_field_end_byte(line, delimiter, end_field) {
       let end_count = key_end_character_count(spec)
       if end_count > 0 {
-        let end = key_field_start_byte(line, delimiter, end_field) + end_count
-        return if end < field_end { end } else { field_end }
+        var end_start = key_field_start_byte(line, delimiter, end_field)
+        let end_spec = spec.split(",").get(1) ?? ""
+        if opts.blank or "b" in key_flags(end_spec) {
+          let input = bytes.from_text(line)
+          while end_start < input.len() and (input.byte_at(end_start) ?? 0) in [32, 9] { end_start += 1 }
+        }
+        let remaining = field_end - end_start
+        return if end_count < remaining { end_start + end_count } else { field_end }
       }
       return field_end
     }
@@ -603,7 +644,7 @@ pure key_range_end_byte(line: Str, delimiter: Str, spec: Str) -> Int? {
 pure key_range_bytes(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Bytes {
   let input = bytes.from_text(line)
   let start = key_start_byte(line, delimiter, spec, opts)
-  if let end = key_range_end_byte(line, delimiter, spec) {
+  if let end = key_range_end_byte(line, delimiter, spec, opts) {
     if end > start { input[start..end] } else { b"" }
   } else {
     b""
@@ -632,14 +673,6 @@ pure key_field_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
   position
 }
 
-pure key_field_token_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
-  var position = key_field_start_byte(line, delimiter, field)
-  if delimiter != "" { return position }
-  let input = bytes.from_text(line)
-  while position < input.len() and (input.byte_at(position) ?? 0) in [32, 9] { position += 1 }
-  position
-}
-
 pure key_field_end_byte(line: Str, delimiter: Str, field: Int) -> Int? {
   if delimiter != "" {
     let parts = line.split(delimiter)
@@ -659,12 +692,13 @@ pure key_start_byte(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> 
   if key_index(spec) >= (if delimiter == "" { line.trim().words().len() } else { line.split(delimiter).len() }) { return line.byte_len() }
   let input = bytes.from_text(line)
   var position = key_field_start_byte(line, delimiter, key_index(spec))
-  if opts.blank or "b" in spec or is_numeric_sort(opts) or is_human_numeric_sort(opts) or
+  let start_spec = spec.split(",").get(0) ?? ""
+  if opts.blank or "b" in key_flags(start_spec) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or
     is_general_numeric_sort(opts) or is_month_sort(opts) {
     while position < input.len() and (input.byte_at(position) ?? 0) in [32, 9] { position += 1 }
   }
-  position += key_character_offset(spec)
-  if position > input.len() { input.len() } else { position }
+  let offset = key_character_offset(spec)
+  if offset > input.len() - position { input.len() } else { position + offset }
 }
 
 pure key_debug_width(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int {
@@ -1910,6 +1944,26 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.version {
     gnu.version("sort")
     return
+  }
+
+  for spec in opts.key {
+    if let issue = key_spec_error(spec) {
+      let message = if issue.kind == "field-start" {
+        f"invalid number at field start: invalid field specification {gnu.quote(issue.value)}"
+      } else if issue.kind == "field-zero" {
+        f"field number is zero: invalid field specification {gnu.quote(issue.value)}"
+      } else if issue.kind == "character-zero" {
+        f"character offset is zero: invalid field specification {gnu.quote(issue.value)}"
+      } else if issue.kind == "dot-count" {
+        f"invalid number after '.': invalid count at start of {gnu.quote(issue.value)}"
+      } else if issue.kind == "comma-count" {
+        f"invalid number after ',': invalid count at start of {gnu.quote(issue.value)}"
+      } else {
+        f"stray character in field spec: invalid field specification {gnu.quote(issue.value)}"
+      }
+      gnu.error(message)
+      exit 2
+    }
   }
 
   let buffer_size: Int? = if let value = opts.buffer_size { parse_buffer_size(value) } else { null }
