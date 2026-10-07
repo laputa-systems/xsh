@@ -10,6 +10,8 @@ type SortOptions = {
   ignore_nonprinting: Bool,
   blank: Bool,
   stable: Bool,
+  version_sort: Bool,
+  sort_mode: List[Str],
   key: Str,
   delimiter: Str,
   output: List[Str],
@@ -39,6 +41,81 @@ pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOpt
 
 pure key_index(spec: Str) -> Int {
   (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
+}
+
+pure is_ascii_digit(byte: Int) -> Bool {
+  byte >= 48 and byte <= 57
+}
+
+pure is_ascii_letter(byte: Int) -> Bool {
+  (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122)
+}
+
+pure version_hex_byte(byte: Int) -> Str {
+  let digits = "0123456789ABCDEF"
+  digits.byte_slice(byte / 16, length: 1) + digits.byte_slice(byte % 16, length: 1)
+}
+
+## Encode natural version chunks into a lexically sortable key without narrowing numeric runs.
+pure version_key(line: Str) -> Str {
+  if line == "" { return "00" }
+  if line == "." { return "01" }
+  if line == ".." { return "02" }
+
+  var remainder = line
+  var key = ""
+  while remainder.starts_with(".") {
+    key += "03"
+    remainder = remainder.byte_slice(1)
+  }
+  key += "04"
+
+  let input = bytes.from_text(remainder)
+  var at = 0
+  while at < input.len() {
+    let byte = input.byte_at(at) ?? 0
+    if is_ascii_digit(byte) {
+      var end = at + 1
+      while end < input.len() and is_ascii_digit(input.byte_at(end) ?? 0) { end += 1 }
+
+      var significant = at
+      while significant < end and input.byte_at(significant) == 48 { significant += 1 }
+      let significant_length = end - significant
+      key += "01"
+      for _ in range(significant_length) { key += "1" }
+      key += "0"
+      while significant < end {
+        key += remainder.byte_slice(significant, length: 1)
+        significant += 1
+      }
+      at = end
+    } else if byte == 126 {
+      key += "00"
+      at += 1
+    } else {
+      key += if is_ascii_letter(byte) { "02" } else { "03" }
+      key += version_hex_byte(byte)
+      at += 1
+    }
+  }
+  key + "01"
+}
+
+pure version_sort_key(line: Str, stable: Bool) -> TextSortKey {
+  {key: version_key(line), raw: if stable { "" } else { line }}
+}
+
+pure version_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> TextSortKey {
+  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
+  {key: version_key(parts.get(field) ?? ""), raw: if opts.stable { "" } else { line }}
+}
+
+pure selected_sort_mode(opts: SortOptions) -> Str {
+  opts.sort_mode.get(opts.sort_mode.len() - 1) ?? ""
+}
+
+pure is_version_sort(opts: SortOptions) -> Bool {
+  opts.version_sort or selected_sort_mode(opts).starts_with("v")
 }
 
 pure character_order_key(text: Str, dictionary: Bool, ignore_nonprinting: Bool, fold_case: Bool) -> Str {
@@ -110,7 +187,11 @@ pure blank_sorted(lines: List[Str], reverse: Bool, opts: SortOptions) -> List[St
 
 pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
   let pair = [left, right]
-  let ordered = if opts.numeric and has_key {
+  let ordered = if is_version_sort(opts) and has_key {
+    if opts.reverse { pair |> sort-by(desc: true) version_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by version_field_sort_key(., opts.delimiter, key_field, opts) }
+  } else if is_version_sort(opts) {
+    if opts.reverse { pair |> sort-by(desc: true) version_sort_key(., opts.stable) } else { pair |> sort-by version_sort_key(., opts.stable) }
+  } else if opts.numeric and has_key {
     if opts.reverse { pair |> sort-by(desc: true) numeric_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by numeric_field_sort_key(., opts.delimiter, key_field, opts) }
   } else if has_key {
     if opts.reverse { pair |> sort-by(desc: true) field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_sort_key(., opts.delimiter, key_field, opts) }
@@ -133,7 +214,11 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
 }
 
 pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
-  if opts.numeric and has_key {
+  if is_version_sort(opts) and has_key {
+    version_key((if opts.delimiter == "" { left.trim().words() } else { left.split(opts.delimiter) }).get(key_field) ?? "") == version_key((if opts.delimiter == "" { right.trim().words() } else { right.split(opts.delimiter) }).get(key_field) ?? "")
+  } else if is_version_sort(opts) {
+    version_key(left) == version_key(right)
+  } else if opts.numeric and has_key {
     numeric_field_key(left, opts.delimiter, key_field, opts) == numeric_field_key(right, opts.delimiter, key_field, opts)
   } else if has_key {
     field_key(left, opts.delimiter, key_field, opts) == field_key(right, opts.delimiter, key_field, opts)
@@ -216,6 +301,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         form: "-n --numeric-sort",
         default: false,
       },
+      version_sort: {
+        form: "-V --version-sort",
+        default: false,
+      },
+      sort_mode: {
+        form: "--sort=MODE",
+        repeated: true,
+      },
       fold_case: {
         form: "-f --ignore-case",
         default: false,
@@ -279,6 +372,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.version {
     gnu.version("sort")
     return
+  }
+
+  let selected_mode = selected_sort_mode(opts)
+  if selected_mode != "" and ! selected_mode.starts_with("v") {
+    gnu.error(f"invalid argument {gnu.quote_maybe(selected_mode)} for '--sort'")
+    exit 2
   }
 
   if opts.numeric and (opts.dictionary or opts.ignore_nonprinting) {
@@ -354,7 +453,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  let sorted = if opts.numeric and has_key {
+  let sorted = if is_version_sort(opts) and has_key {
+    if opts.reverse {
+      input_lines |> sort-by(desc: true) version_field_sort_key(., delimiter, key_field, opts)
+    } else {
+      input_lines |> sort-by version_field_sort_key(., delimiter, key_field, opts)
+    }
+  } else if is_version_sort(opts) {
+    if opts.reverse {
+      input_lines |> sort-by(desc: true) version_sort_key(., opts.stable)
+    } else {
+      input_lines |> sort-by version_sort_key(., opts.stable)
+    }
+  } else if opts.numeric and has_key {
     if opts.reverse {
       input_lines |> sort-by(desc: true) numeric_field_sort_key(., delimiter, key_field, opts)
     } else {

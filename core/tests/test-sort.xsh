@@ -103,6 +103,41 @@ test test_sort_stable_preserves_equal_primary_keys { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_version_order_and_stability { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-version-order")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"0.1\n0.02\n0.2\n0.002\n0.3\n"
+  let sorted = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-V"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert sorted.exit_code()? == 0
+  assert stdout.read_bytes()? == b"0.1\n0.002\n0.02\n0.2\n0.3\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let mode = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--sort=version"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert mode.exit_code()? == 0
+  assert stdout.read_bytes()? == b"0.1\n0.002\n0.02\n0.2\n0.3\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let stable = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-V", "--stable"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert stable.exit_code()? == 0
+  assert stdout.read_bytes()? == input
+  assert stderr.read_bytes()?.is_empty()
+
+  let leading_dots = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-V"], root,
+    {LC_ALL: "C"}, b".\n..\n.a\na\n0\n", stdout, stderr))?
+  assert leading_dots.exit_code()? == 0
+  assert stdout.read_bytes()? == b".\n..\n.a\n0\na\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "sort-input-check")?
   let fifo = fp"{root}/FIFO"
