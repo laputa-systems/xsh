@@ -31,3 +31,20 @@ boundary request to the integrator. Dependency additions are approved for this
 campaign when a reusable primitive has no local equivalent.
 Lanes report counts from their own uutils slices and focused native tests,
 commit locally on their assigned branch, and never push or merge.
+
+## Longer follow-up wave (2026-10-07)
+
+The same 16 lanes completed disjoint follow-up tasks from `4273cc46`. Their
+commits were integrated on `master` after the sort merge work; this records the
+source commits for that wave.
+
+| Lane | Commit | Lane | Commit |
+|---|---|---|---|
+| `awk` | `13fd852a` | `sed` | `630e8467` |
+| `date` | `944dc86b` | `fs-basic` | `a724156a` |
+| `fs-misc` | `dfcdbd59` | `bytes-enc` | `fbd253c6` |
+| `text-a1` | `0c0694bc` | `text-b1` | `5cb5de6c` |
+| `cp` | `9ca90c8f` | `proc-a` | `858eeb11` |
+| `perm` | `365c4d65` | `stat-du-df` | `2133dd89` |
+| `mv-ln` | `7c711270` | `ls` | `cd7d5e10` |
+| `printf-env` | `b491bc05` | `checksums` | `0eb21496` |

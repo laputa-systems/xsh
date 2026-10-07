@@ -108,6 +108,14 @@ The campaign resumed on 2026-10-07. See the current checkpoint in
 [`CAMPAIGN.md`](CAMPAIGN.md) and the completed 16-lane ownership record in
 [`CLAIMS.md`](CLAIMS.md).
 
+The latest focused integration includes a longer follow-up from all 16 lane
+owners and a `sort -m` implementation. Across comparable pinned uutils slices,
+86 previously failing IDs now pass with no regressions; the native suites for
+the changed lanes passed. These focused results do not replace the historical
+full Gate 3 and Gate 4 reports below, which have not been rerun after the
+integration. See `CAMPAIGN.md` for per-lane counts, sort results, and remaining
+limits.
+
 Gate 3 was rerun at `92a91b12` against pinned uutils
 `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the `Dockerfile.test` image.
 The report records 5,125 pass, 824 fail, and four exclusions across 106

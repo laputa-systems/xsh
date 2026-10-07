@@ -1,0 +1,4297 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="217" skipped="0" failures="84" errors="0" uuid="fc6fc74a-c570-4b2b-9156-c63285148129" timestamp="2026-10-07T16:26:45.637+00:00" time="27.051">
+    <testsuite name="coreutils::tests" tests="217" skipped="0" errors="0" failures="84">
+        <testcase name="test_sort::diagnostics::test_plain_message_when_stderr_is_not_a_terminal" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.643+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::diagnostics::test_plain_message_when_stderr_is_not_a_terminal&apos; (2301586) panicked at tests/by-util/test_sort.rs:3904:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_plain_message_when_stderr_is_not_a_terminal&apos; (2301586) panicked at tests/by-util/test_sort.rs:3904:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k2.3q /dev/null
+test test_sort::diagnostics::test_plain_message_when_stderr_is_not_a_terminal ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_plain_message_when_stderr_is_not_a_terminal
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_plain_message_when_stderr_is_not_a_terminal&apos; (2301586) panicked at tests/by-util/test_sort.rs:3904:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.643+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key&apos; (2301587) panicked at tests/by-util/test_sort.rs:3834:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key&apos; (2301587) panicked at tests/by-util/test_sort.rs:3834:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+touch: /tmp/.tmpW2p0gq/data.2.3q
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort data.2.3q -k2.3q
+test test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key&apos; (2301587) panicked at tests/by-util/test_sort.rs:3834:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_points_at_a_missing_number" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.688+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_points_at_a_missing_number&apos; (2301606) panicked at tests/by-util/test_sort.rs:3785:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_points_at_a_missing_number&apos; (2301606) panicked at tests/by-util/test_sort.rs:3785:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -kw /dev/null
+test test_sort::diagnostics::test_snippet_points_at_a_missing_number ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_points_at_a_missing_number
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_points_at_a_missing_number&apos; (2301606) panicked at tests/by-util/test_sort.rs:3785:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.687+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key&apos; (2301605) panicked at tests/by-util/test_sort.rs:3858:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key&apos; (2301605) panicked at tests/by-util/test_sort.rs:3858:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k sort /dev/null
+test test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key&apos; (2301605) panicked at tests/by-util/test_sort.rs:3858:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.733+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset&apos; (2301625) panicked at tests/by-util/test_sort.rs:3763:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset&apos; (2301625) panicked at tests/by-util/test_sort.rs:3763:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k3.0 /dev/null
+test test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset&apos; (2301625) panicked at tests/by-util/test_sort.rs:3763:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_points_at_the_stray_character" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.733+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_points_at_the_stray_character&apos; (2301626) panicked at tests/by-util/test_sort.rs:3714:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_points_at_the_stray_character&apos; (2301626) panicked at tests/by-util/test_sort.rs:3714:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k2.3q /dev/null
+test test_sort::diagnostics::test_snippet_points_at_the_stray_character ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_points_at_the_stray_character
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_points_at_the_stray_character&apos; (2301626) panicked at tests/by-util/test_sort.rs:3714:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.777+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size&apos; (2301645) panicked at tests/by-util/test_sort.rs:3884:9" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size&apos; (2301645) panicked at tests/by-util/test_sort.rs:3884:9:
+assertion `left == right` failed
+  left: &quot;unknown argument at argv[0]: -S\n\nusage: sort [...FILE] [OPTIONS]\n\noptions:\n  --batch-size SIZE\n  -b, --ignore-leading-blanks\n  --check[=TYPE]\n  --debug\n  -t, --delimiter DELIMITER\n  -d, --dictionary-order\n  --files0-from FILE\n  -f, --ignore-case\n  -g, --general-numeric-sort\n  -h, --human-numeric-sort\n  -i, --ignore-nonprinting\n  -k, --key KEY\n  -m, --merge\n  -M, --month-sort\n  -n, --numeric-sort\n  -o, --output FILE\n  -r, --reverse\n  -c, --short-check\n  -C, --silent-check\n  --sort MODE\n  -s, --stable\n  -u, --unique\n  --version\n  -V, --version-sort\n  -z, --zero-terminated\n  --help  show this help&quot;
+ right: &quot;sort: invalid suffix in --buffer-size argument &apos;8zz&apos;\n   ╭─[ sort:1:10 ]\n   │\n 1 │ sort -S 8zz /dev/null\n   │          ─┬\n   │           ╰── not a known unit\n   │\n   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -S 8zz /dev/null
+test test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size&apos; (2301645) panicked at tests/by-util/test_sort.rs:3884:9:
+assertion `left == right` failed
+  left: &quot;unknown argument at argv[0]: -S\n\nusage: sort [...FILE] [OPTIONS]\n\noptions:\n  --batch-size SIZE\n  -b, --ignore-leading-blanks\n  --check[=TYPE]\n  --debug\n  -t, --delimiter DELIMITER\n  -d, --dictionary-order\n  --files0-from FILE\n  -f, --ignore-case\n  -g, --general-numeric-sort\n  -h, --human-numeric-sort\n  -i, --ignore-nonprinting\n  -k, --key KEY\n  -m, --merge\n  -M, --month-sort\n  -n, --numeric-sort\n  -o, --output FILE\n  -r, --reverse\n  -c, --short-check\n  -C, --silent-check\n  --sort MODE\n  -s, --stable\n  -u, --unique\n  --version\n  -V, --version-sort\n  -z, --zero-terminated\n  --help  show this help&quot;
+ right: &quot;sort: invalid suffix in --buffer-size argument &apos;8zz&apos;\n   ╭─[ sort:1:10 ]\n   │\n 1 │ sort -S 8zz /dev/null\n   │          ─┬\n   │           ╰── not a known unit\n   │\n   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_points_inside_a_detached_key" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.779+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_points_inside_a_detached_key&apos; (2301646) panicked at tests/by-util/test_sort.rs:3739:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_points_inside_a_detached_key&apos; (2301646) panicked at tests/by-util/test_sort.rs:3739:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 1.4,2w /dev/null
+test test_sort::diagnostics::test_snippet_points_inside_a_detached_key ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_points_inside_a_detached_key
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_points_inside_a_detached_key&apos; (2301646) panicked at tests/by-util/test_sort.rs:3739:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.822+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options&apos; (2301664) panicked at tests/by-util/test_sort.rs:3808:14" type="test failure with exit code 101">thread &apos;test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options&apos; (2301664) panicked at tests/by-util/test_sort.rs:3808:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k1hV /dev/null
+test test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options ... FAILED
+
+failures:
+
+failures:
+    test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options&apos; (2301664) panicked at tests/by-util/test_sort.rs:3808:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::sort_empty_chunk" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.826+00:00" time="0.043">
+            <failure message="thread &apos;test_sort::sort_empty_chunk&apos; (2301671) panicked at tests/by-util/test_sort.rs:1656:10" type="test failure with exit code 101">thread &apos;test_sort::sort_empty_chunk&apos; (2301671) panicked at tests/by-util/test_sort.rs:1656:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -S 40b
+test test_sort::sort_empty_chunk ... FAILED
+
+failures:
+
+failures:
+    test_sort::sort_empty_chunk
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::sort_empty_chunk&apos; (2301671) panicked at tests/by-util/test_sort.rs:1656:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::sort_multiple" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.868+00:00" time="0.042"/>
+        <testcase name="test_sort::test_args_check_conflict" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.870+00:00" time="0.045"/>
+        <testcase name="test_sort::test_args_override" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.910+00:00" time="0.046"/>
+        <testcase name="test_sort::test_argument_suggestion" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.915+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_argument_suggestion&apos; (2301711) panicked at tests/by-util/test_sort.rs:2695:13" type="test failure with exit code 101">thread &apos;test_sort::test_argument_suggestion&apos; (2301711) panicked at tests/by-util/test_sort.rs:2695:13:
+assertion failed: stderr.contains(expected)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --revrse
+test test_sort::test_argument_suggestion ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_argument_suggestion
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_argument_suggestion&apos; (2301711) panicked at tests/by-util/test_sort.rs:2695:13:
+assertion failed: stderr.contains(expected)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_argument_suggestion_colors_enabled" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.957+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_argument_suggestion_colors_enabled&apos; (2301722) panicked at tests/by-util/test_sort.rs:2930:9" type="test failure with exit code 101">thread &apos;test_sort::test_argument_suggestion_colors_enabled&apos; (2301722) panicked at tests/by-util/test_sort.rs:2930:9:
+Expected yellow &apos;--revrse&apos; in locale en_US.UTF-8, got: unknown argument at argv[0]: --revrse\n\nusage: sort [...FILE] [OPTIONS]\n\noptions:\n  --batch-size SIZE\n  -b, --ignore-leading-blanks\n  --check[=TYPE]\n  --debug\n  -t, --delimiter DELIMITER
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --revrse
+test test_sort::test_argument_suggestion_colors_enabled ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_argument_suggestion_colors_enabled
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_argument_suggestion_colors_enabled&apos; (2301722) panicked at tests/by-util/test_sort.rs:2930:9:
+Expected yellow &apos;--revrse&apos; in locale en_US.UTF-8, got: unknown argument at argv[0]: --revrse\n\nusage: sort [...FILE] [OPTIONS]\n\noptions:\n  --batch-size SIZE\n  -b, --ignore-leading-blanks\n  --check[=TYPE]\n  --debug\n  -t, --delimiter DELIMITER
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_batch_size_above_fd_limit_is_rejected" classname="coreutils::tests" timestamp="2026-10-07T16:26:45.959+00:00" time="0.044"/>
+        <testcase name="test_sort::test_batch_size_at_fd_limit_is_accepted" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.002+00:00" time="0.047"/>
+        <testcase name="test_sort::test_batch_size_invalid" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.003+00:00" time="0.085"/>
+        <testcase name="test_sort::test_batch_size_too_large" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.049+00:00" time="0.082"/>
+        <testcase name="test_sort::test_blanks" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.088+00:00" time="0.089">
+            <failure message="thread &apos;test_sort::test_blanks&apos; (2301773) panicked at tests/by-util/test_sort.rs:35:14" type="test failure with exit code 101">thread &apos;test_sort::test_blanks&apos; (2301773) panicked at tests/by-util/test_sort.rs:35:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+   a
+&lt;_
+&gt;  _
+ ___
+ b
+ _
+ _
+          x
+&lt;_
+&gt;         _
+ __________
+   x
+&lt;_
+&gt;  _
+ ___
+  z
+&lt;_
+&gt; _
+ __
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort blanks.txt -b
+open: /tmp/.tmpavOtaG/blanks.expected
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort blanks.txt --debug -b
+open: /tmp/.tmpVsEkYh/blanks.expected.debug
+test test_sort::test_blanks ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_blanks
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.09s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_blanks&apos; (2301773) panicked at tests/by-util/test_sort.rs:35:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+   a
+&lt;_
+&gt;  _
+ ___
+ b
+ _
+ _
+          x
+&lt;_
+&gt;         _
+ __________
+   x
+&lt;_
+&gt;  _
+ ___
+  z
+&lt;_
+&gt; _
+ __
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_buffer_size_limits_both_chunks" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.131+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_buffer_size_limits_both_chunks&apos; (2301789) panicked at tests/uutests/src/lib/util.rs:2902:18" type="test failure with exit code 101">thread &apos;test_sort::test_buffer_size_limits_both_chunks&apos; (2301789) panicked at tests/uutests/src/lib/util.rs:2902:18:
+called `Result::unwrap()` on an `Err` value: Custom { kind: Other, error: &quot;failed to write to stdin of child: Broken pipe (os error 32)&quot; }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -u -T missing-directory
+test test_sort::test_buffer_size_limits_both_chunks ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_buffer_size_limits_both_chunks
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_buffer_size_limits_both_chunks&apos; (2301789) panicked at tests/uutests/src/lib/util.rs:2902:18:
+called `Result::unwrap()` on an `Err` value: Custom { kind: Other, error: &quot;failed to write to stdin of child: Broken pipe (os error 32)&quot; }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_buffer_sizes" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.178+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_buffer_sizes&apos; (2301806) panicked at tests/by-util/test_sort.rs:52:14" type="test failure with exit code 101">thread &apos;test_sort::test_buffer_sizes&apos; (2301806) panicked at tests/by-util/test_sort.rs:52:14:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[1]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -n -S 0 ext_sort.txt
+test test_sort::test_buffer_sizes ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_buffer_sizes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_buffer_sizes&apos; (2301806) panicked at tests/by-util/test_sort.rs:52:14:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[1]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_check" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.179+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_check&apos; (2301807) panicked at tests/by-util/test_sort.rs:1487:14" type="test failure with exit code 101">thread &apos;test_sort::test_check&apos; (2301807) panicked at tests/by-util/test_sort.rs:1487:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[2]: --buffer-size
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: check_fail.txt:6: disorder: 5
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -c check_fail.txt --buffer-size=10b
+test test_sort::test_check ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_check
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_check&apos; (2301807) panicked at tests/by-util/test_sort.rs:1487:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[2]: --buffer-size
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: check_fail.txt:6: disorder: 5
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_check_disorder_echoes_line_verbatim" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.223+00:00" time="0.129"/>
+        <testcase name="test_sort::test_check_stops_early_without_panicking" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.352+00:00" time="0.043">
+            <failure message="thread &apos;test_sort::test_check_stops_early_without_panicking&apos; (2301878) panicked at tests/by-util/test_sort.rs:1565:10" type="test failure with exit code 101">thread &apos;test_sort::test_check_stops_early_without_panicking&apos; (2301878) panicked at tests/by-util/test_sort.rs:1565:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;2
+&gt;1
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+write(default): /tmp/.tmpzlqsfh/disorder.txt
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -c --buffer-size=1K disorder.txt
+test test_sort::test_check_stops_early_without_panicking ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_check_stops_early_without_panicking
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>stdout:
+
+stderr:
+unknown argument at argv[1]: --buffer-size
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+
+thread &apos;test_sort::test_check_stops_early_without_panicking&apos; (2301878) panicked at tests/by-util/test_sort.rs:1565:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;2
+&gt;1
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_check_unique" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.395+00:00" time="0.048"/>
+        <testcase name="test_sort::test_check_unique_combined" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.443+00:00" time="0.045"/>
+        <testcase name="test_sort::test_check_zero_terminated_failure" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.488+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_check_zero_terminated_failure&apos; (2301928) panicked at tests/by-util/test_sort.rs:413:10" type="test failure with exit code 101">thread &apos;test_sort::test_check_zero_terminated_failure&apos; (2301928) panicked at tests/by-util/test_sort.rs:413:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;sort: zero-terminated.txt:2: disorder: ../../fixtures/du
+&gt;sort: zero-terminated.txt:2: disorder: ../../fixtures/du
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -z -c zero-terminated.txt
+test test_sort::test_check_zero_terminated_failure ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_check_zero_terminated_failure
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_check_zero_terminated_failure&apos; (2301928) panicked at tests/by-util/test_sort.rs:413:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;sort: zero-terminated.txt:2: disorder: ../../fixtures/du
+&gt;sort: zero-terminated.txt:2: disorder: ../../fixtures/du
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_check_zero_terminated_success" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.534+00:00" time="0.046"/>
+        <testcase name="test_sort::test_clap_localization_help_message" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.580+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_clap_localization_help_message&apos; (2301960) panicked at tests/by-util/test_sort.rs:2746:5" type="test failure with exit code 101">thread &apos;test_sort::test_clap_localization_help_message&apos; (2301960) panicked at tests/by-util/test_sort.rs:2746:5:
+assertion failed: stdout_en.contains(&quot;Usage:&quot;)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --help
+test test_sort::test_clap_localization_help_message ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_clap_localization_help_message
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_clap_localization_help_message&apos; (2301960) panicked at tests/by-util/test_sort.rs:2746:5:
+assertion failed: stdout_en.contains(&quot;Usage:&quot;)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_clap_localization_invalid_value" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.623+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_clap_localization_invalid_value&apos; (2301976) panicked at tests/by-util/test_sort.rs:2790:14" type="test failure with exit code 101">thread &apos;test_sort::test_clap_localization_invalid_value&apos; (2301976) panicked at tests/by-util/test_sort.rs:2790:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k invalid
+test test_sort::test_clap_localization_invalid_value ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_clap_localization_invalid_value
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_clap_localization_invalid_value&apos; (2301976) panicked at tests/by-util/test_sort.rs:2790:14:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_clap_localization_missing_required_argument" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.668+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_clap_localization_missing_required_argument&apos; (2301993) panicked at tests/by-util/test_sort.rs:2767:5" type="test failure with exit code 101">thread &apos;test_sort::test_clap_localization_missing_required_argument&apos; (2301993) panicked at tests/by-util/test_sort.rs:2767:5:
+assertion failed: stderr_en.contains(&quot; a value is required for &apos;--key &lt;key&gt;&apos; but none was supplied&quot;)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k
+test test_sort::test_clap_localization_missing_required_argument ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_clap_localization_missing_required_argument
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_clap_localization_missing_required_argument&apos; (2301993) panicked at tests/by-util/test_sort.rs:2767:5:
+assertion failed: stderr_en.contains(&quot; a value is required for &apos;--key &lt;key&gt;&apos; but none was supplied&quot;)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_clap_localization_unknown_argument" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.712+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_clap_localization_unknown_argument&apos; (2302009) panicked at tests/by-util/test_sort.rs:2731:13" type="test failure with exit code 101">thread &apos;test_sort::test_clap_localization_unknown_argument&apos; (2302009) panicked at tests/by-util/test_sort.rs:2731:13:
+assertion failed: stderr.contains(expected)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --unknown-option
+test test_sort::test_clap_localization_unknown_argument ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_clap_localization_unknown_argument
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_clap_localization_unknown_argument&apos; (2302009) panicked at tests/by-util/test_sort.rs:2731:13:
+assertion failed: stderr.contains(expected)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_check_silent" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.227+00:00" time="0.568"/>
+        <testcase name="test_sort::test_color_environment_variables" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.757+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_color_environment_variables&apos; (2302031) panicked at tests/by-util/test_sort.rs:3376:9" type="test failure with exit code 101">thread &apos;test_sort::test_color_environment_variables&apos; (2302031) panicked at tests/by-util/test_sort.rs:3376:9:
+assertion `left == right` failed: Color test failed for CLICOLOR_FORCE=1: expected colors=true, found ANSI codes=false
+  left: false
+ right: true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --help
+test test_sort::test_color_environment_variables ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_color_environment_variables
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_color_environment_variables&apos; (2302031) panicked at tests/by-util/test_sort.rs:3376:9:
+assertion `left == right` failed: Color test failed for CLICOLOR_FORCE=1: expected colors=true, found ANSI codes=false
+  left: false
+ right: true
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_compress" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.795+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_compress&apos; (2302040) panicked at tests/by-util/test_sort.rs:1672:10" type="test failure with exit code 101">thread &apos;test_sort::test_compress&apos; (2302040) panicked at tests/by-util/test_sort.rs:1672:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: --compress-program
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort ext_sort.txt -n --compress-program gzip -S 10
+test test_sort::test_compress ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_compress
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_compress&apos; (2302040) panicked at tests/by-util/test_sort.rs:1672:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: --compress-program
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_compress_fail" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.803+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_compress_fail&apos; (2302049) panicked at tests/by-util/test_sort.rs:1711:10" type="test failure with exit code 101">thread &apos;test_sort::test_compress_fail&apos; (2302049) panicked at tests/by-util/test_sort.rs:1711:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: --compress-program
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort ext_sort.txt -n --compress-program nonexistent-program -S 10
+test test_sort::test_compress_fail ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_compress_fail
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_compress_fail&apos; (2302049) panicked at tests/by-util/test_sort.rs:1711:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: --compress-program
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_compress_merge" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.842+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_compress_merge&apos; (2302059) panicked at tests/by-util/test_sort.rs:1695:10" type="test failure with exit code 101">thread &apos;test_sort::test_compress_merge&apos; (2302059) panicked at tests/by-util/test_sort.rs:1695:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: --compress-program
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --compress-program gzip -S 10 --batch-size=2 -m --unique merge_ints_interleaved_1.txt merge_ints_interleaved_2.txt merge_ints_interleaved_3.txt merge_ints_interleaved_3.txt merge_ints_interleaved_2.txt merge_ints_interleaved_1.txt
+test test_sort::test_compress_merge ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_compress_merge
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_compress_merge&apos; (2302059) panicked at tests/by-util/test_sort.rs:1695:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: --compress-program
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_conflict_check_out" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.849+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_conflict_check_out&apos; (2302067) panicked at tests/by-util/test_sort.rs:1948:14" type="test failure with exit code 101">thread &apos;test_sort::test_conflict_check_out&apos; (2302067) panicked at tests/by-util/test_sort.rs:1948:14:
+&apos;unknown argument at argv[0]: -=
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+&apos; does not contain &apos;sort: options &apos;-Co&apos; are incompatible
+&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -c=silent -o=/dev/null
+test test_sort::test_conflict_check_out ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_conflict_check_out
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_conflict_check_out&apos; (2302067) panicked at tests/by-util/test_sort.rs:1948:14:
+&apos;unknown argument at argv[0]: -=
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+&apos; does not contain &apos;sort: options &apos;-Co&apos; are incompatible
+&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_consistent_sorting_with_i18n_collate" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.887+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_consistent_sorting_with_i18n_collate&apos; (2302076) panicked at tests/by-util/test_sort.rs:3618:10" type="test failure with exit code 101">thread &apos;test_sort::test_consistent_sorting_with_i18n_collate&apos; (2302076) panicked at tests/by-util/test_sort.rs:3618:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;0_1
+&gt;0_1
+ 01
+ 01
+ 02
+ 02
+&lt;0_1
+&lt;0_1
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort fix_i18n_collate_inconsistency_1.txt fix_i18n_collate_inconsistency_2.txt
+test test_sort::test_consistent_sorting_with_i18n_collate ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_consistent_sorting_with_i18n_collate
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_consistent_sorting_with_i18n_collate&apos; (2302076) panicked at tests/by-util/test_sort.rs:3618:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;0_1
+&gt;0_1
+ 01
+ 01
+ 02
+ 02
+&lt;0_1
+&lt;0_1
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_debug_key_annotations_locale" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.933+00:00" time="0.006"/>
+        <testcase name="test_sort::test_default_unsorted_ints" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.939+00:00" time="0.089"/>
+        <testcase name="test_sort::test_default_unsorted_ints2" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.028+00:00" time="0.045"/>
+        <testcase name="test_sort::test_dictionary_and_nonprinting_conflicts" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.073+00:00" time="0.129">
+            <failure message="thread &apos;test_sort::test_dictionary_and_nonprinting_conflicts&apos; (2302155) panicked at tests/by-util/test_sort.rs:1597:18" type="test failure with exit code 101">thread &apos;test_sort::test_dictionary_and_nonprinting_conflicts&apos; (2302155) panicked at tests/by-util/test_sort.rs:1597:18:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -dn
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -dh
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -dg
+test test_sort::test_dictionary_and_nonprinting_conflicts ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_dictionary_and_nonprinting_conflicts
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.13s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_dictionary_and_nonprinting_conflicts&apos; (2302155) panicked at tests/by-util/test_sort.rs:1597:18:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_dictionary_order" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.203+00:00" time="0.082"/>
+        <testcase name="test_sort::test_dictionary_order2" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.285+00:00" time="0.043"/>
+        <testcase name="test_sort::test_does_not_inherit_key_settings" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.329+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_does_not_inherit_key_settings&apos; (2302260) panicked at tests/by-util/test_sort.rs:1258:10" type="test failure with exit code 101">thread &apos;test_sort::test_does_not_inherit_key_settings&apos; (2302260) panicked at tests/by-util/test_sort.rs:1258:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+  1
+&lt;2
+    10
+&gt;2
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 1b -n
+test test_sort::test_does_not_inherit_key_settings ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_does_not_inherit_key_settings
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_does_not_inherit_key_settings&apos; (2302260) panicked at tests/by-util/test_sort.rs:1258:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+  1
+&lt;2
+    10
+&gt;2
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_empty_input_empty_output" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.375+00:00" time="0.044"/>
+        <testcase name="test_sort::test_error_colors_disabled" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.419+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_error_colors_disabled&apos; (2302296) panicked at tests/by-util/test_sort.rs:2901:9" type="test failure with exit code 101">thread &apos;test_sort::test_error_colors_disabled&apos; (2302296) panicked at tests/by-util/test_sort.rs:2901:9:
+assertion failed: stderr.contains(error_word)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --numerc
+test test_sort::test_error_colors_disabled ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_error_colors_disabled
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_error_colors_disabled&apos; (2302296) panicked at tests/by-util/test_sort.rs:2901:9:
+assertion failed: stderr.contains(error_word)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_error_colors_enabled" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.464+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_error_colors_enabled&apos; (2302321) panicked at tests/by-util/test_sort.rs:2866:9" type="test failure with exit code 101">thread &apos;test_sort::test_error_colors_enabled&apos; (2302321) panicked at tests/by-util/test_sort.rs:2866:9:
+Expected red &apos;error&apos; in locale en_US.UTF-8, got: unknown argument at argv[0]: --numerc\n\nusage: sort [...FILE] [OPTIONS]\n\noptions:
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --numerc
+test test_sort::test_error_colors_enabled ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_error_colors_enabled
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_error_colors_enabled&apos; (2302321) panicked at tests/by-util/test_sort.rs:2866:9:
+Expected red &apos;error&apos; in locale en_US.UTF-8, got: unknown argument at argv[0]: --numerc\n\nusage: sort [...FILE] [OPTIONS]\n\noptions:
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_error_on_multiple_output_flags" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.509+00:00" time="0.045"/>
+        <testcase name="test_sort::test_exponents_general" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.554+00:00" time="0.094"/>
+        <testcase name="test_sort::test_exponents_positive_general" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.648+00:00" time="0.045"/>
+        <testcase name="test_sort::test_exponents_positive_numeric" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.693+00:00" time="0.251"/>
+        <testcase name="test_sort::test_ext_sort_as64_bailout" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.944+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_ext_sort_as64_bailout&apos; (2302505) panicked at tests/by-util/test_sort.rs:303:10" type="test failure with exit code 101">thread &apos;test_sort::test_ext_sort_as64_bailout&apos; (2302505) panicked at tests/by-util/test_sort.rs:303:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[1]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -g -S 5K multiple_decimals_general.txt
+test test_sort::test_ext_sort_as64_bailout ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_ext_sort_as64_bailout
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_ext_sort_as64_bailout&apos; (2302505) panicked at tests/by-util/test_sort.rs:303:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[1]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_ext_sort_stable" classname="coreutils::tests" timestamp="2026-10-07T16:26:47.990+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_ext_sort_stable&apos; (2302530) panicked at tests/by-util/test_sort.rs:192:10" type="test failure with exit code 101">thread &apos;test_sort::test_ext_sort_stable&apos; (2302530) panicked at tests/by-util/test_sort.rs:192:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -n --stable -S 0M ext_stable.txt
+test test_sort::test_ext_sort_stable ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_ext_sort_stable
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_ext_sort_stable&apos; (2302530) panicked at tests/by-util/test_sort.rs:192:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_ext_sort_zero_terminated" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.037+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_ext_sort_zero_terminated&apos; (2302547) panicked at tests/by-util/test_sort.rs:203:10" type="test failure with exit code 101">thread &apos;test_sort::test_ext_sort_zero_terminated&apos; (2302547) panicked at tests/by-util/test_sort.rs:203:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[1]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -z -S 10K zero-terminated.txt
+test test_sort::test_ext_sort_zero_terminated ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_ext_sort_zero_terminated
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_ext_sort_zero_terminated&apos; (2302547) panicked at tests/by-util/test_sort.rs:203:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[1]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_failed_to_set_locale_debug_message" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.082+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_failed_to_set_locale_debug_message&apos; (2302564) panicked at tests/by-util/test_sort.rs:3573:12" type="test failure with exit code 101">thread &apos;test_sort::test_failed_to_set_locale_debug_message&apos; (2302564) panicked at tests/by-util/test_sort.rs:3573:12:
+&apos;&apos; does not contain &apos;text ordering performed using simple byte comparison&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --debug
+test test_sort::test_failed_to_set_locale_debug_message ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_failed_to_set_locale_debug_message
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_failed_to_set_locale_debug_message&apos; (2302564) panicked at tests/by-util/test_sort.rs:3573:12:
+&apos;&apos; does not contain &apos;text ordering performed using simple byte comparison&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_debug_key_annotations" classname="coreutils::tests" timestamp="2026-10-07T16:26:46.896+00:00" time="1.247">
+            <failure message="thread &apos;test_sort::test_debug_key_annotations&apos; (2302085) panicked at tests/by-util/test_sort.rs:2951:5" type="test failure with exit code 101">thread &apos;test_sort::test_debug_key_annotations&apos; (2302085) panicked at tests/by-util/test_sort.rs:2951:5:
+assertion `left == right` failed
+  left: &quot;\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n1\t2\n_\n2\t\n_\n3\t1\n_\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n1\t2\n_\n2\t\n_\n3\t1\n_\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n1\t2\n_\n2\t\n_\n3\t1\n_\n\n^ no match for key\nFEB\n___\nJAN\n___\nFEB\n^ no match for key\n\n^ no match for key\nJAN\n^ no match for key\n\n^ no match for key\nFEB\n___\nJAN\n___\nJAZZ\n____\n3\t\n^ no match for key\n1\tFEB\n___\n4\tJAN\n___\n2\tJAZZ\n____\n\n^ no match for key\nFEB\n___\nJAN\n___\nJANZ\n____\n3\t\n^ no match for key\n1\tFEB\n___\n4\tJAN\n___\n2\tJANZ\n____\n 1.2ignore\n ___\n 1.1e4ignore\n _____\n&gt;&gt;a\n___\n&gt;b\n__\na\n^ no match for key\n\n^ no match for key\na\n_\nb\n_\n--Mi-1\n______\n-0\n__\n-0\n__\n-2\n__\n-3\n__\n1\n_\n 1\n_\n__\n1\n_\n_\n 1\n_\n1\n_\n 1\n__\n1\n_\n2,5\n___\n2.4\n___\n2.,,3\n_____\n2.4\n___\n2,,3\n____\n2.4\n___\n1a\n_\n2b\n_\n\ta\n_\nB\tchr1\n____\nA\tchr10\n_____\n1 2\n_\n1 3\n_\n&quot;
+ right: &quot;1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n2&gt;\n  ^ no match for key\n3&gt;1\n  _\n1&gt;2\n  _\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n2&gt;\n  ^ no match for key\n3&gt;1\n  _\n1&gt;2\n  _\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n2&gt;\n  ^ no match for key\n3&gt;1\n  _\n1&gt;2\n  _\n\n^ no match for key\nJAN\n___\nFEB\n___\nFEB\n   ^ no match for key\n\n^ no match for key\nJAN\n   ^ no match for key\nJAZZ\n^ no match for key\n\n^ no match for key\nJAN\n___\nFEB\n___\n2&gt;JAZZ\n  ^ no match for key\n3&gt;\n  ^ no match for key\n4&gt;JAN\n  ___\n1&gt;FEB\n  ___\n\n^ no match for key\nJANZ\n___\nJAN\n___\nFEB\n___\n3&gt;\n  ^ no match for key\n2&gt;JANZ\n  ___\n4&gt;JAN\n  ___\n1&gt;FEB\n  ___\n 1.2ignore\n ___\n 1.1e4ignore\n _____\n&gt;&gt;a\n___\n&gt;b\n__\na\n ^ no match for key\n\n^ no match for key\na\n_\nb\n_\n-3\n__\n-2\n__\n-0\n__\n--Mi-1\n^ no match for key\n-0\n__\n1\n_\n 1\n _\n__\n1\n_\n_\n 1\n _\n1\n_\n 1\n__\n1\n_\n2,5\n_\n2.4\n___\n2.,,3\n__\n2.4\n___\n2,,3\n_\n2.4\n___\n1a\n_\n2b\n_\n&gt;a\n _\nA&gt;chr10\n     ^ no match for key\nB&gt;chr1\n     ^ no match for key\n1 2\n __\n1 3\n __\n&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2n --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1.3n --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1n --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2g --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2h --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1.3h --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1h --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2g --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2g --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1.3g --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1g --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2g --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1M --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2,2M --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1M --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2,2M --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1M --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2,2M --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -g --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -d --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2,2 --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1 --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s --debug -k1,1h
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -b --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -b --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1n --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1n --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1n --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -n -z --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2b,2 --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k2.4b,2.3n --debug
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -s -k1.2b --debug
+test test_sort::test_debug_key_annotations ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_debug_key_annotations
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.24s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_debug_key_annotations&apos; (2302085) panicked at tests/by-util/test_sort.rs:2951:5:
+assertion `left == right` failed
+  left: &quot;\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n1\t2\n_\n2\t\n_\n3\t1\n_\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n1\t2\n_\n2\t\n_\n3\t1\n_\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n1\t2\n_\n2\t\n_\n3\t1\n_\n\n^ no match for key\nFEB\n___\nJAN\n___\nFEB\n^ no match for key\n\n^ no match for key\nJAN\n^ no match for key\n\n^ no match for key\nFEB\n___\nJAN\n___\nJAZZ\n____\n3\t\n^ no match for key\n1\tFEB\n___\n4\tJAN\n___\n2\tJAZZ\n____\n\n^ no match for key\nFEB\n___\nJAN\n___\nJANZ\n____\n3\t\n^ no match for key\n1\tFEB\n___\n4\tJAN\n___\n2\tJANZ\n____\n 1.2ignore\n ___\n 1.1e4ignore\n _____\n&gt;&gt;a\n___\n&gt;b\n__\na\n^ no match for key\n\n^ no match for key\na\n_\nb\n_\n--Mi-1\n______\n-0\n__\n-0\n__\n-2\n__\n-3\n__\n1\n_\n 1\n_\n__\n1\n_\n_\n 1\n_\n1\n_\n 1\n__\n1\n_\n2,5\n___\n2.4\n___\n2.,,3\n_____\n2.4\n___\n2,,3\n____\n2.4\n___\n1a\n_\n2b\n_\n\ta\n_\nB\tchr1\n____\nA\tchr10\n_____\n1 2\n_\n1 3\n_\n&quot;
+ right: &quot;1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n2&gt;\n  ^ no match for key\n3&gt;1\n  _\n1&gt;2\n  _\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n2&gt;\n  ^ no match for key\n3&gt;1\n  _\n1&gt;2\n  _\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n1\n ^ no match for key\n\n^ no match for key\n44\n  ^ no match for key\n33\n  ^ no match for key\n2\n ^ no match for key\n\n^ no match for key\n1\n_\n2\n_\n33\n__\n44\n__\n2&gt;\n  ^ no match for key\n3&gt;1\n  _\n1&gt;2\n  _\n\n^ no match for key\nJAN\n___\nFEB\n___\nFEB\n   ^ no match for key\n\n^ no match for key\nJAN\n   ^ no match for key\nJAZZ\n^ no match for key\n\n^ no match for key\nJAN\n___\nFEB\n___\n2&gt;JAZZ\n  ^ no match for key\n3&gt;\n  ^ no match for key\n4&gt;JAN\n  ___\n1&gt;FEB\n  ___\n\n^ no match for key\nJANZ\n___\nJAN\n___\nFEB\n___\n3&gt;\n  ^ no match for key\n2&gt;JANZ\n  ___\n4&gt;JAN\n  ___\n1&gt;FEB\n  ___\n 1.2ignore\n ___\n 1.1e4ignore\n _____\n&gt;&gt;a\n___\n&gt;b\n__\na\n ^ no match for key\n\n^ no match for key\na\n_\nb\n_\n-3\n__\n-2\n__\n-0\n__\n--Mi-1\n^ no match for key\n-0\n__\n1\n_\n 1\n _\n__\n1\n_\n_\n 1\n _\n1\n_\n 1\n__\n1\n_\n2,5\n_\n2.4\n___\n2.,,3\n__\n2.4\n___\n2,,3\n_\n2.4\n___\n1a\n_\n2b\n_\n&gt;a\n _\nA&gt;chr10\n     ^ no match for key\nB&gt;chr1\n     ^ no match for key\n1 2\n __\n1 3\n __\n&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_failed_write_is_reported" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.128+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_failed_write_is_reported&apos; (2302582) panicked at tests/by-util/test_sort.rs:2269:10" type="test failure with exit code 101">thread &apos;test_sort::test_failed_write_is_reported&apos; (2302582) panicked at tests/by-util/test_sort.rs:2269:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort
+test test_sort::test_failed_write_is_reported ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_failed_write_is_reported
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_failed_write_is_reported&apos; (2302582) panicked at tests/by-util/test_sort.rs:2269:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_files0_from_dev_null_is_empty" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.173+00:00" time="0.044"/>
+        <testcase name="test_sort::test_files0_from_double_nul_is_invalid" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.217+00:00" time="0.044"/>
+        <testcase name="test_sort::test_fifo_without_trailing_newline" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.143+00:00" time="0.145"/>
+        <testcase name="test_sort::test_files0_from_empty_input_file" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.261+00:00" time="0.044"/>
+        <testcase name="test_sort::test_files0_from_non_utf8_content" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.288+00:00" time="0.043"/>
+        <testcase name="test_sort::test_files0_from_non_utf8_filename" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.305+00:00" time="0.046"/>
+        <testcase name="test_sort::test_files0_from_nonexistent_file_fails" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.331+00:00" time="0.043"/>
+        <testcase name="test_sort::test_files0_from_reads_stdin_via_dash" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.351+00:00" time="0.044"/>
+        <testcase name="test_sort::test_files0_from_rejects_extra_positional" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.374+00:00" time="0.043"/>
+        <testcase name="test_sort::test_files0_from_single_entry" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.395+00:00" time="0.043"/>
+        <testcase name="test_sort::test_files0_from_single_entry_trailing_nul" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.417+00:00" time="0.045"/>
+        <testcase name="test_sort::test_files0_from_single_nul_is_invalid" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.438+00:00" time="0.045"/>
+        <testcase name="test_sort::test_files0_from_two_entries" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.461+00:00" time="0.043"/>
+        <testcase name="test_sort::test_files0_from_two_entries_trailing_nul" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.482+00:00" time="0.045"/>
+        <testcase name="test_sort::test_files0_from_unreadable_source" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.504+00:00" time="0.043"/>
+        <testcase name="test_sort::test_files0_from_zero_length_entry_fails" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.528+00:00" time="0.047"/>
+        <testcase name="test_sort::test_french_translations" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.547+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_french_translations&apos; (2302746) panicked at tests/by-util/test_sort.rs:2674:5" type="test failure with exit code 101">thread &apos;test_sort::test_french_translations&apos; (2302746) panicked at tests/by-util/test_sort.rs:2674:5:
+assertion failed: stderr.contains(&quot;erreur&quot;)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --invalid-arg
+test test_sort::test_french_translations ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_french_translations
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_french_translations&apos; (2302746) panicked at tests/by-util/test_sort.rs:2674:5:
+assertion failed: stderr.contains(&quot;erreur&quot;)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_g_arbitrary" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.575+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_g_arbitrary&apos; (2302755) panicked at tests/by-util/test_sort.rs:2647:10" type="test failure with exit code 101">thread &apos;test_sort::test_g_arbitrary&apos; (2302755) panicked at tests/by-util/test_sort.rs:2647:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;3
+ 0.003000000000000000000000000000000000000000000000000000000000000000001e3
+&lt;0.03000000000000000000000000000000000000000000000000000000000000000003e2
+ 0.3000000000000000000000000000000000000000000000000000000000000000002e1
+&lt;3
+&gt;0.03000000000000000000000000000000000000000000000000000000000000000003e2
+ 3.000000000000000000000000000000000000000000000000000000000000000004
+ 10
+ 0.010000000000000001e3
+ 1.0000000000000002e1
+ 0.10000000000000003e2
+ 10.000000000000004
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -g
+test test_sort::test_g_arbitrary ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_g_arbitrary
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_g_arbitrary&apos; (2302755) panicked at tests/by-util/test_sort.rs:2647:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;3
+ 0.003000000000000000000000000000000000000000000000000000000000000000001e3
+&lt;0.03000000000000000000000000000000000000000000000000000000000000000003e2
+ 0.3000000000000000000000000000000000000000000000000000000000000000002e1
+&lt;3
+&gt;0.03000000000000000000000000000000000000000000000000000000000000000003e2
+ 3.000000000000000000000000000000000000000000000000000000000000000004
+ 10
+ 0.010000000000000001e3
+ 1.0000000000000002e1
+ 0.10000000000000003e2
+ 10.000000000000004
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_g_float_locale_decimal_separator" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.623+00:00" time="0.004"/>
+        <testcase name="test_sort::test_g_float_hex" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.594+00:00" time="0.044"/>
+        <testcase name="test_sort::test_g_misc" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.627+00:00" time="0.045"/>
+        <testcase name="test_sort::test_help_colors_disabled" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.638+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_help_colors_disabled&apos; (2302787) panicked at tests/by-util/test_sort.rs:2838:9" type="test failure with exit code 101">thread &apos;test_sort::test_help_colors_disabled&apos; (2302787) panicked at tests/by-util/test_sort.rs:2838:9:
+assertion failed: stdout.contains(&amp;format!(&quot;{usage_word}:&quot;))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --help
+test test_sort::test_help_colors_disabled ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_help_colors_disabled
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_help_colors_disabled&apos; (2302787) panicked at tests/by-util/test_sort.rs:2838:9:
+assertion failed: stdout.contains(&amp;format!(&quot;{usage_word}:&quot;))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_help_colors_enabled" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.672+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_help_colors_enabled&apos; (2302796) panicked at tests/by-util/test_sort.rs:2814:9" type="test failure with exit code 101">thread &apos;test_sort::test_help_colors_enabled&apos; (2302796) panicked at tests/by-util/test_sort.rs:2814:9:
+Expected bold+underline &apos;Usage:&apos; in locale en_US.UTF-8, got: usage: sort [...FILE] [OPTIONS]\n\noptions:\n  --batch-size SIZE\n  -b, --ignore-leading-blanks\n  --check[=TYPE]\n  --debug\n  -t, --delimiter DELIMITER\n  -d, --dictionary-order\n  --files0-from FILE
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --help
+test test_sort::test_help_colors_enabled ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_help_colors_enabled
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_help_colors_enabled&apos; (2302796) panicked at tests/by-util/test_sort.rs:2814:9:
+Expected bold+underline &apos;Usage:&apos; in locale en_US.UTF-8, got: usage: sort [...FILE] [OPTIONS]\n\noptions:\n  --batch-size SIZE\n  -b, --ignore-leading-blanks\n  --check[=TYPE]\n  --debug\n  -t, --delimiter DELIMITER\n  -d, --dictionary-order\n  --files0-from FILE
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_human_block_sizes2" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.718+00:00" time="0.129"/>
+        <testcase name="test_sort::test_human_blocks_r_and_q" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.847+00:00" time="0.045"/>
+        <testcase name="test_sort::test_human_numeric_blank_thousands_sep_locale" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.893+00:00" time="0.004"/>
+        <testcase name="test_sort::test_human_block_sizes" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.682+00:00" time="0.250"/>
+        <testcase name="test_sort::test_human_numeric_zero_stable" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.933+00:00" time="0.044"/>
+        <testcase name="test_sort::test_ignore_case" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.977+00:00" time="0.086"/>
+        <testcase name="test_sort::test_ignore_case_orders_punctuation_after_letters" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.063+00:00" time="0.045"/>
+        <testcase name="test_sort::test_ignore_case_unique_orders_punctuation_after_letters" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.108+00:00" time="0.046"/>
+        <testcase name="test_sort::test_incompatible_options" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.154+00:00" time="0.124">
+            <failure message="thread &apos;test_sort::test_incompatible_options&apos; (2302986) panicked at tests/by-util/test_sort.rs:1127:10" type="test failure with exit code 101">thread &apos;test_sort::test_incompatible_options&apos; (2302986) panicked at tests/by-util/test_sort.rs:1127:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[0]: -R
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: options &apos;-nR&apos; are incompatible
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -hn
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -in
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -nR
+test test_sort::test_incompatible_options ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_incompatible_options
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.12s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_incompatible_options&apos; (2302986) panicked at tests/by-util/test_sort.rs:1127:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[0]: -R
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: options &apos;-nR&apos; are incompatible
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_inherits_key_settings" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.279+00:00" time="0.043"/>
+        <testcase name="test_sort::test_invalid_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.322+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_invalid_buffer_size&apos; (2303047) panicked at tests/by-util/test_sort.rs:104:10" type="test failure with exit code 101">thread &apos;test_sort::test_invalid_buffer_size&apos; (2303047) panicked at tests/by-util/test_sort.rs:104:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[0]: -S
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: invalid --buffer-size argument &apos;asd&apos;
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -S asd
+test test_sort::test_invalid_buffer_size ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_invalid_buffer_size
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_invalid_buffer_size&apos; (2303047) panicked at tests/by-util/test_sort.rs:104:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[0]: -S
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: invalid --buffer-size argument &apos;asd&apos;
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_human_numeric_whitespace" classname="coreutils::tests" timestamp="2026-10-07T16:26:48.897+00:00" time="0.507"/>
+        <testcase name="test_sort::test_k_overflow" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.367+00:00" time="0.043"/>
+        <testcase name="test_sort::test_key_takes_one_arg" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.404+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_key_takes_one_arg&apos; (2303074) panicked at tests/by-util/test_sort.rs:1957:10" type="test failure with exit code 101">thread &apos;test_sort::test_key_takes_one_arg&apos; (2303074) panicked at tests/by-util/test_sort.rs:1957:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;dd aa ff
+ gg aa cc
+&gt;dd aa ff
+ aa bb cc
+&lt;èè éé èè
+ 👩‍🔬 👩‍🔬 👩‍🔬
+ 💣💣 💣💣 💣💣
+&gt;èè éé èè
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 2.3 keys_open_ended.txt
+open: /tmp/.tmpa7mF9p/keys_open_ended.expected
+test test_sort::test_key_takes_one_arg ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_key_takes_one_arg
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_key_takes_one_arg&apos; (2303074) panicked at tests/by-util/test_sort.rs:1957:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;dd aa ff
+ gg aa cc
+&gt;dd aa ff
+ aa bb cc
+&lt;èè éé èè
+ 👩‍🔬 👩‍🔬 👩‍🔬
+ 💣💣 💣💣 💣💣
+&gt;èè éé èè
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_blanks_with_char_idx" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.410+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_keys_blanks_with_char_idx&apos; (2303082) panicked at tests/by-util/test_sort.rs:28:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_blanks_with_char_idx&apos; (2303082) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;cab
+ abc
+ bca
+&lt;cab
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_blanks.txt -k 1.2b
+open: /tmp/.tmpzMGlnp/keys_blanks.expected
+test test_sort::test_keys_blanks_with_char_idx ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_blanks_with_char_idx
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_blanks_with_char_idx&apos; (2303082) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;cab
+ abc
+ bca
+&lt;cab
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_closed_range" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.449+00:00" time="0.088">
+            <failure message="thread &apos;test_sort::test_keys_closed_range&apos; (2303092) panicked at tests/by-util/test_sort.rs:34:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_closed_range&apos; (2303092) panicked at tests/by-util/test_sort.rs:34:14:
+Command was expected to succeed. code: 3
+stdout = 
+ stderr = err[runtime.error]: slice must align to UTF-8 boundaries
+  /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34
+    while at &lt; line.byte_len() and line.byte_slice(at, length: 1) in [&quot; &quot;, &quot;\t&quot;] {
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+err: text-byte-slice: slice must align to UTF-8 boundaries
+executable: /home/josh/d/laputa-systems/xsh/target/compat-tools-wave2/xsh
+at /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34-766:64
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_closed_range.txt -k 2.2,2.2
+open: /tmp/.tmpvP32rw/keys_closed_range.expected
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_closed_range.txt --debug -k 2.2,2.2
+test test_sort::test_keys_closed_range ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_closed_range
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.08s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_closed_range&apos; (2303092) panicked at tests/by-util/test_sort.rs:34:14:
+Command was expected to succeed. code: 3
+stdout = 
+ stderr = err[runtime.error]: slice must align to UTF-8 boundaries
+  /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34
+    while at &lt; line.byte_len() and line.byte_slice(at, length: 1) in [&quot; &quot;, &quot;\t&quot;] {
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+err: text-byte-slice: slice must align to UTF-8 boundaries
+executable: /home/josh/d/laputa-systems/xsh/target/compat-tools-wave2/xsh
+at /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34-766:64
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_custom_separator" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.455+00:00" time="0.082">
+            <failure message="thread &apos;test_sort::test_keys_custom_separator&apos; (2303100) panicked at tests/by-util/test_sort.rs:35:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_custom_separator&apos; (2303100) panicked at tests/by-util/test_sort.rs:35:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ ddxaaxff
+&lt;__
+&gt;    _
+ ________
+ ggxaaxcc
+&lt;__
+&gt;    _
+ ________
+ aaxbbxcc
+&lt;__
+&gt;    _
+ ________
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_custom_separator.txt -k 2.2,2.2 -t x
+open: /tmp/.tmp5r9ngb/keys_custom_separator.expected
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_custom_separator.txt --debug -k 2.2,2.2 -t x
+open: /tmp/.tmpnZfhSX/keys_custom_separator.expected.debug
+test test_sort::test_keys_custom_separator ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_custom_separator
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.08s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_custom_separator&apos; (2303100) panicked at tests/by-util/test_sort.rs:35:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ ddxaaxff
+&lt;__
+&gt;    _
+ ________
+ ggxaaxcc
+&lt;__
+&gt;    _
+ ________
+ aaxbbxcc
+&lt;__
+&gt;    _
+ ________
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_empty_match" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.536+00:00" time="0.045"/>
+        <testcase name="test_sort::test_keys_ignore_flag" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.537+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_keys_ignore_flag&apos; (2303125) panicked at tests/by-util/test_sort.rs:28:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_ignore_flag&apos; (2303125) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;1A
+  1a
+&gt;1A
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_ignore_flag.txt -k 1n -b
+open: /tmp/.tmpRerFa2/keys_ignore_flag.expected
+test test_sort::test_keys_ignore_flag ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_ignore_flag
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_ignore_flag&apos; (2303125) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;1A
+  1a
+&gt;1A
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_invalid_char_zero" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.581+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_keys_invalid_char_zero&apos; (2303144) panicked at tests/by-util/test_sort.rs:1085:10" type="test failure with exit code 101">thread &apos;test_sort::test_keys_invalid_char_zero&apos; (2303144) panicked at tests/by-util/test_sort.rs:1085:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 1.0
+test test_sort::test_keys_invalid_char_zero ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_invalid_char_zero
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_invalid_char_zero&apos; (2303144) panicked at tests/by-util/test_sort.rs:1085:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_invalid_field" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.584+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_keys_invalid_field&apos; (2303147) panicked at tests/by-util/test_sort.rs:1061:10" type="test failure with exit code 101">thread &apos;test_sort::test_keys_invalid_field&apos; (2303147) panicked at tests/by-util/test_sort.rs:1061:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 1.
+test test_sort::test_keys_invalid_field ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_invalid_field
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_invalid_field&apos; (2303147) panicked at tests/by-util/test_sort.rs:1061:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_invalid_field_option" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.628+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_keys_invalid_field_option&apos; (2303162) panicked at tests/by-util/test_sort.rs:1069:10" type="test failure with exit code 101">thread &apos;test_sort::test_keys_invalid_field_option&apos; (2303162) panicked at tests/by-util/test_sort.rs:1069:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 1.1x
+test test_sort::test_keys_invalid_field_option ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_invalid_field_option
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_invalid_field_option&apos; (2303162) panicked at tests/by-util/test_sort.rs:1069:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_invalid_field_zero" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.629+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_keys_invalid_field_zero&apos; (2303163) panicked at tests/by-util/test_sort.rs:1077:10" type="test failure with exit code 101">thread &apos;test_sort::test_keys_invalid_field_zero&apos; (2303163) panicked at tests/by-util/test_sort.rs:1077:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 0.1
+test test_sort::test_keys_invalid_field_zero ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_invalid_field_zero
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_invalid_field_zero&apos; (2303163) panicked at tests/by-util/test_sort.rs:1077:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_invalid_number_formats" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.673+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_keys_invalid_number_formats&apos; (2303180) panicked at tests/by-util/test_sort.rs:1093:10" type="test failure with exit code 101">thread &apos;test_sort::test_keys_invalid_number_formats&apos; (2303180) panicked at tests/by-util/test_sort.rs:1093:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 0
+test test_sort::test_keys_invalid_number_formats ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_invalid_number_formats
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_invalid_number_formats&apos; (2303180) panicked at tests/by-util/test_sort.rs:1093:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_multiple_ranges" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.675+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_keys_multiple_ranges&apos; (2303181) panicked at tests/by-util/test_sort.rs:28:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_multiple_ranges&apos; (2303181) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aa bb cc
+ gg aa cc
+ dd aa ff
+&gt;aa bb cc
+ èè éé èè
+ 👩‍🔬 👩‍🔬 👩‍🔬
+ 💣💣 💣💣 💣💣
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_multiple_ranges.txt -k 2,2 -k 3,3
+open: /tmp/.tmpwpfSVx/keys_multiple_ranges.expected
+test test_sort::test_keys_multiple_ranges ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_multiple_ranges
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_multiple_ranges&apos; (2303181) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aa bb cc
+ gg aa cc
+ dd aa ff
+&gt;aa bb cc
+ èè éé èè
+ 👩‍🔬 👩‍🔬 👩‍🔬
+ 💣💣 💣💣 💣💣
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_no_char_match" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.720+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_keys_no_char_match&apos; (2303203) panicked at tests/by-util/test_sort.rs:28:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_no_char_match&apos; (2303203) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aaa
+&lt;ba
+ c
+&gt;ba
+&gt;aaa
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_no_char_match.txt -k 1.2
+open: /tmp/.tmpOORRF4/keys_no_char_match.expected
+test test_sort::test_keys_no_char_match ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_no_char_match
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_no_char_match&apos; (2303203) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aaa
+&lt;ba
+ c
+&gt;ba
+&gt;aaa
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_negative_size_match" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.717+00:00" time="0.085">
+            <failure message="thread &apos;test_sort::test_keys_negative_size_match&apos; (2303198) panicked at tests/by-util/test_sort.rs:35:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_negative_size_match&apos; (2303198) panicked at tests/by-util/test_sort.rs:35:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ a b c
+&lt;_
+&gt;   ^ no match for key
+ _____
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_negative_size.txt -k 3,1
+open: /tmp/.tmpkwdGi2/keys_negative_size.expected
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_negative_size.txt --debug -k 3,1
+open: /tmp/.tmpjBGVCs/keys_negative_size.expected.debug
+test test_sort::test_keys_negative_size_match ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_negative_size_match
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.08s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_negative_size_match&apos; (2303198) panicked at tests/by-util/test_sort.rs:35:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ a b c
+&lt;_
+&gt;   ^ no match for key
+ _____
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_no_field_match" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.766+00:00" time="0.084">
+            <failure message="thread &apos;test_sort::test_keys_no_field_match&apos; (2303221) panicked at tests/by-util/test_sort.rs:34:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_no_field_match&apos; (2303221) panicked at tests/by-util/test_sort.rs:34:14:
+Command was expected to succeed. code: 3
+stdout = 
+ stderr = err[runtime.error]: slice must align to UTF-8 boundaries
+  /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34
+    while at &lt; line.byte_len() and line.byte_slice(at, length: 1) in [&quot; &quot;, &quot;\t&quot;] {
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+err: text-byte-slice: slice must align to UTF-8 boundaries
+executable: /home/josh/d/laputa-systems/xsh/target/compat-tools-wave2/xsh
+at /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34-766:64
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_no_field_match.txt -k 4,4
+open: /tmp/.tmpjyjxiP/keys_no_field_match.expected
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_no_field_match.txt --debug -k 4,4
+test test_sort::test_keys_no_field_match ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_no_field_match
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.08s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_no_field_match&apos; (2303221) panicked at tests/by-util/test_sort.rs:34:14:
+Command was expected to succeed. code: 3
+stdout = 
+ stderr = err[runtime.error]: slice must align to UTF-8 boundaries
+  /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34
+    while at &lt; line.byte_len() and line.byte_slice(at, length: 1) in [&quot; &quot;, &quot;\t&quot;] {
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+err: text-byte-slice: slice must align to UTF-8 boundaries
+executable: /home/josh/d/laputa-systems/xsh/target/compat-tools-wave2/xsh
+at /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/bin/sort:766:34-766:64
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_open_ended" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.803+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_keys_open_ended&apos; (2303230) panicked at tests/by-util/test_sort.rs:28:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_open_ended&apos; (2303230) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;dd aa ff
+ gg aa cc
+&gt;dd aa ff
+ aa bb cc
+&lt;èè éé èè
+ 👩‍🔬 👩‍🔬 👩‍🔬
+ 💣💣 💣💣 💣💣
+&gt;èè éé èè
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort keys_open_ended.txt -k 2.3
+open: /tmp/.tmpLvkGtt/keys_open_ended.expected
+test test_sort::test_keys_open_ended ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_open_ended
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_open_ended&apos; (2303230) panicked at tests/by-util/test_sort.rs:28:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;dd aa ff
+ gg aa cc
+&gt;dd aa ff
+ aa bb cc
+&lt;èè éé èè
+ 👩‍🔬 👩‍🔬 👩‍🔬
+ 💣💣 💣💣 💣💣
+&gt;èè éé èè
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_stable" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.850+00:00" time="0.047"/>
+        <testcase name="test_sort::test_keys_with_options" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.850+00:00" time="0.085">
+            <failure message="thread &apos;test_sort::test_keys_with_options&apos; (2303249) panicked at tests/by-util/test_sort.rs:1167:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_with_options&apos; (2303249) panicked at tests/by-util/test_sort.rs:1167:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aa 3 cc
+ dd 1 ff
+ gg 2 cc
+&gt;aa 3 cc
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 2,2n
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 2n,2
+test test_sort::test_keys_with_options ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_with_options
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.08s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_with_options&apos; (2303249) panicked at tests/by-util/test_sort.rs:1167:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aa 3 cc
+ dd 1 ff
+ gg 2 cc
+&gt;aa 3 cc
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_with_options_blanks_end" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.897+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_keys_with_options_blanks_end&apos; (2303274) panicked at tests/by-util/test_sort.rs:1198:10" type="test failure with exit code 101">thread &apos;test_sort::test_keys_with_options_blanks_end&apos; (2303274) panicked at tests/by-util/test_sort.rs:1198:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;a   b
+ a  b
+ a b
+&lt;a   b
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 1,2.1b -s
+test test_sort::test_keys_with_options_blanks_end ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_with_options_blanks_end
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_with_options_blanks_end&apos; (2303274) panicked at tests/by-util/test_sort.rs:1198:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;a   b
+ a  b
+ a b
+&lt;a   b
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_keys_with_options_blanks_start" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.936+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_keys_with_options_blanks_start&apos; (2303284) panicked at tests/by-util/test_sort.rs:1179:14" type="test failure with exit code 101">thread &apos;test_sort::test_keys_with_options_blanks_start&apos; (2303284) panicked at tests/by-util/test_sort.rs:1179:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aa   3 cc
+ dd  1 ff
+ gg         2 cc
+&gt;aa   3 cc
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k 2b,2
+test test_sort::test_keys_with_options_blanks_start ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_keys_with_options_blanks_start
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_keys_with_options_blanks_start&apos; (2303284) panicked at tests/by-util/test_sort.rs:1179:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;aa   3 cc
+ dd  1 ff
+ gg         2 cc
+&gt;aa   3 cc
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_legacy_plus_minus_accepts_when_modern_posix2" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.943+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_legacy_plus_minus_accepts_when_modern_posix2&apos; (2303294) panicked at tests/by-util/test_sort.rs:166:10" type="test failure with exit code 101">thread &apos;test_sort::test_legacy_plus_minus_accepts_when_modern_posix2&apos; (2303294) panicked at tests/by-util/test_sort.rs:166:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = sort: cannot read: +0.18446744073709551615R: No such file or directory
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+write(default): /tmp/.tmpjqgn5K/input.txt
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort +0.18446744073709551615R input.txt
+test test_sort::test_legacy_plus_minus_accepts_when_modern_posix2 ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_legacy_plus_minus_accepts_when_modern_posix2
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_legacy_plus_minus_accepts_when_modern_posix2&apos; (2303294) panicked at tests/by-util/test_sort.rs:166:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = sort: cannot read: +0.18446744073709551615R: No such file or directory
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_legacy_plus_minus_accepts_with_size_max" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.982+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_legacy_plus_minus_accepts_with_size_max&apos; (2303303) panicked at tests/by-util/test_sort.rs:180:10" type="test failure with exit code 101">thread &apos;test_sort::test_legacy_plus_minus_accepts_with_size_max&apos; (2303303) panicked at tests/by-util/test_sort.rs:180:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = sort: cannot read: +1: No such file or directory
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+write(default): /tmp/.tmp4PsDoQ/input.txt
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort +1 -1.18446744073709551615R input.txt
+test test_sort::test_legacy_plus_minus_accepts_with_size_max ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_legacy_plus_minus_accepts_with_size_max
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_legacy_plus_minus_accepts_with_size_max&apos; (2303303) panicked at tests/by-util/test_sort.rs:180:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = sort: cannot read: +1: No such file or directory
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_locale_c_byte_order" classname="coreutils::tests" timestamp="2026-10-07T16:26:49.992+00:00" time="0.044"/>
+        <testcase name="test_sort::test_locale_collation_c_locale" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.027+00:00" time="0.046"/>
+        <testcase name="test_sort::test_locale_collation_utf8" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.036+00:00" time="0.042"/>
+        <testcase name="test_sort::test_locale_complex_utf8_sorting" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.073+00:00" time="0.049">
+            <failure message="thread &apos;test_sort::test_locale_complex_utf8_sorting&apos; (2303343) panicked at tests/by-util/test_sort.rs:3541:10" type="test failure with exit code 101">thread &apos;test_sort::test_locale_complex_utf8_sorting&apos; (2303343) panicked at tests/by-util/test_sort.rs:3541:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;Apple
+&lt;Banana
+&lt;Zebra
+ apple
+&gt;Apple
+ banana
+&gt;Banana
+ zebra
+&gt;Zebra
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort
+test test_sort::test_locale_complex_utf8_sorting ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_locale_complex_utf8_sorting
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_locale_complex_utf8_sorting&apos; (2303343) panicked at tests/by-util/test_sort.rs:3541:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;Apple
+&lt;Banana
+&lt;Zebra
+ apple
+&gt;Apple
+ banana
+&gt;Banana
+ zebra
+&gt;Zebra
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_locale_empty_env_vars_hungarian_lc_collate" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.078+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_locale_empty_env_vars_hungarian_lc_collate&apos; (2303352) panicked at tests/by-util/test_sort.rs:3690:14" type="test failure with exit code 101">thread &apos;test_sort::test_locale_empty_env_vars_hungarian_lc_collate&apos; (2303352) panicked at tests/by-util/test_sort.rs:3690:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ gx
+&lt;gy
+ gz
+&gt;gy
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort
+test test_sort::test_locale_empty_env_vars_hungarian_lc_collate ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_locale_empty_env_vars_hungarian_lc_collate
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_locale_empty_env_vars_hungarian_lc_collate&apos; (2303352) panicked at tests/by-util/test_sort.rs:3690:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ gx
+&lt;gy
+ gz
+&gt;gy
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_locale_posix_byte_order" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.124+00:00" time="0.043"/>
+        <testcase name="test_sort::test_locale_interleaved_en_us_utf8" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.122+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_locale_interleaved_en_us_utf8&apos; (2303364) panicked at tests/by-util/test_sort.rs:3468:10" type="test failure with exit code 101">thread &apos;test_sort::test_locale_interleaved_en_us_utf8&apos; (2303364) panicked at tests/by-util/test_sort.rs:3468:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;A
+&lt;B
+ a
+&gt;A
+ b
+&gt;B
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort
+test test_sort::test_locale_interleaved_en_us_utf8 ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_locale_interleaved_en_us_utf8
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_locale_interleaved_en_us_utf8&apos; (2303364) panicked at tests/by-util/test_sort.rs:3468:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;A
+&lt;B
+ a
+&gt;A
+ b
+&gt;B
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_locale_posix_sort_debug_message" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.167+00:00" time="0.045">
+            <failure message="thread &apos;test_sort::test_locale_posix_sort_debug_message&apos; (2303383) panicked at tests/by-util/test_sort.rs:3551:10" type="test failure with exit code 101">thread &apos;test_sort::test_locale_posix_sort_debug_message&apos; (2303383) panicked at tests/by-util/test_sort.rs:3551:10:
+&apos;&apos; does not contain &apos;text ordering performed using simple byte comparison&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --debug
+test test_sort::test_locale_posix_sort_debug_message ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_locale_posix_sort_debug_message
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_locale_posix_sort_debug_message&apos; (2303383) panicked at tests/by-util/test_sort.rs:3551:10:
+&apos;&apos; does not contain &apos;text ordering performed using simple byte comparison&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_locale_utf8_sort_debug_message" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.171+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_locale_utf8_sort_debug_message&apos; (2303392) panicked at tests/by-util/test_sort.rs:3561:10" type="test failure with exit code 101">thread &apos;test_sort::test_locale_utf8_sort_debug_message&apos; (2303392) panicked at tests/by-util/test_sort.rs:3561:10:
+&apos;&apos; does not contain &apos;text ordering performed using ‘en_US.UTF-8’ sorting rules&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --debug
+test test_sort::test_locale_utf8_sort_debug_message ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_locale_utf8_sort_debug_message
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_locale_utf8_sort_debug_message&apos; (2303392) panicked at tests/by-util/test_sort.rs:3561:10:
+&apos;&apos; does not contain &apos;text ordering performed using ‘en_US.UTF-8’ sorting rules&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_locale_utf8_with_key_field" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.212+00:00" time="0.042"/>
+        <testcase name="test_sort::test_locale_with_ignore_case_flag" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.218+00:00" time="0.044"/>
+        <testcase name="test_sort::test_merge_batch_size_with_limit" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.262+00:00" time="0.008">
+            <failure message="thread &apos;test_sort::test_merge_batch_size_with_limit&apos; (2303431) panicked at tests/by-util/test_sort.rs:1808:10" type="test failure with exit code 101">thread &apos;test_sort::test_merge_batch_size_with_limit&apos; (2303431) panicked at tests/by-util/test_sort.rs:1808:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = /bin/sh: line 0: 3: Invalid argument
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --batch-size=2 -m --unique merge_ints_interleaved_1.txt merge_ints_interleaved_2.txt merge_ints_interleaved_3.txt merge_ints_interleaved_3.txt merge_ints_interleaved_2.txt merge_ints_interleaved_1.txt
+test test_sort::test_merge_batch_size_with_limit ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_merge_batch_size_with_limit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_merge_batch_size_with_limit&apos; (2303431) panicked at tests/by-util/test_sort.rs:1808:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = /bin/sh: line 0: 3: Invalid argument
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_merge_batch_size" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.255+00:00" time="0.043"/>
+        <testcase name="test_sort::test_merge_batches" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.270+00:00" time="0.044">
+            <failure message="thread &apos;test_sort::test_merge_batches&apos; (2303435) panicked at tests/by-util/test_sort.rs:1734:10" type="test failure with exit code 101">thread &apos;test_sort::test_merge_batches&apos; (2303435) panicked at tests/by-util/test_sort.rs:1734:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort ext_sort.txt -n -S 150b
+test test_sort::test_merge_batches ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_merge_batches
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_merge_batches&apos; (2303435) panicked at tests/by-util/test_sort.rs:1734:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[2]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_merge_empty_input" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.298+00:00" time="0.042"/>
+        <testcase name="test_sort::test_merge_flush_error_is_reported" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.315+00:00" time="0.043"/>
+        <testcase name="test_sort::test_merge_interleaved" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.341+00:00" time="0.045"/>
+        <testcase name="test_sort::test_merge_more_files_than_fd_limit" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.358+00:00" time="0.052"/>
+        <testcase name="test_sort::test_merge_output_file_is_truncated" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.386+00:00" time="0.047"/>
+        <testcase name="test_sort::test_merge_reversed" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.433+00:00" time="0.047"/>
+        <testcase name="test_sort::test_merge_preserves_long_lines" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.410+00:00" time="0.087"/>
+        <testcase name="test_sort::test_merge_stable" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.480+00:00" time="0.047"/>
+        <testcase name="test_sort::test_merge_unique" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.497+00:00" time="0.048"/>
+        <testcase name="test_sort::test_mixed_floats_ints_chars_numeric" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.545+00:00" time="0.277"/>
+        <testcase name="test_sort::test_mixed_floats_ints_chars_numeric_reverse" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.823+00:00" time="0.100"/>
+        <testcase name="test_sort::test_mixed_floats_ints_chars_numeric_stable" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.923+00:00" time="0.097"/>
+        <testcase name="test_sort::test_mixed_floats_ints_chars_numeric_unique" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.020+00:00" time="0.101"/>
+        <testcase name="test_sort::test_month_default" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.121+00:00" time="0.257"/>
+        <testcase name="test_sort::test_month_default2" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.378+00:00" time="0.129"/>
+        <testcase name="test_sort::test_month_sort_french_embedded_blanks" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.507+00:00" time="0.005"/>
+        <testcase name="test_sort::test_month_sort_french_locale" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.513+00:00" time="0.004"/>
+        <testcase name="test_sort::test_month_sort_hungarian_locale" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.516+00:00" time="0.004"/>
+        <testcase name="test_sort::test_month_sort_japanese_locale" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.520+00:00" time="0.003"/>
+        <testcase name="test_sort::test_month_stable" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.523+00:00" time="0.086"/>
+        <testcase name="test_sort::test_months_dedup" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.610+00:00" time="0.089"/>
+        <testcase name="test_sort::test_months_whitespace" classname="coreutils::tests" timestamp="2026-10-07T16:26:51.698+00:00" time="0.421"/>
+        <testcase name="test_sort::test_more_files_than_fd_limit" classname="coreutils::tests" timestamp="2026-10-07T16:26:52.120+00:00" time="0.048"/>
+        <testcase name="test_sort::test_multiple_decimals_general" classname="coreutils::tests" timestamp="2026-10-07T16:26:52.168+00:00" time="0.572"/>
+        <testcase name="test_sort::test_multiple_decimals_numeric" classname="coreutils::tests" timestamp="2026-10-07T16:26:52.740+00:00" time="0.374"/>
+        <testcase name="test_sort::test_multiple_files" classname="coreutils::tests" timestamp="2026-10-07T16:26:53.114+00:00" time="0.047"/>
+        <testcase name="test_sort::test_multiple_groupings_numeric" classname="coreutils::tests" timestamp="2026-10-07T16:26:53.161+00:00" time="0.356"/>
+        <testcase name="test_sort::test_no_error_for_version" classname="coreutils::tests" timestamp="2026-10-07T16:26:53.517+00:00" time="0.046"/>
+        <testcase name="test_sort::test_non_printing_chars" classname="coreutils::tests" timestamp="2026-10-07T16:26:53.564+00:00" time="0.047"/>
+        <testcase name="test_sort::test_nonexistent_file" classname="coreutils::tests" timestamp="2026-10-07T16:26:53.611+00:00" time="0.045"/>
+        <testcase name="test_sort::test_numeric_fixed_floats" classname="coreutils::tests" timestamp="2026-10-07T16:26:53.656+00:00" time="0.256"/>
+        <testcase name="test_sort::test_numeric_floats" classname="coreutils::tests" timestamp="2026-10-07T16:26:53.912+00:00" time="0.258"/>
+        <testcase name="test_sort::test_numeric_floats2" classname="coreutils::tests" timestamp="2026-10-07T16:26:54.170+00:00" time="0.090"/>
+        <testcase name="test_sort::test_numeric_floats_and_ints" classname="coreutils::tests" timestamp="2026-10-07T16:26:54.260+00:00" time="0.254"/>
+        <testcase name="test_sort::test_numeric_floats_and_ints2" classname="coreutils::tests" timestamp="2026-10-07T16:26:54.515+00:00" time="0.086"/>
+        <testcase name="test_sort::test_numeric_floats_with_nan" classname="coreutils::tests" timestamp="2026-10-07T16:26:54.601+00:00" time="0.258"/>
+        <testcase name="test_sort::test_numeric_floats_with_nan2" classname="coreutils::tests" timestamp="2026-10-07T16:26:54.859+00:00" time="0.264"/>
+        <testcase name="test_sort::test_numeric_sort_rejects_leading_plus_sign" classname="coreutils::tests" timestamp="2026-10-07T16:26:55.124+00:00" time="0.048"/>
+        <testcase name="test_sort::test_numeric_sort_uses_the_key_not_the_whole_line" classname="coreutils::tests" timestamp="2026-10-07T16:26:55.172+00:00" time="0.259"/>
+        <testcase name="test_sort::test_numeric_unfixed_floats" classname="coreutils::tests" timestamp="2026-10-07T16:26:55.431+00:00" time="0.257"/>
+        <testcase name="test_sort::test_numeric_unique" classname="coreutils::tests" timestamp="2026-10-07T16:26:55.689+00:00" time="0.089"/>
+        <testcase name="test_sort::test_numeric_unique_ints" classname="coreutils::tests" timestamp="2026-10-07T16:26:55.778+00:00" time="0.088"/>
+        <testcase name="test_sort::test_numeric_unique_ints2" classname="coreutils::tests" timestamp="2026-10-07T16:26:55.866+00:00" time="0.047"/>
+        <testcase name="test_sort::test_numeric_unsorted_ints" classname="coreutils::tests" timestamp="2026-10-07T16:26:55.913+00:00" time="0.318"/>
+        <testcase name="test_sort::test_numeric_with_trailing_invalid_chars" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.232+00:00" time="0.265"/>
+        <testcase name="test_sort::test_output_device" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.497+00:00" time="0.046"/>
+        <testcase name="test_sort::test_output_file_is_truncated" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.542+00:00" time="0.044"/>
+        <testcase name="test_sort::test_output_file_with_leading_dash" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.587+00:00" time="0.087"/>
+        <testcase name="test_sort::test_output_is_input" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.674+00:00" time="0.047"/>
+        <testcase name="test_sort::test_parallel_invalid" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.721+00:00" time="0.087"/>
+        <testcase name="test_sort::test_pipe" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.809+00:00" time="0.045"/>
+        <testcase name="test_sort::test_random_ignore_case" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.854+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_random_ignore_case&apos; (2304659) panicked at tests/by-util/test_sort.rs:526:10" type="test failure with exit code 101">thread &apos;test_sort::test_random_ignore_case&apos; (2304659) panicked at tests/by-util/test_sort.rs:526:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -fR
+test test_sort::test_random_ignore_case ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_random_ignore_case
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_random_ignore_case&apos; (2304659) panicked at tests/by-util/test_sort.rs:526:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_random_shuffle_contains_all_lines" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.901+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_random_shuffle_contains_all_lines&apos; (2304669) panicked at tests/by-util/test_sort.rs:442:50" type="test failure with exit code 101">thread &apos;test_sort::test_random_shuffle_contains_all_lines&apos; (2304669) panicked at tests/by-util/test_sort.rs:442:50:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -R default_unsorted_ints.expected
+test test_sort::test_random_shuffle_contains_all_lines ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_random_shuffle_contains_all_lines
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_random_shuffle_contains_all_lines&apos; (2304669) panicked at tests/by-util/test_sort.rs:442:50:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_random_shuffle_len" classname="coreutils::tests" timestamp="2026-10-07T16:26:56.949+00:00" time="0.050">
+            <failure message="thread &apos;test_sort::test_random_shuffle_len&apos; (2304678) panicked at tests/by-util/test_sort.rs:430:50" type="test failure with exit code 101">thread &apos;test_sort::test_random_shuffle_len&apos; (2304678) panicked at tests/by-util/test_sort.rs:430:50:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -R default_unsorted_ints.expected
+test test_sort::test_random_shuffle_len ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_random_shuffle_len
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.05s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_random_shuffle_len&apos; (2304678) panicked at tests/by-util/test_sort.rs:430:50:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_random_shuffle_two_runs_not_the_same" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.000+00:00" time="0.051">
+            <failure message="thread &apos;test_sort::test_random_shuffle_two_runs_not_the_same&apos; (2304687) panicked at tests/by-util/test_sort.rs:461:53" type="test failure with exit code 101">thread &apos;test_sort::test_random_shuffle_two_runs_not_the_same&apos; (2304687) panicked at tests/by-util/test_sort.rs:461:53:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -R default_unsorted_ints.expected
+test test_sort::test_random_shuffle_two_runs_not_the_same ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_random_shuffle_two_runs_not_the_same
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.05s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_random_shuffle_two_runs_not_the_same&apos; (2304687) panicked at tests/by-util/test_sort.rs:461:53:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_random_source_is_not_read_without_random_sort" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.051+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_random_source_is_not_read_without_random_sort&apos; (2304696) panicked at tests/by-util/test_sort.rs:516:10" type="test failure with exit code 101">thread &apos;test_sort::test_random_source_is_not_read_without_random_sort&apos; (2304696) panicked at tests/by-util/test_sort.rs:516:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: --random-source
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+write(default): /tmp/.tmpEsrT3A/source
+write(default): /tmp/.tmpEsrT3A/input
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort --random-source=source input
+test test_sort::test_random_source_is_not_read_without_random_sort ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_random_source_is_not_read_without_random_sort
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_random_source_is_not_read_without_random_sort&apos; (2304696) panicked at tests/by-util/test_sort.rs:516:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: --random-source
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_random_source_of_exactly_the_salt_length" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.097+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_random_source_of_exactly_the_salt_length&apos; (2304705) panicked at tests/by-util/test_sort.rs:497:10" type="test failure with exit code 101">thread &apos;test_sort::test_random_source_of_exactly_the_salt_length&apos; (2304705) panicked at tests/by-util/test_sort.rs:497:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+write(default): /tmp/.tmp0NCqG8/source
+write(default): /tmp/.tmp0NCqG8/input
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -R --random-source=source input
+test test_sort::test_random_source_of_exactly_the_salt_length ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_random_source_of_exactly_the_salt_length
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_random_source_of_exactly_the_salt_length&apos; (2304705) panicked at tests/by-util/test_sort.rs:497:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -R
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_random_source_shorter_than_the_salt" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.144+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_random_source_shorter_than_the_salt&apos; (2304714) panicked at tests/by-util/test_sort.rs:482:14" type="test failure with exit code 101">thread &apos;test_sort::test_random_source_shorter_than_the_salt&apos; (2304714) panicked at tests/by-util/test_sort.rs:482:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[0]: -R
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: &apos;source&apos;: end of file
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+write(default): /tmp/.tmpxMvBSE/source
+write(default): /tmp/.tmpxMvBSE/input
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -R --random-source=source input
+test test_sort::test_random_source_shorter_than_the_salt ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_random_source_shorter_than_the_salt
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_random_source_shorter_than_the_salt&apos; (2304714) panicked at tests/by-util/test_sort.rs:482:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;unknown argument at argv[0]: -R
+&lt;
+&lt;usage: sort [...FILE] [OPTIONS]
+&lt;
+&lt;options:
+&lt;  --batch-size SIZE
+&lt;  -b, --ignore-leading-blanks
+&lt;  --check[=TYPE]
+&lt;  --debug
+&lt;  -t, --delimiter DELIMITER
+&lt;  -d, --dictionary-order
+&lt;  --files0-from FILE
+&lt;  -f, --ignore-case
+&lt;  -g, --general-numeric-sort
+&lt;  -h, --human-numeric-sort
+&lt;  -i, --ignore-nonprinting
+&lt;  -k, --key KEY
+&lt;  -m, --merge
+&lt;  -M, --month-sort
+&lt;  -n, --numeric-sort
+&lt;  -o, --output FILE
+&lt;  -r, --reverse
+&lt;  -c, --short-check
+&lt;  -C, --silent-check
+&lt;  --sort MODE
+&lt;  -s, --stable
+&lt;  -u, --unique
+&lt;  --version
+&lt;  -V, --version-sort
+&lt;  -z, --zero-terminated
+&lt;  --help  show this help
+&gt;sort: &apos;source&apos;: end of file
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_read_error_message" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.192+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_read_error_message&apos; (2304723) panicked at tests/by-util/test_sort.rs:1399:5" type="test failure with exit code 101">thread &apos;test_sort::test_read_error_message&apos; (2304723) panicked at tests/by-util/test_sort.rs:1399:5:
+unexpected stderr: sort: cannot read: /proc/self/mem: I/O error
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort /proc/self/mem
+test test_sort::test_read_error_message ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_read_error_message
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_read_error_message&apos; (2304723) panicked at tests/by-util/test_sort.rs:1399:5:
+unexpected stderr: sort: cannot read: /proc/self/mem: I/O error
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_same_output_flag_twice_ok" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.240+00:00" time="0.044"/>
+        <testcase name="test_sort::test_same_sort_mode_twice" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.284+00:00" time="0.046"/>
+        <testcase name="test_sort::test_separator_attached_equals" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.330+00:00" time="0.046"/>
+        <testcase name="test_sort::test_separator_attached_equals_double" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.376+00:00" time="0.044"/>
+        <testcase name="test_sort::test_separator_attached_equals_multi_char" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.421+00:00" time="0.046"/>
+        <testcase name="test_sort::test_separator_null" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.466+00:00" time="0.046">
+            <failure message="thread &apos;test_sort::test_separator_null&apos; (2304788) panicked at tests/by-util/test_sort.rs:2019:10" type="test failure with exit code 101">thread &apos;test_sort::test_separator_null&apos; (2304788) panicked at tests/by-util/test_sort.rs:2019:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;azz
+ zba
+ zab
+&lt;azz
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -k1,1 -k3,3 -t \0
+test test_sort::test_separator_null ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_separator_null
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_separator_null&apos; (2304788) panicked at tests/by-util/test_sort.rs:2019:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;azz
+ zba
+ zab
+&lt;azz
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_sigpipe_panic" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.513+00:00" time="0.060"/>
+        <testcase name="test_sort::test_sort_general_numeric_extremes" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.573+00:00" time="0.048"/>
+        <testcase name="test_sort::test_sort_locale_punctuation" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.621+00:00" time="0.328"/>
+        <testcase name="test_sort::test_start_buffer" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.950+00:00" time="0.046"/>
+        <testcase name="test_sort::test_tmp_files_are_private" classname="coreutils::tests" timestamp="2026-10-07T16:26:57.996+00:00" time="3.184">
+            <failure message="thread &apos;test_sort::test_tmp_files_are_private&apos; (2304892) panicked at tests/by-util/test_sort.rs:2216:5" type="test failure with exit code 101">thread &apos;test_sort::test_tmp_files_are_private&apos; (2304892) panicked at tests/by-util/test_sort.rs:2216:5:
+sort did not spill any chunk to disk
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+mkdir: /tmp/.tmptfK2ar/scratch
+write(default): /tmp/.tmptfK2ar/unsorted.txt
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort unsorted.txt -S 1 -T scratch
+test test_sort::test_tmp_files_are_private ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_tmp_files_are_private
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 3.18s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_tmp_files_are_private&apos; (2304892) panicked at tests/by-util/test_sort.rs:2216:5:
+sort did not spill any chunk to disk
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_tmp_files_deleted_on_sigint" classname="coreutils::tests" timestamp="2026-10-07T16:27:01.180+00:00" time="3.516">
+            <failure message="thread &apos;test_sort::test_tmp_files_deleted_on_sigint&apos; (2304921) panicked at tests/by-util/test_sort.rs:2172:5" type="test failure with exit code 101">thread &apos;test_sort::test_tmp_files_deleted_on_sigint&apos; (2304921) panicked at tests/by-util/test_sort.rs:2172:5:
+assertion failed: read_dir(at.plus(&quot;tmp_dir&quot;)).unwrap().next().is_some()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+mkdir: /tmp/.tmpS2FWM2/tmp_dir
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort big_file_to_sort.txt --buffer-size=1 --temporary-directory=tmp_dir
+test test_sort::test_tmp_files_deleted_on_sigint ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_tmp_files_deleted_on_sigint
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 3.51s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_tmp_files_deleted_on_sigint&apos; (2304921) panicked at tests/by-util/test_sort.rs:2172:5:
+assertion failed: read_dir(at.plus(&quot;tmp_dir&quot;)).unwrap().next().is_some()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_trailing_separator" classname="coreutils::tests" timestamp="2026-10-07T16:27:04.696+00:00" time="0.047"/>
+        <testcase name="test_sort::test_unterminated_file_not_fused_across_chunk_boundary" classname="coreutils::tests" timestamp="2026-10-07T16:27:04.744+00:00" time="0.048">
+            <failure message="thread &apos;test_sort::test_unterminated_file_not_fused_across_chunk_boundary&apos; (2304960) panicked at tests/by-util/test_sort.rs:1308:14" type="test failure with exit code 101">thread &apos;test_sort::test_unterminated_file_not_fused_across_chunk_boundary&apos; (2304960) panicked at tests/by-util/test_sort.rs:1308:14:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+write(default): /tmp/.tmpk3k25G/first.txt
+write(default): /tmp/.tmpk3k25G/second.txt
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -S 1b first.txt second.txt
+test test_sort::test_unterminated_file_not_fused_across_chunk_boundary ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_unterminated_file_not_fused_across_chunk_boundary
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_unterminated_file_not_fused_across_chunk_boundary&apos; (2304960) panicked at tests/by-util/test_sort.rs:1308:14:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = unknown argument at argv[0]: -S
+
+usage: sort [...FILE] [OPTIONS]
+
+options:
+  --batch-size SIZE
+  -b, --ignore-leading-blanks
+  --check[=TYPE]
+  --debug
+  -t, --delimiter DELIMITER
+  -d, --dictionary-order
+  --files0-from FILE
+  -f, --ignore-case
+  -g, --general-numeric-sort
+  -h, --human-numeric-sort
+  -i, --ignore-nonprinting
+  -k, --key KEY
+  -m, --merge
+  -M, --month-sort
+  -n, --numeric-sort
+  -o, --output FILE
+  -r, --reverse
+  -c, --short-check
+  -C, --silent-check
+  --sort MODE
+  -s, --stable
+  -u, --unique
+  --version
+  -V, --version-sort
+  -z, --zero-terminated
+  --help  show this help
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_verifies_files_after_keys" classname="coreutils::tests" timestamp="2026-10-07T16:27:04.792+00:00" time="0.047">
+            <failure message="thread &apos;test_sort::test_verifies_files_after_keys&apos; (2304969) panicked at tests/by-util/test_sort.rs:1989:10" type="test failure with exit code 101">thread &apos;test_sort::test_verifies_files_after_keys&apos; (2304969) panicked at tests/by-util/test_sort.rs:1989:10:
+&apos;sort: cannot read: nonexistent_dir/input_file: No such file or directory
+&apos; does not contain &apos;invalid field specification &apos;0&apos;&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/sort-wave3-stage-final3/xsh-uutests sort -o nonexistent_dir/nonexistent_file -k 0 nonexistent_dir/input_file
+test test_sort::test_verifies_files_after_keys ... FAILED
+
+failures:
+
+failures:
+    test_sort::test_verifies_files_after_keys
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_sort::test_verifies_files_after_keys&apos; (2304969) panicked at tests/by-util/test_sort.rs:1989:10:
+&apos;sort: cannot read: nonexistent_dir/input_file: No such file or directory
+&apos; does not contain &apos;invalid field specification &apos;0&apos;&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_sort::test_verifies_input_files" classname="coreutils::tests" timestamp="2026-10-07T16:27:04.839+00:00" time="0.046"/>
+        <testcase name="test_sort::test_verifies_input_files_without_opening_them" classname="coreutils::tests" timestamp="2026-10-07T16:27:04.885+00:00" time="0.046"/>
+        <testcase name="test_sort::test_verifies_out_file" classname="coreutils::tests" timestamp="2026-10-07T16:27:04.932+00:00" time="0.086"/>
+        <testcase name="test_sort::test_version" classname="coreutils::tests" timestamp="2026-10-07T16:27:05.017+00:00" time="0.090"/>
+        <testcase name="test_sort::test_version_empty_lines" classname="coreutils::tests" timestamp="2026-10-07T16:27:05.107+00:00" time="0.181"/>
+        <testcase name="test_sort::test_version_sort_stable" classname="coreutils::tests" timestamp="2026-10-07T16:27:05.288+00:00" time="0.045"/>
+        <testcase name="test_sort::test_version_sort_unstable" classname="coreutils::tests" timestamp="2026-10-07T16:27:05.333+00:00" time="0.129"/>
+        <testcase name="test_sort::test_words_unique" classname="coreutils::tests" timestamp="2026-10-07T16:27:05.462+00:00" time="0.088"/>
+        <testcase name="test_sort::test_wrong_args_exit_code" classname="coreutils::tests" timestamp="2026-10-07T16:27:05.550+00:00" time="0.046"/>
+        <testcase name="test_sort::test_zero_terminated" classname="coreutils::tests" timestamp="2026-10-07T16:27:05.597+00:00" time="0.091"/>
+        <testcase name="test_sort::test_merge_write_error_does_not_panic" classname="coreutils::tests" timestamp="2026-10-07T16:26:50.527+00:00" time="22.162"/>
+    </testsuite>
+</testsuites>

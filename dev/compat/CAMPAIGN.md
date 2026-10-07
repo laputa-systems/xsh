@@ -49,6 +49,58 @@ remain historical evidence only.
   their work. Their ownership record is in `CLAIMS.md`. XSH owns command
   behavior, with Rust limited to necessary reusable OS and byte boundaries.
 
+## Current focused integration (2026-10-07)
+
+The same 16 lane owners completed longer, disjoint follow-up tasks based on
+`4273cc46`; their source commits are integrated on `master`. The full Gate 3
+and Gate 4 reports below remain historical at `92a91b12`; the complete suites
+have not been rerun after this wave.
+
+| Lane | Pinned uutils slice | Owned native suites |
+|---|---:|---:|
+| `awk` | outside Gate 3 | 20 passed |
+| `sed` | outside Gate 3 | 27 passed |
+| `date` | 161/185 → 169/185 (+8) | date + dircolors: 23 passed |
+| `fs-basic` | 192/210 → 197/210 (+5) | 37 passed |
+| `fs-misc` | 274/302 → 282/302 (+8) | 54 passed, 1 expected skip |
+| `bytes-enc` | 284/310 → 291/310 (+7) | 59 passed |
+| `text-a1` | 270/360 → 281/360 (+11) | 62 passed |
+| `text-b1` | 470/520 → 482/520 (+12) | 48 passed |
+| `cp` | 348/386 → 356/386 (+8) | 43 passed |
+| `proc-a` | 106/120, unchanged | 58 passed |
+| `perm` | 122/146 → 123/146 (+1) | 42 passed, 10 permission skips |
+| `stat-du-df` | 226/236 → 235/236 (+9) | 33 passed |
+| `mv-ln` | 333/343 → 337/343 (+4) | 61 passed; protected-target case also passed as UID 1000 |
+| `ls` | 181/207 → 186/207 (+5) | 35 passed |
+| `printf-env` | 186/252 → 194/252 (+8 in `env`; `printf` unchanged) | 51 passed |
+| `checksums` | 504/504 | 65 passed |
+
+Among the measured slices with pass gains, 86 previously failing IDs now pass;
+every comparison reports zero regressions. GNU 9.12 checksum tests pass 20/21;
+the remaining error is `cksum-c.sh`'s `strace` EIO injection check. The AWK
+lane added the POSIX live `ARGV`/`ARGC` matrix; GNU awk was unavailable. The sed
+lane added address and replacement coverage and checked the local BusyBox
+oracle. No Rust parser or applet backend was added.
+
+## Sort merge follow-up (`a860f47a`)
+
+`sort -m` now merges regular file inputs incrementally to stdout, using bounded
+record buffers and stopping input reads after an intermediate write failure.
+Other merge paths retain the existing in-memory behavior. The change also adds
+`--batch-size` validation, accepts the escaped `-t '\\0'` separator, and
+rejects separators longer than one character. The native sort suite passes
+39/39. Gate 3 improved from 115/217 after `--files0-from` to 133/217, fixing
+18 tests with no regressions; the latest incremental comparison is 130/217 to
+133/217. The newest fixed IDs are `test_merge_write_error_does_not_panic`,
+`test_separator_attached_equals_double`, and
+`test_separator_attached_equals_multi_char`. The run is recorded in
+`results/sort-merge-followup/`.
+
+Remaining sort cases include external merge batches, multiple sort keys with
+`-t '\\0'`, and a batch-size test whose shell wrapper rejects its reduced file
+descriptor limit. The current full 106-utility Gate 3 and 719-test GNU Gate 4
+have not been rerun; the campaign remains active and incomplete.
+
 ### Current integration result (2026-10-07, `92a91b12`)
 
 - The full native suite passed at parent revision `a0b9ce93` in the pinned
