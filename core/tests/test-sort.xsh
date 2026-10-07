@@ -33,6 +33,43 @@ test test_sort_fold_case_uses_raw_line_as_tie_breaker { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_dictionary_and_nonprinting_order { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-character-order")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let dictionary_input = b"./bbc\nbbd\nbbb\n"
+  let dictionary = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-d"], root,
+    {LC_ALL: "C"}, dictionary_input, stdout, stderr))?
+  assert dictionary.exit_code()? == 0
+  assert stdout.read_bytes()? == b"bbb\n./bbc\nbbd\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let nonprinting_input = bytes.from_text("a👦🏻aa\naaaa\n")
+  let nonprinting = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-i"], root,
+    {LC_ALL: "C"}, nonprinting_input, stdout, stderr))?
+  assert nonprinting.exit_code()? == 0
+  assert stdout.read_bytes()? == nonprinting_input
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-character-order-conflict")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for args in [["-dn"], ["-in"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert result.exit_code()? == 2
+    assert stderr.read_text()? == f"sort: options '{args[0]}' are incompatible\n"
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
 test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "sort-input-check")?
   let fifo = fp"{root}/FIFO"
