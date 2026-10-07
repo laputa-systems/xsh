@@ -26,6 +26,9 @@
       "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
       "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
     ],
+    "pr": [
+      "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`."
+    ],
     "who": [
       "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
       "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",

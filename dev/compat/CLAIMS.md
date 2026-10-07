@@ -48,3 +48,26 @@ source commits for that wave.
 | `perm` | `365c4d65` | `stat-du-df` | `2133dd89` |
 | `mv-ln` | `7c711270` | `ls` | `cd7d5e10` |
 | `printf-env` | `b491bc05` | `checksums` | `0eb21496` |
+
+## Focused continuation (2026-10-07)
+
+Owners with remaining work continued from `20560ca4` within their existing
+disjoint module scopes. These mainline commits integrate that continuation;
+the integrator owns the runtime cleanup, signal, and stdin corrections.
+
+| Lane | Integrated commits |
+|---|---|
+| `sort` | `d0fefec5`, `8ec420e0` |
+| `integrator` | `89c4e143` |
+| `date` | `8c386769` |
+| `bytes-enc` | `e673e911` |
+| `fs-basic` | `4ffb5f90` |
+| `fs-misc` | `4693e0db`, `d2a922c1` |
+| `cp` | `dcd04e2e` |
+| `stat-du-df` | `78d5225c`, `d7e9b2c3` |
+| `mv-ln` | `56cc795c` |
+| `text-a1` | `88c41063` |
+| `text-a2` | `077cda3e`, `ee72efda`, `05b457c6`, `4819a6c2`, `dfab7454`, `4a5210df` |
+| `text-b1` | `1233171b` |
+| `text-b2` | `97171c3f` |
+| `printf-env` | `a211cee4`, `deff787c` |

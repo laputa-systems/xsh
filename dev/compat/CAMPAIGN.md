@@ -49,7 +49,7 @@ remain historical evidence only.
   their work. Their ownership record is in `CLAIMS.md`. XSH owns command
   behavior, with Rust limited to necessary reusable OS and byte boundaries.
 
-## Current focused integration (2026-10-07)
+## Longer 16-lane follow-up (2026-10-07)
 
 The same 16 lane owners completed longer, disjoint follow-up tasks based on
 `4273cc46`; their source commits are integrated on `master`. The full Gate 3
@@ -82,6 +82,93 @@ lane added the POSIX live `ARGV`/`ARGC` matrix; GNU awk was unavailable. The sed
 lane added address and replacement coverage and checked the local BusyBox
 oracle. No Rust parser or applet backend was added.
 
+## Continued focused integration (2026-10-07, `8ec420e0`)
+
+After that 16-lane wave, owners continued residual work from `20560ca4` on
+separate applet scopes. The figures below are focused pinned slices, not a new
+full Gate 3 run. Each reported before/after comparison had no regressions;
+these slices have different denominators and are not additive.
+
+| Area | Pinned uutils result | Focused native result |
+|---|---:|---:|
+| `cp` | 356/386 → 367/386 (+11) | 46 tests, one root-only skip |
+| `date` | 169/185 → 170/185 (+1) | date 19/19; dircolors 5/5 |
+| `fs-basic` | 141/146, unchanged | rm 21, touch 11, unlink 4 |
+| `fs-misc` raw paths | 282/302 → 291/302 (+9) | owned suites passed |
+| `fs-misc` follow-up | 142/155 → 154/155 (+12) | 35/35 |
+| `dd` raw paths | 141/152 | 26/26 |
+| `mv-ln` | 337/343 → 342/343 (+5) | 69 tests passed |
+| `stat-du-df` | 226/236 → 235/236 (+9) | stat 12/12 |
+| `stat` byte output | 50/51 → 51/51 (+1) | included above |
+| `text-a1` | 281/360 → 295/360 (+14) | 69 tests passed |
+| `text-a2` | 604/660 → 611/660 (+7) | 74 tests passed |
+| `text-b1` | 482/520 → 491/520 (+9) | shuf 5/5; tsort 4/4 |
+| `text-b2` | 475/536 → 485/536 (+10) | 60 tests passed |
+| `printf-env` | 194/252 → 206/252 (+12) | env 28/28; printf 39/39 |
+| `sort` | 154/217 | 45/45 |
+
+These changes preserve raw path bytes through additional applets, correct
+metadata restoration, extend date timezone and text-option handling, and add
+XSH external sort runs. `sort -S` now spills sorted runs to a private temporary
+directory and merges them in bounded batches. A runtime fix makes outer deferred
+cleanup run after a non-forced signal handler exits, so sort removes spill files
+and exits with GNU's status 130 on SIGINT. The focused signal-hook suite passes
+13/13. The sort Gate 3 slice improved from 145/217 to 154/217 with no
+regressions. In the selected GNU 9.12 sort comparison, one test passes on both
+sides and one fails on both; neither disagrees. GNU returns 130 on SIGINT,
+while two Uutils SIGINT tests expect status 2. `sort --parallel` and the
+`sort-buffer-size` case remain unsupported or failing on both compared sides.
+Sort reports are in `results/sort-spill-followup/`.
+
+### Runtime signal and stdin follow-up (`89c4e143`)
+
+Unhooked SIGINT and SIGTERM now complete evaluator shutdown with the default
+shell status. Stdin reads poll for input and service pending signals between
+polls, so a signal can stop an XSH child blocked in a read even when the kernel
+delivers it to another thread. Both timeout regressions verify status 124 and
+the child's deferred cleanup marker. Focused suites passed: timeout 14/14,
+split 7/7, standard I/O 11/11, unix process 19 passed with 2 privilege skips,
+and signal hooks 13/13.
+
+### Current native gate (source `89c4e143`)
+
+The full optimized-debug native suite passed in the pinned `Dockerfile.test`
+image as UID/GID 1000 with `HOME=/home/compat` and one worker: 4,964 passed,
+0 failed, 38 skipped. Before this run, the generated API surface fixture was
+refreshed for the already-intended `fs.tempdir_in` API addition; the focused API
+suite then passed 65/65.
+
+### Current full compatibility gates (source `89c4e143`)
+
+- Gate 3 ran all 106 in-scope utilities against pinned uutils
+  `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the x86_64 musl
+  `Dockerfile.test` image, using the optimized-debug profile, three workers,
+  and UID/GID 1000. It recorded 5,469 pass, 480 fail, 0 skip, and 4 excluded
+  (5,953 total; 5,949 applicable), with no timeout. The prior full report at
+  `92a91b12` had 5,125 pass and 824 fail at the same denominator. Six `pr`
+  tests changed from pass to fail because GNU-style diagnostics differ from
+  uutils' clap messages: `test_zero_column_width`, `test_zero_columns`,
+  `test_zero_columns_shortcut`, `test_zero_length`, `test_zero_page_width`,
+  and `test_zero_pages`. Direct GNU 9.11 probes match XSH's diagnostics; the
+  expectation difference is recorded in `gaps.json`, and the before/after
+  comparison reports those six changes rather than a regression-free result.
+- Gate 4 ran the selected 719 GNU 9.12 tests against XSH in the same image,
+  profile, and user, with three workers. Results: 412 PASS, 156 FAIL, 17
+  ERROR, and 134 SKIP. The four-cell differential records 394 shared passes,
+  177 uutils-only passes, 18 XSH-only passes, and 44 shared failures. Relative
+  to the prior full Gate 4 run, this adds two passes and removes one failure
+  and one skip. `split/filter.sh` remains an ERROR; `tee/tee.sh` passes and
+  `misc/yes.sh` fails. No runner processes or suite locks remain. Current
+  reports are `results/gnu-xsh.json` and
+  `results/gnu-differential.json`; the pinned uutils baseline is
+  `results/gnu-uutils.json`.
+
+Gate 5's option comparison, the BusyBox route, the AArch64 debug Linux gate,
+the practical expanded Linux suite, and the clean-image smoke remain open. The
+parity inventory currently has 99 of 125 expanded Linux commands present; the
+other 26 are listed in `dev/coreutils-parity.json`. The campaign remains
+active and incomplete.
+
 ## Sort merge follow-up (`a860f47a`)
 
 `sort -m` now merges regular file inputs incrementally to stdout, using bounded
@@ -98,10 +185,10 @@ rejects separators longer than one character. The native sort suite passes
 
 Remaining sort cases include external merge batches, multiple sort keys with
 `-t '\\0'`, and a batch-size test whose shell wrapper rejects its reduced file
-descriptor limit. The current full 106-utility Gate 3 and 719-test GNU Gate 4
-have not been rerun; the campaign remains active and incomplete.
+descriptor limit. The latest full Gate 3 and Gate 4 results are recorded above
+at source `89c4e143`; the campaign remains active and incomplete.
 
-### Current integration result (2026-10-07, `92a91b12`)
+### Historical full gate results (2026-10-07, source `92a91b12`)
 
 - The full native suite passed at parent revision `a0b9ce93` in the pinned
   `Dockerfile.test` image: 4,731 passed, 0 failed, 38 skipped. Later focused
@@ -369,22 +456,20 @@ have not been rerun; the campaign remains active and incomplete.
   writes that width. The pinned GNU 9.12 `printf.sh` selection passes on both
   XSH and uutils with one shared pass and no mismatches. JSON reports are in
   `results/printf-width-followup/`.
-- The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
-  runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
-  but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
-  its native suite passed 9/9 and the kernel-reader ratchet returned zero
-  direct readers.
+- The full Gate 3 and Gate 4 reports at `92a91b12` were the latest results at
+  the time of the 2026-10-06 wind-down. The current full runs are recorded
+  above at `89c4e143`. `stat -` now uses `/dev/stdin`; its native suite passed
+  9/9 and the kernel-reader ratchet returned zero direct readers.
 - The generated per-utility manifest uses the current Gate 3 report.
   `parity.py --check`, `lanes.py check`, the ignored-option ratchet, and the
   four-exclusion check passed.
 
-The campaign remains active and incomplete. The 824 failing uutils cases in
-the historical full report, remaining GNU differential gaps, BusyBox
-comparison, expanded Linux surface, aarch64 debug gate, and clean-image smoke
-remain open. The selected `uniq` stress case and the previously failing `wc`
-slice pass in focused follow-ups; the `sort` slice fixes three tests with no
-regressions. The full Gate 4 report still describes its earlier state at
-`92a91b12`.
+The campaign remains active and incomplete. The current full uutils report has
+480 failures, and the GNU differential has unresolved failures and errors.
+BusyBox comparison, the remaining expanded Linux surface, the AArch64 debug
+gate, and clean-image smoke also remain open. The selected `uniq` stress case
+and the previously failing `wc` slice pass in focused follow-ups; the `sort`
+slice improves by nine uutils tests with no regressions within that slice.
 
 ## Wind-down report (2026-10-06)
 

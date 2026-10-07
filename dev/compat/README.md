@@ -108,23 +108,34 @@ The campaign resumed on 2026-10-07. See the current checkpoint in
 [`CAMPAIGN.md`](CAMPAIGN.md) and the completed 16-lane ownership record in
 [`CLAIMS.md`](CLAIMS.md).
 
-The latest focused integration includes a longer follow-up from all 16 lane
-owners and a `sort -m` implementation. Across comparable pinned uutils slices,
-86 previously failing IDs now pass with no regressions; the native suites for
-the changed lanes passed. These focused results do not replace the historical
-full Gate 3 and Gate 4 reports below, which have not been rerun after the
-integration. See `CAMPAIGN.md` for per-lane counts, sort results, and remaining
-limits.
+The latest focused integration includes the longer 16-lane follow-up, further
+module-owned byte-path and text fixes, and external `sort -S` spill runs. The
+sort native suite passes 45/45 and its current pinned slice passes 154/217;
+selected GNU 9.12 sort tests have no XSH-only disagreement. Other focused
+uutils slices fixed additional cases in `cp`, `date`, filesystem applets,
+`stat`, text utilities, and `env`. The full optimized-debug native suite now
+passes 4,964/0/38 (pass/fail/skip) at source `89c4e143`. The runtime now
+services pending termination signals while an XSH child waits on stdin, and
+unhooked SIGINT/SIGTERM completes with the default shell status. Current Gate 3 is
+5,469 pass, 480 fail, 0 skip, and 4 excluded. The before/after comparison has
+six `pr` expectation differences: direct GNU 9.11 probes match XSH diagnostics,
+while uutils expects different clap messages. Current Gate 4 is 412 PASS,
+156 FAIL, 17 ERROR, and 134 SKIP; its 633-cell differential records
+394 shared passes, 177 uutils-only passes, 18 XSH-only passes, and 44 shared
+failures. Relative to the prior full Gate 4 run, the new report has two more
+passes, one fewer failure, and one fewer skip. `split/filter.sh` remains an
+error; `tee/tee.sh` passes; `misc/yes.sh` still fails. See `CAMPAIGN.md` and
+`results/` for the reports and remaining limits.
 
-Gate 3 was rerun at `92a91b12` against pinned uutils
+The historical full Gate 3 and Gate 4 results at `92a91b12` were 5,125/824/0
+with four exclusions for Gate 3, and 367 PASS, 189 FAIL, 25 ERROR, and 138
+SKIP for Gate 4. Gate 3 was run against pinned uutils
 `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the `Dockerfile.test` image.
-The report records 5,125 pass, 824 fail, and four exclusions across 106
-utilities; it improves the preceding full run by one pass with no regressions.
-The pinned GNU 9.12 XSH run at the same revision records 367 PASS, 189 FAIL,
-25 ERROR, and 138 SKIP across 719 tests. Its four-cell differential has 358
+across 106 utilities, one more pass than the preceding full run. The pinned
+GNU 9.12 XSH run was across 719 tests; its four-cell differential had 358
 shared passes, 213 uutils-only passes, 9 XSH-only passes, and 52 shared
 failures. `test_wc::test_files0_progressive_stream` timed out at 120 seconds in
-Gate 3. Follow-up commit `d2938a41` streams `wc --files0-from=-` counts and
+that Gate 3 run. Follow-up commit `d2938a41` streams `wc --files0-from=-` counts and
 diagnostics as names arrive, stops on the first stdout write error, and reports
 that its line counter uses scalar code for `--debug`. Its optimized debug
 Gate 3 slice passes 59/59, including all three `wc` cases that failed or timed
@@ -354,19 +365,19 @@ and no mismatches. Reports are in `results/printf-width-followup/`.
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
 both XSH and pinned uutils with one shared pass and no mismatches. Its reports
-are in `results/gnu-uniq-followup/`; the full Gate 4 report above remains at
-`92a91b12`.
+are in `results/gnu-uniq-followup/`.
 The pinned GNU uutils baseline has 571 PASS, 46 FAIL, 101 SKIP and one ERROR.
 BusyBox comparison, the expanded Linux surface, aarch64 debug gate, and
 clean-image smoke remain open. See the current checkpoint and full results in
 [`CAMPAIGN.md`](CAMPAIGN.md) and `results/`.
 
-The most recent full native suite passed at parent revision `a0b9ce93`
+An earlier full native suite passed at parent revision `a0b9ce93`
 (4,731 passed, 0 failed, 38 skipped). Focused native suites passed after later
 changes to printf, seq, tail, bytes, tr, od, wc (15), and stat. The `stat -` path
 now uses `/dev/stdin`; its 9-test suite and the zero-direct-reader ratchet
 pass. Full suites run serially; each new baseline records its exact source
-revision, reference pin, and test image. Offline manifest, lane-ownership,
+revision, reference pin, and test image. The current full native result is
+4,964/0/38 at `89c4e143`. Offline manifest, lane-ownership,
 ignored-option, kernel-read and exclusion checks passed during the resumed
 campaign; these checks do not establish behavioral parity.
 The x86_64 results do not close the pinned `aarch64-unknown-linux-musl` gate;

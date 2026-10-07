@@ -1,0 +1,28 @@
+{
+  "suite": "gnu-differential",
+  "counts": {
+    "uutils_pass_xsh_pass": 1,
+    "uutils_pass_xsh_fail": 0,
+    "uutils_fail_xsh_pass": 0,
+    "uutils_fail_xsh_fail": 1
+  },
+  "cells": {
+    "uutils_pass_xsh_pass": [
+      "sort/sort-merge-fdlimit.log"
+    ],
+    "uutils_pass_xsh_fail": [],
+    "uutils_fail_xsh_pass": [],
+    "uutils_fail_xsh_fail": [
+      "sort/sort-buffer-size.log"
+    ]
+  },
+  "utilities": {
+    "sort": {
+      "pass": 1,
+      "fail": 1,
+      "skip": 0,
+      "excluded": 0,
+      "blockers": []
+    }
+  }
+}

@@ -76,8 +76,8 @@
       "native_tests": "core/tests/test-basename.xsh",
       "uutils_test_count": 29,
       "uutils_integration": {
-        "pass": 26,
-        "fail": 1,
+        "pass": 27,
+        "fail": 0,
         "skip": 0,
         "excluded": 2
       },
@@ -122,14 +122,14 @@
       "native_tests": "core/tests/test-cat.xsh",
       "uutils_test_count": 54,
       "uutils_integration": {
-        "pass": 48,
-        "fail": 5,
+        "pass": 51,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 3,
+        "pass": 4,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -151,8 +151,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 14,
-        "fail": 7,
+        "pass": 20,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -340,14 +340,14 @@
       "native_tests": "core/tests/test-cp.xsh",
       "uutils_test_count": 398,
       "uutils_integration": {
-        "pass": 348,
-        "fail": 38,
+        "pass": 367,
+        "fail": 19,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 44,
-        "fail": 12,
+        "pass": 46,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
@@ -386,8 +386,8 @@
       "native_tests": "core/tests/test-cut.xsh",
       "uutils_test_count": 83,
       "uutils_integration": {
-        "pass": 71,
-        "fail": 11,
+        "pass": 77,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -409,14 +409,14 @@
       "native_tests": "core/tests/test-date.xsh",
       "uutils_test_count": 173,
       "uutils_integration": {
-        "pass": 143,
-        "fail": 23,
+        "pass": 152,
+        "fail": 14,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 6,
+        "pass": 4,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -432,14 +432,14 @@
       "native_tests": "core/tests/test-dd.xsh",
       "uutils_test_count": 155,
       "uutils_integration": {
-        "pass": 134,
-        "fail": 18,
+        "pass": 141,
+        "fail": 11,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 9,
-        "fail": 11,
+        "pass": 10,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
@@ -491,8 +491,8 @@
       "native_tests": "core/tests/test-dirname.xsh",
       "uutils_test_count": 23,
       "uutils_integration": {
-        "pass": 19,
-        "fail": 2,
+        "pass": 21,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -527,14 +527,14 @@
       "native_tests": "core/tests/test-expand.xsh",
       "uutils_test_count": 46,
       "uutils_integration": {
-        "pass": 43,
-        "fail": 2,
+        "pass": 44,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 3,
+        "pass": 1,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -550,14 +550,14 @@
       "native_tests": "core/tests/test-expr.xsh",
       "uutils_test_count": 172,
       "uutils_integration": {
-        "pass": 159,
-        "fail": 13,
+        "pass": 166,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 1,
+        "pass": 2,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -614,8 +614,8 @@
       "native_tests": "core/tests/test-fmt.xsh",
       "uutils_test_count": 39,
       "uutils_integration": {
-        "pass": 36,
-        "fail": 1,
+        "pass": 37,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -643,8 +643,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 2,
+        "pass": 5,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -660,8 +660,8 @@
       "native_tests": "core/tests/test-head.xsh",
       "uutils_test_count": 73,
       "uutils_integration": {
-        "pass": 62,
-        "fail": 11,
+        "pass": 63,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
@@ -742,14 +742,14 @@
       "native_tests": "core/tests/test-ln.xsh",
       "uutils_test_count": 60,
       "uutils_integration": {
-        "pass": 58,
-        "fail": 2,
+        "pass": 60,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 6,
+        "pass": 5,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -765,14 +765,14 @@
       "native_tests": "core/tests/test-ls.xsh",
       "uutils_test_count": 219,
       "uutils_integration": {
-        "pass": 181,
-        "fail": 26,
+        "pass": 186,
+        "fail": 21,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 33,
-        "fail": 15,
+        "pass": 34,
+        "fail": 14,
         "skip": 0,
         "excluded": 0
       },
@@ -818,14 +818,14 @@
       "native_tests": "core/tests/test-mktemp.xsh",
       "uutils_test_count": 47,
       "uutils_integration": {
-        "pass": 41,
-        "fail": 6,
+        "pass": 46,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 1,
+        "pass": 4,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -847,8 +847,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 34,
-        "fail": 7,
+        "pass": 35,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -864,14 +864,14 @@
       "native_tests": "core/tests/test-nl.xsh",
       "uutils_test_count": 67,
       "uutils_integration": {
-        "pass": 56,
-        "fail": 11,
+        "pass": 60,
+        "fail": 7,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 1,
+        "pass": 3,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -916,8 +916,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 4,
+        "pass": 5,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -933,14 +933,14 @@
       "native_tests": "core/tests/test-paste.xsh",
       "uutils_test_count": 27,
       "uutils_integration": {
-        "pass": 25,
-        "fail": 2,
+        "pass": 26,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 1,
+        "pass": 2,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -956,8 +956,8 @@
       "native_tests": "core/tests/test-pathchk.xsh",
       "uutils_test_count": 9,
       "uutils_integration": {
-        "pass": 7,
-        "fail": 2,
+        "pass": 9,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -974,20 +974,22 @@
       "native_tests": "core/tests/test-pr.xsh",
       "uutils_test_count": 84,
       "uutils_integration": {
-        "pass": 55,
-        "fail": 29,
+        "pass": 57,
+        "fail": 27,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 3,
+        "pass": 1,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`."
+      ]
     },
     {
       "utility": "printenv",
@@ -1015,14 +1017,14 @@
       "native_tests": "core/tests/test-printf.xsh",
       "uutils_test_count": 153,
       "uutils_integration": {
-        "pass": 109,
-        "fail": 43,
+        "pass": 142,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 5,
+        "pass": 5,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1061,14 +1063,14 @@
       "native_tests": "core/tests/test-pwd.xsh",
       "uutils_test_count": 14,
       "uutils_integration": {
-        "pass": 13,
-        "fail": 1,
+        "pass": 14,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 2,
+        "pass": 2,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1084,14 +1086,14 @@
       "native_tests": "core/tests/test-readlink.xsh",
       "uutils_test_count": 27,
       "uutils_integration": {
-        "pass": 25,
-        "fail": 2,
+        "pass": 27,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 4,
+        "pass": 5,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1107,8 +1109,8 @@
       "native_tests": "core/tests/test-realpath.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 32,
-        "fail": 1,
+        "pass": 33,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1125,8 +1127,8 @@
       "native_tests": "core/tests/test-rm.xsh",
       "uutils_test_count": 80,
       "uutils_integration": {
-        "pass": 67,
-        "fail": 8,
+        "pass": 73,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1171,14 +1173,14 @@
       "native_tests": "core/tests/test-seq.xsh",
       "uutils_test_count": 79,
       "uutils_integration": {
-        "pass": 71,
-        "fail": 15,
+        "pass": 74,
+        "fail": 12,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 4,
+        "pass": 4,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1194,14 +1196,14 @@
       "native_tests": "core/tests/test-shred.xsh",
       "uutils_test_count": 31,
       "uutils_integration": {
-        "pass": 26,
-        "fail": 5,
+        "pass": 31,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 3,
+        "pass": 3,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1217,14 +1219,14 @@
       "native_tests": "core/tests/test-shuf.xsh",
       "uutils_test_count": 78,
       "uutils_integration": {
-        "pass": 51,
-        "fail": 26,
+        "pass": 68,
+        "fail": 9,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 2,
+        "pass": 1,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1260,14 +1262,14 @@
       "native_tests": "core/tests/test-sort.xsh",
       "uutils_test_count": 217,
       "uutils_integration": {
-        "pass": 34,
-        "fail": 183,
+        "pass": 154,
+        "fail": 63,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 23,
+        "pass": 6,
+        "fail": 20,
         "skip": 0,
         "excluded": 0
       },
@@ -1324,14 +1326,14 @@
       "native_tests": "core/tests/test-tac.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 22,
-        "fail": 11,
+        "pass": 31,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 2,
+        "pass": 2,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1347,14 +1349,14 @@
       "native_tests": "core/tests/test-tail.xsh",
       "uutils_test_count": 170,
       "uutils_integration": {
-        "pass": 102,
-        "fail": 65,
+        "pass": 116,
+        "fail": 51,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 8,
-        "fail": 29,
+        "pass": 9,
+        "fail": 28,
         "skip": 0,
         "excluded": 0
       },
@@ -1376,8 +1378,8 @@
         "excluded": 1
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 2,
+        "pass": 3,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1418,8 +1420,8 @@
       "native_tests": "core/tests/test-touch.xsh",
       "uutils_test_count": 66,
       "uutils_integration": {
-        "pass": 60,
-        "fail": 4,
+        "pass": 61,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1441,14 +1443,14 @@
       "native_tests": "core/tests/test-tr.xsh",
       "uutils_test_count": 174,
       "uutils_integration": {
-        "pass": 165,
-        "fail": 9,
+        "pass": 166,
+        "fail": 8,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 1,
+        "pass": 2,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1482,8 +1484,8 @@
       "native_tests": "core/tests/test-truncate.xsh",
       "uutils_test_count": 49,
       "uutils_integration": {
-        "pass": 45,
-        "fail": 4,
+        "pass": 49,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1505,8 +1507,8 @@
       "native_tests": "core/tests/test-tsort.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 21,
-        "fail": 4,
+        "pass": 24,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1564,14 +1566,14 @@
       "native_tests": "core/tests/test-unexpand.xsh",
       "uutils_test_count": 44,
       "uutils_integration": {
-        "pass": 42,
-        "fail": 1,
+        "pass": 43,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 3,
+        "pass": 1,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1593,8 +1595,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 3,
+        "pass": 3,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1610,8 +1612,8 @@
       "native_tests": "core/tests/test-unlink.xsh",
       "uutils_test_count": 7,
       "uutils_integration": {
-        "pass": 6,
-        "fail": 1,
+        "pass": 7,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1646,14 +1648,14 @@
       "native_tests": "core/tests/test-wc.xsh",
       "uutils_test_count": 60,
       "uutils_integration": {
-        "pass": 56,
-        "fail": 3,
+        "pass": 59,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 6,
-        "fail": 3,
+        "pass": 7,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1687,8 +1689,8 @@
       "native_tests": "core/tests/test-df.xsh",
       "uutils_test_count": 66,
       "uutils_integration": {
-        "pass": 63,
-        "fail": 2,
+        "pass": 65,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1710,8 +1712,8 @@
       "native_tests": "core/tests/test-du.xsh",
       "uutils_test_count": 121,
       "uutils_integration": {
-        "pass": 115,
-        "fail": 5,
+        "pass": 120,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1733,14 +1735,14 @@
       "native_tests": "core/tests/test-env.xsh",
       "uutils_test_count": 102,
       "uutils_integration": {
-        "pass": 44,
-        "fail": 56,
+        "pass": 64,
+        "fail": 36,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 6,
+        "pass": 2,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1857,8 +1859,8 @@
       "native_tests": "core/tests/test-sync.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
-        "pass": 15,
-        "fail": 1,
+        "pass": 16,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1958,8 +1960,8 @@
       "native_tests": "core/tests/test-chmod.xsh",
       "uutils_test_count": 63,
       "uutils_integration": {
-        "pass": 47,
-        "fail": 16,
+        "pass": 48,
+        "fail": 15,
         "skip": 0,
         "excluded": 0
       },
@@ -2073,13 +2075,13 @@
       "native_tests": "core/tests/test-install.xsh",
       "uutils_test_count": 124,
       "uutils_integration": {
-        "pass": 114,
-        "fail": 7,
+        "pass": 120,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 5,
+        "pass": 6,
         "fail": 1,
         "skip": 0,
         "excluded": 0
@@ -2114,8 +2116,8 @@
       "native_tests": "core/tests/test-mkfifo.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
-        "pass": 13,
-        "fail": 1,
+        "pass": 14,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2132,8 +2134,8 @@
       "native_tests": "core/tests/test-mknod.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
-        "pass": 12,
-        "fail": 2,
+        "pass": 14,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2150,8 +2152,8 @@
       "native_tests": "core/tests/test-stat.xsh",
       "uutils_test_count": 52,
       "uutils_integration": {
-        "pass": 48,
-        "fail": 3,
+        "pass": 51,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
