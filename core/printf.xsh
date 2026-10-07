@@ -16,13 +16,14 @@ type PrintfSpec = {
   valid: Bool,
 }
 
-type Escape = {text: Str, next: Int, stop: Bool, issue: Str?}
-type Rendered = {text: Str, stop: Bool, failed: Bool}
-type Pass = {text: Str, next_argument: Int, conversions: Int, stop: Bool, failed: Bool}
+type Escape = {data: Bytes, next: Int, stop: Bool, issue: Str?}
+type Rendered = {data: Bytes, stop: Bool, failed: Bool}
+type Pass = {data: Bytes, next_argument: Int, conversions: Int, stop: Bool, failed: Bool}
+type PrintfArgument = {data: Bytes, text: Str}
 type DecimalScan = {value: Int, next: Int}
 type IntegerParse = {value: Int, issue: Str?, warning: Str?}
 type FloatParse = {value: Float, issue: Str?}
-type PrintfOutput = {text: Str, failed: Bool, next_argument: Int, stopped: Bool}
+type PrintfOutput = {data: Bytes, failed: Bool, next_argument: Int, stopped: Bool}
 
 pure usage(applet_name: Str, summary: Str) -> Str {
   f"usage: xsh applets/{applet_name}.xsh -- {summary}"
@@ -32,12 +33,12 @@ pure usage_error(applet_name: Str, summary: Str) -> Error {
   AppletError.Usage(usage(applet_name, summary))
 }
 
-pure scan_decimal(text: Str, at: Int) -> DecimalScan {
+pure scan_decimal(text: Bytes, at: Int) -> DecimalScan {
   var value = 0
   var next = at
 
-  while next < text.byte_len() and "0123456789".find(text.byte_slice(next, length: 1)) != null {
-    let digit = "0123456789".find(text.byte_slice(next, length: 1)) ?? 0
+  while next < text.len() and (text.byte_at(next) ?? 0) >= 48 and (text.byte_at(next) ?? 0) <= 57 {
+    let digit = (text.byte_at(next) ?? 48) - 48
     let max_int = 9223372036854775807
     value = if value > (max_int - digit) / 10 { max_int } else { value * 10 + digit }
     next += 1
@@ -54,20 +55,24 @@ pure consumed_arguments(next_argument: Int, index: Int, argument_count: Int) -> 
   if index < 0 { next_argument } else if index >= argument_count { argument_count } else if index + 1 > next_argument { index + 1 } else { next_argument }
 }
 
-pure parse_spec(text: Str, start: Int) -> PrintfSpec {
+pure ascii_byte(text: Bytes, at: Int) -> Str {
+  text[at..at + 1].utf8() ?? ""
+}
+
+pure parse_spec(text: Bytes, start: Int) -> PrintfSpec {
   var at = start + 1
   var position: Int? = null
   var invalid_position_end: Int? = null
   let leading = scan_decimal(text, at)
-  if leading.next > at and leading.next < text.byte_len() and text.byte_slice(leading.next, length: 1) == "$" {
+  if leading.next > at and leading.next < text.len() and ascii_byte(text, leading.next) == "$" {
     position = leading.value - 1
     if leading.value == 0 { invalid_position_end = leading.next + 1 }
     at = leading.next + 1
   }
   var flags = ""
 
-  while at < text.byte_len() and "-+ #0'".find(text.byte_slice(at, length: 1)) != null {
-    let flag = text.byte_slice(at, length: 1)
+  while at < text.len() and "-+ #0'".find(ascii_byte(text, at)) != null {
+    let flag = ascii_byte(text, at)
     if flags.find(flag) == null { flags += flag }
     at += 1
   }
@@ -75,11 +80,11 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
   var width = 0
   var width_dynamic = false
   var width_position: Int? = null
-  if at < text.byte_len() and text.byte_slice(at, length: 1) == "*" {
+  if at < text.len() and ascii_byte(text, at) == "*" {
     width_dynamic = true
     at += 1
     let numbered = scan_decimal(text, at)
-    if numbered.next > at and numbered.next < text.byte_len() and text.byte_slice(numbered.next, length: 1) == "$" {
+    if numbered.next > at and numbered.next < text.len() and ascii_byte(text, numbered.next) == "$" {
       width_position = numbered.value - 1
       if numbered.value == 0 { invalid_position_end = numbered.next + 1 }
       at = numbered.next + 1
@@ -93,14 +98,14 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
   var precision: Int? = null
   var precision_dynamic = false
   var precision_position: Int? = null
-  if at < text.byte_len() and text.byte_slice(at, length: 1) == "." {
+  if at < text.len() and ascii_byte(text, at) == "." {
     at += 1
     precision = 0
-    if at < text.byte_len() and text.byte_slice(at, length: 1) == "*" {
+    if at < text.len() and ascii_byte(text, at) == "*" {
       precision_dynamic = true
       at += 1
       let numbered = scan_decimal(text, at)
-      if numbered.next > at and numbered.next < text.byte_len() and text.byte_slice(numbered.next, length: 1) == "$" {
+      if numbered.next > at and numbered.next < text.len() and ascii_byte(text, numbered.next) == "$" {
         precision_position = numbered.value - 1
         if numbered.value == 0 { invalid_position_end = numbered.next + 1 }
         at = numbered.next + 1
@@ -112,9 +117,9 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
     }
   }
 
-  while at < text.byte_len() and "hlLzjt".find(text.byte_slice(at, length: 1)) != null { at += 1 }
+  while at < text.len() and "hlLzjt".find(ascii_byte(text, at)) != null { at += 1 }
 
-  let conversion = if at < text.byte_len() { text.byte_slice(at, length: 1) } else { "" }
+  let conversion = if at < text.len() { ascii_byte(text, at) } else { "" }
   let known_conversion = conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A", "s", "c", "b", "q"]
   let invalid_zero_flag = flags.find("0") != null and conversion in ["s", "c"]
   let invalid_character_precision = conversion == "c" and precision != null
@@ -153,6 +158,7 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
   let trimmed = text.byte_slice(start)
   if trimmed.starts_with("'") or trimmed.starts_with("\"") {
     let character = trimmed.byte_slice(1)
+    if character == "" { return {value: 0, issue: "expected a numeric value", warning: null} }
     let rest = character.byte_slice(utf8_width(character.byte_at(0) ?? 0))
     return {value: codepoint_value(character), issue: null, warning: if rest == "" { null } else { rest }}
   }
@@ -192,6 +198,12 @@ pure float_parse(text: Str) -> FloatParse {
   var start = 0
   while start < text.byte_len() and (text.byte_at(start) ?? 0) in [9, 10, 11, 12, 13, 32] { start += 1 }
   let trimmed = text.byte_slice(start)
+  if trimmed.starts_with("'") or trimmed.starts_with("\"") {
+    let character = trimmed.byte_slice(1)
+    if character == "" { return {value: 0.0, issue: "expected a numeric value"} }
+    let tail = character.byte_slice(utf8_width(character.byte_at(0) ?? 0))
+    return {value: codepoint_value(character).float(), issue: if tail == "" { null } else { "value not completely converted" }}
+  }
   let sign_length = if trimmed.starts_with("+") or trimmed.starts_with("-") { 1 } else { 0 }
   let body = trimmed.byte_slice(sign_length)
   let lower = body.lower()
@@ -352,12 +364,42 @@ pure pad_text(text: Str, width: Int, left: Bool, fill: Str) -> Str {
   if left { text + padding } else { padding + text }
 }
 
-pure byte_character(value: Int) -> Result[Str] {
-  bytes.from_ints([value])?.utf8()
+pure byte_character(value: Int) -> Result[Bytes] {
+  bytes.from_ints([value])
+}
+
+pure lossless_text(data: Bytes) -> Result[Str] {
+  var output = ""
+  var at = 0
+  while at < data.len() {
+    let byte = data.byte_at(at) ?? 0
+    let width = utf8_width(byte)
+    let end = at + width
+    if byte < 128 {
+      output += data[at..end].utf8()?
+      at = end
+    } else if width > 1 and end <= data.len() {
+      if let Ok(character) = data[at..end].utf8() {
+        output += character
+        at = end
+      } else {
+        output += codepoint_text(byte)?
+        at += 1
+      }
+    } else {
+      output += codepoint_text(byte)?
+      at += 1
+    }
+  }
+  output
+}
+
+pure printf_argument(data: Bytes) -> Result[PrintfArgument] {
+  {data: data, text: lossless_text(data)?}
 }
 
 pure codepoint_text(value: Int) -> Result[Str] {
-  if value < 128 { return byte_character(value) }
+  if value < 128 { return bytes.from_ints([value])?.utf8() }
   if value < 2048 {
     return bytes.from_ints([192 + value / 64, 128 + value % 64])?.utf8()
   }
@@ -378,98 +420,97 @@ pure float_is_infinite(value: Float) -> Bool {
   value.format() in ["Infinity", "-Infinity"]
 }
 
-pure scan_escape(text: Str, slash: Int, zero_prefix: Bool = false) -> Result[Escape] {
+pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false) -> Result[Escape] {
   let next = slash + 1
-  if next >= text.byte_len() { return {text: "\\", next: next, stop: false, issue: null} }
-  let code = text.byte_slice(next, length: 1)
+  if next >= text.len() { return {data: bytes.from_text("\\"), next: next, stop: false, issue: null} }
+  let code = text[next..next + 1].utf8() ?? ""
 
   match code {
-    "a" => {text: "\u{7}", next: next + 1, stop: false, issue: null}
-    "b" => {text: "\u{8}", next: next + 1, stop: false, issue: null}
-    "e" => {text: "\u{1b}", next: next + 1, stop: false, issue: null}
-    "f" => {text: "\u{c}", next: next + 1, stop: false, issue: null}
-    "n" => {text: "\n", next: next + 1, stop: false, issue: null}
-    "r" => {text: "\r", next: next + 1, stop: false, issue: null}
-    "t" => {text: "\t", next: next + 1, stop: false, issue: null}
-    "v" => {text: "\u{b}", next: next + 1, stop: false, issue: null}
-    "c" => {text: "", next: next + 1, stop: true, issue: null}
-    "\\" | "'" | "\"" => {text: code, next: next + 1, stop: false, issue: null}
+    "a" => {data: bytes.from_text("\u{7}"), next: next + 1, stop: false, issue: null}
+    "b" => {data: bytes.from_text("\u{8}"), next: next + 1, stop: false, issue: null}
+    "e" => {data: bytes.from_text("\u{1b}"), next: next + 1, stop: false, issue: null}
+    "f" => {data: bytes.from_text("\u{c}"), next: next + 1, stop: false, issue: null}
+    "n" => {data: bytes.from_text("\n"), next: next + 1, stop: false, issue: null}
+    "r" => {data: bytes.from_text("\r"), next: next + 1, stop: false, issue: null}
+    "t" => {data: bytes.from_text("\t"), next: next + 1, stop: false, issue: null}
+    "v" => {data: bytes.from_text("\u{b}"), next: next + 1, stop: false, issue: null}
+    "c" => {data: b"", next: next + 1, stop: true, issue: null}
+    "\\" | "'" | "\"" => {data: bytes.from_text(code), next: next + 1, stop: false, issue: null}
     "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" => {
       var at = next
       var value = 0
       var count = 0
       let limit = if zero_prefix and code == "0" { 4 } else { 3 }
-      while at < text.byte_len() and count < limit and "01234567".find(text.byte_slice(at, length: 1)) != null {
-        value = value * 8 + ("01234567".find(text.byte_slice(at, length: 1)) ?? 0)
+      while at < text.len() and count < limit and "01234567".find(text[at..at + 1].utf8() ?? "") != null {
+        value = value * 8 + ("01234567".find(text[at..at + 1].utf8() ?? "") ?? 0)
         at += 1
         count += 1
       }
-      {text: byte_character(value % 256)?, next: at, stop: false, issue: null}
+      {data: byte_character(value % 256)?, next: at, stop: false, issue: null}
     }
     "x" => {
       var at = next + 1
       var value = 0
       var count = 0
-      while at < text.byte_len() and count < 2 {
-        let digit = digit_value(text.byte_slice(at, length: 1))
+      while at < text.len() and count < 2 {
+        let digit = digit_value(text[at..at + 1].utf8() ?? "")
         if digit == null { break }
         value = value * 16 + (digit ?? 0)
         at += 1
         count += 1
       }
       if count == 0 {
-        {text: "", next: at, stop: false, issue: "missing hexadecimal number in escape"}
+        {data: b"", next: at, stop: false, issue: "missing hexadecimal number in escape"}
       } else {
-        {text: byte_character(value)?, next: at, stop: false, issue: null}
+        {data: byte_character(value)?, next: at, stop: false, issue: null}
       }
     }
     "u" | "U" => {
       let digits = if code == "u" { 4 } else { 8 }
       let start = next + 1
       let end = start + digits
-      if end > text.byte_len() {
-        {text: "", next: text.byte_len(), stop: false, issue: "missing hexadecimal number in escape"}
+      if end > text.len() {
+        {data: b"", next: text.len(), stop: false, issue: "missing hexadecimal number in escape"}
       } else {
-        let raw = text.byte_slice(start, length: digits)
-        let raw_escape = text.byte_slice(slash, length: end - slash)
+        let raw = text[start..end]
+        let raw_escape = text[slash..end].utf8() ?? ""
         var value = 0
         var valid = true
         for at in range(digits) {
-          let digit = digit_value(raw.byte_slice(at, length: 1))
+          let digit = digit_value(raw[at..at + 1].utf8() ?? "")
           if digit == null { valid = false } else { value = value * 16 + (digit ?? 0) }
         }
         let invalid_scalar = value > 1114111 or (value >= 55296 and value <= 57343)
         if ! valid or invalid_scalar {
-          {text: "", next: end, stop: false, issue: "invalid universal character name " + raw_escape}
+          {data: b"", next: end, stop: false, issue: "invalid universal character name " + raw_escape}
         } else {
-          {text: codepoint_text(value)?, next: end, stop: false, issue: null}
+          {data: bytes.from_text(codepoint_text(value)?), next: end, stop: false, issue: null}
         }
       }
     }
-    else => {text: "\\" + code, next: next + 1, stop: false, issue: null}
+    else => {data: bytes.concat([b"\\", text[next..next + 1]]), next: next + 1, stop: false, issue: null}
   }
 }
 
-pure unescape_text(text: Str) -> Result[Escape] {
-  var output = ""
+pure unescape_bytes(text: Bytes) -> Result[Escape] {
+  var output: List[Bytes] = []
   var at = 0
 
-  while at < text.byte_len() {
+  while at < text.len() {
     let byte = text.byte_at(at) ?? 0
     if byte == 92 {
       let escaped = scan_escape(text, at, true)?
-      if let issue = escaped.issue { return {text: output, next: escaped.next, stop: false, issue: issue} }
-      if escaped.stop { return {text: output, next: escaped.next, stop: true, issue: null} }
-      output += escaped.text
+      if let issue = escaped.issue { return {data: bytes.concat(output), next: escaped.next, stop: false, issue: issue} }
+      if escaped.stop { return {data: bytes.concat(output), next: escaped.next, stop: true, issue: null} }
+      output += [escaped.data]
       at = escaped.next
     } else {
-      let width = utf8_width(text.byte_at(at) ?? 0)
-      output += text.byte_slice(at, length: width)
-      at += width
+      output += [text[at..at + 1]]
+      at += 1
     }
   }
 
-  {text: output, next: at, stop: false, issue: null}
+  {data: bytes.concat(output), next: at, stop: false, issue: null}
 }
 
 pure scientific(value: Float, precision: Int, upper: Bool) -> Str {
@@ -557,57 +598,54 @@ pure float_conversion(value: Float, conversion: Str, precision: Int?) -> Str {
   }
 }
 
-proc shell_quote(text: Str) [env] -> Str {
-  return "''" when text == ""
-  let raw = bytes.from_text(text)
-  var has_control = false
-  for byte in raw {
-    if byte < 32 or byte == 127 { has_control = true }
-  }
-  if has_control { return gnu.quote_bytes(raw, always: false) }
-
-  var simple = true
-  for at in range(text.count_chars()) {
-    let ch = text[at..at + 1]
-    if "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-~".find(ch) == null { simple = false }
-  }
-  return text when simple
-  "'" + text.replace("'", with: "'\\''") + "'"
+proc shell_quote(data: Bytes) [env] -> Str {
+  gnu.quote_bytes(data, always: false)
 }
 
-proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int?, prefix: Str) [process, env, error, io] -> Result[Rendered] {
+proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, precision: Int?, prefix: Bytes) [process, env, error, io] -> Result[Rendered] {
   let left = spec.flags.find("-") != null or width < 0
   let field_width = if width < 0 { -width } else { width }
   let fill = if spec.flags.find("0") != null and ! left and precision == null { "0" } else { " " }
 
   if spec.conversion == "s" or spec.conversion == "q" {
-    let value = if spec.conversion == "q" { shell_quote(argument) } else { argument }
+    let value = if spec.conversion == "q" { shell_quote(argument.data) } else { argument.text }
     var clipped = value
     if let limit = precision {
       if limit < clipped.count_chars() { clipped = clipped[0..limit] }
     }
-    return {text: pad_text(clipped, field_width, left, " "), stop: false, failed: false}
+    let rendered = if spec.conversion == "s" and precision == null { argument.data } else { bytes.from_text(clipped) }
+    let padding = bytes.from_text(pad_text("", field_width - clipped.count_chars(), false, " "))
+    return {data: if left { bytes.concat([rendered, padding]) } else { bytes.concat([padding, rendered]) }, stop: false, failed: false}
   }
 
   if spec.conversion == "c" {
-    let value = if argument.starts_with("'") or argument.starts_with("\"") { argument.byte_slice(1) } else { argument }
-    let character = if let Ok(number) = value.parse_int() { codepoint_text(number)? } else { if value == "" { "\u{0}" } else { value[0..1] } }
-    return {text: pad_text(character, field_width, left, " "), stop: false, failed: false}
+    let quoted = (argument.data.byte_at(0) ?? 0) in [34, 39]
+    let value_data = if quoted { argument.data[1..] } else { argument.data }
+    let value = if quoted { argument.text.byte_slice(1) } else { argument.text }
+    let character: Bytes = if let Ok(number) = value.parse_int() {
+      bytes.from_text(codepoint_text(number)?)
+    } else if value == "" {
+      b"\0"
+    } else {
+      value_data[0..1]
+    }
+    let padding = bytes.from_text(pad_text("", field_width - 1, false, " "))
+    return {data: if left { bytes.concat([character, padding]) } else { bytes.concat([padding, character]) }, stop: false, failed: false}
   }
 
   if spec.conversion == "b" {
-    let expanded = unescape_text(argument)?
+    let expanded = unescape_bytes(argument.data)?
     if let issue = expanded.issue {
-      io.write_stdout(prefix)
+      gnu.write_bytes(prefix)
       gnu.error(issue)
       exit 1
     }
-    return {text: pad_text(expanded.text, field_width, left, " "), stop: expanded.stop, failed: false}
+    return {data: expanded.data, stop: expanded.stop, failed: false}
   }
 
   if "fFeEgGaA".find(spec.conversion) != null {
-    let parsed = float_parse(argument)
-    if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument)}: {issue}") }
+    let parsed = float_parse(argument.text)
+    if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument.text)}: {issue}") }
     let number = parsed.value
     let requested_precision = precision ?? 6
     let body = if spec.conversion in ["f", "F"] and requested_precision > 100 and ! float_is_nan(number) and ! float_is_infinite(number) {
@@ -615,21 +653,21 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
     } else {
       float_conversion(number, spec.conversion, precision)
     }
-    let negative = number < 0.0 or (parsed.issue != "expected a numeric value" and argument.trim().starts_with("-"))
+    let negative = number < 0.0 or (parsed.issue != "expected a numeric value" and argument.text.trim().starts_with("-"))
     let sign = if negative { "-" } else if spec.flags.find("+") != null { "+" } else if spec.flags.find(" ") != null { " " } else { "" }
     let unsigned_body = if body.starts_with("-") { body.byte_slice(1) } else { body }
     let raw = sign + unsigned_body
     let float_fill = if spec.flags.find("0") != null and ! left and ! float_is_nan(number) and ! float_is_infinite(number) { "0" } else { " " }
     let padded = if float_fill == "0" and field_width > raw.count_chars() { sign + pad_text(raw.byte_slice(sign.byte_len()), field_width - sign.count_chars(), false, "0") } else { pad_text(raw, field_width, left, float_fill) }
-    return {text: padded, stop: false, failed: parsed.issue != null}
+    return {data: bytes.from_text(padded), stop: false, failed: parsed.issue != null}
   }
 
   let auto_base = spec.conversion != "d"
-  let parsed = integer_parse(argument, auto_base)
+  let parsed = integer_parse(argument.text, auto_base)
   if let warning = parsed.warning {
     if env.get("POSIXLY_CORRECT") is Err(_) { gnu.error(f"warning: {warning}: character(s) following character constant have been ignored") }
   }
-  if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument)}: {issue}") }
+  if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument.text)}: {issue}") }
   let number = parsed.value
   let base = if spec.conversion == "o" { 8 } else if spec.conversion == "x" or spec.conversion == "X" { 16 } else { 10 }
   let unsigned = spec.conversion in ["o", "u", "x", "X"]
@@ -653,43 +691,42 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
   if base == 8 and spec.flags.find("#") != null and magnitude == 0 and precision == 0 { digits = "0" }
   let raw = sign + prefix + digits
   if fill == "0" and ! left and precision == null and field_width > raw.count_chars() {
-    return {text: sign + prefix + pad_text(digits, field_width - sign.count_chars() - prefix.count_chars(), false, "0"), stop: false, failed: parsed.issue != null}
+    return {data: bytes.from_text(sign + prefix + pad_text(digits, field_width - sign.count_chars() - prefix.count_chars(), false, "0")), stop: false, failed: parsed.issue != null}
   }
-  {text: pad_text(raw, field_width, left, if fill == "0" { " " } else { fill }), stop: false, failed: parsed.issue != null}
+  {data: bytes.from_text(pad_text(raw, field_width, left, if fill == "0" { " " } else { fill })), stop: false, failed: parsed.issue != null}
 }
 
-proc render_pass(fmt: Str, values: List[Str], first_argument: Int, prefix: Str) [error, io, process, env] -> Pass {
-  var output = ""
+proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, prefix: Bytes) [error, io, process, env] -> Pass {
+  var output: List[Bytes] = []
   var at = 0
   var argument_index = first_argument
   var next_argument = first_argument
   var conversions = 0
   var failed = false
 
-  while at < fmt.byte_len() {
+  while at < fmt.len() {
     let byte = fmt.byte_at(at) ?? 0
     if byte == 92 {
       let escaped = scan_escape(fmt, at)?
       if let issue = escaped.issue {
-        io.write_stdout(prefix + output)
+        gnu.write_bytes(bytes.concat([prefix, bytes.concat(output)]))
         gnu.error(issue)
         exit 1
       }
-      output += escaped.text
-      if escaped.stop { return {text: output, next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
+      output += [escaped.data]
+      if escaped.stop { return {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
       at = escaped.next
     } else if byte != 37 {
-      let width = utf8_width(fmt.byte_at(at) ?? 0)
-      output += fmt.byte_slice(at, length: width)
-      at += width
-    } else if at + 1 < fmt.byte_len() and fmt.byte_slice(at + 1, length: 1) == "%" {
-      output += "%"
+      output += [fmt[at..at + 1]]
+      at += 1
+    } else if at + 1 < fmt.len() and fmt.byte_at(at + 1) == 37 {
+      output += [bytes.from_text("%")]
       at += 2
     } else {
       let spec = parse_spec(fmt, at)
       if ! spec.valid {
-        let shown = fmt.byte_slice(at, length: if spec.end > at { spec.end - at } else { 1 })
-        io.write_stdout(prefix + output)
+        let shown = lossless_text(fmt[at..if spec.end > at { spec.end } else { at + 1 }])?
+        gnu.write_bytes(bytes.concat([prefix, bytes.concat(output)]))
         gnu.error(f"{shown}: invalid conversion specification")
         exit 1
       }
@@ -697,7 +734,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int, prefix: Str) 
       var width = spec.width
       if spec.width_dynamic {
         let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position ?? 0, values.len()) }
-        width = integer_prefix(values.get(index) ?? "0", true)
+        width = integer_prefix(if index < values.len() { values[index].text } else { "0" }, true)
         if spec.width_position == null {
           argument_index += 1
           next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
@@ -706,7 +743,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int, prefix: Str) 
       var precision = spec.precision
       if spec.precision_dynamic {
         let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position ?? 0, values.len()) }
-        let precision_argument = values.get(index) ?? "-1"
+        let precision_argument = if index < values.len() { values[index].text } else { "-1" }
         let dynamic = integer_prefix(precision_argument, true)
         if dynamic > 2147483647 {
           gnu.error(f"invalid precision: {gnu.quote_value(precision_argument)}")
@@ -719,68 +756,70 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int, prefix: Str) 
         } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
       if width > 1000000 or width < -1000000 {
-        io.write_stdout(prefix + output)
+        gnu.write_bytes(bytes.concat([prefix, bytes.concat(output)]))
         gnu.error("field width too large")
         exit 1
       }
 
       let index = if spec.position == null { argument_index } else { indexed_argument(first_argument, spec.position ?? 0, values.len()) }
-      let value = if index < values.len() { values[index] } else if spec.conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A"] { "0" } else { "" }
+      let value: PrintfArgument = if index < values.len() { values[index] } else if spec.conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A"] { printf_argument(b"0")? } else { printf_argument(b"")? }
       if spec.position == null {
         argument_index += 1
         next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
       } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
-      let rendered = conversion_text(spec, value, width, precision, prefix + output)?
-      output += rendered.text
+      let rendered = conversion_text(spec, value, width, precision, bytes.concat([prefix, bytes.concat(output)]))?
+      output += [rendered.data]
       failed = failed or rendered.failed
       conversions += 1
       at = spec.end
-      if rendered.stop { return {text: output, next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
+      if rendered.stop { return {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
     }
   }
 
-  {text: output, next_argument: next_argument, conversions: conversions, stop: false, failed: failed}
+  {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: false, failed: failed}
 }
 
-proc render(fmt: Str, values: List[Str]) [error, io, process, env] -> PrintfOutput {
-  let first = render_pass(fmt, values, 0, "")
-  var output = first.text
+proc render(fmt: Bytes, values: List[PrintfArgument]) [error, io, process, env] -> PrintfOutput {
+  let first = render_pass(fmt, values, 0, b"")
+  var output = first.data
   var failed = first.failed
   var argument = first.next_argument
-  if first.stop or first.conversions == 0 { return {text: output, failed: failed, next_argument: argument, stopped: first.stop} }
+  if first.stop or first.conversions == 0 { return {data: output, failed: failed, next_argument: argument, stopped: first.stop} }
 
   while argument < values.len() {
     let next = render_pass(fmt, values, argument, output)
-    output += next.text
+    output = bytes.concat([output, next.data])
     failed = failed or next.failed
     argument = next.next_argument
-    if next.stop or next.conversions == 0 { return {text: output, failed: failed, next_argument: argument, stopped: next.stop} }
+    if next.stop or next.conversions == 0 { return {data: output, failed: failed, next_argument: argument, stopped: next.stop} }
   }
 
-  {text: output, failed: failed, next_argument: argument, stopped: false}
+  {data: output, failed: failed, next_argument: argument, stopped: false}
 }
 
 # Once FORMAT begins, every later argument is data, including option-looking
 # strings. The explicit terminator is recognized only before FORMAT.
-proc main(...argv: List[Str]) [error, io, process, env] {
+proc main(...argv: List[Bytes]) [error, io, process, env] {
   var arguments = argv
   if ! arguments.is_empty() {
-    if arguments[0] == "--" {
+    if arguments[0] == b"--" {
       arguments = arguments[1..]
-    } else if arguments[0] == "--help" {
+    } else if arguments[0] == b"--help" {
       gnu.help("Usage: printf FORMAT [ARGUMENT]...\nPrint arguments according to FORMAT.\n")
       return
-    } else if arguments[0] == "--version" {
+    } else if arguments[0] == b"--version" {
       gnu.version("printf")
       return
     }
   }
   return Err(usage_error("printf", "FORMAT [ARG...]")) when arguments.is_empty()
-  let values = arguments[1..]
-  let output = render(arguments[0], values)
-  gnu.write_text(output.text)
+  let format = arguments[0]
+  var values: List[PrintfArgument] = []
+  for value in arguments[1..] { values += [printf_argument(value)?] }
+  let output = render(format, values)
+  gnu.write_bytes(output.data)
   if ! output.stopped and output.next_argument < values.len() {
-    gnu.error(f"warning: ignoring excess arguments, starting with {gnu.quote_value(values[output.next_argument])}")
+    gnu.error(f"warning: ignoring excess arguments, starting with {gnu.quote_value(values[output.next_argument].text)}")
   }
   if output.failed { exit 1 }
 }

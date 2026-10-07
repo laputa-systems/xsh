@@ -188,6 +188,9 @@ test test_gnu_quote_bytes_escapes_names_that_are_not_text { |ctx|
   let utf8_invalid = probe(ctx, ["quote-bytes"], stdin: b"a\xc3\xa9\xffz", locale: "en_US.UTF-8")?
   assert utf8_invalid.stdout == "'aé'$'\\377''z'\n"
 
+  let utf8_control = probe(ctx, ["quote-bytes"], stdin: b"\xc2\x81", locale: "en_US.UTF-8")?
+  assert utf8_control.stdout == "''$'\\302\\201'\n"
+
   let truncated = probe(ctx, ["quote-bytes"], stdin: b"x\xe2\x82", locale: "en_US.UTF-8")?
   assert truncated.stdout == "'x'$'\\342\\202'\n"
 

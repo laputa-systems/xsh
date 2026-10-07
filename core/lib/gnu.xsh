@@ -92,8 +92,9 @@ pure decode_name(raw: Bytes, utf8: Bool) -> Pieces {
     if byte >= 128 {
       let need = if utf8 { utf8_width(byte) } else { 0 }
       let char = if need > 0 and at + need <= total { raw[at..at + need].utf8() ?? "" } else { "" }
+      let c1_control = need == 2 and byte == 194 and (raw.byte_at(at + 1) ?? 0) >= 128 and (raw.byte_at(at + 1) ?? 0) <= 159
 
-      if char == "" {
+      if char == "" or c1_control {
         text = octal(byte)
         kind = 4
       } else {

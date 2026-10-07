@@ -43,6 +43,32 @@ proc printf_run(ctx: TestContext, args: List[Str], posix: Bool = false) [fs, pro
   {status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?}
 }
 
+type PrintfBytesResult = {status: Int, stdout: Bytes}
+
+proc printf_bytes_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[PrintfBytesResult] {
+  let root = test.temp_dir(ctx, name: "printf-bytes")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/printf.xsh"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display()].extend(args), root,
+    {LC_ALL: "C.UTF-8"}, b"", stdout, stderr))?
+  {status: status.exit_code()?, stdout: stdout.read_bytes()?}
+}
+
+test test_printf_preserves_output_bytes { |ctx|
+  let character = printf_bytes_run(ctx, ["%c", "🙃"])?
+  let format_escape = printf_bytes_run(ctx, ["\\xc2\\x81"])?
+  let argument_escape = printf_bytes_run(ctx, ["%b", "\\xc2\\x81"])?
+
+  assert character.status == 0
+  assert character.stdout == b"\xf0"
+  assert format_escape.status == 0
+  assert format_escape.stdout == b"\xc2\x81"
+  assert argument_escape.status == 0
+  assert argument_escape.stdout == b"\xc2\x81"
+}
+
 test test_printf_flushes_stdout_and_reports_write_errors { |ctx|
   if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
   let root = test.temp_dir(ctx, name: "printf-write-error")?
@@ -89,6 +115,14 @@ test test_printf_warns_about_trailing_char_constant_after_failure { |ctx|
   assert posix.status == 1
   assert posix.stdout == "0\n97\n"
   assert posix.stderr == "printf: 'bad': expected a numeric value\n"
+}
+
+test test_printf_reports_empty_character_constant { |ctx|
+  let result = printf_run(ctx, ["%d", "'"])?
+
+  assert result.status == 1
+  assert result.stdout == "0"
+  assert result.stderr == "printf: '\\'': expected a numeric value\n"
 }
 
 test test_printf_warns_about_arguments_after_literal_format { |ctx|
@@ -144,6 +178,8 @@ test test_printf_initial_help_version_and_empty_format { |ctx|
 test test_printf_shell_quote_conversion { |ctx|
   let quoted = printf_run(ctx, ["%q|%q|%q|%q", "test~", "a b", "", "\"$test\""])?
   let quote_then_literal = printf_run(ctx, ["%qd", "a b"])?
+  let apostrophe = printf_run(ctx, ["%q", "'"])?
+  let leading_tilde = printf_run(ctx, ["%q", "~a"])?
 
   assert quoted.status == 0, quoted.stderr
   assert quoted.stdout == "test~|'a b'|''|'\"$test\"'"
@@ -151,6 +187,8 @@ test test_printf_shell_quote_conversion { |ctx|
   assert quote_then_literal.status == 0, quote_then_literal.stderr
   assert quote_then_literal.stdout == "'a b'd"
   assert quote_then_literal.stderr == ""
+  assert apostrophe.stdout == "\"'\""
+  assert leading_tilde.stdout == "'~a'"
 }
 
 test test_printf_rejects_width_for_shell_quote_conversion { |ctx|
@@ -325,10 +363,13 @@ test test_printf_zero_precision_and_zero_integer { |ctx|
 
 test test_printf_hexadecimal_float_and_character_constant { |ctx|
   let output = printf_run(ctx, ["%a|%A|%i", ".875", ".875", "'a"])?
+  let float_character = printf_run(ctx, ["%f", "'á"])?
 
   assert output.status == 0, output.stderr
   assert output.stdout == "0xep-4|0XEP-4|97"
   assert output.stderr == ""
+  assert float_character.status == 0, float_character.stderr
+  assert float_character.stdout == "225.000000"
 }
 
 test test_printf_reports_partial_numeric_conversion_after_output { |ctx|
