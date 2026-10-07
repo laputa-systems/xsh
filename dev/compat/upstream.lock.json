@@ -12,6 +12,13 @@
     "pinned_by": "uutils util/fetch-gnu.sh at the uutils commit above",
     "role": "GNU test suite for the uutils-vs-XSH differential (Gate 4)"
   },
+  "busybox": {
+    "version": "1.36.1",
+    "archive": "https://github.com/mirror/busybox/archive/refs/tags/1_36_1.tar.gz",
+    "archive_sha256": "ea5494846c51d946e5e801d1c099b438f683af8147e0be24ca4001073143110f",
+    "source_directory": "busybox-1_36_1",
+    "role": "pinned BusyBox testsuite oracle for Gate C; never a runtime dependency"
+  },
   "denominator": {
     "upstream_utilities": 108,
     "in_scope": 106,

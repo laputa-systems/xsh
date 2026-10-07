@@ -164,12 +164,32 @@ suite then passed 65/65.
   `results/gnu-differential.json`; the pinned uutils baseline is
   `results/gnu-uutils.json`.
 
-Gate 5's option comparison, the BusyBox route, the practical expanded Linux
-suite, and the clean-image smoke remain open. The attempted AArch64 debug run
-was stopped after ARM64 was removed from scope; it produced no gate result and
-is not an open campaign item. The parity inventory currently has 99 of 125
-expanded Linux commands present; the other 26 are listed in
-`dev/coreutils-parity.json`. The campaign remains active and incomplete.
+The BusyBox route now has a pinned runner and a passing `cat` pilot; full
+coverage of its 50 supported applet suites remains open. Gate 5's option
+comparison, the practical expanded Linux suite, and the clean-image smoke also
+remain open. The attempted AArch64 debug run was stopped after ARM64 was
+removed from scope; it produced no gate result and is not an open campaign
+item. The parity inventory currently has 99 of 125 expanded Linux commands
+present; the other 26 are listed in `dev/coreutils-parity.json`. The campaign
+remains active and incomplete.
+
+### Gate C BusyBox pilot
+
+`upstream.lock.json` pins BusyBox 1.36.1 by archive SHA-256. The runner
+`run-busybox.sh` presents staged XSH applets through a multicall adapter and
+invokes the pinned `testsuite/runtest` directly, so its exit status and
+`PASS`/`FAIL`/`SKIPPED`/`UNTESTED` records are retained. With no utility
+arguments it selects every available BusyBox suite for staged XSH applets; an
+argument narrows the run. The stage, source cache, reports, logs, work
+directories, and per-run temporary directory default under the ignored
+`.work/` tree, and the runner shares `UUTILS_SUITE_LOCK` with the other
+reference suites.
+
+The optimized-debug `cat` pilot ran in the pinned Docker test image as UID/GID
+1000 with `LC_ALL=C` and `TZ=UTC`: **6 pass, 0 fail, 0 skipped**. The report
+and verbose log are in `.work/compat-results/busybox/`. The report parser's
+three Python tests and a multicall adapter dispatch probe pass. The full
+50-suite run has not been recorded.
 
 ### Gate 5 option-surface pilot
 

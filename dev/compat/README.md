@@ -82,6 +82,7 @@ differential requires identical test selections on both sides.
 | `dev/compat/run-gnu.sh uutils [TEST...]` | GNU tests against pinned uutils (cached baseline) |
 | `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
+| `dev/compat/run-busybox.sh [UTIL...]` | pinned BusyBox tests against staged XSH applets; selected applets or every available suite |
 | `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for 16 commands; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
@@ -91,7 +92,7 @@ differential requires identical test selections on both sides.
 
 | File | Owner | Content |
 |---|---|---|
-| `upstream.lock.json` | integrator | pinned uutils commit and GNU version |
+| `upstream.lock.json` | integrator | pinned uutils commit, GNU version, and BusyBox archive version/checksum |
 | `../coreutils-parity.json` | generated | per-utility parity manifest |
 | `aliases.json` | integrator | alias executable → shared applet, as `{name, target}` entries |
 | `surface.json` | integrator | commands in the expanded scope beyond uutils, with phase, domain and test-only reference tool; the count is pinned in `upstream.lock.json` and can only grow |
@@ -127,6 +128,12 @@ failures. Relative to the prior full Gate 4 run, the new report has two more
 passes, one fewer failure, and one fewer skip. `split/filter.sh` remains an
 error; `tee/tee.sh` passes; `misc/yes.sh` still fails. See `CAMPAIGN.md` and
 `results/` for the reports and remaining limits.
+
+The pinned BusyBox 1.36.1 route is now runnable through the staged XSH
+multicall adapter. The bounded `cat` pilot passed 6/6 cases; the full set of 50
+supported applet suites remains open. Its scratch report and logs are under
+`.work/compat-results/busybox/` until the full run is ready for the shared
+campaign results.
 
 The Gate 5 pilot compares pinned Clap declarations with XSH's `cli.applet`
 schemas for fourteen commands and separately recognizes the manual

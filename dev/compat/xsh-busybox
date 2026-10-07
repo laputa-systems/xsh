@@ -1,0 +1,29 @@
+#!/bin/sh
+# Multicall adapter for BusyBox's testsuite; applet behavior stays in staged XSH.
+set -eu
+
+stage=${XSH_COMPAT_STAGE:?set XSH_COMPAT_STAGE to the staged XSH root}
+name=${0##*/}
+if [ "$name" = busybox ]; then
+	if [ "$#" -eq 0 ]; then
+		printf 'BusyBox XSH adapter\nCurrently defined functions:\n'
+		cat "$stage/busybox-applets.txt"
+		exit 0
+	fi
+	name=$1
+	shift
+fi
+
+case $name in
+	"" | . | .. | */*)
+		echo "busybox: invalid applet name '$name'" >&2
+		exit 2
+		;;
+esac
+
+applet=$stage/bin/$name
+if [ ! -x "$applet" ] || [ -d "$applet" ]; then
+	echo "busybox: applet '$name' is not staged" >&2
+	exit 127
+fi
+exec "$applet" "$@"
