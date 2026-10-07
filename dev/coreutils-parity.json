@@ -82,7 +82,12 @@
         "excluded": 2
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [
         "test_basename::test_help",
         "test_basename::test_version"
@@ -134,7 +139,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 6,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 cat's short-option string omits both, so XSH accepts --help and --version without those short forms."
@@ -195,7 +205,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -236,7 +251,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 1,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -272,7 +292,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -308,7 +333,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -331,7 +361,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 8,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -354,7 +389,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 23,
+        "fail": 7,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -400,7 +440,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 27,
+        "fail": 0,
+        "skip": 1,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -423,7 +468,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 3,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -446,7 +496,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 6,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -500,7 +555,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 7,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 dirname's short-option string omits both, so XSH accepts --help and --version without them."
@@ -520,7 +580,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 11,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -543,7 +608,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -566,7 +636,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -589,7 +664,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 13,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -607,7 +687,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -653,7 +738,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 4,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -676,7 +766,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -694,7 +789,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 1,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 hostid has no matching short forms, so XSH accepts --help and --version without them."
@@ -760,7 +860,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 6,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -783,7 +888,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 4,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "SELinux contexts (-Z, --context), ACL/context mode markers and capability colors remain incomplete despite the shared xattr API.",
@@ -813,7 +923,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -859,7 +974,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 14,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -882,7 +1002,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -928,7 +1053,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 3,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -951,7 +1081,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 5,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1037,7 +1172,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 20,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1083,7 +1223,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 1,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 pwd has no matching short forms, so XSH accepts --help and --version without them."
@@ -1108,7 +1253,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 6,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1126,7 +1276,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 10,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1149,7 +1304,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 1,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1172,7 +1332,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 1,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1195,7 +1360,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 21,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1286,7 +1456,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 24,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1327,7 +1502,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 sum has no matching short forms, so XSH accepts --help and --version without them."
@@ -1375,7 +1555,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 4,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1398,7 +1583,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [
         "test_tee::test_short_help_is_long_help"
       ],
@@ -1423,7 +1613,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 16,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1446,7 +1641,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1469,7 +1669,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 8,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1487,7 +1692,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 2,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1528,7 +1738,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 20,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1596,7 +1811,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 22,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1619,7 +1839,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 14,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1678,7 +1903,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 5,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 wc's short-option string omits both, so XSH accepts --help and --version without them."
@@ -1746,7 +1976,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 6,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1787,7 +2022,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 4,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },
@@ -1933,7 +2173,12 @@
         "excluded": 0
       },
       "gnu_differential": null,
-      "busybox": null,
+      "busybox": {
+        "pass": 1,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": [
         "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
@@ -2090,7 +2335,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "busybox": null,
+      "busybox": {
+        "pass": 4,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "excluded_tests": [],
       "known_semantic_gaps": []
     },

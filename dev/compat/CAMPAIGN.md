@@ -164,14 +164,20 @@ suite then passed 65/65.
   `results/gnu-differential.json`; the pinned uutils baseline is
   `results/gnu-uutils.json`.
 
-The BusyBox route now has a pinned runner and a passing `cat` pilot; full
-coverage of its 50 supported applet suites remains open. Gate 5's option
-comparison, the practical expanded Linux suite, and the clean-image smoke also
-remain open. The attempted AArch64 debug run was stopped after ARM64 was
-removed from scope; it produced no gate result and is not an open campaign
-item. The parity inventory currently has 99 of 125 expanded Linux commands
-present; the other 26 are listed in `dev/coreutils-parity.json`. The campaign
-remains active and incomplete.
+The full BusyBox run at `8d92a7e2` selected 71 available staged XSH applet
+suites: 561 pass, 119 fail, and 65 skipped. The 50 in-scope coreutils applets
+account for 363 pass, 24 fail, and 2 skipped; the other 21 staged applets and
+aliases account for 198 pass, 95 fail, and 63 skipped. Within the coreutils
+subset, the largest failure groups are `cp` (7), `date` (4), `printf` (4),
+`tr` (2), and `unexpand` (2); `od`, `seq`, `sort`, `sum`, and `test` each have
+one failure. The pinned report is `results/busybox.json`; run logs remain under
+ignored `.work/compat-results/busybox/full-wave4/`. Gate 5 remains open for
+the other 89 utilities. The practical expanded Linux suite and clean-image
+smoke also remain open. The attempted AArch64 debug run was stopped after
+ARM64 was removed from scope; it produced no gate result and is not an open
+campaign item. The parity inventory currently has 99 of 125 expanded Linux
+commands present; the other 26 are listed in `dev/coreutils-parity.json`. The
+campaign remains active and incomplete.
 
 ### Current Wave 4 focused slices (2026-10-07)
 
@@ -254,9 +260,10 @@ while only uutils accepts `-h` and `-V`; direct `true` and `false` declarations
 contain only the long help/version forms. The comparison also reports cat's
 `-u` as parsed-but-unused on both sides, matching its documented ignored
 behavior. `sum -r` is parsed-but-unused on both sides; the raw-byte XSH option
-scan handles `-s` and `--sysv` without treating `-r` as an override. The
-comparisons cover 138 uutils spellings and 108 XSH spellings. All twelve parser
-tests pass. Gate 5 remains open for the other 89 utilities.
+scan handles `-s` and `--sysv` without treating `-r` as an override. Its
+native regression passes with the four-test `sum` suite. The comparisons cover
+138 uutils spellings and 108 XSH spellings. All twelve parser tests pass. Gate
+5 remains open for the other 89 utilities.
 
 ## Sort merge follow-up (`a860f47a`)
 

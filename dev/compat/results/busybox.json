@@ -1,0 +1,721 @@
+{
+  "suite": "busybox",
+  "upstream": {
+    "archive_sha256": "ea5494846c51d946e5e801d1c099b438f683af8147e0be24ca4001073143110f",
+    "version": "1.36.1"
+  },
+  "utilities": {
+    "awk": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 26,
+      "failing": [
+        "awk bitwise op",
+        "awk properly handles undefined function",
+        "awk 'v (a)' is not a function call, it is a concatenation",
+        "awk unused function args are evaluated",
+        "awk hex const 1",
+        "awk hex const 2",
+        "awk oct const",
+        "awk -F handles escapes",
+        "awk gsub falls back to non-extended-regex",
+        "awk handles non-existing file correctly",
+        "awk func arg parsing 1",
+        "awk func arg parsing 2",
+        "awk func arg parsing 3",
+        "awk func arg parsing 4",
+        "awk handles empty ()",
+        "awk length(array)",
+        "awk length()",
+        "awk print length, 1",
+        "awk print length 1",
+        "awk break",
+        "awk continue",
+        "awk negative field access",
+        "awk do not allow \"str\"++",
+        "awk print + redirect",
+        "awk \"cmd\" | getline",
+        "awk assign while test"
+      ],
+      "pass": 33,
+      "skip": 8
+    },
+    "basename": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "bunzip2": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 4,
+      "failing": [
+        "bunzip2: unknown suffix",
+        "bunzip2: already exists",
+        "bunzip2: bz2_issue_11.bz2 corrupted example",
+        "bunzip2: bz2_issue_12.bz2 corrupted example"
+      ],
+      "pass": 7,
+      "skip": 0
+    },
+    "bzcat": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 3,
+      "skip": 0
+    },
+    "cat": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 6,
+      "skip": 0
+    },
+    "cmp": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 1,
+      "skip": 0
+    },
+    "comm": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 8,
+      "skip": 0
+    },
+    "cp": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 7,
+      "failing": [
+        "cp",
+        "cp -d",
+        "cp -P",
+        "cp -L",
+        "cp -H",
+        "cp -RHP",
+        "cp -RLH"
+      ],
+      "pass": 23,
+      "skip": 0
+    },
+    "cut": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 27,
+      "skip": 1
+    },
+    "date": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 4,
+      "failing": [
+        "date-format-works",
+        "date-u-works",
+        "date-works",
+        "date-works-1"
+      ],
+      "pass": 3,
+      "skip": 0
+    },
+    "dd": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 6,
+      "skip": 0
+    },
+    "diff": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 7,
+      "failing": [
+        "diff -b treats EOF as whitespace",
+        "diff -b treats all spaces as equal",
+        "diff -B ignores changes whose lines are all blank",
+        "diff -B does not ignore changes whose lines are not all blank",
+        "diff -B ignores blank single line change",
+        "diff -B does not ignore non-blank single line change",
+        "diff always takes context from old file"
+      ],
+      "pass": 5,
+      "skip": 6
+    },
+    "dirname": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 7,
+      "skip": 0
+    },
+    "du": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 6,
+      "skip": 0
+    },
+    "echo": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 11,
+      "skip": 0
+    },
+    "expand": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "expr": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "factor": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 13,
+      "skip": 0
+    },
+    "false": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "find": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 3,
+      "skip": 9
+    },
+    "fold": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 4,
+      "skip": 0
+    },
+    "grep": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 2,
+      "failing": [
+        "grep -L exitcode 0",
+        "grep -L exitcode 1"
+      ],
+      "pass": 42,
+      "skip": 7
+    },
+    "gunzip": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 2,
+      "failing": [
+        "gunzip: unknown suffix",
+        "gunzip: already exists"
+      ],
+      "pass": 4,
+      "skip": 0
+    },
+    "gzip": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 4,
+      "skip": 0
+    },
+    "head": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 3,
+      "skip": 0
+    },
+    "hostid": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 1,
+      "skip": 0
+    },
+    "hostname": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 4,
+      "skip": 0
+    },
+    "id": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 4,
+      "skip": 0
+    },
+    "ln": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 6,
+      "skip": 0
+    },
+    "ls": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 4,
+      "skip": 0
+    },
+    "md5sum": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 3,
+      "skip": 0
+    },
+    "mdev": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 0,
+      "skip": 13
+    },
+    "mkdir": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "mount": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 0,
+      "skip": 1
+    },
+    "mv": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 14,
+      "skip": 0
+    },
+    "nl": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 3,
+      "skip": 0
+    },
+    "od": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "od -f"
+      ],
+      "pass": 3,
+      "skip": 0
+    },
+    "paste": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 5,
+      "skip": 0
+    },
+    "patch": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 11,
+      "failing": [
+        "patch with old_file == new_file",
+        "patch with nonexistent old_file",
+        "patch -R with nonexistent old_file",
+        "patch detects already applied hunk",
+        "patch detects already applied hunk at the EOF",
+        "patch -N ignores already applied hunk",
+        "patch FILE PATCH",
+        "patch at the beginning",
+        "patch creates new file",
+        "patch understands ...dir///dir...",
+        "patch internal buffering bug?"
+      ],
+      "pass": 0,
+      "skip": 0
+    },
+    "pidof": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "pidof (exit with success)"
+      ],
+      "pass": 2,
+      "skip": 1
+    },
+    "printf": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 4,
+      "failing": [
+        "printf understands %d '\"x' \"'y\" \"'zTAIL\"",
+        "printf handles %d bad_input",
+        "printf aborts on bare %",
+        "printf aborts on %r"
+      ],
+      "pass": 20,
+      "skip": 0
+    },
+    "pwd": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 1,
+      "skip": 0
+    },
+    "readlink": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 6,
+      "skip": 0
+    },
+    "realpath": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 10,
+      "skip": 0
+    },
+    "rev": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "rev file with NUL character"
+      ],
+      "pass": 3,
+      "skip": 0
+    },
+    "rm": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 1,
+      "skip": 0
+    },
+    "rmdir": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 1,
+      "skip": 0
+    },
+    "sed": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 16,
+      "failing": [
+        "sed s [delimiter]",
+        "sed embedded NUL",
+        "sed embedded NUL g",
+        "sed subst+write",
+        "sed trailing NUL",
+        "sed lie-to-autoconf",
+        "sed d does not break n,m matching",
+        "sed d does not break n,regex matching",
+        "sed d does not break n,regex matching #2",
+        "sed 2d;2,1p (gnu compat)",
+        "sed a cmd understands \\n,\\t,\\r",
+        "sed i cmd understands \\n,\\t,\\r",
+        "sed with N skipping lines past ranges on next cmds",
+        "sed zero chars match/replace advances correctly 2",
+        "sed 's///w FILE'",
+        "sed understands duplicate file name"
+      ],
+      "pass": 80,
+      "skip": 0
+    },
+    "seq": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "seq count by zero"
+      ],
+      "pass": 21,
+      "skip": 0
+    },
+    "sha1sum": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 1
+    },
+    "sha256sum": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "sha512sum": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "sort": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "sort key range with numeric option and global reverse"
+      ],
+      "pass": 24,
+      "skip": 0
+    },
+    "strings": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "strings-works-like-GNU"
+      ],
+      "pass": 0,
+      "skip": 0
+    },
+    "sum": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "sum -r file doesn't print file's name"
+      ],
+      "pass": 2,
+      "skip": 0
+    },
+    "tail": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 4,
+      "skip": 0
+    },
+    "tar": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 15,
+      "failing": [
+        "tar-archives-multiple-files",
+        "tar-extracts-all-subdirs",
+        "tar-extracts-file",
+        "tar-extracts-from-standard-input",
+        "tar-extracts-to-standard-output",
+        "tar-handles-cz-options",
+        "tar-handles-empty-include-and-non-empty-exclude-list",
+        "tar-handles-exclude-and-extract-lists",
+        "tar-handles-multiple-X-options",
+        "tar-handles-nested-exclude",
+        "tar_with_link_with_size",
+        "tar_with_prefix_fields",
+        "tar Empty file is not a tarball",
+        "tar Two zeroed blocks is a ('truncated') empty tarball",
+        "tar Twenty zeroed blocks is an empty tarball"
+      ],
+      "pass": 4,
+      "skip": 14
+    },
+    "tee": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "test": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "test a -a !: should be true (0)"
+      ],
+      "pass": 16,
+      "skip": 0
+    },
+    "touch": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 3,
+      "skip": 0
+    },
+    "tr": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 2,
+      "failing": [
+        "tr-rejects-wrong-class",
+        "tr-works"
+      ],
+      "pass": 8,
+      "skip": 0
+    },
+    "tree": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 4,
+      "failing": [
+        "tree error opening dir",
+        "tree single file",
+        "tree nested directories and files",
+        "tree multiple directories"
+      ],
+      "pass": 0,
+      "skip": 0
+    },
+    "true": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 2,
+      "skip": 0
+    },
+    "tsort": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 20,
+      "skip": 0
+    },
+    "unexpand": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 2,
+      "failing": [
+        "unexpand case 7",
+        "unexpand with unicode characher 0x394"
+      ],
+      "pass": 22,
+      "skip": 0
+    },
+    "uniq": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 14,
+      "skip": 0
+    },
+    "unlzma": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 3,
+      "failing": [
+        "unlzma (bad archive 1)",
+        "unlzma (bad archive 2)",
+        "unlzma (bad archive 3)"
+      ],
+      "pass": 0,
+      "skip": 0
+    },
+    "uptime": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 1,
+      "skip": 0
+    },
+    "wc": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 0,
+      "failing": [],
+      "pass": 5,
+      "skip": 0
+    },
+    "which": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "which-uses-default-path"
+      ],
+      "pass": 0,
+      "skip": 0
+    },
+    "xargs": {
+      "applet": true,
+      "excluded": 0,
+      "fail": 1,
+      "failing": [
+        "xargs -e without param"
+      ],
+      "pass": 7,
+      "skip": 4
+    }
+  }
+}

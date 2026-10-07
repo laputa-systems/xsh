@@ -129,11 +129,12 @@ passes, one fewer failure, and one fewer skip. `split/filter.sh` remains an
 error; `tee/tee.sh` passes; `misc/yes.sh` still fails. See `CAMPAIGN.md` and
 `results/` for the reports and remaining limits.
 
-The pinned BusyBox 1.36.1 route is now runnable through the staged XSH
-multicall adapter. The bounded `cat` pilot passed 6/6 cases; the full set of 50
-supported applet suites remains open. Its scratch report and logs are under
-`.work/compat-results/busybox/` until the full run is ready for the shared
-campaign results.
+The pinned BusyBox 1.36.1 route runs through the staged XSH multicall adapter.
+The full default selection covered 71 available staged applet suites: 561
+passed, 119 failed, and 65 skipped. Its 50 in-scope coreutils applets account
+for 363 passed, 24 failed, and 2 skipped. The tracked report is
+`results/busybox.json`; per-applet logs remain under the ignored
+`.work/compat-results/busybox/full-wave4/` directory.
 
 The Gate 5 pilot compares pinned Clap declarations with XSH's `cli.applet`
 schemas for fifteen commands and separately recognizes the manual
