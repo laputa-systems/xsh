@@ -119,6 +119,11 @@ remain historical evidence only.
   native printf suite passes 21/21; the optimized debug Gate 3 slice improves
   from 113/39 to 117/35 across 152 cases, with four fixes and no regressions.
   Reports are in `results/printf-q-followup/`.
+- Follow-up `ce22226e` omits the integer digit for zero when precision is zero,
+  while retaining the alternate-form octal `0`. The native printf suite passes
+  22/22; its optimized debug Gate 3 slice improves from 117/35 to 118/34
+  across 152 cases, with one fix and no regressions. Reports are in
+  `results/printf-zero-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

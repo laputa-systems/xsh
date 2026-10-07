@@ -147,6 +147,11 @@ conversion error. Direct probes match pinned GNU `printf`; the native suite
 passes 21/21, and the optimized debug Gate 3 slice improves from 113/39 to
 117/35 with four fixes and no regressions. Reports are in
 `results/printf-q-followup/`.
+Follow-up `ce22226e` omits zero for integer conversions with zero precision
+while retaining `0` for alternate-form octal. The native suite passes 22/22;
+the optimized debug Gate 3 slice improves from 117/35 to 118/34 across 152
+cases with one fix and no regressions. Reports are in
+`results/printf-zero-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

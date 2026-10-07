@@ -1,0 +1,54 @@
+{
+  "suite": "uutils-integration",
+  "utilities": {
+    "printf": {
+      "pass": 118,
+      "fail": 34,
+      "skip": 0,
+      "excluded": 0,
+      "failing": [
+        "test_printf::char_as_byte",
+        "test_printf::char_constant_warning_preserves_prior_failure",
+        "test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report",
+        "test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option",
+        "test_printf::diagnostics::test_snippet_points_at_the_bad_code_point",
+        "test_printf::diagnostics::test_snippet_points_at_the_bad_spec",
+        "test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape",
+        "test_printf::diagnostics::test_snippet_points_inside_a_quoted_format",
+        "test_printf::escaped_unicode_incomplete",
+        "test_printf::escaped_unicode_invalid",
+        "test_printf::escaped_unicode_null_byte",
+        "test_printf::float_large_precision",
+        "test_printf::float_non_finite",
+        "test_printf::float_non_finite_space_padding",
+        "test_printf::float_non_finite_zero_padding",
+        "test_printf::float_switch_switch_decimal_scientific",
+        "test_printf::invalid_precision_tests",
+        "test_printf::mb_input",
+        "test_printf::mb_invalid_unicode",
+        "test_printf::non_utf_8_input",
+        "test_printf::partial_char",
+        "test_printf::partial_char_posixly_correct",
+        "test_printf::positional_format_specifiers",
+        "test_printf::sub_any_asterisk_second_param_with_integer",
+        "test_printf::sub_b_string_validate_field_params",
+        "test_printf::sub_b_string_variable_size_unicode",
+        "test_printf::test_extreme_exponent_does_not_overflow",
+        "test_printf::test_extreme_field_width_overflow",
+        "test_printf::test_large_width_format",
+        "test_printf::test_missing_escaped_hex_value",
+        "test_printf::test_precision_above_formatter_limit",
+        "test_printf::test_q_string_control_chars_with_quotes",
+        "test_printf::test_unterminated_write_error_is_reported",
+        "test_printf::test_write_error_omits_errno"
+      ],
+      "applet": true
+    }
+  },
+  "totals": {
+    "pass": 118,
+    "fail": 34,
+    "skip": 0,
+    "excluded": 0
+  }
+}
