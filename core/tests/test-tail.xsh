@@ -141,6 +141,45 @@ test test_tail_follow_of_untailable_inputs_matches_gnu { |ctx|
   assert abbreviated.stderr == "tail: cannot follow '-' by name\n", abbreviated.stderr
 }
 
+test test_tail_pid_follow_does_not_block_on_fifo_open { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-pid-fifo")?
+  let fifo = fp"{root}/fifo"
+  fs.mkfifo(fifo, 0o600)
+  let sleeper = spawn run sleep 30 ?
+  defer { sleeper.cancel(signal: "KILL", kill_after: 0ms)? }
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let argv = [
+    ctx.xsh_bin.display(),
+    timeout.display(),
+    ".2",
+    ctx.xsh_bin.display(),
+    tail.display(),
+    "-f",
+    "-s.01",
+    f"--pid={sleeper.pid}",
+    fifo.display(),
+  ]
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"},
+    b"",
+    stdout,
+    stderr,
+    timeout: 2s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124
+  assert stdout.read_bytes()?.is_empty()
+  assert stderr.read_text()? == ""
+}
+
 test test_tail_follow_of_a_live_file_is_rejected_unless_the_pid_is_gone { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
   fp"{root}/log".write(b"1\n2\n")

@@ -142,6 +142,26 @@ test test_seq_option_errors_and_endless_sequences_fail_explicitly { |ctx|
   assert "endless sequence" in endless.stderr
 }
 
+test test_seq_reports_stdout_errors_before_expanding_the_remaining_numbers { |ctx|
+  let root = test.temp_dir(ctx, name: "seq-write-error")?
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/seq.xsh".display(), "1", "0.0001", "99999999"]
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"},
+    b"",
+    /dev/full,
+    stderr,
+    timeout: 2s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+  assert stderr.read_text()? == "seq: write error: No space left on device\n"
+}
+
 test test_seq_help_and_version { |ctx|
   let help = seq_run(ctx, ["--help"])?
   assert help.status == 0

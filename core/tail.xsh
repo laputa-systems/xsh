@@ -1,6 +1,9 @@
 #!/bin/xsh
 use lib.gnu
+use lib.proc_launch
 use lib.textio_a1 as tio
+use time
+use unix
 
 const USAGE = """Usage: tail [OPTION]... [FILE]...
 Print the last 10 lines of each FILE to standard output.
@@ -61,6 +64,10 @@ type Spec = {value: Int, from_start: Bool, bytes: Bool}
 type Plan = {data: Bytes, start: Int}
 
 const FOLLOW_MODES = ["descriptor", "name"]
+
+# Following has no child process handle to carry a cancellation signal through
+# evaluator cleanup, so handle TERM explicitly and stop the polling loop.
+on TERM [] {}
 
 # Rewrite the obsolete first argument `[+-]N[bcl][f]` into the options it
 # stands for.
@@ -232,7 +239,34 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
   Ok({data: data, start: data_start(data, spec, zero)})
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+# Poll a FIFO with O_NONBLOCK so timeout and --pid can run while no writer has
+# connected or while a writer is silent.
+proc followed_fifo_data(fifo: Path, spec: Spec, zero: Bool, pid: Int, interval: Duration) [fs, process, time, error] -> Result[Bytes] {
+  let fd = unix.open_fd(fifo, nonblock: true)?
+  var chunks: List[Bytes] = []
+
+  loop {
+    match unix.read_fd(fd, tio.CHUNK) {
+      Ok(chunk) => { if ! chunk.is_empty() { chunks += [chunk] } }
+      Err(failure) => {
+        if gnu.errno(failure) not in [11, 35] {
+          unix.close_fd(fd)?
+          return Err(failure)
+        }
+      }
+    }
+
+    let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
+    break when ! alive
+    time.sleep(interval)?
+  }
+
+  unix.close_fd(fd)?
+  let data = bytes.concat(chunks)
+  Ok(data[data_start(data, spec, zero)..])
+}
+
+proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let args = modernize(tio.without_presume_pipe(argv))
 
   if ! args.is_empty() and rx"^-[0-9]".matches(args[0]) {
@@ -337,6 +371,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       gnu.cannot_open(name, failure)
       failed = true
       growing += if retrying and following { [name] } else { [] }
+      continue
+    }
+
+    if following and opts.pid != "" and source.kind == 1 {
+      let interval = if opts.sleep == "" { 1s } else { proc_launch.interval(opts.sleep) ?? 1s }
+      guard let data = followed_fifo_data(source.path, spec, opts.zero, pid, interval) else { |failure|
+        gnu.error_reading(label, failure)
+        failed = true
+        continue
+      }
+
+      if headers {
+        gnu.write_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n")
+        first = false
+      }
+      gnu.write_bytes(data)
       continue
     }
 

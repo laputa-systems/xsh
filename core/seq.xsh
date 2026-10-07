@@ -657,6 +657,65 @@ pure plain_line(value: Signed, places: Int, width: Int) -> Str {
   f"{sign}{zeros(width - size)}{body}"
 }
 
+stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Bool, empty: Bool) -> Stream[Str] {
+  if ! empty {
+    var scale = if first.scale > last.scale { first.scale } else { last.scale }
+    scale = if step.kind == "fin" and step.scale > scale { step.scale } else { scale }
+
+    let from = value_of(first, scale)
+    let stop = value_of(last, scale)
+    let inc = if step.kind == "fin" { value_of(step, scale) } else { {neg: step.neg, digits: "0"} }
+    let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt
+    let small = from.digits.byte_len() <= 17 and stop.digits.byte_len() <= 17 and inc.digits.byte_len() <= 17
+
+    if small and step.kind == "fin" {
+      var current = if from.neg { 0 - (from.digits.parse_int() ?? 0) } else { from.digits.parse_int() ?? 0 }
+      let delta = if inc.neg { 0 - (inc.digits.parse_int() ?? 0) } else { inc.digits.parse_int() ?? 0 }
+      let limit = if stop.neg { 0 - (stop.digits.parse_int() ?? 0) } else { stop.digits.parse_int() ?? 0 }
+      var negative = from.neg
+
+      if plain and scale == 0 and spec.width == 0 {
+        if negative and current == 0 {
+          yield "-0"
+          current += delta
+        }
+
+        while if forward { current <= limit } else { current >= limit } {
+          yield f"{current}"
+          current += delta
+        }
+      } else {
+        while if forward { current <= limit } else { current >= limit } {
+          let value = {neg: negative, digits: f"{if current < 0 { 0 - current } else { current }}"}
+
+          yield if plain {
+            plain_line(value, scale, spec.width)
+          } else {
+            spec.prefix + format_number(negative, value.digits, scale, spec) + spec.suffix
+          }
+          current += delta
+          negative = current < 0
+        }
+      }
+    } else {
+      var current = from
+      var count = 0
+
+      while (if forward { signed_cmp(current, stop) <= 0 } else { signed_cmp(current, stop) >= 0 }) and (count == 0 or step.kind == "fin") {
+        yield if plain {
+          plain_line(current, scale, spec.width)
+        } else {
+          spec.prefix + format_number(current.neg, current.digits, scale, spec) + spec.suffix
+        }
+        current = signed_add(current, inc)
+        count += 1
+      }
+    }
+  }
+}
+
+const OUTPUT_CHUNK = 65536
+
 proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: SeqOptions = cli.applet(
     protect_numbers(argv),
@@ -759,64 +818,18 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
   let empty = first.kind == "inf" or last.kind == "inf"
 
-  let lines: List[Str] = collect {
-    if ! empty {
-      var scale = if first.scale > last.scale { first.scale } else { last.scale }
-      scale = if step.kind == "fin" and step.scale > scale { step.scale } else { scale }
+  var pending = ""
+  var emitted = false
+  for line in sequence_lines(first, step, last, spec, forward, empty) {
+    if emitted { pending += opts.separator }
+    pending += line
+    emitted = true
 
-      let from = value_of(first, scale)
-      let stop = value_of(last, scale)
-      let inc = if step.kind == "fin" { value_of(step, scale) } else { {neg: step.neg, digits: "0"} }
-      let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt
-      let small = from.digits.byte_len() <= 17 and stop.digits.byte_len() <= 17 and inc.digits.byte_len() <= 17
-
-      if small and step.kind == "fin" {
-        var current = if from.neg { 0 - (from.digits.parse_int() ?? 0) } else { from.digits.parse_int() ?? 0 }
-        let delta = if inc.neg { 0 - (inc.digits.parse_int() ?? 0) } else { inc.digits.parse_int() ?? 0 }
-        let limit = if stop.neg { 0 - (stop.digits.parse_int() ?? 0) } else { stop.digits.parse_int() ?? 0 }
-        var negative = from.neg
-
-        if plain and scale == 0 and spec.width == 0 {
-          if negative and current == 0 {
-            yield "-0"
-            current += delta
-          }
-
-          while if forward { current <= limit } else { current >= limit } {
-            yield f"{current}"
-            current += delta
-          }
-        } else {
-          while if forward { current <= limit } else { current >= limit } {
-            let value = {neg: negative, digits: f"{if current < 0 { 0 - current } else { current }}"}
-
-            yield if plain {
-              plain_line(value, scale, spec.width)
-            } else {
-              spec.prefix + format_number(negative, value.digits, scale, spec) + spec.suffix
-            }
-            current += delta
-            negative = current < 0
-          }
-        }
-      } else {
-        var current = from
-        var count = 0
-
-        while (if forward { signed_cmp(current, stop) <= 0 } else { signed_cmp(current, stop) >= 0 }) and (count == 0 or step.kind == "fin") {
-          yield if plain {
-            plain_line(current, scale, spec.width)
-          } else {
-            spec.prefix + format_number(current.neg, current.digits, scale, spec) + spec.suffix
-          }
-          current = signed_add(current, inc)
-          count += 1
-        }
-      }
+    if pending.byte_len() >= OUTPUT_CHUNK {
+      gnu.write_text(pending)
+      pending = ""
     }
   }
 
-  if ! lines.is_empty() {
-    gnu.write_text(lines.join(opts.separator) + opts.terminator)
-  }
+  if emitted { gnu.write_text(pending + opts.terminator) }
 }
