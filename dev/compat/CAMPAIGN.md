@@ -186,6 +186,14 @@ remain historical evidence only.
   printf suite passes 33/33; the optimized debug Gate 3 slice improves from
   135/17 to 137/15 across 152 cases, fixing two escape cases with no
   regressions. Reports are in `results/printf-octal-b/`.
+- Follow-up `70db4c11` keeps printf formats, arguments, and output as bytes,
+  forwards raw command arguments through `env`, and quotes UTF-8 C1 control
+  characters with `%q`. The focused native suites pass (env 8/8, printf 35/35,
+  GNU helpers 14 passed and one root permission skip). The optimized debug Gate 3
+  printf slice improves from 137/15 to 141/11 across 152 cases, fixing raw
+  `%c`, multibyte character constants, and invalid UTF-8 arguments with no
+  regressions. Pinned GNU 9.12 `printf-quote.sh` and `printf-mb.sh` both pass
+  on XSH and uutils. Reports are in `results/printf-raw-bytes/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

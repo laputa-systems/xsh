@@ -1,0 +1,27 @@
+{
+  "suite": "gnu-differential",
+  "counts": {
+    "uutils_pass_xsh_pass": 2,
+    "uutils_pass_xsh_fail": 0,
+    "uutils_fail_xsh_pass": 0,
+    "uutils_fail_xsh_fail": 0
+  },
+  "cells": {
+    "uutils_pass_xsh_pass": [
+      "printf/printf-mb.log",
+      "printf/printf-quote.log"
+    ],
+    "uutils_pass_xsh_fail": [],
+    "uutils_fail_xsh_pass": [],
+    "uutils_fail_xsh_fail": []
+  },
+  "utilities": {
+    "printf": {
+      "pass": 2,
+      "fail": 0,
+      "skip": 0,
+      "excluded": 0,
+      "blockers": []
+    }
+  }
+}

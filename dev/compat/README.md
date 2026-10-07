@@ -213,6 +213,13 @@ Follow-up `d7859e78` makes `%b` consume up to three octal digits after its
 suite passes 33/33; the optimized debug Gate 3 slice improves from 135/17 to
 137/15 across 152 cases, fixing two escape cases with no regressions. Reports
 are in `results/printf-octal-b/`.
+Follow-up `70db4c11` preserves raw bytes through printf formats, arguments,
+`%c`, `%b`, `%q`, and stdout, and lets `env` forward invalid UTF-8 command
+arguments. The native suites pass (env 8/8, printf 35/35, GNU helpers 14 pass
+with one root permission skip). The optimized debug Gate 3 printf slice
+improves from 137/15 to 141/11 across 152 cases with four fixes and no
+regressions. Pinned GNU 9.12 `printf-quote.sh` and `printf-mb.sh` both pass on
+XSH and uutils. Reports are in `results/printf-raw-bytes/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

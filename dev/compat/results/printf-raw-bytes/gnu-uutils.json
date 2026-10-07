@@ -1,0 +1,9 @@
+{
+  "results": {
+    "printf": {
+      "printf-mb.log": "PASS",
+      "printf-quote.log": "PASS"
+    }
+  },
+  "uutils_commit": "e7c9f3194280835c4487c2945c68d5f01ccacc8d"
+}
