@@ -44,6 +44,9 @@ Provision the account inside the test container first. This preserves
 permission fixtures and protected device nodes; build and report publication
 still belong to the invoking user. Staged executable shebangs pass `--` before
 the script path so an applet's own leading option separator is preserved.
+On a musl host, `run-uutils.sh` uses the C linker driver and disables static
+crt linking for the reference test harness's `stdbuf` cdylib; this does not
+change the XSH release build flags.
 
 `COMPAT_RESULTS_DIR` selects scratch report storage for both suite runners.
 They share `UUTILS_SUITE_LOCK` and serialize reference runs. GNU reports are

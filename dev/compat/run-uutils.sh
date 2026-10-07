@@ -70,13 +70,36 @@ mkdir -p "$results"
 python3 "$repo/dev/compat/stage.py" --stage "$stage"
 
 target=${UUTILS_TARGET_DIR:-$uutils/target}
-(cd "$uutils" && CARGO_TARGET_DIR=$target cargo nextest --version >/dev/null 2>&1 9>&-) || {
+export CARGO_TARGET_DIR=$target
+(cd "$uutils" && cargo nextest --version >/dev/null 2>&1 9>&-) || {
 	echo "cargo-nextest is required: cargo install cargo-nextest --locked" >&2
 	exit 2
 }
 
+# The xsh-test image targets musl, where the uutils stdbuf fixture needs a
+# dynamically linked cdylib. Build this test harness through the C driver with
+# crt-static disabled, without changing the static flags used for XSH itself.
+host_target=$(rustc -vV | sed -n 's/^host: //p')
+case "$host_target" in
+	*-musl)
+		target_key=$(printf '%s' "$host_target" | tr '[:lower:]-' '[:upper:]_')
+		linker_env="CARGO_TARGET_${target_key}_LINKER"
+		ref_rustflags=${RUSTFLAGS:-}
+		RUSTFLAGS="${ref_rustflags:+$ref_rustflags }-C target-feature=-crt-static"
+		export RUSTFLAGS
+		cargo_nextest() {
+			env "$linker_env=cc" cargo nextest "$@"
+		}
+		;;
+	*)
+		cargo_nextest() {
+			cargo nextest "$@"
+		}
+		;;
+esac
+
 # Build the test binary once; nextest archives would also work but add a step.
-(cd "$uutils" && CARGO_TARGET_DIR=$target cargo nextest run --no-run --release \
+(cd "$uutils" && cargo_nextest run --target-dir "$target" --no-run --release \
 	--features feat_os_unix --test tests 9>&-)
 
 uubin=$target/release/coreutils
@@ -144,8 +167,7 @@ set +e
 (cd "$uutils" && \
 	UUTESTS_BINARY_PATH=$stage/xsh-uutests \
 	LC_ALL=C TZ=UTC \
-	CARGO_TARGET_DIR=$target \
-	cargo nextest run --release --features feat_os_unix --test tests \
+	cargo_nextest run --target-dir "$target" --release --features feat_os_unix --test tests \
 		--config-file "$profile_dir/nextest-xsh.toml" --profile xsh \
 		--no-fail-fast --test-threads "${UUTESTS_THREADS:-3}" -E "$filter" 9>&-)
 status=$?
