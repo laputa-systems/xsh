@@ -7,6 +7,13 @@ type TouchOptions = {
   no_dereference: Bool, date: Str?, timestamp: Str?, time: Str?, help: Bool, version: Bool, paths: List[Str],
 }
 
+# date_parse recognizes a signed displacement as a separate token, while GNU
+# touch accepts the sign attached to its number.
+pure normalize_date_displacement(text: Str) -> Str {
+  let signed = rx"^([+-])([0-9]+) (.+)$".captures(text)
+  if signed.is_empty() { text } else { f"{signed[1]} {signed[2]} {signed[3]}" }
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let opts: TouchOptions = cli.applet(argv, {
     gnu: {status: 1},
@@ -91,8 +98,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   }
   if let text = stamp {
     let base = date_parse.parse("now")?
-    let access_time = date_parse.parse(text, base_ns: atime ?? base)
-    let modify_time = date_parse.parse(text, base_ns: mtime ?? base)
+    let date_input = normalize_date_displacement(text)
+    let access_time = date_parse.parse(date_input, base_ns: atime ?? base)
+    let modify_time = date_parse.parse(date_input, base_ns: mtime ?? base)
     match access_time {
       Ok(value) => atime = value + (if leap_second { 1000000000 } else { 0 })
       Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")

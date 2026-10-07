@@ -98,6 +98,18 @@ test test_touch_relative_reference_preserves_each_time { |ctx|
   assert fs.stat(target)?.mtime_ns == 1420634040000000000
 }
 
+test test_touch_negative_relative_fortnight { |ctx|
+  let root = test.temp_dir(ctx, name: "touch-fortnight")?
+  let reference = fp"{root}/reference"
+  let target = fp"{root}/target"
+  reference.write("reference")
+  fs.set_times(reference, atime_ns: 1420115640000000000, mtime_ns: 1420202040000000000)
+  let changed = run.capture --text TZ=UTC0 ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- -d "-1 fortnight" -r $reference $target
+  assert changed.status.exited_with(0), changed.stderr
+  assert fs.stat(target)?.atime_ns == 1420115640000000000 - 1209600000000000
+  assert fs.stat(target)?.mtime_ns == 1420202040000000000 - 1209600000000000
+}
+
 test test_touch_compact_leap_second { |ctx|
   let root = test.temp_dir(ctx, name: "touch-leap")?
   let target = fp"{root}/target"
