@@ -261,11 +261,11 @@ proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, group_o
   success
 }
 
-## Apply ownership changes and retain failure status across operands.
 proc missing_operand_after_bytes(operand: Bytes) [process, env] {
   gnu.usage_error(f"missing operand after {gnu.quote_bytes(operand)}")
 }
 
+## Apply ownership changes and retain failure status across operands.
 export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process, env, io] {
   let opts = options(argv)?
   let command = if group_only { "chgrp" } else { "chown" }

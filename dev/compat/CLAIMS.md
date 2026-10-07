@@ -25,6 +25,7 @@ test-file ownership; no lane may edit another lane's files or delegate further.
 
 Every lane uses `gpt-6-luna` at `xhigh`. Command semantics, parsers, and
 formatting stay in XSH. Rust changes require an exact reusable OS or byte
-boundary request to the integrator; no dependency additions are in scope.
+boundary request to the integrator. Dependency additions are approved for this
+campaign when a reusable primitive has no local equivalent.
 Lanes report counts from their own uutils slices and focused native tests,
 commit locally on their assigned branch, and never push or merge.
