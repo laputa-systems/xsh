@@ -320,14 +320,18 @@ pure general_numeric_value(line: Str) -> Float {
 }
 
 ## A biased exponent and padded significand preserve numeric order because sort-by has no Float key.
+## GNU places failed numeric conversions before NaN and all valid numbers.
 pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey {
+  if general_numeric_prefix(line) == "" {
+    return {key: "0", raw: if stable { "" } else { line }}
+  }
   let number = general_numeric_value(line)
   let special = number.format()
-  if special == "NaN" { return {key: "0", raw: if stable { "" } else { line }} }
-  if special == "-Infinity" { return {key: "1", raw: if stable { "" } else { line }} }
-  if special == "Infinity" { return {key: "5", raw: if stable { "" } else { line }} }
+  if special == "NaN" { return {key: "1", raw: if stable { "" } else { line }} }
+  if special == "-Infinity" { return {key: "2", raw: if stable { "" } else { line }} }
+  if special == "Infinity" { return {key: "6", raw: if stable { "" } else { line }} }
   let display = if let Ok(exact) = number.format_number("g", 17) { exact } else { special }
-  if display in ["0", "-0"] { return {key: "3", raw: if stable { "" } else { line }} }
+  if display in ["0", "-0"] { return {key: "4", raw: if stable { "" } else { line }} }
 
   let negative = display.starts_with("-")
   let unsigned = if negative { display.byte_slice(1) } else { display }
@@ -371,7 +375,7 @@ pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey 
       significance += f"{9 - ((normalized.byte_at(at) ?? 48) - 48)}"
     }
   }
-  {key: f"{if negative { "2" } else { "4" }}{padded_decimal(ordered_exponent, 3)}{significance}", raw: if stable { "" } else { line }}
+  {key: f"{if negative { "3" } else { "5" }}{padded_decimal(ordered_exponent, 3)}{significance}", raw: if stable { "" } else { line }}
 }
 
 pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
@@ -473,7 +477,11 @@ pure is_version_sort(opts: SortOptions) -> Bool {
 
 pure is_general_numeric_sort(opts: SortOptions) -> Bool {
   let mode = selected_sort_mode(opts)
-  if mode == "" { opts.general_numeric } else { mode in ["g", "general-numeric"] }
+  if mode == "" { opts.general_numeric } else { is_general_numeric_mode(mode) }
+}
+
+pure is_general_numeric_mode(mode: Str) -> Bool {
+  mode != "" and "general-numeric".starts_with(mode)
 }
 
 pure is_numeric_sort(opts: SortOptions) -> Bool {
@@ -851,7 +859,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let selected_mode = selected_sort_mode(opts)
   let general_numeric = is_general_numeric_sort(opts)
   let human_numeric = is_human_numeric_sort(opts)
-  if selected_mode != "" and ! selected_mode.starts_with("v") and ! is_human_numeric_mode(selected_mode) and selected_mode not in ["g", "general-numeric", "n", "numeric"] {
+  if selected_mode != "" and ! selected_mode.starts_with("v") and ! is_human_numeric_mode(selected_mode) and ! is_general_numeric_mode(selected_mode) and selected_mode not in ["n", "numeric"] {
     gnu.error(f"invalid argument {gnu.quote_maybe(selected_mode)} for '--sort'")
     exit 2
   }

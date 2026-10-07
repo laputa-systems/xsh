@@ -111,6 +111,19 @@ test test_sort_general_numeric_stable_equal_values { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_general_numeric_invalid_values_precede_nan_and_numbers { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-invalid")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    {LC_ALL: "C"}, b"\nword\nNaN\n-inf\n-2\n0\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"\nword\nNaN\n-inf\n-2\n0\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_general_numeric_hexadecimal_values { |ctx|
   let root = test.temp_dir(ctx, name: "sort-general-hex")?
   let script = fp"{ctx.core_dir}/sort.xsh"
@@ -130,7 +143,7 @@ test test_sort_general_numeric_mode_aliases_and_conflict { |ctx|
   let script = fp"{ctx.core_dir}/sort.xsh"
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
-  for mode in ["--sort=g", "--sort=general-numeric"] {
+  for mode in ["--sort=g", "--sort=general", "--sort=general-numeric", "--sort=general-numeri"] {
     let result = process.run(process.command_argv(ctx.xsh_bin,
       [ctx.xsh_bin.display(), "--", script.display(), mode], root,
       {LC_ALL: "C"}, b"1e2\n2\n", stdout, stderr))?
