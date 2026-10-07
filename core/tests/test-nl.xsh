@@ -35,3 +35,30 @@ test test_nl_numeric_errors_match_gnu { |ctx|
   assert invalid_increment.exited_with(1)
   assert error.read_text()? == "nl: invalid line number increment: '9223372036854775808': Value too large for data type\n"
 }
+
+test test_nl_preserves_non_utf8_paths_and_number_separators { |ctx|
+  let root = test.temp_dir(ctx, name: "nl-raw-arguments")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  input.write("test")
+  let output = test.temp_path(ctx, name: "numbered")
+  let command = "separator=$(printf '\\377\\376'); exec \"$1\" \"$2\" -- --number-separator=\"$separator\" \"$3\" > \"$4\""
+  let status = run.status env LC_ALL=C sh -c $command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" $input $output
+  assert status.exited_with(0)
+  assert output.read_bytes()? == b"     1\xff\xfetest\n"
+}
+
+test test_nl_matches_raw_section_delimiters { |ctx|
+  let pair_input = test.temp_file(ctx, name: "pair-sections", contents: b"a\n\xff\xfe\xff\xfe\xff\xfe\nb")?
+  let pair_output = test.temp_path(ctx, name: "pair-numbered")
+  let pair_command = "delimiter=$(printf '\\377\\376'); exec \"$1\" \"$2\" -- --section-delimiter=\"$delimiter\" \"$3\" > \"$4\""
+  let pair_status = run.status env LC_ALL=C sh -c $pair_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" $pair_input $pair_output
+  assert pair_status.exited_with(0)
+  assert pair_output.read_bytes()? == b"     1\ta\n\n       b\n"
+
+  let byte_input = test.temp_file(ctx, name: "byte-sections", contents: b"a\n\xff:\xff:\xff:\nb")?
+  let byte_output = test.temp_path(ctx, name: "byte-numbered")
+  let byte_command = "delimiter=$(printf '\\377'); exec \"$1\" \"$2\" -- -d\"$delimiter\" \"$3\" > \"$4\""
+  let byte_status = run.status env LC_ALL=C sh -c $byte_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/nl.xsh" $byte_input $byte_output
+  assert byte_status.exited_with(0)
+  assert byte_output.read_bytes()? == b"     1\ta\n\n       b\n"
+}

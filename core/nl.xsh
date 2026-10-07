@@ -36,8 +36,20 @@ pure formatted(value: Int, width: Int, style: Str) -> Str {
   if style == "ln" { digits + text.padding(count) } else if style == "rz" and value < 0 { "-" + text.padding(count, "0") + digits.byte_slice(1) } else { text.padding(count, if style == "rz" { "0" } else { " " }) + digits }
 }
 
-proc main(...argv: List[Str]) {
-  let opts: Options = cli.applet(argv, {
+pure separator_width(separator: Bytes) -> Int {
+  var at = 0
+  var count = 0
+  while at < separator.len() {
+    let character = text.character(separator, at)
+    at += character.size
+    count += 1
+  }
+  count
+}
+
+proc main(...argv: List[Bytes]) {
+  let arguments = text.normalize_arguments(argv, ["-d", "--section-delimiter", "-s", "--number-separator"])
+  let opts: Options = cli.applet(arguments.values, {
     gnu: {status: 1},
     body: {form: "-b --body-numbering STYLE", default: "t"},
     header: {form: "-h --header-numbering STYLE", default: "n"},
@@ -62,13 +74,17 @@ proc main(...argv: List[Str]) {
   let increment = number(opts.increment, "line number increment", -9223372036854775807 - 1, 9223372036854775807)
   let start = number(opts.start, "starting line number", -9223372036854775807 - 1, 9223372036854775807)
   let blanks = number(opts.blanks, "line number of blank lines", 0, 9223372036854775807)
-  let delimiter = if opts.delimiter.count_chars() == 1 { opts.delimiter + ":" } else { opts.delimiter }
+  let delimiter_arg = text.argument_bytes(arguments, opts.delimiter)
+  let delimiter = if separator_width(delimiter_arg) == 1 { bytes.concat([delimiter_arg, b":"]) } else { delimiter_arg }
+  let separator = text.argument_bytes(arguments, opts.separator)
+  let separator_count = separator_width(separator)
   var lines: List[Bytes] = []
   var failed = false
-  for name in if opts.paths.is_empty() { ["-"] } else { opts.paths } {
-    match gnu.read_operand(name) {
+  let paths = if opts.paths.is_empty() { [b"-"] } else { text.argument_bytes_list(arguments, opts.paths) }
+  for name in paths {
+    match text.read_operand_bytes(name) {
       Ok(data) => { lines += text.records(data) }
-      Err(failure) => { gnu.name_error(name, failure); failed = true }
+      Err(failure) => { text.name_error_bytes(name, failure); failed = true }
     }
   }
   var value = start
@@ -77,8 +93,10 @@ proc main(...argv: List[Str]) {
   var empty = 0
   for line in lines {
     let decoded = line.utf8() ?? ""
-    if delimiter != "" and decoded in [delimiter, delimiter + delimiter, delimiter + delimiter + delimiter] {
-      style = if decoded == delimiter { opts.footer } else if decoded == delimiter + delimiter { opts.body } else { opts.header }
+    let body_section = bytes.concat([delimiter, delimiter])
+    let header_section = bytes.concat([body_section, delimiter])
+    if delimiter != b"" and line in [delimiter, body_section, header_section] {
+      style = if line == delimiter { opts.footer } else if line == body_section { opts.body } else { opts.header }
       if ! opts.no_reset { value = start; overflow = false }
       empty = 0
       gnu.write_text("\n")
@@ -90,10 +108,10 @@ proc main(...argv: List[Str]) {
     if style.starts_with("p") { numbered = regex.compile(style.byte_slice(1))?.matches(decoded) }
     if numbered {
       if overflow { gnu.error("line number overflow"); exit 1 }
-      gnu.write_text(formatted(value, width, opts.format) + opts.separator)
+      gnu.write_bytes(bytes.concat([bytes.from_text(formatted(value, width, opts.format)), separator]))
       overflow = (increment > 0 and value > 9223372036854775807 - increment) or (increment < 0 and value < -9223372036854775807 - 1 - increment)
       if ! overflow { value += increment }
-    } else { gnu.write_text(text.padding(width + opts.separator.count_chars())) }
+    } else { gnu.write_text(text.padding(width + separator_count)) }
     gnu.write_bytes(line)
     gnu.write_text("\n")
   }
