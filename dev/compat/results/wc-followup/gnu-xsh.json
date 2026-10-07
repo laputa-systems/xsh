@@ -1,0 +1,11 @@
+{
+  "wc": {
+    "wc-cpu.log": "PASS",
+    "wc-files0.log": "PASS",
+    "wc-nbsp.log": "PASS",
+    "wc-parallel.log": "PASS",
+    "wc-proc.log": "PASS",
+    "wc-sjis.log": "SKIP",
+    "wc-total.log": "PASS"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "suite": "gnu-differential",
+  "counts": {
+    "uutils_pass_xsh_pass": 6,
+    "uutils_pass_xsh_fail": 0,
+    "uutils_fail_xsh_pass": 0,
+    "uutils_fail_xsh_fail": 0
+  },
+  "cells": {
+    "uutils_pass_xsh_pass": [
+      "wc/wc-cpu.log",
+      "wc/wc-files0.log",
+      "wc/wc-nbsp.log",
+      "wc/wc-parallel.log",
+      "wc/wc-proc.log",
+      "wc/wc-total.log"
+    ],
+    "uutils_pass_xsh_fail": [],
+    "uutils_fail_xsh_pass": [],
+    "uutils_fail_xsh_fail": []
+  },
+  "utilities": {
+    "wc": {
+      "pass": 6,
+      "fail": 0,
+      "skip": 0,
+      "excluded": 0,
+      "blockers": []
+    }
+  }
+}

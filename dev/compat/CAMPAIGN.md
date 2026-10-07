@@ -91,6 +91,10 @@ remain historical evidence only.
   `test_wc::test_files0_stops_after_stdout_write_error`, and
   `test_wc::test_simd_respects_glibc_tunables`. The per-utility report and
   JUnit are in `results/wc-followup/`.
+- The pinned GNU 9.12 `wc` subset also passes on both uutils and XSH: 6 PASS,
+  1 SKIP (`wc-sjis.sh`, because Shift-JIS is unavailable), with 6 shared
+  passes and no differential mismatches. These reports are in
+  `results/wc-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `yes`, `uniq`, and `wc` have landed, but
   the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

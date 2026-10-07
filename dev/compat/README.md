@@ -121,6 +121,9 @@ diagnostics as names arrive, stops on the first stdout write error, and reports
 that its line counter uses scalar code for `--debug`. Its optimized debug
 Gate 3 slice passes 59/59, including all three `wc` cases that failed or timed
 out in the historical full run. The report is in `results/wc-followup/`.
+The matching pinned GNU 9.12 `wc` subset has 6 shared passes and one shared
+Shift-JIS skip, with no differential mismatches; its reports are in the same
+directory.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
