@@ -6,6 +6,7 @@ type SortOptions = {
   reverse: Bool,
   unique: Bool,
   numeric: Bool,
+  general_numeric: Bool,
   fold_case: Bool,
   dictionary: Bool,
   ignore_nonprinting: Bool,
@@ -26,6 +27,7 @@ type SortOptions = {
 }
 
 type NumericSortKey = {number: Int, raw: Str}
+type GeneralNumericSortKey = {key: Str, raw: Str}
 type TextSortKey = {key: Str, raw: Str}
 
 pure numeric_key(line: Str) -> Int {
@@ -35,6 +37,193 @@ pure numeric_key(line: Str) -> Int {
 
 pure numeric_sort_key(line: Str, stable: Bool) -> NumericSortKey {
   {number: numeric_key(line), raw: if stable { "" } else { line }}
+}
+
+pure padded_decimal(value: Int, width: Int) -> Str {
+  let digits = f"{value}"
+  var padding = ""
+  while padding.byte_len() + digits.byte_len() < width { padding += "0" }
+  padding + digits
+}
+
+pure hex_digit_value(byte: Int) -> Int {
+  if is_ascii_digit(byte) { return byte - 48 }
+  if byte >= 65 and byte <= 70 { return byte - 55 }
+  if byte >= 97 and byte <= 102 { return byte - 87 }
+  -1
+}
+
+pure general_hex_value(value: Str, sign_length: Int) -> Float {
+  let input = bytes.from_text(value)
+  var at = sign_length + 2
+  var number = 0.0
+  var fractional = false
+  var fraction_place = 1.0 / 16.0
+  var digits = 0
+  while at < input.len() {
+    let byte = input.byte_at(at) ?? 0
+    if byte == 46 and ! fractional {
+      fractional = true
+    } else {
+      let digit = hex_digit_value(byte)
+      if digit < 0 { break }
+      digits += 1
+      if fractional {
+        number += digit.float() * fraction_place
+        fraction_place /= 16.0
+      } else {
+        number = number * 16.0 + digit.float()
+      }
+    }
+    at += 1
+  }
+  if digits == 0 { return 0.0 }
+
+  if at < input.len() and (input.byte_at(at) ?? 0) in [80, 112] {
+    at += 1
+    let exponent_start = at
+    if at < input.len() and (input.byte_at(at) ?? 0) in [43, 45] { at += 1 }
+    let exponent_digits = at
+    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+    if at > exponent_digits {
+      let exponent = value.byte_slice(exponent_start, length: at - exponent_start).parse_int() ?? 0
+      number *= 2.0.pow(exponent.float())
+    }
+  }
+
+  if sign_length == 1 and value.starts_with("-") { 0.0 - number } else { number }
+}
+
+pure general_numeric_prefix(line: Str) -> Str {
+  let value = line.trim()
+  let lower = value.lower()
+  var sign_length = 0
+  if value.starts_with("-") or value.starts_with("+") { sign_length = 1 }
+
+  let unsigned = lower.byte_slice(sign_length)
+  if unsigned.starts_with("nan") { return value.byte_slice(0, length: sign_length + 3) }
+  if unsigned.starts_with("infinity") { return value.byte_slice(0, length: sign_length + 8) }
+  if unsigned.starts_with("inf") { return value.byte_slice(0, length: sign_length + 3) }
+
+  let input = bytes.from_text(value)
+  if unsigned.starts_with("0x") {
+    var at = sign_length + 2
+    var digits = 0
+    var fractional = false
+    while at < input.len() {
+      let byte = input.byte_at(at) ?? 0
+      if byte == 46 and ! fractional {
+        fractional = true
+      } else {
+        if hex_digit_value(byte) < 0 { break }
+        digits += 1
+      }
+      at += 1
+    }
+    let mantissa_end = at
+    if at < input.len() and (input.byte_at(at) ?? 0) in [80, 112] {
+      at += 1
+      if at < input.len() and (input.byte_at(at) ?? 0) in [43, 45] { at += 1 }
+      let exponent_start = at
+      while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+      if at == exponent_start { at = mantissa_end }
+    }
+    if digits == 0 { at = sign_length + 1 }
+    return value.byte_slice(0, length: at)
+  }
+
+  var at = sign_length
+  var digits = 0
+  while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) {
+    at += 1
+    digits += 1
+  }
+  if at < input.len() and input.byte_at(at) == 46 {
+    at += 1
+    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) {
+      at += 1
+      digits += 1
+    }
+  }
+  if digits == 0 { return "" }
+
+  let mantissa_end = at
+  if at < input.len() and (input.byte_at(at) ?? 0) in [69, 101] {
+    at += 1
+    if at < input.len() and (input.byte_at(at) ?? 0) in [43, 45] { at += 1 }
+    let exponent_start = at
+    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+    if at == exponent_start { at = mantissa_end }
+  }
+
+  value.byte_slice(0, length: at)
+}
+
+pure general_numeric_value(line: Str) -> Float {
+  let prefix = general_numeric_prefix(line)
+  if prefix == "" { return 0.0 }
+  var sign_length = 0
+  if prefix.starts_with("-") or prefix.starts_with("+") { sign_length = 1 }
+  if prefix.lower().byte_slice(sign_length).starts_with("0x") {
+    general_hex_value(prefix, sign_length)
+  } else {
+    prefix.parse_float() ?? 0.0
+  }
+}
+
+## A biased exponent and padded significand preserve numeric order because sort-by has no Float key.
+pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey {
+  let number = general_numeric_value(line)
+  let special = number.format()
+  if special == "NaN" { return {key: "0", raw: if stable { "" } else { line }} }
+  if special == "-Infinity" { return {key: "1", raw: if stable { "" } else { line }} }
+  if special == "Infinity" { return {key: "5", raw: if stable { "" } else { line }} }
+  let display = if let Ok(exact) = number.format_number("g", 17) { exact } else { special }
+  if display in ["0", "-0"] { return {key: "3", raw: if stable { "" } else { line }} }
+
+  let negative = display.starts_with("-")
+  let unsigned = if negative { display.byte_slice(1) } else { display }
+  var exponent_at = 0
+  while exponent_at < unsigned.byte_len() and unsigned.byte_slice(exponent_at, length: 1) not in ["e", "E"] {
+    exponent_at += 1
+  }
+  let mantissa = unsigned.byte_slice(0, length: exponent_at)
+  let exponent = if exponent_at < unsigned.byte_len() { unsigned.byte_slice(exponent_at + 1).parse_int() ?? 0 } else { 0 }
+  var digits = ""
+  var decimal_position = 0
+  var after_decimal = false
+  for at in range(mantissa.byte_len()) {
+    let byte = mantissa.byte_at(at) ?? 0
+    if byte == 46 {
+      after_decimal = true
+    } else {
+      digits += mantissa.byte_slice(at, length: 1)
+      if ! after_decimal { decimal_position += 1 }
+    }
+  }
+
+  var first_significant = 0
+  while first_significant < digits.byte_len() and digits.byte_slice(first_significant, length: 1) == "0" {
+    first_significant += 1
+  }
+  let significant = digits.byte_slice(first_significant)
+  var normalized = significant
+  while normalized.ends_with("0") and normalized.byte_len() > 1 {
+    normalized = normalized.byte_slice(0, length: normalized.byte_len() - 1)
+  }
+  while normalized.byte_len() < 17 { normalized += "0" }
+
+  let decimal_exponent = decimal_position - first_significant - 1 + exponent
+  let positive_exponent = decimal_exponent + 400
+  let ordered_exponent = if negative { 999 - positive_exponent } else { positive_exponent }
+  var significance = normalized
+  if negative {
+    significance = ""
+    for at in range(normalized.byte_len()) {
+      significance += f"{9 - ((normalized.byte_at(at) ?? 48) - 48)}"
+    }
+  }
+  {key: f"{if negative { "2" } else { "4" }}{padded_decimal(ordered_exponent, 3)}{significance}", raw: if stable { "" } else { line }}
 }
 
 pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
@@ -120,6 +309,11 @@ pure is_version_sort(opts: SortOptions) -> Bool {
   opts.version_sort or selected_sort_mode(opts).starts_with("v")
 }
 
+pure is_general_numeric_sort(opts: SortOptions) -> Bool {
+  let mode = selected_sort_mode(opts)
+  if mode == "" { opts.general_numeric } else { mode in ["g", "general-numeric"] }
+}
+
 pure character_order_key(text: Str, dictionary: Bool, ignore_nonprinting: Bool, fold_case: Bool) -> Str {
   if ! dictionary and ! ignore_nonprinting {
     return if fold_case { text.upper() } else { text }
@@ -189,7 +383,9 @@ pure blank_sorted(lines: List[Str], reverse: Bool, opts: SortOptions) -> List[St
 
 pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
   let pair = [left, right]
-  let ordered = if is_version_sort(opts) and has_key {
+  let ordered = if is_general_numeric_sort(opts) {
+    if opts.reverse { pair |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by general_numeric_sort_key(., opts.stable or opts.unique) }
+  } else if is_version_sort(opts) and has_key {
     if opts.reverse { pair |> sort-by(desc: true) version_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by version_field_sort_key(., opts.delimiter, key_field, opts) }
   } else if is_version_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) version_sort_key(., opts.stable) } else { pair |> sort-by version_sort_key(., opts.stable) }
@@ -216,7 +412,11 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
 }
 
 pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
-  if is_version_sort(opts) and has_key {
+  if is_general_numeric_sort(opts) {
+    let left_key = general_numeric_sort_key(left, true)
+    let right_key = general_numeric_sort_key(right, true)
+    left_key.key == right_key.key
+  } else if is_version_sort(opts) and has_key {
     version_key((if opts.delimiter == "" { left.trim().words() } else { left.split(opts.delimiter) }).get(key_field) ?? "") == version_key((if opts.delimiter == "" { right.trim().words() } else { right.split(opts.delimiter) }).get(key_field) ?? "")
   } else if is_version_sort(opts) {
     version_key(left) == version_key(right)
@@ -254,6 +454,8 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
     parts.get(key_field) ?? ""
   } else if opts.numeric {
     line.trim().words().get(0) ?? ""
+  } else if is_general_numeric_sort(opts) {
+    general_numeric_prefix(line)
   } else if opts.blank {
     trim_leading_blanks(line)
   } else {
@@ -262,13 +464,20 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
 }
 
 pure debug_visible_line(line: Str) -> Str {
+  let input = bytes.from_text(line)
   var at = 0
   var visible = ""
   while at < line.byte_len() and line.byte_slice(at, length: 1) in [" ", "\t"] {
-    visible += ">"
+    visible += if input.byte_at(at) == 9 { ">" } else { " " }
     at += 1
   }
   visible + line.byte_slice(at)
+}
+
+pure leading_blank_count(line: Str) -> Int {
+  var at = 0
+  while at < line.byte_len() and line.byte_slice(at, length: 1) in [" ", "\t"] { at += 1 }
+  at
 }
 
 pure debug_annotation(value: Str) -> Str {
@@ -276,13 +485,14 @@ pure debug_annotation(value: Str) -> Str {
 }
 
 pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
-  let has_last_resort = has_key or opts.numeric or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
+  let has_last_resort = has_key or opts.numeric or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
   let annotation_count = if has_last_resort and ! opts.stable { 2 } else { 1 }
   var output = ""
   for line in lines {
     output += debug_visible_line(line) + "\n"
     let primary = debug_primary_text(line, opts, has_key, key_field)
-    output += debug_annotation(primary) + "\n"
+    let indentation = if is_general_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
+    output += indentation + debug_annotation(primary) + "\n"
     if annotation_count > 1 {
       output += debug_annotation(line) + "\n"
     }
@@ -343,6 +553,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
       numeric: {
         form: "-n --numeric-sort",
+        default: false,
+      },
+      general_numeric: {
+        form: "-g --general-numeric-sort",
         default: false,
       },
       version_sort: {
@@ -423,8 +637,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let selected_mode = selected_sort_mode(opts)
-  if selected_mode != "" and ! selected_mode.starts_with("v") {
+  let general_numeric = is_general_numeric_sort(opts)
+  if selected_mode != "" and ! selected_mode.starts_with("v") and selected_mode not in ["g", "general-numeric"] {
     gnu.error(f"invalid argument {gnu.quote_maybe(selected_mode)} for '--sort'")
+    exit 2
+  }
+
+  if opts.numeric and general_numeric {
+    gnu.error("options '-gn' are incompatible")
     exit 2
   }
 
@@ -476,7 +696,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let input_separator = if opts.zero_terminated { "\0" } else { "\n" }
   let input = read_sort_input(paths, input_separator)?
   let input_lines = input_records(input, opts.zero_terminated)
-
   if check_enabled {
     if input_lines.len() > 1 {
       for index in range(1, input_lines.len()) {
@@ -501,7 +720,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  let sorted = if is_version_sort(opts) and has_key {
+  let sorted = if general_numeric {
+    if opts.reverse {
+      input_lines |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique)
+    } else {
+      input_lines |> sort-by general_numeric_sort_key(., opts.stable or opts.unique)
+    }
+  } else if is_version_sort(opts) and has_key {
     if opts.reverse {
       input_lines |> sort-by(desc: true) version_field_sort_key(., delimiter, key_field, opts)
     } else {
@@ -545,7 +770,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     input_lines |> sort
   }
 
-  let lines = if opts.unique { sorted |> unique-by . } else { sorted }
+  let lines = if opts.unique and general_numeric {
+    sorted |> unique-by general_numeric_sort_key(., true)
+  } else if opts.unique {
+    sorted |> unique-by .
+  } else {
+    sorted
+  }
 
   let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
   let text = if opts.debug {

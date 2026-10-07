@@ -83,6 +83,83 @@ test test_sort_numeric_rejects_leading_plus_and_uses_line_tie_break { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_general_numeric_exponents_and_extremes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-numeric")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"1\n2e3\n1e-5\n0\n-1.7976931348623157e+308\n1.7976931348623157e+308\nNaN\ninf\n-inf\n64e+\n10E\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"NaN\n-inf\n-1.7976931348623157e+308\n0\n1e-5\n1\n10E\n64e+\n2e3\n1.7976931348623157e+308\ninf\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_general_numeric_stable_equal_values { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-numeric-stable")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"1.0\n1\n1e0\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-gs"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == input
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_general_numeric_hexadecimal_values { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-hex")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"0x123\n0x0\n0x2p10\n0x9p-10\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"0x0\n0x9p-10\n0x123\n0x2p10\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_general_numeric_mode_aliases_and_conflict { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-mode")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for mode in ["--sort=g", "--sort=general-numeric"] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), mode], root,
+      {LC_ALL: "C"}, b"1e2\n2\n", stdout, stderr))?
+    assert result.exit_code()? == 0
+    assert stdout.read_bytes()? == b"2\n1e2\n"
+    assert stderr.read_bytes()?.is_empty()
+  }
+
+  let conflict = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-ng"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert conflict.exit_code()? == 2
+  assert stderr.read_text()? == "sort: options '-gn' are incompatible\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_general_numeric_unique_compares_values { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-unique")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-gu"], root,
+    {LC_ALL: "C"}, b"1.0\n1\n1e0\n2\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"1.0\n2\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_stable_preserves_equal_primary_keys { |ctx|
   let root = test.temp_dir(ctx, name: "sort-stable-tie")?
   let script = fp"{ctx.core_dir}/sort.xsh"
