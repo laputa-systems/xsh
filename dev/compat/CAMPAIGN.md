@@ -124,6 +124,11 @@ remain historical evidence only.
   22/22; its optimized debug Gate 3 slice improves from 117/35 to 118/34
   across 152 cases, with one fix and no regressions. Reports are in
   `results/printf-zero-followup/`.
+- Follow-up `a142979c` rejects field parameters on `%b`, which GNU printf also
+  rejects, and emits preceding literal text before the error. The native
+  printf suite passes 23/23; the optimized debug Gate 3 slice improves from
+  118/34 to 119/33 across 152 cases, with one fix and no regressions. Reports
+  are in `results/printf-b-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
