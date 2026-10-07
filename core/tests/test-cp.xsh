@@ -27,6 +27,24 @@ test test_cp_preserve_mode_and_nanosecond_times { |ctx|
   assert meta.mtime_ns == 1500000000987654321
 }
 
+test test_cp_preserves_source_atime_after_copy_reads { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-atime")?
+  let source_dir = fp"{root}/source-dir"
+  source_dir.mkdir()
+  fp"{source_dir}/file".write("contents")
+  fs.set_times(source_dir, atime_ns: 1400000000000000000, mtime_ns: 1500000000000000000)
+  let copied_dir = fp"{root}/copied-dir"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p -R $source_dir $copied_dir
+  assert fs.stat(copied_dir)?.atime_ns == fs.stat(source_dir)?.atime_ns
+
+  let source_file = fp"{root}/source-file"
+  source_file.write("contents")
+  fs.set_times(source_file, atime_ns: 1400000000000000000, mtime_ns: 1500000000000000000)
+  let copied_file = fp"{root}/copied-file"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p $source_file $copied_file
+  assert fs.stat(copied_file)?.atime_ns == fs.stat(source_file)?.atime_ns
+}
+
 test test_cp_dereference_order_and_recursive_default { |ctx|
   let root = test.temp_dir(ctx, name: "cp-deref")?
   let source = fp"{root}/source"
@@ -250,6 +268,29 @@ test test_cp_recursive_interactive_decline_continues { |ctx|
   assert fp"{dest}/source/other".read_text()? == "copied"
 }
 
+test test_cp_recursive_verbose_reports_directory_separator_and_replacements { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-verbose-recursive")?
+  let source = fp"{root}/source"
+  source.mkdir()
+  fp"{source}/file".write("contents")
+  let dest = fp"{root}/dest"
+  let copied = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R -v $source $dest
+  assert copied.status.ok
+  assert copied.stdout == f"'{source}' -> '{dest}/'\n'{source}/file' -> '{dest}/file'\n"
+
+  let target = fp"{root}/target"
+  target.mkdir()
+  let link_source = fp"{root}/link-source"
+  link_source.mkdir()
+  let original = fp"{root}/original"
+  original.write("contents")
+  fp"{link_source}/link".symlink(to: p"original")
+  fp"{target}/link".symlink(to: p"old")
+  let replaced = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R -v -T $link_source $target
+  assert replaced.status.ok
+  assert replaced.stdout == f"removed '{target}/link'\n'{link_source}/link' -> '{target}/link'\n"
+}
+
 test test_cp_force_interactive_replaces_unwritable_destination { |ctx|
   let root = test.temp_dir(ctx, name: "cp-force-interactive")?
   let source = fp"{root}/source"
@@ -390,6 +431,32 @@ test test_cp_parents_preserves_new_parent_modes { |ctx|
   assert fp"{dest}/{relative}/inner/file".read_text()? == "contents"
   assert fs.stat(fp"{dest}/{relative}")?.mode.bit_and(0o7777) == 0o750
   assert fs.stat(fp"{dest}/{relative}/inner")?.mode.bit_and(0o7777) == 0o711
+}
+
+test test_cp_parents_preserves_existing_parent_modes { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-parents-existing")?
+  let source = fp"{root}/source"
+  let p1 = fp"{source}/p1"
+  let p2 = fp"{p1}/p2"
+  let first = fp"{p2}/first/file"
+  let second = fp"{p2}/second/file"
+  first.parent().mkdir(parents: true)
+  second.parent().mkdir(parents: true)
+  first.write("first")
+  second.write("second")
+  p1.chmod(0o755)
+  p2.chmod(0o711)
+  let dest = fp"{root}/dest"
+  dest.mkdir()
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p --parents $first $dest
+  let relative = source.display().byte_slice(1)
+  let copied_p1 = fp"{dest}/{relative}/p1"
+  let copied_p2 = fp"{copied_p1}/p2"
+  copied_p1.chmod(0o700)
+  copied_p2.chmod(0o700)
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p --parents $second $dest
+  assert fs.stat(copied_p1)?.mode.bit_and(0o7777) == 0o755
+  assert fs.stat(copied_p2)?.mode.bit_and(0o7777) == 0o711
 }
 
 test test_cp_xattr_preservation_is_selected_and_binary { |ctx|
