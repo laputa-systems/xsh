@@ -213,6 +213,14 @@ test test_printf_preserves_negative_float_zero_sign { |ctx|
   assert output.stderr == ""
 }
 
+test test_printf_non_finite_float_casing_and_padding { |ctx|
+  let output = printf_run(ctx, ["%f|%f|%F|%05.2f|%05.2f|%05.2f|%05.2f", "nan", "-nan", "nan", "inf", "-inf", "nan", "-nan"])?
+
+  assert output.status == 0, output.stderr
+  assert output.stdout == "nan|-nan|NAN|  inf| -inf|  nan| -nan"
+  assert output.stderr == ""
+}
+
 test test_printf_zero_precision_and_zero_integer { |ctx|
   let output = printf_run(ctx, ["%.0d|%#.0o|%.*d", "0", "0", "-1", "0"])?
 

@@ -353,6 +353,14 @@ pure codepoint_text(value: Int) -> Result[Str] {
   ""
 }
 
+pure float_is_nan(value: Float) -> Bool {
+  value.format() == "NaN"
+}
+
+pure float_is_infinite(value: Float) -> Bool {
+  value.format() in ["Infinity", "-Infinity"]
+}
+
 pure scan_escape(text: Str, slash: Int) -> Result[Escape] {
   let next = slash + 1
   if next >= text.byte_len() { return {text: "\\", next: next, stop: false, issue: null} }
@@ -447,8 +455,8 @@ pure unescape_text(text: Str) -> Result[Escape] {
 }
 
 pure scientific(value: Float, precision: Int, upper: Bool) -> Str {
-  return if upper { "NAN" } else { "nan" } when value != value
-  return if upper { "INF" } else { "inf" } when value.abs() > 1e308
+  return if upper { "NAN" } else { "nan" } when float_is_nan(value)
+  return if upper { "INF" } else { "inf" } when float_is_infinite(value)
   let negative = value < 0.0
   var exponent = 0
   var mantissa = value.abs()
@@ -467,8 +475,8 @@ pure scientific(value: Float, precision: Int, upper: Bool) -> Str {
 }
 
 pure hex_float(value: Float, precision: Int?, upper: Bool) -> Str {
-  return if upper { "NAN" } else { "nan" } when value != value
-  return if upper { "INF" } else { "inf" } when value.abs() > 1e308
+  return if upper { "NAN" } else { "nan" } when float_is_nan(value)
+  return if upper { "INF" } else { "inf" } when float_is_infinite(value)
   let negative = value < 0.0
   let magnitude = value.abs()
   if magnitude == 0.0 { return if upper { "0X0P+0" } else { "0x0p+0" } }
@@ -503,8 +511,8 @@ pure trim_fraction(text: Str) -> Str {
 }
 
 pure float_conversion(value: Float, conversion: Str, precision: Int?) -> Str {
-  if value != value { return if conversion == conversion.upper() { "NAN" } else { "nan" } }
-  if value.abs() > 1e308 { return if conversion == conversion.upper() { "INF" } else { "inf" } }
+  if float_is_nan(value) { return if conversion == conversion.upper() { "NAN" } else { "nan" } }
+  if float_is_infinite(value) { return if conversion == conversion.upper() { "INF" } else { "inf" } }
   let requested = precision ?? 6
   let count = if requested < 0 { 0 } else if requested > 1000 { 1000 } else { requested }
 
@@ -579,7 +587,7 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
     let sign = if negative { "-" } else if spec.flags.find("+") != null { "+" } else if spec.flags.find(" ") != null { " " } else { "" }
     let unsigned_body = if body.starts_with("-") { body.byte_slice(1) } else { body }
     let raw = sign + unsigned_body
-    let float_fill = if spec.flags.find("0") != null and ! left { "0" } else { " " }
+    let float_fill = if spec.flags.find("0") != null and ! left and ! float_is_nan(number) and ! float_is_infinite(number) { "0" } else { " " }
     let padded = if float_fill == "0" and field_width > raw.count_chars() { sign + pad_text(raw.byte_slice(sign.byte_len()), field_width - sign.count_chars(), false, "0") } else { pad_text(raw, field_width, left, float_fill) }
     return {text: padded, stop: false, failed: parsed.issue != null}
   }
