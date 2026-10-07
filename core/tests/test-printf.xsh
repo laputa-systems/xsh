@@ -96,6 +96,30 @@ test test_printf_positional_arguments { |ctx|
   assert output.stderr == ""
 }
 
+test test_printf_repeats_positional_format_from_next_argument_set { |ctx|
+  let output = printf_run(ctx, ["%1$s%1$s\\n", "1", "2"])?
+
+  assert output.status == 0, output.stderr
+  assert output.stdout == "11\n22\n"
+  assert output.stderr == ""
+}
+
+test test_printf_indexed_argument_cursor_and_bounds { |ctx|
+  let mixed = printf_run(ctx, ["%s %3$s %s\\n", "A", "B", "C", "D"])?
+  let width_precision = printf_run(ctx, ["%1$*2$.*3$d\\n", "1", "3", "2"])?
+  let large_position = printf_run(ctx, ["empty%18446744073709551616$s\\n", "foo"])?
+
+  assert mixed.status == 0, mixed.stderr
+  assert mixed.stdout == "A C B\nD  \n"
+  assert mixed.stderr == ""
+  assert width_precision.status == 0, width_precision.stderr
+  assert width_precision.stdout == " 01\n"
+  assert width_precision.stderr == ""
+  assert large_position.status == 0, large_position.stderr
+  assert large_position.stdout == "empty\n"
+  assert large_position.stderr == ""
+}
+
 test test_printf_float_conversions_and_precision { |ctx|
   let output = printf_run(ctx, ["%.2f|%.2e|%.3g", "3.14159", "3.14159", "3.14159"])?
 

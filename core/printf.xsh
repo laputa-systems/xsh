@@ -37,11 +37,21 @@ pure scan_decimal(text: Str, at: Int) -> DecimalScan {
   var next = at
 
   while next < text.byte_len() and "0123456789".find(text.byte_slice(next, length: 1)) != null {
-    value = value * 10 + ("0123456789".find(text.byte_slice(next, length: 1)) ?? 0)
+    let digit = "0123456789".find(text.byte_slice(next, length: 1)) ?? 0
+    let max_int = 9223372036854775807
+    value = if value > (max_int - digit) / 10 { max_int } else { value * 10 + digit }
     next += 1
   }
 
   {value: value, next: next}
+}
+
+pure indexed_argument(first_argument: Int, position: Int, argument_count: Int) -> Int {
+  if position < 0 { -1 } else if first_argument >= argument_count or position >= argument_count - first_argument { argument_count } else { first_argument + position }
+}
+
+pure consumed_arguments(next_argument: Int, index: Int, argument_count: Int) -> Int {
+  if index < 0 { next_argument } else if index >= argument_count { argument_count } else if index + 1 > next_argument { index + 1 } else { next_argument }
 }
 
 pure parse_spec(text: Str, start: Int) -> PrintfSpec {
@@ -584,6 +594,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, proce
   var output = ""
   var at = 0
   var argument_index = first_argument
+  var next_argument = first_argument
   var conversions = 0
   var failed = false
 
@@ -592,7 +603,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, proce
     if byte == 92 {
       let escaped = scan_escape(fmt, at)?
       output += escaped.text
-      if escaped.stop { return {text: output, next_argument: argument_index, conversions: conversions, stop: true, failed: failed} }
+      if escaped.stop { return {text: output, next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
       at = escaped.next
     } else if byte != 37 {
       let width = utf8_width(fmt.byte_at(at) ?? 0)
@@ -611,35 +622,44 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, proce
 
       var width = spec.width
       if spec.width_dynamic {
-        let index = spec.width_position ?? argument_index
+        let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position ?? 0, values.len()) }
         width = integer_prefix(values.get(index) ?? "0", true)
-        if spec.width_position == null { argument_index += 1 } else { argument_index = if index >= argument_index { index + 1 } else { argument_index } }
+        if spec.width_position == null {
+          argument_index += 1
+          next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
+        } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
       var precision = spec.precision
       if spec.precision_dynamic {
-        let index = spec.precision_position ?? argument_index
+        let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position ?? 0, values.len()) }
         let dynamic = integer_prefix(values.get(index) ?? "-1", true)
         precision = if dynamic < 0 { null } else { dynamic }
-        if spec.precision_position == null { argument_index += 1 } else { argument_index = if index >= argument_index { index + 1 } else { argument_index } }
+        if spec.precision_position == null {
+          argument_index += 1
+          next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
+        } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
       if width > 1000000 or width < -1000000 {
         gnu.error("field width too large")
         exit 1
       }
 
-      let index = spec.position ?? argument_index
+      let index = if spec.position == null { argument_index } else { indexed_argument(first_argument, spec.position ?? 0, values.len()) }
       let value = if index < values.len() { values[index] } else if spec.conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A"] { "0" } else { "" }
-      if spec.position == null { argument_index += 1 } else { argument_index = if index >= argument_index { index + 1 } else { argument_index } }
+      if spec.position == null {
+        argument_index += 1
+        next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
+      } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       let rendered = conversion_text(spec, value, width, precision)?
       output += rendered.text
       failed = failed or rendered.failed
       conversions += 1
       at = spec.end
-      if rendered.stop { return {text: output, next_argument: argument_index, conversions: conversions, stop: true, failed: failed} }
+      if rendered.stop { return {text: output, next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
     }
   }
 
-  {text: output, next_argument: argument_index, conversions: conversions, stop: false, failed: failed}
+  {text: output, next_argument: next_argument, conversions: conversions, stop: false, failed: failed}
 }
 
 proc render(fmt: Str, values: List[Str]) [error, process, env] -> PrintfOutput {
