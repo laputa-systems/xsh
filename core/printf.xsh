@@ -251,8 +251,17 @@ pure float_parse(text: Str) -> FloatParse {
     if at == exponent_digits { at = exponent_start }
   }
   let value_text = trimmed.byte_slice(0, length: at)
-  let issue: Str? = if trimmed.byte_slice(at) == "" { null } else { "value not completely converted" }
-  {value: value_text.parse_float() ?? 0.0, issue: issue}
+  let value = value_text.parse_float() ?? 0.0
+  let exponent_at = value_text.find("e") ?? value_text.find("E") ?? value_text.byte_len()
+  let mantissa = value_text.byte_slice(0, length: exponent_at)
+  var nonzero_mantissa = false
+  for index in range(mantissa.byte_len()) {
+    let digit = mantissa.byte_at(index) ?? 0
+    if digit >= 49 and digit <= 57 { nonzero_mantissa = true }
+  }
+  let out_of_range = value.format() in ["Infinity", "-Infinity"] or (value.abs() == 0.0 and nonzero_mantissa)
+  let issue: Str? = if trimmed.byte_slice(at) != "" { "value not completely converted" } else if out_of_range { "Result not representable" } else { null }
+  {value: value, issue: issue}
 }
 
 pure codepoint_value(text: Str) -> Int {

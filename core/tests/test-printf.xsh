@@ -239,6 +239,21 @@ test test_printf_non_finite_float_casing_and_padding { |ctx|
   assert output.stderr == ""
 }
 
+test test_printf_reports_float_overflow_and_underflow { |ctx|
+  for spec in ["%a", "%e", "%g", "%f"] {
+    let overflow = printf_run(ctx, [spec, "5e8123456789012345678"])?
+    let underflow = printf_run(ctx, [spec, "7E-8123456789012345678"])?
+    let underflow_output = if spec == "%a" { "0x0p+0" } else if spec == "%e" { "0.000000e+00" } else if spec == "%g" { "0" } else { "0.000000" }
+
+    assert overflow.status == 1
+    assert overflow.stdout == "inf"
+    assert overflow.stderr == "printf: '5e8123456789012345678': Result not representable\n"
+    assert underflow.status == 1
+    assert underflow.stdout == underflow_output
+    assert underflow.stderr == "printf: '7E-8123456789012345678': Result not representable\n"
+  }
+}
+
 test test_printf_zero_precision_and_zero_integer { |ctx|
   let output = printf_run(ctx, ["%.0d|%#.0o|%.*d", "0", "0", "-1", "0"])?
 
