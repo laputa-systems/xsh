@@ -46,8 +46,8 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   }
   if opts.verbose {
     let arrow = if opts.symbolic { "->" } else { "=>" }
-    let prefix = if saved != null { f"{gnu.quote(saved.display())} ~ " } else { "" }
-    print f"{prefix}{gnu.quote(target.display())} {arrow} {gnu.quote(linked_source.display())}"
+    let tail = if saved != null { f" (backup: {gnu.quote(saved.display())})" } else { "" }
+    print f"{gnu.quote(target.display())} {arrow} {gnu.quote(linked_source.display())}{tail}"
   }
   true
 }
@@ -77,7 +77,10 @@ proc main(...argv: List[Str]) {
   if opts.paths.is_empty() { gnu.missing_operand() }
   if opts.relative and ! opts.symbolic { gnu.usage_error("cannot do --relative without --symbolic") }
   if opts.target != null and opts.no_target_directory { gnu.usage_error("cannot combine --target-directory and --no-target-directory") }
-  if opts.no_target_directory and opts.paths.len() == 1 { gnu.usage_error(f"missing destination file operand after {gnu.quote(opts.paths[0])}") }
+  if opts.no_target_directory and opts.paths.len() == 1 {
+    gnu.error(f"missing destination file operand after {gnu.quote(opts.paths[0])}")
+    exit 1
+  }
   let implicit = opts.target == null and opts.paths.len() == 1
   let dest = if opts.target != null { fp"{opts.target}" } else if implicit { p"." } else { fp"{opts.paths[-1]}" }
   let sources = if opts.target != null or implicit { opts.paths } else { opts.paths |> take(opts.paths.len() - 1) }
@@ -95,6 +98,11 @@ proc main(...argv: List[Str]) {
   opts.logical = files.logical(argv)?
   let policy = files.overwrite(argv, "default", no_clobber: false)?
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
+  let configured_suffix = opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~"
+  if "/" in configured_suffix {
+    # A backup suffix cannot name another path or escape the destination directory.
+    opts.suffix = "~"
+  }
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   var failed = false
   var seen: List[Path] = []

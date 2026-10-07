@@ -173,3 +173,144 @@ test test_install_source_symlink_cannot_replace_its_own_target { |ctx|
   assert target.read_text()? == "keep"
   assert source.readlink()? == target
 }
+
+test test_install_compare_and_strip_reports_mutual_exclusion { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("payload")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -C --strip --strip-program=echo $source $target
+  assert result.status.exited_with(1)
+  assert "Options --compare and --strip are mutually exclusive" in result.stderr
+}
+
+test test_install_invalid_octal_mode_names_bad_digit { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let target = fp"{root}/target"
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -m 999 $source $target
+  assert result.status.exited_with(1)
+  assert "Invalid mode string: invalid digit found in string" in result.stderr
+  assert ! target.exists()?
+}
+
+test test_install_missing_target_directory_value_has_usage_error { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -T $source -t
+  assert result.status.exited_with(1)
+  assert "a value is required for '--target-directory <DIRECTORY>' but none was supplied" in result.stderr
+  assert "For more information, try '--help'" in result.stderr
+}
+
+test test_install_strip_runs_program_before_publishing { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let strip = fp"{root}/strip"
+  strip.write("#!/bin/sh\n: > \"$1\"\n", mode: 0o755)
+  let target = fp"{root}/target"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -s --strip-program $strip $source $target
+  assert target.read_bytes()? == b""
+  assert source.read_text()? == "payload"
+}
+
+test test_install_strip_failure_does_not_publish { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let strip = fp"{root}/strip"
+  strip.write("#!/bin/sh\nexit 1\n", mode: 0o755)
+  let target = fp"{root}/target"
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -s --strip-program $strip $source $target
+  assert result.status.exited_with(1)
+  assert "strip program failed" in result.stderr
+  assert ! target.exists()?
+  assert source.read_text()? == "payload"
+}
+
+test test_install_missing_strip_program_reports_lookup_failure { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let strip = fp"{root}/missing-strip"
+  let target = fp"{root}/target"
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -s --strip-program $strip $source $target
+  assert result.status.exited_with(1)
+  assert "strip program failed: No such file or directory" in result.stderr
+  assert ! target.exists()?
+}
+
+test test_install_does_not_create_missing_parent_without_parents_option { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let parent = fp"{root}/missing"
+  let target = fp"{parent}/target"
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- $source $target
+  assert result.status.exited_with(1)
+  assert ! parent.exists()?
+  assert source.read_text()? == "payload"
+}
+
+test test_install_target_directory_requires_a_directory { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("new")
+  target.write("old")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -t $target $source
+  assert result.status.exited_with(1)
+  assert result.stderr == f"install: failed to access '{target}': Not a directory\n"
+  assert target.read_text()? == "old"
+}
+
+test test_install_no_target_directory_rejects_multiple_sources { |ctx|
+  let root = test.temp_dir(ctx)?
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  let dest = fp"{root}/dest"
+  first.write("first")
+  second.write("second")
+  dest.mkdir()
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -T $first $second $dest
+  assert result.status.exited_with(1)
+  assert "extra operand" in result.stderr
+  assert "[OPTION]... [FILE]..." in result.stderr
+  assert first.exists()? and second.exists()?
+}
+
+test test_install_unprivileged_skips_requested_owner { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("payload")
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -U --owner=123 $source $target
+  assert fs.stat(target)?.uid == user.current()?.uid
+}
+
+test test_install_backup_failure_sets_failure_status { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("new")
+  target.write("old")
+  fp"{target}.backup".mkdir()
+
+  let result = run.capture --text SIMPLE_BACKUP_SUFFIX=.backup ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- --backup $source $target
+  assert result.status.exited_with(1)
+  assert result.stderr == f"install: cannot backup '{target}': Is a directory\n"
+  assert source.read_text()? == "new"
+  assert target.read_text()? == "old"
+}
+
+test test_install_target_and_no_target_directory_are_mutually_exclusive { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("payload")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -T -t $root $source
+  assert result.status.exited_with(1)
+  assert "Options --target-directory and --no-target-directory are mutually exclusive" in result.stderr
+}

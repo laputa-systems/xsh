@@ -12,8 +12,8 @@ proc main(...argv: List[Str]) {
   })?
   if opts.help { gnu.help("Usage: unlink FILE\nCall the unlink system call."); return }
   if opts.version { gnu.version("unlink"); return }
-  if opts.operands.is_empty() { gnu.missing_operand() }
-  if opts.operands.len() > 1 { gnu.extra_operand(opts.operands[1]) }
+  if opts.operands.is_empty() { gnu.usage_error("missing operand\nUsage: unlink FILE") }
+  if opts.operands.len() > 1 { gnu.usage_error(f"extra operand {gnu.quote(opts.operands[1])}\nUsage: unlink FILE") }
   if let Ok(meta) = fs.stat(fp"{opts.operands[0]}") {
     if meta.kind == "dir" { gnu.error(f"cannot unlink {gnu.quote(opts.operands[0])}: Is a directory"); exit 1 }
   }

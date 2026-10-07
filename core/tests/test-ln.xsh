@@ -118,3 +118,38 @@ test test_ln_no_dereference_does_not_imply_force { |ctx|
   assert status.exited_with(1)
   assert dest.read_text()? == "old"
 }
+
+test test_ln_verbose_reports_backup_after_the_link { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("new")
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let simple = run.text ${ctx.xsh_bin} $script -- -s -v $source $dest
+  assert simple == f"'{dest}' -> '{source}'\n"
+
+  dest.remove()
+  dest.write("old")
+  let backed_up = run.text ${ctx.xsh_bin} $script -- -s -v -b $source $dest
+  assert backed_up == f"'{dest}' -> '{source}' (backup: '{dest}~')\n"
+}
+
+test test_ln_missing_destination_has_no_help_hint { |ctx|
+  let source = test.temp_file(ctx, contents: b"source")?
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -s -T $source
+  assert result.status.exited_with(1)
+  assert result.stderr == f"ln: missing destination file operand after '{source}'\n"
+}
+
+test test_ln_backup_suffix_cannot_escape_target_directory { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let target = fp"{root}/target"
+  source.write("source")
+  target.write("old")
+  fp"{root}/target_".mkdir()
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -S _/../escape -s $source $target
+  assert target.readlink()? == source
+  assert fp"{target}~".read_text()? == "old"
+  assert ! fp"{root}/escape".exists()?
+}
