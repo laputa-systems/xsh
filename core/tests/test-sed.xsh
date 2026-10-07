@@ -123,3 +123,100 @@ test sed_numeric_stride_addresses { |ctx|
   let zero_step = run.text ${ctx.xsh_bin} $app -- -n "5~0p" $file
   assert zero_step == "5\n"
 }
+
+test sed_append_text_at_address { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2a added" $file
+  assert output == "a\nb\nadded\nc\nd\n"
+}
+
+test sed_append_text_at_negated_address { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2!a added" $file
+  assert output == "a\nadded\nb\nc\nadded\nd\nadded\n"
+}
+
+test sed_append_text_with_quiet_mode { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- -n "2a added" $file
+  assert output == "added\n"
+}
+
+test sed_insert_text_before_address { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2i inserted" $file
+  assert output == "a\ninserted\nb\nc\nd\n"
+}
+
+test sed_insert_text_at_negated_address { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2!i inserted" $file
+  assert output == "inserted\na\nb\ninserted\nc\ninserted\nd\n"
+}
+
+test sed_change_text_at_one_address { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2c changed" $file
+  assert output == "a\nchanged\nc\nd\n"
+}
+
+test sed_change_text_replaces_an_address_range_once { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2,3c changed" $file
+  assert output == "a\nchanged\nd\n"
+}
+
+test sed_change_text_with_quiet_mode { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- -n "2,3c changed" $file
+  assert output == "changed\n"
+}
+
+test sed_change_text_on_the_complement_of_a_range { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2,3!c changed" $file
+  assert output == "changed\nb\nc\nchanged\n"
+}
+
+test sed_change_text_on_the_complement_with_quiet_mode { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\nd\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- -n "2,3!c changed" $file
+  assert output == "changed\nchanged\n"
+}
+
+test sed_unclosed_change_range_emits_no_replacement { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "2,5c changed" $file
+  assert output == "a\n"
+}
+
+test sed_append_command_rejects_a_range { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\n")?
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "1,2a added" $file
+  assert !result.status.exited_with(0)
+}
+
+test sed_insert_command_rejects_a_range { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\n")?
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "1,2i inserted" $file
+  assert !result.status.exited_with(0)
+}
+
+test sed_append_command_rejects_a_negated_range { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\n")?
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "1,2!a added" $file
+  assert !result.status.exited_with(0)
+}
+
+test sed_insert_command_rejects_a_spaced_range { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\n")?
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- "1,2 i inserted" $file
+  assert !result.status.exited_with(0)
+}
+
+test sed_text_commands_join_escaped_lines { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\n")?
+  let script = test.temp_file(ctx, name: "script", contents: b"1a\\\nfirst\\\nsecond\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- -f $script $file
+  assert output == "a\nfirst\nsecond\nb\n"
+}

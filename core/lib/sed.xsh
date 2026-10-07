@@ -250,6 +250,8 @@ pure parse(script: Str, quiet: Bool, extended: Bool) -> Result[Program, Error] {
     if invert { at = space(input, at + 1) }
     let op = input.byte_at(at) ?? -1
     if op < 0 { return Err(SedError.Invalid("missing command")) }
+    # Append and insert act on one address; change commands can replace ranges.
+    if op in [97, 105] and last != null { return Err(SedError.Invalid("append and insert commands use only one address")) }
     at += 1
     var action: Action = .End
     if op == 115 {
@@ -533,7 +535,8 @@ pure execute(program: Program, inputs: List[Bytes]) -> Result[Bytes, Error] {
         Translate(translation) => pattern = {...pattern, text: translate(pattern.text, translation)}
         Text(text) => {
           if text.kind == .AppendText { pending = emit(pending, text.text, true) } else if text.kind == .InsertText { output = emit(output, text.text, true) } else {
-            if command.last == null or selection.ending { output = emit(output, text.text, true) }
+            # A complemented range selects independent lines, each with its own replacement.
+            if command.last == null or selection.ending or command.invert { output = emit(output, text.text, true) }
             deleted = true
             break
           }
