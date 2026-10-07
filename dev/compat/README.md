@@ -82,7 +82,7 @@ differential requires identical test selections on both sides.
 | `dev/compat/run-gnu.sh uutils [TEST...]` | GNU tests against pinned uutils (cached baseline) |
 | `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
-| `python3 dev/compat/check_option_surface.py --util cat` | Gate 5 cat pilot; reports spelling and arity differences against pinned uutils |
+| `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for `cat`, `pwd`, `uname`, `wc`, and `yes`; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
 | `python3 dev/compat/check_kernel_reads.py` | Gate 9 ratchet: no `/proc`/`/sys` literal in a top-level applet |
@@ -128,16 +128,24 @@ passes, one fewer failure, and one fewer skip. `split/filter.sh` remains an
 error; `tee/tee.sh` passes; `misc/yes.sh` still fails. See `CAMPAIGN.md` and
 `results/` for the reports and remaining limits.
 
-The Gate 5 cat pilot compares the pinned Clap declarations with XSH's
-`cli.applet` schema. It found 21 uutils spellings and 19 XSH spellings, with
-only `-h` and `-V` missing from XSH; there are no XSH-only spellings or arity
-mismatches. These are Clap-generated short help/version forms that GNU cat
-does not use. The strict checker exits 1 to report them, and `gaps.json`
-records the known difference. Four parser tests pass; direct pinned-uutils and
-XSH probes confirm both tools accept `--help` and `--version`, while only
-uutils accepts `-h` and `-V`. This pilot does not close Gate 5 for the other
-utilities. It also reports `-u` as parsed-but-unused on both sides, matching
-cat's documented ignored option.
+The Gate 5 pilot compares pinned Clap declarations with XSH's `cli.applet`
+schemas for five commands:
+
+| Command | uutils spellings | XSH spellings | Differences |
+|---|---:|---:|---|
+| `cat` | 21 | 19 | uutils-only `-h`, `-V` |
+| `pwd` | 8 | 6 | uutils-only `-h`, `-V` |
+| `uname` | 26 | 24 | uutils-only `-h`, `-V` |
+| `wc` | 17 | 15 | uutils-only `-h`, `-V` |
+| `yes` | 4 | 2 | uutils-only `-h`, `-V` |
+
+All other spellings and arities match. The extra forms are Clap-generated short
+help/version flags that GNU 9.12 does not use. The strict checker exits 1 to
+report them, and `gaps.json` records each difference. Direct cat probes
+confirm both sides accept `--help` and `--version`, while only uutils accepts
+`-h` and `-V`. The comparison also reports `cat -u` as parsed-but-unused on
+both sides, matching cat's documented ignored option. Eight parser tests pass;
+Gate 5 remains open for the other utilities.
 
 The historical full Gate 3 and Gate 4 results at `92a91b12` were 5,125/824/0
 with four exclusions for Gate 3, and 367 PASS, 189 FAIL, 25 ERROR, and 138

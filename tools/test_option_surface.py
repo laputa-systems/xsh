@@ -36,6 +36,53 @@ fn run(matches: &ArgMatches) {
         declaration = surface.parse_uutils_declarations(source)["-A"]
         self.assertEqual(declaration["disposition"], "implemented")
 
+    def test_uutils_resolves_top_level_constants_and_long_aliases(self):
+        source = '''
+const KERNEL_NAME: &str = "kernel-name";
+
+pub fn uu_app() -> Command {
+    Command::new("uname")
+        .arg(
+            Arg::new(KERNEL_NAME)
+                .short('s')
+                .long(KERNEL_NAME)
+                .alias("sysname")
+                .action(ArgAction::SetTrue),
+        )
+}
+
+fn run(matches: &ArgMatches) {
+    matches.get_flag(KERNEL_NAME);
+}
+'''
+        self.assertEqual(
+            surface.parse_uutils_source(source),
+            {"-s": 0, "--kernel-name": 0, "--sysname": 0, "-h": 0, "--help": 0},
+        )
+
+    def test_uutils_value_options_report_fixed_arity(self):
+        source = '''
+mod options {
+    pub static FILES0_FROM: &str = "files0-from";
+    pub static PAIR: &str = "pair";
+}
+
+pub fn uu_app() -> Command {
+    Command::new("wc")
+        .arg(Arg::new(options::FILES0_FROM).long(options::FILES0_FROM))
+        .arg(
+            Arg::new(options::PAIR)
+                .long(options::PAIR)
+                .action(ArgAction::Set)
+                .num_args(2),
+        )
+}
+'''
+        self.assertEqual(
+            surface.parse_uutils_source(source),
+            {"--files0-from": 1, "--pair": 2, "-h": 0, "--help": 0},
+        )
+
     def test_xsh_forms_capture_aliases_and_argument_arity(self):
         source = '''
 proc main(...argv: List[Str]) {
@@ -43,13 +90,14 @@ proc main(...argv: List[Str]) {
     gnu: {status: 1},
     all: {form: "-A --all", default: false},
     output: {form: "-o --output FILE"},
+    pair: {form: "-p --pair FIRST SECOND"},
     help: {form: "--help", default: false},
   })?
 }
 '''
         self.assertEqual(
             surface.parse_xsh_source(source),
-            {"-A": 0, "--all": 0, "-o": 1, "--output": 1, "--help": 0},
+            {"-A": 0, "--all": 0, "-o": 1, "--output": 1, "-p": 2, "--pair": 2, "--help": 0},
         )
 
     def test_cat_unbuffered_option_is_declared_but_not_consumed(self):
@@ -82,11 +130,11 @@ pub fn uu_app() -> Command {
         self.assertEqual(result["xsh_only"], {"--extra": 0})
         self.assertEqual(result["arity_mismatches"], {"--count": (1, 0)})
 
-    def test_unknown_uutils_option_action_fails_closed(self):
+    def test_optional_uutils_value_arity_fails_closed(self):
         source = '''
 pub fn uu_app() -> Command {
-    Command::new("cat")
-        .arg(Arg::new("color").short('c').action(ArgAction::Append))
+    Command::new("demo")
+        .arg(Arg::new("color").short('c').action(ArgAction::Set).num_args(0..=1))
 }
 '''
         self.assertRaises(surface.SurfaceParseError, surface.parse_uutils_source, source)

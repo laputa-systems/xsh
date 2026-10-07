@@ -1078,7 +1078,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 pwd has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "readlink",
@@ -1558,7 +1560,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 uname has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "unexpand",
@@ -1663,7 +1667,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 wc's short-option string omits both, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "yes",
@@ -1681,7 +1687,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 yes has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "df",

@@ -14,7 +14,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 LOCK = REPO / "dev" / "compat" / "upstream.lock.json"
-SUPPORTED_UTILITIES = ("cat",)
+SUPPORTED_UTILITIES = ("cat", "pwd", "uname", "wc", "yes")
+SOURCE_PATHS = {
+    "cat": ("cat/src/cat.rs", "cat.xsh"),
+    "pwd": ("pwd/src/pwd.rs", "pwd.xsh"),
+    "uname": ("uname/src/uname.rs", "uname.xsh"),
+    "wc": ("wc/src/wc.rs", "wc.xsh"),
+    "yes": ("yes/src/yes.rs", "yes.xsh"),
+}
 
 
 class SurfaceParseError(ValueError):
@@ -103,18 +110,12 @@ def _option_entry(surface: dict[str, int], spelling: str, arity: int) -> None:
     surface[spelling] = arity
 
 
-def _rust_options_module(source: str) -> dict[str, str]:
-    module = re.search(r"\bmod\s+options\s*\{", source)
-    if not module:
-        raise SurfaceParseError("uutils options module is missing")
-    opening = source.find("{", module.start())
-    closing = _matching_delimiter(source, opening, "{", "}", "rust")
-    body = source[opening + 1 : closing]
+def _rust_string_constants(source: str) -> dict[str, str]:
     return {
         name: value
         for name, value in re.findall(
             r"\b(?:pub\s+)?(?:static|const)\s+(\w+)\s*:\s*&str\s*=\s*\"([^\"]+)\"",
-            body,
+            source,
         )
     }
 
@@ -146,7 +147,7 @@ def _rust_char_argument(body: str, method: str) -> str | None:
 
 def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
     """Read Cat's literal Clap declarations, including generated help flags."""
-    constants = _rust_options_module(source)
+    constants = _rust_string_constants(source)
     signature = r"\bpub\s+fn\s+uu_app\s*\(\)"
     function = re.search(signature, source)
     if not function:
@@ -157,10 +158,10 @@ def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
     behavior = source[:function_open] + source[function_close + 1 :]
     declarations: dict[str, dict[str, int | str]] = {}
 
-    aliases = r"\.(?:alias|aliases|short_alias|short_aliases|visible_alias|visible_aliases)\s*\("
+    aliases = r"\.(?:aliases|short_aliases|visible_aliases|visible_short_alias|visible_short_aliases)\s*\("
     if re.search(aliases, body):
         raise SurfaceParseError(
-            "Clap aliases need an explicit parser before this utility can be checked"
+            "this Clap alias form needs an explicit parser before the utility can be checked"
         )
 
     for argument in _rust_argument_blocks(body):
@@ -168,8 +169,18 @@ def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
             continue
 
         action = re.search(r"\.action\s*\(\s*ArgAction::(\w+)\s*\)", argument)
-        if not action or action.group(1) not in ("SetTrue", "SetFalse", "Count"):
-            raise SurfaceParseError("option argument has an unsupported or missing ArgAction")
+        action_name = action.group(1) if action else "Set"
+        num_args = re.search(r"\.num_args\s*\(\s*(\d+)\s*\)", argument)
+        if ".num_args(" in argument and not num_args:
+            raise SurfaceParseError("variable or optional argument counts need an explicit parser")
+        if action_name in ("SetTrue", "SetFalse", "Count"):
+            arity = 0
+            if num_args and num_args.group(1) != "0":
+                raise SurfaceParseError("flag action declares value arguments")
+        elif action_name in ("Set", "Append"):
+            arity = int(num_args.group(1)) if num_args else 1
+        else:
+            raise SurfaceParseError(f"option argument has unsupported ArgAction::{action_name}")
 
         arg_id = re.search(r"Arg::new\s*\(\s*([^)]+)\s*\)", argument)
         if not arg_id:
@@ -177,17 +188,19 @@ def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
         field = arg_id.group(1).removeprefix("options::")
         disposition = (
             "implemented"
-            if arg_id.group(1).startswith("options::")
-            and re.search(rf"\boptions::{re.escape(field)}\b", behavior)
+            if re.search(rf"\b{re.escape(arg_id.group(1))}\b", behavior)
             else "parsed-but-unused"
         )
 
         short = _rust_char_argument(argument, "short")
         if ".short(" in argument and short is None:
             raise SurfaceParseError("short option is not a literal character")
+        short_aliases = re.findall(r"\.short_alias\s*\(\s*'([^'\\])'\s*\)", argument)
+        if ".short_alias(" in argument and not short_aliases:
+            raise SurfaceParseError("short alias is not a literal character")
         long = re.search(r"\.long\s*\(\s*([^\s)]+)\s*\)", argument)
         if short:
-            declarations[f"-{short}"] = {"arity": 0, "field": field, "disposition": disposition}
+            declarations[f"-{short}"] = {"arity": arity, "field": field, "disposition": disposition}
         if long:
             value = long.group(1)
             if value.startswith("options::"):
@@ -195,11 +208,21 @@ def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
                 if name not in constants:
                     raise SurfaceParseError(f"unknown uutils option constant {name}")
                 value = constants[name]
+            elif value in constants:
+                value = constants[value]
             elif value.startswith('"') and value.endswith('"'):
                 value = value[1:-1]
             else:
                 raise SurfaceParseError(f"unsupported Clap long option expression {value!r}")
-            declarations[f"--{value}"] = {"arity": 0, "field": field, "disposition": disposition}
+            declarations[f"--{value}"] = {"arity": arity, "field": field, "disposition": disposition}
+        alias_calls = re.findall(r"\.(?:alias|visible_alias)\s*\(", argument)
+        aliases = re.findall(r"\.(?:alias|visible_alias)\s*\(\s*\"([^\"]+)\"\s*\)", argument)
+        if len(alias_calls) != len(aliases):
+            raise SurfaceParseError("Clap alias is not a literal string")
+        for alias in aliases:
+            declarations[f"--{alias}"] = {"arity": arity, "field": field, "disposition": disposition}
+        for alias in short_aliases:
+            declarations[f"-{alias}"] = {"arity": arity, "field": field, "disposition": disposition}
 
     if ".disable_help_flag(true)" not in body:
         help_short = _rust_char_argument(body, "help_short")
@@ -250,12 +273,12 @@ def _form_entries(form: str, field: str) -> list[tuple[str, int]]:
             arity = explicit_arities.pop()
         else:
             arity = 0
-            if (
+            while (
                 index < len(tokens)
                 and not tokens[index].startswith("-")
                 and not tokens[index].startswith("...")
             ):
-                arity = 1
+                arity += 1
                 index += 1
         for spelling, _explicit_arity in aliases:
             entries.append((spelling, arity))
@@ -340,10 +363,11 @@ def main() -> int:
 
     try:
         root, revision = _uutils_root()
+        uutils_source, xsh_source = SOURCE_PATHS[args.util]
         uutils_declarations = parse_uutils_declarations(
-            (root / "src/uu/cat/src/cat.rs").read_text()
+            (root / "src/uu" / uutils_source).read_text()
         )
-        xsh_declarations = parse_xsh_declarations((REPO / "core/cat.xsh").read_text())
+        xsh_declarations = parse_xsh_declarations((REPO / "core" / xsh_source).read_text())
     except (OSError, SurfaceParseError) as error:
         print(f"option surface check: {error}", file=sys.stderr)
         return 2

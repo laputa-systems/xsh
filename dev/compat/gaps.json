@@ -4,6 +4,18 @@
     "cat": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 cat's short-option string omits both, so XSH accepts --help and --version without those short forms."
     ],
+    "pwd": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 pwd has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "uname": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 uname has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "wc": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 wc's short-option string omits both, so XSH accepts --help and --version without them."
+    ],
+    "yes": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 yes has no matching short forms, so XSH accepts --help and --version without them."
+    ],
     "basename": [
       "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments."
     ],
