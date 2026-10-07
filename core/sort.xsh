@@ -26,13 +26,12 @@ type SortOptions = {
   paths: List[Str],
 }
 
-type NumericSortKey = {number: Int, raw: Str}
+type NumericSortKey = {number: Str, raw: Str}
 type GeneralNumericSortKey = {key: Str, raw: Str}
 type TextSortKey = {key: Str, raw: Str}
 
-pure numeric_key(line: Str) -> Int {
-  let text = line.trim().words().get(0) ?? "0"
-  if text.starts_with("+") { 0 } else { text.parse_int() ?? 0 }
+pure numeric_key(line: Str) -> Str {
+  numeric_order_key(line)
 }
 
 pure numeric_sort_key(line: Str, stable: Bool) -> NumericSortKey {
@@ -44,6 +43,98 @@ pure padded_decimal(value: Int, width: Int) -> Str {
   var padding = ""
   while padding.byte_len() + digits.byte_len() < width { padding += "0" }
   padding + digits
+}
+
+pure numeric_prefix(line: Str) -> Str {
+  let value = line.trim()
+  if value.starts_with("+") { return "" }
+  let sign_length = if value.starts_with("-") { 1 } else { 0 }
+  let input = bytes.from_text(value)
+  var at = sign_length
+  var digits = 0
+  while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) {
+    at += 1
+    digits += 1
+  }
+  if at < input.len() and input.byte_at(at) == 46 {
+    at += 1
+    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) {
+      at += 1
+      digits += 1
+    }
+  }
+  if digits == 0 { return "" }
+  value.byte_slice(0, length: at)
+}
+
+pure invert_decimal_digits(digits: Str) -> Str {
+  var inverted = ""
+  for at in range(digits.byte_len()) {
+    inverted += f"{9 - ((digits.byte_at(at) ?? 48) - 48)}"
+  }
+  inverted
+}
+
+pure numeric_exponent_key(exponent: Int) -> Str {
+  if exponent < 0 {
+    let magnitude = 0 - exponent
+    "0" + invert_decimal_digits(padded_decimal(magnitude, 19))
+  } else if exponent == 0 {
+    "1" + padded_decimal(0, 19)
+  } else {
+    "2" + padded_decimal(exponent, 19)
+  }
+}
+
+pure invert_numeric_exponent_key(key: Str) -> Str {
+  var inverted = ""
+  for at in range(key.byte_len()) {
+    let byte = key.byte_at(at) ?? 48
+    if at == 0 {
+      inverted += if byte == 48 { "2" } else if byte == 50 { "0" } else { "1" }
+    } else {
+      inverted += f"{9 - (byte - 48)}"
+    }
+  }
+  inverted
+}
+
+## Encode decimal magnitude and sign as text so numeric sorting never rounds or narrows the input.
+pure numeric_order_key(line: Str) -> Str {
+  let prefix = numeric_prefix(line)
+  if prefix == "" { return "1" }
+  let negative = prefix.starts_with("-")
+  let sign_length = if negative { 1 } else { 0 }
+  let input = bytes.from_text(prefix)
+  var digits = ""
+  var decimal_position = 0
+  var after_decimal = false
+  for at in range(sign_length, input.len()) {
+    let byte = input.byte_at(at) ?? 0
+    if byte == 46 {
+      after_decimal = true
+    } else {
+      digits += prefix.byte_slice(at, length: 1)
+      if ! after_decimal { decimal_position += 1 }
+    }
+  }
+
+  var first_significant = 0
+  while first_significant < digits.byte_len() and digits.byte_slice(first_significant, length: 1) == "0" {
+    first_significant += 1
+  }
+  if first_significant == digits.byte_len() { return "1" }
+  let decimal_exponent = decimal_position - first_significant - 1
+  var significant = digits.byte_slice(first_significant)
+  while significant.ends_with("0") and significant.byte_len() > 1 {
+    significant = significant.byte_slice(0, length: significant.byte_len() - 1)
+  }
+
+  if negative {
+    "0" + invert_numeric_exponent_key(numeric_exponent_key(decimal_exponent)) + invert_decimal_digits(significant) + ":"
+  } else {
+    "2" + numeric_exponent_key(decimal_exponent) + significant + "!"
+  }
 }
 
 pure hex_digit_value(byte: Int) -> Int {
@@ -227,11 +318,25 @@ pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey 
 }
 
 pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
-  {number: numeric_field_key(line, delimiter, field, opts), raw: if opts.stable { "" } else { line }}
+  {number: numeric_field_key(line, delimiter, field, opts), raw: if opts.stable or opts.unique { "" } else { line }}
 }
 
 pure key_index(spec: Str) -> Int {
   (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
+}
+
+pure key_character_offset(spec: Str) -> Int {
+  let start = (spec.split(",").get(0) ?? "").split(".").get(1) ?? ""
+  let input = bytes.from_text(start)
+  var end = 0
+  while end < input.len() and is_ascii_digit(input.byte_at(end) ?? 0) { end += 1 }
+  if end == 0 { return 0 }
+  let position = start.byte_slice(0, length: end).parse_int() ?? 1
+  if position > 0 { position - 1 } else { 0 }
+}
+
+pure key_reversed(spec: Str) -> Bool {
+  (spec.split(",").get(0) ?? "").ends_with("r")
 }
 
 pure is_ascii_digit(byte: Int) -> Bool {
@@ -314,6 +419,11 @@ pure is_general_numeric_sort(opts: SortOptions) -> Bool {
   if mode == "" { opts.general_numeric } else { mode in ["g", "general-numeric"] }
 }
 
+pure is_numeric_sort(opts: SortOptions) -> Bool {
+  let mode = selected_sort_mode(opts)
+  if mode == "" { opts.numeric } else { mode in ["n", "numeric"] }
+}
+
 pure character_order_key(text: Str, dictionary: Bool, ignore_nonprinting: Bool, fold_case: Bool) -> Str {
   if ! dictionary and ! ignore_nonprinting {
     return if fold_case { text.upper() } else { text }
@@ -344,8 +454,11 @@ pure field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) ->
   {key: field_key(line, delimiter, field, opts), raw: if opts.stable { "" } else { line }}
 }
 
-pure numeric_field_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> Int {
-  field_key(line, delimiter, field, opts).parse_int() ?? 0
+pure numeric_field_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> Str {
+  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
+  let text = parts.get(field) ?? ""
+  let key = text.split("") |> drop(key_character_offset(opts.key)).join("")
+  numeric_key(key)
 }
 
 pure trim_leading_blanks(line: Str) -> Str {
@@ -389,12 +502,14 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
     if opts.reverse { pair |> sort-by(desc: true) version_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by version_field_sort_key(., opts.delimiter, key_field, opts) }
   } else if is_version_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) version_sort_key(., opts.stable) } else { pair |> sort-by version_sort_key(., opts.stable) }
-  } else if opts.numeric and has_key {
+  } else if is_numeric_sort(opts) and has_key and key_reversed(opts.key) {
+    if key_reversed(opts.key) != opts.reverse { pair |> sort-by(desc: true) field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_sort_key(., opts.delimiter, key_field, opts) }
+  } else if is_numeric_sort(opts) and has_key {
     if opts.reverse { pair |> sort-by(desc: true) numeric_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by numeric_field_sort_key(., opts.delimiter, key_field, opts) }
   } else if has_key {
     if opts.reverse { pair |> sort-by(desc: true) field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_sort_key(., opts.delimiter, key_field, opts) }
-  } else if opts.numeric {
-    if opts.reverse { pair |> sort-by(desc: true) numeric_sort_key(., opts.stable) } else { pair |> sort-by numeric_sort_key(., opts.stable) }
+  } else if is_numeric_sort(opts) {
+    if opts.reverse { pair |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by numeric_sort_key(., opts.stable or opts.unique) }
   } else if opts.blank {
     blank_sorted(pair, opts.reverse, opts)
   } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
@@ -420,11 +535,15 @@ pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_
     version_key((if opts.delimiter == "" { left.trim().words() } else { left.split(opts.delimiter) }).get(key_field) ?? "") == version_key((if opts.delimiter == "" { right.trim().words() } else { right.split(opts.delimiter) }).get(key_field) ?? "")
   } else if is_version_sort(opts) {
     version_key(left) == version_key(right)
-  } else if opts.numeric and has_key {
-    numeric_field_key(left, opts.delimiter, key_field, opts) == numeric_field_key(right, opts.delimiter, key_field, opts)
+  } else if is_numeric_sort(opts) and has_key {
+    if key_reversed(opts.key) {
+      field_key(left, opts.delimiter, key_field, opts) == field_key(right, opts.delimiter, key_field, opts)
+    } else {
+      numeric_field_key(left, opts.delimiter, key_field, opts) == numeric_field_key(right, opts.delimiter, key_field, opts)
+    }
   } else if has_key {
     field_key(left, opts.delimiter, key_field, opts) == field_key(right, opts.delimiter, key_field, opts)
-  } else if opts.numeric {
+  } else if is_numeric_sort(opts) {
     numeric_key(left) == numeric_key(right)
   } else if opts.blank {
     blank_text_key(left, opts) == blank_text_key(right, opts)
@@ -451,9 +570,14 @@ pure input_records(input: Str, zero_terminated: Bool) -> List[Str] {
 pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
   if has_key {
     let parts = if opts.delimiter == "" { line.trim().words() } else { line.split(opts.delimiter) }
-    parts.get(key_field) ?? ""
-  } else if opts.numeric {
-    line.trim().words().get(0) ?? ""
+    if is_numeric_sort(opts) {
+      let text = parts.get(key_field) ?? ""
+      text.split("") |> drop(key_character_offset(opts.key)).join("")
+    } else {
+      parts.get(key_field) ?? ""
+    }
+  } else if is_numeric_sort(opts) {
+    numeric_prefix(line)
   } else if is_general_numeric_sort(opts) {
     general_numeric_prefix(line)
   } else if opts.blank {
@@ -485,13 +609,13 @@ pure debug_annotation(value: Str) -> Str {
 }
 
 pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
-  let has_last_resort = has_key or opts.numeric or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
-  let annotation_count = if has_last_resort and ! opts.stable { 2 } else { 1 }
+  let has_last_resort = has_key or is_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
+  let annotation_count = if has_last_resort and ! opts.stable and ! opts.unique { 2 } else { 1 }
   var output = ""
   for line in lines {
     output += debug_visible_line(line) + "\n"
     let primary = debug_primary_text(line, opts, has_key, key_field)
-    let indentation = if is_general_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
+    let indentation = if is_general_numeric_sort(opts) or is_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
     output += indentation + debug_annotation(primary) + "\n"
     if annotation_count > 1 {
       output += debug_annotation(line) + "\n"
@@ -638,17 +762,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let selected_mode = selected_sort_mode(opts)
   let general_numeric = is_general_numeric_sort(opts)
-  if selected_mode != "" and ! selected_mode.starts_with("v") and selected_mode not in ["g", "general-numeric"] {
+  if selected_mode != "" and ! selected_mode.starts_with("v") and selected_mode not in ["g", "general-numeric", "n", "numeric"] {
     gnu.error(f"invalid argument {gnu.quote_maybe(selected_mode)} for '--sort'")
     exit 2
   }
 
-  if opts.numeric and general_numeric {
+  if (opts.numeric or is_numeric_sort(opts)) and (opts.general_numeric or general_numeric) {
     gnu.error("options '-gn' are incompatible")
     exit 2
   }
 
-  if opts.numeric and (opts.dictionary or opts.ignore_nonprinting) {
+  if is_numeric_sort(opts) and (opts.dictionary or opts.ignore_nonprinting) {
     let conflict = if opts.dictionary { "-dn" } else { "-in" }
     gnu.error(f"options '{conflict}' are incompatible")
     exit 2
@@ -738,7 +862,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     } else {
       input_lines |> sort-by version_sort_key(., opts.stable)
     }
-  } else if opts.numeric and has_key {
+  } else if is_numeric_sort(opts) and has_key and key_reversed(opts.key) {
+    if key_reversed(opts.key) != opts.reverse { input_lines |> sort-by(desc: true) field_sort_key(., delimiter, key_field, opts) } else { input_lines |> sort-by field_sort_key(., delimiter, key_field, opts) }
+  } else if is_numeric_sort(opts) and has_key {
     if opts.reverse {
       input_lines |> sort-by(desc: true) numeric_field_sort_key(., delimiter, key_field, opts)
     } else {
@@ -750,11 +876,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     } else {
       input_lines |> sort-by field_sort_key(., delimiter, key_field, opts)
     }
-  } else if opts.numeric {
+  } else if is_numeric_sort(opts) {
     if opts.reverse {
-      input_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable)
+      input_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique)
     } else {
-      input_lines |> sort-by numeric_sort_key(., opts.stable)
+      input_lines |> sort-by numeric_sort_key(., opts.stable or opts.unique)
     }
   } else if opts.blank {
     blank_sorted(input_lines, opts.reverse, opts)
@@ -772,6 +898,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let lines = if opts.unique and general_numeric {
     sorted |> unique-by general_numeric_sort_key(., true)
+  } else if opts.unique and is_numeric_sort(opts) {
+    sorted |> unique-by numeric_sort_key(., true)
   } else if opts.unique {
     sorted |> unique-by .
   } else {

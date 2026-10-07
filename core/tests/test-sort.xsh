@@ -160,6 +160,80 @@ test test_sort_general_numeric_unique_compares_values { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_numeric_uses_decimal_values_and_prefixes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-decimal")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"8.013\n1.444\n1.58590\n-8.90880\n1.040000000\n-.05\n10x\n2x\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"-8.90880\n-.05\n1.040000000\n1.444\n1.58590\n2x\n8.013\n10x\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let debug = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--debug", "-n"], root,
+    {LC_ALL: "C"}, b"  2x\n  1x\n", stdout, stderr))?
+  assert debug.exit_code()? == 0
+  assert stdout.read_bytes()? == b"  1x\n  _\n____\n  2x\n  _\n____\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_numeric_preserves_decimal_precision_and_uniqueness { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-precision")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let precise = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n"], root,
+    {LC_ALL: "C"}, b"1.0000000000000000002\n1.0000000000000000001\n", stdout, stderr))?
+  assert precise.exit_code()? == 0
+  assert stdout.read_bytes()? == b"1.0000000000000000001\n1.0000000000000000002\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let unique = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-nu"], root,
+    {LC_ALL: "C"}, b"1e0\n1.0\n1\n", stdout, stderr))?
+  assert unique.exit_code()? == 0
+  assert stdout.read_bytes()? == b"1e0\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_numeric_unique_debug_annotates_only_the_numeric_key { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-unique-debug")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-nu", "--debug"], root,
+    {LC_ALL: "C"}, b"4\n2\n4\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"2\n_\n4\n_\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_numeric_key_character_offset { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-key-offset")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1.2"], root,
+    {LC_ALL: "C"}, b"19\n21\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"21\n19\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let reverse_key = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-k1r"], root,
+    {LC_ALL: "C"}, b"19\n21\n3\n", stdout, stderr))?
+  assert reverse_key.exit_code()? == 0
+  assert stdout.read_bytes()? == b"3\n21\n19\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_stable_preserves_equal_primary_keys { |ctx|
   let root = test.temp_dir(ctx, name: "sort-stable-tie")?
   let script = fp"{ctx.core_dir}/sort.xsh"
