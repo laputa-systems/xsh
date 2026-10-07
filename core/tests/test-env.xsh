@@ -7,9 +7,9 @@ proc env_run(ctx: TestContext, args: List[Str], unset_probe: Bool = false) [fs, 
   let script = fp"{ctx.core_dir}/env.xsh"
   let argv = [ctx.xsh_bin.display(), "--", script.display()].extend(args)
   let command = if unset_probe {
-    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_TEST_UNSET: "present"}, b"", stdout, stderr)
+    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", PATH: "/bin:/usr/bin", XSH_TEST_UNSET: "present"}, b"", stdout, stderr)
   } else {
-    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr)
+    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", PATH: "/bin:/usr/bin"}, b"", stdout, stderr)
   }
   let status = process.run(command)?
   {status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?}
