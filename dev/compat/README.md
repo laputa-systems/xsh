@@ -115,8 +115,13 @@ utilities; it improves the preceding full run by one pass with no regressions.
 The pinned GNU 9.12 XSH run at the same revision records 367 PASS, 189 FAIL,
 25 ERROR, and 138 SKIP across 719 tests. Its four-cell differential has 358
 shared passes, 213 uutils-only passes, 9 XSH-only passes, and 52 shared
-failures. `wc::test_files0_progressive_stream` timed out at 120 seconds in
-Gate 3. `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
+failures. `test_wc::test_files0_progressive_stream` timed out at 120 seconds in
+Gate 3. Follow-up commit `d2938a41` streams `wc --files0-from=-` counts and
+diagnostics as names arrive, stops on the first stdout write error, and reports
+that its line counter uses scalar code for `--debug`. Its optimized debug
+Gate 3 slice passes 59/59, including all three `wc` cases that failed or timed
+out in the historical full run. The report is in `results/wc-followup/`.
+`uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
 both XSH and pinned uutils with one shared pass and no mismatches. Its reports
@@ -129,7 +134,7 @@ clean-image smoke remain open. See the current checkpoint and full results in
 
 The most recent full native suite passed at parent revision `a0b9ce93`
 (4,731 passed, 0 failed, 38 skipped). Focused native suites passed after later
-changes to printf, seq, tail, bytes, tr, od, wc, and stat. The `stat -` path
+changes to printf, seq, tail, bytes, tr, od, wc (15), and stat. The `stat -` path
 now uses `/dev/stdin`; its 9-test suite and the zero-direct-reader ratchet
 pass. Full suites run serially; each new baseline records its exact source
 revision, reference pin, and test image. Offline manifest, lane-ownership,

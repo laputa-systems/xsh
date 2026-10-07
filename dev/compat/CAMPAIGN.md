@@ -60,9 +60,10 @@ remain historical evidence only.
   using the optimized debug profile, three nextest workers, and test children
   as UID/GID 1000. The report records 5,125 pass, 824 fail, 0 skip, and 4
   excluded (5,949 nonexcluded tests). Nextest timed out after 120 seconds in
-  `wc::test_files0_progressive_stream`. Comparing with the preceding full run
-  at the same denominator gives one additional pass and no regressions. The
-  timeout and 824 failing cases remain open parity work.
+  `test_wc::test_files0_progressive_stream`. Comparing with the preceding
+  full run at the same denominator gives one additional pass and no
+  regressions. The full report remains historical; later focused `wc`
+  results are recorded below.
 - Gate 4 ran the 719 selected GNU 9.12 tests against XSH in the same pinned
   image and debug profile, with three jobs and UID/GID 1000. Results were
   367 PASS, 189 FAIL, 25 ERROR, and 138 SKIP. The four-cell differential
@@ -78,22 +79,33 @@ remain historical evidence only.
   with one shared pass and no mismatches. Its reports are in
   `results/gnu-uniq-followup/`. Focused native suites passed for bytes (5), API
   docs (65), uniq (10), yes (2), head (9), cat (10), tac (8), tail (13), dd
-  (23), od (21), rev (5), and wc (13); `xsht check` passed the three changed
-  source modules.
+  (23), od (21), and rev (5); `xsht check` passed the three changed source
+  modules.
+- Follow-up at `d2938a41` makes `wc --files0-from=-` count each complete name
+  and flush its output or diagnostic before reading the next one. It stops at
+  the first stdout write failure, and `--debug` reports that the XSH line
+  counter uses scalar code. The optimized debug Gate 3 `wc` slice passes
+  59/59; the focused native suite passes 15/15. This resolves the three `wc`
+  cases recorded as failed or timed out in the historical Gate 3 report:
+  `test_wc::test_files0_progressive_stream`,
+  `test_wc::test_files0_stops_after_stdout_write_error`, and
+  `test_wc::test_simd_respects_glibc_tunables`. The per-utility report and
+  JUnit are in `results/wc-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
-  runs, focused changes to `stat`, `yes`, and `uniq` have landed, but the
-  complete suites have not been rerun. `stat -` now uses `/dev/stdin`; its
-  native suite passed 9/9 and the kernel-reader ratchet returned zero direct
-  readers.
+  runs, focused changes to `stat`, `yes`, `uniq`, and `wc` have landed, but
+  the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
+  its native suite passed 9/9 and the kernel-reader ratchet returned zero
+  direct readers.
 - The generated per-utility manifest uses the current Gate 3 report.
   `parity.py --check`, `lanes.py check`, the ignored-option ratchet, and the
   four-exclusion check passed.
 
-The campaign remains active and incomplete. The 824 failing uutils cases,
-the `wc` timeout and remaining GNU differential gaps, BusyBox comparison,
-expanded Linux surface, aarch64 debug gate, and clean-image smoke remain open.
-The selected `uniq` stress case is fixed, but the full Gate 4 report still
-describes its earlier failure at `92a91b12`.
+The campaign remains active and incomplete. The 824 failing uutils cases in
+the historical full report, remaining GNU differential gaps, BusyBox
+comparison, expanded Linux surface, aarch64 debug gate, and clean-image smoke
+remain open. The selected `uniq` stress case and the previously failing
+`wc` slice pass in focused follow-ups; the full Gate 4 report still describes
+its earlier state at `92a91b12`.
 
 ## Wind-down report (2026-10-06)
 

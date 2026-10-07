@@ -1,0 +1,19 @@
+{
+  "suite": "uutils-integration",
+  "utilities": {
+    "wc": {
+      "pass": 59,
+      "fail": 0,
+      "skip": 0,
+      "excluded": 0,
+      "failing": [],
+      "applet": true
+    }
+  },
+  "totals": {
+    "pass": 59,
+    "fail": 0,
+    "skip": 0,
+    "excluded": 0
+  }
+}
