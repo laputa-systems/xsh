@@ -8,6 +8,7 @@ type SortOptions = {
   numeric: Bool,
   human_numeric: Bool,
   general_numeric: Bool,
+  month: Bool,
   fold_case: Bool,
   dictionary: Bool,
   ignore_nonprinting: Bool,
@@ -114,6 +115,43 @@ pure human_unit_order(unit: Int) -> Int {
   if unit == 82 { return 9 }
   if unit == 81 { return 10 }
   0
+}
+
+## In the C locale, GNU sort -M orders English abbreviations after leading blanks; unknown prefixes come first.
+pure month_order(line: Str) -> Int {
+  let value = trim_leading_blanks(line).upper()
+  if value.byte_len() < 3 { return 0 }
+  let abbreviation = value.byte_slice(0, length: 3)
+  if abbreviation == "JAN" { return 1 }
+  if abbreviation == "FEB" { return 2 }
+  if abbreviation == "MAR" { return 3 }
+  if abbreviation == "APR" { return 4 }
+  if abbreviation == "MAY" { return 5 }
+  if abbreviation == "JUN" { return 6 }
+  if abbreviation == "JUL" { return 7 }
+  if abbreviation == "AUG" { return 8 }
+  if abbreviation == "SEP" { return 9 }
+  if abbreviation == "OCT" { return 10 }
+  if abbreviation == "NOV" { return 11 }
+  if abbreviation == "DEC" { return 12 }
+  0
+}
+
+pure month_prefix(line: Str) -> Str {
+  let value = trim_leading_blanks(line)
+  if month_order(line) == 0 { return "" }
+  value.byte_slice(0, length: 3)
+}
+
+pure month_sort_key(line: Str, stable: Bool) -> TextSortKey {
+  {key: padded_decimal(month_order(line), 2), raw: if stable { "" } else { line }}
+}
+
+pure month_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions, stable: Bool) -> TextSortKey {
+  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
+  let text = parts.get(field) ?? ""
+  let selected = text.split("") |> drop(key_character_offset(opts.key)).join("")
+  month_sort_key(selected, stable)
 }
 
 pure human_numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions, stable: Bool) -> HumanNumericSortKey {
@@ -475,6 +513,15 @@ pure is_version_sort(opts: SortOptions) -> Bool {
   opts.version_sort or selected_sort_mode(opts).starts_with("v")
 }
 
+pure is_month_mode(mode: Str) -> Bool {
+  mode != "" and "month".starts_with(mode)
+}
+
+pure is_month_sort(opts: SortOptions) -> Bool {
+  let mode = selected_sort_mode(opts)
+  if mode == "" { opts.month } else { is_month_mode(mode) }
+}
+
 pure is_general_numeric_sort(opts: SortOptions) -> Bool {
   let mode = selected_sort_mode(opts)
   if mode == "" { opts.general_numeric } else { is_general_numeric_mode(mode) }
@@ -570,7 +617,11 @@ pure blank_sorted(lines: List[Str], reverse: Bool, opts: SortOptions) -> List[St
 
 pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
   let pair = [left, right]
-  let ordered = if is_human_numeric_sort(opts) and has_key {
+  let ordered = if is_month_sort(opts) and has_key {
+    if opts.reverse { pair |> sort-by(desc: true) month_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by month_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) }
+  } else if is_month_sort(opts) {
+    if opts.reverse { pair |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by month_sort_key(., opts.stable or opts.unique) }
+  } else if is_human_numeric_sort(opts) and has_key {
     if opts.reverse { pair |> sort-by(desc: true) human_numeric_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by human_numeric_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) }
   } else if is_human_numeric_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) human_numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by human_numeric_sort_key(., opts.stable or opts.unique) }
@@ -605,7 +656,11 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
 }
 
 pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
-  if is_human_numeric_sort(opts) and has_key {
+  if is_month_sort(opts) and has_key {
+    month_field_sort_key(left, opts.delimiter, key_field, opts, true).key == month_field_sort_key(right, opts.delimiter, key_field, opts, true).key
+  } else if is_month_sort(opts) {
+    month_order(left) == month_order(right)
+  } else if is_human_numeric_sort(opts) and has_key {
     let left_key = human_numeric_field_sort_key(left, opts.delimiter, key_field, opts, true)
     let right_key = human_numeric_field_sort_key(right, opts.delimiter, key_field, opts, true)
     left_key.key == right_key.key
@@ -656,7 +711,11 @@ pure input_records(input: Str, zero_terminated: Bool) -> List[Str] {
 pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
   if has_key {
     let parts = if opts.delimiter == "" { line.trim().words() } else { line.split(opts.delimiter) }
-    if is_human_numeric_sort(opts) {
+    if is_month_sort(opts) {
+      let text = parts.get(key_field) ?? ""
+      let selected = text.split("") |> drop(key_character_offset(opts.key)).join("")
+      month_prefix(selected)
+    } else if is_human_numeric_sort(opts) {
       let text = parts.get(key_field) ?? ""
       let selected = text.split("") |> drop(key_character_offset(opts.key)).join("")
       human_numeric_prefix(selected)
@@ -666,6 +725,8 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
     } else {
       parts.get(key_field) ?? ""
     }
+  } else if is_month_sort(opts) {
+    month_prefix(line)
   } else if is_numeric_sort(opts) {
     numeric_prefix(line)
   } else if is_human_numeric_sort(opts) {
@@ -701,13 +762,13 @@ pure debug_annotation(value: Str) -> Str {
 }
 
 pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
-  let has_last_resort = has_key or is_numeric_sort(opts) or is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
+  let has_last_resort = has_key or is_month_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
   let annotation_count = if has_last_resort and ! opts.stable and ! opts.unique { 2 } else { 1 }
   var output = ""
   for line in lines {
     output += debug_visible_line(line) + "\n"
     let primary = debug_primary_text(line, opts, has_key, key_field)
-    let indentation = if is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
+    let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
     output += indentation + debug_annotation(primary) + "\n"
     if annotation_count > 1 {
       output += debug_annotation(line) + "\n"
@@ -773,6 +834,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
       human_numeric: {
         form: "-h --human-numeric-sort",
+        default: false,
+      },
+      month: {
+        form: "-M --month-sort",
         default: false,
       },
       general_numeric: {
@@ -859,7 +924,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let selected_mode = selected_sort_mode(opts)
   let general_numeric = is_general_numeric_sort(opts)
   let human_numeric = is_human_numeric_sort(opts)
-  if selected_mode != "" and ! selected_mode.starts_with("v") and ! is_human_numeric_mode(selected_mode) and ! is_general_numeric_mode(selected_mode) and selected_mode not in ["n", "numeric"] {
+  if selected_mode != "" and ! selected_mode.starts_with("v") and ! is_human_numeric_mode(selected_mode) and ! is_month_mode(selected_mode) and ! is_general_numeric_mode(selected_mode) and selected_mode not in ["n", "numeric"] {
     gnu.error(f"invalid argument {gnu.quote_maybe(selected_mode)} for '--sort'")
     exit 2
   }
@@ -867,6 +932,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let numeric_requested = opts.numeric or is_numeric_sort(opts)
   let general_numeric_requested = opts.general_numeric or general_numeric
   let human_numeric_requested = opts.human_numeric or human_numeric
+  let month_requested = opts.month or is_month_sort(opts)
   if numeric_requested and general_numeric_requested {
     gnu.error("options '-gn' are incompatible")
     exit 2
@@ -877,6 +943,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if human_numeric_requested and numeric_requested {
     gnu.error("options '-hn' are incompatible")
+    exit 2
+  }
+  if month_requested and general_numeric_requested {
+    gnu.error("options '-gM' are incompatible")
+    exit 2
+  }
+  if month_requested and human_numeric_requested {
+    gnu.error("options '-hM' are incompatible")
+    exit 2
+  }
+  if month_requested and numeric_requested {
+    gnu.error("options '-Mn' are incompatible")
     exit 2
   }
 
@@ -952,7 +1030,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  let sorted = if human_numeric and has_key {
+  let sorted = if is_month_sort(opts) and has_key {
+    if opts.reverse {
+      input_lines |> sort-by(desc: true) month_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
+    } else {
+      input_lines |> sort-by month_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
+    }
+  } else if is_month_sort(opts) {
+    if opts.reverse {
+      input_lines |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique)
+    } else {
+      input_lines |> sort-by month_sort_key(., opts.stable or opts.unique)
+    }
+  } else if human_numeric and has_key {
     if opts.reverse {
       input_lines |> sort-by(desc: true) human_numeric_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
     } else {
@@ -1018,7 +1108,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     input_lines |> sort
   }
 
-  let lines = if opts.unique and human_numeric and has_key {
+  let lines = if opts.unique and is_month_sort(opts) and has_key {
+    sorted |> unique-by month_field_sort_key(., delimiter, key_field, opts, true)
+  } else if opts.unique and is_month_sort(opts) {
+    sorted |> unique-by month_sort_key(., true)
+  } else if opts.unique and human_numeric and has_key {
     sorted |> unique-by human_numeric_field_sort_key(., delimiter, key_field, opts, true)
   } else if opts.unique and human_numeric {
     sorted |> unique-by human_numeric_sort_key(., true)

@@ -124,6 +124,57 @@ test test_sort_general_numeric_invalid_values_precede_nan_and_numbers { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_month_order_stability_and_uniqueness { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-month-mode")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"JAn\nMAY\n000may\nJun\nFeb\nJul 2\nJul 1\nJul 3\n asdf\n"
+  for args in [["-M"], ["--month-sort"], ["--sort=month"], ["--sort=mont"], ["--sort=m"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      {LC_ALL: "C"}, input, stdout, stderr))?
+    assert result.exit_code()? == 0
+    assert stdout.read_bytes()? == b" asdf\n000may\nJAn\nFeb\nMAY\nJun\nJul 1\nJul 2\nJul 3\n"
+    assert stderr.read_bytes()?.is_empty()
+  }
+
+  let stable = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-Ms"], root,
+    {LC_ALL: "C"}, b"Jul 2\nJul 1\nJul 3\n", stdout, stderr))?
+  assert stable.exit_code()? == 0
+  assert stdout.read_bytes()? == b"Jul 2\nJul 1\nJul 3\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let unique = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-Mu"], root,
+    {LC_ALL: "C"}, b"JUNNNN\n\nAPR\nMAY\nJUN\nAUG\n", stdout, stderr))?
+  assert unique.exit_code()? == 0
+  assert stdout.read_bytes()? == b"\nAPR\nMAY\nJUNNNN\nAUG\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let sorted = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-cM"], root,
+    {LC_ALL: "C"}, b"Jan\nFeb\n", stdout, stderr))?
+  assert sorted.exit_code()? == 0
+  assert stdout.read_bytes()?.is_empty()
+  assert stderr.read_bytes()?.is_empty()
+
+  let disorder = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-cM"], root,
+    {LC_ALL: "C"}, b"Feb\nJan\n", stdout, stderr))?
+  assert disorder.exit_code()? == 1
+  assert stdout.read_bytes()?.is_empty()
+  assert stderr.read_text()? == "sort: -:2: disorder: Jan\n"
+
+  let duplicate = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-cuM"], root,
+    {LC_ALL: "C"}, b"Jan\nJAN\n", stdout, stderr))?
+  assert duplicate.exit_code()? == 1
+  assert stdout.read_bytes()?.is_empty()
+  assert stderr.read_text()? == "sort: -:2: disorder: JAN\n"
+}
+
 test test_sort_general_numeric_hexadecimal_values { |ctx|
   let root = test.temp_dir(ctx, name: "sort-general-hex")?
   let script = fp"{ctx.core_dir}/sort.xsh"
