@@ -155,6 +155,11 @@ remain historical evidence only.
   passes 28/28. The Gate 3 slice stays 127/25 because
   `test_extreme_exponent_does_not_overflow` expects `Numerical result out of
   range` instead. Its report is in `results/printf-range-followup/`.
+- Follow-up `ac1a8af5` flushes `printf` output and reports stdout write errors
+  through the GNU helper. The native printf suite passes 29/29; the optimized
+  debug Gate 3 slice improves from 127/25 to 129/23 across 152 cases, fixing
+  both `/dev/full` write-error cases with no regressions. Reports are in
+  `results/printf-write-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

@@ -182,6 +182,11 @@ diagnostic. Eight GNU 9.12 probes match and the native suite passes 28/28.
 The Gate 3 slice stays 127/25 because `test_extreme_exponent_does_not_overflow`
 expects `Numerical result out of range`. Its report is in
 `results/printf-range-followup/`.
+Follow-up `ac1a8af5` flushes `printf` output and routes write failures through
+GNU-compatible diagnostics. The native printf suite passes 29/29; the
+optimized debug Gate 3 slice improves from 127/25 to 129/23 across 152 cases,
+fixing both `/dev/full` write-error cases with no regressions. Reports are in
+`results/printf-write-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
