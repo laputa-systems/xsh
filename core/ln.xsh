@@ -12,15 +12,15 @@ type Options = {
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
   if ! opts.symbolic {
     let source_meta = fs.stat(source, follow_symlinks: opts.logical)?
-    if source_meta.kind == "dir" { gnu.error(f"{gnu.quote(source.display())}: hard link not allowed for directory"); return false }
+    if source_meta.kind == "dir" { gnu.error(f"{gnu.quote_bytes(source.bytes())}: hard link not allowed for directory"); return false }
   }
   var existing = files.present(target)?
   if existing and fs.stat(target)?.kind == "dir" {
-    gnu.error(f"{gnu.quote(target.display())}: cannot overwrite directory")
+    gnu.error(f"{gnu.quote_bytes(target.bytes())}: cannot overwrite directory")
     exit 1
   }
   if existing and files.same_entry(source, target)? {
-    gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
+    gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
     exit 1
   }
   if existing and policy == "interactive" and ! files.confirm(target, "replace")? { return false }
@@ -29,7 +29,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")?
     if saved != null {
       if files.same_entry(saved, source)? {
-        gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not linked")
+        gnu.error(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source; {gnu.quote_bytes(source.bytes())} not linked")
         exit 1
       }
       target.rename(to: saved, overwrite: true)
@@ -46,14 +46,15 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   }
   if opts.verbose {
     let arrow = if opts.symbolic { "->" } else { "=>" }
-    let tail = if saved != null { f" (backup: {gnu.quote(saved.display())})" } else { "" }
-    print f"{gnu.quote(target.display())} {arrow} {gnu.quote(linked_source.display())}{tail}"
+    let tail = if saved != null { f" (backup: {gnu.quote_bytes(saved.bytes())})" } else { "" }
+    print f"{gnu.quote_bytes(target.bytes())} {arrow} {gnu.quote_bytes(linked_source.bytes())}{tail}"
   }
   true
 }
 
-proc main(...argv: List[Str]) {
-  var opts: Options = cli.applet(argv, {
+proc main(...argv: List[Bytes]) {
+  let prepared = gnu.prepare_arguments(argv)
+  var opts: Options = cli.applet(prepared.text, {
     gnu: {status: 1, unsupported: {"-d": "hard links to directories are not supported"}},
     symbolic: {form: "-s --symbolic", default: false},
     force: {form: "-f --force", default: false},
@@ -77,26 +78,31 @@ proc main(...argv: List[Str]) {
   if opts.paths.is_empty() { gnu.missing_operand() }
   if opts.relative and ! opts.symbolic { gnu.usage_error("cannot do --relative without --symbolic") }
   if opts.target != null and opts.no_target_directory { gnu.usage_error("cannot combine --target-directory and --no-target-directory") }
+  var paths: List[Path] = []
+  for raw_path in opts.paths { paths += [Path.parse_bytes(gnu.argument_bytes(raw_path, prepared.raw))?] }
+  let target_directory: Path? = if let target_text = opts.target {
+    Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
+  } else { null }
   if opts.no_target_directory and opts.paths.len() == 1 {
-    gnu.error(f"missing destination file operand after {gnu.quote(opts.paths[0])}")
+    gnu.error(f"missing destination file operand after {gnu.quote_bytes(paths[0].bytes())}")
     exit 1
   }
-  let implicit = opts.target == null and opts.paths.len() == 1
-  let dest = if opts.target != null { fp"{opts.target}" } else if implicit { p"." } else { fp"{opts.paths[-1]}" }
-  let sources = if opts.target != null or implicit { opts.paths } else { opts.paths |> take(opts.paths.len() - 1) }
+  let implicit = target_directory == null and paths.len() == 1
+  let dest = target_directory ?? (if implicit { p"." } else { paths[-1] })
+  let sources = if target_directory != null or implicit { paths } else { paths |> take(paths.len() - 1) }
   var is_dir = false
   if ! opts.no_target_directory {
     match files.directory(dest, ! opts.no_dereference) {
       Ok(found) => is_dir = found
-      Err(failure) => { gnu.cannot_access(dest.display(), failure); exit 1 }
+      Err(failure) => { gnu.error(f"cannot access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
-  if (sources.len() > 1 or opts.target != null) and ! is_dir {
-    gnu.error(f"target {gnu.quote(dest.display())}: Not a directory")
+  if (sources.len() > 1 or target_directory != null) and ! is_dir {
+    gnu.error(f"target {gnu.quote_bytes(dest.bytes())}: Not a directory")
     exit 1
   }
-  opts.logical = files.logical(argv)?
-  let policy = files.overwrite(argv, "default", no_clobber: false)?
+  opts.logical = files.logical(prepared.text)?
+  let policy = files.overwrite(prepared.text, "default", no_clobber: false)?
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
   let configured_suffix = opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~"
   if "/" in configured_suffix {
@@ -106,11 +112,10 @@ proc main(...argv: List[Str]) {
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   var failed = false
   var seen: List[Path] = []
-  for text in sources {
-    let source = fp"{text}"
+  for source in sources {
     let target = if is_dir { files.destination(dest, source) } else { dest }
     if target in seen {
-      gnu.error(f"will not overwrite just-created {gnu.quote(target.display())} with {gnu.quote(text)}")
+      gnu.error(f"will not overwrite just-created {gnu.quote_bytes(target.bytes())} with {gnu.quote_bytes(source.bytes())}")
       failed = true
       continue
     }
@@ -119,8 +124,8 @@ proc main(...argv: List[Str]) {
       Err(failure) => {
         let kind = if opts.symbolic { "symbolic link" } else { "hard link" }
         if opts.logical and ! opts.symbolic and gnu.errno(failure) == 2 and files.present(source)? {
-          gnu.error(f"failed to access {gnu.quote(text)}: {gnu.strerror(failure)}")
-        } else { gnu.error(f"failed to create {kind} {gnu.quote(target.display())}: {gnu.strerror(failure)}") }
+          gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
+        } else { gnu.error(f"failed to create {kind} {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}") }
         failed = true
       }
     }

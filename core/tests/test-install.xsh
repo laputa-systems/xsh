@@ -225,6 +225,49 @@ test test_install_failed_replacement_names_target_and_preserves_it { |ctx|
   assert source.read_text()? == "new"
 }
 
+test test_install_accepts_non_utf8_target_directory { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/target_dir_\xff\xfe"]))?
+  source.write("payload")
+  directory.mkdir()
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, source, "--target-directory", directory], root, {}, b"", out, err)
+
+  assert process.run(command)?.exited_with(0)
+  assert fp"{directory}/source".read_text()? == "payload"
+}
+
+test test_install_accepts_non_utf8_source_and_destination_paths { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
+  let directory = fp"{root}/target_dir"
+  let installed = Path.parse_bytes(bytes.concat([directory.bytes(), b"/source\xff\xfe"]))?
+  source.write("payload")
+  directory.mkdir()
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let source_command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, source, directory], root, {}, b"", out, err)
+
+  assert process.run(source_command)?.exited_with(0)
+  assert installed.read_text()? == "payload"
+
+  let plain_source = fp"{root}/plain_source"
+  let target_directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/install_\xff\xfe"]))?
+  let target = Path.parse_bytes(bytes.concat([target_directory.bytes(), b"/target.txt"]))?
+  plain_source.write("other")
+  let parents_command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, "-D", plain_source, target], root, {}, b"", out, err)
+
+  assert process.run(parents_command)?.exited_with(0)
+  assert target.read_text()? == "other"
+}
+
 test test_install_missing_target_directory_value_has_usage_error { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"

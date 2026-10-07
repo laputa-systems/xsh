@@ -166,7 +166,14 @@ export proc directory(entry: Path, follow: Bool) -> Result[Bool, Error] {
   }
 }
 
-## Append the source basename without duplicating a target's trailing slash.
+## Append the native basename while preserving dot paths' empty final name.
 export pure destination(directory: Path, source: Path) -> Path {
-  if directory.display().ends_with("/") { fp"{directory}{source.name()}" } else { fp"{directory}/{source.name()}" }
+  let components = source.components()
+  let basename = if source.name() == "" { p"" } else { components[-1] }
+  let directory_bytes = directory.bytes()
+  if directory_bytes.len() > 0 and directory_bytes.byte_at(directory_bytes.len() - 1) == 47 {
+    fp"{directory}{basename}"
+  } else {
+    fp"{directory}/{basename}"
+  }
 }

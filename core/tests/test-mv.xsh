@@ -115,6 +115,12 @@ test test_mv_same_entry_fails_and_retains_source { |ctx|
   assert source.read_text()? == "keep"
 }
 
+test test_mv_dot_directory_same_file_diagnostic_preserves_operand_spelling { |ctx|
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- p"." p"."
+  assert result.status.exited_with(1)
+  assert result.stderr == "mv: '.' and '.' are the same file\n"
+}
+
 test test_mv_backup_preserves_source_link_named_like_backup { |ctx|
   let root = test.temp_dir(ctx)?
   let dest = fp"{root}/a"

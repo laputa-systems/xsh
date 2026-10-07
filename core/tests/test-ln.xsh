@@ -134,6 +134,43 @@ test test_ln_verbose_reports_backup_after_the_link { |ctx|
   assert backed_up == f"'{dest}' -> '{source}' (backup: '{dest}~')\n"
 }
 
+test test_ln_preserves_non_utf8_source_and_destination_names { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
+  let hard_link = Path.parse_bytes(bytes.concat([root.bytes(), b"/hard\xff\xfe"]))?
+  let symbolic_link = Path.parse_bytes(bytes.concat([root.bytes(), b"/symbolic\xff\xfe"]))?
+  source.write("payload")
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let hard_command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, source, hard_link], root, {}, b"", out, err)
+  assert process.run(hard_command)?.exited_with(0)
+  assert fs.stat(source)?.ino == fs.stat(hard_link)?.ino
+
+  let symbolic_command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, "-s", source, symbolic_link], root, {}, b"", out, err)
+  assert process.run(symbolic_command)?.exited_with(0)
+  assert symbolic_link.readlink()? == source
+}
+
+test test_ln_target_directory_accepts_non_utf8_source_name { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/source\xff\xfe"]))?
+  let directory = fp"{root}/links"
+  let link = Path.parse_bytes(bytes.concat([directory.bytes(), b"/source\xff\xfe"]))?
+  source.write("payload")
+  directory.mkdir()
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, "-s", "-t", directory, source], root, {}, b"", out, err)
+
+  assert process.run(command)?.exited_with(0)
+  assert link.readlink()? == source
+}
+
 test test_ln_missing_destination_has_no_help_hint { |ctx|
   let source = test.temp_file(ctx, contents: b"source")?
   let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -s -T $source

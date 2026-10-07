@@ -54,3 +54,17 @@ test test_unlink_extra_operand_shows_usage { |ctx|
   assert "Usage: unlink FILE" in result.stderr
   assert first.exists()? and extra.exists()?
 }
+
+test test_unlink_removes_non_utf8_operand { |ctx|
+  let root = test.temp_dir(ctx)?
+  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/target\xff\xfe"]))?
+  target.write("payload")
+  let script = fp"{ctx.core_dir}/unlink.xsh"
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let command = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, script, target], root, {}, b"", out, err)
+
+  assert process.run(command)?.exited_with(0)
+  assert ! target.exists()?
+}

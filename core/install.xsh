@@ -68,23 +68,23 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   # Follow them for metadata and let the copier open the original source path.
   let metadata = fs.stat(source, follow_symlinks: true)?
   if metadata.kind == "dir" {
-    gnu.error(f"omitting directory {gnu.quote(source.display())}")
+    gnu.error(f"omitting directory {gnu.quote_bytes(source.bytes())}")
     exit 1
   }
   if metadata.kind not in ["file", "fifo", "char", "block"] {
-    gnu.error(f"cannot install {gnu.quote(source.display())}: unsupported file type {gnu.quote(metadata.kind)}")
+    gnu.error(f"cannot install {gnu.quote_bytes(source.bytes())}: unsupported file type {gnu.quote(metadata.kind)}")
     exit 1
   }
   let existing = files.present(target)?
   if existing {
     let old = fs.stat(target)?
     if (metadata.dev == old.dev and metadata.ino == old.ino) or files.same_entry(source, target)? {
-      gnu.error(f"{gnu.quote(source.display())} and {gnu.quote(target.display())} are the same file")
+      gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
       exit 1
     }
   }
   if existing and fs.stat(target)?.kind == "dir" {
-    gnu.error(f"cannot overwrite directory {gnu.quote(target.display())} with non-directory")
+    gnu.error(f"cannot overwrite directory {gnu.quote_bytes(target.bytes())} with non-directory")
     exit 1
   }
   if existing and opts.compare and metadata.kind == "file" {
@@ -99,7 +99,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   var saved: Path? = null
   if existing { saved = files.backup_name(target, backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")? }
   if saved != null and files.same_entry(saved, source)? {
-    gnu.error(f"backing up {gnu.quote(target.display())} might destroy source;  {gnu.quote(source.display())} not copied")
+    gnu.error(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")
     exit 1
   }
   if opts.parents { make_ancestors(target.parent(), opts.verbose)? }
@@ -107,7 +107,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     Ok(parent) => parent
     Err(failure) => {
       if existing {
-        gnu.cannot("remove", target.display(), failure)
+        gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
         return Failed
       }
       return Err(failure)
@@ -117,7 +117,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     Ok(root) => root
     Err(failure) => {
       if existing {
-        gnu.cannot("remove", target.display(), failure)
+        gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
         return Failed
       }
       return Err(failure)
@@ -131,7 +131,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   let staged_dir_name = fp".xsh-install-{scratch.root.host_path()?.name()}"
   if let Err(failure) = parent_root.mkdir(staged_dir_name, mode: 0o700.clear_bits(fs.umask()?)) {
     if existing and gnu.strerror(failure) in ["No such file or directory", "Permission denied", "Operation not permitted", "Read-only file system"] {
-      gnu.cannot("remove", target.display(), failure)
+      gnu.error(f"cannot remove {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
       return Failed
     }
     return Err(failure)
@@ -182,7 +182,7 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   }
   if saved != null {
     if let Err(failure) = target.rename(to: saved, overwrite: true) {
-      gnu.cannot("backup", target.display(), failure)
+      gnu.error(f"cannot backup {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
       return Failed
     }
   }
@@ -191,8 +191,8 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
     return Err(failure)
   }
   if opts.verbose {
-    if existing and saved == null { print f"removed {gnu.quote(target.display())}" }
-    print f"{gnu.quote(source.display())} -> {gnu.quote(target.display())}"
+    if existing and saved == null { print f"removed {gnu.quote_bytes(target.bytes())}" }
+    print f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}"
   }
   Installed
 }
@@ -206,36 +206,41 @@ proc make_ancestors(dest: Path, verbose = false) -> Result[Unit] {
     if ! files.directory(dest, true)? { return Err(failure) }
   }
   dest.chmod(0o755)
-  if verbose { print f"install: creating directory {gnu.quote(dest.display())}" }
+  if verbose { print f"install: creating directory {gnu.quote_bytes(dest.bytes())}" }
 }
 
 proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?) -> Result[Unit] {
-  var text = raw.display()
-  while text.ends_with("/") and text.byte_len() > 1 { text = text.byte_slice(0, text.byte_len() - 1) }
-  while text.ends_with("/.") { text = text.byte_slice(0, text.byte_len() - 2) }
-  let dest = if text == "" { p"/" } else { fp"{text}" }
+  var raw_bytes = raw.bytes()
+  while raw_bytes.len() > 1 and raw_bytes.byte_at(raw_bytes.len() - 1) == 47 {
+    raw_bytes = raw_bytes[..raw_bytes.len() - 1]
+  }
+  while raw_bytes.ends_with(b"/.") { raw_bytes = raw_bytes[..raw_bytes.len() - 2] }
+  let dest = if raw_bytes.is_empty() { p"/" } else { Path.parse_bytes(raw_bytes)? }
   let existed = files.present(dest)?
   make_ancestors(dest.parent(), opts.verbose)?
   dest.mkdir(parents: true)
   fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true)
   dest.chmod(mode)
   if opts.verbose and ! existed {
-    let name = if raw.display().ends_with("/.") or raw.display().ends_with("/./") { dest.normalize().display() } else { dest.display() }
-    print f"install: creating directory {gnu.quote(name)}"
+    let raw_bytes = raw.bytes()
+    let has_trailing_dot = raw_bytes.ends_with(b"/.") or raw_bytes.ends_with(b"/./")
+    let name = if has_trailing_dot { dest.normalize() } else { dest }
+    print f"install: creating directory {gnu.quote_bytes(name.bytes())}"
   }
 }
 
-proc main(...argv: List[Str]) {
-  if ("-C" in argv or "--compare" in argv) and ("-s" in argv or "--strip" in argv) {
+proc main(...argv: List[Bytes]) {
+  let prepared = gnu.prepare_arguments(argv)
+  if (b"-C" in argv or b"--compare" in argv) and (b"-s" in argv or b"--strip" in argv) {
     gnu.error("Options --compare and --strip are mutually exclusive")
     exit 1
   }
-  if "-T" in argv and argv.len() > 0 and argv[-1] in ["-t", "--target-directory"] {
+  if b"-T" in argv and argv.len() > 0 and argv[-1] in [b"-t", b"--target-directory"] {
     gnu.error("a value is required for '--target-directory <DIRECTORY>' but none was supplied")
     eprint "For more information, try '--help'"
     exit 1
   }
-  let opts: Options = cli.applet(argv, {
+  let opts: Options = cli.applet(prepared.text, {
     gnu: {status: 1, unsupported: {
       "-Z": "security contexts are not available",
       "--context": "security contexts are not available", "--preserve-context": "security contexts are not available",
@@ -266,15 +271,20 @@ proc main(...argv: List[Str]) {
   if opts.version { gnu.version("install"); return }
   if opts.operands.is_empty() { gnu.usage_error("missing file operand") }
   if opts.strip_program != null and ! opts.strip { gnu.error("WARNING: ignoring --strip-program option as -s option was not specified") }
-  let mode = install_mode(opts.mode.trim(), opts.directory)
+  let mode_bytes = gnu.argument_bytes(opts.mode, prepared.raw)
+  let mode_spec = match mode_bytes.utf8() {
+    Ok(text) => text
+    Err(_) => { gnu.usage_error(f"invalid mode {gnu.quote_bytes(mode_bytes)}"); exit 1 }
+  }
+  let mode = install_mode(mode_spec.trim(), opts.directory)
   if mode == null {
-    if rx"^[0-9]+$".matches(opts.mode.trim()) and ! rx"^[0-7]+$".matches(opts.mode.trim()) {
+    if rx"^[0-9]+$".matches(mode_spec.trim()) and ! rx"^[0-7]+$".matches(mode_spec.trim()) {
       gnu.usage_error("Invalid mode string: invalid digit found in string")
     }
     var bad_operator = ""
     var bad_operator_offset = 0
     var mode_offset = 0
-    for character in opts.mode.trim() {
+    for character in mode_spec.trim() {
       if character not in "ugoa=+-rwxXstugo," {
         bad_operator = character
         bad_operator_offset = mode_offset
@@ -286,7 +296,7 @@ proc main(...argv: List[Str]) {
       if let Ok(_) = unix.tty_attrs(2) {
         gnu.error(f"invalid operator {gnu.quote(bad_operator)}")
         eprint f"╭─[ {gnu.prog()}:1:{4 + bad_operator_offset} ]"
-        eprint f"│ -m {opts.mode.trim()}"
+        eprint f"│ -m {mode_spec.trim()}"
         let spaces = [" "] |> repeat(3 + bad_operator_offset) |> join("")
         eprint f"│ {spaces}^"
         eprint "╰─"
@@ -294,7 +304,7 @@ proc main(...argv: List[Str]) {
         gnu.error(f"invalid operator {gnu.quote(bad_operator)}")
       }
     } else {
-      gnu.usage_error(f"invalid mode {gnu.quote(opts.mode)}")
+      gnu.usage_error(f"invalid mode {gnu.quote(mode_spec)}")
     }
     exit 1
   }
@@ -318,36 +328,40 @@ proc main(...argv: List[Str]) {
   }
   if opts.unprivileged { uid = null; gid = null }
   if opts.compare and mode.bit_and(0o7000) != 0 { gnu.error("the --compare (-C) option is ignored when you specify a mode with non-permission bits") }
+  var operands: List[Path] = []
+  for operand in opts.operands { operands += [Path.parse_bytes(gnu.argument_bytes(operand, prepared.raw))?] }
+  let target_directory: Path? = if let target_text = opts.target {
+    Path.parse_bytes(gnu.argument_bytes(target_text, prepared.raw))?
+  } else { null }
   if opts.directory {
-    if opts.target != null or opts.no_target_directory { gnu.usage_error("target directory not allowed when installing a directory") }
+    if target_directory != null or opts.no_target_directory { gnu.usage_error("target directory not allowed when installing a directory") }
     var failed = false
-    for text in opts.operands {
-      let dest = fp"{text}"
+    for dest in operands {
       if let Err(failure) = install_directory(dest, opts, mode, uid, gid) {
-        gnu.cannot("create directory", text, failure)
+        gnu.error(f"cannot create directory {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}")
         failed = true
       }
     }
     if failed { exit 1 }
     return
   }
-  if opts.target == null and opts.operands.len() == 1 { gnu.usage_error(f"missing destination file operand after {gnu.quote(opts.operands[0])}") }
-  if opts.target != null and opts.no_target_directory {
+  if target_directory == null and operands.len() == 1 { gnu.usage_error(f"missing destination file operand after {gnu.quote_bytes(operands[0].bytes())}") }
+  if target_directory != null and opts.no_target_directory {
     gnu.usage_error("Options --target-directory and --no-target-directory are mutually exclusive")
   }
-  if opts.no_target_directory and opts.target == null and opts.operands.len() > 2 {
-    gnu.usage_error(f"extra operand {gnu.quote(opts.operands[2])}\nUsage: install [OPTION]... [FILE]...")
+  if opts.no_target_directory and target_directory == null and operands.len() > 2 {
+    gnu.usage_error(f"extra operand {gnu.quote_bytes(operands[2].bytes())}\nUsage: install [OPTION]... [FILE]...")
   }
-  let dest = if opts.target != null { fp"{opts.target}" } else { fp"{opts.operands[-1]}" }
-  if opts.target != null and dest.display().ends_with("/") {
+  let dest = target_directory ?? operands[-1]
+  if target_directory != null and dest.bytes().ends_with(b"/") {
     if let Err(failure) = fs.stat(dest, follow_symlinks: true) {
       if gnu.errno(failure) == 20 {
-        gnu.error(f"failed to access {gnu.quote(dest.display())}: {gnu.strerror(failure)}")
+        gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}")
         exit 1
       }
     }
   }
-  if opts.parents and opts.target != null { make_ancestors(dest, opts.verbose)? }
+  if opts.parents and target_directory != null { make_ancestors(dest, opts.verbose)? }
   var is_dir = false
   if ! opts.no_target_directory {
     match files.directory(dest, true) {
@@ -355,35 +369,34 @@ proc main(...argv: List[Str]) {
       Err(failure) => {
         let reason = gnu.strerror(failure)
         if opts.parents and reason in ["Filename too long", "File name too long"] {
-          gnu.cannot("create directory", dest.parent().display(), failure)
+          gnu.error(f"cannot create directory {gnu.quote_bytes(dest.parent().bytes())}: {reason}")
         } else {
-          gnu.cannot_access(dest.display(), failure)
+          gnu.error(f"cannot access {gnu.quote_bytes(dest.bytes())}: {reason}")
         }
         exit 1
       }
     }
   }
-  if opts.target != null and ! is_dir {
+  if target_directory != null and ! is_dir {
     match fs.stat(dest, follow_symlinks: true) {
-      Ok(_) => { gnu.error(f"failed to access {gnu.quote(dest.display())}: Not a directory"); exit 1 }
-      Err(failure) => { gnu.error(f"failed to access {gnu.quote(dest.display())}: {gnu.strerror(failure)}"); exit 1 }
+      Ok(_) => { gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: Not a directory"); exit 1 }
+      Err(failure) => { gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
-  if dest.display().ends_with("/") and ! files.directory(dest, true)? {
-    gnu.error(f"target {gnu.quote(dest.display())} is not a directory")
+  if dest.bytes().ends_with(b"/") and ! files.directory(dest, true)? {
+    gnu.error(f"target {gnu.quote_bytes(dest.bytes())} is not a directory")
     exit 1
   }
-  let sources = if opts.target != null { opts.operands } else { opts.operands |> take(opts.operands.len() - 1) }
-  if (sources.len() > 1 or opts.target != null) and ! is_dir { gnu.error(f"target {gnu.quote(dest.display())} is not a directory"); exit 1 }
+  let sources = if target_directory != null { operands } else { operands |> take(operands.len() - 1) }
+  if (sources.len() > 1 or target_directory != null) and ! is_dir { gnu.error(f"target {gnu.quote_bytes(dest.bytes())} is not a directory"); exit 1 }
   let backup = opts.backup ?? (if opts.simple_backup or opts.suffix != null { env.get_or("VERSION_CONTROL", "existing") ?? "existing" } else { "none" })
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
   var failed = false
   var seen: List[Path] = []
-  for text in sources {
-    let source = fp"{text}"
+  for source in sources {
     let target = if is_dir { files.destination(dest, source) } else { dest }
     if target in seen {
-      gnu.error(f"will not overwrite just-created {gnu.quote(target.display())} with {gnu.quote(text)}")
+      gnu.error(f"will not overwrite just-created {gnu.quote_bytes(target.bytes())} with {gnu.quote_bytes(source.bytes())}")
       failed = true
       continue
     }
@@ -393,7 +406,11 @@ proc main(...argv: List[Str]) {
         if outcome == Failed { failed = true }
       }
       Err(failure) => {
-        if gnu.errno(failure) == 2 and ! files.present(source)? { gnu.cannot("stat", text, failure) } else { gnu.error(f"cannot install {gnu.quote(text)} to {gnu.quote(target.display())}: {gnu.strerror(failure)}") }
+        if gnu.errno(failure) == 2 and ! files.present(source)? {
+          gnu.error(f"cannot stat {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
+        } else {
+          gnu.error(f"cannot install {gnu.quote_bytes(source.bytes())} to {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
+        }
         failed = true
       }
     }

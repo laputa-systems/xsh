@@ -12,6 +12,39 @@
 
 const VERSION = "0.0.1"
 
+## One undecodable operating-system argument retained beside its CLI token.
+export type RawArgument = {marker: Str, value: Bytes}
+## Text tokens for the option parser and the original bytes that need restoring.
+export type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
+
+# The option parser takes text; NUL-marked placeholders preserve undecodable
+# arguments because operating-system argv values cannot contain NUL.
+## Prepare raw argv for the text-based option parser.
+export pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0gnu-raw-argument-{index}\0"
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
+      }
+    }
+  }
+  {text: text, raw: raw}
+}
+
+## Restore an undecodable argument or encode an ordinary text token as bytes.
+export pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
+  for argument in raw {
+    if argument.marker == value { return argument.value }
+  }
+  bytes.from_text(value)
+}
+
 ## The script path exactly as the kernel passed it, without resolving
 ## symlinks, so an alias such as `dir` or `[` sees its own name.
 export proc invoked_path() [process] -> Path {
