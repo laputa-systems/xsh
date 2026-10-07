@@ -100,6 +100,13 @@ remain historical evidence only.
   blocking on an earlier FIFO. Its optimized debug Gate 3 slice improves from
   34/183 to 37/180 across 217 cases, fixing three tests with no regressions;
   the native sort suite passes 2/2. Reports are in `results/sort-followup/`.
+- Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
+  distinguishing an unset option from an explicitly empty argument. The empty
+  value now fails with the diagnostic emitted by GNU 9.11; the native tail
+  suite passes 14/14. The pinned Gate 3 tail slice remains 102/167 with the
+  same failing IDs, since its malformed-interval cases also require a help
+  hint that GNU 9.11 does not print. Its report and JUnit are in
+  `results/tail-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

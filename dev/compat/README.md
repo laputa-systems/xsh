@@ -130,6 +130,12 @@ FIFO. The optimized debug Gate 3 `sort` slice improves from 34/183 to 37/180
 across 217 cases, with three fixes and no regressions. Its native sort suite
 passes 2/2, and the per-utility report and JUnit are in
 `results/sort-followup/`.
+Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
+from an explicit empty argument; the latter now fails with GNU 9.11's
+diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
+at 102/167 with the same failing IDs because the malformed-interval tests
+require a help hint that GNU 9.11 does not print. The report and JUnit are in
+`results/tail-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

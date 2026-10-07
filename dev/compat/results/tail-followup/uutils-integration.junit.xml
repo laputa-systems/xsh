@@ -1,0 +1,2583 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="167" skipped="0" failures="65" errors="0" uuid="4d8df37b-4cb8-44d3-b3f3-e6d14e886459" timestamp="2026-10-07T11:41:37.433+00:00" time="49.536">
+    <testsuite name="coreutils::tests" tests="167" skipped="0" errors="0" failures="65">
+        <testcase name="test_tail::diagnostics::test_plain_message_when_stderr_is_a_pipe" classname="coreutils::tests" timestamp="2026-10-07T11:41:37.439+00:00" time="0.030"/>
+        <testcase name="test_tail::diagnostics::test_snippet_points_at_the_unknown_unit" classname="coreutils::tests" timestamp="2026-10-07T11:41:37.468+00:00" time="0.031">
+            <failure message="thread &apos;test_tail::diagnostics::test_snippet_points_at_the_unknown_unit&apos; (1713259) panicked at tests/by-util/test_tail.rs:5461:9" type="test failure with exit code 101">thread &apos;test_tail::diagnostics::test_snippet_points_at_the_unknown_unit&apos; (1713259) panicked at tests/by-util/test_tail.rs:5461:9:
+tail: invalid number of bytes: &apos;1fb&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -c 1fb /dev/null
+test test_tail::diagnostics::test_snippet_points_at_the_unknown_unit ... FAILED
+
+failures:
+
+failures:
+    test_tail::diagnostics::test_snippet_points_at_the_unknown_unit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::diagnostics::test_snippet_points_at_the_unknown_unit&apos; (1713259) panicked at tests/by-util/test_tail.rs:5461:9:
+tail: invalid number of bytes: &apos;1fb&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::tail_n_lines_with_emoji" classname="coreutils::tests" timestamp="2026-10-07T11:41:37.499+00:00" time="0.030"/>
+        <testcase name="test_tail::test_accepted_multiplier_suffixes" classname="coreutils::tests" timestamp="2026-10-07T11:41:37.529+00:00" time="0.424"/>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_01_underscore_delimiter" classname="coreutils::tests" timestamp="2026-10-07T11:41:37.953+00:00" time="0.034">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_01_underscore_delimiter&apos; (1713445) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_01_underscore_delimiter&apos; (1713445) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;1_000&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval 1_000
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_01_underscore_delimiter ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_01_underscore_delimiter
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_01_underscore_delimiter&apos; (1713445) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;1_000&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_02_only_point" classname="coreutils::tests" timestamp="2026-10-07T11:41:37.988+00:00" time="0.030">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_02_only_point&apos; (1713455) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_02_only_point&apos; (1713455) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;.&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval .
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_02_only_point ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_02_only_point
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.02s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_02_only_point&apos; (1713455) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;.&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.018+00:00" time="0.031">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes&apos; (1713465) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes&apos; (1713465) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: invalid number of seconds: &apos;\&apos; \&apos;&apos;
+&gt;tail: invalid number of seconds: &apos;&apos; &apos;&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval &apos; &apos;
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes&apos; (1713465) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: invalid number of seconds: &apos;\&apos; \&apos;&apos;
+&gt;tail: invalid number of seconds: &apos;&apos; &apos;&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_04_space" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.050+00:00" time="0.030">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_04_space&apos; (1713475) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_04_space&apos; (1713475) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos; &apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval  
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_04_space ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_04_space
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_04_space&apos; (1713475) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos; &apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_05_empty" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.080+00:00" time="0.029">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_05_empty&apos; (1713485) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_05_empty&apos; (1713485) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval 
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_05_empty ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_05_empty
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.02s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_05_empty&apos; (1713485) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_06_comma_separator" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.110+00:00" time="0.031">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_06_comma_separator&apos; (1713495) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_06_comma_separator&apos; (1713495) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;0,0&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval 0,0
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_06_comma_separator ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_06_comma_separator
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_06_comma_separator&apos; (1713495) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;0,0&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_07_words_nominator_fract" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.140+00:00" time="0.031">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_07_words_nominator_fract&apos; (1713505) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_07_words_nominator_fract&apos; (1713505) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;one.zero&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval one.zero
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_07_words_nominator_fract ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_07_words_nominator_fract
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_07_words_nominator_fract&apos; (1713505) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;one.zero&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_08_words_fract" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.172+00:00" time="0.030">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_08_words_fract&apos; (1713515) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_08_words_fract&apos; (1713515) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;.zero&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval .zero
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_08_words_fract ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_08_words_fract
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_08_words_fract&apos; (1713515) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;.zero&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_09_words_nominator" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.202+00:00" time="0.030">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_09_words_nominator&apos; (1713525) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_09_words_nominator&apos; (1713525) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;one.&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval one.
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_09_words_nominator ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_09_words_nominator
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_09_words_nominator&apos; (1713525) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;one.&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_10_two_points" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.233+00:00" time="0.030">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_10_two_points&apos; (1713535) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_10_two_points&apos; (1713535) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;0..0&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval 0..0
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_10_two_points ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_10_two_points
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.02s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_10_two_points&apos; (1713535) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;0..0&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_11_seconds_unit" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.263+00:00" time="0.031">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_11_seconds_unit&apos; (1713545) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_11_seconds_unit&apos; (1713545) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;1.0s&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval 1.0s
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_11_seconds_unit ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_11_seconds_unit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_11_seconds_unit&apos; (1713545) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;1.0s&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_12_circumflex_exponent" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.294+00:00" time="0.031">
+            <failure message="thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_12_circumflex_exponent&apos; (1713555) panicked at tests/by-util/test_tail.rs:4885:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_12_circumflex_exponent&apos; (1713555) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;1.0e^1000&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --sleep-interval 1.0e^1000
+test test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_12_circumflex_exponent ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_12_circumflex_exponent
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_12_circumflex_exponent&apos; (1713555) panicked at tests/by-util/test_tail.rs:4885:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: invalid number of seconds: &apos;1.0e^1000&apos;
+&gt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.325+00:00" time="0.508">
+            <failure message="thread &apos;test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry&apos; (1713565) panicked at tests/by-util/test_tail.rs:4776:42" type="test failure with exit code 101">thread &apos;test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry&apos; (1713565) panicked at tests/by-util/test_tail.rs:4776:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: error reading &apos;dir&apos;: Is a directory
+tail: dir: cannot follow end of this type of file; giving up on this name
+tail: no files remaining
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+mkdir: /tmp/.tmpDfrhUL/dir
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -F --retry dir
+test test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry&apos; (1713565) panicked at tests/by-util/test_tail.rs:4776:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: error reading &apos;dir&apos;: Is a directory
+tail: dir: cannot follow end of this type of file; giving up on this name
+tail: no files remaining
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_when_presume_input_pipe_given_input_is_file" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.833+00:00" time="0.101"/>
+        <testcase name="test_tail::test_args_when_presume_input_pipe_given_input_is_pipe" classname="coreutils::tests" timestamp="2026-10-07T11:41:38.934+00:00" time="0.100"/>
+        <testcase name="test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_no_warning" classname="coreutils::tests" timestamp="2026-10-07T11:41:39.034+00:00" time="0.509">
+            <failure message="thread &apos;test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_no_warning&apos; (1713646) panicked at tests/by-util/test_tail.rs:4479:44" type="test failure with exit code 101">thread &apos;test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_no_warning&apos; (1713646) panicked at tests/by-util/test_tail.rs:4479:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; &apos;standard input&apos; &lt;==
+pipe data
+==&gt; data &lt;==
+file data
+tail: cannot follow &apos;data&apos;: following a growing file is not supported because output is not flushed incrementally
+
+stderr: 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpJC6YID/data
+write(default): /tmp/.tmpJC6YID/fifo
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor - data
+test test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_no_warning ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_no_warning
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_no_warning&apos; (1713646) panicked at tests/by-util/test_tail.rs:4479:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; &apos;standard input&apos; &lt;==
+pipe data
+==&gt; data &lt;==
+file data
+tail: cannot follow &apos;data&apos;: following a growing file is not supported because output is not flushed incrementally
+
+stderr: 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning" classname="coreutils::tests" timestamp="2026-10-07T11:41:39.543+00:00" time="0.519">
+            <failure message="thread &apos;test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning&apos; (1713656) panicked at tests/by-util/test_tail.rs:4351:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning&apos; (1713656) panicked at tests/by-util/test_tail.rs:4351:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;tail: warning: following standard input indefinitely is ineffective
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpQgZSPo/data
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor - data
+test test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.51s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning&apos; (1713656) panicked at tests/by-util/test_tail.rs:4351:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;tail: warning: following standard input indefinitely is ineffective
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_when_settings_check_warnings_follow_retry" classname="coreutils::tests" timestamp="2026-10-07T11:41:40.063+00:00" time="0.510">
+            <failure message="thread &apos;test_tail::test_args_when_settings_check_warnings_follow_retry&apos; (1713665) panicked at tests/by-util/test_tail.rs:4317:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_when_settings_check_warnings_follow_retry&apos; (1713665) panicked at tests/by-util/test_tail.rs:4317:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;tail: warning: --retry only effective for the initial open
+ file data
+&lt;tail: cannot follow &apos;data&apos;: following a growing file is not supported because output is not flushed incrementally
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpSDrn1D/data
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor --retry data
+test test_tail::test_args_when_settings_check_warnings_follow_retry ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_when_settings_check_warnings_follow_retry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_when_settings_check_warnings_follow_retry&apos; (1713665) panicked at tests/by-util/test_tail.rs:4317:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;tail: warning: --retry only effective for the initial open
+ file data
+&lt;tail: cannot follow &apos;data&apos;: following a growing file is not supported because output is not flushed incrementally
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_args_when_settings_check_warnings_then_shows_warnings" classname="coreutils::tests" timestamp="2026-10-07T11:41:40.574+00:00" time="0.041">
+            <failure message="thread &apos;test_tail::test_args_when_settings_check_warnings_then_shows_warnings&apos; (1713674) panicked at tests/by-util/test_tail.rs:4250:10" type="test failure with exit code 101">thread &apos;test_tail::test_args_when_settings_check_warnings_then_shows_warnings&apos; (1713674) panicked at tests/by-util/test_tail.rs:4250:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;file data
+ tail: warning: --retry ignored; --retry is useful only when following
+&gt;file data
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpRMatsN/data
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --retry data
+test test_tail::test_args_when_settings_check_warnings_then_shows_warnings ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_args_when_settings_check_warnings_then_shows_warnings
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_args_when_settings_check_warnings_then_shows_warnings&apos; (1713674) panicked at tests/by-util/test_tail.rs:4250:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;file data
+ tail: warning: --retry ignored; --retry is useful only when following
+&gt;file data
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_bytes_big" classname="coreutils::tests" timestamp="2026-10-07T11:41:40.614+00:00" time="0.286"/>
+        <testcase name="test_tail::test_bytes_for_funny_unix_files" classname="coreutils::tests" timestamp="2026-10-07T11:41:40.900+00:00" time="0.008"/>
+        <testcase name="test_tail::test_bytes_single" classname="coreutils::tests" timestamp="2026-10-07T11:41:40.908+00:00" time="0.030"/>
+        <testcase name="test_tail::test_bytes_stdin" classname="coreutils::tests" timestamp="2026-10-07T11:41:40.939+00:00" time="0.029"/>
+        <testcase name="test_tail::test_capital_f_recovers_after_dir_swap" classname="coreutils::tests" timestamp="2026-10-07T11:41:40.968+00:00" time="0.509">
+            <failure message="thread &apos;test_tail::test_capital_f_recovers_after_dir_swap&apos; (1713718) panicked at tests/by-util/test_tail.rs:1723:44" type="test failure with exit code 101">thread &apos;test_tail::test_capital_f_recovers_after_dir_swap&apos; (1713718) panicked at tests/by-util/test_tail.rs:1723:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+mkdir: /tmp/.tmps9tk79/dir_node
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 -F dir_node --use-polling
+test test_tail::test_capital_f_recovers_after_dir_swap ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_capital_f_recovers_after_dir_swap
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_capital_f_recovers_after_dir_swap&apos; (1713718) panicked at tests/by-util/test_tail.rs:1723:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_child_when_run_with_stderr_to_stdout" classname="coreutils::tests" timestamp="2026-10-07T11:41:41.478+00:00" time="0.038"/>
+        <testcase name="test_tail::test_debug_flag_with_inotify" classname="coreutils::tests" timestamp="2026-10-07T11:41:41.516+00:00" time="0.510">
+            <failure message="thread &apos;test_tail::test_debug_flag_with_inotify&apos; (1713737) panicked at tests/by-util/test_tail.rs:5392:42" type="test failure with exit code 101">thread &apos;test_tail::test_debug_flag_with_inotify&apos; (1713737) panicked at tests/by-util/test_tail.rs:5392:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--debug&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpnZSc7s/f
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --debug -f f
+test test_tail::test_debug_flag_with_inotify ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_debug_flag_with_inotify
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_debug_flag_with_inotify&apos; (1713737) panicked at tests/by-util/test_tail.rs:5392:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--debug&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_debug_flag_with_polling" classname="coreutils::tests" timestamp="2026-10-07T11:41:42.026+00:00" time="0.511">
+            <failure message="thread &apos;test_tail::test_debug_flag_with_polling&apos; (1713746) panicked at tests/by-util/test_tail.rs:5374:42" type="test failure with exit code 101">thread &apos;test_tail::test_debug_flag_with_polling&apos; (1713746) panicked at tests/by-util/test_tail.rs:5374:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--debug&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpaeMuOi/f
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --debug -f --use-polling f
+test test_tail::test_debug_flag_with_polling ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_debug_flag_with_polling
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_debug_flag_with_polling&apos; (1713746) panicked at tests/by-util/test_tail.rs:5374:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--debug&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_descriptor_no_retry_skips_late_file" classname="coreutils::tests" timestamp="2026-10-07T11:41:42.538+00:00" time="1.011">
+            <failure message="thread &apos;test_tail::test_descriptor_no_retry_skips_late_file&apos; (1713755) panicked at tests/by-util/test_tail.rs:1668:40" type="test failure with exit code 101">thread &apos;test_tail::test_descriptor_no_retry_skips_late_file&apos; (1713755) panicked at tests/by-util/test_tail.rs:1668:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; active &lt;==
+
+stderr: tail: cannot open &apos;nofile&apos; for reading: No such file or directory
+tail: cannot follow &apos;active&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpisWODU/active
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor nofile active
+test test_tail::test_descriptor_no_retry_skips_late_file ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_descriptor_no_retry_skips_late_file
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_descriptor_no_retry_skips_late_file&apos; (1713755) panicked at tests/by-util/test_tail.rs:1668:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; active &lt;==
+
+stderr: tail: cannot open &apos;nofile&apos; for reading: No such file or directory
+tail: cannot follow &apos;active&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_dev_zero" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.549+00:00" time="0.038"/>
+        <testcase name="test_tail::test_dir" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.587+00:00" time="0.037"/>
+        <testcase name="test_tail::test_dir_follow" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.624+00:00" time="0.066"/>
+        <testcase name="test_tail::test_dir_follow_retry" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.690+00:00" time="0.038">
+            <failure message="thread &apos;test_tail::test_dir_follow_retry&apos; (1713802) panicked at tests/by-util/test_tail.rs:1098:10" type="test failure with exit code 101">thread &apos;test_tail::test_dir_follow_retry&apos; (1713802) panicked at tests/by-util/test_tail.rs:1098:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;tail: warning: --retry only effective for the initial open
+ tail: error reading &apos;DIR&apos;: Is a directory
+&lt;tail: DIR: cannot follow end of this type of file; giving up on this name
+&gt;tail: DIR: cannot follow end of this type of file
+ tail: no files remaining
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+mkdir: /tmp/.tmpMX1k0p/DIR
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor --retry DIR
+test test_tail::test_dir_follow_retry ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_dir_follow_retry
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_dir_follow_retry&apos; (1713802) panicked at tests/by-util/test_tail.rs:1098:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;tail: warning: --retry only effective for the initial open
+ tail: error reading &apos;DIR&apos;: Is a directory
+&lt;tail: DIR: cannot follow end of this type of file; giving up on this name
+&gt;tail: DIR: cannot follow end of this type of file
+ tail: no files remaining
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_failed_warning_write_is_reported" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.729+00:00" time="0.037">
+            <failure message="thread &apos;test_tail::test_failed_warning_write_is_reported&apos; (1713812) panicked at tests/by-util/test_tail.rs:5282:10" type="test failure with exit code 101">thread &apos;test_tail::test_failed_warning_write_is_reported&apos; (1713812) panicked at tests/by-util/test_tail.rs:5282:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --pid=0 /dev/null
+test test_tail::test_failed_warning_write_is_reported ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_failed_warning_write_is_reported
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_failed_warning_write_is_reported&apos; (1713812) panicked at tests/by-util/test_tail.rs:5282:10:
+Command was expected to fail.
+stdout = 
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_failed_write_is_reported" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.766+00:00" time="0.037">
+            <failure message="thread &apos;test_tail::test_failed_write_is_reported&apos; (1713822) panicked at tests/by-util/test_tail.rs:5273:10" type="test failure with exit code 101">thread &apos;test_tail::test_failed_write_is_reported&apos; (1713822) panicked at tests/by-util/test_tail.rs:5273:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: write error: No space left on device
+&gt;tail: No space left on device
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail
+test test_tail::test_failed_write_is_reported ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_failed_write_is_reported
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_failed_write_is_reported&apos; (1713822) panicked at tests/by-util/test_tail.rs:5273:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: write error: No space left on device
+&gt;tail: No space left on device
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_failed_write_is_reported_on_seekable_input" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.803+00:00" time="0.105">
+            <failure message="thread &apos;test_tail::test_failed_write_is_reported_on_seekable_input&apos; (1713833) panicked at tests/by-util/test_tail.rs:5297:10" type="test failure with exit code 101">thread &apos;test_tail::test_failed_write_is_reported_on_seekable_input&apos; (1713833) panicked at tests/by-util/test_tail.rs:5297:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: write error: No space left on device
+&gt;tail: No space left on device
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpRYoCAv/bigfile
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail bigfile
+test test_tail::test_failed_write_is_reported_on_seekable_input ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_failed_write_is_reported_on_seekable_input
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.10s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_failed_write_is_reported_on_seekable_input&apos; (1713833) panicked at tests/by-util/test_tail.rs:5297:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: write error: No space left on device
+&gt;tail: No space left on device
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_fifo" classname="coreutils::tests" timestamp="2026-10-07T11:41:43.908+00:00" time="1.540"/>
+        <testcase name="test_tail::test_fifo_with_pid" classname="coreutils::tests" timestamp="2026-10-07T11:41:45.448+00:00" time="1.510"/>
+        <testcase name="test_tail::test_follow_bad_fd" classname="coreutils::tests" timestamp="2026-10-07T11:41:46.959+00:00" time="0.008"/>
+        <testcase name="test_tail::test_follow_dangling_symlink" classname="coreutils::tests" timestamp="2026-10-07T11:41:46.967+00:00" time="1.010">
+            <failure message="thread &apos;test_tail::test_follow_dangling_symlink&apos; (1713878) panicked at tests/by-util/test_tail.rs:5412:49" type="test failure with exit code 101">thread &apos;test_tail::test_follow_dangling_symlink&apos; (1713878) panicked at tests/by-util/test_tail.rs:5412:49:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;X
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+symlink: /tmp/.tmpVFHt9F/target,/tmp/.tmpVFHt9F/link
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 -F link
+write(default): /tmp/.tmpVFHt9F/target
+test test_tail::test_follow_dangling_symlink ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_dangling_symlink
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_dangling_symlink&apos; (1713878) panicked at tests/by-util/test_tail.rs:5412:49:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;X
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_descriptor_vs_rename1" classname="coreutils::tests" timestamp="2026-10-07T11:41:47.978+00:00" time="0.111">
+            <failure message="thread &apos;test_tail::test_follow_descriptor_vs_rename1&apos; (1713887) panicked at tests/by-util/test_tail.rs:2007:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_descriptor_vs_rename1&apos; (1713887) panicked at tests/by-util/test_tail.rs:2007:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpwISDGx/FILE_A
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor -s.1 --max-unchanged-stats=1 FILE_A ---disable-inotify
+test test_tail::test_follow_descriptor_vs_rename1 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_descriptor_vs_rename1
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.10s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_descriptor_vs_rename1&apos; (1713887) panicked at tests/by-util/test_tail.rs:2007:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_descriptor_vs_rename2" classname="coreutils::tests" timestamp="2026-10-07T11:41:48.090+00:00" time="0.160">
+            <failure message="thread &apos;test_tail::test_follow_descriptor_vs_rename2&apos; (1713896) panicked at tests/by-util/test_tail.rs:2070:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_descriptor_vs_rename2&apos; (1713896) panicked at tests/by-util/test_tail.rs:2070:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpfSX3sW/FILE_A
+touch: /tmp/.tmpfSX3sW/FILE_B
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor -s.1 --max-unchanged-stats=1 FILE_A FILE_B --verbose ---disable-inotify
+test test_tail::test_follow_descriptor_vs_rename2 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_descriptor_vs_rename2
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.15s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_descriptor_vs_rename2&apos; (1713896) panicked at tests/by-util/test_tail.rs:2070:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_detects_file_truncation" classname="coreutils::tests" timestamp="2026-10-07T11:41:48.250+00:00" time="1.010">
+            <failure message="thread &apos;test_tail::test_follow_detects_file_truncation&apos; (1713905) panicked at tests/by-util/test_tail.rs:2444:48" type="test failure with exit code 101">thread &apos;test_tail::test_follow_detects_file_truncation&apos; (1713905) panicked at tests/by-util/test_tail.rs:2444:48:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(truncate): /tmp/.tmpT9Uqzw/data
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 data ---disable-inotify -f
+test test_tail::test_follow_detects_file_truncation ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_detects_file_truncation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_detects_file_truncation&apos; (1713905) panicked at tests/by-util/test_tail.rs:2444:48:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_inotify_only_regular" classname="coreutils::tests" timestamp="2026-10-07T11:41:49.260+00:00" time="0.210">
+            <failure message="thread &apos;test_tail::test_follow_inotify_only_regular&apos; (1713914) panicked at tests/by-util/test_tail.rs:2933:38" type="test failure with exit code 101">thread &apos;test_tail::test_follow_inotify_only_regular&apos; (1713914) panicked at tests/by-util/test_tail.rs:2933:38:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 0.
+stdout: 
+stderr: 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -f /dev/null
+test test_tail::test_follow_inotify_only_regular ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_inotify_only_regular
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.20s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_inotify_only_regular&apos; (1713914) panicked at tests/by-util/test_tail.rs:2933:38:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 0.
+stdout: 
+stderr: 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_invalid_pid" classname="coreutils::tests" timestamp="2026-10-07T11:41:49.471+00:00" time="0.069">
+            <failure message="thread &apos;test_tail::test_follow_invalid_pid&apos; (1713923) panicked at tests/by-util/test_tail.rs:775:10" type="test failure with exit code 101">thread &apos;test_tail::test_follow_invalid_pid&apos; (1713923) panicked at tests/by-util/test_tail.rs:775:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: invalid PID: &apos;abc&apos;
+&gt;tail: invalid PID: &apos;abc&apos;: invalid digit found in string
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -f --pid=-1234
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -f --pid=abc
+test test_tail::test_follow_invalid_pid ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_invalid_pid
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.06s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_invalid_pid&apos; (1713923) panicked at tests/by-util/test_tail.rs:775:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: invalid PID: &apos;abc&apos;
+&gt;tail: invalid PID: &apos;abc&apos;: invalid digit found in string
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_missing" classname="coreutils::tests" timestamp="2026-10-07T11:41:49.540+00:00" time="0.123"/>
+        <testcase name="test_tail::test_follow_multiple" classname="coreutils::tests" timestamp="2026-10-07T11:41:49.663+00:00" time="0.509">
+            <failure message="thread &apos;test_tail::test_follow_multiple&apos; (1713975) panicked at tests/by-util/test_tail.rs:645:10" type="test failure with exit code 101">thread &apos;test_tail::test_follow_multiple&apos; (1713975) panicked at tests/by-util/test_tail.rs:645:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; foobar.txt &lt;==
+dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+==&gt; foobar2.txt &lt;==
+un
+deux
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -f foobar.txt foobar2.txt
+test test_tail::test_follow_multiple ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_multiple
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_multiple&apos; (1713975) panicked at tests/by-util/test_tail.rs:645:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; foobar.txt &lt;==
+dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+==&gt; foobar2.txt &lt;==
+un
+deux
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_multiple_untailable" classname="coreutils::tests" timestamp="2026-10-07T11:41:50.172+00:00" time="0.038"/>
+        <testcase name="test_tail::test_follow_name_hash_table_stress" classname="coreutils::tests" timestamp="2026-10-07T11:41:50.210+00:00" time="0.111">
+            <failure message="thread &apos;test_tail::test_follow_name_hash_table_stress&apos; (1713994) panicked at tests/by-util/test_tail.rs:2560:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_hash_table_stress&apos; (1713994) panicked at tests/by-util/test_tail.rs:2560:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: cannot follow &apos;1&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmplQWoTQ/1
+touch: /tmp/.tmplQWoTQ/2
+touch: /tmp/.tmplQWoTQ/3
+touch: /tmp/.tmplQWoTQ/4
+touch: /tmp/.tmplQWoTQ/5
+touch: /tmp/.tmplQWoTQ/6
+touch: /tmp/.tmplQWoTQ/7
+touch: /tmp/.tmplQWoTQ/8
+touch: /tmp/.tmplQWoTQ/9
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 -q -F 1 2 3 4 5 6 7 8 9
+test test_tail::test_follow_name_hash_table_stress ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_hash_table_stress
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.10s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_hash_table_stress&apos; (1713994) panicked at tests/by-util/test_tail.rs:2560:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: cannot follow &apos;1&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_move1" classname="coreutils::tests" timestamp="2026-10-07T11:41:50.322+00:00" time="0.511">
+            <failure message="thread &apos;test_tail::test_follow_name_move1&apos; (1714003) panicked at tests/by-util/test_tail.rs:2637:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_move1&apos; (1714003) panicked at tests/by-util/test_tail.rs:2637:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: CHUNK(10)
+vier
+fuenf
+sechs
+sieben
+acht
+neun
+zehn
+elf
+END(25)
+
+stderr: tail: cannot follow &apos;follow_name.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+open: /tmp/.tmp2np2GN/follow_name_short.expected
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name follow_name.txt
+test test_tail::test_follow_name_move1 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_move1
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_move1&apos; (1714003) panicked at tests/by-util/test_tail.rs:2637:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: CHUNK(10)
+vier
+fuenf
+sechs
+sieben
+acht
+neun
+zehn
+elf
+END(25)
+
+stderr: tail: cannot follow &apos;follow_name.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_move2" classname="coreutils::tests" timestamp="2026-10-07T11:41:50.834+00:00" time="0.512">
+            <failure message="thread &apos;test_tail::test_follow_name_move2&apos; (1714012) panicked at tests/by-util/test_tail.rs:2719:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_move2&apos; (1714012) panicked at tests/by-util/test_tail.rs:2719:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; file1 &lt;==
+file1_content
+
+==&gt; file2 &lt;==
+file2_content
+
+stderr: tail: cannot follow &apos;file1&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(truncate): /tmp/.tmpZRQTr7/file1
+write(truncate): /tmp/.tmpZRQTr7/file2
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name file1 file2
+test test_tail::test_follow_name_move2 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_move2
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_move2&apos; (1714012) panicked at tests/by-util/test_tail.rs:2719:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; file1 &lt;==
+file1_content
+
+==&gt; file2 &lt;==
+file2_content
+
+stderr: tail: cannot follow &apos;file1&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_move_create1" classname="coreutils::tests" timestamp="2026-10-07T11:41:51.346+00:00" time="0.511">
+            <failure message="thread &apos;test_tail::test_follow_name_move_create1&apos; (1714021) panicked at tests/by-util/test_tail.rs:2504:40" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_move_create1&apos; (1714021) panicked at tests/by-util/test_tail.rs:2504:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: CHUNK(10)
+vier
+fuenf
+sechs
+sieben
+acht
+neun
+zehn
+elf
+END(25)
+
+stderr: tail: cannot follow &apos;follow_name.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+open: /tmp/.tmpspSgzD/follow_name.expected
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name follow_name.txt
+test test_tail::test_follow_name_move_create1 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_move_create1
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_move_create1&apos; (1714021) panicked at tests/by-util/test_tail.rs:2504:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: CHUNK(10)
+vier
+fuenf
+sechs
+sieben
+acht
+neun
+zehn
+elf
+END(25)
+
+stderr: tail: cannot follow &apos;follow_name.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_move_retry1" classname="coreutils::tests" timestamp="2026-10-07T11:41:51.857+00:00" time="1.511">
+            <failure message="thread &apos;test_tail::test_follow_name_move_retry1&apos; (1714030) panicked at tests/by-util/test_tail.rs:2786:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_move_retry1&apos; (1714030) panicked at tests/by-util/test_tail.rs:2786:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpo823aR/follow_name.txt
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name --retry follow_name.txt --use-polling
+test test_tail::test_follow_name_move_retry1 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_move_retry1
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_move_retry1&apos; (1714030) panicked at tests/by-util/test_tail.rs:2786:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_multiple" classname="coreutils::tests" timestamp="2026-10-07T11:41:53.369+00:00" time="0.110">
+            <failure message="thread &apos;test_tail::test_follow_name_multiple&apos; (1714039) panicked at tests/by-util/test_tail.rs:690:14" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_multiple&apos; (1714039) panicked at tests/by-util/test_tail.rs:690:14:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; foobar.txt &lt;==
+dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+==&gt; foobar2.txt &lt;==
+un
+deux
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name foobar.txt foobar2.txt
+test test_tail::test_follow_name_multiple ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_multiple
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.10s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_multiple&apos; (1714039) panicked at tests/by-util/test_tail.rs:690:14:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; foobar.txt &lt;==
+dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+==&gt; foobar2.txt &lt;==
+un
+deux
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_remove" classname="coreutils::tests" timestamp="2026-10-07T11:41:53.479+00:00" time="1.510">
+            <failure message="thread &apos;test_tail::test_follow_name_remove&apos; (1714048) panicked at tests/by-util/test_tail.rs:2197:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_remove&apos; (1714048) panicked at tests/by-util/test_tail.rs:2197:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+copy: /tmp/.tmpTkr5zZ/follow_name.txt /tmp/.tmpTkr5zZ/source_copy
+open: /tmp/.tmpTkr5zZ/follow_name_short.expected
+copy: /tmp/.tmpTkr5zZ/follow_name.txt /tmp/.tmpTkr5zZ/source_copy
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name source_copy --use-polling
+test test_tail::test_follow_name_remove ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_remove
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_remove&apos; (1714048) panicked at tests/by-util/test_tail.rs:2197:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_rename_chain" classname="coreutils::tests" timestamp="2026-10-07T11:41:54.989+00:00" time="0.070">
+            <failure message="thread &apos;test_tail::test_follow_name_rename_chain&apos; (1714057) panicked at tests/by-util/test_tail.rs:2879:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_rename_chain&apos; (1714057) panicked at tests/by-util/test_tail.rs:2879:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; a &lt;==
+
+==&gt; b &lt;==
+
+stderr: tail: cannot follow &apos;a&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpRyM8KL/a
+touch: /tmp/.tmpRyM8KL/b
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 -F a b
+test test_tail::test_follow_name_rename_chain ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_rename_chain
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.06s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_rename_chain&apos; (1714057) panicked at tests/by-util/test_tail.rs:2879:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; a &lt;==
+
+==&gt; b &lt;==
+
+stderr: tail: cannot follow &apos;a&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_replaced_by_symlink_is_untailable" classname="coreutils::tests" timestamp="2026-10-07T11:41:55.059+00:00" time="0.509">
+            <failure message="thread &apos;test_tail::test_follow_name_replaced_by_symlink_is_untailable&apos; (1714066) panicked at tests/by-util/test_tail.rs:1784:38" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_replaced_by_symlink_is_untailable&apos; (1714066) panicked at tests/by-util/test_tail.rs:1784:38:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpL0UO3o/secret
+write(default): /tmp/.tmpL0UO3o/watched
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -F -s.1 --max-unchanged-stats=1 --use-polling watched
+test test_tail::test_follow_name_replaced_by_symlink_is_untailable ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_replaced_by_symlink_is_untailable
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_replaced_by_symlink_is_untailable&apos; (1714066) panicked at tests/by-util/test_tail.rs:1784:38:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_shows_headers_on_creation" classname="coreutils::tests" timestamp="2026-10-07T11:41:55.569+00:00" time="0.160">
+            <failure message="thread &apos;test_tail::test_follow_name_shows_headers_on_creation&apos; (1714075) panicked at tests/by-util/test_tail.rs:2134:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_shows_headers_on_creation&apos; (1714075) panicked at tests/by-util/test_tail.rs:2134:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -F -s.1 --max-unchanged-stats=1 log1 log2 ---disable-inotify
+test test_tail::test_follow_name_shows_headers_on_creation ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_shows_headers_on_creation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.15s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_shows_headers_on_creation&apos; (1714075) panicked at tests/by-util/test_tail.rs:2134:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_stdin" classname="coreutils::tests" timestamp="2026-10-07T11:41:55.729+00:00" time="0.065"/>
+        <testcase name="test_tail::test_follow_name_truncate1" classname="coreutils::tests" timestamp="2026-10-07T11:41:55.794+00:00" time="3.040">
+            <failure message="thread &apos;test_tail::test_follow_name_truncate1&apos; (1714102) panicked at tests/by-util/test_tail.rs:2268:24" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_truncate1&apos; (1714102) panicked at tests/by-util/test_tail.rs:2268:24:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: CHUNK(10)
+vier
+fuenf
+sechs
+sieben
+acht
+neun
+zehn
+elf
+END(25)
+
+stderr: tail: cannot follow &apos;follow_name.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+open: /tmp/.tmpdFbNMc/follow_name.expected
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name follow_name.txt
+copy: /tmp/.tmpdFbNMc/follow_name.txt /tmp/.tmpdFbNMc/backup
+touch: /tmp/.tmpdFbNMc/follow_name.txt
+copy: /tmp/.tmpdFbNMc/backup /tmp/.tmpdFbNMc/follow_name.txt
+test test_tail::test_follow_name_truncate1 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_truncate1
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 3.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_truncate1&apos; (1714102) panicked at tests/by-util/test_tail.rs:2268:24:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: CHUNK(10)
+vier
+fuenf
+sechs
+sieben
+acht
+neun
+zehn
+elf
+END(25)
+
+stderr: tail: cannot follow &apos;follow_name.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_truncate2" classname="coreutils::tests" timestamp="2026-10-07T11:41:58.835+00:00" time="5.186">
+            <failure message="thread &apos;test_tail::test_follow_name_truncate2&apos; (1714111) panicked at tests/by-util/test_tail.rs:2295:14" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_truncate2&apos; (1714111) panicked at tests/by-util/test_tail.rs:2295:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: cannot follow &apos;file&apos;: following a growing file is not supported because output is not flushed incrementally
+&lt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpcX8q3E/file
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name file
+write(append): /tmp/.tmpcX8q3E/file
+test test_tail::test_follow_name_truncate2 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_truncate2
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 5.18s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_truncate2&apos; (1714111) panicked at tests/by-util/test_tail.rs:2295:14:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;tail: cannot follow &apos;file&apos;: following a growing file is not supported because output is not flushed incrementally
+&lt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_truncate3" classname="coreutils::tests" timestamp="2026-10-07T11:42:04.021+00:00" time="1.009">
+            <failure message="thread &apos;test_tail::test_follow_name_truncate3&apos; (1714120) panicked at tests/by-util/test_tail.rs:2357:40" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_truncate3&apos; (1714120) panicked at tests/by-util/test_tail.rs:2357:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: cannot follow &apos;file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpim3fWk/file
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name file
+test test_tail::test_follow_name_truncate3 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_truncate3
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_truncate3&apos; (1714120) panicked at tests/by-util/test_tail.rs:2357:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: cannot follow &apos;file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_name_truncate4" classname="coreutils::tests" timestamp="2026-10-07T11:42:05.031+00:00" time="0.509">
+            <failure message="thread &apos;test_tail::test_follow_name_truncate4&apos; (1714129) panicked at tests/by-util/test_tail.rs:2390:44" type="test failure with exit code 101">thread &apos;test_tail::test_follow_name_truncate4&apos; (1714129) panicked at tests/by-util/test_tail.rs:2390:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: foobar
+
+stderr: tail: cannot follow &apos;file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(append): /tmp/.tmpkcOFQY/file
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 -F file
+test test_tail::test_follow_name_truncate4 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_name_truncate4
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_name_truncate4&apos; (1714129) panicked at tests/by-util/test_tail.rs:2390:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: foobar
+
+stderr: tail: cannot follow &apos;file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_non_utf8_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:05.540+00:00" time="0.511">
+            <failure message="thread &apos;test_tail::test_follow_non_utf8_bytes&apos; (1714138) panicked at tests/by-util/test_tail.rs:584:10" type="test failure with exit code 101">thread &apos;test_tail::test_follow_non_utf8_bytes&apos; (1714138) panicked at tests/by-util/test_tail.rs:584:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -f foobar.txt
+test test_tail::test_follow_non_utf8_bytes ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_non_utf8_bytes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_non_utf8_bytes&apos; (1714138) panicked at tests/by-util/test_tail.rs:584:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_pipe_f" classname="coreutils::tests" timestamp="2026-10-07T11:42:06.052+00:00" time="0.038"/>
+        <testcase name="test_tail::test_follow_redirect_stdin_name_retry" classname="coreutils::tests" timestamp="2026-10-07T11:42:06.091+00:00" time="0.066"/>
+        <testcase name="test_tail::test_follow_single" classname="coreutils::tests" timestamp="2026-10-07T11:42:06.157+00:00" time="0.210">
+            <failure message="thread &apos;test_tail::test_follow_single&apos; (1714176) panicked at tests/by-util/test_tail.rs:544:10" type="test failure with exit code 101">thread &apos;test_tail::test_follow_single&apos; (1714176) panicked at tests/by-util/test_tail.rs:544:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -f foobar.txt
+test test_tail::test_follow_single ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_single
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.20s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_single&apos; (1714176) panicked at tests/by-util/test_tail.rs:544:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_stdin_descriptor" classname="coreutils::tests" timestamp="2026-10-07T11:42:06.367+00:00" time="1.031"/>
+        <testcase name="test_tail::test_follow_stdin_name_retry" classname="coreutils::tests" timestamp="2026-10-07T11:42:07.399+00:00" time="0.067"/>
+        <testcase name="test_tail::test_follow_stdin_pipe" classname="coreutils::tests" timestamp="2026-10-07T11:42:07.466+00:00" time="0.036"/>
+        <testcase name="test_tail::test_follow_stdout_pipe_close" classname="coreutils::tests" timestamp="2026-10-07T11:42:07.502+00:00" time="2.037"/>
+        <testcase name="test_tail::test_follow_symlink_target_change" classname="coreutils::tests" timestamp="2026-10-07T11:42:09.539+00:00" time="1.512">
+            <failure message="thread &apos;test_tail::test_follow_symlink_target_change&apos; (1714239) panicked at tests/by-util/test_tail.rs:5435:10" type="test failure with exit code 101">thread &apos;test_tail::test_follow_symlink_target_change&apos; (1714239) panicked at tests/by-util/test_tail.rs:5435:10:
+&apos;A
+&apos; does not contain &apos;B
+&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpQqgDI6/t1
+symlink: /tmp/.tmpQqgDI6/t1,/tmp/.tmpQqgDI6/link
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 -F link
+remove: /tmp/.tmpQqgDI6/link
+symlink: /tmp/.tmpQqgDI6/t2,/tmp/.tmpQqgDI6/link
+write(default): /tmp/.tmpQqgDI6/t2
+test test_tail::test_follow_symlink_target_change ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_symlink_target_change
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_symlink_target_change&apos; (1714239) panicked at tests/by-util/test_tail.rs:5435:10:
+&apos;A
+&apos; does not contain &apos;B
+&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:11.051+00:00" time="1.010">
+            <failure message="thread &apos;test_tail::test_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size&apos; (1714248) panicked at tests/by-util/test_tail.rs:4860:42" type="test failure with exit code 101">thread &apos;test_tail::test_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size&apos; (1714248) panicked at tests/by-util/test_tail.rs:4860:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; data &lt;==
+file data
+==&gt; /tmp/.tmpVHf9hl/data &lt;==
+file data
+stderr: tail: cannot follow &apos;data&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpVHf9hl/data
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor --max-unchanged-stats=1 --sleep-interval=0.1 data /tmp/.tmpVHf9hl/data
+write(default): /tmp/.tmpVHf9hl/data
+test test_tail::test_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_when_files_are_pointing_to_same_relative_file_and_file_stays_same_size&apos; (1714248) panicked at tests/by-util/test_tail.rs:4860:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; data &lt;==
+file data
+==&gt; /tmp/.tmpVHf9hl/data &lt;==
+file data
+stderr: tail: cannot follow &apos;data&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_follow_with_pid" classname="coreutils::tests" timestamp="2026-10-07T11:42:12.061+00:00" time="0.510">
+            <failure message="thread &apos;test_tail::test_follow_with_pid&apos; (1714257) panicked at tests/by-util/test_tail.rs:820:10" type="test failure with exit code 101">thread &apos;test_tail::test_follow_with_pid&apos; (1714257) panicked at tests/by-util/test_tail.rs:820:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; foobar.txt &lt;==
+dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+==&gt; foobar2.txt &lt;==
+un
+deux
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -f --pid=1714258 foobar.txt foobar2.txt
+test test_tail::test_follow_with_pid ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_follow_with_pid
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_follow_with_pid&apos; (1714257) panicked at tests/by-util/test_tail.rs:820:10:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; foobar.txt &lt;==
+dos
+tres
+quattro
+cinco
+seis
+siette
+ocho
+nueve
+diez
+once
+
+==&gt; foobar2.txt &lt;==
+un
+deux
+
+stderr: tail: cannot follow &apos;foobar.txt&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_following_with_pid" classname="coreutils::tests" timestamp="2026-10-07T11:42:12.571+00:00" time="2.211">
+            <failure message="thread &apos;test_tail::test_following_with_pid&apos; (1714267) panicked at tests/by-util/test_tail.rs:5188:43" type="test failure with exit code 101 (leaked handles)">thread &apos;test_tail::test_following_with_pid&apos; (1714267) panicked at tests/by-util/test_tail.rs:5188:43:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: tail: cannot follow &apos;/tmp/.tmpaITZq3/f&apos;: following a growing file is not supported because output is not flushed incrementally
+
+stderr: 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmpaITZq3/f
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --pid 1714268 -f /tmp/.tmpaITZq3/f
+test test_tail::test_following_with_pid ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_following_with_pid
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 2.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_following_with_pid&apos; (1714267) panicked at tests/by-util/test_tail.rs:5188:43:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: tail: cannot follow &apos;/tmp/.tmpaITZq3/f&apos;: following a growing file is not supported because output is not flushed incrementally
+
+stderr: 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_header_quotes_name_with_control_char" classname="coreutils::tests" timestamp="2026-10-07T11:42:14.782+00:00" time="0.039"/>
+        <testcase name="test_tail::test_header_quotes_names_needing_it" classname="coreutils::tests" timestamp="2026-10-07T11:42:14.821+00:00" time="0.040"/>
+        <testcase name="test_tail::test_invalid_arg" classname="coreutils::tests" timestamp="2026-10-07T11:42:14.861+00:00" time="0.035"/>
+        <testcase name="test_tail::test_invalid_count_keeps_its_leading_zeros" classname="coreutils::tests" timestamp="2026-10-07T11:42:14.896+00:00" time="0.099"/>
+        <testcase name="test_tail::test_invalid_num" classname="coreutils::tests" timestamp="2026-10-07T11:42:14.996+00:00" time="0.136"/>
+        <testcase name="test_tail::test_lines_with_size_suffix" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.132+00:00" time="0.040"/>
+        <testcase name="test_tail::test_lines_zero_terminated" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.172+00:00" time="0.054"/>
+        <testcase name="test_tail::test_lowercase_multiplier_suffixes_rejected" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.226+00:00" time="0.379"/>
+        <testcase name="test_tail::test_multiple_input_files" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.605+00:00" time="0.032"/>
+        <testcase name="test_tail::test_multiple_input_files_missing" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.637+00:00" time="0.030"/>
+        <testcase name="test_tail::test_multiple_input_files_with_suppressed_headers" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.667+00:00" time="0.030"/>
+        <testcase name="test_tail::test_multiple_input_quiet_flag_overrides_verbose_flag_for_suppressing_headers" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.697+00:00" time="0.030"/>
+        <testcase name="test_tail::test_n0_with_follow" classname="coreutils::tests" timestamp="2026-10-07T11:42:15.728+00:00" time="0.508">
+            <failure message="thread &apos;test_tail::test_n0_with_follow&apos; (1714577) panicked at tests/by-util/test_tail.rs:253:42" type="test failure with exit code 101">thread &apos;test_tail::test_n0_with_follow&apos; (1714577) panicked at tests/by-util/test_tail.rs:253:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 3.
+stdout: 
+stderr: err[runtime.error]: list index
+  /home/josh/d/laputa-systems/xsh/target/compat-stage/bin/tail:140:21
+      return Ok(low + ends[ends.len() - need]) when ends.len() &gt;= need
+                      ^^^^^^^^^^^^^^^^^^^^^^^
+err: index-out-of-range: list index
+executable: /home/josh/d/laputa-systems/xsh/target/debug/xsh
+at /home/josh/d/laputa-systems/xsh/target/compat-stage/bin/tail:140:21-140:44
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpyGvLr1/test.txt
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -n0 -f test.txt
+test test_tail::test_n0_with_follow ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_n0_with_follow
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_n0_with_follow&apos; (1714577) panicked at tests/by-util/test_tail.rs:253:42:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 3.
+stdout: 
+stderr: err[runtime.error]: list index
+  /home/josh/d/laputa-systems/xsh/target/compat-stage/bin/tail:140:21
+      return Ok(low + ends[ends.len() - need]) when ends.len() &gt;= need
+                      ^^^^^^^^^^^^^^^^^^^^^^^
+err: index-out-of-range: list index
+executable: /home/josh/d/laputa-systems/xsh/target/debug/xsh
+at /home/josh/d/laputa-systems/xsh/target/compat-stage/bin/tail:140:21-140:44
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_n_greater_than_number_of_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.236+00:00" time="0.037"/>
+        <testcase name="test_tail::test_nc_0_wo_follow" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.273+00:00" time="0.056"/>
+        <testcase name="test_tail::test_nc_0_wo_follow2" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.329+00:00" time="0.052"/>
+        <testcase name="test_tail::test_negative_bytes_file_count_past_seek_limit" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.381+00:00" time="0.054"/>
+        <testcase name="test_tail::test_negative_indexing" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.436+00:00" time="0.103"/>
+        <testcase name="test_tail::test_no_skip_after_error" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.539+00:00" time="0.029"/>
+        <testcase name="test_tail::test_no_such_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.569+00:00" time="0.028"/>
+        <testcase name="test_tail::test_no_trailing_newline" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.597+00:00" time="0.029"/>
+        <testcase name="test_tail::test_null_default" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.626+00:00" time="0.030"/>
+        <testcase name="test_tail::test_num_with_undocumented_sign_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.656+00:00" time="0.079"/>
+        <testcase name="test_tail::test_obsolete_encoding_unix" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.735+00:00" time="0.026">
+            <failure message="thread &apos;test_tail::test_obsolete_encoding_unix&apos; (1714754) panicked at tests/by-util/test_tail.rs:5131:10" type="test failure with exit code 101">thread &apos;test_tail::test_obsolete_encoding_unix&apos; (1714754) panicked at tests/by-util/test_tail.rs:5131:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;2
+&gt;1
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -�b
+test test_tail::test_obsolete_encoding_unix ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_obsolete_encoding_unix
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.02s
+
+</system-out>
+            <system-err>stdout:
+
+stderr:
+xsh: argument 2 is not valid UTF-8
+
+
+thread &apos;test_tail::test_obsolete_encoding_unix&apos; (1714754) panicked at tests/by-util/test_tail.rs:5131:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;2
+&gt;1
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_obsolete_syntax_positive_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.761+00:00" time="0.030"/>
+        <testcase name="test_tail::test_obsolete_syntax_positive_zero_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.791+00:00" time="0.030"/>
+        <testcase name="test_tail::test_obsolete_syntax_positive_zero_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.821+00:00" time="0.078"/>
+        <testcase name="test_tail::test_obsolete_syntax_small_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.899+00:00" time="0.031"/>
+        <testcase name="test_tail::test_obsolete_syntax_zero_lines_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.930+00:00" time="0.030"/>
+        <testcase name="test_tail::test_oversized_num" classname="coreutils::tests" timestamp="2026-10-07T11:42:16.960+00:00" time="0.146"/>
+        <testcase name="test_tail::test_permission_denied" classname="coreutils::tests" timestamp="2026-10-07T11:42:17.107+00:00" time="0.029"/>
+        <testcase name="test_tail::test_permission_denied_is_not_reported_as_not_found" classname="coreutils::tests" timestamp="2026-10-07T11:42:17.136+00:00" time="0.030"/>
+        <testcase name="test_tail::test_permission_denied_multiple" classname="coreutils::tests" timestamp="2026-10-07T11:42:17.166+00:00" time="0.030"/>
+        <testcase name="test_tail::test_pipe_when_bytes_option_given_input_size_has_multiple_size_of_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:17.196+00:00" time="0.266"/>
+        <testcase name="test_tail::test_pipe_when_bytes_option_given_input_size_is_equal_to_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:17.462+00:00" time="0.171"/>
+        <testcase name="test_tail::test_pipe_when_bytes_option_given_input_size_is_one_byte_greater_than_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:17.633+00:00" time="0.144"/>
+        <testcase name="test_tail::test_pipe_when_bytes_option_given_multibyte_utf8_characters" classname="coreutils::tests" timestamp="2026-10-07T11:42:17.777+00:00" time="0.263"/>
+        <testcase name="test_tail::test_pipe_when_bytes_option_value_is_higher_than_contained_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:18.040+00:00" time="0.147"/>
+        <testcase name="test_tail::test_pipe_when_lines_option_given_input_size_has_multiple_size_of_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:18.188+00:00" time="0.146"/>
+        <testcase name="test_tail::test_pipe_when_lines_option_given_input_size_is_equal_to_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:18.334+00:00" time="0.148"/>
+        <testcase name="test_tail::test_pipe_when_lines_option_given_input_size_is_equal_to_buffer_size_no_newline_at_eof" classname="coreutils::tests" timestamp="2026-10-07T11:42:18.482+00:00" time="0.054"/>
+        <testcase name="test_tail::test_pipe_when_lines_option_given_input_size_is_one_byte_greater_than_buffer_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:18.536+00:00" time="0.100"/>
+        <testcase name="test_tail::test_pipe_when_lines_option_given_multibyte_utf8_characters" classname="coreutils::tests" timestamp="2026-10-07T11:42:18.636+00:00" time="0.237"/>
+        <testcase name="test_tail::test_pipe_when_lines_option_value_is_higher_than_contained_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:18.873+00:00" time="0.143"/>
+        <testcase name="test_tail::test_pipe_when_negative_lines_option_given_no_newline_at_eof" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.017+00:00" time="0.078"/>
+        <testcase name="test_tail::test_pipe_when_positive_lines_option_given_no_newline_at_eof" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.095+00:00" time="0.076"/>
+        <testcase name="test_tail::test_positive_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.171+00:00" time="0.029"/>
+        <testcase name="test_tail::test_positive_bytes_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.200+00:00" time="0.028"/>
+        <testcase name="test_tail::test_positive_bytes_file_offset_past_seek_limit" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.229+00:00" time="0.030"/>
+        <testcase name="test_tail::test_positive_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.259+00:00" time="0.030"/>
+        <testcase name="test_tail::test_positive_lines_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.289+00:00" time="0.029"/>
+        <testcase name="test_tail::test_positive_zero_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.318+00:00" time="0.055"/>
+        <testcase name="test_tail::test_positive_zero_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.372+00:00" time="0.054"/>
+        <testcase name="test_tail::test_presume_input_pipe_default" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.426+00:00" time="0.030"/>
+        <testcase name="test_tail::test_retry8" classname="coreutils::tests" timestamp="2026-10-07T11:42:19.456+00:00" time="1.008">
+            <failure message="thread &apos;test_tail::test_retry8&apos; (1715779) panicked at tests/by-util/test_tail.rs:1858:40" type="test failure with exit code 101">thread &apos;test_tail::test_retry8&apos; (1715779) panicked at tests/by-util/test_tail.rs:1858:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: cannot open &apos;parent_dir/watched_file&apos; for reading: No such file or directory
+tail: cannot follow &apos;parent_dir/watched_file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -F -s.1 --max-unchanged-stats=1 parent_dir/watched_file
+test test_tail::test_retry8 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_retry8
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_retry8&apos; (1715779) panicked at tests/by-util/test_tail.rs:1858:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: cannot open &apos;parent_dir/watched_file&apos; for reading: No such file or directory
+tail: cannot follow &apos;parent_dir/watched_file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_retry9" classname="coreutils::tests" timestamp="2026-10-07T11:42:20.465+00:00" time="0.410">
+            <failure message="thread &apos;test_tail::test_retry9&apos; (1715788) panicked at tests/by-util/test_tail.rs:1936:40" type="test failure with exit code 101">thread &apos;test_tail::test_retry9&apos; (1715788) panicked at tests/by-util/test_tail.rs:1936:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: foo
+
+stderr: tail: cannot follow &apos;parent_dir/watched_file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+mkdir: /tmp/.tmp2zJoRs/parent_dir
+write(truncate): /tmp/.tmp2zJoRs/parent_dir/watched_file
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -F -s.2 --max-unchanged-stats=1 parent_dir/watched_file
+test test_tail::test_retry9 ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_retry9
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.40s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_retry9&apos; (1715788) panicked at tests/by-util/test_tail.rs:1936:40:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: foo
+
+stderr: tail: cannot follow &apos;parent_dir/watched_file&apos;: following a growing file is not supported because output is not flushed incrementally
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_retry_descriptor_detects_truncation" classname="coreutils::tests" timestamp="2026-10-07T11:42:20.876+00:00" time="0.160">
+            <failure message="thread &apos;test_tail::test_retry_descriptor_detects_truncation&apos; (1715797) panicked at tests/by-util/test_tail.rs:1567:44" type="test failure with exit code 101">thread &apos;test_tail::test_retry_descriptor_detects_truncation&apos; (1715797) panicked at tests/by-util/test_tail.rs:1567:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -s.1 --max-unchanged-stats=1 --follow=descriptor --retry watchme ---disable-inotify
+test test_tail::test_retry_descriptor_detects_truncation ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_retry_descriptor_detects_truncation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.15s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_retry_descriptor_detects_truncation&apos; (1715797) panicked at tests/by-util/test_tail.rs:1567:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;---disable-inotify&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_retry_descriptor_gives_up_on_untailable" classname="coreutils::tests" timestamp="2026-10-07T11:42:21.036+00:00" time="1.510">
+            <failure message="thread &apos;test_tail::test_retry_descriptor_gives_up_on_untailable&apos; (1715806) panicked at tests/by-util/test_tail.rs:1619:44" type="test failure with exit code 101">thread &apos;test_tail::test_retry_descriptor_gives_up_on_untailable&apos; (1715806) panicked at tests/by-util/test_tail.rs:1619:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=descriptor --retry watchme --use-polling
+test test_tail::test_retry_descriptor_gives_up_on_untailable ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_retry_descriptor_gives_up_on_untailable
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_retry_descriptor_gives_up_on_untailable&apos; (1715806) panicked at tests/by-util/test_tail.rs:1619:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_retry_follow_name_waits_for_creation" classname="coreutils::tests" timestamp="2026-10-07T11:42:22.547+00:00" time="1.510">
+            <failure message="thread &apos;test_tail::test_retry_follow_name_waits_for_creation&apos; (1715815) panicked at tests/by-util/test_tail.rs:1512:44" type="test failure with exit code 101">thread &apos;test_tail::test_retry_follow_name_waits_for_creation&apos; (1715815) panicked at tests/by-util/test_tail.rs:1512:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --follow=name --retry watchme --use-polling
+test test_tail::test_retry_follow_name_waits_for_creation ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_retry_follow_name_waits_for_creation
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 1.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_retry_follow_name_waits_for_creation&apos; (1715815) panicked at tests/by-util/test_tail.rs:1512:44:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: 
+stderr: tail: unrecognized option &apos;--use-polling&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_retry_missing_file_error" classname="coreutils::tests" timestamp="2026-10-07T11:42:24.057+00:00" time="0.041"/>
+        <testcase name="test_tail::test_retry_warn_without_follow" classname="coreutils::tests" timestamp="2026-10-07T11:42:24.098+00:00" time="0.036"/>
+        <testcase name="test_tail::test_seek_bytes_backward_outside_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:24.134+00:00" time="0.035"/>
+        <testcase name="test_tail::test_seek_bytes_forward_outside_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:24.169+00:00" time="0.037"/>
+        <testcase name="test_tail::test_single_big_args" classname="coreutils::tests" timestamp="2026-10-07T11:42:24.206+00:00" time="0.964"/>
+        <testcase name="test_tail::test_single_default" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.170+00:00" time="0.030"/>
+        <testcase name="test_tail::test_sleep_interval" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.200+00:00" time="0.122"/>
+        <testcase name="test_tail::test_small_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.322+00:00" time="0.031">
+            <failure message="thread &apos;test_tail::test_small_file&apos; (1715926) panicked at tests/by-util/test_tail.rs:1218:10" type="test failure with exit code 101">thread &apos;test_tail::test_small_file&apos; (1715926) panicked at tests/by-util/test_tail.rs:1218:10:
+Command was expected to succeed. code: 1
+stdout = 
+ stderr = tail: invalid number of lines: &apos; -10&apos;
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -n -10
+test test_tail::test_small_file ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_small_file
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_small_file&apos; (1715926) panicked at tests/by-util/test_tail.rs:1218:10:
+Command was expected to succeed. code: 1
+stdout = 
+ stderr = tail: invalid number of lines: &apos; -10&apos;
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_stdin_default" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.353+00:00" time="0.031"/>
+        <testcase name="test_tail::test_stdin_explicit" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.383+00:00" time="0.029"/>
+        <testcase name="test_tail::test_stdin_redirect_dir" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.412+00:00" time="0.053"/>
+        <testcase name="test_tail::test_stdin_redirect_file" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.465+00:00" time="0.055"/>
+        <testcase name="test_tail::test_stdin_redirect_offset" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.520+00:00" time="0.030"/>
+        <testcase name="test_tail::test_stdin_redirect_offset2" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.550+00:00" time="0.030"/>
+        <testcase name="test_tail::test_stdin_via_script_redirection_and_pipe" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.581+00:00" time="0.015"/>
+        <testcase name="test_tail::test_tail_bytes_exceeds_file_size" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.596+00:00" time="0.030"/>
+        <testcase name="test_tail::test_tail_obsolete_blocks" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.626+00:00" time="0.030">
+            <failure message="thread &apos;test_tail::test_tail_obsolete_blocks&apos; (1716035) panicked at tests/by-util/test_tail.rs:5033:10" type="test failure with exit code 101">thread &apos;test_tail::test_tail_obsolete_blocks&apos; (1716035) panicked at tests/by-util/test_tail.rs:5033:10:
+Command was expected to succeed. code: 1
+stdout = 
+ stderr = tail: invalid option -- &apos;b&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -b
+test test_tail::test_tail_obsolete_blocks ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_tail_obsolete_blocks
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_tail_obsolete_blocks&apos; (1716035) panicked at tests/by-util/test_tail.rs:5033:10:
+Command was expected to succeed. code: 1
+stdout = 
+ stderr = tail: invalid option -- &apos;b&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_tail_obsolete_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.657+00:00" time="0.077"/>
+        <testcase name="test_tail::test_tail_obsolete_error_cases" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.734+00:00" time="0.100">
+            <failure message="thread &apos;test_tail::test_tail_obsolete_error_cases&apos; (1716075) panicked at tests/by-util/test_tail.rs:5063:10" type="test failure with exit code 101">thread &apos;test_tail::test_tail_obsolete_error_cases&apos; (1716075) panicked at tests/by-util/test_tail.rs:5063:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: option used in invalid context -- 2
+&lt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail +cl
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -cl
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail +2cz
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -2cX
+test test_tail::test_tail_obsolete_error_cases ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_tail_obsolete_error_cases
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.09s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_tail_obsolete_error_cases&apos; (1716075) panicked at tests/by-util/test_tail.rs:5063:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ tail: option used in invalid context -- 2
+&lt;Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_tail_obsolete_f_flag" classname="coreutils::tests" timestamp="2026-10-07T11:42:25.834+00:00" time="0.509">
+            <failure message="thread &apos;test_tail::test_tail_obsolete_f_flag&apos; (1716109) panicked at tests/by-util/test_tail.rs:5106:38" type="test failure with exit code 101">thread &apos;test_tail::test_tail_obsolete_f_flag&apos; (1716109) panicked at tests/by-util/test_tail.rs:5106:38:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; file &lt;==
+
+stderr: tail: cannot open &apos;+f&apos; for reading: No such file or directory
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+touch: /tmp/.tmplltbOa/file
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail +f file
+test test_tail::test_tail_obsolete_f_flag ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_tail_obsolete_f_flag
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_tail_obsolete_f_flag&apos; (1716109) panicked at tests/by-util/test_tail.rs:5106:38:
+Assertion failed. Expected &apos;tests-5168375e2906f113&apos; to be running but exited with status=exit status: 1.
+stdout: ==&gt; file &lt;==
+
+stderr: tail: cannot open &apos;+f&apos; for reading: No such file or directory
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_tail_obsolete_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.344+00:00" time="0.101">
+            <failure message="thread &apos;test_tail::test_tail_obsolete_lines&apos; (1716118) panicked at tests/by-util/test_tail.rs:4959:10" type="test failure with exit code 101">thread &apos;test_tail::test_tail_obsolete_lines&apos; (1716118) panicked at tests/by-util/test_tail.rs:4959:10:
+Command was expected to succeed. code: 1
+stdout = 
+ stderr = tail: invalid option -- &apos;l&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -1l
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -1l
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -1l
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail -l
+test test_tail::test_tail_obsolete_lines ... FAILED
+
+failures:
+
+failures:
+    test_tail::test_tail_obsolete_lines
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.09s
+
+</system-out>
+            <system-err>
+thread &apos;test_tail::test_tail_obsolete_lines&apos; (1716118) panicked at tests/by-util/test_tail.rs:4959:10:
+Command was expected to succeed. code: 1
+stdout = 
+ stderr = tail: invalid option -- &apos;l&apos;
+Try &apos;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests tail --help&apos; for more information.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_tail::test_tail_obsolete_number" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.446+00:00" time="0.077"/>
+        <testcase name="test_tail::test_tail_obsolete_plus_bytes" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.523+00:00" time="0.077"/>
+        <testcase name="test_tail::test_tail_obsolete_plus_lines" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.601+00:00" time="0.077"/>
+        <testcase name="test_tail::test_tail_obsolete_plus_number" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.678+00:00" time="0.056"/>
+        <testcase name="test_tail::test_when_argument_file_is_a_directory" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.734+00:00" time="0.035"/>
+        <testcase name="test_tail::test_when_argument_file_is_a_symlink" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.770+00:00" time="0.056"/>
+        <testcase name="test_tail::test_when_argument_file_is_a_symlink_to_directory_then_error" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.825+00:00" time="0.032"/>
+        <testcase name="test_tail::test_when_output_closed_then_no_broken_pipe" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.857+00:00" time="0.031"/>
+        <testcase name="test_tail::test_zero_bytes_with_suffix" classname="coreutils::tests" timestamp="2026-10-07T11:42:26.889+00:00" time="0.081"/>
+    </testsuite>
+</testsuites>
