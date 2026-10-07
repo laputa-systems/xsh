@@ -71,18 +71,68 @@ test test_shuf_output_file_and_errors { |ctx|
   assert empty.stderr == "shuf: no lines to repeat\n", empty.stderr
 
   let both = shuf_run(ctx, root, ["-e", "0", "-i", "0-2"])?
-  assert both.stderr == "shuf: cannot combine -e and -i options\n", both.stderr
+  assert "cannot be used with" in both.stderr, both.stderr
 
   let range = shuf_run(ctx, root, ["-i", "5-3"])?
-  assert range.stderr == "shuf: invalid input range: '5-3'\n", range.stderr
+  assert "invalid value '5-3' for '--input-range <LO-HI>': start exceeds end" in range.stderr, range.stderr
 
   let count = shuf_run(ctx, root, ["-n", "a"])?
-  assert count.stderr == "shuf: invalid line count: 'a'\n", count.stderr
+  assert "invalid value 'a' for '--head-count <COUNT>': invalid digit found in string" in count.stderr, count.stderr
 
   let extra = shuf_run(ctx, root, ["a", "b"])?
-  assert extra.stderr == "shuf: extra operand 'b'\nTry 'shuf --help' for more information.\n", extra.stderr
+  assert "unexpected argument 'b' found" in extra.stderr, extra.stderr
 
   let seed = shuf_run(ctx, root, ["--random-seed=x"])?
   assert seed.status == 1
   assert seed.stderr.starts_with("shuf: option '--random-seed' is not supported"), seed.stderr
+}
+
+test test_shuf_argument_diagnostics_match_uutils { |ctx|
+  let root = test.temp_dir(ctx, name: "shuf-errors")?
+
+  let ranges = shuf_run(ctx, root, ["-i", "2-9", "-i", "2-9"])?
+  assert ranges.status == 1
+  assert "--input-range" in ranges.stderr, ranges.stderr
+  assert "cannot be used multiple times" in ranges.stderr, ranges.stderr
+
+  let outputs = shuf_run(ctx, root, ["-o", "file_a", "-o", "file_b"])?
+  assert outputs.status == 1
+  assert "--output" in outputs.stderr, outputs.stderr
+  assert "cannot be used multiple times" in outputs.stderr, outputs.stderr
+
+  let pair = shuf_run(ctx, root, ["file_a", "file_b"])?
+  assert pair.status == 1
+  assert "unexpected argument 'file_b' found" in pair.stderr, pair.stderr
+
+  let triple = shuf_run(ctx, root, ["file_a", "file_b", "file_c"])?
+  assert triple.status == 1
+  assert "unexpected argument 'file_b' found" in triple.stderr, triple.stderr
+
+  let echo_range = shuf_run(ctx, root, ["-e", "0", "-i", "0-2"])?
+  assert echo_range.status == 1
+  assert "cannot be used with" in echo_range.stderr, echo_range.stderr
+
+  let range_file = shuf_run(ctx, root, ["-i", "0-9", "file"])?
+  assert range_file.status == 1
+  assert "cannot be used with" in range_file.stderr, range_file.stderr
+
+  let missing_dash = shuf_run(ctx, root, ["-i", "0"])?
+  assert missing_dash.status == 1
+  assert "invalid value '0' for '--input-range <LO-HI>': missing '-'" in missing_dash.stderr, missing_dash.stderr
+
+  let bad_start = shuf_run(ctx, root, ["-i", "a-9"])?
+  assert bad_start.status == 1
+  assert "invalid value 'a-9' for '--input-range <LO-HI>': invalid digit found in string" in bad_start.stderr, bad_start.stderr
+
+  let bad_end = shuf_run(ctx, root, ["-i", "0-b"])?
+  assert bad_end.status == 1
+  assert "invalid value '0-b' for '--input-range <LO-HI>': invalid digit found in string" in bad_end.stderr, bad_end.stderr
+
+  let descending = shuf_run(ctx, root, ["-i", "5-3"])?
+  assert descending.status == 1
+  assert "invalid value '5-3' for '--input-range <LO-HI>': start exceeds end" in descending.stderr, descending.stderr
+
+  let count = shuf_run(ctx, root, ["-n", "a"])?
+  assert count.status == 1
+  assert "invalid value 'a' for '--head-count <COUNT>': invalid digit found in string" in count.stderr, count.stderr
 }

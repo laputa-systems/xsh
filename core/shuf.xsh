@@ -155,26 +155,28 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.range.len() > 1 {
-    gnu.error("multiple -i options specified")
+    gnu.error("the argument '--input-range <LO-HI>' cannot be used multiple times")
     exit 1
   }
 
   if opts.output.len() > 1 {
-    gnu.error("multiple output files specified")
+    gnu.error("the argument '--output <FILE>' cannot be used multiple times")
     exit 1
   }
 
   if opts.echo and ! opts.range.is_empty() {
-    gnu.error("cannot combine -e and -i options")
+    gnu.error("the argument '-e' cannot be used with '--input-range <LO-HI>'")
     exit 1
   }
 
   if ! opts.range.is_empty() and ! opts.operands.is_empty() {
-    gnu.extra_operand(opts.operands[0])
+    gnu.error(f"the argument {gnu.quote(opts.operands[0])} cannot be used with '--input-range <LO-HI>'")
+    exit 1
   }
 
   if ! opts.echo and opts.range.is_empty() and opts.operands.len() > 1 {
-    gnu.extra_operand(opts.operands[1])
+    gnu.error(f"unexpected argument {gnu.quote(opts.operands[1])} found")
+    exit 1
   }
 
   var head = tio.MAX_COUNT
@@ -184,7 +186,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let parsed = parse_count(text)
 
     if parsed == null {
-      gnu.error(f"invalid line count: {gnu.quote(text)}")
+      gnu.error(f"invalid value {gnu.quote(text)} for '--head-count <COUNT>': invalid digit found in string")
       exit 1
     }
 
@@ -201,11 +203,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if ! opts.range.is_empty() {
     let text = opts.range[0]
     let cut = text.find("-") ?? -1
-    let from = if cut > 0 { parse_count(text.byte_slice(0, length: cut)) } else { null }
-    let to = if cut >= 0 { parse_count(text.byte_slice(cut + 1)) } else { null }
 
-    if from == null or to == null or from - 1 > to {
-      gnu.error(f"invalid input range: {gnu.quote(text)}")
+    if cut < 0 {
+      gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': missing '-'")
+      exit 1
+    }
+
+    let from = if cut > 0 { parse_count(text.byte_slice(0, length: cut)) } else { null }
+    let to = parse_count(text.byte_slice(cut + 1))
+
+    if from == null or to == null {
+      gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': invalid digit found in string")
+      exit 1
+    }
+
+    if from - 1 > to {
+      gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': start exceeds end")
       exit 1
     }
 
