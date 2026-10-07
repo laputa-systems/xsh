@@ -1,6 +1,7 @@
 # XSH Core Compatibility Campaign
 
 Status: active; resumed on 2026-10-07. The full campaign remains incomplete.
+Campaign platform scope is x86_64 only; ARM64 verification is out of scope.
 The 2026-10-06 wind-down report below is historical and does not describe the
 current integration run.
 
@@ -163,11 +164,26 @@ suite then passed 65/65.
   `results/gnu-differential.json`; the pinned uutils baseline is
   `results/gnu-uutils.json`.
 
-Gate 5's option comparison, the BusyBox route, the AArch64 debug Linux gate,
-the practical expanded Linux suite, and the clean-image smoke remain open. The
-parity inventory currently has 99 of 125 expanded Linux commands present; the
-other 26 are listed in `dev/coreutils-parity.json`. The campaign remains
-active and incomplete.
+Gate 5's option comparison, the BusyBox route, the practical expanded Linux
+suite, and the clean-image smoke remain open. The attempted AArch64 debug run
+was stopped after ARM64 was removed from scope; it produced no gate result and
+is not an open campaign item. The parity inventory currently has 99 of 125
+expanded Linux commands present; the other 26 are listed in
+`dev/coreutils-parity.json`. The campaign remains active and incomplete.
+
+### Gate 5 option-surface pilot (`cat`)
+
+`check_option_surface.py --util cat` compares uutils' Clap declarations with
+XSH's `cli.applet` schema, including generated help/version spellings and
+argument arity. It finds 21 pinned-uutils spellings and 19 XSH spellings, with
+`-h` and `-V` as the only uutils-only entries and no arity differences. A
+focused runtime probe confirms both commands accept `--help` and `--version`,
+while only uutils accepts `-h` and `-V`. These are generated Clap short forms
+that GNU cat does not use; `gaps.json` records the intentional omission. The
+strict checker exits 1 on these differences. It also reports `-u` as
+parsed-but-unused on both sides, matching cat's documented ignored option.
+Its six parser tests pass. This cat pilot does not close Gate 5 for the
+remaining utilities.
 
 ## Sort merge follow-up (`a860f47a`)
 
@@ -466,10 +482,12 @@ at source `89c4e143`; the campaign remains active and incomplete.
 
 The campaign remains active and incomplete. The current full uutils report has
 480 failures, and the GNU differential has unresolved failures and errors.
-BusyBox comparison, the remaining expanded Linux surface, the AArch64 debug
-gate, and clean-image smoke also remain open. The selected `uniq` stress case
-and the previously failing `wc` slice pass in focused follow-ups; the `sort`
-slice improves by nine uutils tests with no regressions within that slice.
+BusyBox comparison, the remaining expanded Linux surface, and clean-image
+smoke also remain open. AArch64 was still listed as an open gate in this
+checkpoint; it is out of scope under the current x86_64-only campaign scope.
+The selected `uniq` stress case and the previously failing `wc` slice pass in
+focused follow-ups; the `sort` slice improves by nine uutils tests with no
+regressions within that slice.
 
 ## Wind-down report (2026-10-06)
 

@@ -135,7 +135,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 cat's short-option string omits both, so XSH accepts --help and --version without those short forms."
+      ]
     },
     {
       "utility": "cksum",

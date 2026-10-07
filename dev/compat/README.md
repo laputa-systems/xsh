@@ -82,6 +82,7 @@ differential requires identical test selections on both sides.
 | `dev/compat/run-gnu.sh uutils [TEST...]` | GNU tests against pinned uutils (cached baseline) |
 | `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
+| `python3 dev/compat/check_option_surface.py --util cat` | Gate 5 cat pilot; reports spelling and arity differences against pinned uutils |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
 | `python3 dev/compat/check_kernel_reads.py` | Gate 9 ratchet: no `/proc`/`/sys` literal in a top-level applet |
@@ -126,6 +127,17 @@ failures. Relative to the prior full Gate 4 run, the new report has two more
 passes, one fewer failure, and one fewer skip. `split/filter.sh` remains an
 error; `tee/tee.sh` passes; `misc/yes.sh` still fails. See `CAMPAIGN.md` and
 `results/` for the reports and remaining limits.
+
+The Gate 5 cat pilot compares the pinned Clap declarations with XSH's
+`cli.applet` schema. It found 21 uutils spellings and 19 XSH spellings, with
+only `-h` and `-V` missing from XSH; there are no XSH-only spellings or arity
+mismatches. These are Clap-generated short help/version forms that GNU cat
+does not use. The strict checker exits 1 to report them, and `gaps.json`
+records the known difference. Four parser tests pass; direct pinned-uutils and
+XSH probes confirm both tools accept `--help` and `--version`, while only
+uutils accepts `-h` and `-V`. This pilot does not close Gate 5 for the other
+utilities. It also reports `-u` as parsed-but-unused on both sides, matching
+cat's documented ignored option.
 
 The historical full Gate 3 and Gate 4 results at `92a91b12` were 5,125/824/0
 with four exclusions for Gate 3, and 367 PASS, 189 FAIL, 25 ERROR, and 138
@@ -367,8 +379,10 @@ because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 both XSH and pinned uutils with one shared pass and no mismatches. Its reports
 are in `results/gnu-uniq-followup/`.
 The pinned GNU uutils baseline has 571 PASS, 46 FAIL, 101 SKIP and one ERROR.
-BusyBox comparison, the expanded Linux surface, aarch64 debug gate, and
-clean-image smoke remain open. See the current checkpoint and full results in
+The full option-surface comparison, BusyBox comparison, expanded Linux surface,
+and clean-image smoke remain open. ARM64 verification is out of scope; an
+attempted emulated debug run was stopped and did not produce gate results. See
+the current checkpoint and full results in
 [`CAMPAIGN.md`](CAMPAIGN.md) and `results/`.
 
 An earlier full native suite passed at parent revision `a0b9ce93`
@@ -380,5 +394,5 @@ revision, reference pin, and test image. The current full native result is
 4,964/0/38 at `89c4e143`. Offline manifest, lane-ownership,
 ignored-option, kernel-read and exclusion checks passed during the resumed
 campaign; these checks do not establish behavioral parity.
-The x86_64 results do not close the pinned `aarch64-unknown-linux-musl` gate;
-it still needs a debug-profile run in the test image.
+ARM64 verification is out of scope under the current x86_64-only campaign
+scope. A later emulated debug run was stopped before producing gate results.

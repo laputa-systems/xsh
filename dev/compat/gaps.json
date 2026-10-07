@@ -1,6 +1,9 @@
 {
-  "comment": "Known semantic gaps per utility, each a short sentence naming the option or behavior. Lanes update their own utilities.",
+  "comment": "Known behavioral and option-surface gaps per utility, each a short sentence naming the option or behavior. Lanes update their own utilities.",
   "utilities": {
+    "cat": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 cat's short-option string omits both, so XSH accepts --help and --version without those short forms."
+    ],
     "basename": [
       "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments."
     ],
