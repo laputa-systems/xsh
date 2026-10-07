@@ -38,6 +38,10 @@ test test_sum_sysv_stdin { |ctx|
   let result = invoke(ctx, ["-s"], b"abc")?
   assert result.status == 0
   assert result.stdout == b"294 1\n"
+
+  let redundant_bsd_flag = invoke(ctx, ["-s", "-r"], b"abc")?
+  assert redundant_bsd_flag.status == 0
+  assert redundant_bsd_flag.stdout == b"294 1\n"
 }
 
 test test_sum_accepts_non_utf8_path_arguments { |ctx|

@@ -60,7 +60,6 @@ proc main(...argv: List[Bytes]) [fs, io, error, process, env] {
       for index in range(1, arg.len()) {
         let flag = arg.byte_at(index)
         if flag == 115 { sysv = true }
-        if flag == 114 { sysv = false }
       }
     }
   }
