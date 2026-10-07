@@ -214,3 +214,17 @@ test test_sort_output_alias_and_duplicate_rules { |ctx|
   assert conflicting.exit_code()? == 2
   assert stderr.read_text()? == "sort: multiple output files specified\n"
 }
+
+test test_sort_reports_output_open_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-output-open-error")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let output = fp"{root}/missing-directory/output"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-o", output.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 2
+  assert stderr.read_text()? == f"sort: open failed: {output}: No such file or directory\n"
+  assert stdout.read_bytes()?.is_empty()
+}

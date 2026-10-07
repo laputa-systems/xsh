@@ -327,7 +327,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if has_output {
-    output.write(text)
+    if let Err(failure) = output.write(text) {
+      let action = if let Ok(_) = fs.stat(output, follow_symlinks: true) { "write failed" } else { "open failed" }
+      gnu.error(f"{action}: {gnu.quote_maybe(output_path)}: {gnu.strerror(failure)}")
+      exit 2
+    }
   } else if opts.zero_terminated {
     gnu.write_text(text)
   } else {
