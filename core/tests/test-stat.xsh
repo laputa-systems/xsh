@@ -13,6 +13,16 @@ proc run_stat_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, error
   Ok({status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.replace("\r\n", with: "\n")})
 }
 
+proc run_stat_with_path(ctx: TestContext, options: List[Path], name: Path) [fs, process, error] -> Result[TerminalRun] {
+  let root = test.temp_dir(ctx, name: "stat-path")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/stat.xsh", p"--"].extend(options).extend([name])
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?})
+}
+
 test test_stat { |ctx|
   let target = test.temp_file(ctx, name: "stat.txt", contents: b"hello")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- $target
@@ -177,4 +187,19 @@ test test_stat_format_errors_point_into_terminal_arguments { |ctx|
    │ Help: a directive is %[FLAGS][WIDTH][.PRECISION]LETTER, as in %-10.2s; a literal % is written %%
 ───╯
 """, printf.stderr
+}
+
+test test_stat_reports_non_utf8_missing_names { |ctx|
+  let names = [Path.parse_bytes(b"missing-\xff")?, Path.parse_bytes(b"missing-\xc3\xa9")?]
+  let quoted_names = ["'missing-'$'\\377'", "'missing-'$'\\303\\251'"]
+  for index in range(names.len()) {
+    let name = names[index]
+    for options in [[], [p"-L"], [p"-f"]] {
+      let result = run_stat_with_path(ctx, options, name)?
+      assert result.status == 1, f"{result.status}|{result.stdout}|{result.stderr}"
+      let message = if options == [p"-f"] { "cannot read file system information for" } else { "cannot statx" }
+      let expected = f"stat: {message} {quoted_names[index]}: No such file or directory\n"
+      assert result.stderr == expected, result.stderr
+    }
+  }
 }

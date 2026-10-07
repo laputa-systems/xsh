@@ -66,6 +66,32 @@ pure hex(value: Int) -> Str {
 type FormatResult = {output: Bytes, invalid: Str?, warning: Str?}
 # Format parsing reports the invalid directive text; recover its source position from the selected argv value.
 type ValueLocation = {index: Int, offset: Int}
+type RawArgument = {marker: Str, value: Bytes}
+type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
+
+pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0stat-raw-argument-{index}\0"
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
+      }
+    }
+  }
+  {text: text, raw: raw}
+}
+
+pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
+  for argument in raw {
+    if argument.marker == value { return argument.value }
+  }
+  bytes.from_text(value)
+}
 
 pure diagnostic_spaces(count: Int) -> Str { [" " for _ in range(count)].join("") }
 
@@ -445,8 +471,9 @@ pure valid_stat_quote_style(style: Str) -> Bool {
   style in ["literal", "shell", "shell-always", "shell-escape", "shell-escape-always", "c", "escape", "locale", "clocale"]
 }
 
-proc main(...argv: List[Str]) [fs, env, io, time, error] {
-  let opts: StatOptions = cli.applet(argv, {
+proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
+  let prepared = prepare_arguments(argv)
+  let opts: StatOptions = cli.applet(prepared.text, {
     gnu: {status: 1},
     format: {form: "-c --format FORMAT", default: ""},
     printf: {form: "--printf FORMAT"},
@@ -476,14 +503,19 @@ proc main(...argv: List[Str]) [fs, env, io, time, error] {
   }
 
   for item in paths {
-    if file_system and item == "-" {
+    let item_bytes = argument_bytes(item, prepared.raw)
+    let stdin_operand = item_bytes == b"-"
+    let target = if stdin_operand { fp"/dev/stdin" } else { Path.parse_bytes(item_bytes)? }
+    let name = item_bytes.utf8() ?? target.display()
+    if file_system and stdin_operand {
       gnu.error("using '-' to denote standard input does not work in file system mode")
       exit 1
     }
-    let name = item
-    let target = if item == "-" { fp"/dev/stdin" } else { fp"{item}" }
     if file_system {
-      let stats = fs.statvfs(target)?
+      guard let stats = fs.statvfs(target) else { |failure|
+        gnu.error(f"cannot read file system information for {gnu.quote_bytes(item_bytes)}: {gnu.strerror(failure)}")
+        exit 1
+      }
       let mount = fs.mount_for(target.resolve()?)?
       if terse {
         let selected = if format != "" or printf != null { render_fs_format(fmt, target, name, printf != null) } else {
@@ -491,12 +523,12 @@ proc main(...argv: List[Str]) [fs, env, io, time, error] {
         }
         gnu.write_bytes(selected.output)
         if printf == null and selected.invalid == null { gnu.write_bytes(b"\n") }
-        if let invalid = selected.invalid { report_format_error(argv, fmt, printf != null, invalid); exit 1 }
+        if let invalid = selected.invalid { report_format_error(prepared.text, fmt, printf != null, invalid); exit 1 }
       } else if format != "" or printf != null {
         let rendered = render_fs_format(fmt, target, name, printf != null)
         gnu.write_bytes(rendered.output)
         if printf == null and rendered.invalid == null { gnu.write_bytes(b"\n") }
-        if let invalid = rendered.invalid { report_format_error(argv, fmt, printf != null, invalid); exit 1 }
+        if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, printf != null, invalid); exit 1 }
       } else {
         print f"  File: {stat_quote(name)}"
         print f"    ID: {hex(stats.fsid)} Namelen: {stats.name_max} Type: {mount.fstype}"
@@ -506,8 +538,8 @@ proc main(...argv: List[Str]) [fs, env, io, time, error] {
       }
       continue
     }
-    guard let meta = fs.stat(target, follow_symlinks: dereference or item == "-") else { |failure|
-      gnu.error(f"cannot statx {gnu.quote(name)}: {gnu.strerror(failure)}")
+    guard let meta = fs.stat(target, follow_symlinks: dereference or stdin_operand) else { |failure|
+      gnu.error(f"cannot statx {gnu.quote_bytes(item_bytes)}: {gnu.strerror(failure)}")
       exit 1
     }
 
@@ -517,12 +549,12 @@ proc main(...argv: List[Str]) [fs, env, io, time, error] {
       let rendered = render_format(fmt, target, name, meta, printf: true)
       gnu.write_bytes(rendered.output)
       if let warning = rendered.warning { gnu.error(f"warning: {warning}") }
-      if let invalid = rendered.invalid { report_format_error(argv, fmt, true, invalid); exit 1 }
+      if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, true, invalid); exit 1 }
     } else if format != "" {
       let rendered = render_format(fmt, target, name, meta)
       let ending = if rendered.invalid == null { b"\n" } else { b"" }
       gnu.write_bytes(bytes.concat([rendered.output, ending]))
-      if let invalid = rendered.invalid { report_format_error(argv, fmt, false, invalid); exit 1 }
+      if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, false, invalid); exit 1 }
     } else {
       print f"  File: {stat_quote(name)}"
       print f"  Size: {meta.size} Blocks: {meta.blocks_512} IO Block: {meta.blksize} {stat_file_type(meta)}"
