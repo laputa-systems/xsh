@@ -287,6 +287,38 @@ test test_printf_rejects_invalid_string_and_character_specifiers { |ctx|
   }
 }
 
+test test_printf_rejects_flags_not_supported_by_conversion { |ctx|
+  let alternate = printf_run(ctx, ["%#d", "0"])?
+  let grouping = printf_run(ctx, ["%'s", "text"])?
+
+  assert alternate.status == 1
+  assert alternate.stdout == ""
+  assert alternate.stderr == "printf: %#d: invalid conversion specification\n"
+  assert grouping.status == 1
+  assert grouping.stdout == ""
+  assert grouping.stderr == "printf: %'s: invalid conversion specification\n"
+}
+
+test test_printf_reports_non_numeric_dynamic_width_and_precision { |ctx|
+  let empty_width = printf_run(ctx, ["%*s", "", "empty width"])?
+  let space_width = printf_run(ctx, ["%*s", " ", "space width"])?
+  let empty_precision = printf_run(ctx, ["%.*sx", "", "empty precision"])?
+  let space_precision = printf_run(ctx, ["%.*sx", " ", "space precision"])?
+
+  assert empty_width.status == 1
+  assert empty_width.stdout == "empty width"
+  assert empty_width.stderr == "printf: '': expected a numeric value\n"
+  assert space_width.status == 1
+  assert space_width.stdout == "space width"
+  assert space_width.stderr == "printf: ' ': expected a numeric value\n"
+  assert empty_precision.status == 1
+  assert empty_precision.stdout == "x"
+  assert empty_precision.stderr == "printf: '': expected a numeric value\n"
+  assert space_precision.status == 1
+  assert space_precision.stdout == "x"
+  assert space_precision.stderr == "printf: ' ': expected a numeric value\n"
+}
+
 test test_printf_dynamic_width_precision_and_repeated_format { |ctx|
   let output = printf_run(ctx, ["%*.*s|", "-6", "3", "abcdef", "4", "2", "xy"])?
 
