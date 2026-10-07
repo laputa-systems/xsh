@@ -219,7 +219,7 @@ three Python tests and a multicall adapter dispatch probe pass. The full
 with XSH's `cli.applet` schema, including generated help/version spellings,
 aliases, argument arity, and parsed-but-unused fields. The `true` and `false`
 applets use narrowly recognized manual help/version branches instead of
-`cli.applet`. Sixteen commands are covered:
+`cli.applet`. Seventeen commands are covered:
 
 | Command | uutils spellings | XSH spellings | Differences |
 |---|---:|---:|---|
@@ -233,6 +233,7 @@ applets use narrowly recognized manual help/version branches instead of
 | `printenv` | 6 | 4 | uutils-only `-h`, `-V` |
 | `pwd` | 8 | 6 | uutils-only `-h`, `-V` |
 | `sleep` | 4 | 2 | uutils-only `-h`, `-V` |
+| `sum` | 7 | 5 | uutils-only `-h`, `-V` |
 | `true` | 2 | 2 | none |
 | `tty` | 7 | 5 | uutils-only `-h`, `-V` |
 | `uname` | 26 | 24 | uutils-only `-h`, `-V` |
@@ -246,8 +247,10 @@ command. Direct cat probes confirm both sides accept `--help` and `--version`,
 while only uutils accepts `-h` and `-V`; direct `true` and `false` declarations
 contain only the long help/version forms. The comparison also reports cat's
 `-u` as parsed-but-unused on both sides, matching its documented ignored
-behavior. The comparisons cover 131 uutils spellings and 103 XSH spellings.
-All eleven parser tests pass. Gate 5 remains open for the other 90 utilities.
+behavior. `sum -r` is parsed-but-unused on both sides; the raw-byte XSH option
+scan handles `-s` and `--sysv` without treating `-r` as an override. The
+comparisons cover 138 uutils spellings and 108 XSH spellings. All twelve parser
+tests pass. Gate 5 remains open for the other 89 utilities.
 
 ## Sort merge follow-up (`a860f47a`)
 

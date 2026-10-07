@@ -1329,7 +1329,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 sum has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "tac",

@@ -173,6 +173,25 @@ proc main(...argv: List[Str]) {
                 declarations = surface.parse_xsh_declarations(source, utility)
                 self.assertEqual(set(declarations), {"--help", "--version"})
 
+    def test_sum_is_registered_with_its_xsh_option_schema(self):
+        self.assertIn("sum", surface.SUPPORTED_UTILITIES)
+        _uutils_source, xsh_source = surface.SOURCE_PATHS["sum"]
+        declarations = surface.parse_xsh_declarations(
+            (surface.REPO / "core" / xsh_source).read_text(), "sum"
+        )
+        self.assertEqual(
+            {spelling: int(entry["arity"]) for spelling, entry in declarations.items()},
+            {"-r": 0, "-s": 0, "--sysv": 0, "--help": 0, "--version": 0},
+        )
+        self.assertTrue(
+            all(
+                entry["disposition"] == "implemented"
+                for spelling, entry in declarations.items()
+                if spelling != "-r"
+            )
+        )
+        self.assertEqual(declarations["-r"]["disposition"], "parsed-but-unused")
+
 
 if __name__ == "__main__":
     unittest.main()

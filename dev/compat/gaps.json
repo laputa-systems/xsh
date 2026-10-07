@@ -25,6 +25,9 @@
     "sleep": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 sleep has only long help/version forms, which XSH follows."
     ],
+    "sum": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 sum has no matching short forms, so XSH accepts --help and --version without them."
+    ],
     "tty": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 tty's short-option string omits both, so XSH accepts --help and --version without them."
     ],

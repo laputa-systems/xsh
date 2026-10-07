@@ -25,6 +25,7 @@ SUPPORTED_UTILITIES = (
     "printenv",
     "pwd",
     "sleep",
+    "sum",
     "true",
     "tty",
     "uname",
@@ -43,12 +44,21 @@ SOURCE_PATHS = {
     "printenv": ("printenv/src/printenv.rs", "printenv.xsh"),
     "pwd": ("pwd/src/pwd.rs", "pwd.xsh"),
     "sleep": ("sleep/src/sleep.rs", "sleep.xsh"),
+    "sum": ("sum/src/sum.rs", "sum.xsh"),
     "true": ("true/src/true.rs", "true.xsh"),
     "tty": ("tty/src/tty.rs", "tty.xsh"),
     "uname": ("uname/src/uname.rs", "uname.xsh"),
     "wc": ("wc/src/wc.rs", "wc.xsh"),
     "whoami": ("whoami/src/whoami.rs", "whoami.xsh"),
     "yes": ("yes/src/yes.rs", "yes.xsh"),
+}
+# `sum` reads these algorithm selectors from raw byte argv instead of parser
+# fields, so their source branches establish their disposition.
+MANUAL_RAW_OPTION_USES = {
+    "sum": {
+        "-s": "if flag == 115",
+        "--sysv": 'if arg == b"--sysv"',
+    },
 }
 
 
@@ -354,11 +364,19 @@ def parse_xsh_declarations(
         if form:
             field_name = field.group(1)
             field_use = rf"\bopts\.{re.escape(field_name)}\b"
-            disposition = "implemented" if re.search(field_use, source) else "parsed-but-unused"
+            manual_uses = MANUAL_RAW_OPTION_USES.get(utility, {})
             for spelling, arity in _form_entries(form.group(1), field_name):
                 previous = declarations.get(spelling)
                 if previous is not None and previous["arity"] != arity:
                     raise SurfaceParseError(f"{spelling} has conflicting argument counts")
+                manual_use = manual_uses.get(spelling)
+                if manual_use is not None and manual_use not in source:
+                    raise SurfaceParseError(f"manual implementation of {spelling} is not recognized")
+                disposition = (
+                    "implemented"
+                    if re.search(field_use, source) or manual_use is not None
+                    else "parsed-but-unused"
+                )
                 declarations[spelling] = {
                     "arity": arity,
                     "field": field_name,
