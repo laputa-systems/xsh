@@ -412,6 +412,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsGroupExecutable
             | RuntimeOp::FsOtherExecutable
             | RuntimeOp::FsOpenRoot
+            | RuntimeOp::FsTempDirIn
             | RuntimeOp::FsCloseRoot
             | RuntimeOp::FsRootPath
             | RuntimeOp::FsRootOpenRoot

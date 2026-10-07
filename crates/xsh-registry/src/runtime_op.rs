@@ -268,6 +268,7 @@ pub enum RuntimeOp {
     FsUnlock,
     FsTempFile,
     FsTempDir,
+    FsTempDirIn,
     FsProjectRoot,
     FsUserRoot,
     FsGitroot,

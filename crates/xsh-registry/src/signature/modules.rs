@@ -1869,6 +1869,15 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
+            "tempdir_in",
+            sig(
+                vec![param("directory", Type::Path)],
+                result(fs_root_type()),
+                false,
+                RuntimeOp::FsTempDirIn,
+            ),
+        ),
+        (
             "project_root",
             sig(
                 vec![

@@ -13,6 +13,21 @@ test fs_root_methods_keep_child_independent_after_parent_close { |ctx|
   assert child.exists(../escape) is Err(_)
 }
 
+test fs_tempdir_in_creates_a_private_child_and_removes_it_on_close { |ctx|
+  let parent = test.temp_dir(ctx, name: "fs-tempdir-in-parent")?
+  let root = fs.tempdir_in(parent)?
+  let root_path = root.host_path()?
+
+  assert fs.stat(root_path)?.mode.bit_and(0o777) == 0o700
+  root.write(p"chunk", "data")?
+  root.chmod(p"chunk", 0o600)?
+  assert fs.stat(fp"{root_path}/chunk")?.mode.bit_and(0o777) == 0o600
+  assert (fs.children(parent)? |> count()) == 1
+
+  root.close()?
+  assert (fs.children(parent)? |> count()) == 0
+}
+
 test fs_root_methods_preserve_bounded_observations_and_raw_names {
   let root = fs.tempdir()?
   defer root.close()

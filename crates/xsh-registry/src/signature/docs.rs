@@ -318,6 +318,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Close or remove the returned resource with defer as soon as it is created.",
             &["filesystem", "temporary", "ownership"],
         )),
+        ("fs", "tempdir_in") => Some((
+            "Creates a private temporary directory below a chosen parent.",
+            "The returned FsRoot owns the directory and removes it with its contents when closed.",
+            &["filesystem", "temporary", "ownership", "rooted"],
+        )),
         ("fs", "open_root" | "root") => Some((
             "Creates or accesses a rooted filesystem capability.",
             "Use rooted operations when a workflow must not escape its destination tree.",

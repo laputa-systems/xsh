@@ -46,6 +46,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/template-render.xsh")
         }
         "module.fs.tempdir" => include_str!("../../../docs/snippets/api/fs-tempdir.xsh"),
+        "module.fs.tempdir_in" => include_str!("../../../docs/snippets/api/fs-tempdir-in.xsh"),
         "module.path.absolute" => include_str!("../../../docs/snippets/api/path-absolute.xsh"),
         "module.process.command" => {
             include_str!("../../../docs/snippets/api/process-command.xsh")

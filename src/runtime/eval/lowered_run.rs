@@ -48,7 +48,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::ops::ControlFlow;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -3644,6 +3644,28 @@ pub(super) fn new_temp_fs_root(
 ) -> Result<FsRootHandle, RuntimeError> {
     let temp =
         TempDir::new().map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
+    fs_root_from_temp_dir(temp, operation, span)
+}
+
+/// Create scratch storage that stays owner-only even under a permissive umask.
+pub(super) fn new_temp_fs_root_in(
+    directory: PathValue,
+    operation: &'static str,
+    span: Span,
+) -> Result<FsRootHandle, RuntimeError> {
+    let directory = PathBuf::from(OsString::from_vec(directory.bytes));
+    let temp = tempfile::Builder::new()
+        .permissions(std::fs::Permissions::from_mode(0o700))
+        .tempdir_in(directory)
+        .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
+    fs_root_from_temp_dir(temp, operation, span)
+}
+
+fn fs_root_from_temp_dir(
+    temp: TempDir,
+    operation: &'static str,
+    span: Span,
+) -> Result<FsRootHandle, RuntimeError> {
     let root = Root::open(temp.path())
         .map_err(|error| RuntimeError::host(operation, &error).with_span(span))?;
     Ok(FsRootHandle::TempDir { root, _temp: temp })
@@ -5996,6 +6018,17 @@ impl Evaluator {
             }
             RuntimeOp::FsTempDir if values.is_empty() => {
                 match new_temp_fs_root("fs-temp-dir", span) {
+                    Ok(root) => lowered_result_ok(self.push_lowered_fs_root(root)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::FsTempDirIn if values.len() == 1 => {
+                let directory = lowered_path_arg(
+                    values.remove(0),
+                    "fs.tempdir_in",
+                    span,
+                )?;
+                match new_temp_fs_root_in(directory, "fs-temp-dir", span) {
                     Ok(root) => lowered_result_ok(self.push_lowered_fs_root(root)),
                     Err(error) => lowered_result_err_value(error),
                 }

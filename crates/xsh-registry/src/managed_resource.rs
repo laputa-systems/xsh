@@ -10,7 +10,7 @@ use crate::types::Type;
 /// kind the checker recorded.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ManagedResource {
-    /// An `FsRoot`, from `fs.open_root`, `fs.tempdir`, or a rooted open.
+    /// An `FsRoot`, from `fs.open_root`, `fs.tempdir`, `fs.tempdir_in`, or a rooted open.
     FsRoot,
     /// The lock record `fs.lock` returns.
     FsLock,
