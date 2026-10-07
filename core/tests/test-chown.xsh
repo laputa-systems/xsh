@@ -132,6 +132,15 @@ test test_chown_numeric_owner_with_empty_group_is_invalid_spec { |ctx|
   assert result.stderr.find(f"invalid spec: '{spec}'") != null
 }
 
+test test_chown_numeric_owner_dot_is_invalid_user { |ctx|
+  let target = test.temp_file(ctx, name: "numeric-owner-dot", contents: b"x")?
+  let spec = f"{user.current()?.uid}."
+  let result = perm_run(ctx, [spec, target.display()])?
+  assert result.status == 1
+  assert result.stderr.find(f"invalid user: '{spec}'") != null
+  assert result.stderr.find("should be ':'") == null
+}
+
 test test_chown_accepts_non_utf8_operand_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "raw-owner-operand")?
   let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
