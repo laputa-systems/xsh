@@ -4,8 +4,29 @@
     "cat": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 cat's short-option string omits both, so XSH accepts --help and --version without those short forms."
     ],
+    "dirname": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 dirname's short-option string omits both, so XSH accepts --help and --version without them."
+    ],
+    "hostid": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 hostid has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "logname": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 logname has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "nproc": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 nproc has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "printenv": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 printenv's short-option string omits both, so XSH accepts --help and --version without them."
+    ],
     "pwd": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 pwd has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "sleep": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 sleep has only long help/version forms, which XSH follows."
+    ],
+    "tty": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 tty's short-option string omits both, so XSH accepts --help and --version without them."
     ],
     "uname": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 uname has no matching short forms, so XSH accepts --help and --version without them."
@@ -17,7 +38,11 @@
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 yes has no matching short forms, so XSH accepts --help and --version without them."
     ],
     "basename": [
-      "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments."
+      "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments.",
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 basename's short-option string omits both, so XSH accepts --help and --version without them."
+    ],
+    "whoami": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 whoami has no matching short forms, so XSH accepts --help and --version without them."
     ],
     "ls": [
       "SELinux contexts (-Z, --context), ACL/context mode markers and capability colors remain incomplete despite the shared xattr API.",

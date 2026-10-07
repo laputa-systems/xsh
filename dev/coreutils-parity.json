@@ -88,7 +88,8 @@
         "test_basename::test_version"
       ],
       "known_semantic_gaps": [
-        "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments."
+        "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments.",
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 basename's short-option string omits both, so XSH accepts --help and --version without them."
       ]
     },
     {
@@ -501,7 +502,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 dirname's short-option string omits both, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "echo",
@@ -693,7 +696,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 hostid has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "join",
@@ -1009,7 +1014,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 printenv's short-option string omits both, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "printf",
@@ -1256,7 +1263,9 @@
       "excluded_tests": [
         "test_sleep::test_invalid_duration::case_7_single_quote"
       ],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 sleep has only long help/version forms, which XSH follows."
+      ]
     },
     {
       "utility": "sort",
@@ -1542,7 +1551,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 tty's short-option string omits both, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "uname",
@@ -1835,7 +1846,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 nproc has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "more",
@@ -1942,7 +1955,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 whoami has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "chgrp",
@@ -2116,7 +2131,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 logname has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "mkfifo",

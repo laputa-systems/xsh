@@ -139,6 +139,14 @@ pub fn uu_app() -> Command {
 '''
         self.assertRaises(surface.SurfaceParseError, surface.parse_uutils_source, source)
 
+    def test_optional_xsh_value_arity_fails_closed(self):
+        source = '''
+proc main(...argv: List[Str]) {
+  let opts = cli.applet(argv, {format: {form: "--format[=STYLE]"}})?
+}
+'''
+        self.assertRaises(surface.SurfaceParseError, surface.parse_xsh_source, source)
+
 
 if __name__ == "__main__":
     unittest.main()

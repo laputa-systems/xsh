@@ -14,12 +14,36 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 LOCK = REPO / "dev" / "compat" / "upstream.lock.json"
-SUPPORTED_UTILITIES = ("cat", "pwd", "uname", "wc", "yes")
+SUPPORTED_UTILITIES = (
+    "basename",
+    "cat",
+    "dirname",
+    "hostid",
+    "logname",
+    "nproc",
+    "printenv",
+    "pwd",
+    "sleep",
+    "tty",
+    "uname",
+    "wc",
+    "whoami",
+    "yes",
+)
 SOURCE_PATHS = {
+    "basename": ("basename/src/basename.rs", "basename.xsh"),
     "cat": ("cat/src/cat.rs", "cat.xsh"),
+    "dirname": ("dirname/src/dirname.rs", "dirname.xsh"),
+    "hostid": ("hostid/src/hostid.rs", "hostid.xsh"),
+    "logname": ("logname/src/logname.rs", "logname.xsh"),
+    "nproc": ("nproc/src/nproc.rs", "nproc.xsh"),
+    "printenv": ("printenv/src/printenv.rs", "printenv.xsh"),
     "pwd": ("pwd/src/pwd.rs", "pwd.xsh"),
+    "sleep": ("sleep/src/sleep.rs", "sleep.xsh"),
+    "tty": ("tty/src/tty.rs", "tty.xsh"),
     "uname": ("uname/src/uname.rs", "uname.xsh"),
     "wc": ("wc/src/wc.rs", "wc.xsh"),
+    "whoami": ("whoami/src/whoami.rs", "whoami.xsh"),
     "yes": ("yes/src/yes.rs", "yes.xsh"),
 }
 
@@ -252,6 +276,8 @@ def parse_uutils_source(source: str) -> dict[str, int]:
 
 
 def _form_entries(form: str, field: str) -> list[tuple[str, int]]:
+    if "[" in form or "]" in form:
+        raise SurfaceParseError(f"{field} uses an optional form that needs explicit arity handling")
     tokens = [token.rstrip(",") for token in form.split()]
     entries = []
     index = 0
