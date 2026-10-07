@@ -144,6 +144,11 @@ remain historical evidence only.
   26/26, and the optimized debug Gate 3 slice improves from 125/27 to 126/26
   across 152 cases with one fix and no regressions. Reports are in
   `results/printf-g-followup/`.
+- Follow-up `f5d04662` uses `Float.format_number` for fixed-point precision
+  above the scalar formatter's limit. A 70,123-digit request matches pinned
+  GNU; the native printf suite passes 27/27, and the optimized debug Gate 3
+  slice improves from 126/26 to 127/25 across 152 cases with one fix and no
+  regressions. Reports are in `results/printf-precision-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
