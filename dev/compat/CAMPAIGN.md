@@ -173,6 +173,28 @@ item. The parity inventory currently has 99 of 125 expanded Linux commands
 present; the other 26 are listed in `dev/coreutils-parity.json`. The campaign
 remains active and incomplete.
 
+### Current Wave 4 focused slices (2026-10-07)
+
+These changes were developed in separate worktrees based on `499d2949` and
+integrated into `master`. They are focused comparisons, not a rerun of the full
+compatibility gates.
+
+| Area | Pinned uutils slice | Focused native result |
+|---|---:|---:|
+| `ls` | 186/207, unchanged | 37/37 |
+| `sort` | 154/217 → 164/217 (+10, no regressions) | 48/48 |
+| `env` and `printf` | 206/252 → 214/252 (+8, no regressions) | 34/34 and 39/39 |
+
+The `ls` lane added two GNU-verified color-output regressions; no applet fix was
+warranted. The `sort` lane corrected key-field parsing and UTF-8 range handling.
+The selected GNU comparison has the same pass/fail result before and after: the
+remaining debug-key discrepancy is output-marker formatting, and the warning
+case depends on a locale diagnostic unavailable in the Alpine image. The `env`
+lane added GNU-verified ignore, default, and signal-list handling. Blocking
+signals still need a signal-mask API, and a broken-pipe case depends on
+SIGPIPE behavior across the existing exec boundary. Lane reports and logs are
+under `.work/ls-wave4/`, `.work/sort-wave4/`, and `.work/wave4/`.
+
 ### Gate C BusyBox pilot
 
 `upstream.lock.json` pins BusyBox 1.36.1 by archive SHA-256. The runner
