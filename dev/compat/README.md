@@ -208,6 +208,11 @@ contain control bytes, including embedded apostrophes. The native printf suite
 passes 33/33; the optimized debug Gate 3 slice improves from 134/18 to 135/17
 across 152 cases, with one fix and no regressions. The control-and-apostrophe
 case matches pinned GNU 9.11. Reports are in `results/printf-shell-quote/`.
+Follow-up `d7859e78` makes `%b` consume up to three octal digits after its
+`\0` prefix while retaining the format-string escape width. The native printf
+suite passes 33/33; the optimized debug Gate 3 slice improves from 135/17 to
+137/15 across 152 cases, fixing two escape cases with no regressions. Reports
+are in `results/printf-octal-b/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

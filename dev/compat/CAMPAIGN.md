@@ -181,6 +181,11 @@ remain historical evidence only.
   33/33; the optimized debug Gate 3 slice improves from 134/18 to 135/17
   across 152 cases, with one fix and no regressions. Its control-and-apostrophe
   result matches pinned GNU 9.11. Reports are in `results/printf-shell-quote/`.
+- Follow-up `d7859e78` lets `%b` consume up to three octal digits after its
+  `\0` prefix while retaining the format-string escape width. The native
+  printf suite passes 33/33; the optimized debug Gate 3 slice improves from
+  135/17 to 137/15 across 152 cases, fixing two escape cases with no
+  regressions. Reports are in `results/printf-octal-b/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
