@@ -122,6 +122,12 @@ remain historical evidence only.
   tests pass 9/9; the optimized debug Gate 3 slice improves from 43/174 to
   44/173 across 217 tests, fixing `test_no_error_for_version` with no
   regressions. Reports are in `results/sort-version-followup/`.
+- Follow-up `f1aef7a1` accepts `--output`, allows repeated identical output
+  paths, rejects different destinations, and preserves output paths beginning
+  with `--`. Focused native sort tests pass 10/10; Gate 3 improves from 44/173
+  to 46/171 across 217 tests, fixing `test_error_on_multiple_output_flags`
+  and `test_output_file_with_leading_dash` with no regressions. GNU probes
+  match; reports are in `results/sort-output-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail

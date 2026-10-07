@@ -151,6 +151,13 @@ Follow-up `5f7eedf1` adds GNU `sort --version` output. Native sort tests pass
 9/9; the optimized debug Gate 3 slice improves from 43/174 to 44/173 across
 217 tests, fixing `test_no_error_for_version` with no regressions. Reports are
 in `results/sort-version-followup/`.
+Follow-up `f1aef7a1` accepts `--output`, allows repeated identical output paths,
+rejects different destinations, and accepts output paths beginning with
+`--`. Native sort tests pass 10/10; the optimized debug Gate 3 slice improves
+from 44/173 to 46/171 across 217 tests, fixing
+`test_error_on_multiple_output_flags` and `test_output_file_with_leading_dash`
+with no regressions. GNU probes match; reports are in
+`results/sort-output-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
