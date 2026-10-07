@@ -139,6 +139,11 @@ remain historical evidence only.
   The native printf suite passes 25/25; the optimized debug Gate 3 slice
   improves from 122/30 to 125/27 across 152 cases, with three fixes and no
   regressions. Reports are in `results/printf-float-special-followup/`.
+- Follow-up `90ce7294` trims insignificant zeroes from `%g` mantissas before
+  their exponent. A pinned GNU probe matches; the native printf suite passes
+  26/26, and the optimized debug Gate 3 slice improves from 125/27 to 126/26
+  across 152 cases with one fix and no regressions. Reports are in
+  `results/printf-g-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

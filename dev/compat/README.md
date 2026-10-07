@@ -167,6 +167,10 @@ for zero-padded NaN and infinity, matching pinned GNU printf. The native suite
 passes 25/25; the optimized debug Gate 3 slice improves from 122/30 to 125/27
 across 152 cases, with three fixes and no regressions. Reports are in
 `results/printf-float-special-followup/`.
+Follow-up `90ce7294` trims insignificant `%g` mantissa zeroes before the
+exponent, matching a pinned GNU probe. The native suite passes 26/26; the
+optimized debug Gate 3 slice improves from 125/27 to 126/26 across 152 cases
+with one fix and no regressions. Reports are in `results/printf-g-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
