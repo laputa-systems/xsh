@@ -26,3 +26,15 @@ test test_mknod_type_mnemonics_and_operand_diagnostics { |ctx|
   assert "Special files require major and minor device numbers." in run_applet(ctx, root, ["node", "c"])?.stderr
   assert "Fifos do not have major and minor device numbers." in run_applet(ctx, root, ["other", "p", "1", "2"])?.stderr
 }
+
+
+test test_mknod_invalid_device_numbers_report_invalid_value { |ctx|
+  let root = test.temp_dir(ctx, name: "mknod-invalid-device-number")?
+  for args in [["node", "c", "c", "1"], ["node", "c", "1", "c"], ["node", "c", "4294967296", "1"]] {
+    let result = run_applet(ctx, root, args)?
+    let invalid = if args[2] == "1" { args[3] } else { args[2] }
+    assert result.status == 1
+    assert f"invalid value '{invalid}'" in result.stderr, result.stderr
+    assert ! fp"{root}/node".exists()?
+  }
+}

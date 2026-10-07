@@ -36,8 +36,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if kind != "fifo" {
     let a = args[2].parse_int()
     let b = args[3].parse_int()
-    if a is Err(_) or ((a ?? -1) < 0 or (a ?? -1) > 4294967295) { gnu.error(f"invalid major device number {gnu.quote(args[2])}"); exit 1 }
-    if b is Err(_) or ((b ?? -1) < 0 or (b ?? -1) > 4294967295) { gnu.error(f"invalid minor device number {gnu.quote(args[3])}"); exit 1 }
+    if a is Err(_) or ((a ?? -1) < 0 or (a ?? -1) > 4294967295) { gnu.error(f"invalid value {gnu.quote(args[2])}"); exit 1 }
+    if b is Err(_) or ((b ?? -1) < 0 or (b ?? -1) > 4294967295) { gnu.error(f"invalid value {gnu.quote(args[3])}"); exit 1 }
     major = a?
     minor = b?
   }
