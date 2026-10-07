@@ -115,7 +115,8 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
   let invalid_zero_flag = flags.find("0") != null and conversion in ["s", "c"]
   let invalid_character_precision = conversion == "c" and precision != null
   let invalid_quote_parameters = conversion == "q" and (flags != "" or width != 0 or width_dynamic or precision != null or precision_dynamic)
-  let valid = known_conversion and ! invalid_zero_flag and ! invalid_character_precision and ! invalid_quote_parameters
+  let invalid_escape_parameters = conversion == "b" and (flags != "" or width != 0 or width_dynamic or precision != null or precision_dynamic)
+  let valid = known_conversion and ! invalid_zero_flag and ! invalid_character_precision and ! invalid_quote_parameters and ! invalid_escape_parameters
 
   {end: if conversion == "" { at } else { at + 1 }, flags: flags, width: width, width_dynamic: width_dynamic, precision: precision, precision_dynamic: precision_dynamic, position: position, width_position: width_position, precision_position: precision_position, conversion: conversion, valid: valid}
 }

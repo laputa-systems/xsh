@@ -108,6 +108,14 @@ test test_printf_rejects_width_for_shell_quote_conversion { |ctx|
   assert output.stderr == "printf: %7q: invalid conversion specification\n"
 }
 
+test test_printf_rejects_field_parameters_for_escape_conversion { |ctx|
+  let output = printf_run(ctx, ["prefix%7b", "world"])?
+
+  assert output.status == 1
+  assert output.stdout == "prefix"
+  assert output.stderr == "printf: %7b: invalid conversion specification\n"
+}
+
 test test_printf_numeric_string_and_character_conversions { |ctx|
   let output = printf_run(ctx, ["[%05d][%-5s][%.3s][%#x][%c]", "-12", "xy", "abcdef", "26", "65"])?
 
