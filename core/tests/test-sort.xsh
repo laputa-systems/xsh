@@ -11,6 +11,28 @@ test test_sort_unique_reverse { |ctx|
   assert by_second_lines[2] == "b,20"
 }
 
+test test_sort_fold_case_uses_raw_line_as_tie_breaker { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-fold-case-tie")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"A\na\n_\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-f"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"A\na\n_\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let unique_input = b"a\n_\n"
+  let unique = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-fu"], root,
+    {LC_ALL: "C"}, unique_input, stdout, stderr))?
+  assert unique.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\n_\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "sort-input-check")?
   let fifo = fp"{root}/FIFO"

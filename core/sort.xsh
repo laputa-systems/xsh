@@ -30,7 +30,7 @@ pure field_key(line: Str, delimiter: Str, field: Int, fold_case: Bool) -> Str {
   let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
   let key = parts.get(field) ?? ""
   if fold_case {
-    key.lower()
+    key.upper()
   } else {
     key
   }
@@ -48,7 +48,7 @@ pure trim_leading_blanks(line: Str) -> Str {
 
 pure blank_text_key(line: Str, fold_case: Bool) -> Str {
   let key = trim_leading_blanks(line)
-  if fold_case { key.lower() } else { key }
+  if fold_case { key.upper() } else { key }
 }
 
 ## GNU sort uses the full line as a last-resort key after the blank-skipping key.
@@ -72,7 +72,11 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
   } else if opts.blank {
     blank_sorted(pair, opts.reverse, opts.fold_case)
   } else if opts.fold_case {
-    if opts.reverse { pair |> sort-by(desc: true) .lower() } else { pair |> sort-by .lower() }
+    if opts.reverse {
+      pair |> sort-by(desc: true) { |line| {key: line.upper(), raw: line} }
+    } else {
+      pair |> sort-by { |line| {key: line.upper(), raw: line} }
+    }
   } else if opts.reverse {
     pair |> sort-by(desc: true) .
   } else {
@@ -91,7 +95,7 @@ pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_
   } else if opts.blank {
     blank_text_key(left, opts.fold_case) == blank_text_key(right, opts.fold_case)
   } else if opts.fold_case {
-    left.lower() == right.lower()
+    left.upper() == right.upper()
   } else {
     left == right
   }
@@ -307,9 +311,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     blank_sorted(input_lines, opts.reverse, opts.fold_case)
   } else if opts.fold_case {
     if opts.reverse {
-      input_lines |> sort-by(desc: true) .lower()
+      input_lines |> sort-by(desc: true) { |line| {key: line.upper(), raw: line} }
     } else {
-      input_lines |> sort-by .lower()
+      input_lines |> sort-by { |line| {key: line.upper(), raw: line} }
     }
   } else if opts.reverse {
     input_lines |> sort-by(desc: true) .
