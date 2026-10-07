@@ -14,8 +14,10 @@ type SortOptions = {
   ignore_nonprinting: Bool,
   blank: Bool,
   stable: Bool,
+  merge: Bool,
   version_sort: Bool,
   sort_mode: List[Str],
+  batch_size: Str?,
   debug: Bool,
   key: Str,
   delimiter: Str,
@@ -34,6 +36,7 @@ type HumanNumericSortKey = {key: Str, raw: Str}
 type GeneralNumericSortKey = {key: Str, raw: Str}
 type TextSortKey = {key: Str, raw: Str}
 type SortInput = {name: Bytes, path: Path, stdin: Bool}
+type SortMergeReader = {fd: Int, name: Bytes, pending: Bytes, eof: Bool, current: Str?}
 
 pure numeric_key(line: Str) -> Str {
   numeric_order_key(line)
@@ -817,8 +820,8 @@ pure normalize_output_args(argv: List[Str]) -> List[Str] {
 }
 
 ## A final unterminated record in one operand ends before the next operand starts.
-proc read_sort_input(sources: List[SortInput], separator: Str) [fs, io, process, error] -> Str {
-  var input = ""
+proc read_sort_records(sources: List[SortInput], zero_terminated: Bool) [fs, io, process, error] -> List[List[Str]] {
+  var records: List[List[Str]] = []
   for source in sources {
     let part = if source.stdin {
       io.stdin_text()?
@@ -831,12 +834,224 @@ proc read_sort_input(sources: List[SortInput], separator: Str) [fs, io, process,
         }
       }
     }
-    if input != "" and ! input.ends_with(separator) {
-      input += separator
-    }
-    input += part
+    records += [input_records(part, zero_terminated)]
   }
-  input
+  records
+}
+
+## Merge one current record from each input; ties keep the earlier input first.
+pure merge_sort_records(sources: List[List[Str]], opts: SortOptions, has_key: Bool, key_field: Int) -> List[Str] {
+  let plain_text_order = ! has_key and ! is_month_sort(opts) and ! is_human_numeric_sort(opts) and
+    ! is_general_numeric_sort(opts) and ! is_version_sort(opts) and ! is_numeric_sort(opts) and
+    ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting
+  var positions: List[Int] = []
+  for _ in sources { positions += [0] }
+  var merged: List[Str] = []
+
+  loop {
+    var selected: Int? = null
+    for index in range(sources.len()) {
+      let position = positions[index]
+      if position < sources[index].len() {
+        if let current_index = selected {
+          let candidate = sources[index][position]
+          let current = sources[current_index][positions[current_index]]
+          let candidate_precedes = if plain_text_order {
+            if opts.reverse { candidate > current } else { candidate < current }
+          } else {
+            pair_is_ordered(candidate, current, opts, has_key, key_field) and
+              ! pair_is_ordered(current, candidate, opts, has_key, key_field)
+          }
+          if candidate_precedes {
+            selected = index
+          }
+        } else {
+          selected = index
+        }
+      }
+    }
+
+    if let index = selected {
+      merged += [sources[index][positions[index]]]
+      positions[index] += 1
+    } else {
+      break
+    }
+  }
+
+  merged
+}
+
+## Read one newline or NUL-delimited record while retaining only the unfinished suffix.
+proc advance_sort_merge_reader(reader: SortMergeReader, zero_terminated: Bool) [io, error] -> Result[SortMergeReader, Error] {
+  var pending = reader.pending
+  var eof = reader.eof
+  let separator = if zero_terminated { 0 } else { 10 }
+
+  loop {
+    for at in range(pending.len()) {
+      if pending.byte_at(at) == separator {
+        let record = pending[0..at].utf8()?
+        return Ok({...reader, pending: pending[at + 1..], eof: eof, current: record})
+      }
+    }
+
+    if eof {
+      if pending.is_empty() {
+        return Ok({...reader, pending: b"", current: null, eof: true})
+      }
+      let record = pending.utf8()?
+      return Ok({...reader, pending: b"", current: record, eof: true})
+    }
+
+    let chunk = unix.read_fd(reader.fd, 65536)?
+    if chunk.is_empty() {
+      eof = true
+    } else {
+      pending = bytes.concat([pending, chunk])
+    }
+  }
+  fail "sort merge reader ended unexpectedly"
+}
+
+## Open all source streams only when their descriptor count stays within the process and batch limits.
+proc can_stream_sort_merge(inputs: List[SortInput], opts: SortOptions, check_enabled: Bool, inputs_are_regular: Bool) [process, error] -> Bool {
+  if ! opts.merge or check_enabled or opts.debug or ! opts.output.is_empty() or ! inputs_are_regular { return false }
+
+  let limit = process.rlimit("nofile")?
+  let open_limit = if let soft = limit.soft { soft - 3 } else { inputs.len() }
+  let batch_limit = if let size = opts.batch_size { size.parse_int()? } else { open_limit }
+  let maximum = if batch_limit < open_limit { batch_limit } else { open_limit }
+  inputs.len() <= maximum
+}
+
+## Merge sorted file streams directly to stdout so a failed writer stops further reads.
+proc stream_sort_merge(inputs: List[SortInput], opts: SortOptions, has_key: Bool, key_field: Int) [fs, io, env, process, error] {
+  var readers: List[SortMergeReader] = []
+  for input in inputs {
+    match unix.open_fd(input.path) {
+      Ok(fd) => readers += [{fd: fd, name: input.name, pending: b"", eof: false, current: null}]
+      Err(failure) => {
+        gnu.error(f"cannot read: {gnu.quote_bytes(input.name, always: false)}: {gnu.strerror(failure)}")
+        exit 2
+      }
+    }
+  }
+
+  for index in range(readers.len()) {
+    match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
+      Ok(reader) => readers[index] = reader
+      Err(failure) => {
+        gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
+        exit 2
+      }
+    }
+  }
+
+  let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
+  var output = ""
+  var previous: Str? = null
+  loop {
+    var selected: Int? = null
+    for index in range(readers.len()) {
+      if let candidate = readers[index].current {
+        if let current_index = selected {
+          let current = readers[current_index].current ?? ""
+          let plain_text_order = ! has_key and ! is_month_sort(opts) and ! is_human_numeric_sort(opts) and
+            ! is_general_numeric_sort(opts) and ! is_version_sort(opts) and ! is_numeric_sort(opts) and
+            ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting
+          let candidate_precedes = if plain_text_order {
+            if opts.reverse { candidate > current } else { candidate < current }
+          } else {
+            pair_is_ordered(candidate, current, opts, has_key, key_field) and
+              ! pair_is_ordered(current, candidate, opts, has_key, key_field)
+          }
+          if candidate_precedes { selected = index }
+        } else {
+          selected = index
+        }
+      }
+    }
+
+    if let index = selected {
+      let line = readers[index].current ?? ""
+      let duplicate = if opts.unique {
+        if let prior = previous { same_sort_key(prior, line, opts, has_key, key_field) } else { false }
+      } else { false }
+      if ! duplicate {
+        output += f"{line}{line_ending}"
+        if output.byte_len() >= 65536 {
+          write_sort_stdout(output)
+          output = ""
+        }
+      }
+      previous = line
+      match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
+        Ok(reader) => readers[index] = reader
+        Err(failure) => {
+          gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
+          exit 2
+        }
+      }
+    } else {
+      break
+    }
+  }
+
+  if output != "" { finish_sort_stdout(output) }
+  for reader in readers { unix.close_fd(reader.fd)? }
+}
+
+## GNU sort reserves three descriptors for standard streams and signal handling.
+proc validate_batch_size(value: Str) [process, env, error] -> Unit {
+  let raw = bytes.from_text(value)
+  var valid = raw.len() > 0
+  for at in range(raw.len()) {
+    if ! is_ascii_digit(raw.byte_at(at) ?? 0) { valid = false }
+  }
+  if ! valid {
+    gnu.error(f"invalid --batch-size argument {gnu.quote(value)}")
+    exit 2
+  }
+
+  let limit = process.rlimit("nofile")?
+  let maximum = if let soft = limit.soft { soft - 3 } else { 9223372036854775807 }
+  match value.parse_int() {
+    Ok(size) => {
+      if size < 2 {
+        gnu.error(f"invalid --batch-size argument {gnu.quote(value)}")
+        gnu.error("minimum --batch-size argument is '2'")
+        exit 2
+      }
+      if size > maximum {
+        gnu.error(f"--batch-size argument {gnu.quote(value)} too large")
+        gnu.error(f"maximum --batch-size argument with current rlimit is {maximum}")
+        exit 2
+      }
+    }
+    Err(_) => {
+      gnu.error(f"--batch-size argument {gnu.quote(value)} too large")
+      gnu.error(f"maximum --batch-size argument with current rlimit is {maximum}")
+      exit 2
+    }
+  }
+}
+
+## Flush an intermediate merge chunk so failed output stops further input reads.
+proc write_sort_stdout(text: Str) [io, env, process] -> Unit {
+  gnu.write_text(text)
+}
+
+## Final merge output uses sort's named stdout diagnostic.
+proc finish_sort_stdout(text: Str) [io, env, process] -> Unit {
+  if let Err(failure) = io.write_stdout(text) {
+    gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
+    exit 2
+  }
+  if let Err(failure) = io.flush_stdout() {
+    gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
+    exit 2
+  }
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
@@ -899,6 +1114,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         form: "-s --stable",
         default: false,
       },
+      merge: {
+        form: "-m --merge",
+        default: false,
+      },
+      batch_size: {
+        form: "--batch-size SIZE",
+      },
       key: {
         form: "-k KEY",
         default: "",
@@ -946,6 +1168,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.version("sort")
     return
   }
+
+  if let batch_size = opts.batch_size { validate_batch_size(batch_size) }
 
   let selected_mode = selected_sort_mode(opts)
   let general_numeric = is_general_numeric_sort(opts)
@@ -1004,7 +1228,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let check_mode = if opts.check != "" { opts.check } else if opts.short_check { "diagnose-first" } else { "" }
   let check_enabled = check_mode != "" or opts.silent_check
   let silent_check = opts.silent_check or check_mode in ["silent", "quiet", "silen", "quie", "s", "q"]
-  let {delimiter, paths, ..} = opts
+  let delimiter = if opts.delimiter == "\\0" { "\0" } else { opts.delimiter }
+  let paths = opts.paths
+  if delimiter != "" and delimiter.count_chars() != 1 {
+    gnu.error(f"separator must be exactly one character long: {gnu.quote(delimiter)}")
+    exit 2
+  }
 
   let check_is_silent = check_mode in ["silent", "quiet", "silen", "quie", "s", "q"]
   if opts.silent_check and (opts.short_check or (opts.check != "" and ! check_is_silent)) {
@@ -1066,18 +1295,32 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
+  var inputs_are_regular = true
   for input in inputs {
-    if ! input.stdin {
-      if let Err(failure) = fs.stat(input.path, follow_symlinks: true) {
-        gnu.error(f"cannot read: {gnu.quote_bytes(input.name, always: false)}: {gnu.strerror(failure)}")
-        exit 2
+    if input.stdin {
+      inputs_are_regular = false
+    } else {
+      match fs.stat(input.path, follow_symlinks: true) {
+        Ok(metadata) => if metadata.mode / 4096 % 16 != 8 { inputs_are_regular = false }
+        Err(failure) => {
+          gnu.error(f"cannot read: {gnu.quote_bytes(input.name, always: false)}: {gnu.strerror(failure)}")
+          exit 2
+        }
       }
     }
   }
 
-  let input_separator = if opts.zero_terminated { "\0" } else { "\n" }
-  let input = read_sort_input(inputs, input_separator)
-  let input_lines = input_records(input, opts.zero_terminated)
+  if can_stream_sort_merge(inputs, opts, check_enabled, inputs_are_regular) {
+    stream_sort_merge(inputs, opts, has_key, key_field)
+    return
+  }
+  let source_records = read_sort_records(inputs, opts.zero_terminated)
+  var input_lines: List[Str] = []
+  if opts.merge {
+    input_lines = merge_sort_records(source_records, opts, has_key, key_field)
+  } else {
+    for records in source_records { input_lines += records }
+  }
   if check_enabled {
     if input_lines.len() > 1 {
       for index in range(1, input_lines.len()) {
@@ -1102,7 +1345,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  let sorted = if is_month_sort(opts) and has_key {
+  let sorted = if opts.merge {
+    input_lines
+  } else if is_month_sort(opts) and has_key {
     if opts.reverse {
       input_lines |> sort-by(desc: true) month_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
     } else {
@@ -1201,20 +1446,27 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
   let text = if opts.debug {
     debug_sort_text(lines, opts, has_key, key_field)
-  } else if lines.is_empty() {
+  } else if opts.merge or lines.is_empty() {
     ""
   } else {
     f"{lines.join(line_ending)}{line_ending}"
   }
 
   if has_output {
-    if let Err(failure) = output.write(text) {
+    let output_text = if opts.merge and ! opts.debug and ! lines.is_empty() {
+      f"{lines.join(line_ending)}{line_ending}"
+    } else { text }
+    if let Err(failure) = output.write(output_text) {
       let action = if let Ok(_) = fs.stat(output, follow_symlinks: true) { "write failed" } else { "open failed" }
       gnu.error(f"{action}: {gnu.quote_maybe(output_path)}: {gnu.strerror(failure)}")
       exit 2
     }
+  } else if opts.merge and ! opts.debug {
+    for line in lines {
+      finish_sort_stdout(f"{line}{line_ending}")
+    }
   } else if opts.zero_terminated or opts.debug {
-    gnu.write_text(text)
+    write_sort_stdout(text)
   } else {
     for line in lines {
       print $line

@@ -209,6 +209,156 @@ test test_sort_files0_from_reads_raw_file_name_lists { |ctx|
   assert stderr.read_text()? == "sort: -:2: invalid zero-length file name\n"
 }
 
+test test_sort_merge_orders_sorted_inputs_with_sort_options { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-merge")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+
+  first.write("alpha\ngamma\n")
+  second.write("beta\ndelta\n")
+  let merged = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert merged.exit_code()? == 0
+  assert stdout.read_bytes()? == b"alpha\nbeta\ndelta\ngamma\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let checked = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-c", first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert checked.exit_code()? == 0
+  assert stdout.read_bytes()?.is_empty()
+  assert stderr.read_bytes()?.is_empty()
+
+  first.write("9\n5\n1\n")
+  second.write("8\n4\n2\n")
+  let reversed = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-r", first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert reversed.exit_code()? == 0
+  assert stdout.read_bytes()? == b"9\n8\n5\n4\n2\n1\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  first.write("01 apple\n2 pear\n")
+  second.write("1 banana\n3 plum\n")
+  let stable = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-s", "-n", "-k1,1", first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert stable.exit_code()? == 0
+  assert stdout.read_bytes()? == b"01 apple\n1 banana\n2 pear\n3 plum\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  first.write(b"alpha\0gamma\0")
+  second.write(b"beta\0delta\0")
+  let zero_terminated = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-z", first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert zero_terminated.exit_code()? == 0
+  assert stdout.read_bytes()? == b"alpha\0beta\0delta\0gamma\0"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_merge_unique_and_output_file { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-merge-unique-output")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  let output = fp"{root}/output"
+
+  first.write("1\n3\n5\n")
+  second.write("1.0\n2\n3.0\n")
+  let unique = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-n", "-u", first.display(), second.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert unique.exit_code()? == 0
+  assert stdout.read_bytes()? == b"1\n2\n3\n5\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  output.write("stale contents that must be truncated\n")
+  let redirected = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "-o", output.display(), first.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert redirected.exit_code()? == 0
+  assert stdout.read_bytes()?.is_empty()
+  assert output.read_bytes()? == b"1\n3\n5\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_batch_size_validation { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-batch-size")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+
+  let minimum = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--batch-size=0"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert minimum.exit_code()? == 2
+  assert stderr.read_text()? == "sort: invalid --batch-size argument '0'\nsort: minimum --batch-size argument is '2'\n"
+  assert stdout.read_bytes()?.is_empty()
+
+  let invalid = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "--batch-size=a"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert invalid.exit_code()? == 2
+  assert stderr.read_text()? == "sort: invalid --batch-size argument 'a'\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_separator_null_and_invalid_character_counts { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-separator")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"a\0z\nb\0a\n"
+  let null_separator = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-k2", "-t", "\\0"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert null_separator.exit_code()? == 0
+  assert stdout.read_bytes()? == b"b\0a\na\0z\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let attached_equals = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-t=", "-k2"], root,
+    {LC_ALL: "C"}, b"a=b=c\nb=a=d\n", stdout, stderr))?
+  assert attached_equals.exit_code()? == 0
+  assert stdout.read_bytes()? == b"b=a=d\na=b=c\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  for separator in ["==", "=a"] {
+    let invalid = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), "-t", separator, "-k2"], root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert invalid.exit_code()? == 2
+    let expected = if separator == "==" { "sort: separator must be exactly one character long: '=='\n" } else { "sort: separator must be exactly one character long: '=a'\n" }
+    assert stderr.read_text()? == expected
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
+test test_sort_merge_reports_stdout_write_failure { |ctx|
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  let root = test.temp_dir(ctx, name: "sort-merge-write-failure")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  first.write("a\n")
+  second.write("b\n")
+  let status = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display(), "-m", first.display(), second.display()],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 2, stderr.read_text()?
+  assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
 test test_sort_general_numeric_hexadecimal_values { |ctx|
   let root = test.temp_dir(ctx, name: "sort-general-hex")?
   let script = fp"{ctx.core_dir}/sort.xsh"
