@@ -112,6 +112,12 @@ remain historical evidence only.
   improves from 41/176 to 43/174 across 217 cases, fixing `sort_multiple` and
   `test_start_buffer` with no regressions. Reports are in
   `results/sort-input-boundary/`.
+- Follow-up `dfed771c` applies `sort -b` to the comparison key while retaining
+  GNU's raw-line tie-break, and uses that ordering in `-c` checks. Focused
+  native sort tests pass 8/8, and a pinned GNU C-locale probe matches. The
+  Gate 3 slice remains 43/174 with no regressions; its `test_blanks` also
+  invokes `--debug`, which this applet does not yet implement. The report is
+  in `results/sort-blanks-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
