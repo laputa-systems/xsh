@@ -61,6 +61,18 @@ test test_chgrp_validates_from_before_group_operand { |ctx|
   assert result.stderr == "chgrp: invalid user: 'xsh-missing-user'\n"
 }
 
+test test_chgrp_verbose_permission_error_is_reported_on_stderr { |ctx|
+  if user.current()?.uid == 0 { test.skip("root can change the target group"); return }
+
+  let target = test.temp_file(ctx, name: "reference-denied", contents: b"x")?
+  let result = perm_run(ctx, ["-v", "--reference=/etc/passwd", target])?
+
+  assert result.status == 1
+  assert result.stdout == ""
+  assert result.stderr.starts_with(f"chgrp: changing group of '{target}': Operation not permitted\n"), result.stderr
+  assert result.stderr.find(f"failed to change group of '{target}' from ") != null, result.stderr
+}
+
 test test_chgrp_accepts_non_utf8_operand_bytes { |ctx|
   let root = test.temp_dir(ctx, name: "raw-group-operand")?
   let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?

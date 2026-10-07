@@ -52,6 +52,13 @@ test test_dir_lists_in_columns_with_escaped_names { |ctx|
   assert ls_in(ctx, work, ["-l", "--time-style=+T", "-og"])?.text == "total 0\n-rw-r--r-- 1 0 T a\\ b\n-rw-r--r-- 1 0 T c\n"
 }
 
+test test_dir_explicit_literal_style_preserves_newlines { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/a\nb".write("")
+  let result = ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"})?
+  assert result.text == "a\nb\n", result.text
+}
+
 test test_dir_help_and_errors_name_dir { |ctx|
   let work = sandbox(ctx)?
   let help = ls_in(ctx, work, ["--help"])?

@@ -54,6 +54,13 @@ test test_vdir_lists_long_by_default { |ctx|
   assert ls_in(ctx, work, ["-C"], {LC_ALL: "C", TZ: "UTC", TIME_STYLE: "invalid"})?.status == 0, "the time style is only checked for long listings"
 }
 
+test test_vdir_explicit_literal_style_preserves_newlines { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/a\nb".write("")
+  let result = ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"})?
+  assert " a\nb\n" in result.text, result.text
+}
+
 test test_vdir_time_selection_keeps_name_order { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/a".write("")

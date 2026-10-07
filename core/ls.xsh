@@ -343,7 +343,8 @@ const HYPERLINK_END = b"\x1b]8;;\x1b\\"
 const TIME_STYLE_NAMES = ["full-iso", "long-iso", "iso", "locale"]
 
 # GNU argmatch: an exact name wins, otherwise a prefix that all candidates with
-# the same value agree on. `values` parallels `names`.
+# the same value agree on. `values` parallels `names`. Invalid values exit 1;
+# malformed option syntax exits 2.
 proc argmatch(text: Str, names: List[Str], values: List[Str], option: Str) [process, env] -> Str {
   for index in range(names.len()) {
     return values[index] when names[index] == text
@@ -380,7 +381,7 @@ proc argmatch(text: Str, names: List[Str], values: List[Str], option: Str) [proc
 
   eprint $line
   gnu.try_help()
-  exit 2
+  exit 1
 }
 
 # `strtoul` with base 0 over the whole text: decimal, 0x hex, 0 octal. A value
@@ -542,6 +543,7 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
       quoting: "literal",
       hide_control: false,
       show_control: true,
+      # --zero resets earlier color selection; a later --color can opt back in.
       color: "never",
     }
     else => c
@@ -1799,6 +1801,8 @@ pure glob_matches(globs: List[Glob], name: Str) -> Bool {
   false
 }
 
+# Use the default color palette only when the selected terminal advertises
+# color support; an explicit LS_COLORS value supplies its own palette.
 proc terminal_has_color() [process, env] -> Bool {
   return true when (env_text("COLORTERM") ?? "") != ""
 
@@ -3248,7 +3252,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   let formats = if long { time_formats(cfg) } else { ["%b %e  %Y", "%b %e %H:%M"] }
   let ignore_globs = [compile_glob(pattern) for pattern in cfg.ignores]
   let hide_globs = [compile_glob(pattern) for pattern in cfg.hides]
-  let qmark_newline = !cfg.show_control and !cfg.zero and (
+  let qmark_newline = cfg.quoting == null and !cfg.show_control and !cfg.zero and (
     cfg.format == "single-column" or cfg.format == "long" or (line_length > 0 and cfg.format in ["columns", "across", "commas"])
   )
 

@@ -71,6 +71,17 @@ test test_cat_reports_each_failure_and_exits_one { |ctx|
   assert result.stderr == "cat: missing: No such file or directory\ncat: dir: Is a directory\ncat: 'two words': No such file or directory\n", result.stderr
 }
 
+test test_cat_reports_the_gnu_symlink_loop_error { |ctx|
+  let root = test.temp_dir(ctx, name: "cat-loop")?
+  fp"{root}/1".symlink(to: p"2")
+  fp"{root}/2".symlink(to: p"3")
+  fp"{root}/3".symlink(to: p"1")
+
+  let result = cat_run(ctx, root, ["1"])?
+  assert result.status == 1
+  assert result.stderr == "cat: 1: Too many levels of symbolic links\n", result.stderr
+}
+
 test test_cat_refuses_to_copy_a_file_onto_itself { |ctx|
   let root = test.temp_dir(ctx, name: "cat")?
   fp"{root}/loop".write(b"data\n")

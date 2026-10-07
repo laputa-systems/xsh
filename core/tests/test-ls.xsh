@@ -148,7 +148,7 @@ test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
   assert ambiguous.err == "ls: option '--al' is ambiguous; possibilities: '--all' '--almost-all'\nTry 'ls --help' for more information.\n", ambiguous.err
 
   let value = ls_in(ctx, work, ["--format=nope"])?
-  assert value.status == 2
+  assert value.status == 1
   assert value.out == b""
   assert value.err.starts_with(
     "ls: invalid argument 'nope' for '--format'\nValid arguments are:\n  - 'verbose', 'long'\n",
@@ -166,6 +166,13 @@ test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
   assert style.status == 2
   assert style.err == "ls: invalid --time-style argument 'bogus'\nPossible values are:\n  - [posix-]full-iso\n  - [posix-]long-iso\n  - [posix-]iso\n  - [posix-]locale\n  - +FORMAT (e.g., +%H:%M) for a 'date'-style format\n\nFor more information try --help\n", style.err
   assert ls_in(ctx, work, ["--time-style=bogus"])?.status == 0, "the style is checked only for long listings"
+}
+
+test test_ls_invalid_value_uses_failure_status { |ctx|
+  let work = sandbox(ctx)?
+  let result = ls_in(ctx, work, ["--classify=definitely_invalid_value"])?
+  assert result.status == 1, result.err
+  assert result.err.starts_with("ls: invalid argument 'definitely_invalid_value' for '--classify'\n"), result.err
 }
 
 test test_ls_long_format_columns { |ctx|
@@ -217,7 +224,7 @@ test test_ls_sort_orders { |ctx|
   assert ls_in(ctx, work, ["-X"])?.text == "a10\na2\ndd\nc.md\nb.txt\n"
   assert ls_in(ctx, work, ["--sort=width"])?.text == "a2\ndd\na10\nc.md\nb.txt\n"
   assert ls_in(ctx, work, ["-U", "-r"])?.status == 0
-  assert ls_in(ctx, work, ["--sort=nope"])?.status == 2
+  assert ls_in(ctx, work, ["--sort=nope"])?.status == 1
 }
 
 test test_ls_groups_directories_first { |ctx|
@@ -467,6 +474,30 @@ test test_ls_color_fallback_requires_a_known_terminal { |ctx|
 
   let colorterm = ls_in(ctx, work, ["--color=always", "exe"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "", COLORTERM: "true"})?
   assert colorterm.text == "\u{1b}[0m\u{1b}[01;32mexe\u{1b}[0m\n", colorterm.text
+}
+
+test test_ls_explicit_color_survives_format_options { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/dir".mkdir()
+  let vars = {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "xterm", COLORTERM: ""}
+
+  for args in [["--color=always", "-f"], ["-f", "--color=always"]] {
+    assert ls_in(ctx, work, args, vars)?.text.find("\u{1b}[01;34m") != null
+  }
+
+  let zero_resets = ls_in(ctx, work, ["--color=always", "--zero"], vars)?
+  assert zero_resets.text.find("\u{1b}") == null, zero_resets.text
+
+  let color_after_zero = ls_in(ctx, work, ["--zero", "--color=always"], vars)?
+  assert color_after_zero.text.find("\u{1b}[01;34m") != null, color_after_zero.text
+}
+
+test test_ls_explicit_literal_style_preserves_newlines { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/name\npart".write("")
+
+  assert ls_in(ctx, work, ["--quoting-style=literal"])?.text == "name\npart\n"
+  assert ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC", QUOTING_STYLE: "literal"})?.text == "name\npart\n"
 }
 
 test test_ls_color_normal_attributes_apply_to_long_fields { |ctx|

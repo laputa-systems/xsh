@@ -225,7 +225,7 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, group
   let result = fs.set_owner(target, uid: ids.uid, gid: ids.gid, follow_symlinks: opts.dereference)
   if let Err(failure) = result {
     if ! opts.quiet { gnu.error(f"changing {noun} of {gnu.quote(name)}: {gnu.strerror(failure)}") }
-    if opts.verbosity == "verbose" { gnu.write_text(f"failed to change {noun} of {gnu.quote(name)} from {owner_label(old, group_only or ids.uid == null)} to {owner_label(ids, group_only)}\n") }
+    if opts.verbosity == "verbose" { eprint f"failed to change {noun} of {gnu.quote(name)} from {owner_label(old, group_only or ids.uid == null)} to {owner_label(ids, group_only)}" }
     return false
   }
   if opts.verbosity == "verbose" and ids.uid == null and ids.gid == null {
