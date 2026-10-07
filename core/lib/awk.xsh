@@ -1144,28 +1144,38 @@ pure call(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
   Ok(result(m, value))
 }
 
-type ReadRecord = {content: Str?, position: Int}
-pure record_at(content: Str, position: Int, separator: Str) -> ReadRecord {
+type ReadRecord = {content: Str?, position: Int, terminator: Str}
+# GNU awk treats one-character RS values literally and longer values as regexes.
+pure record_at(content: Str, position: Int, separator: Str) -> Result[ReadRecord] {
+  if position == content.byte_len() + 1 { return Ok({content: "", position: position + 1, terminator: ""}) }
+  if position > content.byte_len() { return Ok({content: null, position: position, terminator: ""}) }
   var at = position
-  if at >= content.byte_len() { return {content: null, position: at} }
+  if at >= content.byte_len() { return Ok({content: null, position: at, terminator: ""}) }
   if separator.is_empty() {
     while content.byte_at(at) == 10 { at += 1 }
-    if at >= content.byte_len() { return {content: null, position: at} }
+    if at >= content.byte_len() { return Ok({content: null, position: at, terminator: ""}) }
     let blank = content.find("\n\n", at)
     if blank == null {
       var end = content.byte_len()
       while end > at and content.byte_at(end - 1) == 10 { end -= 1 }
-      return {content: content.byte_slice(at, length: end - at), position: content.byte_len()}
+      return Ok({content: content.byte_slice(at, length: end - at), position: content.byte_len(), terminator: ""})
     }
     let piece = content.byte_slice(at, length: blank - at)
     at = blank + 2
     while content.byte_at(at) == 10 { at += 1 }
-    return {content: piece, position: at}
+    return Ok({content: piece, position: at, terminator: content.byte_slice(blank, length: at - blank)})
   }
-  let delimiter = separator.split("")[0]
-  let found = content.find(delimiter, at)
-  if found == null { return {content: content.byte_slice(at), position: content.byte_len()} }
-  {content: content.byte_slice(at, length: found - at), position: found + delimiter.byte_len()}
+  if separator.count_chars() == 1 {
+    let found = content.find(separator, at)
+    if found == null { return Ok({content: content.byte_slice(at), position: content.byte_len(), terminator: ""}) }
+    return Ok({content: content.byte_slice(at, length: found - at), position: found + separator.byte_len(), terminator: separator})
+  }
+  for hit in regex.find_bytes(separator, bytes.from_text(content), extended: true)? {
+    if hit.start < at or hit.end == hit.start { continue }
+    let terminator = content.byte_slice(hit.start, length: hit.end - hit.start)
+    return Ok({content: content.byte_slice(at, length: hit.start - at), position: if hit.end == content.byte_len() { hit.end + 1 } else { hit.end }, terminator: terminator})
+  }
+  Ok({content: content.byte_slice(at), position: content.byte_len(), terminator: ""})
 }
 pure binding_name(content: Str) -> Bool {
   if content.is_empty() or ! letter(content.byte_at(0) ?? 0) { return false }
@@ -1181,7 +1191,7 @@ pure binding(machine: Machine, item: Str) -> Result[Machine] {
   assign_variable(machine, name, input(decoded.content)?)
 }
 pure new_machine(program: Program, separator: Str) -> Machine {
-  let values: Map[Scalar] = {"FS": String(separator), "OFS": String(" "), "RS": String("\n"), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0)}
+  let values: Map[Scalar] = {"FS": String(separator), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0)}
   Machine(program: program, values: values, arrays: {}, scopes: [], fields: [], record: "", output: "", status: 0, flow: Normal, value: Empty, steps: 0, depth: 0)
 }
 
@@ -1220,10 +1230,11 @@ export pure execute(source: Str, inputs: List[Str], names: List[Str], variables:
       loop {
         if m.flow == ExitProgram { break }
         if m.flow == NextRecord { m.flow = Normal }
-        let next = record_at(inputs[index], position, variable_text(m, "RS")?)
+        let next = record_at(inputs[index], position, variable_text(m, "RS")?)?
         position = next.position
         if next.content == null { break }
         m = record(m, next.content)?
+        m = assign_variable(m, "RT", String(next.terminator))?
         m = assign_variable(m, "NR", Numeric(number(get(m, "NR"))? + 1.0))?
         m = assign_variable(m, "FNR", Numeric(number(get(m, "FNR"))? + 1.0))?
         for at in range(program.rules.len()) {

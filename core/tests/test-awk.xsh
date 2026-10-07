@@ -103,3 +103,17 @@ test test_awk_printf_alternate_general_format_counts_significant_digits { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { printf "%#.6g %.0f %#.0f\n", 0.0012, 2, 2 }"""
   assert output == "0.00120000 2 2.\n"
 }
+
+test test_awk_gawk_regex_record_separators_and_rt { |ctx|
+  let input = test.temp_file(ctx, name: "records", contents: b"::alpha::beta--omega::")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { RS = "::|--" } { print NR, "[" $0 "]", "[" RT "]" }""" $input
+  assert output == "1 [] [::]\n2 [alpha] [::]\n3 [beta] [--]\n4 [omega] [::]\n5 [] []\n"
+
+  let dotted = test.temp_file(ctx, name: "dotted", contents: b"left.right.")?
+  let single = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { RS = "." } { print $0, RT }""" $dotted
+  assert single == "left .\nright .\n"
+
+  let unseparated = test.temp_file(ctx, name: "unseparated", contents: b"whole")?
+  let empty_match = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { RS = "()" } { print NR, $0, "[" RT "]" }""" $unseparated
+  assert empty_match == "1 whole []\n"
+}
