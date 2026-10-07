@@ -2,6 +2,20 @@
 use lib.gnu
 error EnvError = Usage : Usage | Failed
 
+pure variable_reference_error(text: Str, at: Int) -> Str {
+  let prefix = r"only ${VARNAME} expansion is supported"
+  let length = text.count_chars()
+  var end = at + 1
+  if end < length and text[end..end + 1] == "{" {
+    end += 1
+    while end < length and text[end..end + 1] != "}" { end += 1 }
+    if end < length { end += 1 }
+  } else {
+    while end < length and text[end..end + 1] in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" { end += 1 }
+  }
+  f"{prefix}, error at: {text[at..end]}"
+}
+
 proc split_error(message: Str) [process, env, error] {
   gnu.error(message)
   exit 125
@@ -42,15 +56,17 @@ proc split_string(text: Str) [process, env, error] -> List[Str] {
     }
     if ch == "$" and state != 2 {
       if at + 1 >= length or text[at + 1..at + 2] != "{" {
-        split_error(f"invalid variable reference in -S at position {at + 1}")
+        split_error(variable_reference_error(text, at))
       }
       var end = at + 2
       while end < length and text[end..end + 1] != "}" and text[end..end + 1] in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_" { end += 1 }
-      if end >= length or text[end..end + 1] != "}" or end == at + 2 {
-        split_error(f"invalid braced variable in -S at position {at + 1}")
+      if text[end..end + 1] != "}" or end == at + 2 {
+        split_error(variable_reference_error(text, at))
       }
       let name = text[at + 2..end]
-      if "0123456789".find(name[0..1]) != null { split_error(f"variable name starts with a digit in -S at position {at + 3}") }
+      if "0123456789".find(name[0..1]) != null {
+        split_error(variable_reference_error(text, at))
+      }
       word += env.get_or(name, "") ?? ""
       started = true
       state = if state == 0 { 1 } else { state }
@@ -61,7 +77,7 @@ proc split_string(text: Str) [process, env, error] -> List[Str] {
       let position = at + 2
       if at + 1 >= length { split_error(f"backslash at end of -S string at position {at + 1}") }
       let next = text[at + 1..at + 2]
-      if state == 3 and next == "c" { split_error(f"'\\c' must not appear in double-quoted -S string at position {position}") }
+      if state == 3 and next == "c" { split_error("'\\c' must not appear in double-quoted -S string") }
       if next == "\n" { at += 2; continue }
       if state == 1 and next == "_" {
         words += [word]
@@ -141,7 +157,12 @@ proc handle_status(status: Status) [error] {
   return Err(EnvError.Failed("command was signaled"))
 }
 
-proc run_command(command_argv: List[Bytes], cwd: Path?, path_update: Str?, module_update: Str?) [process, error] -> Status {
+proc run_command(command_argv: List[Bytes], cwd: Path?, path_update: Str?, module_update: Str?) [process, env, error] -> Status {
+  if command_argv[0] == b"" {
+    let executable = gnu.quote_value("")
+    gnu.error(f"{executable}: No such file or directory")
+    exit 127
+  }
   let words: List[Path] = collect {
     for argument in command_argv { yield Path.parse_bytes(argument)? }
   }
@@ -221,7 +242,29 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
       gnu.error("ignoring the environment is unsupported by the process command API")
       exit 125
     }
-    if raw_word in [b"-u", b"--unset"] or byte_prefix(raw_word, b"--unset=") {
+    if byte_prefix(raw_word, b"-u=") {
+      let suffix = raw_word[3..].utf8()?
+      let name = "=" + suffix
+      gnu.error(f"cannot unset {gnu.quote(name)}: Invalid argument")
+      exit 125
+    }
+    if byte_prefix(raw_word, b"--unset=") {
+      let name = raw_word[8..].utf8()?
+      if name == "" or name.find("=") != null {
+        gnu.error(f"cannot unset {gnu.quote(name)}: Invalid argument")
+        exit 125
+      }
+      gnu.error("unsetting environment variables is unsupported by the process command API")
+      exit 125
+    }
+    if raw_word in [b"-u", b"--unset"] {
+      if option_index + 1 < argv.len() {
+        let name = text_if_utf8(argv[option_index + 1])
+        if name == "" or name.find("=") != null {
+          gnu.error(f"cannot unset {gnu.quote(name)}: Invalid argument")
+          exit 125
+        }
+      }
       gnu.error("unsetting environment variables is unsupported by the process command API")
       exit 125
     }
