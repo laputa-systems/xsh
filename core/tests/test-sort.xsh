@@ -175,6 +175,40 @@ test test_sort_month_order_stability_and_uniqueness { |ctx|
   assert stderr.read_text()? == "sort: -:2: disorder: JAN\n"
 }
 
+test test_sort_files0_from_reads_raw_file_name_lists { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-files0-from")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  let names = fp"{root}/names0"
+  first.write("mango\nkiwi")
+  second.write("apple\nbanana\n")
+  names.write(bytes.concat([bytes.from_text(first.display()), b"\0", bytes.from_text(second.display()), b"\0"]))
+
+  let from_file = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--files0-from", names.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert from_file.exit_code()? == 0
+  assert stdout.read_bytes()? == b"apple\nbanana\nkiwi\nmango\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let from_stdin = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--files0-from=-"], root,
+    {LC_ALL: "C"}, bytes.concat([bytes.from_text(first.display()), b"\0", bytes.from_text(second.display())]), stdout, stderr))?
+  assert from_stdin.exit_code()? == 0
+  assert stdout.read_bytes()? == b"apple\nbanana\nkiwi\nmango\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let invalid = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--files0-from=-"], root,
+    {LC_ALL: "C"}, b"first\0\0second\0", stdout, stderr))?
+  assert invalid.exit_code()? == 2
+  assert stdout.read_bytes()?.is_empty()
+  assert stderr.read_text()? == "sort: -:2: invalid zero-length file name\n"
+}
+
 test test_sort_general_numeric_hexadecimal_values { |ctx|
   let root = test.temp_dir(ctx, name: "sort-general-hex")?
   let script = fp"{ctx.core_dir}/sort.xsh"

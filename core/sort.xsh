@@ -24,6 +24,7 @@ type SortOptions = {
   short_check: Bool,
   silent_check: Bool,
   zero_terminated: Bool,
+  files0_from: Str?,
   version: Bool,
   paths: List[Str],
 }
@@ -32,6 +33,7 @@ type NumericSortKey = {number: Str, raw: Str}
 type HumanNumericSortKey = {key: Str, raw: Str}
 type GeneralNumericSortKey = {key: Str, raw: Str}
 type TextSortKey = {key: Str, raw: Str}
+type SortInput = {name: Bytes, path: Path, stdin: Bool}
 
 pure numeric_key(line: Str) -> Str {
   numeric_order_key(line)
@@ -708,6 +710,20 @@ pure input_records(input: Str, zero_terminated: Bool) -> List[Str] {
   }
 }
 
+## Split before decoding so POSIX filenames with invalid UTF-8 remain usable paths.
+pure files0_names(data: Bytes) -> List[Bytes] {
+  var names: List[Bytes] = []
+  var start = 0
+  for at in range(data.len()) {
+    if data.byte_at(at) == 0 {
+      names += [data[start..at]]
+      start = at + 1
+    }
+  }
+  if start < data.len() { names += [data[start..]] }
+  names
+}
+
 pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
   if has_key {
     let parts = if opts.delimiter == "" { line.trim().words() } else { line.split(opts.delimiter) }
@@ -801,13 +817,20 @@ pure normalize_output_args(argv: List[Str]) -> List[Str] {
 }
 
 ## A final unterminated record in one operand ends before the next operand starts.
-proc read_sort_input(paths: List[Str], separator: Str) [fs, io, error] -> Result[Str, Error] {
-  var sources = paths
-  if sources.is_empty() { sources = ["-"] }
-
+proc read_sort_input(sources: List[SortInput], separator: Str) [fs, io, process, error] -> Str {
   var input = ""
   for source in sources {
-    let part = if source == "-" { io.stdin_text()? } else { fp"{source}".read_text()? }
+    let part = if source.stdin {
+      io.stdin_text()?
+    } else {
+      match source.path.read_text() {
+        Ok(text) => text
+        Err(failure) => {
+          gnu.error(f"cannot read: {gnu.quote_bytes(source.name, always: false)}: {gnu.strerror(failure)}")
+          exit 2
+        }
+      }
+    }
     if input != "" and ! input.ends_with(separator) {
       input += separator
     }
@@ -905,6 +928,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         form: "-z --zero-terminated",
         default: false,
       },
+      files0_from: {
+        form: "--files0-from FILE",
+      },
       version: {
         form: "--version",
         default: false,
@@ -994,17 +1020,63 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 2
   }
 
-  for input_path in paths {
-    if input_path != "-" {
-      if let Err(failure) = fs.stat(fp"{input_path}", follow_symlinks: true) {
-        gnu.error(f"cannot read: {gnu.quote_maybe(input_path)}: {gnu.strerror(failure)}")
+  var inputs: List[SortInput] = []
+  if let list = opts.files0_from {
+    if ! paths.is_empty() {
+      gnu.error(f"extra operand {gnu.quote(paths[0])}")
+      eprint "file operands cannot be combined with --files0-from"
+      exit 2
+    }
+
+    let data = if list == "-" {
+      io.stdin_bytes()?
+    } else {
+      match fp"{list}".read_bytes() {
+        Ok(data) => data
+        Err(failure) => {
+          let action = if gnu.errno(failure) == 21 { "cannot read" } else { "open failed" }
+          gnu.error(f"{action}: {gnu.quote_maybe(list)}: {gnu.strerror(failure)}")
+          exit 2
+        }
+      }
+    }
+    let names = files0_names(data)
+    if names.is_empty() {
+      gnu.error(f"no input from {gnu.quote(list)}")
+      exit 2
+    }
+    for index in range(names.len()) {
+      let name = names[index]
+      if name.is_empty() {
+        gnu.error(f"{gnu.quote_maybe(list)}:{index + 1}: invalid zero-length file name")
+        exit 2
+      }
+      if list == "-" and name == b"-" {
+        gnu.error("when reading file names from standard input, no file name of '-' allowed")
+        exit 2
+      }
+      let input_path = Path.parse_bytes(name)?
+      inputs += [{name: name, path: input_path, stdin: name == b"-"}]
+    }
+  } else if paths.is_empty() {
+    inputs = [{name: b"-", path: p"-", stdin: true}]
+  } else {
+    for path_arg in paths {
+      inputs += [{name: bytes.from_text(path_arg), path: fp"{path_arg}", stdin: path_arg == "-"}]
+    }
+  }
+
+  for input in inputs {
+    if ! input.stdin {
+      if let Err(failure) = fs.stat(input.path, follow_symlinks: true) {
+        gnu.error(f"cannot read: {gnu.quote_bytes(input.name, always: false)}: {gnu.strerror(failure)}")
         exit 2
       }
     }
   }
 
   let input_separator = if opts.zero_terminated { "\0" } else { "\n" }
-  let input = read_sort_input(paths, input_separator)?
+  let input = read_sort_input(inputs, input_separator)
   let input_lines = input_records(input, opts.zero_terminated)
   if check_enabled {
     if input_lines.len() > 1 {
@@ -1016,11 +1088,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
         if unordered or duplicate {
           if ! silent_check {
-            let name = paths.get(0) ?? "-"
+            let name = inputs[0].name
             if opts.zero_terminated {
-              io.write_stderr(f"{gnu.prog()}: {gnu.quote_maybe(name)}:{index + 1}: disorder: {current}\0")?
+              io.write_stderr(f"{gnu.prog()}: {gnu.quote_bytes(name, always: false)}:{index + 1}: disorder: {current}\0")?
             } else {
-              gnu.error(f"{gnu.quote_maybe(name)}:{index + 1}: disorder: {current}")
+              gnu.error(f"{gnu.quote_bytes(name, always: false)}:{index + 1}: disorder: {current}")
             }
           }
           exit 1
