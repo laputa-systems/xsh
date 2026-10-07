@@ -147,6 +147,11 @@ remain historical evidence only.
   pass 15/15; Gate 3 improves from 51/166 to 52/165 across 217 tests, fixing
   the leading-plus case with no regressions. GNU 9.11 output matches; reports
   are in `results/sort-numeric-plus/`.
+- Follow-up `0ec61198` adds stable primary-key ordering with `-s/--stable`.
+  Focused native sort tests pass 16/16; Gate 3 improves from 52/165 to 54/163
+  across 217 tests, fixing `test_keys_stable` and `test_sort_locale_punctuation`
+  with no regressions. GNU 9.11 probes match; reports are in
+  `results/sort-stable/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
