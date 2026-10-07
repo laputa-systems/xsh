@@ -19,7 +19,7 @@ test-file ownership; no lane may edit another lane's files or delegate further.
 | `proc-a` | `campaign/resume/proc-a` | `../xsh-resume-lanes/proc-a` | `kill`, `nice`, `nohup`, `timeout`, `stdbuf` and matching tests |
 | `date` | `campaign/resume/date` | `../xsh-resume-lanes/date` | `date`, `dircolors` and matching tests |
 | `bytes-enc` | `campaign/resume/bytes-enc` | `../xsh-resume-lanes/bytes-enc` | `base32`, `base64`, `basenc`, `od`, `dd` and matching tests |
-| `checksums` | `campaign/resume/checksums` | `../xsh-resume-lanes/checksums` | checksum applets and matching tests |
+| `checksums` | `campaign/resume/checksums` | `../xsh-resume-lanes/checksums` | checksum applets, `core/lib/checksums.xsh` and matching tests |
 | `awk` | `campaign/resume/awk` | `../xsh-resume-lanes/awk` | `core/awk.xsh`, `core/lib/awk.xsh`, and tests |
 | `sed` | `campaign/resume/sed` | `../xsh-resume-lanes/sed` | `core/sed.xsh`, `core/lib/sed.xsh`, and tests |
 
