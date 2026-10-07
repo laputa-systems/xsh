@@ -359,6 +359,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::BytesCopy
             | RuntimeOp::BytesCopyFile
             | RuntimeOp::BytesFromInts
+            | RuntimeOp::BytesSqueeze
             | RuntimeOp::BytesConcat
             | RuntimeOp::BytesPackLe
             | RuntimeOp::BytesPackBe

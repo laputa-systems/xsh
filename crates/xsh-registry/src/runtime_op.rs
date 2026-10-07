@@ -34,6 +34,7 @@ pub enum RuntimeOp {
     BytesZero,
     BytesFromText,
     BytesFromInts,
+    BytesSqueeze,
     BytesConcat,
     BytesHuman,
     BytesPackLe,

@@ -6524,6 +6524,18 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::BytesSqueeze if values.len() == 2 => {
+                let byte = lowered_int_arg(values.get(1).cloned(), "bytes.squeeze", span)?;
+                let data = lowered_bytes_arg(
+                    values.first().expect("checked value length"),
+                    "bytes.squeeze",
+                    span,
+                )?;
+                match bytes_module::squeeze(&data, byte, span) {
+                    Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::BytesConcat if values.len() == 1 => {
                 let chunks = lowered_bytes_list_arg(values.pop(), "bytes.concat", span)?;
                 LoweredValue::Bytes(bytes_module::concat(chunks).into())

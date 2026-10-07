@@ -42,6 +42,18 @@ test test_api_fs_root_lists_native_receiver_operations {
   )
 }
 
+test test_api_bytes_squeeze_documents_its_byte_range_and_buffer_scope {
+  api(["api:bytes.squeeze"])? |> assert_contains(
+    _,
+    [
+      "api: module.bytes.squeeze",
+      "bytes.squeeze(data: Bytes, byte: Int) -> Result[Bytes, Error]",
+      "byte must be between 0 and 255",
+      "runs are collapsed only within this input buffer",
+    ],
+  )
+}
+
 test test_api_builtin_templates_render_receiver_argument_and_result_relationships {
   api(
     [

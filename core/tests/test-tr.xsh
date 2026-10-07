@@ -33,6 +33,13 @@ test test_tr_does_not_add_newline_and_single_set_squeezes { |ctx|
   assert output == "abc"
 }
 
+test test_tr_squeezes_runs_across_stdin_reads { |ctx|
+  let contents = bytes.from_text([" " for _ in range(65537)].join(""))
+  let input = test.temp_file(ctx, name: "long-space-run", contents: contents)?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -s " " < $input
+  assert output == " "
+}
+
 test test_tr_escapes_and_delete_then_squeeze { |ctx|
   let input = test.temp_file(ctx, name: "raw", contents: b"a\t\tb\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -ds a "\\t" < $input

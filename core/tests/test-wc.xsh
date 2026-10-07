@@ -44,6 +44,11 @@ test test_wc_count_selection_and_order { |ctx|
   assert wc_text(ctx, ["-ll", "-l"], b"a\n")? == "1\n", "repeated options are legal"
 }
 
+test test_wc_byte_only_stdin_counts_across_read_chunks { |ctx|
+  let input = bytes.zero(131073)?
+  assert wc_text(ctx, ["-c"], input)? == "131073\n"
+}
+
 test test_wc_characters_and_invalid_bytes { |ctx|
   assert wc_text(ctx, ["-mc"], bytes.from_text("héllo\n"))? == "      6       7\n"
   assert wc_text(ctx, [], b"a \xff b\n")? == "      1       3       6\n", "an invalid byte is a word character and no character"

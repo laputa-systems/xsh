@@ -49,6 +49,14 @@ test test_bytes_construction_encoding_and_copy { |ctx|
   test.error_kind(bytes.copy(data_path, copy), "bytes-copy")
 }
 
+test test_bytes_squeeze_collapses_only_the_selected_byte {
+  assert bytes.squeeze(b"   a\t\t  ", 32)? == b" a\t\t "
+  assert bytes.squeeze(b"\xff\xffx\xff", 255)? == b"\xffx\xff"
+  assert bytes.squeeze(b"", 0)? == b""
+  test.error_kind(bytes.squeeze(b"x", -1), "bytes-squeeze")
+  test.error_kind(bytes.squeeze(b"x", 256), "bytes-squeeze")
+}
+
 test test_bytes_methods_and_decode_errors {
   let encoded = b"\0hello\xff".base64()
   assert encoded == "AGhlbGxv/w=="

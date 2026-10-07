@@ -466,7 +466,24 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var read_error: Str? = null
     var counted: Counts? = null
 
-    if input.stdin {
+    if input.stdin and only_bytes {
+      var byte_count = 0
+
+      loop {
+        match io.stdin_read(65536) {
+          Ok(chunk) => {
+            if chunk.is_empty() { break }
+            byte_count += chunk.len()
+          }
+          Err(failure) => {
+            read_error = gnu.strerror(failure)
+            break
+          }
+        }
+      }
+
+      counted = {lines: 0, words: 0, chars: 0, bytes: byte_count, longest: 0}
+    } else if input.stdin {
       match io.stdin_bytes() {
         Ok(read) => data = read
         Err(failure) => read_error = gnu.strerror(failure)

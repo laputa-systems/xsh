@@ -4,6 +4,8 @@ use lib.textio_a1 as tio
 
 type Format = {kind: Str, size: Int, chars: Int, ascii: Bool, float_format: Str}
 const DIGITS = "0123456789abcdef"
+# Keep wide record padding bounded while still exposing stdout write failures.
+const OUTPUT_CHUNK = 1048576
 const NAMES = ["nul", "soh", "stx", "etx", "eot", "enq", "ack", "bel", "bs", "ht", "nl", "vt", "ff", "cr", "so", "si", "dle", "dc1", "dc2", "dc3", "dc4", "nak", "syn", "etb", "can", "em", "sub", "esc", "fs", "gs", "rs", "us"]
 
 pure spaces(count: Int) -> Str {
@@ -16,6 +18,18 @@ pure spaces(count: Int) -> Str {
     if remaining > 0 { block += block }
   }
   out
+}
+
+proc write_spaces(count: Int) [process, env, io] {
+  let block = bytes.from_text(spaces(OUTPUT_CHUNK))
+  var remaining = count
+
+  while remaining >= OUTPUT_CHUNK {
+    gnu.write_bytes(block)
+    remaining -= OUTPUT_CHUNK
+  }
+
+  if remaining > 0 { gnu.write_text(spaces(remaining)) }
 }
 
 pure number(value: Int, base: Int, width: Int) -> Str {
@@ -379,6 +393,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if fmt.size > unit { unit = fmt.size }
   }
   if width % unit != 0 { gnu.error(f"warning: invalid width {width}; using {unit} instead"); width = unit }
+  # GNU's padding offset calculation squares the field count; reject widths
+  # whose intermediate value cannot fit the signed Int representation.
+  for fmt in selected {
+    let padding = width / fmt.size - 1
+    if padding > 0 and padding > 9223372036854775807 / padding {
+      gnu.error(f"{width_value} is too large")
+      exit 1
+    }
+  }
   let files = if operands.is_empty() { ["-"] } else { operands }
   var chunks: List[Bytes] = []
   var failed = false
@@ -459,9 +482,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         }
         if fmt.ascii {
           let text = [if byte >= 32 and byte <= 126 { bytes.from_ints([byte])?.utf8() ?? "." } else { "." } for byte in [block.byte_at(i) ?? 0 for i in range(block.len())]].join("")
-          line += spaces((width + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8) - (block.len() + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8)) + "  >" + text + "<"
+          let padding = (width + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8) - (block.len() + fmt.size - 1) / fmt.size * ((alignment * fmt.size + 7) / 8)
+
+          if padding > 1048576 {
+            gnu.write_text(line)
+            write_spaces(padding)
+            gnu.write_text("  >" + text + "<\n")
+            line = ""
+          } else {
+            line += spaces(padding) + "  >" + text + "<"
+          }
         }
-        gnu.write_text(line + "\n")
+        if ! line.is_empty() { gnu.write_text(line + "\n") }
       }
       offset += block.len()
     }

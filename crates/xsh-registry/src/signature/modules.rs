@@ -709,6 +709,15 @@ fn bytes_module() -> ModuleSig {
             ),
         ),
         (
+            "squeeze",
+            sig(
+                vec![param("data", Type::Bytes), param("byte", Type::Int)],
+                result(Type::Bytes),
+                true,
+                RuntimeOp::BytesSqueeze,
+            ),
+        ),
+        (
             "from_text",
             sig(
                 vec![param("text", Type::Str)],

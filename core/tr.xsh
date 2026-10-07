@@ -240,6 +240,13 @@ proc main(...argv: List[Str]) {
   }
   let deletes = [opts.delete and contains(first, byte) for byte in range(256)]
   let squeezes = [opts.squeeze and contains(squeeze_set, byte) for byte in range(256)]
+  var squeeze_byte: Int? = null
+  if opts.squeeze and ! opts.delete and (! translate or first == second) and ! squeeze_set.is_empty() {
+    let candidate = squeeze_set[0].byte
+    var one_byte = true
+    for item in squeeze_set { if item.byte != candidate { one_byte = false } }
+    if one_byte { squeeze_byte = candidate }
+  }
   var previous = -1
   loop {
     guard let source = io.stdin_read(65536) else { |failure|
@@ -247,6 +254,13 @@ proc main(...argv: List[Str]) {
       exit 1
     }
     break when source.is_empty()
+    if let byte = squeeze_byte {
+      var output = bytes.squeeze(source, byte)?
+      if previous == byte and (source.byte_at(0) ?? -1) == byte { output = output[1..] }
+      gnu.write_bytes(output)
+      previous = if (source.byte_at(source.len() - 1) ?? -1) == byte { byte } else { -1 }
+      continue
+    }
     let output: List[Int] = collect {
       for at in range(source.len()) {
         let original = source.byte_at(at) ?? 0

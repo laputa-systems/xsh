@@ -151,6 +151,49 @@ test test_od_width_errors_report_the_spelling_used { |ctx|
   assert long.stderr == "od: invalid --width argument 'x'\n"
 }
 
+test test_od_rejects_width_padding_overflow_before_allocating_a_line { |ctx|
+  let root = test.temp_dir(ctx, name: "od-wide")?
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/od.xsh".display(), "-w3037000501", "-tcz"]
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {LC_ALL: "C"},
+    b"x",
+    p"/dev/null",
+    stderr,
+    timeout: 2s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+  assert stderr.read_text()? == "od: 3037000501 is too large\n"
+}
+
+test test_od_streams_padding_when_a_large_width_is_valid { |ctx|
+  let root = test.temp_dir(ctx, name: "od-wide-pipe")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let od = fp"{ctx.core_dir}/od.xsh"
+  let command = f"printf x | {ctx.xsh_bin} {od} -w3037000500 -tcz | head -c 1"
+  let plan = process.command_argv(
+    "sh",
+    ["sh", "-c", command],
+    root,
+    {LC_ALL: "C"},
+    b"",
+    stdout,
+    stderr,
+    timeout: 5s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 0
+  assert stdout.read_bytes()? == b"0"
+  assert stderr.read_text()? == ""
+}
+
 test test_od_formats_binary64_normal_and_subnormal_values { |ctx|
   let data = bytes.concat([b"\x27\x6b\x0a\x2f\x2a\xee\x45\x43", bytes.zero(8)?, b"\0\0\0\0\0\0\x10\x80", b"\x01\0\0\0\0\0\0\0", b"\0\0\0\0\0\0\0\xc0"])
   let result = invoke(ctx, ["--endian=little", "-F"], data)?

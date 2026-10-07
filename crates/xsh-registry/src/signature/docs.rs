@@ -443,6 +443,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Every integer must fit the byte range; invalid values return an error.",
             &["bytes", "conversion", "validation"],
         )),
+        ("bytes", "squeeze") => Some((
+            "Collapses repeated adjacent copies of one byte.",
+            "The target byte must be between 0 and 255. Other bytes are copied unchanged; runs are collapsed only within this input buffer.",
+            &["bytes", "conversion", "runs"],
+        )),
         ("bytes", "from_text") => Some((
             "Encodes UTF-8 text as Bytes.",
             "The conversion is lossless for Str and does not append a terminator.",

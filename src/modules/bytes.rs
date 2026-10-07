@@ -135,6 +135,32 @@ pub(crate) fn from_ints(values: Vec<i64>, span: Span) -> Result<Vec<u8>, Runtime
     Ok(bytes)
 }
 
+pub(crate) fn squeeze(bytes: &[u8], byte: i64, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    if !(0..=255).contains(&byte) {
+        return Err(RuntimeError::new(
+            "bytes-squeeze",
+            "byte must be between 0 and 255",
+        )
+        .with_span(span));
+    }
+
+    let byte = byte as u8;
+    let mut output = Vec::with_capacity(bytes.len());
+    let mut previous_was_target = false;
+    for &value in bytes {
+        if value == byte {
+            if !previous_was_target {
+                output.push(value);
+            }
+            previous_was_target = true;
+        } else {
+            output.push(value);
+            previous_was_target = false;
+        }
+    }
+    Ok(output)
+}
+
 pub(crate) fn from_text(text: &str) -> Vec<u8> {
     text.as_bytes().to_vec()
 }

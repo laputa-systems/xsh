@@ -39,7 +39,9 @@ Byte inspection, encoding, decoding, copying, and hashing helpers.
 - `bytes.pack_le(value: Int, width: Int) -> Result[Bytes, Error]` — Packs an integer into fixed-width little- or big-endian bytes.
 - `bytes.read_at(path: Path, offset: UInt, length: Int, regular: Bool = default) -> Result[Bytes, Error]` — Reads, writes, or clears a byte range at an explicit offset.
 - `bytes.resize(path: Path, size: Int, create: Bool = default, exclusive: Bool = default, regular: Bool = default) -> Result[Unit, Error]` — Resizes a file through its opened descriptor.
+- `bytes.squeeze(data: Bytes, byte: Int) -> Result[Bytes, Error]` — Collapses repeated adjacent copies of one byte.
 - `bytes.unpack_be(data: Bytes, width: Int, offset: UInt = default) -> Result[Int, Error]` — Unpacks fixed-width little- or big-endian bytes into an integer.
+- `bytes.unpack_float(data: Bytes, offset: Int, format: Str, endian: Str) -> Result[Float, Error]` — Decodes a floating-point value from binary bytes.
 - `bytes.unpack_le(data: Bytes, width: Int, offset: UInt = default) -> Result[Int, Error]` — Unpacks fixed-width little- or big-endian bytes into an integer.
 - `bytes.write_at(path: Path, offset: UInt, data: Bytes, create: Bool = default, regular: Bool = default) -> Result[Int, Error]` — Reads, writes, or clears a byte range at an explicit offset.
 - `bytes.zero(length: Int) -> Result[Bytes, Error]` — Allocates a zero-filled byte buffer.
@@ -510,6 +512,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 
 - `unix.close_fd(fd: Int) -> Result[Unit, Error]` — Opens a path as a bare descriptor number, or closes one.
 - `unix.controlling_tty() -> Result[Str, Error]` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
+- `unix.cpu_features() -> List[Str]` — Lists supported host CPU features used by hardware-accelerated utilities.
 - `unix.dup_fd(source: Int, target: Int) -> Result[Unit, Error]` — Duplicates a current process descriptor onto another descriptor.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
 - `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default) -> Result[Unit, Error]` — Replaces the current process with an explicit environment and optional argv0.
@@ -529,6 +532,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.read_utmp(path: Path = default) -> Result[List[{addr: Str, exit_status: Int, host: Str, id: Str, kind: Str, line: Str, pid: Int, session: Int, termination: Int, time_sec: Int, time_usec: Int, type: Int, user: Str}], Error]` — Reads the login session records of a utmp or wtmp file.
 - `unix.reap_child_events() -> Result[Stream[{pid: Int, status: Status}], Error]` — Reaps available Unix child events.
 - `unix.redirect_fd(fd: Int, path: Path, write: Bool = default, append: Bool = default, mode: Int = default) -> Result[Unit, Error]` — Replaces a current process descriptor with an opened path.
+- `unix.seek_fd(fd: Int, offset: Int) -> Result[Int, Error]` — Moves a descriptor to an absolute byte offset.
 - `unix.set_credentials(uid: Int, gid: Int, groups: List[Int]) -> Result[Unit, Error]` — Changes current process credentials using explicit numeric UID, GID and supplementary groups.
 - `unix.set_foreground_group(pgid: Int, fd: Int = default) -> Result[Unit, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.set_gid(gid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
@@ -551,6 +555,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.uptime_seconds() -> Result[Int, Error]` — Reads Unix host uptime in seconds.
 - `unix.wait_pid1_event(timeout: Duration = default) -> Result[{children: List[{pid: Int, status: Status}], kind: Str, signal: Str}, Error]` — Coordinates Unix PID 1 or process-group lifecycle state.
 - `unix.window_size(fd: Int = default) -> Result[{cols: Int, rows: Int, xpixel: Int, ypixel: Int}, Error]` — Reads or sets a terminal's window size.
+- `unix.write_fd(fd: Int, data: Bytes) -> Result[Int, Error]` — Writes one chunk to a descriptor.
 
 ### `user`
 
@@ -641,6 +646,7 @@ Process-scoped utility helpers.
 - `FsRoot.readlink(path: Path) -> Result[Path, Error]` — Reads a symlink target below a rooted filesystem capability.
 - `FsRoot.readlink_result(path: Path) -> Result[{errno: Int?, error_kind: Str?, state: Str, target: Path?}, Error]` — Observes a symlink target below a rooted filesystem capability.
 - `FsRoot.remove(path: Path, dir: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
+- `FsRoot.stat(path: Path, follow_symlinks: Bool = default) -> Result[{atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}, Error]` — Returns complete stat metadata for a path below a rooted filesystem capability.
 - `FsRoot.symlink(target: Path, path: Path, parents: Bool = default, overwrite: Bool = default) -> Result[Unit, Error]` — Mutates a path below a rooted filesystem capability.
 - `FsRoot.write(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
 - `FsRoot.write_atomic(path: Path, data: Bytes) -> Result[Unit, Error] (+1 overloads)` — Writes bytes or text below a rooted filesystem capability.
