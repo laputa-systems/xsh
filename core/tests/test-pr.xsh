@@ -2,12 +2,16 @@ test test_pr_headerless_numbering { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -n:2 $input
   assert output == " 1:a\n 2:b\n"
+  let backwards_compatible = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -b -t $input
+  assert backwards_compatible == "a\nb\n"
 }
 
 test test_pr_across_and_partial_columns { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -a -2 -s: $input
   assert output == "a:b\nc\n"
+  let compact_columns = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -W3 -t2 $input
+  assert compact_columns == "a c\nb\n"
 }
 
 test test_pr_pages_with_literal_date_format { |ctx|
@@ -78,6 +82,14 @@ test test_pr_optional_numeric_arguments_report_the_invalid_suffix { |ctx|
   let overflow = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -n:2147483648 /dev/null 2> $error
   assert overflow.exited_with(1)
   assert "'-n' extra characters or invalid number in the argument: '2147483648': Value too large for data type" in error.read_text()?
+
+  let digit_suffix = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -e1a /dev/null 2> $error
+  assert digit_suffix.exited_with(1)
+  assert error.read_text()? == "pr: '-e' extra characters or invalid number in the argument: '1a'\nTry 'pr --help' for more information.\n"
+
+  let negative_width = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -e=-1 /dev/null 2> $error
+  assert negative_width.exited_with(1)
+  assert error.read_text()? == "pr: '-e' extra characters or invalid number in the argument: '-1'\nTry 'pr --help' for more information.\n"
 }
 
 test test_pr_merge_numbering_reserves_one_page_prefix { |ctx|
@@ -92,4 +104,69 @@ test test_pr_merge_preserves_positions_after_a_file_ends { |ctx|
   let second = test.temp_file(ctx, name: "second", contents: b"x  \n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -m -n -w20 $first $second
   assert output == "    1\ta     x\n    2\tb     \n"
+}
+
+test test_pr_page_range_errors_match_gnu { |ctx|
+  let input = test.temp_file(ctx, name: "lines", contents: b"a\n")?
+  let error = test.temp_path(ctx, name: "error")
+  let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --pages=20:5 $input 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "pr: invalid page range '20:5'\n"
+
+  let large = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --pages=18446744073709551615 $input 2> $error
+  assert large.exited_with(0)
+  assert error.read_text()? == "pr: starting page number 18446744073709551615 exceeds page count 1\n"
+
+  let leading_zeroes = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --pages=+0002 $input 2> $error
+  assert leading_zeroes.exited_with(0)
+  assert error.read_text()? == "pr: starting page number 2 exceeds page count 1\n"
+
+  let negative = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --pages=-0 2> $error
+  assert negative.exited_with(1)
+  assert error.read_text()? == "pr: invalid --pages argument '-0'\n"
+
+  let zero_operand = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- +0 2> $error
+  assert zero_operand.exited_with(1)
+  assert error.read_text()? == "pr: +0: No such file or directory\n"
+}
+
+test test_pr_integer_overflow_errors_match_gnu { |ctx|
+  let error = test.temp_path(ctx, name: "error")
+  let columns = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --columns=9999999999999999999 2> $error
+  assert columns.exited_with(1)
+  assert error.read_text()? == "pr: invalid number of columns: '9999999999999999999': Value too large for defined data type\n"
+
+  let width = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -w 18446744073709551615 -2 2> $error
+  assert width.exited_with(1)
+  assert error.read_text()? == "pr: '-w PAGE_WIDTH' invalid number of characters: '18446744073709551615': Value too large for defined data type\n"
+}
+
+test test_pr_invalid_indent_uses_gnu_wording { |ctx|
+  let error = test.temp_path(ctx, name: "error")
+  let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --indent=-5 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "pr: '-o MARGIN' invalid line offset: '-5'\n"
+}
+
+test test_pr_rejects_input_column_overflow_before_expanding_tabs { |ctx|
+  let input = test.temp_file(ctx, name: "tabs", contents: b"\t\t")?
+  let error = test.temp_path(ctx, name: "error")
+  let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -e1073741824 $input 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "pr: integer overflow\n"
+}
+
+test test_pr_zero_page_dimensions_report_range_error { |ctx|
+  let error = test.temp_path(ctx, name: "error")
+  let length = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -l0 2> $error
+  assert length.exited_with(1)
+  assert error.read_text()? == "pr: '-l PAGE_LENGTH' invalid number of lines: '0': Result not representable\n"
+
+  let width = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -w0 2> $error
+  assert width.exited_with(1)
+  assert error.read_text()? == "pr: '-w PAGE_WIDTH' invalid number of characters: '0': Result not representable\n"
+
+  let page_width = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -W0 2> $error
+  assert page_width.exited_with(1)
+  assert error.read_text()? == "pr: '-W PAGE_WIDTH' invalid number of characters: '0': Result not representable\n"
 }

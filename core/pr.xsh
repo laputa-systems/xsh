@@ -2,12 +2,61 @@
 use lib.gnu
 use lib.text_a2 as text
 
-type Options = {columns: Str, across: Bool, merge: Bool, double: Bool, omit_header: Bool, omit_pages: Bool, formfeed: Bool, header: Str?, date_format: Str?, length: Str, width: Str, page_width: Str, offset: Str, numbers: Str?, first_number: Str, separator: Str?, separator_string: Str?, expand_tabs: Str?, output_tabs: Str?, page_range: Str, join: Bool, control: Bool, nonprinting: Bool, quiet: Bool, help: Bool, version: Bool, paths: List[Str]}
+type Options = {columns: Str, across: Bool, merge: Bool, double: Bool, omit_header: Bool, omit_pages: Bool, formfeed: Bool, header: Str?, date_format: Str?, length: Str, width: Str, page_width: Str, offset: Str, numbers: Str?, first_number: Str, separator: Str?, separator_string: Str?, expand_tabs: Str?, output_tabs: Str?, page_range: Str, join: Bool, control: Bool, nonprinting: Bool, quiet: Bool, back_compat: Bool, help: Bool, version: Bool, paths: List[Str]}
 
-proc size(value: Str, what: Str, minimum = 1) -> Int {
-  let number = value.parse_int() ?? -1
-  if number < minimum or number > 2147483647 { gnu.error(f"invalid {what} argument {gnu.quote_value(value)}"); exit 1 }
-  number
+proc size(value: Str, message: Str, minimum = 1) -> Int {
+  if value == "-2147483648" and minimum == -2147483648 { return -2147483648 }
+  let numeric = rx"^[+-]?[0-9]+$".matches(value)
+  match value.parse_int() {
+    Ok(number) => {
+      if number >= minimum and number <= 2147483647 { return number }
+      let overflow = number < -2147483648 or number > 2147483647
+      let reason = if overflow { ": Value too large for defined data type" } else if number == 0 and minimum == 1 { ": Result not representable" } else { "" }
+      gnu.error(f"{message}: {gnu.quote_value(value)}{reason}")
+    }
+    Err(_) => gnu.error(f"{message}: {gnu.quote_value(value)}{if numeric { ": Value too large for defined data type" } else { "" }}")
+  }
+  exit 1
+}
+
+proc page_error(value: Str) {
+  gnu.error(f"invalid page range {gnu.quote_value(value)}")
+  exit 1
+}
+
+pure page_decimal(value: Str) -> Str {
+  var at = if value.starts_with("+") { 1 } else { 0 }
+  while at + 1 < value.byte_len() and value.byte_slice(at, length: 1) == "0" { at += 1 }
+  value.byte_slice(at)
+}
+
+pure decimal_greater(left: Str, right: Str) -> Bool {
+  if left.byte_len() != right.byte_len() { return left.byte_len() > right.byte_len() }
+  let a = bytes.from_text(left)
+  let b = bytes.from_text(right)
+  for at in range(a.len()) {
+    if a.byte_at(at) != b.byte_at(at) { return (a.byte_at(at) ?? 0) > (b.byte_at(at) ?? 0) }
+  }
+  false
+}
+
+type PageNumber = {value: Int, display: Str}
+proc page_number(value: Str, range: Str) -> PageNumber {
+  if rx"^-[0-9]+$".matches(value) {
+    gnu.error(f"invalid --pages argument {gnu.quote_value(range)}")
+    exit 1
+  }
+  if ! rx"^\+?[0-9]+$".matches(value) { page_error(range) }
+  let digits = page_decimal(value)
+  if digits == "0" { page_error(range) }
+  if decimal_greater(digits, "18446744073709551615") {
+    gnu.error(f"invalid page range {gnu.quote_value(range)}: Value too large for defined data type")
+    exit 1
+  }
+  match digits.parse_int() {
+    Ok(number) => {value: number, display: digits},
+    Err(_) => {value: 9223372036854775807, display: digits},
+  }
 }
 
 pure modernize(argv: List[Str]) -> List[Str] {
@@ -17,7 +66,7 @@ pure modernize(argv: List[Str]) -> List[Str] {
     while at < argv.len() {
       let item = argv[at]
       if item == "--" { options = false }
-      if options and rx"^-[0-9]+$".matches(item) { yield @["--columns", item.byte_slice(1)] } else if options and rx"^\+[0-9]+(:[0-9]+)?$".matches(item) { yield @["--pages", item.byte_slice(1)] } else if options and item in ["-n", "-e", "-i"] and at + 1 < argv.len() and rx"^([0-9]+|[^0-9][0-9]*)$".matches(argv[at + 1]) and ! argv[at + 1].starts_with("-") {
+      if options and rx"^-t[0-9]+$".matches(item) { yield @["-t", "--columns", item.byte_slice(2)] } else if options and rx"^-[0-9]+$".matches(item) { yield @["--columns", item.byte_slice(1)] } else if options and rx"^\+0*[1-9][0-9]*(:[0-9]+)?$".matches(item) { yield @["--pages", item.byte_slice(1)] } else if options and item in ["-n", "-e", "-i"] and at + 1 < argv.len() and rx"^([0-9]+|[^0-9][0-9]*)$".matches(argv[at + 1]) and ! argv[at + 1].starts_with("-") {
         yield item + argv[at + 1]
         at += 1
       } else { yield item }
@@ -38,7 +87,9 @@ proc optional_number(digits: Str, option: Str, minimum = 1) -> Int {
 
 proc tab_option(spec: Str, option: Str) -> TabOption {
   if spec == "" { gnu.usage_error(f"'{option}' extra characters or invalid number in the argument") }
-  let numeric = rx"^[0-9]+$".matches(spec)
+  let negative_width = rx"^-[0-9]+$".matches(spec)
+  let numeric = rx"^[0-9]".matches(spec)
+  if negative_width { gnu.usage_error(f"'{option}' extra characters or invalid number in the argument: {gnu.quote_value(spec)}") }
   let character = if numeric { 9 } else { bytes.from_text(spec[..1]).byte_at(0) ?? 9 }
   if ! numeric and bytes.from_text(spec[..1]).len() > 1 { gnu.usage_error(f"'{option}' extra characters or invalid number in the argument") }
   let digits = if numeric { spec } else { spec[1..] }
@@ -86,6 +137,25 @@ pure display_columns(data: Bytes, start = 0) -> Int {
   column - start
 }
 
+pure expansion_overflows(data: Bytes, tab_width: Int, tab_byte: Int) -> Bool {
+  var column = 0
+  var at = 0
+  while at < data.len() {
+    let unit = text.character(data, at)
+    let byte = data.byte_at(at) ?? 0
+    if byte == tab_byte or byte == 9 {
+      let width = if byte == 9 and tab_byte != 9 { 8 - column % 8 } else { tab_width - column % tab_width }
+      if column > 2147483647 - width { return true }
+      column += width
+    } else if byte == 10 { column = 0 } else if byte == 8 { if column > 0 { column -= 1 } } else {
+      if column > 2147483647 - unit.width { return true }
+      column += unit.width
+    }
+    at += unit.size
+  }
+  false
+}
+
 pure clip_columns(data: Bytes, width: Int) -> Bytes {
   var columns = 0
   var at = 0
@@ -121,6 +191,7 @@ proc main(...argv: List[Str]) {
     gnu: {status: 1},
     columns: {form: "--columns N", default: "1"},
     across: {form: "-a --across", default: false},
+    back_compat: {form: "-b", default: false},
     merge: {form: "-m --merge", default: false},
     double: {form: "-d --double-space", default: false},
     omit_header: {form: "-t --omit-header", default: false},
@@ -149,18 +220,19 @@ proc main(...argv: List[Str]) {
   })?
   if opts.help { gnu.help("Usage: pr [OPTION]... [FILE]...\nPaginate or columnate files for printing.\n  -a, --across\n  -m, --merge\n  -t, --omit-header\n  -T, --omit-pagination\n  -l, --length=N\n  -w, --width=N\n  -n, --number-lines[=SEPWIDTH]"); return }
   if opts.version { gnu.version("pr"); return }
-  let columns = size(opts.columns, "--columns")
+  let columns = size(opts.columns, "invalid number of columns")
   if opts.merge and columns > 1 { gnu.error("cannot specify number of columns when printing in parallel"); exit 1 }
   if opts.merge and opts.across { gnu.error("cannot specify both printing across and printing in parallel"); exit 1 }
-  let length = size(opts.length, "--length")
-  let width = size(if opts.page_width != "" { opts.page_width } else { opts.width }, if opts.page_width != "" { "--page-width" } else { "--width" })
-  let offset = size(opts.offset, "--indent", 0)
-  let first_number = size(opts.first_number, "--first-line-number", 0)
+  let length = size(opts.length, "'-l PAGE_LENGTH' invalid number of lines")
+  let width = size(if opts.page_width != "" { opts.page_width } else { opts.width }, if opts.page_width != "" { "'-W PAGE_WIDTH' invalid number of characters" } else { "'-w PAGE_WIDTH' invalid number of characters" })
+  let offset = size(opts.offset, "'-o MARGIN' invalid line offset", 0)
+  let first_number = size(opts.first_number, "'-N NUMBER' invalid starting line number", -2147483648)
   var line_number = first_number
   let pages = opts.page_range.split(":")
-  let first_page = size(pages[0], "--pages")
-  let last_page = if pages.len() > 1 { size(pages[1], "--pages") } else { 2147483647 }
-  if pages.len() > 2 or last_page < first_page { gnu.usage_error("invalid page range") }
+  if pages.len() > 2 or pages[0] == "" { page_error(opts.page_range) }
+  let first_page = page_number(pages[0], opts.page_range)
+  let last_page = if pages.len() == 1 or pages[1] == "" { {value: 9223372036854775807, display: "18446744073709551615"} } else { page_number(pages[1], opts.page_range) }
+  if decimal_greater(first_page.display, last_page.display) { page_error(opts.page_range) }
   let date_format = opts.date_format ?? (if (env.get_or("POSIXLY_CORRECT", "") ?? "") != "" { "%b %e %H:%M %Y" } else { "%Y-%m-%d %H:%M" })
   let headers = ! opts.omit_header and ! opts.omit_pages and length > 10
   let capacity = if opts.omit_pages { 2147483647 } else { if headers { length - 10 } else if length > 0 { length } else { 66 } }
@@ -175,7 +247,7 @@ proc main(...argv: List[Str]) {
       number_sep = spec[..1]
     }
     let digits = if numeric { spec } else { spec[1..] }
-    if digits != "" { number_width = optional_number(digits, "-n", 0) }
+    if digits != "" { number_width = optional_number(digits, "-n") }
   }
   let expansion = if let spec = opts.expand_tabs { tab_option(spec, "-e") } else { {character: 9, width: 8} }
   let output_tab = if let spec = opts.output_tabs { tab_option(spec, "-i") } else { {character: 9, width: 8} }
@@ -191,7 +263,9 @@ proc main(...argv: List[Str]) {
       if ! opts.quiet { gnu.name_error(name, failure) }
       failed = true; continue
     }
-    let expanded = if opts.expand_tabs != null or columns > 1 or opts.merge { text.expand(data, {stops: [], interval: expansion.width, relative: false}, tab_byte: expansion.character) } else { data }
+    let expand_input = opts.expand_tabs != null or columns > 1 or opts.merge
+    if expand_input and expansion_overflows(data, expansion.width, expansion.character) { gnu.error("integer overflow"); exit 1 }
+    let expanded = if expand_input { text.expand(data, {stops: [], interval: expansion.width, relative: false}, tab_byte: expansion.character) } else { data }
     let printable = if opts.control or opts.nonprinting { controls(expanded, opts.control) } else { expanded }
     inputs += [print_records(printable, opts.omit_pages)]
     labels += [if name == "-" { "" } else { name }]
@@ -220,7 +294,7 @@ proc main(...argv: List[Str]) {
       }
       if ! opts.merge and at + take < total and lines[at + take] == b"\x0c" { forced = true }
       let row_count = if opts.merge { take } else { (take + count - 1) / count }
-      let shown = page >= first_page and page <= last_page
+      let shown = page >= first_page.value and page <= last_page.value
       if shown and headers {
         let date = time.format(if opts.merge { time.now() * 1000000 } else { timestamps[batch] }, format: date_format)?
         let label = opts.header ?? (if opts.merge { "" } else { labels[batch] })
@@ -288,7 +362,7 @@ proc main(...argv: List[Str]) {
       at += take + (if forced { 1 } else { 0 }); page += 1
     }
     let page_count = if page > 1 { page - 1 } else { 1 }
-    if first_page > page_count { gnu.error(f"starting page number {first_page} exceeds page count {page_count}") }
+    if first_page.value > page_count { gnu.error(f"starting page number {first_page.display} exceeds page count {page_count}") }
   }
   exit text.finish(failed)
 }
