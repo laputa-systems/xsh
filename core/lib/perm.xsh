@@ -8,14 +8,19 @@ export type Owner = {uid: Int?, gid: Int?}
 ## Parsed permission options with independent link policies.
 export type Options = {
   recursive: Bool, quiet: Bool, verbosity: Str, traversal: Str,
-  dereference: Bool, preserve_root: Bool, reference: Str?, from: Str?,
-  operands: List[Str], option_like_mode: Bool, help: Bool, version: Bool,
+  dereference: Bool, preserve_root: Bool, reference: Bytes?, from: Bytes?,
+  operands: List[Bytes], option_like_mode: Bool, help: Bool, version: Bool,
+}
+
+pure find_byte(data: Bytes, wanted: Int) -> Int? {
+  for at in range(data.len()) { if data.byte_at(at) == wanted { return at } }
+  null
 }
 
 # Traversal and dereferencing are independent: -H/-L select directory descent,
 # while -h selects whether the ownership syscall acts on the link itself.
 ## Parse ordered GNU permission options.
-export proc options(argv: List[Str], chmod = false) [process, env] -> Result[Options, Error] {
+export proc options(argv: List[Bytes], chmod = false) [process, env] -> Result[Options, Error] {
   var recursive = false
   var quiet = false
   var verbosity = ""
@@ -23,14 +28,30 @@ export proc options(argv: List[Str], chmod = false) [process, env] -> Result[Opt
   var dereference = true
   var explicit_dereference = false
   var preserve_root = false
-  var reference: Str? = null
-  var from: Str? = null
-  var operands: List[Str] = []
+  var reference: Bytes? = null
+  var from: Bytes? = null
+  var operands: List[Bytes] = []
   var option_mode: Str? = null
   var stopped = false
   var at = 0
   while at < argv.len() {
-    var word = argv[at]
+    let raw = argv[at]
+    var word = raw.utf8() ?? ""
+    if ! stopped and raw.utf8() is Err(_) {
+      if raw.starts_with(b"--") {
+        if let equal = find_byte(raw, 61) {
+          let name = raw[0..equal].utf8() ?? ""
+          if name == "--reference" {
+            reference = raw[equal + 1..]
+            at += 1
+            continue
+          }
+        }
+        gnu.usage_error(f"unrecognized option {gnu.quote_bytes(raw)}")
+      } else if raw.starts_with(b"-") {
+        gnu.usage_error(f"invalid option {gnu.quote_bytes(raw)}")
+      }
+    }
     if ! stopped and word.starts_with("--") and word != "--" {
       let equal = word.find("=")
       let name = if let split = equal { word.byte_slice(0, split) } else { word }
@@ -45,7 +66,7 @@ export proc options(argv: List[Str], chmod = false) [process, env] -> Result[Opt
     }
     at += 1
     if stopped or word == "-" or ! word.starts_with("-") {
-      operands += [word]
+      operands += [raw]
       if env.get("POSIXLY_CORRECT") is Ok(_) { stopped = true }
     } else if word == "--" {
       stopped = true
@@ -74,9 +95,9 @@ export proc options(argv: List[Str], chmod = false) [process, env] -> Result[Opt
     } else if word == "--no-preserve-root" {
       preserve_root = false
     } else if word == "--reference" or word.starts_with("--reference=") or (! chmod and (word == "--from" or word.starts_with("--from="))) {
-      var value = ""
+      var value: Bytes = b""
       if let equal = word.find("=") {
-        value = word.byte_slice(equal + 1)
+        value = bytes.from_text(word.byte_slice(equal + 1))
       } else {
         if at >= argv.len() {
           gnu.usage_error(f"option {gnu.quote(word)} requires an argument")
@@ -103,7 +124,7 @@ export proc options(argv: List[Str], chmod = false) [process, env] -> Result[Opt
       }
     }
   }
-  if let mode = option_mode { operands = [mode] + operands }
+  if let mode = option_mode { operands = [bytes.from_text(mode)] + operands }
   if recursive and traversal == "P" {
     if explicit_dereference and dereference {
       gnu.usage_error("-R --dereference requires -H or -L")
@@ -241,37 +262,55 @@ proc owner_tree(target: Path, ids: Owner, filter: Owner?, opts: Options, group_o
 }
 
 ## Apply ownership changes and retain failure status across operands.
-export proc ownership(argv: List[Str], group_only = false) [fs, error, process, env, io] {
+proc missing_operand_after_bytes(operand: Bytes) [process, env] {
+  gnu.usage_error(f"missing operand after {gnu.quote_bytes(operand)}")
+}
+
+export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process, env, io] {
   let opts = options(argv)?
   let command = if group_only { "chgrp" } else { "chown" }
   if opts.help { gnu.help(f"Usage: {command} [OPTION]... {if group_only { "GROUP" } else { "OWNER[:GROUP]" }} FILE...\nChange ownership of each FILE.\n  -R, --recursive\n  -c, --changes\n  -f, --silent\n  -v, --verbose\n  -h, --no-dereference\n  -H -L -P\n      --reference=RFILE\n      --from=OWNER[:GROUP]\n      --preserve-root\n      --no-preserve-root\n      --help\n      --version"); return }
   if opts.version { gnu.version(command); return }
   if opts.operands.is_empty() { gnu.missing_operand() }
-  if opts.reference == null and opts.operands.len() < 2 { gnu.missing_operand_after(opts.operands[0]) }
+  if opts.reference == null and opts.operands.len() < 2 { missing_operand_after_bytes(opts.operands[0]) }
   var ids: Owner = {uid: null, gid: null}
   var targets = opts.operands
   if let reference = opts.reference {
-    match fs.stat(fp"{reference}", follow_symlinks: true) {
+    let reference_path = Path.parse_bytes(reference)?
+    match fs.stat(reference_path, follow_symlinks: true) {
       Ok(meta) => ids = {uid: if group_only { null } else { meta.uid }, gid: meta.gid}
-      Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote(reference)}: {gnu.strerror(failure)}"); exit 1 }
+      Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote_bytes(reference)}: {gnu.strerror(failure)}"); exit 1 }
     }
   } else {
-    match owner(opts.operands[0], group_only) {
+    let raw_owner = opts.operands[0]
+    let owner_spec = if let Ok(text) = raw_owner.utf8() {
+      text
+    } else {
+      gnu.error(f"invalid {if group_only { "group" } else { "user" }}: {gnu.quote_bytes(raw_owner)}")
+      exit 1
+    }
+    match owner(owner_spec, group_only) {
       Ok(parsed) => ids = parsed
-      Err(failure) => { gnu.error(f"{if group_only { "invalid group" } else { failure.message }}: {gnu.quote(opts.operands[0])}"); exit 1 }
+      Err(failure) => { gnu.error(f"{if group_only { "invalid group" } else { failure.message }}: {gnu.quote(owner_spec)}"); exit 1 }
     }
     targets = opts.operands[1..]
-    if targets.is_empty() { gnu.missing_operand_after(opts.operands[0]) }
+    if targets.is_empty() { missing_operand_after_bytes(raw_owner) }
   }
   var filter: Owner? = null
   if let spec = opts.from {
-    match owner(spec) {
+    let owner_filter = if let Ok(text) = spec.utf8() {
+      text
+    } else {
+      gnu.error(f"invalid owner filter: {gnu.quote_bytes(spec)}")
+      exit 1
+    }
+    match owner(owner_filter) {
       Ok(parsed) => filter = parsed
-      Err(failure) => { gnu.error(f"{failure.message}: {gnu.quote(spec)}"); exit 1 }
+      Err(failure) => { gnu.error(f"{failure.message}: {gnu.quote(owner_filter)}"); exit 1 }
     }
   }
   var success = true
-  for target in targets { if ! owner_tree(fp"{target}", ids, filter, opts, group_only, true, []) { success = false } }
+  for target in targets { if ! owner_tree(Path.parse_bytes(target)?, ids, filter, opts, group_only, true, []) { success = false } }
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }
