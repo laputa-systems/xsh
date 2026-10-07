@@ -107,6 +107,11 @@ remain historical evidence only.
   emits the NUL record terminator in a `-z -c` disorder diagnostic, while the
   corresponding uutils test expects a newline; that test remains a known
   expectation difference. Reports are in `results/sort-check-zero-followup/`.
+- Follow-up `3437b52e` keeps an unterminated input file's final record separate
+  from the next operand. The focused native sort suite passes 7/7; Gate 3
+  improves from 41/176 to 43/174 across 217 cases, fixing `sort_multiple` and
+  `test_start_buffer` with no regressions. Reports are in
+  `results/sort-input-boundary/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail

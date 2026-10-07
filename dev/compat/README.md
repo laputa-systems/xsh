@@ -137,6 +137,11 @@ no regressions. GNU 9.11 emits the NUL record terminator in a `-z -c`
 diagnostic; the corresponding uutils test expects a newline and remains a
 known expectation difference. Reports are in
 `results/sort-check-zero-followup/`.
+Follow-up `3437b52e` keeps an unterminated final record in one sort input
+operand separate from the next file. The native sort tests pass 7/7; the
+optimized debug Gate 3 slice improves from 41/176 to 43/174 across 217 cases,
+fixing `sort_multiple` and `test_start_buffer` with no regressions. Reports are
+in `results/sort-input-boundary/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
