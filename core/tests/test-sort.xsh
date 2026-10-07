@@ -1,3 +1,5 @@
+use core.lib.text_a2 as text
+
 test test_sort_unique_reverse { |ctx|
   let input = test.temp_file(ctx, name: "sort.txt", contents: b"b\na\nb\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sort.xsh" -- -u -r $input
@@ -322,6 +324,104 @@ test test_sort_batch_size_validation { |ctx|
   assert invalid.exit_code()? == 2
   assert stderr.read_text()? == "sort: invalid --batch-size argument 'a'\n"
   assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_buffer_size_rejects_percent_after_suffix { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-buffer-size-percent")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--buffer-size=0x123%"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 2
+  assert stderr.read_text()? == "sort: invalid --buffer-size argument '0x123%'\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_buffer_size_spills_sorted_runs { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-buffer-spill")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let payload = text.padding(200, "x")
+  var input_lines: List[Str] = []
+  var expected_lines: List[Str] = []
+  for index in range(400) { expected_lines += [f"{index:04} {payload}"] }
+  for index in range(400) { input_lines += [expected_lines[399 - index]] }
+  let input = bytes.from_text(input_lines.join("\n") + "\n")
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "1K", "-T", root.display()], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == bytes.from_text(expected_lines.join("\n") + "\n")
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_sigint_removes_external_runs { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-buffer-spill-sigint")?
+  let input = fp"{root}/input"
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let payload = text.padding(200, "x")
+  var lines: List[Str] = []
+  for index in range(30000) { lines += [f"{index:05} {payload}"] }
+  input.write(lines.join("\n") + "\n")
+
+  let child = spawn run @(["/bin/sh", "-c", "error_file=$1; shift; exec \"$@\" 2>\"$error_file\"", "sort-test",
+    stderr.display(), ctx.xsh_bin.display(), "--", script.display(), "-S1", "-T", root.display(),
+    "-o", stdout.display(), input.display()]) ?
+  var saw_run = false
+  for _ in range(500) {
+    if fs.files(root, hidden: true)? |> any .name.starts_with("run-") {
+      saw_run = true
+      break
+    }
+    time.sleep(10ms)?
+  }
+  assert saw_run, "sort did not write its first spill run"
+  process.kill(child.pid, signal: "INT")?
+  assert (wait child?).shell_code()? == 130
+  assert stderr.read_text()?.is_empty(), "SIGINT emitted a cleanup diagnostic"
+  assert ! (fs.files(root, hidden: true)? |> any .name.starts_with("run-")), "SIGINT left spill files behind"
+}
+
+test test_sort_buffer_size_requires_temporary_directory_when_spilling { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-buffer-spill-error")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let payload = text.padding(200, "x")
+  var input_lines: List[Str] = []
+  for index in range(400) { input_lines += [f"{399 - index:04} {payload}"] }
+  let input = bytes.from_text(input_lines.join("\n") + "\n")
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S1K", "-T", fp"{root}/missing".display()], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 2
+  assert "cannot create temporary file" in stderr.read_text()?
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_merge_batch_size_merges_multiple_passes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-merge-batches")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let inputs = ["a\ng\n", "b\nh\n", "c\ni\n", "d\nj\n", "e\nk\n", "f\nl\n"]
+  var paths: List[Str] = []
+  for index in range(inputs.len()) {
+    let input_path = fp"{root}/input{index}"
+    input_path.write(inputs[index])
+    paths += [input_path.display()]
+  }
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-m", "--batch-size=2"] + paths, root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\nl\n"
+  assert stderr.read_bytes()?.is_empty()
 }
 
 test test_sort_separator_null_and_invalid_character_counts { |ctx|

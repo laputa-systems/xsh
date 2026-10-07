@@ -17,7 +17,9 @@ type SortOptions = {
   merge: Bool,
   version_sort: Bool,
   sort_mode: List[Str],
+  buffer_size: Str?,
   batch_size: Str?,
+  temp_directory: Str?,
   debug: Bool,
   key: List[Str],
   delimiter: Str,
@@ -37,6 +39,11 @@ type GeneralNumericSortKey = {key: Str, raw: Str}
 type TextSortKey = {key: Str, raw: Str}
 type SortInput = {name: Bytes, path: Path, stdin: Bool}
 type SortMergeReader = {fd: Int, name: Bytes, pending: Bytes, eof: Bool, current: Str?}
+
+## External sorts unwind their temp-root defer before returning shell status 130.
+on SIGINT [] {
+  exit 130
+}
 
 pure numeric_key(line: Str) -> Str {
   numeric_order_key(line)
@@ -1119,6 +1126,80 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
   output
 }
 
+pure sort_input_lines(input_lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> List[Str] {
+  let human_numeric = is_human_numeric_sort(opts)
+  let general_numeric = is_general_numeric_sort(opts)
+  ## Removing identical records before sorting preserves all results and avoids costly duplicate work.
+  let unique_input = if opts.unique { input_lines |> unique-by . } else { input_lines }
+  if opts.merge {
+    unique_input
+  } else if has_key {
+    multiple_key_sort(unique_input, opts)
+  } else if is_month_sort(opts) {
+    if opts.reverse {
+      unique_input |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique)
+    } else {
+      unique_input |> sort-by month_sort_key(., opts.stable or opts.unique)
+    }
+  } else if human_numeric {
+    if opts.reverse {
+      unique_input |> sort-by(desc: true) human_numeric_sort_key(., opts.stable or opts.unique)
+    } else {
+      unique_input |> sort-by human_numeric_sort_key(., opts.stable or opts.unique)
+    }
+  } else if general_numeric {
+    if opts.reverse {
+      unique_input |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique)
+    } else {
+      unique_input |> sort-by general_numeric_sort_key(., opts.stable or opts.unique)
+    }
+  } else if is_version_sort(opts) {
+    if opts.reverse {
+      unique_input |> sort-by(desc: true) version_sort_key(., opts.stable)
+    } else {
+      unique_input |> sort-by version_sort_key(., opts.stable)
+    }
+  } else if is_numeric_sort(opts) {
+    ## Keep the first spelling for each number before a reverse sort can reorder equal keys.
+    let numeric_lines = if opts.unique { unique_input |> unique-by numeric_sort_key(., true) } else { unique_input }
+    if opts.reverse {
+      numeric_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique)
+    } else {
+      numeric_lines |> sort-by numeric_sort_key(., opts.stable or opts.unique)
+    }
+  } else if opts.blank {
+    blank_sorted(unique_input, opts.reverse, opts)
+  } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
+    if opts.reverse {
+      unique_input |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
+    } else {
+      unique_input |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
+    }
+  } else if opts.reverse {
+    unique_input |> sort-by(desc: true) .
+  } else {
+    unique_input |> sort
+  }
+}
+
+pure unique_sorted_lines(sorted: List[Str], opts: SortOptions, has_key: Bool) -> List[Str] {
+  if opts.unique and has_key {
+    unique_key_lines(sorted, opts)
+  } else if opts.unique and is_month_sort(opts) {
+    sorted |> unique-by month_sort_key(., true)
+  } else if opts.unique and is_human_numeric_sort(opts) {
+    sorted |> unique-by human_numeric_sort_key(., true)
+  } else if opts.unique and is_general_numeric_sort(opts) {
+    sorted |> unique-by general_numeric_sort_key(., true)
+  } else if opts.unique and is_numeric_sort(opts) {
+    sorted |> unique-by numeric_sort_key(., true)
+  } else if opts.unique {
+    sorted |> unique-by .
+  } else {
+    sorted
+  }
+}
+
 ## A required output operand may start with a dash, so attach it before parsing options.
 pure normalize_output_args(argv: List[Str]) -> List[Str] {
   var normalized: List[Str] = []
@@ -1360,6 +1441,58 @@ proc validate_batch_size(value: Str) [process, env, error] -> Unit {
   }
 }
 
+proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
+  let raw = bytes.from_text(value)
+  var digits = 0
+  while digits < raw.len() and is_ascii_digit(raw.byte_at(digits) ?? 0) { digits += 1 }
+  if digits == 0 {
+    gnu.error(f"invalid --buffer-size argument {gnu.quote(value)}")
+    exit 2
+  }
+
+  let number_text = value.byte_slice(0, length: digits)
+  let number = match number_text.parse_int() {
+    Ok(number) => number
+    Err(_) => {
+      gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+      exit 2
+    }
+  }
+  let suffix = value.byte_slice(digits)
+  if suffix != "%" and suffix.find("%") != null {
+    gnu.error(f"invalid --buffer-size argument {gnu.quote(value)}")
+    exit 2
+  }
+  if suffix == "%" {
+    let memory = linux.meminfo()?
+    if number > 100 {
+      gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+      exit 2
+    }
+    return memory.total / 100 * number + memory.total % 100 * number / 100
+  }
+
+  let power = if suffix in ["", "b"] { 0 } else if suffix in ["k", "K"] { 1 } else if suffix == "M" { 2 } else if suffix == "G" { 3 } else if suffix == "T" { 4 } else if suffix == "P" { 5 } else if suffix == "E" { 6 } else if suffix == "Z" { 7 } else if suffix == "Y" { 8 } else {
+    gnu.error(f"invalid suffix in --buffer-size argument {gnu.quote(value)}")
+    exit 2
+  }
+
+  let maximum = 9223372036854775807
+  var multiplier = 1
+  for _ in range(power) {
+    if multiplier > maximum / 1024 {
+      gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+      exit 2
+    }
+    multiplier *= 1024
+  }
+  if number > maximum / multiplier {
+    gnu.error(f"--buffer-size argument {gnu.quote(value)} too large")
+    exit 2
+  }
+  number * multiplier
+}
+
 ## Flush an intermediate merge chunk so failed output stops further input reads.
 proc write_sort_stdout(text: Str) [io, env, process] -> Unit {
   gnu.write_text(text)
@@ -1374,6 +1507,287 @@ proc finish_sort_stdout(text: Str) [io, env, process] -> Unit {
   if let Err(failure) = io.flush_stdout() {
     gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
     exit 2
+  }
+}
+
+proc write_sort_fd(fd: Int, text: Str, output_name: Str) [io, env, process, error] -> Unit {
+  let data = bytes.from_text(text)
+  var offset = 0
+  while offset < data.len() {
+    match unix.write_fd(fd, data[offset..]) {
+      Ok(written) => {
+        if written == 0 {
+          gnu.error(f"write failed: {gnu.quote(output_name)}: descriptor write made no progress")
+          exit 2
+        }
+        offset += written
+      }
+      Err(failure) => {
+        gnu.error(f"write failed: {gnu.quote(output_name)}: {gnu.strerror(failure)}")
+        exit 2
+      }
+    }
+  }
+}
+
+proc create_sort_temp_root(directory: Str?) [fs, io, process, env, error] -> FsRoot {
+  let created = if let temp_dir = directory { fs.tempdir_in(fp"{temp_dir}") } else { fs.tempdir() }
+  match created {
+    Ok(root) => root
+    Err(failure) => {
+      gnu.error(f"cannot create temporary file: {gnu.strerror(failure)}")
+      exit 2
+    }
+  }
+}
+
+proc sort_temp_path(root: FsRoot, name: Str) [fs, error] -> Path {
+  let relative = fp"{name}"
+  root.write(relative, b"")?
+  root.chmod(relative, 0o600)?
+  fp"{root.host_path()?}/{name}"
+}
+
+proc write_sort_run(root: FsRoot, name: Str, records: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) [fs, error] -> Path {
+  let sorted = sort_input_lines(records, opts, has_key, key_field)
+  let ending = if opts.zero_terminated { "\0" } else { "\n" }
+  let contents = if sorted.is_empty() { "" } else { f"{sorted.join(ending)}{ending}" }
+  let relative = fp"{name}"
+  root.write(relative, contents)?
+  root.chmod(relative, 0o600)?
+  fp"{root.host_path()?}/{name}"
+}
+
+proc sort_merge_batch_limit(opts: SortOptions) [process, error] -> Int {
+  let limit = process.rlimit("nofile")?
+  let available = if let soft = limit.soft { if soft > 6 { soft - 6 } else { 2 } } else { 32 }
+  let bounded = if available > 64 { 64 } else { available }
+  if let requested = opts.batch_size {
+    let size = requested.parse_int()?
+    if size < bounded { size } else { bounded }
+  } else {
+    bounded
+  }
+}
+
+proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool, key_field: Int, output_fd: Int?, deduplicate: Bool) [fs, io, env, process, error] {
+  var readers: List[SortMergeReader] = []
+  defer {
+    for reader in readers {
+      if reader.fd != 0 { let _ = unix.close_fd(reader.fd) }
+    }
+  }
+
+  for input in inputs {
+    let fd = if input.stdin {
+      0
+    } else {
+      match unix.open_fd(input.path) {
+        Ok(fd) => fd
+        Err(failure) => {
+          gnu.error(f"cannot read: {gnu.quote_bytes(input.name, always: false)}: {gnu.strerror(failure)}")
+          exit 2
+        }
+      }
+    }
+    readers += [{fd: fd, name: input.name, pending: b"", eof: false, current: null}]
+  }
+
+  for index in range(readers.len()) {
+    match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
+      Ok(reader) => readers[index] = reader
+      Err(failure) => {
+        gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
+        exit 2
+      }
+    }
+  }
+
+  let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
+  var output = ""
+  var previous: Str? = null
+  loop {
+    var selected: Int? = null
+    for index in range(readers.len()) {
+      if let candidate = readers[index].current {
+        if let current_index = selected {
+          let current = readers[current_index].current ?? ""
+          let plain_text_order = ! has_key and ! is_month_sort(opts) and ! is_human_numeric_sort(opts) and
+            ! is_general_numeric_sort(opts) and ! is_version_sort(opts) and ! is_numeric_sort(opts) and
+            ! opts.blank and ! opts.fold_case and ! opts.dictionary and ! opts.ignore_nonprinting
+          let candidate_precedes = if plain_text_order {
+            if opts.reverse { candidate > current } else { candidate < current }
+          } else {
+            pair_is_ordered(candidate, current, opts, has_key, key_field) and
+              ! pair_is_ordered(current, candidate, opts, has_key, key_field)
+          }
+          if candidate_precedes { selected = index }
+        } else {
+          selected = index
+        }
+      }
+    }
+
+    if let index = selected {
+      let line = readers[index].current ?? ""
+      let duplicate = if deduplicate {
+        if let prior = previous { same_sort_key(prior, line, opts, has_key, key_field) } else { false }
+      } else { false }
+      if ! duplicate {
+        output += f"{line}{line_ending}"
+        if output.byte_len() >= 65536 {
+          if let fd = output_fd { write_sort_fd(fd, output, "temporary file") } else { finish_sort_stdout(output) }
+          output = ""
+        }
+      }
+      previous = line
+      match advance_sort_merge_reader(readers[index], opts.zero_terminated) {
+        Ok(reader) => readers[index] = reader
+        Err(failure) => {
+          gnu.error(f"cannot read: {gnu.quote_bytes(readers[index].name, always: false)}: {gnu.strerror(failure)}")
+          exit 2
+        }
+      }
+    } else {
+      break
+    }
+  }
+
+  if output != "" {
+    if let fd = output_fd { write_sort_fd(fd, output, "temporary file") } else { finish_sort_stdout(output) }
+  }
+}
+
+proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions, has_key: Bool, key_field: Int, batch_limit: Int, output_fd: Int?, deduplicate: Bool) [fs, io, env, process, error] {
+  var runs = inputs
+  var pass = 0
+  while runs.len() > batch_limit {
+    var next: List[SortInput] = []
+    var start = 0
+    var group_number = 0
+    while start < runs.len() {
+      let stop = if start + batch_limit < runs.len() { start + batch_limit } else { runs.len() }
+      var input_group: List[SortInput] = []
+      for index in range(start, stop) { input_group += [runs[index]] }
+      if input_group.len() == 1 {
+        next += input_group
+      } else {
+        let name = f"merge-{pass}-{group_number}"
+        let run_file = sort_temp_path(root, name)
+        let fd = unix.open_fd(run_file, write: true)?
+        merge_sort_stream(input_group, opts, has_key, key_field, fd, false)
+        unix.close_fd(fd)?
+        next += [{name: bytes.from_text(run_file.display()), path: run_file, stdin: false}]
+      }
+      start = stop
+      group_number += 1
+    }
+    runs = next
+    pass += 1
+  }
+  merge_sort_stream(runs, opts, has_key, key_field, output_fd, deduplicate)
+}
+
+proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, key_field: Int, output: Path, has_output: Bool) [fs, io, env, process, error] {
+  var temp_root: FsRoot? = null
+  defer { if let root = temp_root { root.close()? } }
+
+  let requested_limit = if buffer_size == 0 { 9223372036854775807 } else { buffer_size }
+  ## A minimum run size prevents tiny -S values from creating a temporary file for every short record.
+  let chunk_limit = if requested_limit < 65536 { 65536 } else { requested_limit }
+  let separator_bytes = if opts.zero_terminated { 1 } else { 1 }
+  var chunk: List[Str] = []
+  var chunk_bytes = 0
+  var runs: List[Path] = []
+  var run_number = 0
+
+  for input in inputs {
+    let fd = if input.stdin {
+      0
+    } else {
+      match unix.open_fd(input.path) {
+        Ok(fd) => fd
+        Err(failure) => {
+          gnu.error(f"cannot read: {gnu.quote_bytes(input.name, always: false)}: {gnu.strerror(failure)}")
+          exit 2
+        }
+      }
+    }
+    var reader: SortMergeReader = {fd: fd, name: input.name, pending: b"", eof: false, current: null}
+    loop {
+      match advance_sort_merge_reader(reader, opts.zero_terminated) {
+        Ok(next) => {
+          reader = next
+          if let line = reader.current {
+            chunk += [line]
+            chunk_bytes += line.byte_len() + separator_bytes
+            if chunk_bytes >= chunk_limit {
+              if temp_root == null { temp_root = create_sort_temp_root(opts.temp_directory) }
+              if let root = temp_root {
+                runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field)]
+              } else {
+                fail "sort temporary directory was not created"
+              }
+              run_number += 1
+              chunk = []
+              chunk_bytes = 0
+            }
+          } else {
+            break
+          }
+        }
+        Err(failure) => {
+          gnu.error(f"cannot read: {gnu.quote_bytes(input.name, always: false)}: {gnu.strerror(failure)}")
+          exit 2
+        }
+      }
+    }
+    if ! input.stdin { unix.close_fd(fd)? }
+  }
+
+  if runs.is_empty() {
+    let lines = unique_sorted_lines(sort_input_lines(chunk, opts, has_key, key_field), opts, has_key)
+    let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
+    let output_text = if lines.is_empty() { "" } else { f"{lines.join(line_ending)}{line_ending}" }
+    if has_output {
+      if let Err(failure) = output.write(output_text) {
+        let action = if let Ok(_) = fs.stat(output, follow_symlinks: true) { "write failed" } else { "open failed" }
+        gnu.error(f"{action}: {gnu.quote_maybe(output.display())}: {gnu.strerror(failure)}")
+        exit 2
+      }
+    } else if opts.zero_terminated {
+      write_sort_stdout(output_text)
+    } else {
+      for line in lines { print $line }
+    }
+    return
+  }
+
+  if ! chunk.is_empty() {
+    if let root = temp_root {
+      runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field)]
+    } else {
+      fail "sort temporary directory was not created"
+    }
+  }
+  if let root = temp_root {
+    var run_inputs: List[SortInput] = []
+    for run_file in runs { run_inputs += [{name: bytes.from_text(run_file.display()), path: run_file, stdin: false}] }
+    let batch_limit = sort_merge_batch_limit(opts)
+    if has_output {
+      if let Err(failure) = output.write("") {
+        let action = if let Ok(_) = fs.stat(output, follow_symlinks: true) { "write failed" } else { "open failed" }
+        gnu.error(f"{action}: {gnu.quote_maybe(output.display())}: {gnu.strerror(failure)}")
+        exit 2
+      }
+      let fd = unix.open_fd(output, write: true)?
+      merge_sort_batched(run_inputs, root, opts, has_key, key_field, batch_limit, fd, opts.unique)
+      unix.close_fd(fd)?
+    } else {
+      merge_sort_batched(run_inputs, root, opts, has_key, key_field, batch_limit, null, opts.unique)
+    }
+  } else {
+    fail "sort temporary directory was not created"
   }
 }
 
@@ -1413,6 +1827,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         form: "--sort=MODE",
         repeated: true,
       },
+      buffer_size: {
+        form: "-S --buffer-size SIZE",
+      },
       debug: {
         form: "--debug",
         default: false,
@@ -1443,6 +1860,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
       batch_size: {
         form: "--batch-size SIZE",
+      },
+      temp_directory: {
+        form: "-T --temporary-directory DIR",
       },
       key: {
         form: "-k KEY",
@@ -1492,6 +1912,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
+  let buffer_size: Int? = if let value = opts.buffer_size { parse_buffer_size(value) } else { null }
   if let batch_size = opts.batch_size { validate_batch_size(batch_size) }
 
   let selected_mode = selected_sort_mode(opts)
@@ -1633,6 +2054,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
+  if opts.merge and ! check_enabled and ! opts.debug and ! has_output and inputs_are_regular {
+    let batch_limit = sort_merge_batch_limit(opts)
+    if inputs.len() > batch_limit {
+      let scratch = create_sort_temp_root(opts.temp_directory)
+      defer scratch.close()?
+      merge_sort_batched(inputs, scratch, opts, has_key, key_field, batch_limit, null, opts.unique)
+      return
+    }
+  }
+
+  if let size = buffer_size {
+    if ! opts.merge and ! check_enabled and ! opts.debug {
+      buffered_sort(inputs, opts, size, has_key, key_field, output, has_output)
+      return
+    }
+  }
+
   if can_stream_sort_merge(inputs, opts, check_enabled, inputs_are_regular) {
     stream_sort_merge(inputs, opts, has_key, key_field)
     return
@@ -1668,71 +2106,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  let sorted = if opts.merge {
-    input_lines
-  } else if has_key {
-    multiple_key_sort(input_lines, opts)
-  } else if is_month_sort(opts) {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique)
-    } else {
-      input_lines |> sort-by month_sort_key(., opts.stable or opts.unique)
-    }
-  } else if human_numeric {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) human_numeric_sort_key(., opts.stable or opts.unique)
-    } else {
-      input_lines |> sort-by human_numeric_sort_key(., opts.stable or opts.unique)
-    }
-  } else if general_numeric {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique)
-    } else {
-      input_lines |> sort-by general_numeric_sort_key(., opts.stable or opts.unique)
-    }
-  } else if is_version_sort(opts) {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) version_sort_key(., opts.stable)
-    } else {
-      input_lines |> sort-by version_sort_key(., opts.stable)
-    }
-  } else if is_numeric_sort(opts) {
-    ## Keep the first spelling for each number before a reverse sort can reorder equal keys.
-    let numeric_lines = if opts.unique { input_lines |> unique-by numeric_sort_key(., true) } else { input_lines }
-    if opts.reverse {
-      numeric_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique)
-    } else {
-      numeric_lines |> sort-by numeric_sort_key(., opts.stable or opts.unique)
-    }
-  } else if opts.blank {
-    blank_sorted(input_lines, opts.reverse, opts)
-  } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
-    } else {
-      input_lines |> sort-by { |line| {key: character_order_key(line, opts.dictionary, opts.ignore_nonprinting, opts.fold_case), raw: if opts.stable { "" } else { line }} }
-    }
-  } else if opts.reverse {
-    input_lines |> sort-by(desc: true) .
-  } else {
-    input_lines |> sort
-  }
-
-  let lines = if opts.unique and has_key {
-    unique_key_lines(sorted, opts)
-  } else if opts.unique and is_month_sort(opts) {
-    sorted |> unique-by month_sort_key(., true)
-  } else if opts.unique and human_numeric {
-    sorted |> unique-by human_numeric_sort_key(., true)
-  } else if opts.unique and general_numeric {
-    sorted |> unique-by general_numeric_sort_key(., true)
-  } else if opts.unique and is_numeric_sort(opts) {
-    sorted |> unique-by numeric_sort_key(., true)
-  } else if opts.unique {
-    sorted |> unique-by .
-  } else {
-    sorted
-  }
+  let sorted = sort_input_lines(input_lines, opts, has_key, key_field)
+  let lines = unique_sorted_lines(sorted, opts, has_key)
 
   let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
   let text = if opts.debug {
