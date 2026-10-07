@@ -197,6 +197,13 @@ tests pass 18/18; the optimized debug Gate 3 slice improves from 56/161 to
 `ignore_case`, `version`, `version_empty_lines`, `words_unique`, and
 `zero_terminated` with no regressions. Detailed key-range and locale debug
 annotations remain open; reports are in `results/sort-debug/`.
+Follow-up `3b311480` adds `-g`/`--general-numeric-sort` and
+`--sort=g`/`--sort=general-numeric`. XSH parses decimal and hexadecimal
+numeric prefixes, orders binary64 values through a text key, and uses numeric
+equality for `-u` and `-c`. Native
+sort tests pass 23/23; its optimized debug Gate 3 slice improves from 63/154 to
+69/148 across 217 cases, fixing six tests with no regressions. Reports are in
+`results/sort-general-numeric-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays

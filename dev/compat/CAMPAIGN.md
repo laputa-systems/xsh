@@ -166,6 +166,13 @@ remain historical evidence only.
   `version`, `version_empty_lines`, `words_unique`, and `zero_terminated` with
   no regressions. Detailed key-range and locale debug annotations remain open;
   reports are in `results/sort-debug/`.
+- Follow-up `3b311480` adds `-g`/`--general-numeric-sort` and
+  `--sort=g`/`--sort=general-numeric`. XSH parses decimal and hexadecimal
+  numeric prefixes, orders binary64 values through a text key, and uses numeric
+  equality for `-u` and `-c`.
+  Native sort tests pass 23/23; the optimized debug Gate 3 slice improves from
+  63/154 to 69/148 across 217 tests, fixing six cases with no regressions.
+  Reports are in `results/sort-general-numeric-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
