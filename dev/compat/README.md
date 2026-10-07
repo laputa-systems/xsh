@@ -136,6 +136,11 @@ diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
 at 102/167 with the same failing IDs because the malformed-interval tests
 require a help hint that GNU 9.11 does not print. The report and JUnit are in
 `results/tail-followup/`.
+Follow-up `8bc16fdd` rejects zero flags for `%c` and `%s`, rejects precision on
+`%c`, warns about unused operands after literal-only formats, and suppresses
+that warning when `\c` stops output. Native printf tests pass 19/19; its
+optimized debug Gate 3 slice improves from 109/43 to 113/39 across 152 cases,
+with no regressions. Its report and JUnit are in `results/printf-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

@@ -107,6 +107,12 @@ remain historical evidence only.
   same failing IDs, since its malformed-interval cases also require a help
   hint that GNU 9.11 does not print. Its report and JUnit are in
   `results/tail-followup/`.
+- Follow-up at `8bc16fdd` rejects the zero flag for `%c`/`%s` and precision on
+  `%c`, warns about operands left after a literal-only format, and suppresses
+  that warning when `\c` stops output. The native printf suite passes 19/19;
+  its optimized debug Gate 3 slice improves from 109/43 to 113/39 across 152
+  cases, with four fixes and no regressions. Reports are in
+  `results/printf-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
