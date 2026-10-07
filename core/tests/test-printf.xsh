@@ -370,9 +370,13 @@ test test_printf_reports_malformed_hex_and_unicode_escapes { |ctx|
 test test_printf_escape_sequences_and_backslash_b { |ctx|
   let escaped = printf_run(ctx, ["A\\101\\x42\\u0043\\n%%"])?
   let expanded = printf_run(ctx, ["[%b]", "x\\t\\101\\cignored"])?
+  let formatted_zero = printf_run(ctx, ["\\0001_"])?
+  let expanded_octal = printf_run(ctx, ["%b", "\\0001_"])?
 
   assert escaped.status == 0, escaped.stderr
   assert escaped.stdout == "AABC\n%"
   assert expanded.status == 0, expanded.stderr
   assert expanded.stdout == "[x\tA"
+  assert formatted_zero.stdout == "\u{0}1_"
+  assert expanded_octal.stdout == "\u{1}_"
 }

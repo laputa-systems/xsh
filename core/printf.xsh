@@ -378,7 +378,7 @@ pure float_is_infinite(value: Float) -> Bool {
   value.format() in ["Infinity", "-Infinity"]
 }
 
-pure scan_escape(text: Str, slash: Int) -> Result[Escape] {
+pure scan_escape(text: Str, slash: Int, zero_prefix: Bool = false) -> Result[Escape] {
   let next = slash + 1
   if next >= text.byte_len() { return {text: "\\", next: next, stop: false, issue: null} }
   let code = text.byte_slice(next, length: 1)
@@ -398,7 +398,8 @@ pure scan_escape(text: Str, slash: Int) -> Result[Escape] {
       var at = next
       var value = 0
       var count = 0
-      while at < text.byte_len() and count < 3 and "01234567".find(text.byte_slice(at, length: 1)) != null {
+      let limit = if zero_prefix and code == "0" { 4 } else { 3 }
+      while at < text.byte_len() and count < limit and "01234567".find(text.byte_slice(at, length: 1)) != null {
         value = value * 8 + ("01234567".find(text.byte_slice(at, length: 1)) ?? 0)
         at += 1
         count += 1
@@ -456,7 +457,7 @@ pure unescape_text(text: Str) -> Result[Escape] {
   while at < text.byte_len() {
     let byte = text.byte_at(at) ?? 0
     if byte == 92 {
-      let escaped = scan_escape(text, at)?
+      let escaped = scan_escape(text, at, true)?
       if let issue = escaped.issue { return {text: output, next: escaped.next, stop: false, issue: issue} }
       if escaped.stop { return {text: output, next: escaped.next, stop: true, issue: null} }
       output += escaped.text
