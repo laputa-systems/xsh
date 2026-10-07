@@ -9,6 +9,7 @@ proc ls_in(
   args: List[Str],
   vars: Record = {LC_ALL: "C", TZ: "UTC"},
   name = "ls",
+  stdout_path: Path? = null,
 ) [fs, process, error] -> Result[Ran] {
   let bin = fp"{work}/../bin"
   bin.mkdir()
@@ -23,12 +24,12 @@ proc ls_in(
     fp"{bin}/lib".symlink(to: fp"{ctx.core_dir}/lib")
   }
 
-  let out = fp"{work}/../stdout"
+  let out = stdout_path ?? fp"{work}/../stdout"
   let err = fp"{work}/../stderr"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   let plan = process.command_argv(ctx.xsh_bin, argv, work, vars, b"", out, err)
   let status = process.run(plan)?
-  let raw = out.read_bytes()?
+  let raw = if stdout_path == null { out.read_bytes()? } else { b"" }
 
   Ok({status: status.exit_code()?, out: raw, text: raw.utf8() ?? "", err: err.read_text()?})
 }
@@ -71,8 +72,17 @@ test test_ls_long_reports_inaccessible_entries_as_minor_failure { |ctx|
   assert result.status == 1, result.err
   assert "? file" in result.text, result.text
   assert "? link" in result.text, result.text
+  assert "total 0\n" in result.text, result.text
+  # An inaccessible entry still keeps its right-aligned timestamp column.
+  assert " ?            ? file\n" in result.text, result.text
+  assert " ?            ? link\n" in result.text, result.text
   assert "cannot access 'dir/file': Permission denied" in result.err, result.err
   assert "cannot access 'dir/link': Permission denied" in result.err, result.err
+
+  dir.chmod(0o000)
+  let unreadable = ls_in(ctx, work, ["dir"])?
+  assert unreadable.status == 2, unreadable.err
+  assert unreadable.err == "ls: cannot open directory 'dir': Permission denied\n", unreadable.err
 }
 
 test test_ls_directory_operands_and_headers { |ctx|
@@ -100,7 +110,31 @@ test test_ls_reports_missing_operands_with_status_2 { |ctx|
   assert result.err == "ls: cannot access 'nope': No such file or directory\n", result.err
 
   let blocked = ls_in(ctx, work, ["ok/inside"])?
+  assert blocked.status == 2, blocked.err
   assert blocked.err == "ls: cannot access 'ok/inside': Not a directory\n", blocked.err
+}
+
+test test_ls_stats_proc_fd_entries_while_directory_is_open { |ctx|
+  let work = sandbox(ctx)?
+  if ! p"/proc/self/fd".is_dir()? { test.skip("requires procfs") }
+
+  let result = ls_in(ctx, work, ["-l", "/proc/self/fd"])?
+  assert result.status == 0, result.err
+  assert "cannot access" not in result.err, result.err
+}
+
+test test_ls_write_errors_keep_serious_status { |ctx|
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  let work = sandbox(ctx)?
+  fp"{work}/file".write("")
+
+  let plain = ls_in(ctx, work, [], {LC_ALL: "C", TZ: "UTC"}, "ls", p"/dev/full")?
+  assert plain.status == 2, plain.err
+  assert plain.err == "ls: write error: No space left on device\n", plain.err
+
+  let dired = ls_in(ctx, work, ["--dired", "missing"], {LC_ALL: "C", TZ: "UTC"}, "ls", p"/dev/full")?
+  assert dired.status == 2, dired.err
+  assert dired.err == "ls: cannot access 'missing': No such file or directory\nls: write error: No space left on device\n", dired.err
 }
 
 test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
@@ -114,7 +148,7 @@ test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
   assert ambiguous.err == "ls: option '--al' is ambiguous; possibilities: '--all' '--almost-all'\nTry 'ls --help' for more information.\n", ambiguous.err
 
   let value = ls_in(ctx, work, ["--format=nope"])?
-  assert value.status == 1
+  assert value.status == 2
   assert value.out == b""
   assert value.err.starts_with(
     "ls: invalid argument 'nope' for '--format'\nValid arguments are:\n  - 'verbose', 'long'\n",
@@ -130,7 +164,7 @@ test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
 
   let style = ls_in(ctx, work, ["-l", "--time-style=bogus"])?
   assert style.status == 2
-  assert style.err.starts_with("ls: invalid argument 'bogus' for 'time style'\nValid arguments are:\n"), style.err
+  assert style.err == "ls: invalid --time-style argument 'bogus'\nPossible values are:\n  - [posix-]full-iso\n  - [posix-]long-iso\n  - [posix-]iso\n  - [posix-]locale\n  - +FORMAT (e.g., +%H:%M) for a 'date'-style format\n\nFor more information try --help\n", style.err
   assert ls_in(ctx, work, ["--time-style=bogus"])?.status == 0, "the style is checked only for long listings"
 }
 
@@ -183,7 +217,7 @@ test test_ls_sort_orders { |ctx|
   assert ls_in(ctx, work, ["-X"])?.text == "a10\na2\ndd\nc.md\nb.txt\n"
   assert ls_in(ctx, work, ["--sort=width"])?.text == "a2\ndd\na10\nc.md\nb.txt\n"
   assert ls_in(ctx, work, ["-U", "-r"])?.status == 0
-  assert ls_in(ctx, work, ["--sort=nope"])?.status == 1
+  assert ls_in(ctx, work, ["--sort=nope"])?.status == 2
 }
 
 test test_ls_groups_directories_first { |ctx|
@@ -214,6 +248,8 @@ test test_ls_time_sort_and_styles { |ctx|
   assert ls_in(ctx, work, ["-og", "old"])?.text == "-rw-r--r-- 1 0 Sep  9  2001 old\n"
   assert ls_in(ctx, work, ["-og", "--time-style=+%Y/%m/%d %H:%M:%S %Z|%a %b %e", "old"])?.text == "-rw-r--r-- 1 0 2001/09/09 01:46:40 UTC|Sun Sep  9 old\n"
   assert ls_in(ctx, work, ["-og", "old"], {LC_ALL: "C", TZ: "UTC", TIME_STYLE: "long-iso"})?.text == "-rw-r--r-- 1 0 2001-09-09 01:46 old\n"
+  let locale = ls_in(ctx, work, ["-og", "--time-style=locale", "old"], {LC_ALL: "C", TZ: "UTC"})?.text
+  assert ls_in(ctx, work, ["-og", "--time-style=posix-full-iso", "old"], {LC_ALL: "C", TZ: "UTC"})?.text == locale
   assert ls_in(ctx, work, ["-og", "--time-style=+OLD\nNEW", "old"])?.text == "-rw-r--r-- 1 0 OLD old\n"
 }
 
@@ -270,12 +306,17 @@ test test_ls_symlink_dereference_options { |ctx|
   fp"{work}/real".mkdir()
   fp"{work}/real/inside".write("")
   fp"{work}/ln".symlink(to: p"real")
+  fp"{work}/dangling".symlink(to: p"missing")
 
   assert ls_in(ctx, work, ["ln"])?.text == "inside\n", "a symlink to a directory is followed on the command line"
   assert ls_in(ctx, work, ["-l", "-og", "--time-style=+T", "ln"])?.text == "lrwxrwxrwx 1 4 T ln -> real\n"
   assert "inside" in ls_in(ctx, work, ["-lH", "-og", "ln"])?.text
   assert ls_in(ctx, work, ["-d", "ln"])?.text == "ln\n"
   assert ls_in(ctx, work, ["-lLd", "-og", "--time-style=+T", "ln"])?.text.starts_with("drwx")
+
+  let dangling = ls_in(ctx, work, ["-L"])?
+  assert dangling.status == 1, dangling.err
+  assert dangling.err == "ls: cannot access 'dangling': No such file or directory\n", dangling.err
 }
 
 test test_ls_recursive_stops_at_directory_cycles { |ctx|
@@ -296,6 +337,7 @@ test test_ls_columns_across_commas_and_width { |ctx|
   }
 
   assert ls_in(ctx, work, ["-C", "-w", "100"])?.text == "test-width-1  test-width-2  test-width-3  test-width-4\n"
+  assert ls_in(ctx, work, ["-C", "-w=100"])?.text == "test-width-1  test-width-2  test-width-3  test-width-4\n"
   assert ls_in(ctx, work, ["-C", "-w", "50"])?.text == "test-width-1  test-width-3\ntest-width-2  test-width-4\n"
   assert ls_in(ctx, work, ["-x", "-w", "30"])?.text == "test-width-1  test-width-2\ntest-width-3  test-width-4\n"
   assert ls_in(ctx, work, ["-C", "-w", "25"])?.text == "test-width-1\ntest-width-2\ntest-width-3\ntest-width-4\n"
@@ -318,6 +360,31 @@ test test_ls_columns_use_tabs_to_reach_tab_stops { |ctx|
   assert ls_in(ctx, work, ["-x", "-w18", "-T4"])?.text == "aaaaaaaa  bbbb\ncccc\t  dddddddd\n"
   assert ls_in(ctx, work, ["-C", "-w18", "-T4"])?.text == "aaaaaaaa  cccc\nbbbb\t  dddddddd\n"
   assert ls_in(ctx, work, ["-C", "-w18", "-T0"])?.text == "aaaaaaaa  cccc\nbbbb      dddddddd\n"
+}
+
+test test_ls_commas_reserve_space_for_the_next_separator { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/a".write("")
+  fp"{work}/bb".write("")
+  fp"{work}/c".write("")
+  fp"{work}/com,ma".write("")
+
+  let result = ls_in(ctx, work, ["-m", "-w5", "a", "bb", "c"])?
+  assert result.text == "a,\nbb, c\n", result.text
+
+  let quoted = ls_in(ctx, work, ["-m", "--quoting-style=shell", "com,ma"])?
+  assert quoted.text == "'com,ma'\n", quoted.text
+}
+
+test test_ls_commas_hide_newlines_unless_control_chars_are_shown { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/n\nl".write("")
+
+  let hidden = ls_in(ctx, work, ["-m", "n\nl"])?
+  assert hidden.text == "n?l\n", hidden.text
+
+  let shown = ls_in(ctx, work, ["-m", "--show-control-chars", "n\nl"])?
+  assert shown.text == "n\nl\n", shown.text
 }
 
 test test_ls_ignore_hide_and_backups { |ctx|
@@ -356,7 +423,7 @@ test test_ls_color_uses_gnu_default_and_ls_colors_sequences { |ctx|
   fp"{work}/run".write("", mode: 0o755)
   fp"{work}/dangling".symlink(to: p"missing")
 
-  let colored = ls_in(ctx, work, ["--color=always"])?
+  let colored = ls_in(ctx, work, ["--color=always"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "xterm", COLORTERM: ""})?
   assert colored.text == "\u{1b}[0m\u{1b}[01;34md\u{1b}[0m\n\u{1b}[01;36mdangling\u{1b}[0m\nplain\n\u{1b}[01;32mrun\u{1b}[0m\n", colored.text
   assert ls_in(ctx, work, ["--color=never"])?.text == "d\ndangling\nplain\nrun\n"
   assert ls_in(ctx, work, ["--color=auto"])?.text == "d\ndangling\nplain\nrun\n", "stdout is not a terminal"
@@ -383,6 +450,38 @@ test test_ls_color_uses_gnu_default_and_ls_colors_sequences { |ctx|
 
   let prefix = ls_in(ctx, work, ["--color=always", "plain"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "qq=1:stray"})?
   assert prefix.err == "ls: unrecognized prefix: 'qq'\nls: unparsable value for LS_COLORS environment variable\n", prefix.err
+}
+
+test test_ls_color_fallback_requires_a_known_terminal { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/exe".write("", mode: 0o755)
+
+  let plain = ls_in(ctx, work, ["--color=always", "exe"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "", COLORTERM: ""})?
+  assert plain.text == "exe\n", plain.text
+
+  let xterm = ls_in(ctx, work, ["--color=always", "exe"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "xterm", COLORTERM: ""})?
+  assert xterm.text == "\u{1b}[0m\u{1b}[01;32mexe\u{1b}[0m\n", xterm.text
+
+  let dumb = ls_in(ctx, work, ["--color=always", "exe"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "dumb", COLORTERM: ""})?
+  assert dumb.text == "exe\n", dumb.text
+
+  let colorterm = ls_in(ctx, work, ["--color=always", "exe"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "", TERM: "", COLORTERM: "true"})?
+  assert colorterm.text == "\u{1b}[0m\u{1b}[01;32mexe\u{1b}[0m\n", colorterm.text
+}
+
+test test_ls_color_normal_attributes_apply_to_long_fields { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/exe".write("", mode: 0o755)
+  fp"{work}/no_color".write("", mode: 0o444)
+
+  let result = ls_in(
+    ctx,
+    work,
+    ["-gGU", "--color", "exe", "no_color"],
+    {LC_ALL: "C", TZ: "UTC", LS_COLORS: "no=7:ex=01;32", TIME_STYLE: "+norm"},
+  )?
+  assert "\u{1b}[7m" in result.text, result.text
+  assert "\u{1b}[01;32mexe" in result.text, result.text
 }
 
 test test_ls_color_suffix_case_rules { |ctx|
@@ -441,6 +540,15 @@ test test_ls_dired_offsets_name_the_files { |ctx|
 
   let recursive = ls_in(ctx, work, ["--dired", "-lR", "d"])?
   assert "//SUBDIRED// 2 3\n" in recursive.text
+}
+
+test test_ls_dired_preserves_literal_newlines { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/d".mkdir()
+  fp"{work}/d/n\nl".write("")
+
+  let result = ls_in(ctx, work, ["--dired", "-l", "d", "--time-style=+T"])?
+  assert " T n\nl\n" in result.text, result.text
 }
 
 test test_ls_hyperlink_wraps_names_in_osc_8 { |ctx|

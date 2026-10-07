@@ -146,6 +146,7 @@ type Cfg = {
   indicator: Str,
   quoting: Str?,
   hide_control: Bool,
+  show_control: Bool,
   color: Str?,
   hyperlink: Str,
   dired: Bool,
@@ -379,7 +380,7 @@ proc argmatch(text: Str, names: List[Str], values: List[Str], option: Str) [proc
 
   eprint $line
   gnu.try_help()
-  exit 1
+  exit 2
 }
 
 # `strtoul` with base 0 over the whole text: decimal, 0x hex, 0 octal. A value
@@ -518,8 +519,8 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
     "literal" => {...c, quoting: "literal"}
     "quote_name" => {...c, quoting: "c"}
     "quoting_style" => {...c, quoting: argmatch(arg, QUOTING_NAMES, QUOTING_NAMES, "--quoting-style")}
-    "hide_control" => {...c, hide_control: true}
-    "show_control" => {...c, hide_control: false}
+    "hide_control" => {...c, hide_control: true, show_control: false}
+    "show_control" => {...c, hide_control: false, show_control: true}
     "reverse" => {...c, reverse: true}
     "recursive" => {...c, recursive: true}
     "size" => {...c, size: true}
@@ -540,6 +541,7 @@ proc apply(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env] -> Cfg {
       format: if c.format == "long" and c.format_set { "long" } else { "single-column" },
       quoting: "literal",
       hide_control: false,
+      show_control: true,
       color: "never",
     }
     else => c
@@ -639,7 +641,8 @@ proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Pa
 
         if opt.arg == 1 {
           if position < total {
-            value = arg[position..]
+            let attached = arg[position..]
+            value = if attached.starts_with("=") { attached[1..] } else { attached }
             position = total
           } else if index < argv.len() {
             value = argv[index]
@@ -660,12 +663,13 @@ proc parse_args(argv: List[Str], start: Cfg, tty: Bool) [process, env, io] -> Pa
 # --help and --version end the program; everything else changes the settings.
 proc dispatch(c: Cfg, id: Str, v: Str?, tty: Bool) [process, env, io] -> Cfg {
   if id == "help" {
-    gnu.help(USAGE.replace("{prog}", with: gnu.prog()))
+    let usage = USAGE.replace("{prog}", with: gnu.prog())
+    write_output_text(if usage.ends_with("\n") { usage } else { f"{usage}\n" })
     exit 0
   }
 
   if id == "version" {
-    gnu.version(gnu.prog())
+    write_output_text(f"{gnu.version_text(gnu.prog())}\n")
     exit 0
   }
 
@@ -1305,6 +1309,18 @@ pure hide_controls(raw: Bytes, utf8: Bool) -> Bytes {
   bytes.concat(pieces)
 }
 
+# GNU replaces newlines that would disrupt line-oriented layouts, even when
+# other control characters remain visible.
+pure hide_newlines(raw: Bytes) -> Bytes {
+  let pieces: List[Bytes] = collect {
+    for index in range(raw.len()) {
+      yield if raw.byte_at(index) == 10 { b"?" } else { raw[index..index + 1] }
+    }
+  }
+
+  bytes.concat(pieces)
+}
+
 type ExtColor = {ext: Str, seq: Str, exact: Bool}
 
 # `ok` is false when LS_COLORS could not be parsed (colors are then off).
@@ -1500,6 +1516,7 @@ type Ctx = {
   link_stat: Bool,
   sort: Str,
   qmark: Bool,
+  qmark_newline: Bool,
   ignore_globs: List[Glob],
   hide_globs: List[Glob],
 }
@@ -1669,6 +1686,8 @@ pure quote_name(ctx: Ctx, name: Bytes, qs: QuoteStyle) -> Shown {
 
   if width_text {
     out = hide_controls(out, qs.utf8)
+  } else if ctx.qmark_newline and !ctx.cfg.dired and style in ["literal", "shell", "shell-always"] {
+    out = hide_newlines(out)
   }
 
   {q: out, w: display_width(out, qs.utf8), quoted: out != name}
@@ -1778,6 +1797,42 @@ pure glob_matches(globs: List[Glob], name: Str) -> Bool {
   }
 
   false
+}
+
+proc terminal_has_color() [process, env] -> Bool {
+  return true when (env_text("COLORTERM") ?? "") != ""
+
+  let term = env_text("TERM") ?? ""
+  let patterns = [
+    "Eterm",
+    "ansi",
+    "*color*",
+    "con[0-9]*x[0-9]*",
+    "cons25",
+    "console",
+    "cygwin",
+    "*direct*",
+    "dtterm",
+    "gnome",
+    "hurd",
+    "jfbterm",
+    "konsole",
+    "kterm",
+    "linux",
+    "linux-c",
+    "mlterm",
+    "putty",
+    "rxvt*",
+    "screen*",
+    "st",
+    "terminator",
+    "tmux*",
+    "vt100",
+    "vt220",
+    "xterm*",
+  ]
+
+  glob_matches([compile_glob(pattern) for pattern in patterns], term)
 }
 
 # gnulib filevercmp: version-aware comparison of file names.
@@ -2466,7 +2521,9 @@ pure print_separated(ctx: Ctx, files: List[File], wd: Widths, pad: Bool, used0: 
       let len = if ctx.line_length > 0 { name_len(ctx, f, wd, pad) } else { 0 }
 
       if index != 0 {
-        if ctx.line_length == 0 or pos + len + 2 <= ctx.line_length {
+        let separator_width = 2 + (if sep == "," and index < files.len() - 1 { 1 } else { 0 })
+
+        if ctx.line_length == 0 or pos + len + separator_width <= ctx.line_length {
           pos += 2
           yield bytes.from_text(f"{sep} ")
         } else {
@@ -2759,9 +2816,33 @@ proc take_entry(ctx: Ctx, dir: Bytes, raw: Bytes, kind: Str) [fs, process, env] 
   gobble(ctx, raw, dir, false, kind)
 }
 
+# GNU ls uses status 2 for stdout errors; EPIPE keeps the conventional 141.
+proc output_failure(failure: Error) [process, env] -> Unit {
+  if gnu.errno(failure) == 32 {
+    exit 141
+  }
+
+  gnu.error(f"write error: {gnu.strerror(failure)}")
+  exit 2
+}
+
+proc write_output(data: Bytes) [process, env, io] -> Unit {
+  if let Err(failure) = io.write_stdout_bytes(data) {
+    output_failure(failure)
+  }
+
+  if let Err(failure) = io.flush_stdout() {
+    output_failure(failure)
+  }
+}
+
+proc write_output_text(text: Str) [process, env, io] -> Unit {
+  write_output(bytes.from_text(text))
+}
+
 proc flush(out: List[Bytes]) [process, env, io] -> Unit {
   if ! out.is_empty() {
-    gnu.write_bytes(bytes.concat(out))
+    write_output(bytes.concat(out))
   }
 }
 
@@ -2957,7 +3038,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
       trailer = f"{trailer}//SUBDIRED// {[f"{x}" for x in subdired].join(" ")}\n"
     }
 
-    gnu.write_text(f"{trailer}//DIRED-OPTIONS// --quoting-style={ctx.qs.name}\n")
+    write_output_text(f"{trailer}//DIRED-OPTIONS// --quoting-style={ctx.qs.name}\n")
   }
 
   status
@@ -2972,6 +3053,20 @@ pure quiet_match(text: Str, names: List[Str]) -> Str? {
   let found = [name for name in names if name.starts_with(text)]
 
   if found.len() == 1 { found[0] } else { null }
+}
+
+# GNU reports time-style errors with the option's accepted values and status.
+proc invalid_time_style(value: Str) [process, env] -> Unit {
+  gnu.error(f"invalid --time-style argument {gnu.quote_value(value)}")
+  eprint "Possible values are:"
+  eprint "  - [posix-]full-iso"
+  eprint "  - [posix-]long-iso"
+  eprint "  - [posix-]iso"
+  eprint "  - [posix-]locale"
+  eprint "  - +FORMAT (e.g., +%H:%M) for a 'date'-style format"
+  eprint
+  eprint "For more information try --help"
+  exit 2
 }
 
 # The [old, recent] strftime formats for the long listing.
@@ -3006,15 +3101,8 @@ proc time_formats(cfg: Cfg) [process, env] -> List[Str] {
     "iso" => ["%Y-%m-%d ", "%m-%d %H:%M"]
     "locale" => ["%b %e  %Y", "%b %e %H:%M"]
     else => {
-      gnu.error(f"invalid argument {gnu.quote_value(style)} for 'time style'")
-      eprint "Valid arguments are:"
-      eprint "  - [posix-]full-iso"
-      eprint "  - [posix-]long-iso"
-      eprint "  - [posix-]iso"
-      eprint "  - [posix-]locale"
-      eprint "  - +FORMAT"
-      gnu.try_help()
-      exit 2
+      invalid_time_style(style)
+      []
     }
   }
 }
@@ -3067,8 +3155,13 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     "file-type" => "=>@|",
     else => "",
   }
+  let quoting_extra = if cfg.format == "commas" and style in ["shell", "shell-escape", "c-maybe", "escape"] {
+    f"{extra},"
+  } else {
+    extra
+  }
   let curly = utf8
-  let qs: QuoteStyle = QuoteStyle(name: style, utf8:, curly:, extra:, space: style == "escape")
+  let qs: QuoteStyle = QuoteStyle(name: style, utf8:, curly:, extra: quoting_extra, space: style == "escape")
   let dir_qs: QuoteStyle = QuoteStyle(name: style, utf8:, curly:, extra: ":", space: false)
 
   var human = cfg.human
@@ -3117,7 +3210,9 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   if color {
     let spec = env_text("LS_COLORS") ?? ""
 
-    if spec != "" {
+    if spec == "" {
+      color = terminal_has_color()
+    } else {
       colors = ls_color_parse(spec)
 
       for label in colors.unknown {
@@ -3139,7 +3234,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     "mi",
   ) and long))
   let link_stat = cfg.indicator == "classify" or cfg.indicator == "file-type" or check_symlink
-  let needs_stat = long or cfg.inode or cfg.size or cfg.context or sort == "size" or sort == "time" or color or cfg.indicator != "none" or cfg.recursive or cfg.dirs_first or cfg.hyperlink == "always"
+  let needs_stat = long or cfg.inode or cfg.size or cfg.context or sort == "size" or sort == "time" or color or cfg.indicator != "none" or cfg.recursive or cfg.dirs_first or cfg.hyperlink == "always" or deref == "always"
   let hyper = cfg.hyperlink == "always"
   let align = cfg.format != "commas" and (style == "shell" or style == "shell-escape")
   var host = ""
@@ -3153,6 +3248,9 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   let formats = if long { time_formats(cfg) } else { ["%b %e  %Y", "%b %e %H:%M"] }
   let ignore_globs = [compile_glob(pattern) for pattern in cfg.ignores]
   let hide_globs = [compile_glob(pattern) for pattern in cfg.hides]
+  let qmark_newline = !cfg.show_control and !cfg.zero and (
+    cfg.format == "single-column" or cfg.format == "long" or (line_length > 0 and cfg.format in ["columns", "across", "commas"])
+  )
 
   {
     cfg: cfg,
@@ -3183,6 +3281,7 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
     link_stat: link_stat,
     sort: sort,
     qmark: cfg.hide_control,
+    qmark_newline: qmark_newline,
     ignore_globs: ignore_globs,
     hide_globs: hide_globs,
   }
@@ -3242,6 +3341,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     indicator: "none",
     quoting:,
     hide_control: prog == "ls" and tty,
+    show_control: false,
     color: null,
     hyperlink: "never",
     dired: false,
