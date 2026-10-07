@@ -575,6 +575,8 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
   let min_int = number == -9223372036854775807 - 1
   let magnitude = if number < 0 and ! min_int { -number } else if number < 0 { 9223372036854775807 } else { number }
   var digits = if unsigned and parsed.issue == "Numerical result out of range" { if base == 10 { "18446744073709551615" } else if base == 16 { "ffffffffffffffff" } else { "1777777777777777777777" } } else if unsigned and number < 0 { unsigned_negative(number, base, spec.conversion == "X") } else if min_int and base == 10 { "9223372036854775808" } else if base == 10 { f"{magnitude}" } else { radix_text(magnitude, base, spec.conversion == "X") }
+  let alternate_octal_zero = base == 8 and spec.flags.find("#") != null
+  if precision == 0 and magnitude == 0 and ! alternate_octal_zero { digits = "" }
 
   if let min_digits = precision {
     if min_digits > digits.byte_len() { digits = pad_text(digits, min_digits, false, "0") }

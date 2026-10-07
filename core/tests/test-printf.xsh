@@ -205,6 +205,14 @@ test test_printf_preserves_negative_float_zero_sign { |ctx|
   assert output.stderr == ""
 }
 
+test test_printf_zero_precision_and_zero_integer { |ctx|
+  let output = printf_run(ctx, ["%.0d|%#.0o|%.*d", "0", "0", "-1", "0"])?
+
+  assert output.status == 0, output.stderr
+  assert output.stdout == "|0|0"
+  assert output.stderr == ""
+}
+
 test test_printf_hexadecimal_float_and_character_constant { |ctx|
   let output = printf_run(ctx, ["%a|%A|%i", ".875", ".875", "'a"])?
 
