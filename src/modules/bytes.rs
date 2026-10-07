@@ -196,6 +196,91 @@ pub(crate) fn unpack_int_be(
     unpack_int(bytes, offset, width, false, span)
 }
 
+pub(crate) fn unpack_float(
+    bytes: &[u8],
+    offset: i64,
+    format: &str,
+    endian: &str,
+    span: Span,
+) -> Result<f64, RuntimeError> {
+    let kind = "bytes-unpack-float";
+    let width = match format {
+        "binary16" | "bfloat16" => 2,
+        "binary32" => 4,
+        "binary64" => 8,
+        _ => {
+            return Err(RuntimeError::new(
+                kind,
+                "format must be binary16, bfloat16, binary32, or binary64",
+            )
+            .with_span(span));
+        }
+    };
+    let little_endian = match endian {
+        "little" => true,
+        "big" => false,
+        _ => return Err(RuntimeError::new(kind, "endian must be little or big").with_span(span)),
+    };
+    if offset < 0 {
+        return Err(RuntimeError::new(kind, "offset cannot be negative").with_span(span));
+    }
+    let offset = usize::try_from(offset)
+        .map_err(|_| RuntimeError::new(kind, "offset is outside byte data").with_span(span))?;
+    let end = offset.checked_add(width).ok_or_else(|| {
+        RuntimeError::new(kind, "requested float extends past end of byte data").with_span(span)
+    })?;
+    let data = bytes.get(offset..end).ok_or_else(|| {
+        RuntimeError::new(kind, "requested float extends past end of byte data").with_span(span)
+    })?;
+
+    let bits = match width {
+        2 => {
+            let raw: [u8; 2] = data.try_into().expect("validated binary16 width");
+            (if little_endian { u16::from_le_bytes(raw) } else { u16::from_be_bytes(raw) }) as u64
+        }
+        4 => {
+            let raw: [u8; 4] = data.try_into().expect("validated binary32 width");
+            (if little_endian { u32::from_le_bytes(raw) } else { u32::from_be_bytes(raw) }) as u64
+        }
+        8 => {
+            let raw: [u8; 8] = data.try_into().expect("validated binary64 width");
+            if little_endian { u64::from_le_bytes(raw) } else { u64::from_be_bytes(raw) }
+        }
+        _ => unreachable!("format width validated above"),
+    };
+
+    Ok(match format {
+        "binary16" => f64::from(f32::from_bits(binary16_to_binary32(bits as u16))),
+        "bfloat16" => f64::from(f32::from_bits((bits as u32) << 16)),
+        "binary32" => f64::from(f32::from_bits(bits as u32)),
+        "binary64" => f64::from_bits(bits),
+        _ => unreachable!("format validated above"),
+    })
+}
+
+// Expand the IEEE binary16 exponent and fraction into binary32 before widening
+// to f64, preserving subnormal values, infinities, signed zero, and NaNs.
+fn binary16_to_binary32(bits: u16) -> u32 {
+    let sign = u32::from(bits & 0x8000) << 16;
+    let exponent = (bits >> 10) & 0x1f;
+    let fraction = u32::from(bits & 0x03ff);
+    match exponent {
+        0 if fraction == 0 => sign,
+        0 => {
+            let mut normalized = fraction;
+            let mut exponent = -14_i32;
+            while normalized & 0x0400 == 0 {
+                normalized <<= 1;
+                exponent -= 1;
+            }
+            normalized &= 0x03ff;
+            sign | (((exponent + 127) as u32) << 23) | (normalized << 13)
+        }
+        0x1f => sign | (0xff << 23) | (fraction << 13),
+        _ => sign | (((i32::from(exponent) - 15 + 127) as u32) << 23) | (fraction << 13),
+    }
+}
+
 // Check the opened descriptor so changing a pathname cannot substitute a
 // device after validation. Nonblocking opens keep FIFO guards from hanging.
 fn guard_regular_file(

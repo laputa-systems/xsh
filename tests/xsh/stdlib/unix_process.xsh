@@ -201,6 +201,20 @@ unix.close_fd(100)?
   assert result.success, result.stderr
 }
 
+test test_unix_write_fd_writes_one_chunk_and_reports_errors { |ctx|
+  let file = test.temp_file(ctx, contents: b"")?
+  let result = test.run_script(ctx, r"""
+let fd = unix.open_fd(Path(args[0]), write: true)?
+assert unix.write_fd(fd, b"-bytes")? == 6
+assert unix.write_fd(fd, b"")? == 0
+unix.close_fd(fd)?
+test.error_kind(unix.write_fd(-1, b"x"), "unix-write-fd")
+assert unix.write_fd(2147483647, b"x") is Err(is HostIo)
+""", args: [file])?
+  assert result.success, result.stderr
+  assert file.read_bytes()? == b"-bytes"
+}
+
 test test_unix_read_fd_preserves_byte_cursor_and_eof { |ctx|
   let file = test.temp_file(ctx, contents: b"\0\xffabc")?
   let result = test.run_script(ctx, r"""

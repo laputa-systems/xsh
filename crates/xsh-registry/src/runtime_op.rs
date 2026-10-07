@@ -40,6 +40,7 @@ pub enum RuntimeOp {
     BytesPackBe,
     BytesUnpackLe,
     BytesUnpackBe,
+    BytesUnpackFloat,
     BytesReadAt,
     BytesResize,
     BytesWriteAt,
@@ -117,6 +118,7 @@ pub enum RuntimeOp {
     FloatFormatNumber,
     FloatAtan2,
     UnixReadFd,
+    UnixWriteFd,
 
     CompressionTransform,
 

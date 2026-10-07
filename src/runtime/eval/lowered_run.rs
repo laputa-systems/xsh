@@ -6556,6 +6556,16 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::BytesUnpackFloat if values.len() == 4 => {
+                let data = lowered_bytes_arg(values.first().expect("checked value length"), "bytes.unpack_float", span)?;
+                let offset = lowered_int_arg(values.get(1).cloned(), "bytes.unpack_float", span)?;
+                let format = lowered_str_arg_owned(values.get(2).cloned(), "", "bytes.unpack_float", span)?;
+                let endian = lowered_str_arg_owned(values.get(3).cloned(), "", "bytes.unpack_float", span)?;
+                match bytes_module::unpack_float(data, offset, &format, &endian, span) {
+                    Ok(value) => lowered_result_ok(LoweredValue::Float(crate::runtime::value::FloatValue::new(value))),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::BytesResize => {
                 let path = lowered_path_arg(unix_require_arg(values.first().cloned(), "bytes.resize", span)?, "bytes.resize", span)?;
                 let size = lowered_int_arg(values.get(1).cloned(), "bytes.resize", span)?;
@@ -8214,6 +8224,11 @@ impl Evaluator {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.read_fd", span)?;
                 let max_bytes = lowered_int_arg(values.get(1).cloned(), "unix.read_fd", span)?;
                 lowered_runtime_result(unix_module::read_fd(fd, max_bytes, span), span)?
+            }
+            RuntimeOp::UnixWriteFd => {
+                let fd = lowered_int_arg(values.first().cloned(), "unix.write_fd", span)?;
+                let data = lowered_bytes_arg(values.get(1).ok_or_else(|| RuntimeError::new("type-error", "unix.write_fd expected Bytes").with_span(span))?, "unix.write_fd", span)?;
+                lowered_runtime_result(unix_module::write_fd(fd, data, span), span)?
             }
             RuntimeOp::RegexFindBytes if (2..=4).contains(&values.len()) => {
                 let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.find_bytes", span)?;

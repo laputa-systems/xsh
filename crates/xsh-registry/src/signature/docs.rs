@@ -468,6 +468,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The input length must match the requested width and the selected signedness is explicit.",
             &["bytes", "decoding", "endian"],
         )),
+        ("bytes", "unpack_float") => Some((
+            "Decodes a floating-point value from binary bytes.",
+            "format is binary16, bfloat16, binary32, or binary64; endian is little or big. offset is a nonnegative byte offset, and the selected value must fit within data.",
+            &["bytes", "decoding", "float", "endian"],
+        )),
         ("bytes", "resize") => Some(("Resizes a file through its opened descriptor.", "size must be nonnegative. create permits creation; exclusive requires create and fails if the path exists. regular opens without blocking and rejects nonregular descriptors before resizing. Host errors retain errno.", &["bytes", "filesystem"])),
         ("bytes", "read_at" | "write_at" | "zero_at") => Some((
             "Reads, writes, or clears a byte range at an explicit offset.",
@@ -1217,6 +1222,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("regex", "captures_bytes") => Some(("Matches POSIX byte captures at an input offset.", "Returns an empty list for no match; a match has ten nullable ranges, index zero for the full match and one through nine for captures. Offsets are absolute byte positions. Basic syntax is default; extended and ignore_case select POSIX flags. Patterns are validated even for empty input; NUL input and GNU word boundary escapes are rejected. A nonzero offset does not create a new beginning-of-line anchor.", &["regex", "bytes"])),
 
         ("unix", "read_fd") => Some(("Reads one bounded chunk from a descriptor.", "max_bytes must be positive. A single descriptor read returns short reads as they occur and empty bytes at EOF, without read-ahead; EINTR retries and host errors retain errno.", &["unix", "io"])),
+        ("unix", "write_fd") => Some(("Writes one chunk to a descriptor.", "Returns the number of bytes written, which may be less than data.len(); callers must handle short writes. EINTR retries and host errors retain errno.", &["unix", "io"])),
         ("unix", "poll_fd") => Some((
             "Waits for descriptor readiness and reports terminal conditions.",
             "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",

@@ -364,6 +364,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::BytesPackBe
             | RuntimeOp::BytesUnpackLe
             | RuntimeOp::BytesUnpackBe
+            | RuntimeOp::BytesUnpackFloat
             | RuntimeOp::BytesReadAt
             | RuntimeOp::BytesResize
             | RuntimeOp::BytesWriteAt
@@ -559,6 +560,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::RegexFindBytes
             | RuntimeOp::RegexCapturesBytes
             | RuntimeOp::UnixReadFd
+            | RuntimeOp::UnixWriteFd
             | RuntimeOp::CompressionTransform
             | RuntimeOp::CompressionGzipName
             | RuntimeOp::LinuxModulePlan

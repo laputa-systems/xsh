@@ -779,6 +779,20 @@ fn bytes_module() -> ModuleSig {
                 RuntimeOp::BytesUnpackBe,
             ),
         ),
+        (
+            "unpack_float",
+            sig(
+                vec![
+                    param("data", Type::Bytes),
+                    param("offset", Type::Int),
+                    param("format", Type::Str),
+                    param("endian", Type::Str),
+                ],
+                result(Type::Float),
+                true,
+                RuntimeOp::BytesUnpackFloat,
+            ),
+        ),
         ("resize", sig(vec![param("path", Type::Path), param("size", Type::Int), default_param("create", Type::Bool), default_param("exclusive", Type::Bool), default_param("regular", Type::Bool)], result(Type::Unit), false, RuntimeOp::BytesResize)),
         (
             "read_at",
@@ -2864,6 +2878,7 @@ fn path_module() -> ModuleSig {
 fn unix_module() -> ModuleSig {
     module_sig(vec![
         ("read_fd", sig(vec![param("fd", Type::Int), param("max_bytes", Type::Int)], result(Type::Bytes), false, RuntimeOp::UnixReadFd)),
+        ("write_fd", sig(vec![param("fd", Type::Int), param("data", Type::Bytes)], result(Type::Int), false, RuntimeOp::UnixWriteFd)),
 
         (
             "reap_child_events",

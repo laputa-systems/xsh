@@ -14,6 +14,15 @@ test test_bytes_construction_encoding_and_copy { |ctx|
   assert bytes.pack_be(16909060, 4)? == b"\x01\x02\x03\x04"
   assert bytes.unpack_le(b"4\x12", 2)? == 4660
   assert bytes.unpack_be(b"\x01\x02\x03\x04", 4)? == 16909060
+  assert bytes.unpack_float(b"\x3e\x00", 0, "binary16", "big")? == 1.5
+  assert bytes.unpack_float(b"\x3f\xc0", 0, "bfloat16", "big")? == 1.5
+  assert bytes.unpack_float(b"\x00\x00\xc0\x3f", 0, "binary32", "little")? == 1.5
+  assert bytes.unpack_float(b"\x3f\xf8\0\0\0\0\0\0", 0, "binary64", "big")? == 1.5
+  assert bytes.unpack_float(b"\x01\0", 0, "binary16", "little")? > 0.0
+  test.error_kind(bytes.unpack_float(b"\x00", 0, "binary16", "big"), "bytes-unpack-float")
+  test.error_kind(bytes.unpack_float(b"\0\0", -1, "binary16", "big"), "bytes-unpack-float")
+  test.error_kind(bytes.unpack_float(b"\0\0", 0, "float", "big"), "bytes-unpack-float")
+  test.error_kind(bytes.unpack_float(b"\0\0", 0, "binary16", "native"), "bytes-unpack-float")
   test.error_kind(bytes.from_ints([256]), "bytes-from-ints")
   test.error_kind(bytes.pack_be(1, 9), "bytes-pack")
   let data_path = test.temp_path(ctx, name: "data.bin")

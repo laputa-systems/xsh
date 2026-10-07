@@ -1389,6 +1389,32 @@ pub(crate) fn read_fd(fd: i64, max_bytes: i64, span: Span) -> Result<Value, Runt
     }
 }
 
+pub(crate) fn write_fd(fd: i64, data: &[u8], span: Span) -> Result<Value, RuntimeError> {
+    match write_fd_native(fd, data, span) {
+        Ok(written) => Ok(Value::ok(Value::Int(written as i64))),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
+// A single descriptor write exposes short writes to the caller instead of
+// hiding stream progress behind a buffer or retry loop.
+fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeError> {
+    let kind = "unix-write-fd";
+    let fd = raw_fd_arg(fd, kind, span)?;
+    let count = data.len().min(isize::MAX as usize);
+    loop {
+        let written = unsafe { libc::write(fd, data.as_ptr().cast(), count) };
+        if written >= 0 {
+            return Ok(written as usize);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(RuntimeError::host(kind, &error).with_span(span));
+    }
+}
+
 // One descriptor read preserves short reads and leaves subsequent bytes for
 // the next reader, including child processes that inherit this descriptor.
 fn read_fd_native(fd: i64, max_bytes: i64, span: Span) -> Result<Vec<u8>, RuntimeError> {
