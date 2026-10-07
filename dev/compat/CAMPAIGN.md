@@ -113,6 +113,12 @@ remain historical evidence only.
   its optimized debug Gate 3 slice improves from 109/43 to 113/39 across 152
   cases, with four fixes and no regressions. Reports are in
   `results/printf-followup/`.
+- Follow-up `579b2195` recognizes `%q` as shell quoting, keeps `~` unquoted,
+  rejects field parameters on `%q`, and writes the literal prefix before an
+  invalid conversion error. Direct probes match pinned GNU `printf`. The
+  native printf suite passes 21/21; the optimized debug Gate 3 slice improves
+  from 113/39 to 117/35 across 152 cases, with four fixes and no regressions.
+  Reports are in `results/printf-q-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

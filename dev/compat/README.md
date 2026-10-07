@@ -141,6 +141,12 @@ Follow-up `8bc16fdd` rejects zero flags for `%c` and `%s`, rejects precision on
 that warning when `\c` stops output. Native printf tests pass 19/19; its
 optimized debug Gate 3 slice improves from 109/43 to 113/39 across 152 cases,
 with no regressions. Its report and JUnit are in `results/printf-followup/`.
+Follow-up `579b2195` recognizes `%q` shell quoting, leaves `~` unquoted,
+rejects field parameters on `%q`, and writes literal output before an invalid
+conversion error. Direct probes match pinned GNU `printf`; the native suite
+passes 21/21, and the optimized debug Gate 3 slice improves from 113/39 to
+117/35 with four fixes and no regressions. Reports are in
+`results/printf-q-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
