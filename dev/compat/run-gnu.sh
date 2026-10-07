@@ -52,7 +52,7 @@ trap 'exit 143' TERM
 want=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["uutils"]["commit"])' "$repo/dev/compat/upstream.lock.json")
 [ "$(git -C "$uutils" rev-parse HEAD)" = "$want" ] || { echo "UUTILS_ROOT is not at locked commit $want" >&2; exit 2; }
 
-uu_build=${UUTILS_TARGET_DIR:-${CARGO_TARGET_DIR:-$uutils/target}}/release
+uu_build=${UUTILS_TARGET_DIR:-${CARGO_TARGET_DIR:-$uutils/target}}/debug
 
 # GNU permission tests require a real unprivileged account. User namespaces are
 # unavailable in ordinary container seccomp profiles and do not supply one.
@@ -83,7 +83,7 @@ prepare() {
 		mkdir -p "$gnu"
 		(cd "$gnu" && bash "$uutils/util/fetch-gnu.sh" 9>&-)
 	fi
-	(cd "$uutils" && FORCE_UNSAFE_CONFIGURE=1 PROFILE=release path_GNU="$gnu" bash util/build-gnu.sh 9>&-)
+	(cd "$uutils" && FORCE_UNSAFE_CONFIGURE=1 PROFILE=debug path_GNU="$gnu" bash util/build-gnu.sh 9>&-)
 }
 
 point_path_at() {

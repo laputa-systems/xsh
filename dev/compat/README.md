@@ -11,10 +11,10 @@ routine work. Set both explicitly when spawning.
 for the current checkout; see `LANES.md` for ownership and integration.
 
 Command behavior and shared semantic domains are implemented in XSH. Native
-requests are limited to necessary host, codec and byte boundaries, or a
-measured XSH bottleneck. Parsers and interpreters belong in XSH. The user has
-granted standing dependency approval for this campaign; record each addition's
-reason without requesting approval again.
+requests are limited to reusable host, codec and byte boundaries that XSH
+cannot express faithfully. Parsers and interpreters belong in XSH. The user
+has granted standing dependency approval for this campaign; record each
+addition's reason without requesting approval again.
 
 ## Setup
 
@@ -22,9 +22,22 @@ reason without requesting approval again.
 git clone https://github.com/uutils/coreutils ../ref/uutils-coreutils
 git -C ../ref/uutils-coreutils checkout "$(python3 -c 'import json;print(json.load(open("dev/compat/upstream.lock.json"))["uutils"]["commit"])')"
 export UUTILS_ROOT=$PWD/../ref/uutils-coreutils
-cargo build --release -p xsh --bins -p xsht --bin xsht
-cargo install cargo-nextest --locked          # for run-uutils.sh
+export CARGO_PROFILE_DEV_OPT_LEVEL=1
+export CARGO_PROFILE_DEV_CODEGEN_UNITS=256
+export CARGO_PROFILE_DEV_LTO=false
+export CARGO_PROFILE_TEST_OPT_LEVEL=1
+export CARGO_PROFILE_TEST_CODEGEN_UNITS=256
+export CARGO_PROFILE_TEST_LTO=false
+cargo build -p xsh --bins -p xsht --bin xsht
+cargo install --debug cargo-nextest --locked   # if run-uutils.sh needs it
 ```
+
+Campaign verification is correctness and parity only; no benchmark or
+performance threshold gates a change. Use Cargo's debug profiles with the
+modest optimization, 256 codegen units, and LTO disabled, and run
+`target/debug/xsh` and `target/debug/xsht`. Do not use `--release` or
+`--profile dist` for campaign checks. Linux checks still run inside the
+`Dockerfile.test` image.
 
 GNU runs also need a C toolchain, autotools, perl and the packages uutils'
 `build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
@@ -46,7 +59,7 @@ still belong to the invoking user. Staged executable shebangs pass `--` before
 the script path so an applet's own leading option separator is preserved.
 On a musl host, `run-uutils.sh` uses the C linker driver and disables static
 crt linking for the reference test harness's `stdbuf` cdylib; this does not
-change the XSH release build flags.
+change the XSH debug-profile flags.
 
 `COMPAT_RESULTS_DIR` selects scratch report storage for both suite runners.
 `run-uutils.sh` writes nextest's JUnit report there by absolute path, including
@@ -61,7 +74,7 @@ differential requires identical test selections on both sides.
 |---|---|
 | `python3 dev/compat/parity.py` | regenerate `dev/coreutils-parity.json` from the pinned uutils tree and any results |
 | `python3 dev/compat/parity.py --check` | fail if the manifest is stale |
-| `python3 dev/compat/stage.py [--stage DIR]` | install `core/` in release shape with shebangs at the built `xsh`; writes `applets.json` |
+| `python3 dev/compat/stage.py [--stage DIR]` | install `core/` in the standard staged layout with shebangs at the built `xsh`; writes `applets.json` |
 | `dev/compat/xsh-uutests UTIL ARGS...` | uutils multicall contract; `stage.py` installs a copy in the stage that finds the stage from its own path (the uutils framework clears the environment) |
 | `dev/compat/run-uutils.sh [UTIL...]` | Gate 3: uutils `tests/by-util` against XSH; writes `results/uutils-integration.json` |
 | `python3 dev/compat/compare.py BEFORE.json AFTER.json` | merge gate: before/after totals, per-utility change, exit 1 on any test that passed before and fails now |
@@ -102,8 +115,8 @@ GNU report or differential is committed. The full suites have not yet been
 rerun against the resumed integration head.
 
 Before running a new baseline, preserve `results/uutils-integration.json`
-outside `results/` for `compare.py`, select release tools built from an exact
-revision, and record the reference pin and host/libc alongside the result.
+outside `results/` for `compare.py`, select debug-profile tools built from an
+exact revision, and record the reference pin and host/libc alongside the result.
 Run full suites serially. Offline manifest, lane-ownership, ignored-option,
 kernel-read and exclusion checks passed in the 2026-10-05 handoff refresh;
 this does not establish behavioral parity.

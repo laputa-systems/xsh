@@ -20,9 +20,17 @@ part of the local protocol.
 
 XSH owns command and domain semantics: parsers, interpreters, selection,
 traversal, formatting policy, and repair decisions. Native lanes provide
-necessary syscall, descriptor, codec and byte boundaries. Require a measured
-XSH bottleneck before moving an algorithm to Rust, and extract the smallest
-reusable operation. See the 2026-10-06 working constraints in `CAMPAIGN.md`.
+necessary syscall, descriptor, codec and byte boundaries. Move behavior to
+Rust only when a reusable native operation is required for correctness or
+cannot be expressed faithfully in XSH. Performance is not a campaign gate.
+See `CAMPAIGN.md` for verification policy.
+
+Campaign verification uses Cargo's debug profiles only, with modest
+optimization and many codegen units: set `CARGO_PROFILE_DEV_OPT_LEVEL=1`,
+`CARGO_PROFILE_DEV_CODEGEN_UNITS=256`, `CARGO_PROFILE_DEV_LTO=false`,
+`CARGO_PROFILE_TEST_OPT_LEVEL=1`, `CARGO_PROFILE_TEST_CODEGEN_UNITS=256`, and
+`CARGO_PROFILE_TEST_LTO=false`. Keep debug assertions enabled. Do not use
+`--release`, `--profile dist`, or performance benchmarks as campaign gates.
 
 1. **Foundation before fan-out.** Wave 0 (shared option grammar, diagnostics,
    invoked name, byte helpers, harness, baseline) lands serially. Lanes that
@@ -78,30 +86,30 @@ ships a workaround that parses text or discards the option.
 Use the current checkout and host paths in every brief. `lanes.py brief`
 defaults `LANES_ROOT` to the checkout path, `LANES_TARGETS` to the sibling
 `xsh-lane-targets` directory, and `XSH_SHARED_BIN` to the checkout's
-`target/release`. Existing environment overrides remain supported. The
+`target/debug`. Existing environment overrides remain supported. The
 worktree path is `${LANES_ROOT}-lanes/<lane>`.
 
 The host's memory cgroup is shared by every build, lane and suite: size
 concurrency to its limit, not only to cores.
 
 Size concurrency to the host. The reference cloud VM has 2 cores, 7 GB RAM
-and about 30 GB free; a release XSH build plus the uutils test build each take
-several GB of target directory and most of the RAM while linking.
+and about 30 GB free. Keep native builds serialized to limit memory use.
 
 - **Script-only lanes** (most `core/*.xsh` work) do not compile. They share
-  one release `xsh`/`xsht` built from the integration branch at
-  `$XSH_SHARED_BIN` (default `<checkout>/target/release`) and run
+  one optimized debug `xsh`/`xsht` built from the integration branch at
+  `$XSH_SHARED_BIN` (default `<checkout>/target/debug`) and run
   `XSH_BIN=$XSH_SHARED_BIN/xsh`. The integrator rebuilds it after merging any
   runtime change and tells running lanes.
 - **Native lanes** (Rust under `src/`) each use their own
   `CARGO_TARGET_DIR=<lane-targets>/<lane>` and serialize compilation
   through one lock so two links never run at once:
-  `flock <lane-targets>/cargo.lock cargo build --release -p xsh --bin xsh`.
+  `flock <lane-targets>/cargo.lock cargo build -p xsh --bin xsh` with the
+  profile settings above.
 - **Suite runs.** Full uutils and GNU runs are integrator-only, one at a time.
   Lanes run their own utilities' slice with `dev/compat/run-uutils.sh UTIL...`
   whenever they like: invocations serialize on `UUTILS_SUITE_LOCK`, and a lane
   sets `COMPAT_RESULTS_DIR` to scratch space (results/ is integrator-owned and
-  must not appear in a lane commit) and `XSH_BIN` to the shared release
+  must not appear in a lane commit) and `XSH_BIN` to the shared debug-profile
   `xsh`. The uutils test crate is already built, so a slice costs seconds.
 - **Caps on the reference VM**: at most 4 lanes active, at most 1 native lane
   compiling at a time. On a larger host scale to roughly one active lane per
@@ -130,11 +138,11 @@ Merge queue (integrator, one lane at a time, FIFO):
    in a lane-owned file, send it back to the lane; on conflict in an
    integrator-owned file, the lane touched something it should not have.
 2. Fast gates in the lane worktree: `python3 dev/compat/check_ignored_options.py`,
-   `target/release/xsht check` on changed files, the lane's `core/tests`
+   `target/debug/xsht check` on changed files, the lane's `core/tests`
    files, and the Rust tests its item names.
 3. Lane slice: `dev/compat/run-uutils.sh <its utilities>`.
 4. `git -C <checkout> merge --no-ff lane/<lane>`.
-5. Rebuild the release binaries on the integration branch, then run the full
+5. Rebuild the optimized debug binaries on the integration branch, then run the full
    uutils suite and compare with the committed
    `results/uutils-integration.json` using `python3 dev/compat/compare.py
    OLD NEW`. Any test that passed before and fails now reverts the merge
@@ -220,7 +228,7 @@ into `bytes-enc`, `checksums`; `trivial` into `trivial`, `printf-env`, `date`;
 `process-cmds` into `proc-a`, `tty-misc`.
 
 Merging a script-only lane needs no rebuild: the suite stages `core/` and uses
-the existing release `xsh`. Only lanes that change Rust rebuild first.
+the existing debug-profile `xsh`. Only lanes that change Rust rebuild first.
 
 Start order on the reference VM (4 active, 1 compiling): `trivial`,
 `native-fs`, `text-a`, `sysreport-extract`; then fill freed slots in this
@@ -300,7 +308,7 @@ Goal: <utilities> pass their applicable uutils tests (current: <pass>/<total>);
       remove discard buckets in owned applets; implement or explicitly reject every option.
 Use: core/lib/gnu.xsh diagnostics and the cli GNU mode; the pinned uutils source at
      $UUTILS_ROOT/src/uu/<util> and tests/by-util/test_<util>.rs are the behavior spec.
-Verify: target/release/xsht test core/tests/test-<util>.xsh; dev/compat/run-uutils.sh <utils>
+Verify: target/debug/xsht test core/tests/test-<util>.xsh; dev/compat/run-uutils.sh <utils>
         only when told the suite is idle; python3 dev/compat/check_ignored_options.py.
 Budget: <size>. Stop and report at twice the budget.
 Commit on lane/<lane> when green (never push, merge, or rebase others).

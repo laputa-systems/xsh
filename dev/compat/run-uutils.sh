@@ -7,7 +7,7 @@
 # and uutils-integration.json under COMPAT_RESULTS_DIR.
 #
 # Environment: UUTILS_ROOT (required), XSH_BIN (interpreter for the stage; default
-# target/release/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
+# target/debug/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
 # UUTESTS_THREADS (default 3), UUTILS_SUITE_LOCK, UUTESTS_RUN_UID/GID (root runs).
 #
 # Build notes:
@@ -74,7 +74,7 @@ python3 "$repo/dev/compat/stage.py" --stage "$stage"
 target=${UUTILS_TARGET_DIR:-$uutils/target}
 export CARGO_TARGET_DIR=$target
 (cd "$uutils" && cargo nextest --version >/dev/null 2>&1 9>&-) || {
-	echo "cargo-nextest is required: cargo install cargo-nextest --locked" >&2
+	echo "cargo-nextest is required: cargo install --debug cargo-nextest --locked" >&2
 	exit 2
 }
 
@@ -101,10 +101,10 @@ case "$host_target" in
 esac
 
 # Build the test binary once; nextest archives would also work but add a step.
-(cd "$uutils" && cargo_nextest run --target-dir "$target" --no-run --release \
+(cd "$uutils" && cargo_nextest run --target-dir "$target" --no-run \
 	--features feat_os_unix --test tests 9>&-)
 
-uubin=$target/release/coreutils
+uubin=$target/debug/coreutils
 restore() { [ -e "$uubin" ] && chmod 755 "$uubin"; }
 trap restore EXIT INT TERM
 chmod 000 "$uubin"
@@ -178,7 +178,7 @@ set +e
 (cd "$uutils" && \
 	UUTESTS_BINARY_PATH=$stage/xsh-uutests \
 	LC_ALL=C TZ=UTC \
-	cargo_nextest run --target-dir "$target" --release --features feat_os_unix --test tests \
+	cargo_nextest run --target-dir "$target" --features feat_os_unix --test tests \
 		--config-file "$profile_dir/nextest-xsh.toml" --profile xsh \
 		--no-fail-fast --test-threads "${UUTESTS_THREADS:-3}" -E "$filter" 9>&-)
 status=$?

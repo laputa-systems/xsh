@@ -4,6 +4,33 @@ Status: active; resumed on 2026-10-07. The full campaign remains incomplete.
 The 2026-10-06 wind-down report below is historical and does not describe the
 current integration run.
 
+## Campaign verification policy (2026-10-07)
+
+Campaign gates measure correctness and behavioral parity. Performance
+benchmarks, latency or memory thresholds, and throughput targets are not
+acceptance gates. A timeout remains a parity-test result, but it does not add
+a separate performance requirement.
+
+Build and test with Cargo's debug profiles only, using modest optimization
+and many codegen units to keep iteration builds quick while retaining debug
+assertions:
+
+```sh
+export CARGO_PROFILE_DEV_OPT_LEVEL=1
+export CARGO_PROFILE_DEV_CODEGEN_UNITS=256
+export CARGO_PROFILE_DEV_LTO=false
+export CARGO_PROFILE_TEST_OPT_LEVEL=1
+export CARGO_PROFILE_TEST_CODEGEN_UNITS=256
+export CARGO_PROFILE_TEST_LTO=false
+cargo build -p xsh --bins -p xsht --bin xsht
+```
+
+Use `target/debug/xsh` and `target/debug/xsht`; this keeps debug assertions,
+uses opt-level 1 and 256 codegen units, and disables LTO. Do not use `--release`
+or `--profile dist` for campaign verification. Keep Linux checks inside the
+`Dockerfile.test` image. Earlier release-build results and benchmark notes
+remain historical evidence only.
+
 ## Resume checkpoint (2026-10-07)
 
 - Verified the configured host `kache` rustc wrapper and `mold` linker after
@@ -137,14 +164,14 @@ not mean its legacy gaps are resolved.
 
 1. Choose an explicit `master` revision and record the environment and tool
    paths. Read `AGENTS.md`, `docs/TESTING.md`, and `TODO.md`; use the repository's
-   Linux test image for Linux verification. Build the required release tools
+   Linux test image for Linux verification. Build the required debug-profile tools
    from that revision and keep their paths stable for the whole run. Follow
    [`README.md`](README.md) for the pinned reference checkout and harness
    prerequisites; reference trees were not located under `../ref` in this audit.
 2. Run the current native/core gates. Triage failures against `TODO.md` rather
    than importing the old session's 2,459/10 native-suite count. That file
-   records musl-sensitive `stty`, `ls`, and `uniq` expectations and the lint
-   performance budget; none was revalidated in this refresh.
+   records musl-sensitive `stty`, `ls`, and `uniq` expectations; verify those
+   expectations through correctness tests.
 3. Save the committed uutils report outside `results/`, run the full uutils
    suite, compare with `compare.py`, and regenerate `coreutils-parity.json`
    using the pinned checkout. Record revision, host/libc, pass/fail/exclusion
@@ -173,12 +200,10 @@ work. The Rust whole-program implementations were removed during this session.
 
 Rust supplies small reusable boundaries for syscalls, descriptors, codecs,
 binary representation, and operations that cannot be expressed faithfully in
-XSH. A performance exception requires an XSH implementation, a measured
-bottleneck, and a documented reason for the smallest native operation that
-addresses it. Complexity or a long implementation alone is not justification.
-Native API requests must state what XSH cannot express and why that primitive
-is reusable beyond one command; whole-program `execute` or `transform` APIs
-are not a substitute for implementing the program in XSH.
+XSH. Native API requests must state what XSH cannot express and why that
+primitive is reusable beyond one command; whole-program `execute` or `transform`
+APIs are not a substitute for implementing the program in XSH. Performance is
+not a reason to move command policy or execution into Rust during this campaign.
 
 The user granted standing approval on 2026-10-06 for any dependencies needed
 by this campaign. Record the reason and keep additions focused; further
@@ -238,8 +263,8 @@ number of command names implemented.
    health (`smartctl`, `nvme`), network control and diagnostics (`ip`, `ss`,
    `ethtool`, `iw`, `dig`, `nc`, `curl`), `cpio` and EFI boot variables.
 4. Implement command behavior and shared domain logic in XSH. Use small Rust
-   primitives where syscalls, codecs, faithful byte operations, or measured
-   performance require them; keep parsers and interpreters in XSH.
+   primitives where syscalls, codecs, or faithful byte operations require
+   them; keep parsers and interpreters in XSH.
 5. Never fake a command: an accepted option works, and unsupported behavior
    fails explicitly.
 6. Use canonical tools (dosfstools, smartmontools, nvme-cli, util-linux,
@@ -403,7 +428,7 @@ results, excluded test IDs, known semantic gaps.
   environment and signals pass through untouched (verified with a stand-in
   interpreter, including empty arguments, `--`, and NUL bytes on stdin). A
   missing applet exits 127 with a diagnostic.
-- [`stage.py`](stage.py) installs `core/` in its released shape (suffix
+- [`stage.py`](stage.py) installs `core/` in its standard staged layout (suffix
   dropped, `lib/` adjacent, aliases as symlinks, shebang pointing at the built
   `xsh`) and writes the stage's `applets.json`. Suites test the installed
   shape, not the source tree.
@@ -640,11 +665,10 @@ presentation layers over a common native streaming implementation. Do not
 package the traditional implementations to get familiar binaries.
 
 - XSH already has native gzip, bzip2, xz and lzma codecs. zstd joins the native
-  compression layer with full frame encode and decode. Prefer a good pure-Rust
-  implementation if it has full frame support and acceptable performance;
-  otherwise a narrowly contained implementation dependency is acceptable.
-  Correctness outranks "pure Rust". The decision is recorded with benchmark
-  evidence in this file before any dependency lands.
+  compression layer with full frame encode and decode. Choose an implementation
+  that provides the required format support and correctness. Performance
+  measurements may be recorded as context, but do not gate the choice or
+  campaign completion.
 - Required semantics: stdin/stdout streaming, multiple files, file replacement,
   `-c -d -k -f`, compression levels, integrity testing (`-t`), concatenated
   streams where the format permits them, original name and timestamp where the
@@ -652,7 +676,6 @@ package the traditional implementations to get familiar binaries.
   operation.
 - `compression.*` is refactored as needed so the CLIs share one streaming
   reader/writer implementation; no whole file passes through memory.
-  Benchmark large streams against the canonical tools with `bench/`.
 
 ## Phase 6: small high-value commands
 
@@ -798,24 +821,12 @@ protocol semantics stay packages.
 - Linux first. Coreutils applets stay cross-platform where the API already
   is; Linux-only commands report unsupported cleanly elsewhere.
 
-## Performance
+## Non-gating performance notes
 
-Cold start, measured on the 4-core reference host with the release `xsh`
-(2026-10-04, 50 sequential invocations, wall time per invocation): empty
-script 9.5 ms, `print "x"` 10.6 ms, staged `core/cat` 13.6 ms, staged
-`core/basename` 19 ms, host `/bin/cat` 3 ms. A suite of 6,000 invocations
-therefore spends about 1-2 minutes in startup; cold start does not bound suite
-runtime or make per-applet scripts non-viable, so no native multicall applet
-entry is needed for startup. Throughput on large inputs is the real risk: the
-uutils `cat` tests drove `core/cat` to 100% CPU and over 1 GB RSS and timed out.
-
-Measure hot utilities (`cat`, `cp`, `dd`, `grep`, `sort`, `wc`, `head`,
-`tail`, `find`, `xargs`, `ls`, `du`, checksums, `base64`, compression)
-against uutils with the existing `bench/` infrastructure. Revised: measure
-interpreter cold start first. Every suite invocation and every script call
-pays it; if it dominates, the fix is a native multicall applet entry, not
-per-script tuning. Prefer a small applet plus a fast native primitive over
-rewriting applets in Rust.
+The 2026-10-04 cold-start measurements and later zstd measurements are retained
+as historical context. They do not set acceptance thresholds or block campaign
+progress. Do not run performance benchmarks as campaign gates. Use the
+correctness and parity suites to decide whether behavior is acceptable.
 
 ## Packaging
 
@@ -829,6 +840,9 @@ sources. Laputa itself
 changes only if needed to prove the interface.
 
 ## Verification gates
+
+These gates assess correctness, behavioral parity, and required surface
+coverage. There is no performance gate.
 
 1. **Native**: project Rust tests, `xsht check`, `core/tests` pass.
 2. **Inventory**: every in-scope uutils utility implemented or carrying an
@@ -884,11 +898,11 @@ lanes that consume them.
 
 | Wave | Work |
 |---|---|
-| 0 | parity manifest and adapter (done); toolchain and suite build; baseline uutils run of current XSH; `cli` GNU mode; `lib/gnu` diagnostics; invoked-name access; byte helpers; ratchets wired into `make check`; applet manifest in release |
+| 0 | parity manifest and adapter (done); toolchain and suite build; baseline uutils run of current XSH; `cli` GNU mode; `lib/gnu` diagnostics; invoked-name access; byte helpers; ratchets wired into `make check`; applet manifest |
 | 1 | existing-applet repair (ignored buckets, GNU diagnostics); missing cheap coreutils; native fs, process/tty and bytes/hash primitives; text and checksum families; `system-report` collector extraction; `sed` and `awk` start |
 | 2 | difficult coreutils finish; GNU differential to zero blockers; native domains for block/partition, process sampling, compression streaming (+zstd), xattr/ACL/capability; compression CLIs; hardware/kmod/util-linux wrappers; procps and sampling tools; `ip`/`ss`/`ping`; grep/find/xargs; diff/cmp/patch; login/getent/udevadm |
 | 3 | block, mount and partition tools; FAT module and dosfstools surface; attributes/ACL/capabilities; namespace and process control; storage health (`smartctl`, `nvme`); `ethtool`, `iw`, diagnostics and HTTP; `cpio`; `efibootmgr`; Phase 6 commands |
-| 4 | BusyBox route; Gate 5 option comparison; Gate 8 clean smoke image; performance pass; final report |
+| 4 | BusyBox route; Gate 5 option comparison; Gate 8 clean smoke image; final correctness and parity report |
 
 ## Environment notes
 
