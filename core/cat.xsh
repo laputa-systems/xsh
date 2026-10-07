@@ -59,6 +59,64 @@ type Style = {
 type State = {pending: Bytes, line: Int, blank: Bool}
 
 type Rendered = {out: Bytes, state: State}
+type RawArgument = {marker: Str, value: Bytes}
+type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
+
+# Keep raw operands for paths while giving the text option parser safe markers.
+pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0cat-raw-argument-{index}\0"
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
+      }
+    }
+  }
+
+  {text: text, raw: raw}
+}
+
+pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
+  for argument in raw {
+    if argument.marker == value { return argument.value }
+  }
+
+  bytes.from_text(value)
+}
+
+proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
+  if let Ok(text) = name.utf8() {
+    return tio.open_source(text)
+  }
+
+  let input_path = Path.parse_bytes(name)?
+  let target = input_path.resolve()?
+  let entry = target.metadata()?
+  let kind = entry.mode / 4096 % 16
+  let mode = if kind == 8 and entry.size > 0 {
+    "file"
+  } else if kind == 2 or kind == 6 {
+    "device"
+  } else {
+    "whole"
+  }
+
+  Ok({name: target.display(), path: target, mode: mode, kind: kind, size: entry.size})
+}
+
+proc report_name_error(name: Bytes, failure: Error) [process, env] {
+  if let Ok(text) = name.utf8() {
+    gnu.name_error(text, failure)
+  } else {
+    gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+  }
+}
 
 const CARET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
 const PRINTABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
@@ -167,9 +225,10 @@ pure render(data: Bytes, final: Bool, style: Style, state: State) -> Rendered {
   {out: bytes.concat(pieces), state: {pending: pending, line: line, blank: blank}}
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = prepare_arguments(argv)
   let opts: CatOptions = cli.applet(
-    argv,
+    tio.without_presume_pipe(prepared.text),
     {
       gnu: {status: 1},
       show_all: {form: "-A --show-all", default: false},
@@ -207,14 +266,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var failed = false
 
   for name in operands {
-    guard let source = tio.open_source(name) else { |failure|
-      gnu.name_error(name, failure)
+    let raw_name = argument_bytes(name, prepared.raw)
+
+    guard let source = source_for(raw_name) else { |failure|
+      report_name_error(raw_name, failure)
       failed = true
       continue
     }
 
     if tio.is_unsafe_overwrite(source, out, written) {
-      gnu.error(f"{gnu.quote_maybe(name)}: input file is output file")
+      gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: input file is output file")
       failed = true
       continue
     }
@@ -223,7 +284,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
     loop {
       guard let chunk = tio.read_chunk(source, offset) else { |failure|
-        gnu.name_error(name, failure)
+        report_name_error(raw_name, failure)
         failed = true
         break
       }

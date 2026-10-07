@@ -66,10 +66,36 @@ test test_tail_obsolete_forms_name_the_first_argument { |ctx|
 
   let digits = tail_run(ctx, root, ["-5cz"])?
   assert digits.status == 1
-  assert digits.stderr == "tail: option used in invalid context -- 5\nTry 'tail --help' for more information.\n", digits.stderr
+  assert digits.stderr == "tail: option used in invalid context -- 5\n", digits.stderr
 
   let plus = tail_run(ctx, root, ["+cl"])?
   assert plus.stderr == "tail: cannot open '+cl' for reading: No such file or directory\n", plus.stderr
+}
+
+test test_tail_obsolete_unit_options_default_to_ten_units { |ctx|
+  let root = test.temp_dir(ctx, name: "tail")?
+  let content = bytes.concat([b"x" for _ in range(5122)])
+
+  assert tail_run(ctx, root, ["-l"], numbers(1, 12))?.stdout == numbers(3, 12)
+  assert tail_run(ctx, root, ["-b"], content)?.stdout == content[2..]
+}
+
+test test_tail_warnings_precede_file_output { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-warning-order")?
+  let file = fp"{root}/data"
+  file.write(b"file data\n")
+  let args: List[Union[Str, Path]] = [
+    "sh",
+    "-c",
+    "cd \"$1\" && exec env LC_ALL=C \"$2\" \"$3\" --retry data 2>&1",
+    "sh",
+    root,
+    ctx.xsh_bin,
+    fp"{ctx.core_dir}/tail.xsh",
+  ]
+  let output = run.text @args
+
+  assert output == "tail: warning: --retry ignored; --retry is useful only when following\nfile data\n"
 }
 
 test test_tail_counts_accept_gnu_suffixes_and_reject_others { |ctx|
@@ -87,6 +113,10 @@ test test_tail_counts_accept_gnu_suffixes_and_reject_others { |ctx|
 
   let plus_error = tail_run(ctx, root, ["-n", "+1fb"], b"x")?
   assert plus_error.stderr == "tail: invalid number of lines: '+1fb'\n", plus_error.stderr
+
+  let bare_option_end = tail_run(ctx, root, ["-c", "--"], b"x")?
+  assert bare_option_end.status == 1
+  assert bare_option_end.stderr == "tail: invalid number of bytes: '-'\n", bare_option_end.stderr
 }
 
 test test_tail_invalid_sleep_intervals_use_usage_diagnostics { |ctx|

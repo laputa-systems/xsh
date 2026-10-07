@@ -77,8 +77,14 @@ pure modernize(argv: List[Str]) -> List[Str] {
   }
 
   let parts = rx"^([+-])([0-9]*)([bcl]?)(f?)$".captures(argv[0])
+  return argv when parts.is_empty()
 
-  return argv when parts.is_empty() or (parts[2] == "" and (parts[1] == "-" or parts[3] == ""))
+  let default_count = parts[2] == "" and (
+    (parts[1] == "-" and parts[3] in ["b", "l"])
+    or (parts[1] == "+" and (parts[3] in ["b", "c", "l"] or parts[4] == "f"))
+  )
+
+  return argv when parts[2] == "" and ! default_count
 
   let sign = if parts[1] == "+" { "+" } else { "" }
   let digits = if parts[2] == "" { "10" } else { parts[2] }
@@ -270,7 +276,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let args = modernize(tio.without_presume_pipe(argv))
 
   if ! args.is_empty() and rx"^-[0-9]".matches(args[0]) {
-    gnu.usage_error(f"option used in invalid context -- {args[0][1..2]}")
+    gnu.error(f"option used in invalid context -- {args[0][1..2]}")
+    exit 1
   }
 
   let opts: TailOptions = cli.applet(
@@ -350,6 +357,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   if opts.pid != "" and ! following {
     gnu.error("warning: PID ignored; --pid=PID is useful only when following")
   }
+
+  # Preserve warning order when stderr and stdout share the same destination.
+  if ! following and (retrying or opts.pid != "") { io.flush_stderr()? }
 
   let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
 

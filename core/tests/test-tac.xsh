@@ -48,12 +48,24 @@ test test_tac_custom_separators_match_from_the_end { |ctx|
 test test_tac_regex_separator { |ctx|
   let root = test.temp_dir(ctx, name: "tac")?
 
-  assert tac_run(ctx, root, ["-r", "-s", "[0-9]+"], b"a1b22c")?.stdout == b"cb22a1"
-  assert tac_run(ctx, root, ["-rb", "-s", ":+"], b":a::b:::c")?.stdout == b":::c::b:a"
+  assert tac_run(ctx, root, ["-r", "-s", "[0-9]+"], b"a1b22c")?.stdout == b"c2b2a1"
+  assert tac_run(ctx, root, ["-rb", "-s", ":+"], b":a::b:::c")?.stdout == b":c:::b::a"
+  assert tac_run(ctx, root, ["-r", "-s", "^"], b"a\nb\nc\n")?.stdout == b"c\nb\na\n"
+  assert tac_run(ctx, root, ["-r", "-s", "$"], b"a\nb\nc\n")?.stdout == b"\n\nc\nba"
+  assert tac_run(ctx, root, ["-r", "-s", "[^x]\\|x"], b"abc")?.stdout == b"cba"
 
-  let bad = tac_run(ctx, root, ["-r", "-s", "x"], b"\xff")?
-  assert bad.status == 1
-  assert "valid UTF-8" in bad.stderr
+  let raw = tac_run(ctx, root, ["-r", "-s", "x"], b"\xff")?
+  assert raw.status == 0
+  assert raw.stdout == b"\xff"
+  assert raw.stderr == ""
+}
+
+test test_tac_regex_anchors_only_apply_at_expression_edges { |ctx|
+  let root = test.temp_dir(ctx, name: "tac-regex-anchors")?
+
+  assert tac_run(ctx, root, ["-r", "-s", "1^2"], b"111^222")?.stdout == b"22111^2"
+  assert tac_run(ctx, root, ["-r", "-s", "a$b"], b"aaa$bbb")?.stdout == b"bbaaa$b"
+  assert tac_run(ctx, root, ["-r", "-s", "b$"], b"aaa\nbbb\nccc\n")?.stdout == b"\nccc\nbbaaa\nb"
 }
 
 test test_tac_empty_separator_selects_nul { |ctx|
@@ -87,4 +99,52 @@ test test_tac_getopt_diagnostics_and_help { |ctx|
 
   assert "Usage: tac [OPTION]... [FILE]..." in tac_run(ctx, root, ["--help"])?.stdout as Str
   assert tac_run(ctx, root, ["--vers"])?.stdout.starts_with(b"tac")
+}
+
+test test_tac_accepts_non_utf8_path_and_literal_separator_arguments { |ctx|
+  let root = test.temp_dir(ctx, name: "tac-raw-arguments")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  file.write(b"line1\nline2\n")
+  let output = fp"{root}/out"
+  let error = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/tac.xsh"
+  let file_argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), file]
+  let file_plan = process.command_argv(ctx.xsh_bin, file_argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
+  let file_status = process.run(file_plan)?
+
+  assert file_status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"line2\nline1\n"
+
+  let separator = Path.parse_bytes(b"\xe9")?
+  let separator_argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "-s", separator]
+  let separator_plan = process.command_argv(ctx.xsh_bin, separator_argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"1\xe92", output, error)
+  let separator_status = process.run(separator_plan)?
+
+  assert separator_status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"21\xe9"
+  assert error.read_text()? == ""
+}
+
+test test_tac_regex_separator_accepts_non_utf8_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "tac-raw-regex")?
+  let output = fp"{root}/out"
+  let error = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/tac.xsh"
+  let separator = Path.parse_bytes(b"\xe9")?
+  let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "-r", "-s", separator]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"a.b.\xe9c.d?", output, error)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"c.d?a.b.\xe9"
+  assert error.read_text()? == ""
+
+  let class_separator = Path.parse_bytes(b"[.\xe9?]")?
+  let class_argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), "-r", "-s", class_separator]
+  let class_plan = process.command_argv(ctx.xsh_bin, class_argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"a.b.\xe9c.d?", output, error)
+  let class_status = process.run(class_plan)?
+
+  assert class_status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"d?c.\xe9b.a."
+  assert error.read_text()? == ""
 }

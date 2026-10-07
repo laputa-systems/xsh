@@ -36,6 +36,64 @@ type HeadOptions = {
   version: Bool,
   files: List[Str],
 }
+type RawArgument = {marker: Str, value: Bytes}
+type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
+
+# Keep raw operands for paths while giving the text option parser safe markers.
+pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0head-raw-argument-{index}\0"
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
+      }
+    }
+  }
+
+  {text: text, raw: raw}
+}
+
+pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
+  for argument in raw {
+    if argument.marker == value { return argument.value }
+  }
+
+  bytes.from_text(value)
+}
+
+proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
+  if let Ok(text) = name.utf8() {
+    return tio.open_source(text)
+  }
+
+  let input_path = Path.parse_bytes(name)?
+  let target = input_path.resolve()?
+  let entry = target.metadata()?
+  let kind = entry.mode / 4096 % 16
+  let mode = if kind == 8 and entry.size > 0 {
+    "file"
+  } else if kind == 2 or kind == 6 {
+    "device"
+  } else {
+    "whole"
+  }
+
+  Ok({name: target.display(), path: target, mode: mode, kind: kind, size: entry.size})
+}
+
+proc report_cannot_open(name: Bytes, failure: Error) [process, env] {
+  if let Ok(text) = name.utf8() {
+    gnu.cannot_open(text, failure)
+  } else {
+    gnu.error(f"cannot open {gnu.quote_bytes(name, always: false)} for reading: {gnu.strerror(failure)}")
+  }
+}
 
 # A parsed NUM: `elide` is the leading `-` (all but the last NUM units).
 type Count = {value: Int, elide: Bool}
@@ -71,9 +129,10 @@ proc parse_count(text: Str, what: Str) [process, env] -> Count {
   {value: value, elide: elide}
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = prepare_arguments(argv)
   let opts: HeadOptions = cli.applet(
-    modernize(tio.without_presume_pipe(argv)),
+    modernize(tio.without_presume_pipe(prepared.text)),
     {
       gnu: {status: 1},
       lines: {form: "-n --lines N", default: "", conflicts: ["bytes"]},
@@ -112,10 +171,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var failed = false
 
   for name in operands {
-    let label = if name == "-" { "standard input" } else { name }
+    let raw_name = argument_bytes(name, prepared.raw)
+    let label = if raw_name == b"-" {
+      "standard input"
+    } else if let Ok(text) = raw_name.utf8() {
+      text
+    } else {
+      Path.parse_bytes(raw_name)?.display()
+    }
 
-    guard let source = tio.open_source(name) else { |failure|
-      gnu.cannot_open(name, failure)
+    guard let source = source_for(raw_name) else { |failure|
+      report_cannot_open(raw_name, failure)
       failed = true
       continue
     }
@@ -130,7 +196,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       guard let chunk = step else { |failure|
         if offset == 0 and ! tio.is_directory(failure) {
-          gnu.cannot_open(name, failure)
+          report_cannot_open(raw_name, failure)
           failed = true
           break
         }

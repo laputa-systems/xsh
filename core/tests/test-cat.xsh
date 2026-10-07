@@ -117,3 +117,19 @@ test test_cat_help_and_version_go_to_stdout { |ctx|
   let version = cat_run(ctx, root, ["--version"])?
   assert version.stdout.starts_with(b"cat")
 }
+
+test test_cat_accepts_non_utf8_file_path_arguments { |ctx|
+  let root = test.temp_dir(ctx, name: "cat-raw-path")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  file.write(b"raw path data\n")
+  let output = fp"{root}/out"
+  let error = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/cat.xsh"
+  let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), file]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"raw path data\n"
+  assert error.read_text()? == ""
+}
