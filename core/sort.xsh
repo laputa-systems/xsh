@@ -14,6 +14,7 @@ type SortOptions = {
   short_check: Bool,
   silent_check: Bool,
   zero_terminated: Bool,
+  version: Bool,
   paths: List[Str],
 }
 
@@ -178,11 +179,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         form: "-z --zero-terminated",
         default: false,
       },
+      version: {
+        form: "--version",
+        default: false,
+        stop: true,
+      },
       paths: {
         form: "...FILE",
       },
     },
   )?
+
+  if opts.version {
+    gnu.version("sort")
+    return
+  }
+
   let has_key = opts.key != ""
   let key_field = if has_key { key_index(opts.key) } else { 0 }
   let has_output = opts.output != ""

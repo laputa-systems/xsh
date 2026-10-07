@@ -157,3 +157,16 @@ test test_sort_ignores_leading_blanks_before_raw_tie_break { |ctx|
   assert stderr.read_text()? == f"sort: {unsorted}:2: disorder: a\n"
   assert stdout.read_bytes()?.is_empty()
 }
+
+test test_sort_version_option { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-version")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--version"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert "sort" in stdout.read_text()?
+  assert stderr.read_bytes()?.is_empty()
+}
