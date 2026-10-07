@@ -584,7 +584,12 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
     let parsed = float_parse(argument)
     if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument)}: {issue}") }
     let number = parsed.value
-    let body = float_conversion(number, spec.conversion, precision)
+    let requested_precision = precision ?? 6
+    let body = if spec.conversion in ["f", "F"] and requested_precision > 100 and ! float_is_nan(number) and ! float_is_infinite(number) {
+      number.format_number(spec.conversion, requested_precision)?
+    } else {
+      float_conversion(number, spec.conversion, precision)
+    }
     let negative = number < 0.0 or (parsed.issue != "expected a numeric value" and argument.trim().starts_with("-"))
     let sign = if negative { "-" } else if spec.flags.find("+") != null { "+" } else if spec.flags.find(" ") != null { " " } else { "" }
     let unsigned_body = if body.starts_with("-") { body.byte_slice(1) } else { body }

@@ -182,6 +182,16 @@ test test_printf_float_conversions_and_precision { |ctx|
   assert output.stderr == ""
 }
 
+test test_printf_float_precision_above_formatter_limit { |ctx|
+  let output = printf_run(ctx, ["%.70123f", "3.25"])?
+
+  assert output.status == 0, output.stderr
+  assert output.stdout.byte_len() == 70125
+  assert output.stdout.starts_with("3.25")
+  assert output.stdout.byte_slice(4).replace("0", with: "") == ""
+  assert output.stderr == ""
+}
+
 test test_printf_general_float_trims_zeroes_before_exponent { |ctx|
   let output = printf_run(ctx, ["%g|%g", "0.0001", "0.00001"])?
 
