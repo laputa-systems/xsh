@@ -4,10 +4,10 @@ How the campaign in [`CAMPAIGN.md`](CAMPAIGN.md) is parallelized without
 turning into a merge-conflict campaign. One **integrator** (the main session)
 owns the integration branch, the shared files and every merge. Each lane is
 a Codex subagent in its own git worktree with an exclusive file set.
-Every campaign subagent uses **`gpt-6.1-sol` with medium reasoning effort**,
-including mechanical inventories, test-list work, implementation, and review.
-Pass `model: "gpt-6.1-sol"` and `reasoning_effort: "medium"` explicitly when
-spawning; do not substitute another model or effort level.
+Every campaign subagent uses **`gpt-6-luna` at `xhigh`**, including mechanical
+inventories, test-list work, implementation, and review. Pass
+`model: "gpt-6-luna"` and `reasoning_effort: "xhigh"` explicitly when spawning;
+do not substitute another model or effort level.
 
 The compatibility branch was merged into `master` on 2026-10-05. The current
 handoff and verified claims are in `CAMPAIGN.md` and `CLAIMS.md`; the lane
@@ -41,10 +41,9 @@ reusable operation. See the 2026-10-06 working constraints in `CAMPAIGN.md`.
    process sampling, nvme, ...) has exactly one owning lane at a time; applet
    lanes consume it and request missing fields through the integrator. Native
    domain lanes land before the applet lanes that depend on them.
-7. **Subagent model.** Use only `gpt-6.1-sol` at medium reasoning effort for
-   every campaign subagent. This includes routine work. Set both explicitly
-   on every spawn and carry this requirement into any authorized nested
-   delegation; no other model or effort level is permitted.
+7. **Subagent model.** Use only `gpt-6-luna` at `xhigh` for every campaign
+   subagent. Set both explicitly on every spawn; no other model or effort level
+   is permitted.
 
 ## Integrator-owned paths
 
@@ -120,7 +119,7 @@ git -C <checkout> fetch origin
 git -C <checkout> worktree add -b lane/<lane> <checkout>-lanes/<lane> master
 ```
 
-Spawn a `gpt-6.1-sol` subagent at medium reasoning effort with the brief below,
+Spawn a `gpt-6-luna` subagent at xhigh reasoning effort with the brief below,
 naming the worktree as its
 only working directory. The lane commits on `lane/<lane>` when its slice is
 green (the brief authorizes commits; it still never pushes or merges).
@@ -290,7 +289,7 @@ CI lane.
 ## Lane brief template
 
 ```text
-Lane: <lane>   Wave: <n>   Agent: gpt-6.1-sol (medium reasoning effort)
+Lane: <lane>   Wave: <n>   Agent: gpt-6-luna (xhigh reasoning effort)
 Worktree: <checkout>-lanes/<lane> on branch lane/<lane> (from master @ <sha>)
 Read first: AGENTS.md, docs/user-tour.md, dev/compat/CAMPAIGN.md, dev/compat/LANES.md,
             the applets and tests you own.
@@ -305,7 +304,7 @@ Verify: target/release/xsht test core/tests/test-<util>.xsh; dev/compat/run-uuti
         only when told the suite is idle; python3 dev/compat/check_ignored_options.py.
 Budget: <size>. Stop and report at twice the budget.
 Commit on lane/<lane> when green (never push, merge, or rebase others).
-Every campaign subagent uses gpt-6.1-sol at medium reasoning effort, including routine work.
+Every campaign subagent uses gpt-6-luna at xhigh reasoning effort, including routine work.
 Do not delegate further unless the integrator explicitly assigns a nested scope.
 Report (<200 words): behavior changed, before/after counts, tests run, decisions, Requests:, blockers.
 ```

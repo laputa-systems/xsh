@@ -1878,7 +1878,6 @@
       "excluded_tests": [],
       "known_semantic_gaps": [
         "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
-        "Size suffixes of GNU `integer_arg` (`1k`, `2b`) are not accepted; such arguments are `invalid integer argument`.",
         "Fractional speeds (`9600.49`) are accepted as the uutils tests require; GNU 9.4 on the host rejects them as `invalid ispeed`.",
         "Arguments after `--` are settings; GNU 9.4 silently ignores them.",
         "A terminal that keeps other state than requested (a pty drops parity and sizes other than 8 bits) is reported as `unable to perform all requested operations`; GNU 9.4 reports `Invalid argument` for some of those from tcsetattr itself, which `unix.set_tty_attrs` does not raise.",

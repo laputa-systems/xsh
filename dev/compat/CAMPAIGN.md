@@ -1,9 +1,32 @@
 # XSH Core Compatibility Campaign
 
-Status: wound down on 2026-10-06 at the user’s request. Existing lanes are
-integrated on `master`; the full campaign remains incomplete. No new lanes
-were started during wind-down. The report below distinguishes current
-verification from historical compatibility results.
+Status: active; resumed on 2026-10-07. The full campaign remains incomplete.
+The 2026-10-06 wind-down report below is historical and does not describe the
+current integration run.
+
+## Resume checkpoint (2026-10-07)
+
+- Verified the configured host `kache` rustc wrapper and `mold` linker after
+  reboot: a disposable build invoked both, and an identical build from a
+  second worktree was a Kache cache hit. Host Cargo is available at
+  `/home/josh/.cargo/bin/cargo`; it is not on the login `PATH`.
+- Resumed implementation with the `stty` integer suffix fix. GNU accepts
+  lowercase `b` as 512 and uppercase `B` as 1024; `k` remains invalid. The
+  focused native suite passed 26 tests on x86_64 musl and 26 under the pinned
+  aarch64-musl QEMU environment.
+- A diagnostic uutils slice for `printf`, `split`, and `tee` selected 320 tests:
+  165 passed, 154 failed, and 1 was excluded. This is not a full-suite result;
+  the report is scratch evidence under ignored `target/compat-resume-uutils`.
+- The resumed campaign uses only **`gpt-6-luna` at `xhigh`** for subagents.
+  Active file ownership is recorded in `CLAIMS.md`; the 16 assigned lanes have
+  disjoint applet and test files. XSH owns command behavior, with Rust limited
+  to necessary reusable OS and byte boundaries.
+
+The remaining campaign gates are still open. Do not use the earlier full-suite
+counts as current-head evidence; refresh the full gates after integrating the
+active lanes.
+
+## Wind-down report (2026-10-06)
 
 ## Wind-down report (2026-10-06)
 
@@ -164,9 +187,8 @@ dependency approval requests are unnecessary within this campaign.
 No accepted option may be silently ignored; denominators never shrink;
 reference utilities are test oracles, never runtime dependencies; applets
 use typed native APIs instead of parsing another command's text output.
-Every campaign subagent must use **`gpt-6.1-sol` at medium reasoning effort**,
-including routine tasks and any authorized nested delegation. Pass both
-settings explicitly on every spawn. Follow current `AGENTS.md` and session
+Every campaign subagent must use **`gpt-6-luna` at `xhigh`**, including routine
+tasks. Pass both settings explicitly on every spawn. Follow current `AGENTS.md` and session
 instructions for tools, delegation, commit authorization, and publishing. Do not
 run formatters or autofixers, or push as part of this handoff refresh.
 

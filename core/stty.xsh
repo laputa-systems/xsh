@@ -364,10 +364,8 @@ pure hex_digit(code: Int) -> Int {
   -1
 }
 
-# C `strtoul` with base 0 on the whole text: optional blanks and `+`, then
-# `0x` hex, leading-`0` octal or decimal digits and nothing after them. A
-# negative number, stray text or no digits is `invalid`; a value beyond 2^62
-# is `overflow`. Size suffixes (`1k`) are not accepted.
+# C `strtoul` with base 0: optional blanks and `+`, then `0x` hex, leading-`0`
+# octal or decimal digits. GNU also accepts a trailing `b` (512) or `B` (1024).
 pure parse_c_integer(text: Str) -> Integer {
   let total = text.byte_len()
   var at = 0
@@ -378,6 +376,14 @@ pure parse_c_integer(text: Str) -> Integer {
 
   if at < total and text.byte_at(at) == 43 {
     at += 1
+  }
+
+  if total == 1 and text.byte_at(0) == 98 {
+    return {status: "ok", value: 512}
+  }
+
+  if total == 1 and text.byte_at(0) == 66 {
+    return {status: "ok", value: 1024}
   }
 
   var base = 10
@@ -394,15 +400,30 @@ pure parse_c_integer(text: Str) -> Integer {
   var value = 0
   var digits = 0
   var overflow = false
+  var multiplier = 1
 
   while at < total {
     let digit = hex_digit(text.byte_at(at) ?? 0)
 
-    return {status: "invalid", value: 0} when digit < 0 or digit >= base
+    if digit < 0 or digit >= base {
+      let byte = text.byte_at(at) ?? 0
 
-    if value > 1152921504606846976 {
+      if at == total - 1 and byte == 98 {
+        multiplier = 512
+        break
+      }
+
+      if at == total - 1 and byte == 66 {
+        multiplier = 1024
+        break
+      }
+
+      return {status: "invalid", value: 0}
+    }
+
+    if value > (9223372036854775807 - digit) / base {
       overflow = true
-    } else {
+    } else if ! overflow {
       value = value * base + digit
     }
 
@@ -412,8 +433,9 @@ pure parse_c_integer(text: Str) -> Integer {
 
   return {status: "invalid", value: 0} when digits == 0
   return {status: "overflow", value: 0} when overflow
+  return {status: "overflow", value: 0} when value > 9223372036854775807 / multiplier
 
-  {status: "ok", value: value}
+  {status: "ok", value: value * multiplier}
 }
 
 # GNU `integer_arg`: a number no larger than `max`, or the diagnostic and exit

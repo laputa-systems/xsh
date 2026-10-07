@@ -5,8 +5,8 @@ Tooling for the campaign in [`CAMPAIGN.md`](CAMPAIGN.md); lane process in
 
 ## Campaign subagents
 
-Use only **`gpt-6.1-sol` with medium reasoning effort** for every campaign
-subagent, including routine work. Set both explicitly when spawning.
+Use only **`gpt-6-luna` at `xhigh`** for every campaign subagent, including
+routine work. Set both explicitly when spawning.
 `python3 dev/compat/lanes.py brief LANE` renders this requirement and paths
 for the current checkout; see `LANES.md` for ownership and integration.
 
@@ -86,15 +86,15 @@ agree; the differential requires identical test selections on both sides.
 
 ## Status
 
-The compatibility work is merged into `master`. See the dated operational
-handoff in [`CAMPAIGN.md`](CAMPAIGN.md) for current repository state and
-[`CLAIMS.md`](CLAIMS.md) for active ownership.
+The campaign resumed on 2026-10-07. See the resume checkpoint in
+[`CAMPAIGN.md`](CAMPAIGN.md) for current verification and [`CLAIMS.md`](CLAIMS.md)
+for active ownership.
 
 Committed reports are historical: the uutils report has 2,186/5,974 passing
 and four exclusions; the manifest has 73/106 in-scope applets present. The
 pinned-uutils GNU report has 571 PASS, 46 FAIL, 101 SKIP and one ERROR. No XSH
-GNU report or differential is committed. These suites have not been rerun
-against the migrated `master` head.
+GNU report or differential is committed. The full suites have not yet been
+rerun against the resumed integration head.
 
 Before running a new baseline, preserve `results/uutils-integration.json`
 outside `results/` for `compare.py`, select release tools built from an exact

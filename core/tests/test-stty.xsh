@@ -292,6 +292,19 @@ test test_stty_window_size_settings_and_size { |ctx|
   assert "rows 50; columns 120;" in show(ctx, pty, ["-a"])?
 }
 
+test test_stty_integer_arguments_accept_gnu_byte_block_suffixes { |ctx|
+  let pty = with_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+
+  assert stty_run(ctx, pty, ["rows", "1B", "cols", "2b", "size"])?.stdout == "1024 1024\n"
+  assert stty_run(ctx, pty, ["rows", "b", "size"])?.stdout == "512 1024\n"
+
+  let invalid = stty_run(ctx, pty, ["rows", "1k"])?
+  assert invalid.status == 1
+  assert invalid.stderr == "stty: invalid integer argument: '1k'\n"
+}
+
 test test_stty_line_discipline_number { |ctx|
   let pty = with_pty()?
   defer unix.close_fd(pty.master)
