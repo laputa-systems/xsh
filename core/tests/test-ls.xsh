@@ -476,6 +476,25 @@ test test_ls_color_uses_gnu_default_and_ls_colors_sequences { |ctx|
   assert prefix.err == "ls: unrecognized prefix: 'qq'\nls: unparsable value for LS_COLORS environment variable\n", prefix.err
 }
 
+test test_ls_color_preserves_nonzero_normal_sgr { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/f".write("")
+
+  let result = ls_in(ctx, work, ["--color=always", "f"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "no=39"})?
+  assert result.text == "\u{1b}[0m\u{1b}[39mf\u{1b}[0m\n", result.text
+}
+
+test test_ls_color_clears_to_eol_after_a_long_name_wraps { |ctx|
+  let work = sandbox(ctx)?
+  let name = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.foo"
+  fp"{work}/{name}".write("")
+
+  let vars = {LC_ALL: "C", TZ: "UTC", TERM: "xterm", COLUMNS: "80", LS_COLORS: "*.foo=0;31;42", TIME_STYLE: "+T"}
+  let result = ls_in(ctx, work, ["-og", "--color", name], vars)?
+  let colored_name = f"\u{1b}[0m\u{1b}[0;31;42m{name}\u{1b}[0m\u{1b}[K"
+  assert colored_name in result.text, result.text
+}
+
 test test_ls_color_fallback_requires_a_known_terminal { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/exe".write("", mode: 0o755)
