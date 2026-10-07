@@ -198,6 +198,35 @@ pure byte_count(text: Str) -> Int? {
   tio.parse_count(text)
 }
 
+pure legacy_offset_overflow(text: Str) -> Bool {
+  var raw = if text.starts_with("+") { text.byte_slice(1) } else { text }
+  let blocks = ! (raw.starts_with("0x") or raw.starts_with("0X")) and (raw.ends_with("b") or raw.ends_with("B"))
+  if blocks { raw = raw.byte_slice(0, raw.byte_len() - 1) }
+  let decimal = raw.ends_with(".")
+  if decimal { raw = raw.byte_slice(0, raw.byte_len() - 1) }
+  let hex = raw.starts_with("0x") or raw.starts_with("0X")
+  if hex { raw = raw.byte_slice(2) }
+  return false when raw == ""
+  let base = if hex { 16 } else if decimal { 10 } else { 8 }
+  var value = 0
+  for position in range(raw.byte_len()) {
+    let digit = DIGITS.find(raw.byte_slice(position, length: 1).lower()) ?? 16
+    return false when digit >= base
+    return true when value > (9223372036854775807 - digit) / base
+    value = value * base + digit
+  }
+  if blocks { return value > 9223372036854775807 / 512 }
+  false
+}
+
+pure byte_count_overflow(text: Str) -> Bool {
+  let parts = rx"^([0-9]*)(.*)$".captures(text)
+  if parts[1] == "" { return false }
+  let number = parts[1].parse_int() ?? -1
+  return true when number < 0
+  parts[2] != "" and byte_count(text) == 9223372036854775807
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # Each traditional format option appends at its position, preserving GNU's
   # output order even when short options and explicit type strings mix.
@@ -235,8 +264,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           }
           break
         } else if char == "v" { args += ["-v"]; position += 1 } else {
+          if char == "w" and position + 1 == arg.byte_len() and i + 1 < argv.len() and rx"^-[0-9]".matches(argv[i + 1]) {
+            i += 1
+            args += ["-w" + argv[i]]
+            break
+          }
           args += ["-" + arg.byte_slice(position)]
-          if char in ["A", "j", "N"] and position + 1 == arg.byte_len() and i + 1 < argv.len() { i += 1; args += [argv[i]] }
+          if char in ["A", "j", "N", "w"] and position + 1 == arg.byte_len() and i + 1 < argv.len() { i += 1; args += [argv[i]] }
           break
         }
       }
@@ -279,15 +313,59 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       operands = operands[0..operands.len() - 1]
     }
   }
+  if ! operands.is_empty() and legacy_offset_overflow(operands[-1]) {
+    gnu.error(f"{operands[-1]}: Result not representable")
+    exit 1
+  }
   if opts.address == "none" { opts = {...opts, address: "n"} }
+  if opts.address == "" { gnu.error("Radix cannot be empty, and must be one of [o, d, x, n]"); exit 1 }
   if ! (opts.address in ["d", "o", "x", "n"]) { gnu.usage_error(f"invalid argument {gnu.quote(opts.address)} for 'address radix'") }
   let big = opts.endian != "" and "big".starts_with(opts.endian)
   if ! big and ! (opts.endian != "" and "little".starts_with(opts.endian)) { gnu.usage_error(f"invalid argument {gnu.quote(opts.endian)} for 'endian'") }
   let skip_value: Int? = if origin != null { origin } else { byte_count(opts.skip) }
-  guard let skip = skip_value else { gnu.usage_error(f"invalid number of bytes to skip: {gnu.quote(opts.skip)}"); return }
-  guard let count = byte_count(opts.count) else { gnu.usage_error(f"invalid number of bytes: {gnu.quote(opts.count)}"); return }
-  var width = opts.width.parse_int() ?? 0
-  if width <= 0 { gnu.error(f"invalid -w argument {gnu.quote(opts.width)}"); exit 1 }
+  let skip_option = if "-j" in argv { "-j" } else { "--skip-bytes" }
+  let count_option = if "-N" in argv { "-N" } else { "--read-bytes" }
+  guard let skip = skip_value else {
+    let parts = rx"^([0-9]*)(.*)$".captures(opts.skip)
+    let message = if parts[1] != "" and parts[2] != "" { f"invalid suffix in {skip_option} argument {gnu.quote(opts.skip)}" } else { f"invalid {skip_option} argument {gnu.quote(opts.skip)}" }
+    gnu.error(message)
+    exit 1
+  }
+  guard let count = byte_count(opts.count) else {
+    let parts = rx"^([0-9]*)(.*)$".captures(opts.count)
+    let message = if parts[1] != "" and parts[2] != "" { f"invalid suffix in {count_option} argument {gnu.quote(opts.count)}" } else { f"invalid {count_option} argument {gnu.quote(opts.count)}" }
+    gnu.error(message)
+    exit 1
+  }
+  if byte_count_overflow(opts.skip) {
+    gnu.error(f"{skip_option} argument {gnu.quote(opts.skip)} too large")
+    exit 1
+  }
+  if byte_count_overflow(opts.count) {
+    gnu.error(f"{count_option} argument {gnu.quote(opts.count)} too large")
+    exit 1
+  }
+  var width_option = "--width"
+  for arg in argv {
+    if arg.starts_with("-w") and ! arg.starts_with("--") { width_option = "-w" }
+    if arg == "--width" or arg.starts_with("--width=") { width_option = "--width" }
+  }
+  let parsed_width = tio.parse_count(opts.width)
+  guard let width_value = parsed_width else {
+    let parts = rx"^([0-9]*)(.*)$".captures(opts.width)
+    let message = if parts[1] != "" and parts[2] != "" { f"invalid suffix in {width_option} argument {gnu.quote(opts.width)}" } else { f"invalid {width_option} argument {gnu.quote(opts.width)}" }
+    gnu.error(message)
+    exit 1
+  }
+  if byte_count_overflow(opts.width) {
+    gnu.error(f"{width_option} argument {gnu.quote(opts.width)} too large")
+    exit 1
+  }
+  var width = width_value
+  if width <= 0 {
+    gnu.error(f"invalid {width_option} argument {gnu.quote(opts.width)}")
+    exit 1
+  }
   var selected: List[Format] = []
   for text in if requested.is_empty() { ["o2"] } else { requested } {
     guard let parsed = formats(text) else { |failure| gnu.usage_error(failure.message); return }
@@ -372,7 +450,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       previous = block
       for index in range(selected.len()) {
         let fmt = selected[index]
-        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { spaces(address(skip + offset, opts.address, label, skip).byte_len()) }
+        let alignment_indent = if selected.len() == 2 and selected[0].kind == "f" and selected[0].size == 8 and fmt.kind == "x" and fmt.size == 2 { 1 } else { 0 }
+        var line = if index == 0 { address(skip + offset, opts.address, label, skip) } else { spaces(address(skip + offset, opts.address, label, skip).byte_len() + alignment_indent) }
         for part in block.chunks(fmt.size) {
           let padded = bytes.concat([part, bytes.zero(fmt.size - part.len())?])
           let value = item(padded, fmt, big)?

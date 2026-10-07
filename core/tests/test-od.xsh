@@ -108,6 +108,49 @@ test test_od_float_width_aligns_smaller_hex_formats { |ctx|
   assert "0000  0000  0000  c000\n" in result.stdout as Str
 }
 
+test test_od_rejects_empty_address_radix_with_its_domain_error { |ctx|
+  let bad = invoke(ctx, ["-A", ""], b"")?
+  assert bad.status == 1
+  assert bad.stderr == "od: Radix cannot be empty, and must be one of [o, d, x, n]\n"
+}
+
+test test_od_invalid_read_and_skip_counts_name_the_option { |ctx|
+  let read = invoke(ctx, ["--read-bytes=x"], b"")?
+  assert read.status == 1
+  assert read.stderr == "od: invalid --read-bytes argument 'x'\n"
+
+  let short_read = invoke(ctx, ["-N", "-1"], b"")?
+  assert short_read.status == 1
+  assert short_read.stderr == "od: invalid -N argument '-1'\n"
+
+  let short_skip = invoke(ctx, ["-j", "-1"], b"")?
+  assert short_skip.status == 1
+  assert short_skip.stderr == "od: invalid -j argument '-1'\n"
+}
+
+test test_od_rejects_overflowing_legacy_offset { |ctx|
+  let value = "7777777777777777777777"
+  let bad = invoke(ctx, ["-", value], b"")?
+  assert bad.status == 1
+  assert bad.stderr == f"od: {value}: Result not representable\n"
+}
+
+test test_od_byte_counts_reject_values_too_large_to_represent { |ctx|
+  let bad = invoke(ctx, ["--read-bytes=1Y"], b"")?
+  assert bad.status == 1
+  assert bad.stderr == "od: --read-bytes argument '1Y' too large\n"
+}
+
+test test_od_width_errors_report_the_spelling_used { |ctx|
+  let short = invoke(ctx, ["-w", "-1"], b"")?
+  assert short.status == 1
+  assert short.stderr == "od: invalid -w argument '-1'\n"
+
+  let long = invoke(ctx, ["--width=x"], b"")?
+  assert long.status == 1
+  assert long.stderr == "od: invalid --width argument 'x'\n"
+}
+
 test test_od_formats_binary64_normal_and_subnormal_values { |ctx|
   let data = bytes.concat([b"\x27\x6b\x0a\x2f\x2a\xee\x45\x43", bytes.zero(8)?, b"\0\0\0\0\0\0\x10\x80", b"\x01\0\0\0\0\0\0\0", b"\0\0\0\0\0\0\0\xc0"])
   let result = invoke(ctx, ["--endian=little", "-F"], data)?

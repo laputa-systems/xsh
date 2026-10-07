@@ -95,6 +95,16 @@ test test_dd_invalid_numbers_and_flags_use_gnu_messages { |ctx|
   assert invoke(ctx, ["status=none", "count=2Bx2"], b"abcdef")?.stdout == b"abcd"
 }
 
+test test_dd_rejects_overflowing_block_offsets { |ctx|
+  let seek = invoke(ctx, ["seek=17592186044416", "obs=1048576"])?
+  assert seek.status == 1
+  assert seek.stderr == "dd: Value too large for defined data type\n"
+
+  let skip = invoke(ctx, ["skip=17592186044416", "ibs=1048576"])?
+  assert skip.status == 1
+  assert skip.stderr == "dd: Value too large for defined data type\n"
+}
+
 test test_dd_skip_past_input_warns_without_failing { |ctx|
   let result = invoke(ctx, ["bs=1", "skip=5", "count=0", "status=noxfer"], b"abcd")?
   assert result.status == 0, result.stderr

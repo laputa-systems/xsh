@@ -267,8 +267,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let started = time.now()
   let opts = parse(argv)
   if opts.ibs > 67108864 or opts.obs > 67108864 or opts.cbs > 67108864 { gnu.error("memory exhausted"); exit 1 }
-  if opts.skip > 0 and ! opts.skip_bytes and opts.skip > 9223372036854775807 / opts.ibs { gnu.error("skip offset is too large"); exit 1 }
-  if opts.seek > 0 and ! opts.seek_bytes and opts.seek > 9223372036854775807 / opts.obs { gnu.error("seek offset is too large"); exit 1 }
+  if opts.skip > 0 and ! opts.skip_bytes and opts.skip > 9223372036854775807 / opts.ibs { gnu.error("Value too large for defined data type"); exit 1 }
+  if opts.seek > 0 and ! opts.seek_bytes and opts.seek > 9223372036854775807 / opts.obs { gnu.error("Value too large for defined data type"); exit 1 }
   let skip = if opts.skip_bytes { opts.skip } else { opts.skip * opts.ibs }
   let seek = if opts.seek_bytes { opts.seek } else { opts.seek * opts.obs }
   if opts.output == "-" { prepare_stdout_seek(seek) }
