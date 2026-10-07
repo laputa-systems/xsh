@@ -114,9 +114,23 @@ proc format_date(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[
   Ok(output)
 }
 
-proc emit_date(text: Str, format: Str, utc: Bool) [time, process, env, io, error] -> Bool {
+pure has_explicit_time(input: Str) -> Bool {
+  input.starts_with("@") or rx"[0-9]{1,2}:[0-9]{2}".matches(input) or rx"^[A-Za-z][0-9]{1,2}$".matches(input) or rx"^[0-9]{3,4}[jJ]?$".matches(input)
+}
+
+# Date-only inputs inherit midnight; epoch timestamps already identify a complete instant.
+proc emit_date(text: Str, format: Str, utc: Bool, debug: Bool) [time, process, env, io, error] -> Bool {
   match parse_date(text, utc:) {
     Ok(epoch) => {
+      if debug {
+        gnu.error(f"input string: {text}")
+        gnu.error(f"parsed date part: (Y-M-D) {time.format(epoch, "%F", utc:)?}")
+        gnu.error(f"parsed time part: (H:M:S) {time.format(epoch, "%T", utc:)?}")
+        gnu.error(f"input timezone: {time.format(epoch, "%Z", utc:)?}")
+        if ! has_explicit_time(text) {
+          gnu.error("warning: using midnight")
+        }
+      }
       match format_date(epoch, format, utc:) {
         Ok(output) => { gnu.write_text(f"{output}\n"); return true }
         Err(failure) => gnu.error(failure.message)
@@ -148,6 +162,7 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
   var specified_format = false
   var source = ""
   var resolution = false
+  var debug = false
   var index = 0
   var operands = false
   var date_operand = false
@@ -156,10 +171,11 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
     index += 1
     if ! operands and arg == "--" { operands = true; continue }
     if ! operands and arg == "--help" {
-      gnu.help("Usage: date [OPTION]... [+FORMAT]\nDisplay a calendar date.\n  -d, --date=STRING       display STRING\n  -f, --file=FILE         display each date in FILE\n  -r, --reference=FILE    display FILE modification time\n  -u, --utc              use UTC\n  -R, --rfc-email        RFC email format\n  -I[TIMESPEC]           ISO 8601 format\n      --rfc-3339=SPEC     RFC 3339 format\n  -s, --set=STRING        set system clock\n      --resolution       display clock resolution")
+      gnu.help("Usage: date [OPTION]... [+FORMAT]\nDisplay a calendar date.\n  -d, --date=STRING       display STRING\n  -f, --file=FILE         display each date in FILE\n  -r, --reference=FILE    display FILE modification time\n  -u, --utc              use UTC\n  -R, --rfc-email        RFC email format\n  -I[TIMESPEC]           ISO 8601 format\n      --rfc-3339=SPEC     RFC 3339 format\n      --debug              annotate parsed date input\n  -s, --set=STRING        set system clock\n      --resolution       display clock resolution")
       return
     }
     if ! operands and arg == "--version" { gnu.version("date"); return }
+    if ! operands and arg == "--debug" { debug = true; continue }
     if ! operands and (arg == "-u" or arg == "--utc" or arg == "--universal" or arg == "--uct" or arg == "--uni" or arg == "--u") { utc = true; continue }
     if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822" or arg == "--rfc-e") { format = "%a, %d %b %Y %H:%M:%S %z"; continue }
     if ! operands and arg == "--resolution" { resolution = true; continue }
@@ -194,7 +210,7 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
     if arg.starts_with("+") {
       if specified_format { gnu.extra_operand(arg) }
       format = arg.byte_slice(1); specified_format = true
-    } else if ! operands and arg.starts_with("-") and arg != "-" { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") } else {
+    } else if ! operands and arg.starts_with("-") and arg != "-" { gnu.usage_error(f"unexpected argument {gnu.quote(arg)}") } else {
       if source != "" {
         if date_operand { gnu.extra_operand(arg) }
         gnu.error(f"the argument {arg} lacks a leading '+';\nwhen using an option to specify date(s), any non-option\nargument must be a format string beginning with '+'")
@@ -228,7 +244,7 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
       while end < raw_line.len() and raw_line.byte_at(end) != 0 { end += 1 }
       let line = raw_line[0..end]
       match line.utf8() {
-        Ok(text) => { if ! emit_date(text, format, utc) { success = false } }
+        Ok(text) => { if ! emit_date(text, format, utc, debug) { success = false } }
         Err(failure) => { gnu.error(f"invalid date {gnu.quote_value_bytes(line)}"); success = false }
       }
     }
@@ -242,12 +258,12 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
       Ok(epoch) => {
         if let Err(failure) = linux.set_system_clock(epoch / 1000000) {
           gnu.error(f"cannot set date: {gnu.strerror(failure)}")
-          let _ = emit_date(date, format, utc)
+          let _ = emit_date(date, format, utc, false)
           exit 1
         }
       }
       Err(failure) => { gnu.error(f"invalid date {gnu.quote(date)}"); exit 1 }
     }
   }
-  if ! emit_date(date, format, utc) { exit 1 }
+  if ! emit_date(date, format, utc, debug and source == "date") { exit 1 }
 }

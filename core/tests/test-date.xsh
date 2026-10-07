@@ -42,6 +42,41 @@ test test_date_negative_relative_offset { |ctx|
   assert output == "2000-01-01_23:00:00\n"
 }
 
+test test_date_debug_diagnostics { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let output = run.capture --text ${ctx.xsh_bin} $script -- -u --debug -d "2005-01-01" +%Y
+  assert output.status.exited_with(0)
+  assert output.stdout == "2005\n"
+  assert "date: input string: 2005-01-01" in output.stderr
+  assert "date: parsed date part: (Y-M-D) 2005-01-01" in output.stderr
+  assert "date: parsed time part:" in output.stderr
+  assert "date: input timezone:" in output.stderr
+  assert "date: warning: using midnight" in output.stderr
+
+  let quiet = run.capture --text ${ctx.xsh_bin} $script -- -u --debug +%Y
+  assert quiet.status.exited_with(0)
+  assert quiet.stderr == ""
+}
+
+test test_date_debug_file_inputs { |ctx|
+  let target = test.temp_file(ctx, name: "debug-dates.txt", contents: b"2005-01-01\n2006-02-02\n")?
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- --debug -f $target +%Y
+  assert result.status.exited_with(0)
+  assert result.stdout == "2005\n2006\n"
+  assert "date: input string: 2005-01-01" in result.stderr
+  assert "date: input string: 2006-02-02" in result.stderr
+}
+
+test test_date_unknown_options_use_unexpected_argument { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  for option in ["--fB", "-w"] {
+    let result = run.capture --text ${ctx.xsh_bin} $script -- $option
+    assert result.status.exited_with(1)
+    assert result.stdout == ""
+    assert f"unexpected argument '{option}'" in result.stderr
+  }
+}
+
 test test_date_bare_dash_remains_invalid { |ctx|
   let output = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -
   assert output.status.exited_with(1)
