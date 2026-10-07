@@ -185,13 +185,96 @@ test test_cp_interactive_decline_and_accept { |ctx|
   let no = fp"{root}/no"
   no.write("n\n")
   let declined = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -i $source $dest < $no
-  assert declined.status.ok
+  assert declined.status.exited_with(1)
   assert dest.read_text()? == "old"
   assert declined.stderr == f"cp: overwrite '{dest}'? "
   let yes = fp"{root}/yes"
   yes.write("y\n")
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -i $source $dest < $yes
   assert dest.read_text()? == "new"
+}
+
+test test_cp_interactive_eof_and_verbose_decline_are_failures { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-interactive-eof")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("new")
+  dest.write("old")
+  let empty = fp"{root}/empty"
+  empty.write("")
+  let eof = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -i $source $dest < $empty
+  assert eof.status.exited_with(1)
+  assert eof.stderr == f"cp: overwrite '{dest}'? "
+  assert dest.read_text()? == "old"
+
+  let no = fp"{root}/no"
+  no.write("n\n")
+  let verbose = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -v -i $source $dest < $no
+  assert verbose.status.exited_with(1)
+  assert verbose.stdout == ""
+  assert verbose.stderr == f"cp: overwrite '{dest}'? "
+  assert dest.read_text()? == "old"
+}
+
+test test_cp_update_interactive_decline_is_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-update-interactive")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("new")
+  dest.write("old")
+  fs.set_times(source, mtime_ns: 2000000000)
+  fs.set_times(dest, mtime_ns: 1000000000)
+  let no = fp"{root}/no"
+  no.write("n\n")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -i -u $source $dest < $no
+  assert result.status.exited_with(1)
+  assert result.stderr == f"cp: overwrite '{dest}'? "
+  assert dest.read_text()? == "old"
+}
+
+test test_cp_recursive_interactive_decline_continues { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-interactive-recursive")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.mkdir()
+  fp"{dest}/source".mkdir(parents: true)
+  fp"{source}/existing".write("new")
+  fp"{source}/other".write("copied")
+  fp"{dest}/source/existing".write("old")
+  let no = fp"{root}/no"
+  no.write("n\n")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R -i $source $dest < $no
+  assert result.status.exited_with(1)
+  assert result.stderr.find("overwrite") != null
+  assert fp"{dest}/source/existing".read_text()? == "old"
+  assert fp"{dest}/source/other".read_text()? == "copied"
+}
+
+test test_cp_force_interactive_replaces_unwritable_destination { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-force-interactive")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.write("new")
+  dest.write("old")
+  dest.chmod(0o000)
+  let yes = fp"{root}/yes"
+  yes.write("y")
+  let accepted = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -f -i -v $source $dest < $yes
+  assert accepted.status.ok
+  assert accepted.stderr == f"cp: replace '{dest}', overriding mode 0000 (---------)? "
+  assert accepted.stdout == f"removed '{dest}'\n'{source}' -> '{dest}'\n"
+  assert dest.read_text()? == "new"
+
+  let declined_dest = fp"{root}/declined"
+  declined_dest.write("old")
+  declined_dest.chmod(0o000)
+  let empty = fp"{root}/empty"
+  empty.write("")
+  let declined = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -f -i -v $source $declined_dest < $empty
+  assert declined.status.exited_with(1)
+  assert declined.stderr == f"cp: replace '{declined_dest}', overriding mode 0000 (---------)? "
+  declined_dest.chmod(0o600)
+  assert declined_dest.read_text()? == "old"
 }
 
 test test_cp_refuses_overwriting_just_created_destination { |ctx|

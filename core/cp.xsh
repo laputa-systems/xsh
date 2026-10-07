@@ -26,6 +26,21 @@ pure child_path(parent: Path, child: Path) -> Path {
   if raw.byte_at(raw.len() - 1) == 47 { fp"{parent}{child}" } else { fp"{parent}/{child}" }
 }
 
+pure mode_permissions(mode: Int) -> Str {
+  let user_execute = if mode.bit_and(0o4000) != 0 { if mode.bit_and(0o100) != 0 { "s" } else { "S" } } else if mode.bit_and(0o100) != 0 { "x" } else { "-" }
+  let group_execute = if mode.bit_and(0o2000) != 0 { if mode.bit_and(0o10) != 0 { "s" } else { "S" } } else if mode.bit_and(0o10) != 0 { "x" } else { "-" }
+  let other_execute = if mode.bit_and(0o1000) != 0 { if mode.bit_and(0o1) != 0 { "t" } else { "T" } } else if mode.bit_and(0o1) != 0 { "x" } else { "-" }
+  let user_permissions = f"{if mode.bit_and(0o400) != 0 { "r" } else { "-" }}{if mode.bit_and(0o200) != 0 { "w" } else { "-" }}{user_execute}"
+  let group_permissions = f"{if mode.bit_and(0o40) != 0 { "r" } else { "-" }}{if mode.bit_and(0o20) != 0 { "w" } else { "-" }}{group_execute}"
+  let other_permissions = f"{if mode.bit_and(0o4) != 0 { "r" } else { "-" }}{if mode.bit_and(0o2) != 0 { "w" } else { "-" }}{other_execute}"
+  f"{user_permissions}{group_permissions}{other_permissions}"
+}
+
+pure mode_octal(mode: Int) -> Str {
+  let bits = mode.bit_and(0o7777)
+  f"{bits / 512}{bits / 64 % 8}{bits / 8 % 8}{bits % 8}"
+}
+
 proc invalid(message: Str) -> Result[Unit] {
   Err(CopyError.Invalid(message:))
 }
@@ -261,11 +276,18 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         return Ok({copies: copies, failed: false}) when dest.mtime_ns >= meta.mtime_ns
       }
     }
+    var remove_readonly = false
     if opts.overwrite == "ask" {
-      io.write_stderr(f"cp: overwrite {gnu.quote_bytes(target.bytes())}? ")?
+      let destination_mode = fs.stat(target)?.mode
+      remove_readonly = opts.force and opts.backup == "none" and destination_mode.bit_and(0o222) == 0
+      if remove_readonly {
+        io.write_stderr(f"cp: replace {gnu.quote_bytes(target.bytes())}, overriding mode {mode_octal(destination_mode)} ({mode_permissions(destination_mode)})? ")?
+      } else {
+        io.write_stderr(f"cp: overwrite {gnu.quote_bytes(target.bytes())}? ")?
+      }
       io.flush_stderr()?
       let answer = io.stdin_line()?.lower()
-      return Ok({copies: copies, failed: false}) when ! answer.starts_with("y")
+      return Ok({copies: copies, failed: true}) when ! answer.starts_with("y")
     }
     let source_meta = fs.stat(source)?
     let source_key = fp"{source.parent().resolve()?}/{basename_path(source)?}".normalize()
@@ -314,9 +336,10 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       target.rename(to: backup, overwrite: true)
       created = true
       if source_key == target_key { input = backup }
-    } else if opts.remove or opts.symlink or (! follow and meta.kind == "symlink") or opts.hardlink {
+    } else if remove_readonly or opts.remove or opts.symlink or (! follow and meta.kind == "symlink") or opts.hardlink {
       target.remove()
       created = true
+      if remove_readonly and opts.verbose { gnu.write_text(f"removed {gnu.quote_bytes(target.bytes())}\n") }
     } else if dest_kind == "symlink" and ! (e"POSIXLY_CORRECT" is Ok(_)) {
       if let Err(failure) = fs.stat(target, follow_symlinks: true) {
         if failure.errno == 2 {
