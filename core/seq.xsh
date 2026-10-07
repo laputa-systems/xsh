@@ -37,6 +37,9 @@ type SeqOptions = {
   numbers: List[Str],
 }
 
+type ByteArgument = {marker: Str, value: Bytes}
+type PreparedArguments = {text: List[Str], byte_values: List[ByteArgument]}
+
 # A parsed argument. `kind` is `fin`, `inf`, or `bad` (`why` says which parse
 # error). A finite value is `-?digits / 10^scale` with `scale >= 0`; `neg` is
 # kept for zero so `-0` prints as given. `ints` and `fracs` are the digit
@@ -488,6 +491,60 @@ pure pad_spaces(count: Int) -> Str {
   zeros(count).replace("0", with: " ")
 }
 
+pure infinity_text(negative: Bool, spec: Spec) -> Str {
+  let upper = spec.conv == "E" or spec.conv == "G" or spec.conv == "F"
+  let sign = if negative { "-" } else if spec.plus { "+" } else if spec.space { " " } else { "" }
+  let body = f"{sign}{if upper { "INF" } else { "inf" }}"
+  let padding = spec.width - body.byte_len()
+
+  return body when padding <= 0
+  return body + pad_spaces(padding) when spec.left
+
+  pad_spaces(padding) + body
+}
+
+pure prepared_args(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var byte_values: List[ByteArgument] = []
+
+  for value in argv {
+    if let Ok(decoded) = value.utf8() {
+      text += [decoded]
+    } else {
+      let marker = f"\0xsh-byte-arg-{byte_values.len()}\0"
+      var prefix = ""
+      var raw_bytes = value
+
+      if value.len() > 12 and value[0..12] == b"--separator=" {
+        prefix = "--separator="
+        raw_bytes = value[12..]
+      } else if value.len() > 13 and value[0..13] == b"--terminator=" {
+        prefix = "--terminator="
+        raw_bytes = value[13..]
+      } else if value.len() > 2 and value[0..2] == b"-s" {
+        prefix = "-s"
+        raw_bytes = value[2..]
+      } else if value.len() > 2 and value[0..2] == b"-t" {
+        prefix = "-t"
+        raw_bytes = value[2..]
+      }
+
+      byte_values += [{marker: marker, value: raw_bytes}]
+      text += [prefix + marker]
+    }
+  }
+
+  {text: text, byte_values: byte_values}
+}
+
+pure argument_bytes(text: Str, saved: List[ByteArgument]) -> Bytes {
+  for item in saved {
+    return item.value when text == item.marker
+  }
+
+  bytes.from_text(text)
+}
+
 # A parsed -f format, or the message that rejects it.
 type Parsed = {message: Str, spec: Spec}
 
@@ -618,12 +675,12 @@ pure protect_numbers(argv: List[Str]) -> List[Str] {
   [@argv[..at], "--", @argv[at..]]
 }
 
-proc number_argument(text: Str) [process, env] -> Num {
+proc number_argument(text: Str, raw: Bytes) [process, env] -> Num {
   let value = parse_number(text)
 
   if value.kind == "bad" {
     gnu.usage_error(
-      f"invalid {if value.why == "nan" { "'not-a-number'" } else { "floating point" }} argument: {gnu.quote(text)}",
+      f"invalid {if value.why == "nan" { "'not-a-number'" } else { "floating point" }} argument: {gnu.quote_bytes(raw)}",
     )
   }
 
@@ -657,6 +714,25 @@ pure plain_line(value: Signed, places: Int, width: Int) -> Str {
   f"{sign}{zeros(width - size)}{body}"
 }
 
+proc write_failed(failure: Error) [process, env, error] -> Unit {
+  if gnu.errno(failure) == 32 and process.signal_action("PIPE")? == "ignore" {
+    gnu.error(f"write error: {gnu.strerror(failure)}")
+    exit 1
+  }
+
+  gnu.write_failed(failure)
+}
+
+proc write_bytes(data: Bytes) [process, env, error, io] -> Unit {
+  if let Err(failure) = io.write_stdout_bytes(data) {
+    write_failed(failure)
+  }
+
+  if let Err(failure) = io.flush_stdout() {
+    write_failed(failure)
+  }
+}
+
 stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Bool, empty: Bool) -> Stream[Str] {
   if ! empty {
     var scale = if first.scale > last.scale { first.scale } else { last.scale }
@@ -668,7 +744,29 @@ stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Boo
     let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt
     let small = from.digits.byte_len() <= 17 and stop.digits.byte_len() <= 17 and inc.digits.byte_len() <= 17
 
-    if small and step.kind == "fin" {
+    if first.kind == "inf" {
+      let rendered = spec.prefix + infinity_text(first.neg, spec) + spec.suffix
+
+      yield rendered
+
+      while first.kind == "inf" {
+        yield rendered
+      }
+    } else if step.kind == "inf" {
+      yield if plain {
+        plain_line(from, scale, spec.width)
+      } else {
+        spec.prefix + format_number(from.neg, from.digits, scale, spec) + spec.suffix
+      }
+
+      if last.kind == "inf" and step.neg == last.neg {
+        let rendered = spec.prefix + infinity_text(step.neg, spec) + spec.suffix
+
+        while last.kind == "inf" and step.neg == last.neg {
+          yield rendered
+        }
+      }
+    } else if small and step.kind == "fin" {
       var current = if from.neg { 0 - (from.digits.parse_int() ?? 0) } else { from.digits.parse_int() ?? 0 }
       let delta = if inc.neg { 0 - (inc.digits.parse_int() ?? 0) } else { inc.digits.parse_int() ?? 0 }
       let limit = if stop.neg { 0 - (stop.digits.parse_int() ?? 0) } else { stop.digits.parse_int() ?? 0 }
@@ -680,12 +778,12 @@ stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Boo
           current += delta
         }
 
-        while if forward { current <= limit } else { current >= limit } {
+        while (last.kind == "inf" and last.neg != forward) or (last.kind == "fin" and (if forward { current <= limit } else { current >= limit })) {
           yield f"{current}"
           current += delta
         }
       } else {
-        while if forward { current <= limit } else { current >= limit } {
+        while (last.kind == "inf" and last.neg != forward) or (last.kind == "fin" and (if forward { current <= limit } else { current >= limit })) {
           let value = {neg: negative, digits: f"{if current < 0 { 0 - current } else { current }}"}
 
           yield if plain {
@@ -701,7 +799,7 @@ stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Boo
       var current = from
       var count = 0
 
-      while (if forward { signed_cmp(current, stop) <= 0 } else { signed_cmp(current, stop) >= 0 }) and (count == 0 or step.kind == "fin") {
+      while ((last.kind == "inf" and last.neg != forward) or (last.kind == "fin" and (if forward { signed_cmp(current, stop) <= 0 } else { signed_cmp(current, stop) >= 0 }))) and (count == 0 or step.kind == "fin") {
         yield if plain {
           plain_line(current, scale, spec.width)
         } else {
@@ -716,9 +814,10 @@ stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Boo
 
 const OUTPUT_CHUNK = 65536
 
-proc main(...argv: List[Str]) [process, env, error, io] {
+proc main(...argv: List[Bytes]) [process, env, error, io] {
+  let prepared = prepared_args(argv)
   let opts: SeqOptions = cli.applet(
-    protect_numbers(argv),
+    protect_numbers(prepared.text),
     {
       gnu: {status: 1, permute: false},
       format: {form: "-f --format FORMAT"},
@@ -748,7 +847,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   if words.len() > 3 {
-    gnu.extra_operand(words[3])
+    gnu.usage_error(f"extra operand {gnu.quote_bytes(argument_bytes(words[3], prepared.byte_values))}")
   }
 
   if opts.equal_width and opts.format != null {
@@ -756,14 +855,14 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let one = parse_number("1")
-  let first = if words.len() > 1 { number_argument(words[0]) } else { one }
-  let step = if words.len() > 2 { number_argument(words[1]) } else { one }
+  let first = if words.len() > 1 { number_argument(words[0], argument_bytes(words[0], prepared.byte_values)) } else { one }
+  let step = if words.len() > 2 { number_argument(words[1], argument_bytes(words[1], prepared.byte_values)) } else { one }
 
   if step.kind == "fin" and step.digits == "0" {
-    gnu.usage_error(f"invalid Zero increment value: {gnu.quote(words[1])}")
+    gnu.usage_error(f"invalid Zero increment value: {gnu.quote_bytes(argument_bytes(words[1], prepared.byte_values))}")
   }
 
-  let last = number_argument(words[-1])
+  let last = number_argument(words[-1], argument_bytes(words[-1], prepared.byte_values))
   var spec = {
     prefix: "",
     suffix: "",
@@ -779,7 +878,14 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var places = -1
 
   if let format = opts.format {
-    let parsed = parse_format(format, gnu.quote(format))
+    let raw_format = argument_bytes(format, prepared.byte_values)
+    let decoded = if let Ok(text) = raw_format.utf8() {
+      text
+    } else {
+      gnu.error(f"invalid format {gnu.quote_bytes(raw_format)}")
+      exit 1
+    }
+    let parsed = parse_format(decoded, gnu.quote_bytes(raw_format))
 
     if parsed.message != "" {
       gnu.error(parsed.message)
@@ -805,31 +911,36 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let forward = ! step.neg
-  let endless = if forward {
-    (last.kind == "inf" and ! last.neg) or (first.kind == "inf" and first.neg)
+  let empty = if first.kind == "inf" {
+    if first.neg { ! forward and !(last.kind == "inf" and last.neg) } else { forward and !(last.kind == "inf" and ! last.neg) }
+  } else if last.kind == "inf" {
+    last.neg == forward
   } else {
-    (last.kind == "inf" and last.neg) or (first.kind == "inf" and ! first.neg)
+    let scale = if first.scale > last.scale { first.scale } else { last.scale }
+    let start = value_of(first, scale)
+    let stop = value_of(last, scale)
+    let order = signed_cmp(
+      {neg: start.neg, digits: strip_zeros(start.digits)},
+      {neg: stop.neg, digits: strip_zeros(stop.digits)},
+    )
+
+    if forward { order > 0 } else { order < 0 }
   }
 
-  if endless {
-    gnu.error("an endless sequence cannot be printed: standard output is not flushed incrementally")
-    exit 1
-  }
-
-  let empty = first.kind == "inf" or last.kind == "inf"
-
-  var pending = ""
+  let separator = argument_bytes(opts.separator, prepared.byte_values)
+  let terminator = argument_bytes(opts.terminator, prepared.byte_values)
+  var pending: Bytes = b""
   var emitted = false
   for line in sequence_lines(first, step, last, spec, forward, empty) {
-    if emitted { pending += opts.separator }
-    pending += line
+    if emitted { pending = bytes.concat([pending, separator]) }
+    pending = bytes.concat([pending, bytes.from_text(line)])
     emitted = true
 
-    if pending.byte_len() >= OUTPUT_CHUNK {
-      gnu.write_text(pending)
-      pending = ""
+    if pending.len() >= OUTPUT_CHUNK {
+      write_bytes(pending)
+      pending = b""
     }
   }
 
-  if emitted { gnu.write_text(pending + opts.terminator) }
+  if emitted { write_bytes(bytes.concat([pending, terminator])) }
 }

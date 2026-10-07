@@ -13,6 +13,18 @@ proc seq_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[R
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
 
+proc seq_run_raw(ctx: TestContext, input: Bytes) [fs, process, error] -> Result[Bytes] {
+  let root = test.temp_dir(ctx, name: "seq-raw")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/seq.xsh"
+  let argv = ["xargs", "-0", ctx.xsh_bin.display(), script.display()]
+  let plan = process.command_argv("xargs", argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let status = process.run(plan)?
+  assert status.exit_code()? == 0, err.read_text()?
+  Ok(out.read_bytes()?)
+}
+
 proc seq_out(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Str] {
   let result = seq_run(ctx, args)?
   assert result.status == 0, f"seq {args.join(" ")}: status {result.status}: {result.stderr}"
@@ -36,6 +48,14 @@ test test_seq_separator_and_terminator { |ctx|
   assert seq_out(ctx, ["--separator=", "2", "6"])? == "23456\n"
   assert seq_out(ctx, ["-s", "\\n", "2", "4"])? == "2\\n3\\n4\n", "the separator is taken literally"
   assert seq_out(ctx, ["--terminator=END", "2"])? == "1\n2END"
+}
+
+test test_seq_raw_separator_and_terminator { |ctx|
+  let separator = bytes.concat([b"-s,\xff\0", bytes.from_text("2\0"), bytes.from_text("3\0")])
+  let terminator = bytes.concat([b"--terminator=\xff\0", bytes.from_text("2\0")])
+
+  assert seq_run_raw(ctx, separator)? == b"2,\xff3\n"
+  assert seq_run_raw(ctx, terminator)? == b"1\n2\xff"
 }
 
 test test_seq_equal_width { |ctx|
@@ -131,15 +151,28 @@ test test_seq_argument_errors_are_gnu_usage_errors { |ctx|
   }
 }
 
-test test_seq_option_errors_and_endless_sequences_fail_explicitly { |ctx|
+test test_seq_option_errors_and_infinite_sequences_stream { |ctx|
   let unknown = seq_run(ctx, ["--definitely-invalid"])?
   assert unknown.status == 1
   assert unknown.stderr == "seq: unrecognized option '--definitely-invalid'\nTry 'seq --help' for more information.\n", unknown.stderr
 
-  let endless = seq_run(ctx, ["inf"])?
-  assert endless.status == 1
-  assert endless.stdout == ""
-  assert "endless sequence" in endless.stderr
+  let root = test.temp_dir(ctx, name: "seq-infinite")?
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/seq.xsh".display(), "inf"]
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"},
+    b"",
+    /dev/full,
+    stderr,
+    timeout: 2s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+  assert stderr.read_text()? == "seq: write error: No space left on device\n"
 }
 
 test test_seq_reports_stdout_errors_before_expanding_the_remaining_numbers { |ctx|

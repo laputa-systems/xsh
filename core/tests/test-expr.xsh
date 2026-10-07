@@ -1,4 +1,5 @@
 type Ran = {status: Int, stdout: Str, stderr: Str}
+type RawRan = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/expr.xsh by its real path (so the invoked name is `expr` and
 # `lib.gnu` resolves beside it), capturing both streams to files.
@@ -11,6 +12,17 @@ proc expr_run(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"}) [
   let plan = process.command_argv(ctx.xsh_bin, argv, root, vars, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
+}
+
+proc expr_run_raw(ctx: TestContext, input: Bytes, vars: Record = {LC_ALL: "C"}) [fs, process, error] -> Result[RawRan] {
+  let root = test.temp_dir(ctx, name: "expr-raw")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/expr.xsh"
+  let argv = ["xargs", "-0", ctx.xsh_bin.display(), script.display()]
+  let plan = process.command_argv("xargs", argv, root, vars, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
 proc expr_out(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Str] {
@@ -30,6 +42,23 @@ test test_expr_values_and_exit_status { |ctx|
     assert result.status == 1, f"expr '{word}'"
     assert result.stdout == f"{word}\n"
   }
+}
+
+test test_expr_raw_arguments_keep_invalid_utf8_bytes { |ctx|
+  let c_length = expr_run_raw(ctx, b"length\0\xb1aaa\0")?
+  assert c_length.status == 0
+  assert c_length.stdout == b"4\n"
+
+  let c_substr = expr_run_raw(
+    ctx,
+    bytes.concat([b"substr\0a\xfez\0", bytes.from_text("2\0"), bytes.from_text("1\0")]),
+  )?
+  assert c_substr.status == 0
+  assert c_substr.stdout == b"\xfe\n"
+
+  let utf8_index = expr_run_raw(ctx, b"index\0\xcebc\xce\xb4ef\0\xce\xb4\0", {LC_ALL: "fr_FR.UTF-8"})?
+  assert utf8_index.status == 0
+  assert utf8_index.stdout == b"4\n"
 }
 
 test test_expr_arithmetic_is_exact_and_unbounded { |ctx|
@@ -185,6 +214,26 @@ test test_expr_syntax_and_operand_errors { |ctx|
   let none = expr_run(ctx, [])?
   assert none.status == 2
   assert none.stderr == "expr: missing operand\nTry 'expr --help' for more information.\n", none.stderr
+}
+
+test test_expr_stdout_write_error_uses_status_three { |ctx|
+  let root = test.temp_dir(ctx, name: "expr-write-error")?
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/expr.xsh".display(), "2", "+", "2"]
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {LC_ALL: "C"},
+    b"",
+    /dev/full,
+    stderr,
+    timeout: 2s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 3
+  assert stderr.read_text()? == "expr: write error\n"
 }
 
 test test_expr_string_functions_follow_the_locale { |ctx|

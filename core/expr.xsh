@@ -1124,7 +1124,7 @@ proc syntax_error(message: Str) [process, env] -> Unit {
 # grow: `otop` and `vtop` mark the live part, and entries above are reused.
 # Every user-function call copies the script arguments, so the hot cases (small
 # integer arithmetic, `length`, parentheses) are handled inline.
-proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
+proc evaluate(args: List[Bytes], here: Locale) [process, env] -> Outcome {
   let total = args.len()
   var vals: List[Outcome] = []
   var ops: List[Str] = []
@@ -1183,14 +1183,15 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
     if phase == 0 {
       if at >= total {
         if want {
-          syntax_error(f"missing argument after {gnu.quote(args[at - 1])}")
+          syntax_error(f"missing argument after {gnu.quote_bytes(args[at - 1])}")
         }
 
         phase = 3
         continue
       }
 
-      let token = args[at]
+      let token_bytes = args[at]
+      let token = token_bytes.utf8() ?? ""
 
       if want and (token == "(" or token in ["length", "match", "index", "substr"]) {
         if otop < ops.len() {
@@ -1204,7 +1205,7 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
         otop += 1
         at += 1
       } else if want {
-        var literal = token
+        var literal = token_bytes
 
         if token == "+" {
           if at + 1 >= total {
@@ -1215,7 +1216,7 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
           at += 1
         }
 
-        let item = {value: bytes.from_text(literal), error: ""}
+        let item = {value: literal, error: ""}
 
         if vtop < vals.len() {
           vals[vtop] = item
@@ -1234,15 +1235,15 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
         if level == 0 {
           for index in range(otop) {
             if ops[index] == "(" {
-              syntax_error(f"expecting ')' instead of {gnu.quote(token)}")
+              syntax_error(f"expecting ')' instead of {gnu.quote_bytes(token_bytes)}")
             }
           }
 
-          syntax_error(f"unexpected argument {gnu.quote(token)}")
+          syntax_error(f"unexpected argument {gnu.quote_bytes(token_bytes)}")
         }
 
         if at + 1 >= total {
-          syntax_error(f"missing argument after {gnu.quote(token)}")
+          syntax_error(f"missing argument after {gnu.quote_bytes(token_bytes)}")
         }
 
         pending = token
@@ -1319,7 +1320,7 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
       }
     } else {
       if otop > 0 {
-        syntax_error(f"expecting ')' after {gnu.quote(args[total - 1])}")
+        syntax_error(f"expecting ')' after {gnu.quote_bytes(args[total - 1])}")
       }
 
       break
@@ -1327,24 +1328,36 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
   }
 
   if at < total {
-    syntax_error(f"unexpected argument {gnu.quote(args[at])}")
+    syntax_error(f"unexpected argument {gnu.quote_bytes(args[at])}")
   }
 
   vals[0]
 }
 
-proc main(...argv: List[Str]) [process, env, error, io] {
-  if argv.len() == 1 and argv[0] == "--help" {
+proc write_expr_value(value: Bytes) [process, env, error, io] -> Unit {
+  if let Err(_) = io.write_stdout_bytes(bytes.concat([value, b"\n"])) {
+    gnu.error("write error")
+    exit 3
+  }
+
+  if let Err(_) = io.flush_stdout() {
+    gnu.error("write error")
+    exit 3
+  }
+}
+
+proc main(...argv: List[Bytes]) [process, env, error, io] {
+  if argv.len() == 1 and argv[0] == b"--help" {
     gnu.help(USAGE)
     return
   }
 
-  if argv.len() == 1 and argv[0] == "--version" {
+  if argv.len() == 1 and argv[0] == b"--version" {
     gnu.version("expr")
     return
   }
 
-  let args = if ! argv.is_empty() and argv[0] == "--" { argv[1..] } else { argv }
+  let args = if ! argv.is_empty() and argv[0] == b"--" { argv[1..] } else { argv }
 
   if args.is_empty() {
     gnu.missing_operand(2)
@@ -1357,7 +1370,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     exit 2
   }
 
-  gnu.write_bytes(bytes.concat([result.value, b"\n"]))
+  write_expr_value(result.value)
 
   if is_null(text_of(result.value)) {
     exit 1
