@@ -154,6 +154,31 @@ let _sender = process.spawn(process.command_argv("sh", ["sh", "-c", r"sleep 0.05
   assert cleanup_marker.read_text()? == "cleanup"
 }
 
+test test_nonforced_signal_exit_runs_outer_cleanup_without_abort_error { |ctx|
+  let root = test.temp_dir(ctx, name: "hook-nonforced-exit-cleanup")?
+  let marker = fp"{root}/cleanup"
+  let output = test.expect(
+    ctx,
+    r"""let marker = Path(args[0])
+
+on USR1 [] {
+  exit 130
+}
+
+defer {
+  if true {
+    marker.write("cleanup")?
+  }
+}
+run sh -c r"kill -USR1 $PPID; sleep 1"
+""",
+    status: 130,
+    args: [marker],
+  )?
+  assert marker.read_text()? == "cleanup"
+  assert output.stderr.is_empty(), output.stderr
+}
+
 test test_signal_hook_process_work_ignores_the_primary_signal { |ctx|
   let output = test.expect(
     ctx,

@@ -6412,7 +6412,7 @@ impl Evaluator {
                 let deadline = std::time::Instant::now() + Duration::from_millis(duration.millis);
                 while std::time::Instant::now() < deadline {
                     self.service_pending_signal(span)?;
-                    if self.signal_state.shutdown_complete {
+                    if self.shutting_down() {
                         break;
                     }
                     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -11441,7 +11441,7 @@ impl Evaluator {
         let deadline = Instant::now() + Duration::from_millis(delay.millis);
         while Instant::now() < deadline {
             self.service_pending_signal(span)?;
-            if self.signal_state.shutdown_complete {
+            if self.shutting_down() {
                 break;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());

@@ -3219,6 +3219,8 @@ pub struct Evaluator {
     scope_ids: Vec<u64>,
     next_runtime_scope_id: u64,
     signal_state: EvaluatorSignalState,
+    /// Non-forced shutdown stops ordinary work but lets registered cleanup finish.
+    cleanup_depth: usize,
     /// The frame engine's reusable scratch vectors.
     frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch,
     /// Set while a context-scoped frame lends its slots to the recursive
@@ -3485,6 +3487,7 @@ impl Evaluator {
             scope_ids: vec![0],
             next_runtime_scope_id: 1,
             signal_state: EvaluatorSignalState::default(),
+            cleanup_depth: 0,
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
@@ -3722,6 +3725,7 @@ impl Evaluator {
             scope_ids: (0..shared.scopes.len() as u64).collect(),
             next_runtime_scope_id: shared.scopes.len() as u64,
             signal_state: EvaluatorSignalState::default(),
+            cleanup_depth: 0,
             frame_scratch:
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
@@ -3740,9 +3744,11 @@ impl Evaluator {
     }
 
     /// Whether the evaluator has been asked to shut down and has no time left
-    /// for more items; loops check this between iterations.
+    /// for more items; loops check this between iterations. A non-forced
+    /// shutdown still allows deferred cleanup to run to completion.
     pub(super) fn shutting_down(&self) -> bool {
         self.signal_state.shutdown_complete
+            && (self.cleanup_depth == 0 || self.signal_state.shutdown_force)
     }
 
     #[cfg(feature = "native-tests")]

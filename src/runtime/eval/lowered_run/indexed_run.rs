@@ -6825,7 +6825,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 loop {
                     self.service_pending_signal(span)?;
-                    if self.signal_state.shutdown_complete {
+                    if self.shutting_down() {
                         break ControlFlow::Continue(LoweredValue::Unit);
                     }
                     match self.eval_indexed_statement_block(execution, body, slots, span)? {
@@ -6901,7 +6901,7 @@ impl Evaluator {
                 for attempt_index in 0.. {
                     if let Some(millis) = pending_delay.take() {
                         self.sleep_lowered_retry_delay(&DurationValue { millis }, span)?;
-                        if self.signal_state.shutdown_complete {
+                        if self.shutting_down() {
                             break;
                         }
                     }
@@ -8636,7 +8636,9 @@ impl Evaluator {
         // passes meanwhile is delivered at the first checkpoint after it. A
         // scope the action opens itself applies to it as usual.
         let shielded = self.shield_within_deadlines();
+        self.cleanup_depth += 1;
         let result = self.eval_indexed_expr(execution, value, slots, span);
+        self.cleanup_depth -= 1;
         self.unshield_within_deadlines(shielded);
         let pending = self.pending_value_block_flow.take();
         let value = match (result?, pending) {
@@ -8974,7 +8976,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 loop {
                     self.service_pending_signal(span)?;
-                    if self.signal_state.shutdown_complete {
+                    if self.shutting_down() {
                         return Ok(StmtFlow::None);
                     }
                     let scope_id = self.enter_owned_host_scope();
@@ -9059,7 +9061,7 @@ impl Evaluator {
                     line_count = line_count.wrapping_add(1);
                     if line_count & 63 == 0 {
                         self.service_pending_signal(span)?;
-                        if self.signal_state.shutdown_complete {
+                        if self.shutting_down() {
                             return Ok(StmtFlow::None);
                         }
                     }
@@ -9132,7 +9134,7 @@ impl Evaluator {
                 while index < bytes.len() {
                     if index & 4095 == 0 {
                         self.service_pending_signal(config.span)?;
-                        if self.signal_state.shutdown_complete {
+                        if self.shutting_down() {
                             return Ok(StmtFlow::None);
                         }
                     }

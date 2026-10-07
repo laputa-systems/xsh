@@ -1888,7 +1888,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 span,
             } => {
                 self.evaluator.service_pending_signal(span)?;
-                if self.evaluator.signal_state.shutdown_complete {
+                if self.evaluator.shutting_down() {
                     return Ok(());
                 }
                 if let Some(item) = cursor.next() {
@@ -1910,7 +1910,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 span,
             } => {
                 self.evaluator.service_pending_signal(span)?;
-                if self.evaluator.signal_state.shutdown_complete {
+                if self.evaluator.shutting_down() {
                     return Ok(());
                 }
                 if let Some(item) = cursor.next() {
@@ -5067,7 +5067,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 CompIterator::Scalars { cursor, clause } => {
                     self.evaluator
                         .service_pending_signal(state.qualifiers[*clause].span())?;
-                    if self.evaluator.signal_state.shutdown_complete {
+                    if self.evaluator.shutting_down() {
                         (None, *clause)
                     } else {
                         (cursor.next(), *clause)
@@ -5675,7 +5675,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
     ) -> Result<(), RuntimeError> {
         self.evaluator.service_pending_signal(span)?;
-        if self.evaluator.signal_state.shutdown_complete || item_index == items.len() {
+        if self.evaluator.shutting_down() || item_index == items.len() {
             return Ok(());
         }
         bind_lowered_comp_target(
@@ -5718,7 +5718,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let line_count = line_count.wrapping_add(1);
             if line_count & 63 == 0 {
                 self.evaluator.service_pending_signal(span)?;
-                if self.evaluator.signal_state.shutdown_complete {
+                if self.evaluator.shutting_down() {
                     return Ok(());
                 }
             }
@@ -5753,7 +5753,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let line_count = line_count.wrapping_add(1);
         if line_count & 63 == 0 {
             self.evaluator.service_pending_signal(span)?;
-            if self.evaluator.signal_state.shutdown_complete {
+            if self.evaluator.shutting_down() {
                 return Ok(());
             }
         }
@@ -5783,7 +5783,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         span: Span,
     ) -> Result<(), RuntimeError> {
         self.evaluator.service_pending_signal(span)?;
-        if self.evaluator.signal_state.shutdown_complete {
+        if self.evaluator.shutting_down() {
             return Ok(());
         }
         if typed {
