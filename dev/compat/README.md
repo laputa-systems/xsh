@@ -192,6 +192,11 @@ trigger a huge allocation, matching GNU's `invalid precision` diagnostic. The
 native printf suite passes 30/30; the optimized debug Gate 3 slice improves
 from 129/23 to 130/22 across 152 cases, with one fix and no regressions.
 Reports are in `results/printf-precision-limit/`.
+Follow-up `af249f2b` rejects zero-based positional references before they can
+index the argument list and reports GNU's `%0$` diagnostic. The native printf
+suite passes 31/31; the optimized debug Gate 3 slice improves from 130/22 to
+131/21 across 152 cases, with one fix and no regressions. Reports are in
+`results/printf-position-index/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

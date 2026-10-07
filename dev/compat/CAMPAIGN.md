@@ -165,6 +165,11 @@ remain historical evidence only.
   native printf suite passes 30/30; the optimized debug Gate 3 slice improves
   from 129/23 to 130/22 across 152 cases, with one fix and no regressions.
   Reports are in `results/printf-precision-limit/`.
+- Follow-up `af249f2b` rejects zero-based positional references before they
+  index the argument list and reports GNU's `%0$` diagnostic. The native printf
+  suite passes 31/31; the optimized debug Gate 3 slice improves from 130/22 to
+  131/21 across 152 cases, with one fix and no regressions. Reports are in
+  `results/printf-position-index/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
