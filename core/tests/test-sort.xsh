@@ -234,6 +234,58 @@ test test_sort_numeric_key_character_offset { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_human_numeric_units_and_aliases { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-human-numeric")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"1G\n1000M\n999K\n1K\n1\n"
+  for option in ["-h", "--human-numeric-sort", "--sort=human-numeric", "--sort=human-numeri", "--sort=human", "--sort=h"] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), option], root,
+      {LC_ALL: "C"}, input, stdout, stderr))?
+    assert result.exit_code()? == 0
+    assert stdout.read_bytes()? == b"1\n1K\n999K\n1000M\n1G\n"
+    assert stderr.read_bytes()?.is_empty()
+  }
+}
+
+test test_sort_human_numeric_unique_and_stable_zeros { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-human-numeric-zero")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let stable_input = b"0M\n0K\n-0K\n-P\n-0M\n"
+  let stable = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-hs"], root,
+    {LC_ALL: "C"}, stable_input, stdout, stderr))?
+  assert stable.exit_code()? == 0
+  assert stdout.read_bytes()? == stable_input
+  assert stderr.read_bytes()?.is_empty()
+
+  let unique = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-hu"], root,
+    {LC_ALL: "C"}, b"0M\n0K\n-P\n1K\n", stdout, stderr))?
+  assert unique.exit_code()? == 0
+  assert stdout.read_bytes()? == b"0M\n1K\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_human_numeric_option_conflicts { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-human-numeric-conflicts")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for pair in [["-hn", "-hn"], ["-hg", "-gh"], ["-hd", "-dh"], ["-hi", "-hi"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), pair[0]], root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert result.exit_code()? == 2
+    assert stderr.read_text()? == f"sort: options '{pair[1]}' are incompatible\n"
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
 test test_sort_stable_preserves_equal_primary_keys { |ctx|
   let root = test.temp_dir(ctx, name: "sort-stable-tie")?
   let script = fp"{ctx.core_dir}/sort.xsh"
