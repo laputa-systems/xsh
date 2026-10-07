@@ -57,6 +57,14 @@ test test_printf_flushes_stdout_and_reports_write_errors { |ctx|
   assert empty_error.read_text()? == ""
 }
 
+test test_printf_rejects_precision_above_printf_limit { |ctx|
+  let result = printf_run(ctx, ["%.*d", "2147483648", "0"])?
+
+  assert result.status == 1
+  assert result.stdout == ""
+  assert result.stderr == "printf: invalid precision: '2147483648'\n"
+}
+
 test test_printf_warns_about_arguments_after_literal_format { |ctx|
   let literal = printf_run(ctx, ["a", "b"])?
   let repeated = printf_run(ctx, ["%s", "a", "b"])?

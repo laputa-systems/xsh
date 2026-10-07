@@ -687,7 +687,12 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int, prefix: Str) 
       var precision = spec.precision
       if spec.precision_dynamic {
         let index = if spec.precision_position == null { argument_index } else { indexed_argument(first_argument, spec.precision_position ?? 0, values.len()) }
-        let dynamic = integer_prefix(values.get(index) ?? "-1", true)
+        let precision_argument = values.get(index) ?? "-1"
+        let dynamic = integer_prefix(precision_argument, true)
+        if dynamic > 2147483647 {
+          gnu.error(f"invalid precision: {gnu.quote_value(precision_argument)}")
+          exit 1
+        }
         precision = if dynamic < 0 { null } else { dynamic }
         if spec.precision_position == null {
           argument_index += 1
