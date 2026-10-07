@@ -27,6 +27,10 @@ proc parse(argv: List[Str]) [process, env, io] -> Options {
     let key = parts[0]
     let text = arg.byte_slice(key.byte_len() + 1)
     if key == "if" { opts = {...opts, input: text} } else if key == "of" { opts = {...opts, output: text} } else if key in ["ibs", "obs", "bs", "cbs", "count", "skip", "seek", "iseek", "oseek"] {
+      let factors = text.split("x")
+      for index in range(factors.len() - 1) {
+        if factors[index] == "0" { gnu.error("warning: '0x' is a zero multiplier; use '00x' if that is intended") }
+      }
       guard let n = amount(text) else { gnu.error(f"invalid number: {gnu.quote(text)}"); exit 1 }
       if n == 9223372036854775807 { gnu.error(f"invalid number: {gnu.quote(text)}: Value too large for defined data type"); exit 1 }
       if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { gnu.error(f"invalid number: {gnu.quote(text)}"); exit 1 }
@@ -41,7 +45,7 @@ proc parse(argv: List[Str]) [process, env, io] -> Options {
         if key == "conv" {
           if flag in ["lcase", "ucase", "swab", "sync", "block", "unblock", "notrunc", "nocreat", "ascii", "ebcdic", "ibm"] { opts = {...opts, conv: opts.conv.extend([flag])} } else if flag in ["excl", "noerror", "fdatasync", "fsync", "sparse"] { gnu.usage_error(f"unsupported conversion {gnu.quote(flag)}: native descriptor support required") } else { gnu.usage_error(f"invalid conversion: {gnu.quote(flag)}") }
         } else {
-          if key == "iflag" and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else { gnu.usage_error(f"invalid {if key == "iflag" { "input" } else { "output" }} flag: {gnu.quote(flag)}") }
+          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else { gnu.usage_error(f"invalid {if key == "iflag" { "input" } else { "output" }} flag: {gnu.quote(flag)}") }
         }
       }
     } else { gnu.usage_error(f"unrecognized operand {gnu.quote(arg)}") }
@@ -126,25 +130,65 @@ pure human_size(size: Int, base: Int, binary: Bool) -> Str {
 
 type Copied = {size: Int, complete: Int, partial: Int}
 
+proc write_fd_all(fd: Int, data: Bytes) [error, process] -> Result[Unit] {
+  var offset = 0
+  while offset < data.len() {
+    let written = unix.write_fd(fd, data[offset..])?
+    if written == 0 { fail "descriptor write made no progress" }
+    offset += written
+  }
+  Ok()
+}
+
+## stdout is a byte stream even when it is redirected to a file, so a seek
+## prefix must be emitted as zero bytes rather than represented by a hole.
+proc prepare_stdout_seek(offset: Int) [error, io, env, process] {
+  return when offset == 0
+  var remaining = offset
+  while remaining > 0 {
+    let width = if remaining < 8192 { remaining } else { 8192 }
+    gnu.write_bytes(bytes.zero(width)?)
+    remaining -= width
+  }
+}
+
 proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
   let dest = fp"{opts.output}"
+  var output_fd: Int? = null
   if opts.output != "-" {
     if "nocreat" in opts.conv and ! dest.exists() { fail "No such file or directory" }
     if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"")? }
-    if ! ("notrunc" in opts.conv) and dest.metadata()?.mode / 4096 % 16 == 8 { dest.truncate(seek)? }
+    let kind = dest.metadata()?.mode / 4096 % 16
+    if kind in [1, 8] { output_fd = unix.open_fd(dest, write: true, nonblock: false)? }
+    if kind == 8 {
+      if ! ("notrunc" in opts.conv) { dest.truncate(seek)? }
+      if let fd = output_fd { let _ = unix.seek_fd(fd, seek)? }
+    }
   }
   var source: tio.Source? = null
   if opts.input != "-" { source = tio.open_source(opts.input)? }
+  var input_fd: Int? = null
   if let file = source {
+    if file.kind in [1, 2, 6] { input_fd = unix.open_fd(file.path, nonblock: false)? }
     if file.mode == "file" and opts.output != "-" and dest.metadata()?.mode / 4096 % 16 == 8 {
       let size = file.path.metadata()?.size
       if skip > size { gnu.error(f"{gnu.quote(opts.input)}: cannot skip to specified offset") }
       let available = if size > skip { size - skip } else { 0 }
       let length = if available < limit { available } else { limit }
+      if let fd = output_fd { unix.close_fd(fd)?; output_fd = null }
       let copied = bytes.copy_file(file.path, dest.resolve()?, source_offset: skip, dest_offset: seek, length: length, create: ! ("nocreat" in opts.conv))?
       return Ok({size: copied.bytes, complete: copied.bytes / opts.ibs, partial: if copied.bytes % opts.ibs == 0 { 0 } else { 1 }})
     }
-  } else {
+  }
+  if let fd = input_fd {
+    var discarded = 0
+    while discarded < skip {
+      let want = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
+      let block = unix.read_fd(fd, want)?
+      break when block.is_empty()
+      discarded += block.len()
+    }
+  } else if source == null {
     var discarded = 0
     while discarded < skip {
       let want = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
@@ -157,32 +201,63 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   var total = 0
   var complete = 0
   var partial = 0
+  var output_chunks: List[Bytes] = []
+  var output_length = 0
   loop {
-    break when total >= limit or (opts.input == "-" and opts.count >= 0 and ! opts.count_bytes and complete + partial >= opts.count)
+    break when total >= limit or (opts.count >= 0 and ! opts.count_bytes and complete + partial >= opts.count)
     let want = if limit - total < opts.ibs { limit - total } else { opts.ibs }
     var block = b""
-    if let file = source {
+    if let fd = input_fd {
+      block = unix.read_fd(fd, want)?
+    } else if let file = source {
       block = if file.mode == "device" { bytes.read_at(file.path, 0, want)? } else { tio.read_chunk(file, skip + total, want)? }
       block = block.slice(0, length: want)
     } else {
       block = io.stdin_read(want)?
-      if opts.fullblock and ! block.is_empty() {
-        var pieces = [block]
-        var length = block.len()
-        while length < want {
-          let part = io.stdin_read(want - length)?
-          break when part.is_empty()
-          pieces += [part]
-          length += part.len()
-        }
-        block = bytes.concat(pieces)
+    }
+    if opts.fullblock and ! block.is_empty() {
+      var pieces = [block]
+      var length = block.len()
+      while length < want {
+        let part = if let fd = input_fd { unix.read_fd(fd, want - length)? } else if let file = source {
+          tio.read_chunk(file, skip + total + length, want - length)?
+        } else { io.stdin_read(want - length)? }
+        break when part.is_empty()
+        pieces += [part]
+        length += part.len()
       }
+      block = bytes.concat(pieces)
     }
     break when block.is_empty()
-    if opts.output == "-" { gnu.write_bytes(block); io.flush_stdout()? } else { let _ = bytes.write_at(dest, seek + total, block, create: ! ("nocreat" in opts.conv))? }
+    if opts.output == "-" { gnu.write_bytes(block); io.flush_stdout()? } else if let fd = output_fd {
+      var rest = block
+      loop {
+        let needed = opts.obs - output_length
+        if rest.len() < needed {
+          output_chunks += [rest]
+          output_length += rest.len()
+          break
+        }
+        if output_chunks.is_empty() {
+          write_fd_all(fd, rest.slice(0, length: opts.obs))?
+        } else {
+          output_chunks += [rest.slice(0, length: needed)]
+          write_fd_all(fd, bytes.concat(output_chunks))?
+          output_chunks = []
+          output_length = 0
+        }
+        rest = rest[needed..]
+        break when rest.is_empty()
+      }
+    } else { let _ = bytes.write_at(dest, seek + total, block, create: ! ("nocreat" in opts.conv))? }
     total += block.len()
     if block.len() == opts.ibs { complete += 1 } else { partial += 1 }
   }
+  if let fd = output_fd {
+    if output_length > 0 { write_fd_all(fd, bytes.concat(output_chunks))? }
+  }
+  if let fd = input_fd { unix.close_fd(fd)? }
+  if let fd = output_fd { unix.close_fd(fd)? }
   Ok({size: total, complete: complete, partial: partial})
 }
 
@@ -196,7 +271,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   if opts.seek > 0 and ! opts.seek_bytes and opts.seek > 9223372036854775807 / opts.obs { gnu.error("seek offset is too large"); exit 1 }
   let skip = if opts.skip_bytes { opts.skip } else { opts.skip * opts.ibs }
   let seek = if opts.seek_bytes { opts.seek } else { opts.seek * opts.obs }
-  if seek > 0 and opts.output == "-" { gnu.usage_error("unsupported seek on standard output: native descriptor support required") }
+  if opts.output == "-" { prepare_stdout_seek(seek) }
   if opts.count > 0 and ! opts.count_bytes and opts.count > 9223372036854775807 / opts.ibs { gnu.error("count is too large"); exit 1 }
   let limit = if opts.count < 0 { 9223372036854775807 } else if opts.count_bytes { opts.count } else { opts.count * opts.ibs }
   if opts.input == "" or opts.output == "" { gnu.error("failed to open '': No such file or directory"); exit 1 }
@@ -211,7 +286,43 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     return
   }
   var records: List[Bytes] = []
-  if limit > 0 {
+  var fifo_fd: Int? = null
+  if opts.input != "-" {
+    guard let source = tio.open_source(opts.input) else { |failure| gnu.error(f"failed to open {gnu.quote(opts.input)}: {gnu.strerror(failure)}"); exit 1 }
+    if source.kind == 1 { fifo_fd = unix.open_fd(source.path, nonblock: false)? }
+  }
+  if let fd = fifo_fd {
+    var discarded = 0
+    while discarded < skip {
+      let want = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
+      let block = unix.read_fd(fd, want)?
+      break when block.is_empty()
+      discarded += block.len()
+    }
+    var remaining = limit
+    var blocks = 0
+    loop {
+      break when remaining <= 0 or (opts.count >= 0 and ! opts.count_bytes and blocks >= opts.count)
+      let want = if remaining < opts.ibs { remaining } else { opts.ibs }
+      let first = unix.read_fd(fd, want)?
+      break when first.is_empty()
+      var pieces = [first]
+      var length = first.len()
+      if opts.fullblock {
+        while length < want {
+          let part = unix.read_fd(fd, want - length)?
+          break when part.is_empty()
+          pieces += [part]
+          length += part.len()
+        }
+      }
+      let block = bytes.concat(pieces)
+      records += [block]
+      remaining -= block.len()
+      blocks += 1
+    }
+    unix.close_fd(fd)?
+  } else if limit > 0 {
     if opts.input != "-" {
       guard let source = tio.open_source(opts.input) else { |failure| gnu.error(f"failed to open {gnu.quote(opts.input)}: {gnu.strerror(failure)}"); exit 1 }
       var chunks: List[Bytes] = []
@@ -268,9 +379,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"")? }
       if dest.metadata()?.mode / 4096 % 16 == 8 { dest.truncate(seek)? }
     }
-    guard let _ = bytes.write_at(dest, seek, converted.data, create: ! ("nocreat" in opts.conv)) else { |failure|
-      gnu.error(f"error writing {gnu.quote(opts.output)}: {gnu.strerror(failure)}")
-      exit 1
+    let kind = dest.metadata()?.mode / 4096 % 16
+    if kind in [1, 8] {
+      let fd = unix.open_fd(dest, write: true, nonblock: false)?
+      if kind == 8 { let _ = unix.seek_fd(fd, seek)? }
+      write_fd_all(fd, converted.data)?
+      unix.close_fd(fd)?
+    } else {
+      guard let _ = bytes.write_at(dest, seek, converted.data, create: ! ("nocreat" in opts.conv)) else { |failure|
+        gnu.error(f"error writing {gnu.quote(opts.output)}: {gnu.strerror(failure)}")
+        exit 1
+      }
     }
   }
   report(opts, converted.data.len(), complete, records.len() - complete, converted.truncated, started)

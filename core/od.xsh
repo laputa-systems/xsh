@@ -2,7 +2,7 @@
 use lib.gnu
 use lib.textio_a1 as tio
 
-type Format = {kind: Str, size: Int, chars: Int, ascii: Bool}
+type Format = {kind: Str, size: Int, chars: Int, ascii: Bool, float_format: Str}
 const DIGITS = "0123456789abcdef"
 const NAMES = ["nul", "soh", "stx", "etx", "eot", "enq", "ack", "bel", "bs", "ht", "nl", "vt", "ff", "cr", "so", "si", "dle", "dc1", "dc2", "dc3", "dc4", "nak", "syn", "etb", "can", "em", "sub", "esc", "fs", "gs", "rs", "us"]
 
@@ -37,19 +37,23 @@ pure formats(text: Str) -> Result[List[Format]] {
     let kind = text.byte_slice(i, length: 1)
     i += 1
     if ! (kind in ["a", "c", "d", "o", "u", "x", "f"]) { fail f"invalid type string {text}" }
-    if kind == "f" { fail "floating point formats require a native binary floating point decoder" }
-    var size = if kind in ["a", "c"] { 1 } else { 4 }
+    var size = if kind in ["a", "c"] { 1 } else if kind == "f" { 8 } else { 4 }
+    var float_format = if kind == "f" { "binary64" } else { "" }
     if i < text.byte_len() and kind != "a" and kind != "c" {
       let next = text.byte_slice(i, length: 1)
-      if next in ["1", "2", "4", "8", "C", "S", "I", "L"] {
+      if kind == "f" and next in ["2", "4", "8", "H", "B", "F", "D"] {
+        size = if next in ["2", "H", "B"] { 2 } else if next in ["4", "F"] { 4 } else { 8 }
+        float_format = if next in ["2", "H"] { "binary16" } else if next == "B" { "bfloat16" } else if next in ["4", "F"] { "binary32" } else { "binary64" }
+        i += 1
+      } else if kind != "f" and next in ["1", "2", "4", "8", "C", "S", "I", "L"] {
         size = if next in ["1", "C"] { 1 } else if next in ["2", "S"] { 2 } else if next in ["4", "I"] { 4 } else { 8 }
         i += 1
       }
     }
     var ascii = false
     if i < text.byte_len() and text.byte_slice(i, length: 1) == "z" { ascii = true; i += 1 }
-    let chars = if kind in ["a", "c"] { 3 } else if kind == "x" { size * 2 } else if kind == "o" { (size * 8 + 2) / 3 } else if kind == "d" { if size == 1 { 4 } else if size == 2 { 6 } else if size == 4 { 11 } else { 20 } } else { if size == 1 { 3 } else if size == 2 { 5 } else if size == 4 { 10 } else { 20 } }
-    out += [{kind: kind, size: size, chars: chars, ascii: ascii}]
+    let chars = if kind in ["a", "c"] { 3 } else if kind == "f" { if size == 8 { 24 } else { 15 } } else if kind == "x" { size * 2 } else if kind == "o" { (size * 8 + 2) / 3 } else if kind == "d" { if size == 1 { 4 } else if size == 2 { 6 } else if size == 4 { 11 } else { 20 } } else { if size == 1 { 3 } else if size == 2 { 5 } else if size == 4 { 10 } else { 20 } }
+    out += [{kind: kind, size: size, chars: chars, ascii: ascii, float_format: float_format}]
   }
   Ok(out)
 }
@@ -75,8 +79,52 @@ pure unsigned(data: Bytes, big: Bool, base: Int, width: Int) -> Str {
   out
 }
 
+pure normalized_float(text: Str) -> Str {
+  text.replace("e-0", with: "e-").replace("e+0", with: "e+")
+}
+
+# The decoder widens narrow binary formats to Float, so accept only decimals
+# inside the source value's rounding interval when selecting a shorter display.
+pure float_rounding_limit(value: Float, format: Str) -> Float {
+  let magnitude = value.abs()
+  let exponent_min = if format == "binary16" { -14 } else { -126 }
+  let fraction_bits = if format == "binary16" { 10 } else if format == "bfloat16" { 7 } else { 23 }
+  if magnitude < 2.0.pow(exponent_min.float()) { return 2.0.pow((exponent_min - fraction_bits - 1).float()) }
+  let exponent = magnitude.log(2.0).floor() ?? exponent_min
+  let power = 2.0.pow(exponent.float())
+  let lower_exponent = if magnitude == power and exponent > exponent_min { exponent - 1 } else { exponent }
+  2.0.pow((lower_exponent - fraction_bits - 1).float())
+}
+
+pure float_text(value: Float, format: Str) -> Result[Str] {
+  let display = f"{value}"
+  return Ok("NaN") when display == "NaN"
+  return Ok("inf") when display == "Infinity"
+  return Ok("-inf") when display == "-Infinity"
+  if format in ["binary16", "bfloat16"] {
+    return Ok(normalized_float(value.format_number("g", 8)?))
+  }
+  let narrow = format == "binary32"
+  let maximum = if narrow { 9 } else { 17 }
+  var best = display
+  var precision = 1
+  while precision <= maximum {
+    let text = normalized_float(value.format_number("g", precision)?)
+    let rounded = text.parse_float()?
+    if narrow {
+      if (rounded - value).abs() <= float_rounding_limit(value, format) and text.byte_len() < best.byte_len() { best = text }
+    } else if rounded == value and text.byte_len() < best.byte_len() { best = text }
+    precision += 1
+  }
+  Ok(best)
+}
+
 pure item(data: Bytes, fmt: Format, big: Bool) -> Result[Str] {
   let byte = data.byte_at(0) ?? 0
+  if fmt.kind == "f" {
+    let value = bytes.unpack_float(data, 0, fmt.float_format, if big { "big" } else { "little" })?
+    return float_text(value, fmt.float_format)
+  }
   if fmt.kind == "a" {
     let value = byte % 128
     return Ok(NAMES[value]) when value < 32
@@ -177,7 +225,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       while position < arg.byte_len() {
         let char = arg.byte_slice(position, length: 1)
         if "abcdDfFhHiIlLOosxX".find(char) != null {
-          requested += [if char == "a" { "a" } else if char == "c" { "c" } else if char == "b" { "o1" } else if char in ["d", "s"] { if char == "d" { "u2" } else { "d2" } } else if char in ["h", "x"] { "x2" } else if char in ["H", "X"] { "x4" } else if char == "o" { "o2" } else if char == "O" { "o4" } else if char in ["I", "L"] { "d8" } else if char in ["i", "l", "D"] { if char == "D" { "u4" } else { "d4" } } else { "f" }]
+          requested += [if char == "a" { "a" } else if char == "c" { "c" } else if char == "b" { "o1" } else if char in ["d", "s"] { if char == "d" { "u2" } else { "d2" } } else if char in ["h", "x"] { "x2" } else if char in ["H", "X"] { "x4" } else if char == "o" { "o2" } else if char == "O" { "o4" } else if char in ["I", "L"] { "d8" } else if char in ["i", "l", "D"] { if char == "D" { "u4" } else { "d4" } } else if char == "f" { "f4" } else { "f8" }]
           position += 1
         } else if char == "t" {
           if position + 1 < arg.byte_len() { requested += [arg.byte_slice(position + 1)] } else {
@@ -328,7 +376,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         for part in block.chunks(fmt.size) {
           let padded = bytes.concat([part, bytes.zero(fmt.size - part.len())?])
           let value = item(padded, fmt, big)?
-          line += " " + spaces((alignment * fmt.size + 7) / 8 - 1 - value.byte_len()) + value
+          line += " " + spaces(alignment * fmt.size / 8 - 1 - value.byte_len()) + value
         }
         if fmt.ascii {
           let text = [if byte >= 32 and byte <= 126 { bytes.from_ints([byte])?.utf8() ?? "." } else { "." } for byte in [block.byte_at(i) ?? 0 for i in range(block.len())]].join("")

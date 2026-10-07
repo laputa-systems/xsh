@@ -16,10 +16,25 @@ test test_base32_binary_roundtrip { |ctx|
   assert decoded.stdout == b"\0\xff\xfe\0"
 }
 
+test test_base32_uppercase_decode_alias { |ctx|
+  let decoded = invoke(ctx, ["-D"], b"MZXW6===\n")?
+  assert decoded.status == 0, decoded.stderr
+  assert decoded.stdout == b"foo"
+}
+
 test test_base32_wrap_and_invalid_prefix { |ctx|
   assert invoke(ctx, ["-w", "0"], b"foobar")?.stdout.len() > 0
   assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.ends_with(b"\n")
   let bad = invoke(ctx, ["-d"], b"MZXW6===!")?
   assert bad.status == 1
   assert bad.stdout == b"foo"
+  assert bad.stderr == "base32: error: invalid input\n"
+}
+
+test test_base32_wrap_without_value_uses_cli_error { |ctx|
+  for option in ["-w", "--wrap"] {
+    let bad = invoke(ctx, [option])?
+    assert bad.status == 1
+    assert bad.stderr == "base32: error: a value is required for '--wrap <COLS>' but none was supplied\nFor more information, try '--help'.\n"
+  }
 }

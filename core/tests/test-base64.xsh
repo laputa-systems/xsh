@@ -16,12 +16,34 @@ test test_base64_binary_roundtrip { |ctx|
   assert decoded.stdout == b"\0\xff\xfe\0"
 }
 
+test test_base64_uppercase_decode_alias { |ctx|
+  let decoded = invoke(ctx, ["-D"], b"aGVsbG8=\n")?
+  assert decoded.status == 0, decoded.stderr
+  assert decoded.stdout == b"hello"
+}
+
 test test_base64_wrap_and_invalid_prefix { |ctx|
   assert invoke(ctx, ["-w", "0"], b"foobar")?.stdout.len() > 0
   assert ! invoke(ctx, ["-w", "0"], b"foobar")?.stdout.ends_with(b"\n")
   let bad = invoke(ctx, ["-d"], b"Zm9v!")?
   assert bad.status == 1
   assert bad.stdout == b"foo"
+  assert bad.stderr == "base64: error: invalid input\n"
+}
+
+test test_base64_bad_padded_input_writes_nothing { |ctx|
+  let bad = invoke(ctx, ["-d"], b"aGVsbG8sIHdvcmxkIQ==\0")?
+  assert bad.status == 1
+  assert bad.stdout == b""
+  assert bad.stderr == "base64: error: invalid input\n"
+}
+
+test test_base64_wrap_without_value_uses_cli_error { |ctx|
+  for option in ["-w", "--wrap"] {
+    let bad = invoke(ctx, [option])?
+    assert bad.status == 1
+    assert bad.stderr == "base64: error: a value is required for '--wrap <COLS>' but none was supplied\nFor more information, try '--help'.\n"
+  }
 }
 
 test test_base64_padded_blocks_continue { |ctx|

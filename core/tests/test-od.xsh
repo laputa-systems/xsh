@@ -61,3 +61,56 @@ test test_od_format_flags_can_precede_a_type_value_in_one_cluster { |ctx|
   assert result.status == 0, result.stderr
   assert "18446744073709551615" in result.stdout as Str
 }
+
+test test_od_decodes_float32_and_binary16 { |ctx|
+  let float32 = invoke(ctx, ["-An", "--endian=little", "-f", "-w8"], b"\0\0\x80?\0\0\0@")?
+  assert float32.status == 0, float32.stderr
+  assert float32.stdout == b"               1               2\n"
+
+  let binary16 = invoke(ctx, ["-An", "--endian=big", "-tfH", "-w4"], b"\x3c\0\x40\0")?
+  assert binary16.status == 0, binary16.stderr
+  assert binary16.stdout == b"               1               2\n"
+}
+
+test test_od_formats_binary16_with_a_roundtripping_decimal { |ctx|
+  let result = invoke(ctx, ["-An", "--endian=big", "-tfH", "-w2"], b"\x3c\x01")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"       1.0009766\n"
+
+  let bfloat = invoke(ctx, ["-An", "--endian=big", "-tfB", "-w2"], b"\x3f\x81")?
+  assert bfloat.status == 0, bfloat.stderr
+  assert bfloat.stdout == b"       1.0078125\n"
+}
+
+test test_od_formats_float32_subnormals_and_special_values { |ctx|
+  let subnormal = invoke(ctx, ["-An", "--endian=little", "-f", "-w4"], b"\xc2\x16\x01\0")?
+  assert subnormal.status == 0, subnormal.stderr
+  assert subnormal.stdout == b"           1e-40\n"
+
+  let special = invoke(ctx, ["-An", "--endian=little", "-f", "-w16"], b"\0\0\x80\x7f\0\0\x80\xff\xff\xff\xff\x7f\0\0\0\x80")?
+  assert special.status == 0, special.stderr
+  assert "inf" in special.stdout as Str
+  assert "-inf" in special.stdout as Str
+  assert "NaN" in special.stdout as Str
+  assert "-0" in special.stdout as Str
+  assert ! ("Infinity" in special.stdout as Str)
+}
+
+test test_od_binary64_uses_its_full_column_width { |ctx|
+  let result = invoke(ctx, ["--endian=little", "-F", "-w8"], b"\0\0\0\0\0\0\0\xc0")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"0000000                       -2\n0000010\n"
+}
+
+test test_od_float_width_aligns_smaller_hex_formats { |ctx|
+  let result = invoke(ctx, ["-An", "--endian=little", "-F", "-x"], b"\0\0\0\0\0\0\0\xc0")?
+  assert result.status == 0, result.stderr
+  assert "0000  0000  0000  c000\n" in result.stdout as Str
+}
+
+test test_od_formats_binary64_normal_and_subnormal_values { |ctx|
+  let data = bytes.concat([b"\x27\x6b\x0a\x2f\x2a\xee\x45\x43", bytes.zero(8)?, b"\0\0\0\0\0\0\x10\x80", b"\x01\0\0\0\0\0\0\0", b"\0\0\0\0\0\0\0\xc0"])
+  let result = invoke(ctx, ["--endian=little", "-F"], data)?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"0000000        12345678912345678                        0\n0000020 -2.2250738585072014e-308                   5e-324\n0000040                       -2\n0000050\n"
+}
