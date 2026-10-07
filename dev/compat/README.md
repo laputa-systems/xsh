@@ -230,6 +230,14 @@ native sort tests pass 32/32; Gate 3 improves from 94/123 to 95/122 across 217
 tests, fixing `test_multiple_decimals_general` with no regressions. The pinned
 GNU 9.12 fixture matches. Reports are in
 `results/sort-general-invalid-followup/`.
+Follow-up `df8def80` adds C-locale English month sorting with `-M`,
+`--month-sort`, and abbreviated `--sort=month` modes. It handles leading
+blanks, unknown prefixes, stable ties, uniqueness, check mode, and debug
+annotations. The native sort suite passes 33/33; the optimized debug Gate 3
+slice improves from 95/122 to 100/117 across 217 tests, fixing five month
+cases with no regressions. GNU Coreutils 9.11 order and check-mode probes
+match; localized `LC_TIME` month names remain open. Reports are in
+`results/sort-month-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays

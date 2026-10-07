@@ -200,6 +200,14 @@ remain historical evidence only.
   217 tests, fixing `test_multiple_decimals_general` with no regressions. The
   pinned GNU 9.12 fixture matches. Reports are in
   `results/sort-general-invalid-followup/`.
+- Follow-up `df8def80` adds C-locale English month sorting with `-M`,
+  `--month-sort`, and abbreviated `--sort=month` modes. It handles leading
+  blanks, unknown prefixes, stable ties, uniqueness, diagnostics, and debug
+  annotations. The native sort suite passes 33/33; Gate 3 improves from
+  95/122 to 100/117 across 217 tests, fixing five month cases with no
+  regressions. GNU Coreutils 9.11 order and check-mode probes match; localized
+  `LC_TIME` month names remain open. Reports are in
+  `results/sort-month-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
