@@ -1190,6 +1190,18 @@ pure binding(machine: Machine, item: Str) -> Result[Machine] {
   let decoded = escaped(bytes.from_text(item.byte_slice(equals + 1)), 0, -1)?
   assign_variable(machine, name, input(decoded.content)?)
 }
+# AWK consults the live ARGV array between files, so program edits select later inputs.
+pure next_argv(machine: Machine, after: Int, count: Int) -> Result[Int?] {
+  let arguments: Map[Scalar] = machine.arrays.get("ARGV") ?? {}
+  var next: Int? = null
+  for key in arguments.keys() {
+    let index = key.parse_int_decimal() ?? -1
+    if index <= after or index >= count { continue }
+    if (plain_text(arguments.get(key) ?? Empty)?).is_empty() { continue }
+    if next == null or index < (next ?? index) { next = index }
+  }
+  Ok(next)
+}
 pure new_machine(program: Program, separator: Str) -> Machine {
   let values: Map[Scalar] = {"FS": String(separator), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0)}
   Machine(program: program, values: values, arrays: {}, scopes: [], fields: [], record: "", output: "", status: 0, flow: Normal, value: Empty, steps: 0, depth: 0)
@@ -1217,20 +1229,29 @@ export pure execute(source: Str, inputs: List[Str], names: List[Str], variables:
   }
   var ranges = [false for _ in program.rules]
   if m.flow != ExitProgram {
-    for index in range(inputs.len()) {
-      if index + 1 >= integer(number(get(m, "ARGC"))?)? { break }
-      let argument = plain_text((m.arrays.get("ARGV") ?? {}).get(f"{index + 1}") ?? Empty)?
-      if argument.is_empty() { continue }
-      if argument != names[index] { return Err(unsupported("changing ARGV input requires streamed file ownership")) }
+    var after = 0
+    loop {
+      let count = integer(number(get(m, "ARGC"))?)?
+      let selected = next_argv(m, after, count)?
+      if selected == null { break }
+      let index = selected ?? 0
+      after = index
+      let argument = plain_text((m.arrays.get("ARGV") ?? {}).get(f"{index}") ?? Empty)?
       let equals = argument.find("=")
-      if equals != null and binding_name(argument.byte_slice(0, length: equals)) { m = binding(m, argument)?; continue }
+      if equals != null and binding_name(argument.byte_slice(0, length: equals)) {
+        m = binding(m, argument)?
+        continue
+      }
+      var input: Int? = null
+      for at in range(names.len()) { if names[at] == argument { input = at; break } }
+      if input == null { return Err(unsupported("changing ARGV input requires streamed file ownership")) }
       m = assign_variable(m, "FILENAME", String(argument))?
       m = assign_variable(m, "FNR", Numeric(0.0))?
       var position = 0
       loop {
         if m.flow == ExitProgram { break }
         if m.flow == NextRecord { m.flow = Normal }
-        let next = record_at(inputs[index], position, variable_text(m, "RS")?)?
+        let next = record_at(inputs[input ?? 0], position, variable_text(m, "RS")?)?
         position = next.position
         if next.content == null { break }
         m = record(m, next.content)?
@@ -1251,14 +1272,6 @@ export pure execute(source: Str, inputs: List[Str], names: List[Str], variables:
         }
       }
       if m.flow == ExitProgram { break }
-    }
-  }
-  if m.flow != ExitProgram {
-    let count = integer(number(get(m, "ARGC"))?)?
-    let values: Map[Scalar] = m.arrays.get("ARGV") ?? {}
-    for member in values.keys() {
-      let at = member.parse_int_decimal() ?? 0
-      if at > inputs.len() and at < count and ! (plain_text(values.get(member) ?? Empty)?).is_empty() { return Err(unsupported("adding ARGV input requires streamed file ownership")) }
     }
   }
   m.flow = Normal

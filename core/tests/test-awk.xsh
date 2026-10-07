@@ -104,6 +104,103 @@ test test_awk_printf_alternate_general_format_counts_significant_digits { |ctx|
   assert output == "0.00120000 2 2.\n"
 }
 
+# POSIX argument processing consults ARGV between files, so edits can change later selections.
+test test_awk_argv_file_selection_matrix { |ctx|
+  let first = test.temp_file(ctx, name: "argv-first", contents: b"A1\nA2\n")?
+  let second = test.temp_file(ctx, name: "argv-second", contents: b"B1\nB2\n")?
+  let third = test.temp_file(ctx, name: "argv-third", contents: b"C1\n")?
+  let first_name = first.display()
+  let second_name = second.display()
+  let third_name = third.display()
+  let source = fp"{ctx.core_dir}/awk.xsh".read_text()?
+  let cases = [
+    {
+      name: "empty first entry skips that file",
+      program: r"""BEGIN { ARGV[1] = "" } { print FILENAME, NR, FNR, $0 } END { print "END", NR, FNR, FILENAME }""",
+      files: [first_name, second_name],
+      stdout: f"{second_name} 1 1 B1\n{second_name} 2 2 B2\nEND 2 2 {second_name}\n",
+    },
+    {
+      name: "empty middle entry preserves global and per-file counters",
+      program: r"""BEGIN { ARGV[2] = "" } { print $0, NR, FNR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "A1 1 1\nA2 2 2\nC1 3 1\n",
+    },
+    {
+      name: "lower ARGC stops after the first file",
+      program: r"""BEGIN { ARGC = 2 } { print $0, NR, FNR } END { print "END", NR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "A1 1 1\nA2 2 2\nEND 2\n",
+    },
+    {
+      name: "ARGC one selects no input files",
+      program: r"""BEGIN { ARGC = 1 } { print "unexpected" } END { print NR, FNR, "[" FILENAME "]" }""",
+      files: [first_name, second_name],
+      stdout: "0 0 []\n",
+    },
+    {
+      name: "existing file entries can be reordered",
+      program: r"""BEGIN { saved = ARGV[1]; ARGV[1] = ARGV[3]; ARGV[3] = saved } { print $0, NR, FNR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "C1 1 1\nB1 2 1\nB2 3 2\nA1 4 1\nA2 5 2\n",
+    },
+    {
+      name: "an existing input can be selected more than once",
+      program: r"""BEGIN { ARGV[2] = ARGV[1] } { print $0, NR, FNR, FILENAME }""",
+      files: [first_name, second_name],
+      stdout: f"A1 1 1 {first_name}\nA2 2 2 {first_name}\nA1 3 1 {first_name}\nA2 4 2 {first_name}\n",
+    },
+    {
+      name: "an ARGV assignment operand runs before its next file",
+      program: r"""{ print "[" tag "]", FILENAME, FNR, $0 }""",
+      files: ["tag=early", second_name],
+      stdout: f"[early] {second_name} 1 B1\n[early] {second_name} 2 B2\n",
+    },
+    {
+      name: "an assignment operand between files changes later records",
+      program: r"""BEGIN { ARGV[2] = "tag=middle" } { print "[" tag "]", $0, NR, FNR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "[] A1 1 1\n[] A2 2 2\n[middle] C1 3 1\n",
+    },
+    {
+      name: "a new assignment operand is processed below expanded ARGC",
+      program: r"""BEGIN { ARGC = 4; ARGV[3] = "tag=tail" } { print "[" tag "]", $0 } END { print "END", tag, NR }""",
+      files: [first_name, second_name],
+      stdout: "[] A1\n[] A2\n[] B1\n[] B2\nEND tail 4\n",
+    },
+    {
+      name: "deleting a future entry skips its file",
+      program: r"""BEGIN { delete ARGV[2] } { print $0, NR, FNR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "A1 1 1\nA2 2 2\nC1 3 1\n",
+    },
+    {
+      name: "a record action can remove a future file",
+      program: r"""NR == 1 { ARGV[2] = "" } { print $0, NR, FNR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "A1 1 1\nA2 2 2\nC1 3 1\n",
+    },
+    {
+      name: "a record action can reduce ARGC before the next file",
+      program: r"""NR == 1 { ARGC = 2 } { print $0, NR, FNR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "A1 1 1\nA2 2 2\n",
+    },
+    {
+      name: "a record action can replace a future file entry",
+      program: r"""NR == 1 { ARGV[2] = ARGV[3]; ARGV[3] = "" } { print $0, NR, FNR }""",
+      files: [first_name, second_name, third_name],
+      stdout: "A1 1 1\nA2 2 2\nC1 3 1\n",
+    },
+  ]
+
+  for scenario in cases {
+    let result = test.run_script(ctx, source, args: [item for item in [scenario.program] + scenario.files], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+    assert result.status == 0, f"{scenario.name}: {result.stderr}"
+    assert result.stdout == scenario.stdout, scenario.name
+  }
+}
+
 test test_awk_gawk_regex_record_separators_and_rt { |ctx|
   let input = test.temp_file(ctx, name: "records", contents: b"::alpha::beta--omega::")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { RS = "::|--" } { print NR, "[" $0 "]", "[" RT "]" }""" $input
