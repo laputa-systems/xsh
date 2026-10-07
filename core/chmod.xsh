@@ -154,7 +154,8 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
         return false
       }
     }
-    match fs.children(target) {
+    # Let each recursive call report its own path when search permission is missing.
+    match fs.children(target, stat: false) {
       Ok(children) => for child in children { if ! change(perm.child_path(target, child.path)?, spec, reference, opts, false, ancestors + [key], umask) { success = false } }
       Err(failure) => { if ! opts.quiet { gnu.cannot("read directory", f"{target}", failure) }; success = false }
     }

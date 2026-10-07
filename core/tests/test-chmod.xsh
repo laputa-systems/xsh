@@ -202,6 +202,22 @@ test test_chmod_recursive_reports_search_permission_failure { |ctx|
   assert result.stderr.find("Permission denied") != null
 }
 
+test test_chmod_recursive_reports_inaccessible_descendant { |ctx|
+  if user.current()?.uid == 0 { test.skip("root bypasses directory search permissions") }
+  let root = test.temp_dir(ctx, name: "inaccessible-child")?
+  let blocked = fp"{root}/blocked"
+  let child = fp"{blocked}/child"
+  blocked.mkdir()
+  child.mkdir()
+  fp"{child}/file".write("x")
+  blocked.chmod(0o655)
+  let result = perm_run(ctx, ["-R", "o=r", root.display()])?
+  blocked.chmod(0o700)
+  assert result.status == 1
+  assert result.stderr.find(f"cannot access '{child}'") != null, result.stderr
+  assert result.stderr.find(f"cannot read directory '{blocked}'") == null, result.stderr
+}
+
 test test_chmod_recursive_preserves_non_utf8_child_names { |ctx|
   let root = test.temp_dir(ctx, name: "raw-name")?
   let child = Path.parse_bytes(bytes.concat([root.bytes(), b"/child\xff"]))?
