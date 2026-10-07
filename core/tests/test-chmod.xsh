@@ -1,10 +1,10 @@
 type PermRan = {status: Int, stdout: Str, stderr: Str}
 
-proc perm_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[PermRan] {
+proc perm_run(ctx: TestContext, args: List[Union[Str, Path]]) [fs, process, error] -> Result[PermRan] {
   let root = test.temp_dir(ctx, name: "capture")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
-  let words = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/chmod.xsh".display(), "--"].extend(args)
+  let words: List[Union[Str, Path]] = collect { yield ctx.xsh_bin; yield fp"{ctx.core_dir}/chmod.xsh"; yield "--"; for arg in args { yield arg } }
   let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err))?
   {status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?}
 }
@@ -53,6 +53,26 @@ test test_chmod_invalid_modes_fail_before_mutation { |ctx|
     assert perm_run(ctx, [invalid, file.display()])?.status == 1
     assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
   }
+}
+
+test test_chmod_malformed_option_like_mode_is_invalid_mode { |ctx|
+  let file = test.temp_file(ctx, name: "negative-mode", contents: b"x")?
+  file.chmod(0o640)
+  let result = perm_run(ctx, ["-rw%x", file.display()])?
+  assert result.status == 1
+  assert result.stderr.find("invalid mode: '-rw%x'") != null
+  assert result.stderr.find("invalid option") == null
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o640
+}
+
+test test_chmod_accepts_non_utf8_operand_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "raw-operand")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  file.write("x")
+  file.chmod(0o644)
+  let result = perm_run(ctx, ["755", file])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o755
 }
 
 test test_chmod_recursive_skips_inner_symlink_and_keeps_directory_setgid { |ctx|

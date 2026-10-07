@@ -94,6 +94,12 @@ pure symbolic_text(mode: Int) -> Str {
   text
 }
 
+pure malformed_mode_option(word: Str) -> Bool {
+  return false when word.byte_len() < 2 or ! word.starts_with("-") or word.starts_with("--")
+  let first = word.byte_slice(1, length: 1)
+  first in "rwxXstugoa01234567,+-="
+}
+
 proc failed_mode(target: Path, before: Int, after: Int, opts: perm.Options) [process, env, io] {
   if opts.verbosity == "verbose" {
     gnu.write_text(f"failed to change mode of {gnu.quote(f"{target}")} from {octal_text(before)} ({symbolic_text(before)}) to {octal_text(after)} ({symbolic_text(after)})\n")
@@ -176,8 +182,18 @@ proc change(target: Path, spec: Str, reference: Int?, opts: perm.Options, top: B
   success
 }
 
-proc main(...argv: List[Str]) [fs, error, process, env, io] {
-  let opts = perm.options(argv, chmod: true)?
+proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
+  const invalid_mode_marker = b"\0chmod-mode\0"
+  var parsed_argv: List[Bytes] = []
+  var invalid_mode: Bytes? = null
+  for word in argv {
+    let text = word.utf8() ?? ""
+    if invalid_mode == null and malformed_mode_option(text) and ! rx"^-[rwxXstugoa0-7,+-=]+$".matches(text) {
+      invalid_mode = word
+      parsed_argv += [invalid_mode_marker]
+    } else { parsed_argv += [word] }
+  }
+  let opts = perm.options(parsed_argv, chmod: true)?
   if opts.help { gnu.help("Usage: chmod [OPTION]... MODE FILE...\n  -R, --recursive\n  -c, --changes\n  -v, --verbose\n  -f, --silent\n      --reference=RFILE\n      --preserve-root\n      --no-preserve-root\n      --help\n      --version"); return }
   if opts.version { gnu.version("chmod"); return }
   if opts.reference != null and opts.option_like_mode { gnu.usage_error("cannot combine mode and --reference options") }
@@ -187,18 +203,25 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
   var targets = opts.operands
   let umask = fs.umask()?
   if let file = opts.reference {
-    match fs.stat(fp"{file}", follow_symlinks: true) {
+    let reference_path = Path.parse_bytes(file)?
+    match fs.stat(reference_path, follow_symlinks: true) {
       Ok(meta) => reference = meta.mode.bit_and(0o7777)
-      Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote(file)}: {gnu.strerror(failure)}"); exit 1 }
+      Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote_bytes(file)}: {gnu.strerror(failure)}"); exit 1 }
     }
   } else {
-    spec = opts.operands[0]
+    var raw_spec = opts.operands[0]
+    if raw_spec == invalid_mode_marker { raw_spec = invalid_mode ?? raw_spec }
+    if let Ok(text) = raw_spec.utf8() {
+      spec = text
+    } else {
+      gnu.usage_error(f"invalid mode: {gnu.quote_bytes(raw_spec)}")
+    }
     if mode_for(spec, 0, false, umask) is Err(_) { gnu.usage_error(f"invalid mode: {gnu.quote(spec)}") }
     targets = opts.operands[1..]
     if targets.is_empty() { gnu.missing_operand_after(spec) }
   }
   var success = true
-  for target in targets { if ! change(fp"{target}", spec, reference, opts, true, [], umask) { success = false } }
+  for target in targets { if ! change(Path.parse_bytes(target)?, spec, reference, opts, true, [], umask) { success = false } }
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
   if ! success { exit 1 }
 }

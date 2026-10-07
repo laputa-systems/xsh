@@ -1,10 +1,10 @@
 type PermRan = {status: Int, stdout: Str, stderr: Str}
 
-proc perm_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[PermRan] {
+proc perm_run(ctx: TestContext, args: List[Union[Str, Path]]) [fs, process, error] -> Result[PermRan] {
   let root = test.temp_dir(ctx, name: "capture")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
-  let words = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/chown.xsh".display(), "--"].extend(args)
+  let words: List[Union[Str, Path]] = collect { yield ctx.xsh_bin; yield fp"{ctx.core_dir}/chown.xsh"; yield "--"; for arg in args { yield arg } }
   let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err))?
   {status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?}
 }
@@ -122,6 +122,35 @@ test test_chown_numeric_id_allows_leading_space_and_forced_numeric_prefix { |ctx
   assert perm_run(ctx, [f"\t+{before.uid}", target.display()])?.status == 0
   assert fs.stat(target)?.uid == before.uid
   assert fs.stat(target)?.gid == before.gid
+}
+
+test test_chown_numeric_owner_with_empty_group_is_invalid_spec { |ctx|
+  let target = test.temp_file(ctx, name: "numeric-owner-group", contents: b"x")?
+  let spec = f"{user.current()?.uid}:"
+  let result = perm_run(ctx, [spec, target.display()])?
+  assert result.status == 1
+  assert result.stderr.find(f"invalid spec: '{spec}'") != null
+}
+
+test test_chown_accepts_non_utf8_operand_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "raw-owner-operand")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  file.write("x")
+  let current = user.current()?
+  let result = perm_run(ctx, [current.name, file])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(file)?.uid == current.uid
+}
+
+test test_chown_reference_accepts_non_utf8_path_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "raw-reference")?
+  let reference = Path.parse_bytes(bytes.concat([root.bytes(), b"/reference\xff"]))?
+  let target = fp"{root}/target"
+  reference.write("reference")
+  target.write("target")
+  let result = perm_run(ctx, ["--reference", reference, target])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(target)?.uid == user.current()?.uid
 }
 
 test test_chown_recursive_preserves_non_utf8_child_names { |ctx|
