@@ -4,7 +4,7 @@
 #   UUTILS_ROOT=../ref/uutils-coreutils dev/compat/run-uutils.sh [UTILITY...]
 #
 # With no utilities, runs every in-scope utility. Writes the raw JUnit report
-# and dev/compat/results/uutils-integration.json.
+# and uutils-integration.json under COMPAT_RESULTS_DIR.
 #
 # Environment: UUTILS_ROOT (required), XSH_BIN (interpreter for the stage; default
 # target/release/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
@@ -37,8 +37,8 @@ set -eu
 PATH="${CARGO_HOME:-$HOME/.cargo}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export PATH
 
-# Concurrent invocations (several lanes running their slices) share the uutils
-# build directory and nextest's JUnit path, so they serialize on one lock.
+# Concurrent invocations share the uutils checkout and its nextest config, so
+# they serialize on one lock even when lanes use separate build directories.
 lock=${UUTILS_SUITE_LOCK:-/tmp/uutils-suite.lock}
 exec 9>"$lock"
 flock 9
@@ -66,6 +66,8 @@ stage=${XSH_COMPAT_STAGE:-$repo/target/compat-stage}
 # Lanes point COMPAT_RESULTS_DIR at scratch space: results/ is integrator-owned.
 results=${COMPAT_RESULTS_DIR:-$repo/dev/compat/results}
 mkdir -p "$results"
+results=$(cd "$results" && pwd -P)
+junit=$results/uutils-nextest.xml
 
 python3 "$repo/dev/compat/stage.py" --stage "$stage"
 
@@ -150,17 +152,26 @@ fail-fast = false
 retries = 0
 slow-timeout = { period = "30s", terminate-after = 4 }
 [profile.xsh.junit]
-path = "xsh-junit.xml"
+path = @JUNIT_PATH@
 store-success-output = false
 store-failure-output = true
 EOF
 sed -i "s/@TEST_MEM_KB@/${UUTESTS_TEST_MEM_KB:-4194304}/" "$profile_dir/nextest-xsh.toml"
 sed -i "s|@TEST_RUNNER@|$test_runner|" "$profile_dir/nextest-xsh.toml"
+python3 - "$profile_dir/nextest-xsh.toml" "$junit" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+config = Path(sys.argv[1])
+contents = config.read_text()
+contents = contents.replace("@JUNIT_PATH@", json.dumps(sys.argv[2], ensure_ascii=False))
+config.write_text(contents)
+PY
 
 # Never convert a report this run did not produce: a killed nextest (the host's
 # memory cgroup OOM-kills it) would otherwise leave the previous run's JUnit in
 # place and publish its numbers as this run's.
-junit=$target/nextest/xsh/xsh-junit.xml
 rm -f "$junit"
 
 set +e

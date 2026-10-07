@@ -49,9 +49,11 @@ crt linking for the reference test harness's `stdbuf` cdylib; this does not
 change the XSH release build flags.
 
 `COMPAT_RESULTS_DIR` selects scratch report storage for both suite runners.
-They share `UUTILS_SUITE_LOCK` and serialize reference runs. GNU reports are
-published only when fresh logs, per-test results and complete summary counts
-agree; the differential requires identical test selections on both sides.
+`run-uutils.sh` writes nextest's JUnit report there by absolute path, including
+when a lane selects a private `UUTILS_TARGET_DIR`. The runners share
+`UUTILS_SUITE_LOCK` and serialize reference runs. GNU reports are published
+only when fresh logs, per-test results and complete summary counts agree; the
+differential requires identical test selections on both sides.
 
 ## Commands
 
