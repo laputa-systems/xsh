@@ -182,6 +182,14 @@ test test_printf_float_conversions_and_precision { |ctx|
   assert output.stderr == ""
 }
 
+test test_printf_general_float_trims_zeroes_before_exponent { |ctx|
+  let output = printf_run(ctx, ["%g|%g", "0.0001", "0.00001"])?
+
+  assert output.status == 0, output.stderr
+  assert output.stdout == "0.0001|1e-05"
+  assert output.stderr == ""
+}
+
 test test_printf_numeric_defaults_and_float_whitespace { |ctx|
   let missing = printf_run(ctx, ["%-o"])?
   let leading_space = printf_run(ctx, ["%f", " \r\t\n0.000001"])?

@@ -503,11 +503,13 @@ pure hex_float(value: Float, precision: Int?, upper: Bool) -> Str {
 }
 
 pure trim_fraction(text: Str) -> Str {
-  return text when ! ("." in text)
-  var end = text.byte_len()
-  while end > 0 and text.byte_slice(end - 1, length: 1) == "0" { end -= 1 }
-  if end > 0 and text.byte_slice(end - 1, length: 1) == "." { end -= 1 }
-  text.byte_slice(0, length: end)
+  let exponent_at = text.find("e") ?? text.find("E") ?? text.byte_len()
+  let mantissa = text.byte_slice(0, length: exponent_at)
+  return text when ! ("." in mantissa)
+  var end = mantissa.byte_len()
+  while end > 0 and mantissa.byte_slice(end - 1, length: 1) == "0" { end -= 1 }
+  if end > 0 and mantissa.byte_slice(end - 1, length: 1) == "." { end -= 1 }
+  mantissa.byte_slice(0, length: end) + text.byte_slice(exponent_at)
 }
 
 pure float_conversion(value: Float, conversion: Str, precision: Int?) -> Str {
