@@ -55,6 +55,20 @@ test test_sort_dictionary_and_nonprinting_order { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_ignore_leading_blanks_preserves_utf8 { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-leading-blanks-utf8")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"é\n a\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-b"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b" a\né\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
   let root = test.temp_dir(ctx, name: "sort-character-order-conflict")?
   let script = fp"{ctx.core_dir}/sort.xsh"
@@ -321,6 +335,13 @@ test test_sort_separator_null_and_invalid_character_counts { |ctx|
     {LC_ALL: "C"}, input, stdout, stderr))?
   assert null_separator.exit_code()? == 0
   assert stdout.read_bytes()? == b"b\0a\na\0z\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let multiple_keys = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-k1,1", "-k3,3", "-t", "\\0"], root,
+    {LC_ALL: "C"}, b"z\0a\0b\nz\0b\0a\na\0z\0z\n", stdout, stderr))?
+  assert multiple_keys.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\0z\0z\nz\0b\0a\nz\0a\0b\n"
   assert stderr.read_bytes()?.is_empty()
 
   let attached_equals = process.run(process.command_argv(ctx.xsh_bin,
@@ -627,6 +648,13 @@ test test_sort_debug_annotates_ordering_keys { |ctx|
     {LC_ALL: "C"}, b"\n\t\t\t1.12.4\n", stdout, stderr))?
   assert version.exit_code()? == 0
   assert stdout.read_bytes()? == b"\n^ no match for key\n^ no match for key\n>>>1.12.4\n_________\n_________\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let unicode = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-k2,2", "--debug"], root,
+    {LC_ALL: "C"}, b"é x\n", stdout, stderr))?
+  assert unicode.exit_code()? == 0
+  assert stdout.read_bytes()? == b"é x\n  __\n____\n"
   assert stderr.read_bytes()?.is_empty()
 }
 

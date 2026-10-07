@@ -19,7 +19,7 @@ type SortOptions = {
   sort_mode: List[Str],
   batch_size: Str?,
   debug: Bool,
-  key: Str,
+  key: List[Str],
   delimiter: Str,
   output: List[Str],
   check: Str,
@@ -155,14 +155,14 @@ pure month_sort_key(line: Str, stable: Bool) -> TextSortKey {
 pure month_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions, stable: Bool) -> TextSortKey {
   let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
   let text = parts.get(field) ?? ""
-  let selected = text.split("") |> drop(key_character_offset(opts.key)).join("")
+  let selected = text.split("") |> drop(key_character_offset(primary_key_spec(opts))).join("")
   month_sort_key(selected, stable)
 }
 
 pure human_numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions, stable: Bool) -> HumanNumericSortKey {
   let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
   let text = parts.get(field) ?? ""
-  let selected = text.split("") |> drop(key_character_offset(opts.key)).join("")
+  let selected = text.split("") |> drop(key_character_offset(primary_key_spec(opts))).join("")
   let key = human_numeric_sort_key(selected, true)
   {key: key.key, raw: if stable { "" } else { line }}
 }
@@ -429,6 +429,14 @@ pure key_index(spec: Str) -> Int {
   (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
 }
 
+pure primary_key_spec(opts: SortOptions) -> Str {
+  opts.key.get(0) ?? ""
+}
+
+pure sort_delimiter(opts: SortOptions) -> Str {
+  if opts.delimiter == "\\0" { "\0" } else { opts.delimiter }
+}
+
 pure key_character_offset(spec: Str) -> Int {
   let start = (spec.split(",").get(0) ?? "").split(".").get(1) ?? ""
   let input = bytes.from_text(start)
@@ -439,8 +447,290 @@ pure key_character_offset(spec: Str) -> Int {
   if position > 0 { position - 1 } else { 0 }
 }
 
+pure key_end_field_index(spec: Str) -> Int? {
+  if spec.split(",").len() < 2 { return null }
+  key_index(spec.split(",").get(1) ?? "")
+}
+
+pure key_end_character_count(spec: Str) -> Int {
+  let end = (spec.split(",").get(1) ?? "").split(".").get(1) ?? ""
+  let input = bytes.from_text(end)
+  var digits = 0
+  while digits < input.len() and is_ascii_digit(input.byte_at(digits) ?? 0) { digits += 1 }
+  if digits == 0 { return 0 }
+  let position = end.byte_slice(0, length: digits).parse_int() ?? 0
+  if position > 0 { position } else { 0 }
+}
+
 pure key_reversed(spec: Str) -> Bool {
-  (spec.split(",").get(0) ?? "").ends_with("r")
+  "r" in key_flags(spec)
+}
+
+pure key_flags(spec: Str) -> Str {
+  var flags = ""
+  for segment in spec.split(",") {
+    let input = bytes.from_text(segment)
+    var at = 0
+    while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+    if at < input.len() and input.byte_at(at) == 46 {
+      at += 1
+      while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+    }
+    flags += segment.byte_slice(at)
+  }
+  flags
+}
+
+pure key_options_are_explicit(spec: Str) -> Bool {
+  key_flags(spec) != ""
+}
+
+pure key_effective_options(spec: Str, opts: SortOptions) -> SortOptions {
+  if ! key_options_are_explicit(spec) { return opts }
+  let flags = key_flags(spec)
+  {
+    ...opts,
+    numeric: "n" in flags,
+    human_numeric: "h" in flags,
+    month: "M" in flags,
+    general_numeric: "g" in flags,
+    version_sort: "V" in flags,
+    sort_mode: [],
+    fold_case: "f" in flags,
+    dictionary: "d" in flags,
+    ignore_nonprinting: "i" in flags,
+    blank: "b" in flags,
+  }
+}
+
+## Encode bytes with a low end marker so descending keys keep equal-key order.
+pure sort_direction_bytes(input: Bytes, reverse: Bool) -> Str {
+  var key = ""
+  for index in range(input.len()) {
+    let byte = input.byte_at(index) ?? 0
+    let ordered = if reverse { 255 - byte } else { byte + 1 }
+    key += padded_decimal(ordered, 3)
+  }
+  key + (if reverse { "256" } else { "000" })
+}
+
+pure sort_direction_key(value: Str, reverse: Bool) -> Str {
+  sort_direction_bytes(bytes.from_text(value), reverse)
+}
+
+pure character_order_sort_key(input: Bytes, dictionary: Bool, ignore_nonprinting: Bool, fold_case: Bool, reverse: Bool) -> Str {
+  var key = ""
+  for index in range(input.len()) {
+    let byte = input.byte_at(index) ?? 0
+    let blank = byte == 9 or byte == 32
+    let alphanumeric = (byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122)
+    let in_dictionary = ! dictionary or blank or alphanumeric
+    let printable = byte >= 32 and byte <= 126
+    let in_printable = ! ignore_nonprinting or printable
+    if in_dictionary and in_printable {
+      let folded = if fold_case and byte >= 97 and byte <= 122 { byte - 32 } else { byte }
+      let ordered = if reverse { 255 - folded } else { folded + 1 }
+      key += padded_decimal(ordered, 3)
+    }
+  }
+  key + (if reverse { "256" } else { "000" })
+}
+
+pure key_field_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Str {
+  let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
+  let start_field = key_index(spec)
+  if start_field >= parts.len() { return "" }
+  var start_prefix = ""
+  if delimiter == "" and start_field > 0 and ! opts.blank and ! ("b" in spec) {
+    let start = key_field_start_byte(line, delimiter, start_field)
+    let token = key_field_token_start_byte(line, delimiter, start_field)
+    start_prefix = line.byte_slice(start, length: token - start)
+  }
+  var start_value = start_prefix + parts[start_field]
+  if opts.blank or "b" in spec { start_value = trim_leading_blanks(start_value) }
+  var selected = start_value.split("") |> drop(key_character_offset(spec)).join("")
+  if let end_field = key_end_field_index(spec) {
+    if end_field < start_field or end_field >= parts.len() { return "" }
+    let end_value = parts[end_field]
+    let end_count = key_end_character_count(spec)
+    if end_field == start_field {
+      if end_count > 0 {
+        let length = if end_count > key_character_offset(spec) { end_count - key_character_offset(spec) } else { 0 }
+        return selected.split("") |> take(length).join("")
+      }
+      return selected
+    }
+    let joiner = if delimiter == "" { " " } else { delimiter }
+    var middle = ""
+    for field in range(start_field + 1, end_field) {
+      middle += f"{joiner}{parts[field]}"
+    }
+    let end = if end_count > 0 { end_value.split("") |> take(end_count).join("") } else { end_value }
+    selected + middle + joiner + end
+  } else {
+    let joiner = if delimiter == "" { " " } else { delimiter }
+    for field in range(start_field + 1, parts.len()) {
+      selected += f"{joiner}{parts[field]}"
+    }
+    selected
+  }
+}
+
+pure key_range_end_byte(line: Str, delimiter: Str, spec: Str) -> Int? {
+  let start_field = key_index(spec)
+  if let end_field = key_end_field_index(spec) {
+    if end_field < start_field { return null }
+    if let field_end = key_field_end_byte(line, delimiter, end_field) {
+      let end_count = key_end_character_count(spec)
+      if end_count > 0 {
+        let end = key_field_start_byte(line, delimiter, end_field) + end_count
+        return if end < field_end { end } else { field_end }
+      }
+      return field_end
+    }
+    return null
+  }
+  line.byte_len()
+}
+
+pure key_range_bytes(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Bytes {
+  let input = bytes.from_text(line)
+  let start = key_start_byte(line, delimiter, spec, opts)
+  if let end = key_range_end_byte(line, delimiter, spec) {
+    if end > start { input[start..end] } else { b"" }
+  } else {
+    b""
+  }
+}
+
+pure key_field_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
+  if delimiter != "" {
+    let parts = line.split(delimiter)
+    if field >= parts.len() { return line.byte_len() }
+    var position = 0
+    for index in range(field) { position += parts[index].byte_len() + delimiter.byte_len() }
+    return position
+  }
+
+  let input = bytes.from_text(line)
+  var position = 0
+  var current_field = 0
+  while position < input.len() and current_field < field {
+    while position < input.len() and (input.byte_at(position) ?? 0) not in [32, 9] { position += 1 }
+    current_field += 1
+    if current_field < field {
+      while position < input.len() and (input.byte_at(position) ?? 0) in [32, 9] { position += 1 }
+    }
+  }
+  position
+}
+
+pure key_field_token_start_byte(line: Str, delimiter: Str, field: Int) -> Int {
+  var position = key_field_start_byte(line, delimiter, field)
+  if delimiter != "" { return position }
+  let input = bytes.from_text(line)
+  while position < input.len() and (input.byte_at(position) ?? 0) in [32, 9] { position += 1 }
+  position
+}
+
+pure key_field_end_byte(line: Str, delimiter: Str, field: Int) -> Int? {
+  if delimiter != "" {
+    let parts = line.split(delimiter)
+    if field >= parts.len() { return null }
+    return key_field_start_byte(line, delimiter, field) + parts[field].byte_len()
+  }
+
+  let input = bytes.from_text(line)
+  if field >= line.trim().words().len() { return null }
+  var position = key_field_start_byte(line, delimiter, field)
+  while position < input.len() and (input.byte_at(position) ?? 0) in [32, 9] { position += 1 }
+  while position < input.len() and (input.byte_at(position) ?? 0) not in [32, 9] { position += 1 }
+  position
+}
+
+pure key_start_byte(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int {
+  if key_index(spec) >= (if delimiter == "" { line.trim().words().len() } else { line.split(delimiter).len() }) { return line.byte_len() }
+  let input = bytes.from_text(line)
+  var position = key_field_start_byte(line, delimiter, key_index(spec))
+  if opts.blank or "b" in spec or is_numeric_sort(opts) or is_human_numeric_sort(opts) or
+    is_general_numeric_sort(opts) or is_month_sort(opts) {
+    while position < input.len() and (input.byte_at(position) ?? 0) in [32, 9] { position += 1 }
+  }
+  position += key_character_offset(spec)
+  if position > input.len() { input.len() } else { position }
+}
+
+pure key_debug_width(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int {
+  let start = key_start_byte(line, delimiter, spec, opts)
+  key_range_bytes(line, delimiter, spec, opts).len()
+}
+
+pure key_order_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Str {
+  let key_opts = key_effective_options(spec, opts)
+  let reverse = opts.reverse != key_reversed(spec)
+  if ! is_month_sort(key_opts) and ! is_human_numeric_sort(key_opts) and ! is_general_numeric_sort(key_opts) and
+    ! is_version_sort(key_opts) and ! is_numeric_sort(key_opts) {
+    return character_order_sort_key(
+      key_range_bytes(line, delimiter, spec, key_opts),
+      key_opts.dictionary,
+      key_opts.ignore_nonprinting,
+      key_opts.fold_case,
+      reverse,
+    )
+  }
+  let value = key_field_value(line, delimiter, spec, key_opts)
+  let key = if is_month_sort(key_opts) {
+    padded_decimal(month_order(value), 2)
+  } else if is_human_numeric_sort(key_opts) {
+    human_numeric_sort_key(value, true).key
+  } else if is_general_numeric_sort(key_opts) {
+    general_numeric_sort_key(value, true).key
+  } else if is_version_sort(key_opts) {
+    version_key(value)
+  } else if is_numeric_sort(key_opts) {
+    numeric_key(value)
+  } else if key_opts.blank {
+    character_order_key(trim_leading_blanks(value), key_opts.dictionary, key_opts.ignore_nonprinting, key_opts.fold_case)
+  } else {
+    character_order_key(value, key_opts.dictionary, key_opts.ignore_nonprinting, key_opts.fold_case)
+  }
+  sort_direction_key(key, reverse)
+}
+
+## GNU compares keys in order, then uses the raw line unless stable or unique was requested.
+pure multiple_key_sort(lines: List[Str], opts: SortOptions) -> List[Str] {
+  var sorted = lines
+  if ! opts.stable and ! opts.unique {
+    sorted = if opts.reverse {
+      lines |> sort-by { |line| sort_direction_key(line, true) }
+    } else {
+      lines |> sort
+    }
+  }
+  for position in range(opts.key.len()) {
+    let spec = opts.key[opts.key.len() - position - 1]
+    sorted = sorted |> sort-by { |line| key_order_value(line, sort_delimiter(opts), spec, opts) }
+  }
+  sorted
+}
+
+pure same_multiple_keys(left: Str, right: Str, opts: SortOptions) -> Bool {
+  for spec in opts.key {
+    if key_order_value(left, sort_delimiter(opts), spec, opts) != key_order_value(right, sort_delimiter(opts), spec, opts) {
+      return false
+    }
+  }
+  true
+}
+
+pure unique_key_lines(lines: List[Str], opts: SortOptions) -> List[Str] {
+  var unique: List[Str] = []
+  for line in lines {
+    if unique.is_empty() or ! same_multiple_keys(unique[unique.len() - 1], line, opts) {
+      unique += [line]
+    }
+  }
+  unique
 }
 
 pure is_ascii_digit(byte: Int) -> Bool {
@@ -583,14 +873,15 @@ pure field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) ->
 pure numeric_field_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> Str {
   let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
   let text = parts.get(field) ?? ""
-  let key = text.split("") |> drop(key_character_offset(opts.key)).join("")
+  let key = text.split("") |> drop(key_character_offset(primary_key_spec(opts))).join("")
   numeric_key(key)
 }
 
 pure trim_leading_blanks(line: Str) -> Str {
+  let characters = line.split("")
   var at = 0
-  while at < line.byte_len() and line.byte_slice(at, length: 1) in [" ", "\t"] { at += 1 }
-  line.byte_slice(at)
+  while at < characters.len() and characters[at] in [" ", "\t"] { at += 1 }
+  characters |> drop(at) |> join("")
 }
 
 pure blank_text_key(line: Str, opts: SortOptions) -> Str {
@@ -621,27 +912,31 @@ pure blank_sorted(lines: List[Str], reverse: Bool, opts: SortOptions) -> List[St
 }
 
 pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
+  if has_key {
+    return multiple_key_sort([left, right], opts)[0] == left
+  }
+
   let pair = [left, right]
   let ordered = if is_month_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) month_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by month_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) }
+    if opts.reverse { pair |> sort-by(desc: true) month_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by month_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) }
   } else if is_month_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by month_sort_key(., opts.stable or opts.unique) }
   } else if is_human_numeric_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) human_numeric_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by human_numeric_field_sort_key(., opts.delimiter, key_field, opts, opts.stable or opts.unique) }
+    if opts.reverse { pair |> sort-by(desc: true) human_numeric_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) } else { pair |> sort-by human_numeric_field_sort_key(., sort_delimiter(opts), key_field, opts, opts.stable or opts.unique) }
   } else if is_human_numeric_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) human_numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by human_numeric_sort_key(., opts.stable or opts.unique) }
   } else if is_general_numeric_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) general_numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by general_numeric_sort_key(., opts.stable or opts.unique) }
   } else if is_version_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) version_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by version_field_sort_key(., opts.delimiter, key_field, opts) }
+    if opts.reverse { pair |> sort-by(desc: true) version_field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by version_field_sort_key(., sort_delimiter(opts), key_field, opts) }
   } else if is_version_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) version_sort_key(., opts.stable) } else { pair |> sort-by version_sort_key(., opts.stable) }
-  } else if is_numeric_sort(opts) and has_key and key_reversed(opts.key) {
-    if key_reversed(opts.key) != opts.reverse { pair |> sort-by(desc: true) field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_sort_key(., opts.delimiter, key_field, opts) }
+  } else if is_numeric_sort(opts) and has_key and key_reversed(primary_key_spec(opts)) {
+    if key_reversed(primary_key_spec(opts)) != opts.reverse { pair |> sort-by(desc: true) field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by field_sort_key(., sort_delimiter(opts), key_field, opts) }
   } else if is_numeric_sort(opts) and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) numeric_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by numeric_field_sort_key(., opts.delimiter, key_field, opts) }
+    if opts.reverse { pair |> sort-by(desc: true) numeric_field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by numeric_field_sort_key(., sort_delimiter(opts), key_field, opts) }
   } else if has_key {
-    if opts.reverse { pair |> sort-by(desc: true) field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_sort_key(., opts.delimiter, key_field, opts) }
+    if opts.reverse { pair |> sort-by(desc: true) field_sort_key(., sort_delimiter(opts), key_field, opts) } else { pair |> sort-by field_sort_key(., sort_delimiter(opts), key_field, opts) }
   } else if is_numeric_sort(opts) {
     if opts.reverse { pair |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique) } else { pair |> sort-by numeric_sort_key(., opts.stable or opts.unique) }
   } else if opts.blank {
@@ -661,13 +956,15 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
 }
 
 pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
-  if is_month_sort(opts) and has_key {
-    month_field_sort_key(left, opts.delimiter, key_field, opts, true).key == month_field_sort_key(right, opts.delimiter, key_field, opts, true).key
+  if has_key {
+    same_multiple_keys(left, right, opts)
+  } else if is_month_sort(opts) and has_key {
+    month_field_sort_key(left, sort_delimiter(opts), key_field, opts, true).key == month_field_sort_key(right, sort_delimiter(opts), key_field, opts, true).key
   } else if is_month_sort(opts) {
     month_order(left) == month_order(right)
   } else if is_human_numeric_sort(opts) and has_key {
-    let left_key = human_numeric_field_sort_key(left, opts.delimiter, key_field, opts, true)
-    let right_key = human_numeric_field_sort_key(right, opts.delimiter, key_field, opts, true)
+    let left_key = human_numeric_field_sort_key(left, sort_delimiter(opts), key_field, opts, true)
+    let right_key = human_numeric_field_sort_key(right, sort_delimiter(opts), key_field, opts, true)
     left_key.key == right_key.key
   } else if is_human_numeric_sort(opts) {
     let left_key = human_numeric_sort_key(left, true)
@@ -678,17 +975,17 @@ pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_
     let right_key = general_numeric_sort_key(right, true)
     left_key.key == right_key.key
   } else if is_version_sort(opts) and has_key {
-    version_key((if opts.delimiter == "" { left.trim().words() } else { left.split(opts.delimiter) }).get(key_field) ?? "") == version_key((if opts.delimiter == "" { right.trim().words() } else { right.split(opts.delimiter) }).get(key_field) ?? "")
+    version_key((if sort_delimiter(opts) == "" { left.trim().words() } else { left.split(sort_delimiter(opts)) }).get(key_field) ?? "") == version_key((if sort_delimiter(opts) == "" { right.trim().words() } else { right.split(sort_delimiter(opts)) }).get(key_field) ?? "")
   } else if is_version_sort(opts) {
     version_key(left) == version_key(right)
   } else if is_numeric_sort(opts) and has_key {
-    if key_reversed(opts.key) {
-      field_key(left, opts.delimiter, key_field, opts) == field_key(right, opts.delimiter, key_field, opts)
+    if key_reversed(primary_key_spec(opts)) {
+      field_key(left, sort_delimiter(opts), key_field, opts) == field_key(right, sort_delimiter(opts), key_field, opts)
     } else {
-      numeric_field_key(left, opts.delimiter, key_field, opts) == numeric_field_key(right, opts.delimiter, key_field, opts)
+      numeric_field_key(left, sort_delimiter(opts), key_field, opts) == numeric_field_key(right, sort_delimiter(opts), key_field, opts)
     }
   } else if has_key {
-    field_key(left, opts.delimiter, key_field, opts) == field_key(right, opts.delimiter, key_field, opts)
+    field_key(left, sort_delimiter(opts), key_field, opts) == field_key(right, sort_delimiter(opts), key_field, opts)
   } else if is_numeric_sort(opts) {
     numeric_key(left) == numeric_key(right)
   } else if opts.blank {
@@ -729,20 +1026,15 @@ pure files0_names(data: Bytes) -> List[Bytes] {
 
 pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
   if has_key {
-    let parts = if opts.delimiter == "" { line.trim().words() } else { line.split(opts.delimiter) }
+    let selected = key_field_value(line, sort_delimiter(opts), primary_key_spec(opts), opts)
     if is_month_sort(opts) {
-      let text = parts.get(key_field) ?? ""
-      let selected = text.split("") |> drop(key_character_offset(opts.key)).join("")
       month_prefix(selected)
     } else if is_human_numeric_sort(opts) {
-      let text = parts.get(key_field) ?? ""
-      let selected = text.split("") |> drop(key_character_offset(opts.key)).join("")
       human_numeric_prefix(selected)
     } else if is_numeric_sort(opts) {
-      let text = parts.get(key_field) ?? ""
-      text.split("") |> drop(key_character_offset(opts.key)).join("")
+      numeric_prefix(selected)
     } else {
-      parts.get(key_field) ?? ""
+      selected
     }
   } else if is_month_sort(opts) {
     month_prefix(line)
@@ -759,11 +1051,25 @@ pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: 
   }
 }
 
+pure debug_key_text(line: Str, opts: SortOptions, spec: Str) -> Str {
+  let key_opts = key_effective_options(spec, opts)
+  let selected = key_field_value(line, sort_delimiter(opts), spec, key_opts)
+  if is_month_sort(key_opts) {
+    month_prefix(selected)
+  } else if is_human_numeric_sort(key_opts) {
+    human_numeric_prefix(selected)
+  } else if is_numeric_sort(key_opts) {
+    numeric_prefix(selected)
+  } else {
+    selected
+  }
+}
+
 pure debug_visible_line(line: Str) -> Str {
   let input = bytes.from_text(line)
   var at = 0
   var visible = ""
-  while at < line.byte_len() and line.byte_slice(at, length: 1) in [" ", "\t"] {
+  while at < input.len() and (input.byte_at(at) == 32 or input.byte_at(at) == 9) {
     visible += if input.byte_at(at) == 9 { ">" } else { " " }
     at += 1
   }
@@ -771,26 +1077,43 @@ pure debug_visible_line(line: Str) -> Str {
 }
 
 pure leading_blank_count(line: Str) -> Int {
+  let input = bytes.from_text(line)
   var at = 0
-  while at < line.byte_len() and line.byte_slice(at, length: 1) in [" ", "\t"] { at += 1 }
+  while at < input.len() and (input.byte_at(at) == 32 or input.byte_at(at) == 9) { at += 1 }
   at
 }
 
 pure debug_annotation(value: Str) -> Str {
-  if value == "" { "^ no match for key" } else { text.padding(value.count_chars(), "_") }
+  if value == "" { "^ no match for key" } else { text.padding(value.byte_len(), "_") }
+}
+
+pure debug_key_annotation(line: Str, opts: SortOptions, spec: Str) -> Str {
+  let key_opts = key_effective_options(spec, opts)
+  if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) {
+    debug_annotation(debug_key_text(line, opts, spec))
+  } else {
+    let width = key_debug_width(line, sort_delimiter(opts), spec, key_opts)
+    if width == 0 { "^ no match for key" } else { text.padding(width, "_") }
+  }
 }
 
 pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
   let has_last_resort = has_key or is_month_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or is_general_numeric_sort(opts) or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
-  let annotation_count = if has_last_resort and ! opts.stable and ! opts.unique { 2 } else { 1 }
   var output = ""
   for line in lines {
     output += debug_visible_line(line) + "\n"
-    let primary = debug_primary_text(line, opts, has_key, key_field)
-    let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
-    output += indentation + debug_annotation(primary) + "\n"
-    if annotation_count > 1 {
-      output += debug_annotation(line) + "\n"
+    if has_key {
+      for spec in opts.key {
+        let key_opts = key_effective_options(spec, opts)
+        let indentation = text.padding(key_start_byte(line, sort_delimiter(opts), spec, key_opts), " ")
+        output += indentation + debug_key_annotation(line, opts, spec) + "\n"
+      }
+      if ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
+    } else {
+      let primary = debug_primary_text(line, opts, false, key_field)
+      let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
+      output += indentation + debug_annotation(primary) + "\n"
+      if has_last_resort and ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
     }
   }
   output
@@ -1123,7 +1446,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
       key: {
         form: "-k KEY",
-        default: "",
+        repeated: true,
       },
       delimiter: {
         form: "-t DELIMITER",
@@ -1214,8 +1537,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 2
   }
 
-  let has_key = opts.key != ""
-  let key_field = if has_key { key_index(opts.key) } else { 0 }
+  let has_key = ! opts.key.is_empty()
+  let key_field = if has_key { key_index(primary_key_spec(opts)) } else { 0 }
   let output_path = opts.output.get(0) ?? ""
   let has_output = ! opts.output.is_empty()
   for candidate in opts.output[1..] {
@@ -1228,7 +1551,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let check_mode = if opts.check != "" { opts.check } else if opts.short_check { "diagnose-first" } else { "" }
   let check_enabled = check_mode != "" or opts.silent_check
   let silent_check = opts.silent_check or check_mode in ["silent", "quiet", "silen", "quie", "s", "q"]
-  let delimiter = if opts.delimiter == "\\0" { "\0" } else { opts.delimiter }
+  let delimiter = sort_delimiter(opts)
   let paths = opts.paths
   if delimiter != "" and delimiter.count_chars() != 1 {
     gnu.error(f"separator must be exactly one character long: {gnu.quote(delimiter)}")
@@ -1347,23 +1670,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let sorted = if opts.merge {
     input_lines
-  } else if is_month_sort(opts) and has_key {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) month_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
-    } else {
-      input_lines |> sort-by month_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
-    }
+  } else if has_key {
+    multiple_key_sort(input_lines, opts)
   } else if is_month_sort(opts) {
     if opts.reverse {
       input_lines |> sort-by(desc: true) month_sort_key(., opts.stable or opts.unique)
     } else {
       input_lines |> sort-by month_sort_key(., opts.stable or opts.unique)
-    }
-  } else if human_numeric and has_key {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) human_numeric_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
-    } else {
-      input_lines |> sort-by human_numeric_field_sort_key(., delimiter, key_field, opts, opts.stable or opts.unique)
     }
   } else if human_numeric {
     if opts.reverse {
@@ -1377,31 +1690,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     } else {
       input_lines |> sort-by general_numeric_sort_key(., opts.stable or opts.unique)
     }
-  } else if is_version_sort(opts) and has_key {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) version_field_sort_key(., delimiter, key_field, opts)
-    } else {
-      input_lines |> sort-by version_field_sort_key(., delimiter, key_field, opts)
-    }
   } else if is_version_sort(opts) {
     if opts.reverse {
       input_lines |> sort-by(desc: true) version_sort_key(., opts.stable)
     } else {
       input_lines |> sort-by version_sort_key(., opts.stable)
-    }
-  } else if is_numeric_sort(opts) and has_key and key_reversed(opts.key) {
-    if key_reversed(opts.key) != opts.reverse { input_lines |> sort-by(desc: true) field_sort_key(., delimiter, key_field, opts) } else { input_lines |> sort-by field_sort_key(., delimiter, key_field, opts) }
-  } else if is_numeric_sort(opts) and has_key {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) numeric_field_sort_key(., delimiter, key_field, opts)
-    } else {
-      input_lines |> sort-by numeric_field_sort_key(., delimiter, key_field, opts)
-    }
-  } else if has_key {
-    if opts.reverse {
-      input_lines |> sort-by(desc: true) field_sort_key(., delimiter, key_field, opts)
-    } else {
-      input_lines |> sort-by field_sort_key(., delimiter, key_field, opts)
     }
   } else if is_numeric_sort(opts) {
     ## Keep the first spelling for each number before a reverse sort can reorder equal keys.
@@ -1425,12 +1718,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     input_lines |> sort
   }
 
-  let lines = if opts.unique and is_month_sort(opts) and has_key {
-    sorted |> unique-by month_field_sort_key(., delimiter, key_field, opts, true)
+  let lines = if opts.unique and has_key {
+    unique_key_lines(sorted, opts)
   } else if opts.unique and is_month_sort(opts) {
     sorted |> unique-by month_sort_key(., true)
-  } else if opts.unique and human_numeric and has_key {
-    sorted |> unique-by human_numeric_field_sort_key(., delimiter, key_field, opts, true)
   } else if opts.unique and human_numeric {
     sorted |> unique-by human_numeric_sort_key(., true)
   } else if opts.unique and general_numeric {
