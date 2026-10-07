@@ -183,6 +183,13 @@ Native sort tests pass 16/16; the optimized debug Gate 3 slice improves from
 52/165 to 54/163 across 217 tests, fixing `test_keys_stable` and
 `test_sort_locale_punctuation` with no regressions. GNU 9.11 probes match;
 reports are in `results/sort-stable/`.
+Follow-up `fc7d8b16` adds natural version ordering through `-V`,
+`--version-sort`, and `--sort=version`, with stable ties and leading-dot
+ordering. Native sort tests pass 17/17; the optimized debug Gate 3 slice
+improves from 54/163 to 56/161 across 217 tests, fixing the version-sort stable
+and unstable cases with no regressions. GNU 9.11 probes match; the two helper
+cases that add `--debug` still fail because key annotations are not implemented.
+Reports are in `results/sort-version/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays

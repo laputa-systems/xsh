@@ -152,6 +152,13 @@ remain historical evidence only.
   across 217 tests, fixing `test_keys_stable` and `test_sort_locale_punctuation`
   with no regressions. GNU 9.11 probes match; reports are in
   `results/sort-stable/`.
+- Follow-up `fc7d8b16` adds natural version ordering through `-V`,
+  `--version-sort`, and `--sort=version`, with stable ties and leading-dot
+  ordering. Focused native sort tests pass 17/17; Gate 3 improves from 54/163
+  to 56/161 across 217 tests, fixing the version-sort stable and unstable
+  cases with no regressions. GNU 9.11 probes match; the two helper cases that
+  add `--debug` still fail because key annotations are not implemented. Reports
+  are in `results/sort-version/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
