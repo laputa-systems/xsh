@@ -197,6 +197,12 @@ index the argument list and reports GNU's `%0$` diagnostic. The native printf
 suite passes 31/31; the optimized debug Gate 3 slice improves from 130/22 to
 131/21 across 152 cases, with one fix and no regressions. Reports are in
 `results/printf-position-index/`.
+Follow-up `4e9eb3bd` reports trailing characters after a numeric character
+constant, unless `POSIXLY_CORRECT` is set. This matches pinned GNU 9.11 and
+fixes the warning case plus two partial-character cases. The native printf
+suite passes 32/32; the optimized debug Gate 3 slice improves from 131/21 to
+134/18 across 152 cases, with no regressions. Reports are in
+`results/printf-char-warning/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

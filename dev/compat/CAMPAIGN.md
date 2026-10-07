@@ -170,6 +170,12 @@ remain historical evidence only.
   suite passes 31/31; the optimized debug Gate 3 slice improves from 130/22 to
   131/21 across 152 cases, with one fix and no regressions. Reports are in
   `results/printf-position-index/`.
+- Follow-up `4e9eb3bd` reports characters after a numeric character constant,
+  unless `POSIXLY_CORRECT` is set. This matches pinned GNU 9.11 and fixes the
+  warning case plus two partial-character cases. The native printf suite
+  passes 32/32; the optimized debug Gate 3 slice improves from 131/21 to
+  134/18 across 152 cases, with no regressions. Reports are in
+  `results/printf-char-warning/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
