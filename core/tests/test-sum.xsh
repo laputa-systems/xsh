@@ -18,6 +18,11 @@ test test_sum_stdin_known_vector { |ctx|
   assert result.status == 0
   assert result.stdout == b"16556     1\n"
   assert result.stderr == ""
+
+  let explicit_stdin = invoke(ctx, ["-"], b"abc")?
+  assert explicit_stdin.status == 0
+  assert explicit_stdin.stdout == b"16556     1\n"
+  assert explicit_stdin.stderr == ""
 }
 
 test test_sum_continues_after_unreadable_file { |ctx|

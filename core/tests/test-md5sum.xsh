@@ -65,3 +65,44 @@ test test_md5sum_escaped_unicode_file_roundtrip { |ctx|
   assert checked.status == 0
   assert checked.stderr == ""
 }
+
+test test_md5sum_check_quotes_unusual_filenames { |ctx|
+  let directory = test.temp_dir(ctx, name: "checksum-quoted")?
+  let spaced = fp"{directory}/ leading"
+  let starred = fp"{directory}/*literal"
+  spaced.write("")
+  starred.write("")
+  let list = test.temp_file(ctx, name: "quoted-check-list", contents: bytes.from_text(
+    f"d41d8cd98f00b204e9800998ecf8427e  {spaced}\nd41d8cd98f00b204e9800998ecf8427e  {starred}\n"))?
+
+  let checked = invoke(ctx, ["--check", list.display()], b"")?
+  assert checked.status == 0
+  assert checked.stdout == bytes.from_text(f"'{spaced}': OK\n'{starred}': OK\n")
+  assert checked.stderr == ""
+}
+
+test test_md5sum_check_shell_quotes_control_filenames { |ctx|
+  let directory = test.temp_dir(ctx, name: "checksum-control-name")?
+  let file = fp"{directory}/line\nbreak"
+  file.write("")
+  let emitted = invoke(ctx, [file.display()], b"")?
+  assert emitted.status == 0
+  let list = test.temp_file(ctx, name: "control-check-list", contents: emitted.stdout)?
+
+  let checked = invoke(ctx, ["--check", list.display()], b"")?
+  assert checked.status == 0
+  assert checked.stdout == bytes.from_text(f"'{directory}/line'$'\\n''break': OK\n")
+  assert checked.stderr == ""
+}
+
+test test_md5sum_check_ignores_blank_lines { |ctx|
+  let file = test.temp_file(ctx, name: "blank-line-check", contents: b"")?
+  let list = test.temp_file(ctx, name: "blank-line-list", contents: bytes.from_text(
+    f"\nd41d8cd98f00b204e9800998ecf8427e  {file}\n\ninvalid\n"))?
+
+  let checked = invoke(ctx, ["--check", "--warn", list.display()], b"")?
+  assert checked.status == 0
+  assert checked.stdout == bytes.from_text(f"{file}: OK\n")
+  assert checked.stderr.find(": 4: improperly formatted MD5 checksum line") != null
+  assert checked.stderr.find("WARNING: 1 line is improperly formatted") != null
+}

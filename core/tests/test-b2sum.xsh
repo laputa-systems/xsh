@@ -18,6 +18,11 @@ test test_b2sum_stdin_known_vector { |ctx|
   assert result.status == 0
   assert result.stdout == b"ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923  -\n"
   assert result.stderr == ""
+
+  let short = invoke(ctx, ["--length=8"], b"abc")?
+  assert short.status == 0
+  assert short.stdout == b"6b  -\n"
+  assert short.stderr == ""
 }
 
 test test_b2sum_continues_after_unreadable_file { |ctx|

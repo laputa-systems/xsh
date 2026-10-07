@@ -8,7 +8,7 @@ type Options = {
   help: Bool, version: Bool, files: List[Str],
 }
 type Numeric = {checksum: Int, size: Int}
-type Check = {hex: Str, path: Str, algorithm: Str, length: Int}
+type Check = {digest: Str, base64: Bool, path: Str, algorithm: Str, length: Int}
 
 # Repeated mode switches obey argument order, including bundled short flags.
 pure binary_mode(argv: List[Str]) -> Bool {
@@ -36,6 +36,20 @@ pure tagged_mode(argv: List[Str], cksum: Bool) -> Bool {
   tag
 }
 
+# The default length is zero, so validation must distinguish an omitted length
+# from an explicit zero for SHA2 and SHA3.
+pure has_length_option(argv: List[Str]) -> Bool {
+  for arg in argv {
+    if arg == "--" { break }
+    if arg == "--length" or arg.starts_with("--length=") or arg == "-l" or arg.starts_with("-l=") or arg.starts_with("-l") { return true }
+  }
+  false
+}
+
+pure decimal_text(value: Str) -> Bool {
+  value.byte_len() > 0 and value.translate("0123456789", "") == ""
+}
+
 pure padded(value: Int, width: Int, fill: Str) -> Str {
   var result = f"{value}"
   while result.byte_len() < width { result = fill + result }
@@ -45,6 +59,10 @@ pure padded(value: Int, width: Int, fill: Str) -> Str {
 pure label(algorithm: Str, length: Int) -> Str {
   return f"BLAKE2b-{length}" when algorithm == "blake2b" and length != 512
   return "BLAKE2b" when algorithm == "blake2b"
+  return f"BLAKE3-{length}" when algorithm == "blake3"
+  return f"SHA3-{length}" when algorithm == "sha3"
+  return f"SHAKE128-{length}" when algorithm == "shake128"
+  return f"SHAKE256-{length}" when algorithm == "shake256"
   algorithm.upper()
 }
 
@@ -56,8 +74,29 @@ pure digest_length(algorithm: Str) -> Int {
     "sha256" => 64
     "sha384" => 96
     "sha512" => 128
+    "sm3" => 64
     _ => 0
   }
+}
+
+pure digest_width(algorithm: Str, length: Int) -> Int {
+  return (length / 8 + (if length % 8 == 0 { 0 } else { 1 })) * 2 when algorithm == "shake128" or algorithm == "shake256"
+  return length / 4 when algorithm == "blake2b" or algorithm == "blake3" or algorithm == "sha3"
+  digest_length(algorithm)
+}
+
+pure is_hex(value: Str) -> Bool {
+  value.byte_len() > 0 and value.lower().translate("0123456789abcdef", "") == ""
+}
+
+pure valid_base64(value: Str, digest_bytes: Int) -> Bool {
+  if digest_bytes < 1 or value.byte_len() != (digest_bytes + 2) / 3 * 4 { return false }
+  let padding = if value.ends_with("==") { 2 } else if value.ends_with("=") { 1 } else { 0 }
+  let expected_padding = if digest_bytes % 3 == 1 { 2 } else if digest_bytes % 3 == 2 { 1 } else { 0 }
+  if padding != expected_padding { return false }
+  let body_length = value.byte_len() - padding
+  let body = value.byte_slice(0, length: body_length)
+  body.translate("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", "") == ""
 }
 
 pure escaped(name: Str) -> Str {
@@ -116,38 +155,94 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
     let tag = line.byte_slice(0, length: tag_end)
     if infer {
       selected = tag.lower()
-      if selected.starts_with("blake2b-") {
+      if selected == "blake2b" {
+        bits = 512
+      } else if selected.starts_with("blake2b-") {
         bits = selected.byte_slice(8).parse_int() ?? 0
         selected = "blake2b"
+      } else if selected.starts_with("blake3-") {
+        bits = selected.byte_slice(7).parse_int() ?? 0
+        selected = "blake3"
+      } else if selected.starts_with("sha2-") {
+        bits = selected.byte_slice(5).parse_int() ?? 0
+        selected = f"sha{bits}"
+      } else if selected.starts_with("sha3-") {
+        bits = selected.byte_slice(5).parse_int() ?? 0
+        selected = "sha3"
+      } else if selected.starts_with("shake128-") {
+        bits = selected.byte_slice(9).parse_int() ?? 0
+        selected = "shake128"
+      } else if selected.starts_with("shake256-") {
+        bits = selected.byte_slice(9).parse_int() ?? 0
+        selected = "shake256"
+      } else if selected == "shake128" {
+        bits = 256
+      } else if selected == "shake256" {
+        bits = 512
       }
+      if algorithm == "sha2" and selected != "sha224" and selected != "sha256" and selected != "sha384" and selected != "sha512" { return null }
+      if algorithm == "sha3" and selected != "sha3" { return null }
+    } else if selected == "blake2b" and tag.starts_with("BLAKE2b-") {
+      bits = tag.byte_slice(8).parse_int() ?? 0
+    } else if selected == "blake3" and tag.starts_with("BLAKE3-") {
+      bits = tag.byte_slice(7).parse_int() ?? 0
+    } else if selected == "shake128" and tag.starts_with("SHAKE128-") {
+      bits = tag.byte_slice(9).parse_int() ?? 0
+    } else if selected == "shake256" and tag.starts_with("SHAKE256-") {
+      bits = tag.byte_slice(9).parse_int() ?? 0
+    } else if selected == "sha3" and tag.starts_with("SHA3-") {
+      bits = tag.byte_slice(5).parse_int() ?? 0
     }
-    if tag != label(selected, bits) { return null }
+    if selected == "sha3" and bits != 224 and bits != 256 and bits != 384 and bits != 512 { return null }
+    if selected == "blake2b" and (bits < 8 or bits > 512 or bits % 8 != 0) { return null }
+    if selected == "blake3" and (bits < 8 or bits % 8 != 0) { return null }
+    let sha2_variant = selected == "sha224" or selected == "sha256" or selected == "sha384" or selected == "sha512"
+    let shake_default_tag = (selected == "shake128" and bits == 256 and tag == "SHAKE128") or (selected == "shake256" and bits == 512 and tag == "SHAKE256")
+    if tag != label(selected, bits) and !(sha2_variant and tag == f"SHA2-{selected.byte_slice(3)}") and !shake_default_tag { return null }
     name = line.byte_slice(tag_end + 2, length: split - tag_end - 2)
     expected = line.byte_slice(split + 4)
   } else {
-    if infer {
-      let width = line.find(" ") ?? 0
-      selected = match width { 32 => "md5", 40 => "sha1", 56 => "sha224", 64 => "sha256", 96 => "sha384", 128 => "sha512", _ => "" }
+    let separator = line.find(" ") ?? -1
+    if separator <= 0 { return null }
+    expected = line.byte_slice(0, length: separator)
+    let remainder = line.byte_slice(separator + 1)
+    if remainder.starts_with(" ") or remainder.starts_with("*") {
+      name = remainder.byte_slice(1)
+    } else {
+      name = remainder
     }
-    var width = digest_length(selected)
-    if selected == "blake2b" {
-      let separator = line.find(" ") ?? -1
-      if separator < 0 { return null }
-      width = separator
-      bits = width * 4
+    if infer and algorithm == "crc" {
+      selected = if is_hex(expected) {
+        match expected.byte_len() { 32 => "md5", 40 => "sha1", 56 => "sha224", 64 => "sha256", 96 => "sha384", 128 => "sha512", _ => "" }
+      } else {
+        match expected.byte_len() { 24 => "md5", 28 => "sha1", 40 => "sha224", 44 => "sha256", 64 => "sha384", 88 => "sha512", _ => "" }
+      }
     }
-    if line.byte_len() <= width + 1 { return null }
-    expected = line.byte_slice(0, length: width)
-    if line.byte_slice(width, length: 1) != " " { return null }
-    let marker = line.byte_slice(width + 1, length: 1)
-    name = line.byte_slice(width + (if marker == " " or marker == "*" { 2 } else { 1 }))
+    if infer and algorithm == "sha2" {
+      selected = if is_hex(expected) {
+        match expected.byte_len() { 56 => "sha224", 64 => "sha256", 96 => "sha384", 128 => "sha512", _ => "" }
+      } else {
+        match expected.byte_len() { 40 => "sha224", 44 => "sha256", 64 => "sha384", 88 => "sha512", _ => "" }
+      }
+    }
+    if infer and algorithm == "sha3" {
+      let digest_bytes = if is_hex(expected) { expected.byte_len() / 2 } else { expected.byte_len() / 4 * 3 - (if expected.ends_with("==") { 2 } else if expected.ends_with("=") { 1 } else { 0 }) }
+      if digest_bytes != 28 and digest_bytes != 32 and digest_bytes != 48 and digest_bytes != 64 { return null }
+      bits = digest_bytes * 8
+    }
+    if selected == "blake2b" or selected == "blake3" or selected == "shake128" or selected == "shake256" {
+      let digest_bytes = if is_hex(expected) { expected.byte_len() / 2 } else { expected.byte_len() / 4 * 3 - (if expected.ends_with("==") { 2 } else if expected.ends_with("=") { 1 } else { 0 }) }
+      bits = digest_bytes * 8
+      if selected == "blake2b" and (bits < 8 or bits > 512) { return null }
+    }
   }
-  let width = if selected == "blake2b" { bits / 4 } else { digest_length(selected) }
-  if width < 2 or expected.byte_len() != width or expected.lower().translate("0123456789abcdef", "") != "" or name == "" { return null }
+  let width = digest_width(selected, bits)
+  let encoded = if width >= 2 and expected.byte_len() == width and is_hex(expected) { false } else if width >= 2 and valid_base64(expected, width / 2) { true } else { return null }
+  if name == "" { return null }
   if escape {
     if let decoded = unescape(name) { name = decoded } else { return null }
   }
-  {hex: expected.lower(), path: name, algorithm: selected, length: bits}
+  {digest: expected, base64: encoded, path: name, algorithm: selected, length: bits}
 }
 
 proc digest(name: Str, algorithm: Str, length: Int) [fs, io] -> Result[Digest] {
@@ -183,6 +278,7 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
   var line_number = 0
   for line in text.lines() {
     line_number += 1
+    if line == "" or line == "\r" { continue }
     if line.starts_with("#") { continue }
     let entry = parse_line(line, algorithm, length, infer)
     if entry == null {
@@ -194,11 +290,12 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
     }
     let item = entry
     valid += 1
-    let shown = if needs_escape(item.path) { f"\\{escaped(item.path)}" } else { item.path }
+    let shown = gnu.quote_maybe(item.path)
     match digest(item.path, item.algorithm, item.length) {
       Ok(value) => {
         checked += 1
-        if value.hex() == item.hex {
+        let actual = if item.base64 { value.base64() } else { value.hex() }
+        if actual == item.digest {
           if !opts.quiet and !opts.status { gnu.write_text(f"{shown}: OK\n") }
         } else {
           mismatched += 1
@@ -263,25 +360,58 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
   let tagged = tagged_mode(argv, cksum)
   var algorithm = if opts.algorithm == "" { default_algorithm } else { opts.algorithm }
   var length = opts.length.parse_int() ?? -1
-  if length < 0 { gnu.usage_error(f"invalid length: {gnu.quote(opts.length)}") }
-  if algorithm == "sha2" {
-    if length != 224 and length != 256 and length != 384 and length != 512 { gnu.usage_error("--algorithm=sha2 requires specifying --length 224, 256, 384, or 512") }
-    algorithm = f"sha{length}"
-  } else if algorithm != "blake2b" and length != 0 {
-    gnu.usage_error("--length is only supported with --algorithm blake2b or sha2")
+  let length_given = has_length_option(argv)
+  if algorithm == "sha2" or algorithm == "sha3" {
+    if !length_given {
+      if !opts.check { gnu.usage_error(f"--algorithm={algorithm} requires specifying --length 224, 256, 384, or 512") }
+    } else {
+      if length < 0 {
+        if decimal_text(opts.length) {
+          gnu.error(f"invalid length: {gnu.quote(opts.length)}")
+          gnu.usage_error(f"digest length for '{algorithm.upper()}' must be 224, 256, 384, or 512")
+        }
+        gnu.usage_error(f"invalid length: {gnu.quote(opts.length)}")
+      }
+      if length != 224 and length != 256 and length != 384 and length != 512 {
+        gnu.error(f"invalid length: {gnu.quote(opts.length)}")
+        gnu.usage_error(f"digest length for '{algorithm.upper()}' must be 224, 256, 384, or 512")
+      }
+      if algorithm == "sha2" { algorithm = f"sha{length}" }
+    }
+  } else if algorithm == "blake2b" or algorithm == "blake3" {
+    if length < 0 {
+      if decimal_text(opts.length) and algorithm == "blake2b" {
+        gnu.error(f"invalid length: {gnu.quote(opts.length)}")
+        gnu.usage_error(f"maximum digest length for '{label(algorithm, 512)}' is 512 bits")
+      }
+      gnu.usage_error(f"invalid length: {gnu.quote(opts.length)}")
+    }
+    if length == 0 { length = if algorithm == "blake2b" { 512 } else { 256 } }
+    if algorithm == "blake2b" and length > 512 {
+      gnu.error(f"invalid length: {gnu.quote(opts.length)}")
+      gnu.usage_error(f"maximum digest length for '{label(algorithm, 512)}' is 512 bits")
+    }
+    if length % 8 != 0 {
+      gnu.error(f"invalid length: {gnu.quote(opts.length)}")
+      gnu.usage_error("length is not a multiple of 8")
+    }
+  } else if algorithm == "shake128" or algorithm == "shake256" {
+    if length < 0 { gnu.usage_error(f"invalid length: {gnu.quote(opts.length)}") }
+    if length == 0 { length = if algorithm == "shake128" { 256 } else { 512 } }
+  } else if length != 0 {
+    gnu.usage_error("--length is only supported with --algorithm blake2b, sha2, or sha3")
   }
-  if algorithm == "blake2b" and (length > 512 or length % 8 != 0) { gnu.usage_error("invalid BLAKE2b length: must be a multiple of 8 up to 512") }
-  if length == 0 { length = 512 }
   let is_numeric = algorithm == "crc" or algorithm == "bsd" or algorithm == "sysv" or algorithm == "crc32b"
-  if !is_numeric and algorithm != "blake2b" and digest_length(algorithm) == 0 { gnu.usage_error(f"invalid argument {gnu.quote(algorithm)} for 'checksum algorithm'") }
+  if !is_numeric and algorithm != "blake2b" and algorithm != "sha2" and algorithm != "sha3" and algorithm != "blake3" and algorithm != "shake128" and algorithm != "shake256" and digest_length(algorithm) == 0 { gnu.usage_error(f"invalid argument {gnu.quote(algorithm)} for 'checksum algorithm'") }
   if !opts.check {
     for flag in [if opts.quiet { "quiet" } else { "" }, if opts.status { "status" } else { "" }, if opts.warn { "warn" } else { "" }, if opts.strict { "strict" } else { "" }, if opts.ignore_missing { "ignore-missing" } else { "" }] {
       if flag != "" { gnu.usage_error(f"the --{flag} option is meaningful only when verifying checksums") }
     }
   }
-  if opts.check and (opts.zero or opts.tag or opts.binary or opts.text or opts.raw or opts.base64) { gnu.usage_error("output format options are meaningless when verifying checksums") }
-  if cksum and opts.text and !binary and tagged { gnu.usage_error("--text mode is only supported with --untagged") }
   if opts.tag and opts.text and !binary { gnu.usage_error("--tag does not support --text mode") }
+  if cksum and opts.text and !binary and tagged { gnu.usage_error("--text mode is only supported with --untagged") }
+  if opts.check and opts.tag { gnu.usage_error("the --tag option is meaningless when verifying checksums") }
+  if opts.check and (opts.binary or opts.text) { gnu.usage_error("the --binary and --text options are meaningless when verifying checksums") }
   if opts.check and is_numeric and (!cksum or opts.algorithm != "") { gnu.usage_error("--check is not supported with --algorithm={bsd,sysv,crc,crc32b}") }
   let files = if opts.files.is_empty() { ["-"] } else { opts.files }
   if opts.raw and files.len() > 1 { gnu.usage_error("the --raw option is not supported with multiple files") }
@@ -289,7 +419,9 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
   var failed = false
   for name in files {
     if opts.check {
-      if !verify_list(name, opts, algorithm, length, cksum and opts.algorithm == "") { failed = true }
+      let check_algorithm = if cksum and opts.algorithm == "sha2" { "sha2" } else { algorithm }
+      let infer = cksum and (opts.algorithm == "" or opts.algorithm == "sha2" or opts.algorithm == "sha3")
+      if !verify_list(name, opts, check_algorithm, length, infer) { failed = true }
     } else if is_numeric {
       match numeric(name, algorithm) {
         Ok(value) => {
