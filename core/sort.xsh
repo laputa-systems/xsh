@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.text_a2 as text
 
 type SortOptions = {
   reverse: Bool,
@@ -12,6 +13,7 @@ type SortOptions = {
   stable: Bool,
   version_sort: Bool,
   sort_mode: List[Str],
+  debug: Bool,
   key: Str,
   delimiter: Str,
   output: List[Str],
@@ -246,6 +248,48 @@ pure input_records(input: Str, zero_terminated: Bool) -> List[Str] {
   }
 }
 
+pure debug_primary_text(line: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
+  if has_key {
+    let parts = if opts.delimiter == "" { line.trim().words() } else { line.split(opts.delimiter) }
+    parts.get(key_field) ?? ""
+  } else if opts.numeric {
+    line.trim().words().get(0) ?? ""
+  } else if opts.blank {
+    trim_leading_blanks(line)
+  } else {
+    line
+  }
+}
+
+pure debug_visible_line(line: Str) -> Str {
+  var at = 0
+  var visible = ""
+  while at < line.byte_len() and line.byte_slice(at, length: 1) in [" ", "\t"] {
+    visible += ">"
+    at += 1
+  }
+  visible + line.byte_slice(at)
+}
+
+pure debug_annotation(value: Str) -> Str {
+  if value == "" { "^ no match for key" } else { text.padding(value.count_chars(), "_") }
+}
+
+pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> Str {
+  let has_last_resort = has_key or opts.numeric or is_version_sort(opts) or opts.blank or opts.fold_case or opts.dictionary or opts.ignore_nonprinting
+  let annotation_count = if has_last_resort and ! opts.stable { 2 } else { 1 }
+  var output = ""
+  for line in lines {
+    output += debug_visible_line(line) + "\n"
+    let primary = debug_primary_text(line, opts, has_key, key_field)
+    output += debug_annotation(primary) + "\n"
+    if annotation_count > 1 {
+      output += debug_annotation(line) + "\n"
+    }
+  }
+  output
+}
+
 ## A required output operand may start with a dash, so attach it before parsing options.
 pure normalize_output_args(argv: List[Str]) -> List[Str] {
   var normalized: List[Str] = []
@@ -308,6 +352,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       sort_mode: {
         form: "--sort=MODE",
         repeated: true,
+      },
+      debug: {
+        form: "--debug",
+        default: false,
       },
       fold_case: {
         form: "-f --ignore-case",
@@ -500,7 +548,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let lines = if opts.unique { sorted |> unique-by . } else { sorted }
 
   let line_ending = if opts.zero_terminated { "\0" } else { "\n" }
-  let text = if lines.is_empty() {
+  let text = if opts.debug {
+    debug_sort_text(lines, opts, has_key, key_field)
+  } else if lines.is_empty() {
     ""
   } else {
     f"{lines.join(line_ending)}{line_ending}"
@@ -512,7 +562,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       gnu.error(f"{action}: {gnu.quote_maybe(output_path)}: {gnu.strerror(failure)}")
       exit 2
     }
-  } else if opts.zero_terminated {
+  } else if opts.zero_terminated or opts.debug {
     gnu.write_text(text)
   } else {
     for line in lines {

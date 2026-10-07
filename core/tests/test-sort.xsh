@@ -138,6 +138,33 @@ test test_sort_version_order_and_stability { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_debug_annotates_ordering_keys { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-debug-keys")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let plain = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--debug"], root,
+    {LC_ALL: "C"}, b"b\na\n", stdout, stderr))?
+  assert plain.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\n_\nb\n_\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let folded = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-f", "--debug"], root,
+    {LC_ALL: "C"}, b"a\nA\n", stdout, stderr))?
+  assert folded.exit_code()? == 0
+  assert stdout.read_bytes()? == b"A\n_\n_\na\n_\n_\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let version = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-V", "--debug"], root,
+    {LC_ALL: "C"}, b"\n\t\t\t1.12.4\n", stdout, stderr))?
+  assert version.exit_code()? == 0
+  assert stdout.read_bytes()? == b"\n^ no match for key\n^ no match for key\n>>>1.12.4\n_________\n_________\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "sort-input-check")?
   let fifo = fp"{root}/FIFO"
