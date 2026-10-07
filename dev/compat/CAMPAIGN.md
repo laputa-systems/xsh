@@ -160,6 +160,11 @@ remain historical evidence only.
   debug Gate 3 slice improves from 127/25 to 129/23 across 152 cases, fixing
   both `/dev/full` write-error cases with no regressions. Reports are in
   `results/printf-write-followup/`.
+- Follow-up `964f2fdf` rejects dynamic precision above `INT_MAX` before an
+  excessive allocation and matches GNU's invalid-precision diagnostic. The
+  native printf suite passes 30/30; the optimized debug Gate 3 slice improves
+  from 129/23 to 130/22 across 152 cases, with one fix and no regressions.
+  Reports are in `results/printf-precision-limit/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

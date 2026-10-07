@@ -1,0 +1,951 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="152" skipped="0" failures="22" errors="0" uuid="f8133b8c-b21e-4474-81f9-061265785a7a" timestamp="2026-10-07T12:26:38.957+00:00" time="10.895">
+    <testsuite name="coreutils::tests" tests="152" skipped="0" errors="0" failures="22">
+        <testcase name="test_printf::basic_literal" classname="coreutils::tests" timestamp="2026-10-07T12:26:38.964+00:00" time="0.046"/>
+        <testcase name="test_printf::char_as_byte" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.009+00:00" time="0.049">
+            <failure message="thread &apos;test_printf::char_as_byte&apos; (1761342) panicked at tests/by-util/test_printf.rs:950:10" type="test failure with exit code 101">thread &apos;test_printf::char_as_byte&apos; (1761342) panicked at tests/by-util/test_printf.rs:950:10:
+assertion failed: `(left == right)`: stdout as bytes wasn&apos;t equal to expected bytes. Result as strings:
+stdout  =&apos;Ok(&quot;🙃&quot;)&apos;
+expected=&apos;Err(Utf8Error { valid_up_to: 0, error_len: None })&apos;
+
+Diff &lt; left / right &gt; :
+ [
+     240,
+&lt;    159,
+&lt;    153,
+&lt;    131,
+ ]
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %c 🙃
+test test_printf::char_as_byte ... FAILED
+
+failures:
+
+failures:
+    test_printf::char_as_byte
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::char_as_byte&apos; (1761342) panicked at tests/by-util/test_printf.rs:950:10:
+assertion failed: `(left == right)`: stdout as bytes wasn&apos;t equal to expected bytes. Result as strings:
+stdout  =&apos;Ok(&quot;🙃&quot;)&apos;
+expected=&apos;Err(Utf8Error { valid_up_to: 0, error_len: None })&apos;
+
+Diff &lt; left / right &gt; :
+ [
+     240,
+&lt;    159,
+&lt;    153,
+&lt;    131,
+ ]
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::char_constant_warning_preserves_prior_failure" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.059+00:00" time="0.043">
+            <failure message="thread &apos;test_printf::char_constant_warning_preserves_prior_failure&apos; (1761352) panicked at tests/by-util/test_printf.rs:279:10" type="test failure with exit code 101">thread &apos;test_printf::char_constant_warning_preserves_prior_failure&apos; (1761352) panicked at tests/by-util/test_printf.rs:279:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ printf: &apos;bad&apos;: expected a numeric value
+&gt;printf: warning: b: character(s) following character constant have been ignored
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d
+ bad &apos;ab
+test test_printf::char_constant_warning_preserves_prior_failure ... FAILED
+
+failures:
+
+failures:
+    test_printf::char_constant_warning_preserves_prior_failure
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::char_constant_warning_preserves_prior_failure&apos; (1761352) panicked at tests/by-util/test_printf.rs:279:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+ printf: &apos;bad&apos;: expected a numeric value
+&gt;printf: warning: b: character(s) following character constant have been ignored
+ 
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::diagnostics::test_piped_stderr_keeps_the_plain_message" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.103+00:00" time="0.042"/>
+        <testcase name="test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.145+00:00" time="0.044">
+            <failure message="thread &apos;test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report&apos; (1761372) panicked at tests/by-util/test_printf.rs:1823:9" type="test failure with exit code 101">thread &apos;test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report&apos; (1761372) panicked at tests/by-util/test_printf.rs:1823:9:
+assertion `left == right` failed
+  left: &quot;printf: %z: invalid conversion specification&quot;
+ right: &quot;printf: %z: invalid conversion specification\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf ╰%z\n   │         ──\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf ╰%z
+test test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report ... FAILED
+
+failures:
+
+failures:
+    test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report&apos; (1761372) panicked at tests/by-util/test_printf.rs:1823:9:
+assertion `left == right` failed
+  left: &quot;printf: %z: invalid conversion specification&quot;
+ right: &quot;printf: %z: invalid conversion specification\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf ╰%z\n   │         ──\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.190+00:00" time="0.045">
+            <failure message="thread &apos;test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option&apos; (1761383) panicked at tests/by-util/test_printf.rs:1799:9" type="test failure with exit code 101">thread &apos;test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option&apos; (1761383) panicked at tests/by-util/test_printf.rs:1799:9:
+assertion `left == right` failed
+  left: &quot;printf: %z: invalid conversion specification&quot;
+ right: &quot;printf: %z: invalid conversion specification\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf -%z world\n   │         ──\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf -%z world
+test test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option ... FAILED
+
+failures:
+
+failures:
+    test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option&apos; (1761383) panicked at tests/by-util/test_printf.rs:1799:9:
+assertion `left == right` failed
+  left: &quot;printf: %z: invalid conversion specification&quot;
+ right: &quot;printf: %z: invalid conversion specification\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf -%z world\n   │         ──\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::diagnostics::test_snippet_points_at_the_bad_code_point" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.235+00:00" time="0.045">
+            <failure message="thread &apos;test_printf::diagnostics::test_snippet_points_at_the_bad_code_point&apos; (1761394) panicked at tests/by-util/test_printf.rs:1750:9" type="test failure with exit code 101">thread &apos;test_printf::diagnostics::test_snippet_points_at_the_bad_code_point&apos; (1761394) panicked at tests/by-util/test_printf.rs:1750:9:
+assertion `left == right` failed
+  left: &quot;printf: invalid universal character name \\ud800&quot;
+ right: &quot;printf: invalid universal character name \\ud800\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf x\\ud800y\n   │         ──────\n   │\n   │ Help: code points between D800 and DFFF or above 10FFFF are not Unicode characters\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf x\ud800y
+test test_printf::diagnostics::test_snippet_points_at_the_bad_code_point ... FAILED
+
+failures:
+
+failures:
+    test_printf::diagnostics::test_snippet_points_at_the_bad_code_point
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::diagnostics::test_snippet_points_at_the_bad_code_point&apos; (1761394) panicked at tests/by-util/test_printf.rs:1750:9:
+assertion `left == right` failed
+  left: &quot;printf: invalid universal character name \\ud800&quot;
+ right: &quot;printf: invalid universal character name \\ud800\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf x\\ud800y\n   │         ──────\n   │\n   │ Help: code points between D800 and DFFF or above 10FFFF are not Unicode characters\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::diagnostics::test_snippet_points_at_the_bad_spec" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.280+00:00" time="0.048">
+            <failure message="thread &apos;test_printf::diagnostics::test_snippet_points_at_the_bad_spec&apos; (1761405) panicked at tests/by-util/test_printf.rs:1705:9" type="test failure with exit code 101">thread &apos;test_printf::diagnostics::test_snippet_points_at_the_bad_spec&apos; (1761405) panicked at tests/by-util/test_printf.rs:1705:9:
+assertion `left == right` failed
+  left: &quot;printf: %5.2c: invalid conversion specification&quot;
+ right: &quot;printf: %5.2c: invalid conversion specification\n   ╭─[ printf:1:8 ]\n   │\n 1 │ printf %5.2c q\n   │        ─────\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %5.2c q
+test test_printf::diagnostics::test_snippet_points_at_the_bad_spec ... FAILED
+
+failures:
+
+failures:
+    test_printf::diagnostics::test_snippet_points_at_the_bad_spec
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::diagnostics::test_snippet_points_at_the_bad_spec&apos; (1761405) panicked at tests/by-util/test_printf.rs:1705:9:
+assertion `left == right` failed
+  left: &quot;printf: %5.2c: invalid conversion specification&quot;
+ right: &quot;printf: %5.2c: invalid conversion specification\n   ╭─[ printf:1:8 ]\n   │\n 1 │ printf %5.2c q\n   │        ─────\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.329+00:00" time="0.047">
+            <failure message="thread &apos;test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape&apos; (1761416) panicked at tests/by-util/test_printf.rs:1728:9" type="test failure with exit code 101">thread &apos;test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape&apos; (1761416) panicked at tests/by-util/test_printf.rs:1728:9:
+assertion `left == right` failed
+  left: &quot;printf: missing hexadecimal number in escape&quot;
+ right: &quot;printf: missing hexadecimal number in escape\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf a\\xzb q\n   │         ──\n   │\n   │ Help: \\x takes one or two hexadecimal digits, \\u takes four and \\U takes eight\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf a\xzb q
+test test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape ... FAILED
+
+failures:
+
+failures:
+    test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape&apos; (1761416) panicked at tests/by-util/test_printf.rs:1728:9:
+assertion `left == right` failed
+  left: &quot;printf: missing hexadecimal number in escape&quot;
+ right: &quot;printf: missing hexadecimal number in escape\n   ╭─[ printf:1:9 ]\n   │\n 1 │ printf a\\xzb q\n   │         ──\n   │\n   │ Help: \\x takes one or two hexadecimal digits, \\u takes four and \\U takes eight\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::diagnostics::test_snippet_points_inside_a_quoted_format" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.377+00:00" time="0.050">
+            <failure message="thread &apos;test_printf::diagnostics::test_snippet_points_inside_a_quoted_format&apos; (1761427) panicked at tests/by-util/test_printf.rs:1775:9" type="test failure with exit code 101">thread &apos;test_printf::diagnostics::test_snippet_points_inside_a_quoted_format&apos; (1761427) panicked at tests/by-util/test_printf.rs:1775:9:
+assertion `left == right` failed
+  left: &quot;printf: %z: invalid conversion specification&quot;
+ right: &quot;printf: %z: invalid conversion specification\n   ╭─[ printf:1:22 ]\n   │\n 1 │ printf &apos;hello %s and %z&apos; world\n   │                      ──\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf hello %s and %z world
+test test_printf::diagnostics::test_snippet_points_inside_a_quoted_format ... FAILED
+
+failures:
+
+failures:
+    test_printf::diagnostics::test_snippet_points_inside_a_quoted_format
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::diagnostics::test_snippet_points_inside_a_quoted_format&apos; (1761427) panicked at tests/by-util/test_printf.rs:1775:9:
+assertion `left == right` failed
+  left: &quot;printf: %z: invalid conversion specification&quot;
+ right: &quot;printf: %z: invalid conversion specification\n   ╭─[ printf:1:22 ]\n   │\n 1 │ printf &apos;hello %s and %z&apos; world\n   │                      ──\n   │\n   │ Help: %d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::double_dash_after_the_format_is_an_argument" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.427+00:00" time="0.133"/>
+        <testcase name="test_printf::double_dash_as_the_format_is_printed_literally" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.560+00:00" time="0.045"/>
+        <testcase name="test_printf::escaped_octal_and_newline" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.606+00:00" time="0.048"/>
+        <testcase name="test_printf::escaped_percent_sign" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.653+00:00" time="0.046"/>
+        <testcase name="test_printf::escaped_unicode_eight_digit" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.699+00:00" time="0.047"/>
+        <testcase name="test_printf::escaped_unicode_four_digit" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.747+00:00" time="0.047"/>
+        <testcase name="test_printf::escaped_unicode_incomplete" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.794+00:00" time="0.162"/>
+        <testcase name="test_printf::escaped_unicode_invalid" classname="coreutils::tests" timestamp="2026-10-07T12:26:39.956+00:00" time="0.084"/>
+        <testcase name="test_printf::escaped_unicode_null_byte" classname="coreutils::tests" timestamp="2026-10-07T12:26:40.041+00:00" time="0.086">
+            <failure message="thread &apos;test_printf::escaped_unicode_null_byte&apos; (1761566) panicked at tests/by-util/test_printf.rs:72:10" type="test failure with exit code 101">thread &apos;test_printf::escaped_unicode_null_byte&apos; (1761566) panicked at tests/by-util/test_printf.rs:72:10:
+assertion failed: `(left == right)`: stdout as bytes wasn&apos;t equal to expected bytes. Result as strings:
+stdout  =&apos;Ok(&quot;\01_&quot;)&apos;
+expected=&apos;Ok(&quot;\u{1}_&quot;)&apos;
+
+Diff &lt; left / right &gt; :
+ [
+&lt;    0,
+&lt;    49,
+&gt;    1,
+     95,
+ ]
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf \0001_
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %b \0001_
+test test_printf::escaped_unicode_null_byte ... FAILED
+
+failures:
+
+failures:
+    test_printf::escaped_unicode_null_byte
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.08s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::escaped_unicode_null_byte&apos; (1761566) panicked at tests/by-util/test_printf.rs:72:10:
+assertion failed: `(left == right)`: stdout as bytes wasn&apos;t equal to expected bytes. Result as strings:
+stdout  =&apos;Ok(&quot;\01_&quot;)&apos;
+expected=&apos;Ok(&quot;\u{1}_&quot;)&apos;
+
+Diff &lt; left / right &gt; :
+ [
+&lt;    0,
+&lt;    49,
+&gt;    1,
+     95,
+ ]
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::escaped_unrecognized" classname="coreutils::tests" timestamp="2026-10-07T12:26:40.127+00:00" time="0.044"/>
+        <testcase name="test_printf::flag_position_space_padding" classname="coreutils::tests" timestamp="2026-10-07T12:26:40.171+00:00" time="0.045"/>
+        <testcase name="test_printf::float_abs_value_less_than_one" classname="coreutils::tests" timestamp="2026-10-07T12:26:40.216+00:00" time="0.250"/>
+        <testcase name="test_printf::float_arg_invalid" classname="coreutils::tests" timestamp="2026-10-07T12:26:40.466+00:00" time="0.328"/>
+        <testcase name="test_printf::float_arg_with_whitespace" classname="coreutils::tests" timestamp="2026-10-07T12:26:40.794+00:00" time="0.171"/>
+        <testcase name="test_printf::float_arg_zero" classname="coreutils::tests" timestamp="2026-10-07T12:26:40.965+00:00" time="0.128"/>
+        <testcase name="test_printf::float_default_precision_space_padding" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.093+00:00" time="0.048"/>
+        <testcase name="test_printf::float_default_precision_zero_padding" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.142+00:00" time="0.046"/>
+        <testcase name="test_printf::float_flag_position_space_padding" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.188+00:00" time="0.050"/>
+        <testcase name="test_printf::float_large_precision" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.238+00:00" time="0.040">
+            <failure message="thread &apos;test_printf::float_large_precision&apos; (1761810) panicked at tests/by-util/test_printf.rs:1244:10" type="test failure with exit code 101">thread &apos;test_printf::float_large_precision&apos; (1761810) panicked at tests/by-util/test_printf.rs:1244:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;0.100000000000000005551115123126
+&gt;0.100000000000000000000000000000
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %.30f 0.1
+test test_printf::float_large_precision ... FAILED
+
+failures:
+
+failures:
+    test_printf::float_large_precision
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::float_large_precision&apos; (1761810) panicked at tests/by-util/test_printf.rs:1244:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;0.100000000000000005551115123126
+&gt;0.100000000000000000000000000000
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::float_non_finite" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.279+00:00" time="0.046"/>
+        <testcase name="test_printf::float_non_finite_space_padding" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.325+00:00" time="0.047"/>
+        <testcase name="test_printf::float_non_finite_zero_padding" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.372+00:00" time="0.048"/>
+        <testcase name="test_printf::float_space_padding_with_precision" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.421+00:00" time="0.048"/>
+        <testcase name="test_printf::float_switch_switch_decimal_scientific" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.470+00:00" time="0.086"/>
+        <testcase name="test_printf::float_with_zero_precision_should_pad" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.556+00:00" time="0.049"/>
+        <testcase name="test_printf::float_zero_neg_zero" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.606+00:00" time="0.048"/>
+        <testcase name="test_printf::float_zero_padding_with_precision" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.654+00:00" time="0.046"/>
+        <testcase name="test_printf::format_spec_zero_fails" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.700+00:00" time="0.086"/>
+        <testcase name="test_printf::help_and_version_past_the_format_are_arguments" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.787+00:00" time="0.102"/>
+        <testcase name="test_printf::int_with_zero_precision_and_zero_value" classname="coreutils::tests" timestamp="2026-10-07T12:26:41.889+00:00" time="0.127"/>
+        <testcase name="test_printf::invalid_precision_tests" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.016+00:00" time="0.093"/>
+        <testcase name="test_printf::leading_double_dash_ends_the_options" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.109+00:00" time="0.046"/>
+        <testcase name="test_printf::mb_input" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.156+00:00" time="0.303">
+            <failure message="thread &apos;test_printf::mb_input&apos; (1762006) panicked at tests/by-util/test_printf.rs:1425:14" type="test failure with exit code 101">thread &apos;test_printf::mb_input&apos; (1762006) panicked at tests/by-util/test_printf.rs:1425:14:
+Command was expected to succeed. code: 1
+stdout = 0.000000
+
+ stderr = printf: &apos;\&apos;\303\241&apos;: expected a numeric value
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %04x
+ &quot;á
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %04x
+ &apos;á
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %04x
+ &apos;á
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %i
+ &quot;á
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %i
+ &apos;á
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %i
+ &apos;á
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %f
+ &apos;á
+test test_printf::mb_input ... FAILED
+
+failures:
+
+failures:
+    test_printf::mb_input
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.30s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::mb_input&apos; (1762006) panicked at tests/by-util/test_printf.rs:1425:14:
+Command was expected to succeed. code: 1
+stdout = 0.000000
+
+ stderr = printf: &apos;\&apos;\303\241&apos;: expected a numeric value
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::mb_invalid_unicode" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.459+00:00" time="0.044">
+            <failure message="thread &apos;test_printf::mb_invalid_unicode&apos; (1762064) panicked at tests/by-util/test_printf.rs:1472:14" type="test failure with exit code 101">thread &apos;test_printf::mb_invalid_unicode&apos; (1762064) panicked at tests/by-util/test_printf.rs:1472:14:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 3 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %04x
+ &quot;�
+test test_printf::mb_invalid_unicode ... FAILED
+
+failures:
+
+failures:
+    test_printf::mb_invalid_unicode
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::mb_invalid_unicode&apos; (1762064) panicked at tests/by-util/test_printf.rs:1472:14:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 3 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::negative_float_zero_padding_with_precision" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.503+00:00" time="0.050"/>
+        <testcase name="test_printf::negative_zero_padding_test" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.553+00:00" time="0.049"/>
+        <testcase name="test_printf::negative_zero_padding_with_space_test" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.601+00:00" time="0.046"/>
+        <testcase name="test_printf::no_infinite_loop" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.648+00:00" time="0.045"/>
+        <testcase name="test_printf::non_utf_8_input" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.693+00:00" time="0.037">
+            <failure message="thread &apos;test_printf::non_utf_8_input&apos; (1762113) panicked at tests/by-util/test_printf.rs:1561:10" type="test failure with exit code 101">thread &apos;test_printf::non_utf_8_input&apos; (1762113) panicked at tests/by-util/test_printf.rs:1561:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 3 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %s Swer an rehte g�ete wendet s�n gem�ete, dem volget s�lde und �re.
+test test_printf::non_utf_8_input ... FAILED
+
+failures:
+
+failures:
+    test_printf::non_utf_8_input
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::non_utf_8_input&apos; (1762113) panicked at tests/by-util/test_printf.rs:1561:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 3 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::pad_char" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.731+00:00" time="0.160"/>
+        <testcase name="test_printf::pad_octal_with_prefix" classname="coreutils::tests" timestamp="2026-10-07T12:26:42.891+00:00" time="0.195"/>
+        <testcase name="test_printf::pad_string" classname="coreutils::tests" timestamp="2026-10-07T12:26:43.086+00:00" time="0.172"/>
+        <testcase name="test_printf::pad_unsigned_three" classname="coreutils::tests" timestamp="2026-10-07T12:26:43.258+00:00" time="0.450"/>
+        <testcase name="test_printf::pad_unsigned_zeroes" classname="coreutils::tests" timestamp="2026-10-07T12:26:43.708+00:00" time="0.161"/>
+        <testcase name="test_printf::partial_char" classname="coreutils::tests" timestamp="2026-10-07T12:26:43.869+00:00" time="0.051">
+            <failure message="thread &apos;test_printf::partial_char&apos; (1762356) panicked at tests/by-util/test_printf.rs:879:10" type="test failure with exit code 101">thread &apos;test_printf::partial_char&apos; (1762356) panicked at tests/by-util/test_printf.rs:879:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;printf: warning: bc: character(s) following character constant have been ignored
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;abc
+test test_printf::partial_char ... FAILED
+
+failures:
+
+failures:
+    test_printf::partial_char
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.05s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::partial_char&apos; (1762356) panicked at tests/by-util/test_printf.rs:879:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;printf: warning: bc: character(s) following character constant have been ignored
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::partial_char_posixly_correct" classname="coreutils::tests" timestamp="2026-10-07T12:26:43.920+00:00" time="0.504">
+            <failure message="thread &apos;test_printf::partial_char_posixly_correct&apos; (1762366) panicked at tests/by-util/test_printf.rs:901:51" type="test failure with exit code 101">thread &apos;test_printf::partial_char_posixly_correct&apos; (1762366) panicked at tests/by-util/test_printf.rs:901:51:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;printf: warning: B: character(s) following character constant have been ignored
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;AB
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;ABC
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &quot;AB
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;-1
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;AB
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;ABC
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &quot;AB
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;-1
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;AB
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;ABC
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &quot;AB
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;-1
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %d &apos;AB
+test test_printf::partial_char_posixly_correct ... FAILED
+
+failures:
+
+failures:
+    test_printf::partial_char_posixly_correct
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.50s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::partial_char_posixly_correct&apos; (1762366) panicked at tests/by-util/test_printf.rs:901:51:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&gt;printf: warning: B: character(s) following character constant have been ignored
+&gt;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::partial_float" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.425+00:00" time="0.036"/>
+        <testcase name="test_printf::partial_integer" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.461+00:00" time="0.069"/>
+        <testcase name="test_printf::positional_format_specifiers" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.530+00:00" time="0.214">
+            <failure message="thread &apos;test_printf::positional_format_specifiers&apos; (1762500) panicked at tests/by-util/test_printf.rs:1523:10" type="test failure with exit code 101">thread &apos;test_printf::positional_format_specifiers&apos; (1762500) panicked at tests/by-util/test_printf.rs:1523:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;3
+&gt;1
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %1$d%d- 5 10 6 20
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %2$d%d- 5 10 6 20
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %3$d%d- 5 10 6 20
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %4$d%d- 5 10 6 20
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %5$d%d- 5 10 6 20
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %0$d%d- 5 10 6 20
+test test_printf::positional_format_specifiers ... FAILED
+
+failures:
+
+failures:
+    test_printf::positional_format_specifiers
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.21s
+
+</system-out>
+            <system-err>stdout:
+
+stderr:
+err[runtime.error]: list index
+  /home/josh/d/laputa-systems/xsh/target/compat-stage/bin/printf:709:45
+        let value = if index &lt; values.len() { values[index] } else if spec.conversion in [&quot;d&quot;, &quot;i&quot;, &quot;o&quot;, &quot;u&quot;, &quot;x&quot;, &quot;X&quot;, &quot;f&quot;, &quot;F&quot;, &quot;e&quot;, &quot;E&quot;, &quot;g&quot;, &quot;G&quot;, &quot;a&quot;, &quot;A&quot;] { &quot;0&quot; } else { &quot;&quot; }
+                                              ^^^^^^^^^^^^^
+err: index-out-of-range: list index
+executable: /home/josh/d/laputa-systems/xsh/target/debug/xsh
+at /home/josh/d/laputa-systems/xsh/target/compat-stage/bin/printf:709:45-709:58
+
+
+thread &apos;test_printf::positional_format_specifiers&apos; (1762500) panicked at tests/by-util/test_printf.rs:1523:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;3
+&gt;1
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::precision_check" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.744+00:00" time="0.043"/>
+        <testcase name="test_printf::space_padding_with_precision" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.787+00:00" time="0.034"/>
+        <testcase name="test_printf::space_padding_with_space_test" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.821+00:00" time="0.033"/>
+        <testcase name="test_printf::spaces_before_numbers_are_ignored" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.855+00:00" time="0.034"/>
+        <testcase name="test_printf::stop_after_additional_escape" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.888+00:00" time="0.033"/>
+        <testcase name="test_printf::stop_after_additional_escape_in_b_string" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.921+00:00" time="0.033"/>
+        <testcase name="test_printf::sub_alternative_lower_hex" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.955+00:00" time="0.037"/>
+        <testcase name="test_printf::sub_alternative_lower_hex_0" classname="coreutils::tests" timestamp="2026-10-07T12:26:44.992+00:00" time="0.036"/>
+        <testcase name="test_printf::sub_alternative_upper_hex" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.028+00:00" time="0.035"/>
+        <testcase name="test_printf::sub_alternative_upper_hex_0" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.064+00:00" time="0.043"/>
+        <testcase name="test_printf::sub_any_asterisk_both_params" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.107+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_any_asterisk_first_param" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.149+00:00" time="0.035"/>
+        <testcase name="test_printf::sub_any_asterisk_first_param_with_integer" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.184+00:00" time="0.161"/>
+        <testcase name="test_printf::sub_any_asterisk_hex_arg" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.346+00:00" time="0.038"/>
+        <testcase name="test_printf::sub_any_asterisk_negative_first_param" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.384+00:00" time="0.116"/>
+        <testcase name="test_printf::sub_any_asterisk_octal_arg" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.500+00:00" time="0.038"/>
+        <testcase name="test_printf::sub_any_asterisk_second_param" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.538+00:00" time="0.033"/>
+        <testcase name="test_printf::sub_any_asterisk_second_param_with_integer" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.571+00:00" time="0.221">
+            <failure message="thread &apos;test_printf::sub_any_asterisk_second_param_with_integer&apos; (1762776) panicked at tests/by-util/test_printf.rs:657:10" type="test failure with exit code 101">thread &apos;test_printf::sub_any_asterisk_second_param_with_integer&apos; (1762776) panicked at tests/by-util/test_printf.rs:657:10:
+Command was expected to fail.
+stdout = |10|
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%.*d| 3 10
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%*.d| 1 10
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%.*d| 0 10
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%.*d| -1 10
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%.*d| -2 10
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%.*d| -9223372036854775808 10
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%.*d| -340282366920938463463374607431768211455 10
+test test_printf::sub_any_asterisk_second_param_with_integer ... FAILED
+
+failures:
+
+failures:
+    test_printf::sub_any_asterisk_second_param_with_integer
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.22s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::sub_any_asterisk_second_param_with_integer&apos; (1762776) panicked at tests/by-util/test_printf.rs:657:10:
+Command was expected to fail.
+stdout = |10|
+ stderr = 
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::sub_any_specifiers" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.793+00:00" time="0.087"/>
+        <testcase name="test_printf::sub_any_specifiers_after_second_param" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.879+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_b_string_handle_escapes" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.911+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_b_string_ignore_subs" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.944+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_b_string_validate_field_params" classname="coreutils::tests" timestamp="2026-10-07T12:26:45.976+00:00" time="0.031"/>
+        <testcase name="test_printf::sub_b_string_variable_size_unicode" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.007+00:00" time="0.137">
+            <failure message="thread &apos;test_printf::sub_b_string_variable_size_unicode&apos; (1762900) panicked at tests/by-util/test_printf.rs:122:14" type="test failure with exit code 101">thread &apos;test_printf::sub_b_string_variable_size_unicode&apos; (1762900) panicked at tests/by-util/test_printf.rs:122:14:
+assertion failed: `(left == right)`: stdout as bytes wasn&apos;t equal to expected bytes. Result as strings:
+stdout  =&apos;Ok(&quot;|\05|&quot;)&apos;
+expected=&apos;Ok(&quot;|\u{5}|&quot;)&apos;
+
+Diff &lt; left / right &gt; :
+ [
+     124,
+&lt;    0,
+&lt;    53,
+&gt;    5,
+     124,
+ ]
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%b \5|
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%b \05|
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%b \005|
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf |%b \0005|
+test test_printf::sub_b_string_variable_size_unicode ... FAILED
+
+failures:
+
+failures:
+    test_printf::sub_b_string_variable_size_unicode
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.13s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::sub_b_string_variable_size_unicode&apos; (1762900) panicked at tests/by-util/test_printf.rs:122:14:
+assertion failed: `(left == right)`: stdout as bytes wasn&apos;t equal to expected bytes. Result as strings:
+stdout  =&apos;Ok(&quot;|\05|&quot;)&apos;
+expected=&apos;Ok(&quot;|\u{5}|&quot;)&apos;
+
+Diff &lt; left / right &gt; :
+ [
+     124,
+&lt;    0,
+&lt;    53,
+&gt;    5,
+     124,
+ ]
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::sub_char" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.144+00:00" time="0.044"/>
+        <testcase name="test_printf::sub_char_from_string" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.188+00:00" time="0.044"/>
+        <testcase name="test_printf::sub_float_dec_places" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.232+00:00" time="0.043"/>
+        <testcase name="test_printf::sub_float_hex_in" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.275+00:00" time="0.033"/>
+        <testcase name="test_printf::sub_float_leading_zeroes" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.309+00:00" time="0.041"/>
+        <testcase name="test_printf::sub_float_no_octal_in" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.350+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_general_float" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.391+00:00" time="0.043"/>
+        <testcase name="test_printf::sub_general_round_float" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.434+00:00" time="0.033"/>
+        <testcase name="test_printf::sub_general_round_float_leading_zeroes" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.468+00:00" time="0.030"/>
+        <testcase name="test_printf::sub_general_round_float_to_integer" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.498+00:00" time="0.031"/>
+        <testcase name="test_printf::sub_general_round_scientific_notation" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.529+00:00" time="0.040"/>
+        <testcase name="test_printf::sub_general_scientific_notation" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.569+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_general_truncate_to_integer" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.602+00:00" time="0.040"/>
+        <testcase name="test_printf::sub_int_decimal" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.641+00:00" time="0.033"/>
+        <testcase name="test_printf::sub_int_leading_zeroes" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.675+00:00" time="0.030"/>
+        <testcase name="test_printf::sub_int_leading_zeroes_padded" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.704+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_min_width" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.747+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_min_width_negative" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.789+00:00" time="0.041"/>
+        <testcase name="test_printf::sub_num_dec_trunc" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.830+00:00" time="0.043"/>
+        <testcase name="test_printf::sub_num_float" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.873+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_num_float_e_no_round" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.915+00:00" time="0.039"/>
+        <testcase name="test_printf::sub_num_float_e_round" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.954+00:00" time="0.031"/>
+        <testcase name="test_printf::sub_num_float_round_nines_dec" classname="coreutils::tests" timestamp="2026-10-07T12:26:46.986+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_num_float_round_to_one" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.018+00:00" time="0.031"/>
+        <testcase name="test_printf::sub_num_hex_float_lower" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.049+00:00" time="0.033"/>
+        <testcase name="test_printf::sub_num_hex_float_upper" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.082+00:00" time="0.044"/>
+        <testcase name="test_printf::sub_num_hex_lower" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.125+00:00" time="0.043"/>
+        <testcase name="test_printf::sub_num_hex_non_numerical" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.169+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_num_hex_upper" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.201+00:00" time="0.031"/>
+        <testcase name="test_printf::sub_num_int" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.233+00:00" time="0.038"/>
+        <testcase name="test_printf::sub_num_int_char_const_in" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.270+00:00" time="0.137"/>
+        <testcase name="test_printf::sub_num_int_hex_in" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.408+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_num_int_hex_in_neg" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.440+00:00" time="0.032"/>
+        <testcase name="test_printf::sub_num_int_min_width" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.471+00:00" time="0.040"/>
+        <testcase name="test_printf::sub_num_int_neg" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.512+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_num_int_oct_in" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.554+00:00" time="0.041"/>
+        <testcase name="test_printf::sub_num_int_oct_in_neg" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.595+00:00" time="0.041"/>
+        <testcase name="test_printf::sub_num_octal" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.636+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_num_sci_lower" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.678+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_num_sci_negative" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.719+00:00" time="0.041"/>
+        <testcase name="test_printf::sub_num_sci_trunc" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.760+00:00" time="0.034"/>
+        <testcase name="test_printf::sub_num_sci_upper" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.794+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_num_thousands" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.836+00:00" time="0.045"/>
+        <testcase name="test_printf::sub_num_uint" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.881+00:00" time="0.043"/>
+        <testcase name="test_printf::sub_q_string_empty" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.925+00:00" time="0.043"/>
+        <testcase name="test_printf::sub_q_string_non_printable" classname="coreutils::tests" timestamp="2026-10-07T12:26:47.968+00:00" time="0.044"/>
+        <testcase name="test_printf::sub_q_string_special_non_printable" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.012+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_q_string_validate_field_params" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.054+00:00" time="0.041"/>
+        <testcase name="test_printf::sub_str_max_chars_input" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.095+00:00" time="0.042"/>
+        <testcase name="test_printf::sub_string_char_width_above_u16_max_no_panic" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.137+00:00" time="0.531"/>
+        <testcase name="test_printf::test_asterisk_width_i64_min_no_panic" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.667+00:00" time="0.039"/>
+        <testcase name="test_printf::test_emoji_formatting" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.707+00:00" time="0.031"/>
+        <testcase name="test_printf::test_empty_output_succeeds_on_full_device" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.738+00:00" time="0.031"/>
+        <testcase name="test_printf::test_extreme_exponent_does_not_overflow" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.770+00:00" time="0.033">
+            <failure message="thread &apos;test_printf::test_extreme_exponent_does_not_overflow&apos; (1763496) panicked at tests/by-util/test_printf.rs:855:14" type="test failure with exit code 101">thread &apos;test_printf::test_extreme_exponent_does_not_overflow&apos; (1763496) panicked at tests/by-util/test_printf.rs:855:14:
+&apos;printf: &apos;5e8123456789012345678&apos;: Result not representable
+&apos; does not contain &apos;Numerical result out of range&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %a 5e8123456789012345678
+test test_printf::test_extreme_exponent_does_not_overflow ... FAILED
+
+failures:
+
+failures:
+    test_printf::test_extreme_exponent_does_not_overflow
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::test_extreme_exponent_does_not_overflow&apos; (1763496) panicked at tests/by-util/test_printf.rs:855:14:
+&apos;printf: &apos;5e8123456789012345678&apos;: Result not representable
+&apos; does not contain &apos;Numerical result out of range&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::test_extreme_field_width_overflow" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.803+00:00" time="0.042">
+            <failure message="thread &apos;test_printf::test_extreme_field_width_overflow&apos; (1763506) panicked at tests/by-util/test_printf.rs:1636:10" type="test failure with exit code 101">thread &apos;test_printf::test_extreme_field_width_overflow&apos; (1763506) panicked at tests/by-util/test_printf.rs:1636:10:
+&apos;printf: field width too large
+&apos; does not contain &apos;printf: write error&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %999999999999999999999999d 1
+test test_printf::test_extreme_field_width_overflow ... FAILED
+
+failures:
+
+failures:
+    test_printf::test_extreme_field_width_overflow
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::test_extreme_field_width_overflow&apos; (1763506) panicked at tests/by-util/test_printf.rs:1636:10:
+&apos;printf: field width too large
+&apos; does not contain &apos;printf: write error&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::test_large_width_format" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.845+00:00" time="0.040">
+            <failure message="thread &apos;test_printf::test_large_width_format&apos; (1763516) panicked at tests/by-util/test_printf.rs:1612:14" type="test failure with exit code 101">thread &apos;test_printf::test_large_width_format&apos; (1763516) panicked at tests/by-util/test_printf.rs:1612:14:
+&apos;printf: field width too large
+&apos; does not contain &apos;write error&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %20000000f 0
+test test_printf::test_large_width_format ... FAILED
+
+failures:
+
+failures:
+    test_printf::test_large_width_format
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.04s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::test_large_width_format&apos; (1763516) panicked at tests/by-util/test_printf.rs:1612:14:
+&apos;printf: field width too large
+&apos; does not contain &apos;write error&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::test_missing_escaped_hex_value" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.886+00:00" time="0.040"/>
+        <testcase name="test_printf::test_numeric_field_width_above_u16_max" classname="coreutils::tests" timestamp="2026-10-07T12:26:48.926+00:00" time="0.148"/>
+        <testcase name="test_printf::test_overflow" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.074+00:00" time="0.116"/>
+        <testcase name="test_printf::test_precision_above_formatter_limit" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.190+00:00" time="0.034"/>
+        <testcase name="test_printf::test_q_string_control_chars_with_quotes" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.224+00:00" time="0.032">
+            <failure message="thread &apos;test_printf::test_q_string_control_chars_with_quotes&apos; (1763582) panicked at tests/by-util/test_printf.rs:1665:10" type="test failure with exit code 101">thread &apos;test_printf::test_q_string_control_chars_with_quotes&apos; (1763582) panicked at tests/by-util/test_printf.rs:1665:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;&apos;&apos;\&apos;&apos;&apos;
+&gt;&apos;&apos;$&apos;\001&apos;\&apos;&apos;&apos;$&apos;\001&apos;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests printf %q &apos;
+test test_printf::test_q_string_control_chars_with_quotes ... FAILED
+
+failures:
+
+failures:
+    test_printf::test_q_string_control_chars_with_quotes
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_printf::test_q_string_control_chars_with_quotes&apos; (1763582) panicked at tests/by-util/test_printf.rs:1665:10:
+assertion failed: `(left == right)`
+
+Diff &lt; left / right &gt; :
+&lt;&apos;&apos;\&apos;&apos;&apos;
+&gt;&apos;&apos;$&apos;\001&apos;\&apos;&apos;&apos;$&apos;\001&apos;
+
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_printf::test_unterminated_write_error_is_reported" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.256+00:00" time="0.043"/>
+        <testcase name="test_printf::test_write_error_omits_errno" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.299+00:00" time="0.042"/>
+        <testcase name="test_printf::unsigned_hex_negative_wraparound" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.341+00:00" time="0.228"/>
+        <testcase name="test_printf::unspecified_left_justify_is_1_width" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.569+00:00" time="0.041"/>
+        <testcase name="test_printf::value_not_completely_converted_ignores_posixly_correct" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.610+00:00" time="0.035"/>
+        <testcase name="test_printf::variable_sized_octal" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.646+00:00" time="0.142"/>
+        <testcase name="test_printf::zero_padding_with_plus_test" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.788+00:00" time="0.032"/>
+        <testcase name="test_printf::zero_padding_with_space_test" classname="coreutils::tests" timestamp="2026-10-07T12:26:49.821+00:00" time="0.031"/>
+    </testsuite>
+</testsuites>

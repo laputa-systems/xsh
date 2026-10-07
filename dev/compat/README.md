@@ -187,6 +187,11 @@ GNU-compatible diagnostics. The native printf suite passes 29/29; the
 optimized debug Gate 3 slice improves from 127/25 to 129/23 across 152 cases,
 fixing both `/dev/full` write-error cases with no regressions. Reports are in
 `results/printf-write-followup/`.
+Follow-up `964f2fdf` rejects dynamic precision above `INT_MAX` before it can
+trigger a huge allocation, matching GNU's `invalid precision` diagnostic. The
+native printf suite passes 30/30; the optimized debug Gate 3 slice improves
+from 129/23 to 130/22 across 152 cases, with one fix and no regressions.
+Reports are in `results/printf-precision-limit/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
