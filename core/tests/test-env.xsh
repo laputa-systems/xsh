@@ -1,13 +1,17 @@
 type EnvResult = {status: Int, stdout: Str, stderr: Str}
 
-proc env_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[EnvResult] {
+proc env_run(ctx: TestContext, args: List[Str], unset_probe: Bool = false) [fs, process, error] -> Result[EnvResult] {
   let root = test.temp_dir(ctx, name: "env-argv")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/env.xsh"
-  let status = process.run(process.command_argv(ctx.xsh_bin,
-    [ctx.xsh_bin.display(), "--", script.display()].extend(args), root,
-    {LC_ALL: "C"}, b"", stdout, stderr))?
+  let argv = [ctx.xsh_bin.display(), "--", script.display()].extend(args)
+  let command = if unset_probe {
+    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_TEST_UNSET: "present"}, b"", stdout, stderr)
+  } else {
+    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr)
+  }
+  let status = process.run(command)?
   {status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?}
 }
 
@@ -132,4 +136,127 @@ test test_env_rejects_invalid_unset_names { |ctx|
   assert short_inline.stderr == "env: cannot unset '=': Invalid argument\n"
   assert long_inline.status == 125
   assert long_inline.stderr == "env: cannot unset '': Invalid argument\n"
+}
+
+test test_env_prints_assignment_environment { |ctx|
+  let result = env_run(ctx, ["-i", "MOTOR=idle", "GEARBOX=locked"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "GEARBOX=locked\nMOTOR=idle\n"
+  assert result.stderr == ""
+}
+
+test test_env_unset_removes_variable_from_environment_output { |ctx|
+  let result = env_run(ctx, ["-u", "XSH_TEST_UNSET"], true)?
+
+  assert result.status == 0, result.stderr
+  assert "XSH_TEST_UNSET=" not in result.stdout
+}
+
+test test_env_null_output_uses_nul_separators { |ctx|
+  let result = env_run(ctx, ["-i", "-0", "A=one", "B=two"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "A=one\0B=two\0"
+  assert result.stderr == ""
+}
+
+test test_env_replaces_child_environment_with_assignments { |ctx|
+  let result = env_run(ctx, ["-i", "VALUE=kept", "/usr/bin/env"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "VALUE=kept\n"
+  assert result.stderr == ""
+}
+
+test test_env_accepts_unicode_environment_names { |ctx|
+  let result = env_run(ctx, ["-i", "🎯_VAR=Hello 🌍", "/usr/bin/env"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "🎯_VAR=Hello 🌍\n"
+  assert result.stderr == ""
+}
+
+test test_env_uses_path_from_replacement_environment { |ctx|
+  let result = env_run(ctx, ["-i", "PATH=/bin", "echo", "found"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "found\n"
+  assert result.stderr == ""
+}
+
+test test_env_reparses_options_in_split_string { |ctx|
+  let result = env_run(ctx, ["-S", "-i VALUE=split /usr/bin/env"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "VALUE=split\n"
+  assert result.stderr == ""
+}
+
+test test_env_split_string_after_ignore_option { |ctx|
+  let result = env_run(ctx, ["-i", "-SX=\"Y\\_Z=W\" /usr/bin/env"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "X=Y Z=W\n"
+  assert result.stderr == ""
+}
+
+test test_env_verbose_split_string_reports_gnu_trace { |ctx|
+  let result = env_run(ctx, ["-vS /bin/echo split"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "split\n"
+  assert "split -S:" in result.stderr
+  assert "executing: /bin/echo\n" in result.stderr
+}
+
+test test_env_rejects_empty_assignment_name { |ctx|
+  let result = env_run(ctx, ["-i", "=zap"])?
+
+  assert result.status == 125
+  assert result.stderr == "env: cannot set '': Invalid argument\n"
+}
+
+test test_env_split_string_invalid_escape_uses_gnu_message { |ctx|
+  let result = env_run(ctx, [r"-S\|echo"])?
+
+  assert result.status == 125
+  assert result.stderr == "env: invalid sequence '\\|' in -S\n"
+}
+
+test test_env_split_string_single_quote_escapes { |ctx|
+  let result = env_run(ctx, ["-S /usr/bin/printf %s:%s 'foo\\'bar' 'a\\\\b'"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "foo'bar:a\\b"
+}
+
+test test_env_split_string_unquoted_backslash_c_ends_word { |ctx|
+  let result = env_run(ctx, ["-S /usr/bin/printf %s foo\\c ignored"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "foo"
+}
+
+test test_env_reports_invalid_change_directory { |ctx|
+  let result = env_run(ctx, ["-C", "missing-directory", "/bin/echo"])?
+
+  assert result.status == 125
+  assert "cannot change directory to 'missing-directory'" in result.stderr
+}
+
+test test_env_hints_for_shebang_command_arguments { |ctx|
+  let result = env_run(ctx, ["missing command"])?
+
+  assert result.status == 127
+  assert "No such file or directory" in result.stderr
+  assert "use -[v]S to pass options in shebang lines" in result.stderr
+}
+
+test test_env_help_lists_options { |ctx|
+  let result = env_run(ctx, ["--help"])?
+
+  assert result.status == 0, result.stderr
+  assert "Options:" in result.stdout
+  assert "--unset" in result.stdout
 }
