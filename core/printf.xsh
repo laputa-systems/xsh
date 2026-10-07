@@ -17,8 +17,8 @@ type PrintfSpec = {
 }
 
 type Escape = {data: Bytes, next: Int, stop: Bool, issue: Str?}
-type Rendered = {data: Bytes, stop: Bool, failed: Bool}
-type Pass = {data: Bytes, next_argument: Int, conversions: Int, stop: Bool, failed: Bool}
+type Rendered = {data: Bytes, stop: Bool, failed: Bool, prefix_flushed: Bool}
+type Pass = {data: Bytes, next_argument: Int, conversions: Int, stop: Bool, failed: Bool, prefix_flushed: Bool}
 type PrintfArgument = {data: Bytes, text: Str}
 type DecimalScan = {value: Int, next: Int}
 type IntegerParse = {value: Int, issue: Str?, warning: Str?}
@@ -364,6 +364,33 @@ pure pad_text(text: Str, width: Int, left: Bool, fill: Str) -> Str {
   if left { text + padding } else { padding + text }
 }
 
+proc write_repeat(fill: Bytes, count: Int) [process, env, io, error] {
+  return when count <= 0
+  let full_size = 65536
+  let atoms: List[Bytes] = collect { repeat full_size times { yield fill } }
+  let full = bytes.concat(atoms)
+  var remaining = count
+  while remaining > 0 {
+    let size = if remaining < full_size { remaining } else { full_size }
+    gnu.write_bytes(if size == full_size { full } else { full[0..size] })
+    remaining -= size
+  }
+}
+
+proc write_field(prefix: Bytes, before: Bytes, body: Bytes, after: Bytes, padding: Int, fill: Bytes, left: Bool) [process, env, io, error] {
+  gnu.write_bytes(prefix)
+  gnu.write_bytes(before)
+  if left {
+    gnu.write_bytes(body)
+    gnu.write_bytes(after)
+    write_repeat(fill, padding)
+  } else {
+    write_repeat(fill, padding)
+    gnu.write_bytes(body)
+    gnu.write_bytes(after)
+  }
+}
+
 pure byte_character(value: Int) -> Result[Bytes] {
   bytes.from_ints([value])
 }
@@ -602,9 +629,9 @@ proc shell_quote(data: Bytes) [env] -> Str {
   gnu.quote_bytes(data, always: false)
 }
 
-proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, precision: Int?, prefix: Bytes) [process, env, error, io] -> Result[Rendered] {
+proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, precision: Int?, previous_output: Bytes) [process, env, error, io] -> Result[Rendered] {
   let left = spec.flags.find("-") != null or width < 0
-  let field_width = if width < 0 { -width } else { width }
+  let field_width = if width == -9223372036854775807 - 1 { 9223372036854775807 } else if width < 0 { -width } else { width }
   let fill = if spec.flags.find("0") != null and ! left and precision == null { "0" } else { " " }
 
   if spec.conversion == "s" or spec.conversion == "q" {
@@ -614,8 +641,13 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
       if limit < clipped.count_chars() { clipped = clipped[0..limit] }
     }
     let rendered = if spec.conversion == "s" and precision == null { argument.data } else { bytes.from_text(clipped) }
-    let padding = bytes.from_text(pad_text("", field_width - clipped.count_chars(), false, " "))
-    return {data: if left { bytes.concat([rendered, padding]) } else { bytes.concat([padding, rendered]) }, stop: false, failed: false}
+    let padding_count = field_width - clipped.count_chars()
+    if field_width > 1000000 {
+      write_field(previous_output, b"", rendered, b"", padding_count, b" ", left)
+      return {data: b"", stop: false, failed: false, prefix_flushed: true}
+    }
+    let padding = bytes.from_text(pad_text("", padding_count, false, " "))
+    return {data: if left { bytes.concat([rendered, padding]) } else { bytes.concat([padding, rendered]) }, stop: false, failed: false, prefix_flushed: false}
   }
 
   if spec.conversion == "c" {
@@ -629,18 +661,23 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
     } else {
       value_data[0..1]
     }
-    let padding = bytes.from_text(pad_text("", field_width - 1, false, " "))
-    return {data: if left { bytes.concat([character, padding]) } else { bytes.concat([padding, character]) }, stop: false, failed: false}
+    let padding_count = field_width - 1
+    if field_width > 1000000 {
+      write_field(previous_output, b"", character, b"", padding_count, b" ", left)
+      return {data: b"", stop: false, failed: false, prefix_flushed: true}
+    }
+    let padding = bytes.from_text(pad_text("", padding_count, false, " "))
+    return {data: if left { bytes.concat([character, padding]) } else { bytes.concat([padding, character]) }, stop: false, failed: false, prefix_flushed: false}
   }
 
   if spec.conversion == "b" {
     let expanded = unescape_bytes(argument.data)?
     if let issue = expanded.issue {
-      gnu.write_bytes(prefix)
+      gnu.write_bytes(previous_output)
       gnu.error(issue)
       exit 1
     }
-    return {data: expanded.data, stop: expanded.stop, failed: false}
+    return {data: expanded.data, stop: expanded.stop, failed: false, prefix_flushed: false}
   }
 
   if "fFeEgGaA".find(spec.conversion) != null {
@@ -658,8 +695,14 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
     let unsigned_body = if body.starts_with("-") { body.byte_slice(1) } else { body }
     let raw = sign + unsigned_body
     let float_fill = if spec.flags.find("0") != null and ! left and ! float_is_nan(number) and ! float_is_infinite(number) { "0" } else { " " }
+    let zero_padding = float_fill == "0" and field_width > raw.count_chars()
+    let padding_count = field_width - raw.count_chars()
+    if field_width > 1000000 {
+      write_field(previous_output, bytes.from_text(if zero_padding { sign } else { "" }), bytes.from_text(if zero_padding { unsigned_body } else { raw }), b"", padding_count, bytes.from_text(if zero_padding { "0" } else { " " }), left)
+      return {data: b"", stop: false, failed: parsed.issue != null, prefix_flushed: true}
+    }
     let padded = if float_fill == "0" and field_width > raw.count_chars() { sign + pad_text(raw.byte_slice(sign.byte_len()), field_width - sign.count_chars(), false, "0") } else { pad_text(raw, field_width, left, float_fill) }
-    return {data: bytes.from_text(padded), stop: false, failed: parsed.issue != null}
+    return {data: bytes.from_text(padded), stop: false, failed: parsed.issue != null, prefix_flushed: false}
   }
 
   let auto_base = spec.conversion != "d"
@@ -690,15 +733,23 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
   }
   if base == 8 and spec.flags.find("#") != null and magnitude == 0 and precision == 0 { digits = "0" }
   let raw = sign + prefix + digits
-  if fill == "0" and ! left and precision == null and field_width > raw.count_chars() {
-    return {data: bytes.from_text(sign + prefix + pad_text(digits, field_width - sign.count_chars() - prefix.count_chars(), false, "0")), stop: false, failed: parsed.issue != null}
+  let zero_padding = fill == "0" and ! left and precision == null and field_width > raw.count_chars()
+  let padding_count = field_width - raw.count_chars()
+  if field_width > 1000000 {
+    write_field(previous_output, bytes.from_text(if zero_padding { sign + prefix } else { "" }), bytes.from_text(if zero_padding { digits } else { raw }), b"", padding_count, bytes.from_text(if zero_padding { "0" } else { " " }), left)
+    return {data: b"", stop: false, failed: parsed.issue != null, prefix_flushed: true}
   }
-  {data: bytes.from_text(pad_text(raw, field_width, left, if fill == "0" { " " } else { fill })), stop: false, failed: parsed.issue != null}
+  if zero_padding {
+    return {data: bytes.from_text(sign + prefix + pad_text(digits, digits.count_chars() + padding_count, false, "0")), stop: false, failed: parsed.issue != null, prefix_flushed: false}
+  }
+  {data: bytes.from_text(pad_text(raw, field_width, left, if fill == "0" { " " } else { fill })), stop: false, failed: parsed.issue != null, prefix_flushed: false}
 }
 
 proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, prefix: Bytes) [error, io, process, env] -> Pass {
   var output: List[Bytes] = []
   var at = 0
+  var prefix_data = prefix
+  var prefix_flushed = false
   var argument_index = first_argument
   var next_argument = first_argument
   var conversions = 0
@@ -709,12 +760,12 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
     if byte == 92 {
       let escaped = scan_escape(fmt, at)?
       if let issue = escaped.issue {
-        gnu.write_bytes(bytes.concat([prefix, bytes.concat(output)]))
+        gnu.write_bytes(bytes.concat([prefix_data, bytes.concat(output)]))
         gnu.error(issue)
         exit 1
       }
       output += [escaped.data]
-      if escaped.stop { return {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
+      if escaped.stop { return {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: true, failed: failed, prefix_flushed: prefix_flushed} }
       at = escaped.next
     } else if byte != 37 {
       output += [fmt[at..at + 1]]
@@ -726,7 +777,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
       let spec = parse_spec(fmt, at)
       if ! spec.valid {
         let shown = lossless_text(fmt[at..if spec.end > at { spec.end } else { at + 1 }])?
-        gnu.write_bytes(bytes.concat([prefix, bytes.concat(output)]))
+        gnu.write_bytes(bytes.concat([prefix_data, bytes.concat(output)]))
         gnu.error(f"{shown}: invalid conversion specification")
         exit 1
       }
@@ -734,11 +785,26 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
       var width = spec.width
       if spec.width_dynamic {
         let index = if spec.width_position == null { argument_index } else { indexed_argument(first_argument, spec.width_position ?? 0, values.len()) }
-        width = integer_prefix(if index < values.len() { values[index].text } else { "0" }, true)
+        let width_text = if index < values.len() { values[index].text } else { "0" }
+        let parsed_width = integer_parse(width_text, true)
+        if parsed_width.issue == "Numerical result out of range" {
+          gnu.error(f"{gnu.quote_value(width_text)}: Result not representable")
+        }
+        if parsed_width.value < -2147483648 or parsed_width.value > 2147483647 {
+          gnu.write_bytes(bytes.concat([prefix_data, bytes.concat(output)]))
+          gnu.error(f"invalid field width: {gnu.quote_value(width_text)}")
+          exit 1
+        }
+        width = parsed_width.value
         if spec.width_position == null {
           argument_index += 1
           next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
         } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
+      }
+      if width >= 2147483647 or width <= -2147483647 {
+        gnu.write_bytes(bytes.concat([prefix_data, bytes.concat(output)]))
+        gnu.error("write error")
+        exit 1
       }
       var precision = spec.precision
       if spec.precision_dynamic {
@@ -755,28 +821,27 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
           next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
         } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
-      if width > 1000000 or width < -1000000 {
-        gnu.write_bytes(bytes.concat([prefix, bytes.concat(output)]))
-        gnu.error("field width too large")
-        exit 1
-      }
-
       let index = if spec.position == null { argument_index } else { indexed_argument(first_argument, spec.position ?? 0, values.len()) }
       let value: PrintfArgument = if index < values.len() { values[index] } else if spec.conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A"] { printf_argument(b"0")? } else { printf_argument(b"")? }
       if spec.position == null {
         argument_index += 1
         next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
       } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
-      let rendered = conversion_text(spec, value, width, precision, bytes.concat([prefix, bytes.concat(output)]))?
+      let rendered = conversion_text(spec, value, width, precision, bytes.concat([prefix_data, bytes.concat(output)]))?
+      if rendered.prefix_flushed {
+        prefix_flushed = true
+        prefix_data = b""
+        output = []
+      }
       output += [rendered.data]
       failed = failed or rendered.failed
       conversions += 1
       at = spec.end
-      if rendered.stop { return {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
+      if rendered.stop { return {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: true, failed: failed, prefix_flushed: prefix_flushed} }
     }
   }
 
-  {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: false, failed: failed}
+  {data: bytes.concat(output), next_argument: next_argument, conversions: conversions, stop: false, failed: failed, prefix_flushed: prefix_flushed}
 }
 
 proc render(fmt: Bytes, values: List[PrintfArgument]) [error, io, process, env] -> PrintfOutput {
@@ -788,6 +853,7 @@ proc render(fmt: Bytes, values: List[PrintfArgument]) [error, io, process, env] 
 
   while argument < values.len() {
     let next = render_pass(fmt, values, argument, output)
+    if next.prefix_flushed { output = b"" }
     output = bytes.concat([output, next.data])
     failed = failed or next.failed
     argument = next.next_argument

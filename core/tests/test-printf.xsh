@@ -88,6 +88,68 @@ test test_printf_flushes_stdout_and_reports_write_errors { |ctx|
   assert empty_error.read_text()? == ""
 }
 
+test test_printf_streams_large_field_widths { |ctx|
+  let root = test.temp_dir(ctx, name: "printf-large-width")?
+  let script = fp"{ctx.core_dir}/printf.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "A%1000001sB", "x"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  let data = stdout.read_bytes()?
+
+  assert status.exit_code()? == 0
+  assert data.len() == 1000003
+  assert data.byte_at(0) == 65
+  assert data.byte_at(1) == 32
+  assert data.byte_at(1000001) == 120
+  assert data.byte_at(1000002) == 66
+  assert stderr.read_text()? == ""
+
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  let full_error = fp"{root}/error-full"
+  let full = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "%20000000f", "1"], root,
+    {LC_ALL: "C"}, b"", p"/dev/full", full_error))?
+  assert full.exit_code()? == 1
+  assert full_error.read_text()? == "printf: write error: No space left on device\n"
+
+  let overflow_error = fp"{root}/error-overflow"
+  let overflow = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "%999999999999999999999999d", "1"], root,
+    {LC_ALL: "C"}, b"", p"/dev/full", overflow_error))?
+  assert overflow.exit_code()? == 1
+  assert overflow_error.read_text()? == "printf: write error\n"
+}
+
+test test_printf_matches_c_field_width_limits { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  let root = test.temp_dir(ctx, name: "printf-width-limits")?
+  let script = fp"{ctx.core_dir}/printf.xsh"
+
+  for width in ["-9223372036854775808", "2147483648", "9223372036854775808"] {
+    let error_path = fp"{root}/dynamic-{width.byte_len()}"
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), "%*d", width, "1"], root,
+      {LC_ALL: "C"}, b"", p"/dev/full", error_path))?
+
+    assert result.exit_code()? == 1
+    let diagnostic = error_path.read_text()?
+    assert "invalid field width" in diagnostic
+    assert width in diagnostic
+    if width == "9223372036854775808" {
+      assert "Result not representable" in diagnostic
+    }
+  }
+
+  let overflow_error = fp"{root}/literal-overflow"
+  let overflow = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "%999999999999999999999999d", "1"], root,
+    {LC_ALL: "C"}, b"", p"/dev/full", overflow_error))?
+  assert overflow.exit_code()? == 1
+  assert overflow_error.read_text()? == "printf: write error\n"
+}
+
 test test_printf_rejects_precision_above_printf_limit { |ctx|
   let result = printf_run(ctx, ["%.*d", "2147483648", "0"])?
 
