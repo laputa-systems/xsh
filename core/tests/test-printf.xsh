@@ -38,6 +38,22 @@ proc printf_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Resul
   {status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?}
 }
 
+test test_printf_warns_about_arguments_after_literal_format { |ctx|
+  let literal = printf_run(ctx, ["a", "b"])?
+  let repeated = printf_run(ctx, ["%s", "a", "b"])?
+  let stopped = printf_run(ctx, ["A%sC\\cD%sF", "B", "E"])?
+
+  assert literal.status == 0
+  assert literal.stdout == "a"
+  assert literal.stderr == "printf: warning: ignoring excess arguments, starting with 'b'\n"
+  assert repeated.status == 0
+  assert repeated.stdout == "ab"
+  assert repeated.stderr == ""
+  assert stopped.status == 0
+  assert stopped.stdout == "ABC"
+  assert stopped.stderr == ""
+}
+
 test test_printf_only_leading_double_dash_ends_options { |ctx|
   for args in [["--", "%s\\n", "a"], ["%s\\n", "--"], ["--", "%s\\n", "--"]] {
     let output = printf_run(ctx, args)?
@@ -78,6 +94,16 @@ test test_printf_numeric_string_and_character_conversions { |ctx|
   assert output.status == 0, output.stderr
   assert output.stdout == "[-0012][xy   ][abc][0x1a][A]"
   assert output.stderr == ""
+}
+
+test test_printf_rejects_invalid_string_and_character_specifiers { |ctx|
+  for format in ["%0c", "%0s", "%5.2c", "%.0c", "%-5.2c"] {
+    let output = printf_run(ctx, [format, "3"])?
+
+    assert output.status == 1, output.stderr
+    assert output.stdout == ""
+    assert output.stderr == f"printf: {format}: invalid conversion specification\n"
+  }
 }
 
 test test_printf_dynamic_width_precision_and_repeated_format { |ctx|

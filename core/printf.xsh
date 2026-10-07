@@ -22,7 +22,7 @@ type Pass = {text: Str, next_argument: Int, conversions: Int, stop: Bool, failed
 type DecimalScan = {value: Int, next: Int}
 type IntegerParse = {value: Int, issue: Str?}
 type FloatParse = {value: Float, issue: Str?}
-type PrintfOutput = {text: Str, failed: Bool}
+type PrintfOutput = {text: Str, failed: Bool, next_argument: Int, stopped: Bool}
 
 pure usage(applet_name: Str, summary: Str) -> Str {
   f"usage: xsh applets/{applet_name}.xsh -- {summary}"
@@ -111,7 +111,10 @@ pure parse_spec(text: Str, start: Int) -> PrintfSpec {
   while at < text.byte_len() and "hlLzjtq".find(text.byte_slice(at, length: 1)) != null { at += 1 }
 
   let conversion = if at < text.byte_len() { text.byte_slice(at, length: 1) } else { "" }
-  let valid = conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A", "s", "c", "b", "q"]
+  let known_conversion = conversion in ["d", "i", "o", "u", "x", "X", "f", "F", "e", "E", "g", "G", "a", "A", "s", "c", "b", "q"]
+  let invalid_zero_flag = flags.find("0") != null and conversion in ["s", "c"]
+  let invalid_character_precision = conversion == "c" and precision != null
+  let valid = known_conversion and ! invalid_zero_flag and ! invalid_character_precision
 
   {end: if conversion == "" { at } else { at + 1 }, flags: flags, width: width, width_dynamic: width_dynamic, precision: precision, precision_dynamic: precision_dynamic, position: position, width_position: width_position, precision_position: precision_position, conversion: conversion, valid: valid}
 }
@@ -667,17 +670,17 @@ proc render(fmt: Str, values: List[Str]) [error, process, env] -> PrintfOutput {
   var output = first.text
   var failed = first.failed
   var argument = first.next_argument
-  if first.stop or first.conversions == 0 { return {text: output, failed: failed} }
+  if first.stop or first.conversions == 0 { return {text: output, failed: failed, next_argument: argument, stopped: first.stop} }
 
   while argument < values.len() {
     let next = render_pass(fmt, values, argument)
     output += next.text
     failed = failed or next.failed
     argument = next.next_argument
-    if next.stop or next.conversions == 0 { return {text: output, failed: failed} }
+    if next.stop or next.conversions == 0 { return {text: output, failed: failed, next_argument: argument, stopped: next.stop} }
   }
 
-  {text: output, failed: failed}
+  {text: output, failed: failed, next_argument: argument, stopped: false}
 }
 
 # Once FORMAT begins, every later argument is data, including option-looking
@@ -696,7 +699,11 @@ proc main(...argv: List[Str]) [error, io, process, env] {
     }
   }
   return Err(usage_error("printf", "FORMAT [ARG...]")) when arguments.is_empty()
-  let output = render(arguments[0], arguments[1..])
+  let values = arguments[1..]
+  let output = render(arguments[0], values)
   io.write_stdout(output.text)
+  if ! output.stopped and output.next_argument < values.len() {
+    gnu.error(f"warning: ignoring excess arguments, starting with {gnu.quote_value(values[output.next_argument])}")
+  }
   if output.failed { exit 1 }
 }
