@@ -21,3 +21,21 @@ test test_dircolors_terminal_selection_and_bad_database { |ctx|
   assert bad.status.exited_with(1)
   assert "unrecognized keyword 'UNKNOWN'" in bad.stderr
 }
+
+test test_dircolors_gnu_keywords_and_shell_escaping { |ctx|
+  let target = test.temp_file(ctx, name: "quoted-colors.txt", contents: b"LEFT 1\nRIGHT 2\nEND 3\nCLRTOEOL 4\nFILE a=b:c\n*.caret a^:b\n*.slash a\\:b\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dircolors.xsh" -- -b $target
+  assert output == "LS_COLORS='lc=1:rc=2:ec=3:cl=4:fi=a\\=b\\:c:*.caret=a^:b:*.slash=a\\:b:';\nexport LS_COLORS\n"
+}
+
+test test_dircolors_value_comment_without_space { |ctx|
+  let target = test.temp_file(ctx, name: "inline-comment-colors.txt", contents: b"DIR 32# comment\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dircolors.xsh" -- -b $target
+  assert output == "LS_COLORS='di=32:';\nexport LS_COLORS\n"
+}
+
+test test_dircolors_shell_escapes_single_quotes { |ctx|
+  let target = test.temp_file(ctx, name: "single-quote-colors.txt", contents: b"EXEC 'echo Hello;:'\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dircolors.xsh" -- -b $target
+  assert output == "LS_COLORS='ex='\\''echo Hello;\\:'\\'':';\nexport LS_COLORS\n"
+}

@@ -2,10 +2,122 @@
 use lib.gnu
 use lib.date_parse
 
+# GNU date treats a lone dash like an empty date expression, which means midnight today.
+proc parse_date(text: Str, utc: Bool) [time, error] -> Result[Int, Error] {
+  var input = if text == "-" { "" } else { text }
+  let words = input.replace("\t", with: " ").split(" ") |> where . != ""
+  if words.len() >= 2 {
+    let count = rx"^-([0-9]+)$".captures(words[-2])
+    let unit = words[-1].lower()
+    if ! count.is_empty() and unit in ["sec", "secs", "second", "seconds", "min", "mins", "minute", "minutes", "hour", "hours", "day", "days", "week", "weeks", "fortnight", "fortnights", "month", "months", "year", "years"] {
+      let prefix = words[0..-2].join(" ")
+      input = f"{if prefix == "" { "" } else { f"{prefix} " }}{count[1]} {words[-1]} ago"
+    }
+  }
+  date_parse.parse(input, utc:)
+}
+
+# GNU date removes fractional trailing zeroes up to the requested precision, then pads after the digits.
+proc format_nanoseconds(epoch_ns: Int, flags: Str, width_text: Str, utc: Bool) [time, error] -> Result[Str] {
+  var width = if width_text == "" { 9 } else { width_text.parse_int_decimal()? }
+  if width <= 0 { width = 9 }
+  let digits = time.format(epoch_ns, "%9N", utc:)?
+  var digit_count = 9
+  while digit_count > width or (digit_count > 1 and (digits.byte_at(digit_count - 1) ?? 0) == 48) { digit_count -= 1 }
+  var output = digits.byte_slice(0, digit_count)
+  var padding = "0"
+  var no_padding = false
+  for flag in flags {
+    match flag {
+      "_" => { padding = " "; no_padding = false }
+      "-" => no_padding = true
+      "0" | "+" => { padding = "0"; no_padding = false }
+      else => {}
+    }
+  }
+  if flags == "-" and width_text == "" {
+    let resolution = time.clock_resolution()?
+    width = 9
+    var threshold = 10
+    while threshold <= resolution { width -= 1; threshold *= 10 }
+    if width <= 0 { width = 9 }
+    return time.format(epoch_ns, f"%{width}N", utc:)
+  }
+  if ! no_padding {
+    var remaining = width - digit_count
+    var fill = padding
+    var suffix = ""
+    while remaining > 0 {
+      if remaining % 2 == 1 { suffix = f"{suffix}{fill}" }
+      remaining /= 2
+      if remaining > 0 { fill = f"{fill}{fill}" }
+    }
+    output = f"{output}{suffix}"
+  }
+  Ok(output)
+}
+
+proc format_date(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[Str] {
+  # The shared formatter enforces width and output limits before date adjusts %N padding.
+  let formatted = time.format(epoch_ns, format, utc:)?
+  if format.find("N") == null { return Ok(formatted) }
+  var output = ""
+  var index = 0
+  let length = format.byte_len()
+  while index < length {
+    if (format.byte_at(index) ?? 0) != 37 {
+      let start = index
+      while index < length and (format.byte_at(index) ?? 0) != 37 { index += 1 }
+      output = f"{output}{time.format(epoch_ns, format.byte_slice(start, length: index - start), utc:)?}"
+      continue
+    }
+    let start = index
+    index += 1
+    if index >= length {
+      output = f"{output}{time.format(epoch_ns, format.byte_slice(start), utc:)?}"
+      break
+    }
+    if (format.byte_at(index) ?? 0) == 37 { output = f"{output}%"; index += 1; continue }
+    var flags = ""
+    while index < length and (format.byte_at(index) ?? 0) in [35, 43, 45, 48, 94, 95] {
+      flags = f"{flags}{format.byte_slice(index, length: 1)}"
+      index += 1
+    }
+    var width_text = ""
+    while index < length and (format.byte_at(index) ?? 0) >= 48 and (format.byte_at(index) ?? 0) <= 57 {
+      width_text = f"{width_text}{format.byte_slice(index, length: 1)}"
+      index += 1
+    }
+    var colons = 0
+    while index < length and (format.byte_at(index) ?? 0) == 58 { colons += 1; index += 1 }
+    var modifier = ""
+    if index < length and ((format.byte_at(index) ?? 0) == 69 or (format.byte_at(index) ?? 0) == 79) {
+      modifier = format.byte_slice(index, length: 1)
+      index += 1
+    }
+    if index >= length {
+      output = f"{output}{time.format(epoch_ns, format.byte_slice(start), utc:)?}"
+      break
+    }
+    let first_byte = format.byte_at(index) ?? 0
+    let spec_width = if first_byte < 128 { 1 } else if first_byte < 224 { 2 } else if first_byte < 240 { 3 } else { 4 }
+    let end = index + spec_width
+    let specifier = format.byte_slice(index, length: spec_width)
+    let piece = if specifier == "N" and colons == 0 {
+      if modifier == "E" { format.byte_slice(start, length: end - start) } else { format_nanoseconds(epoch_ns, flags, width_text, utc:)? }
+    } else {
+      time.format(epoch_ns, format.byte_slice(start, length: end - start), utc:)?
+    }
+    output = f"{output}{piece}"
+    index = end
+  }
+  Ok(output)
+}
+
 proc emit_date(text: Str, format: Str, utc: Bool) [time, process, env, io, error] -> Bool {
-  match date_parse.parse(text, utc:) {
+  match parse_date(text, utc:) {
     Ok(epoch) => {
-      match time.format(epoch, format, utc:) {
+      match format_date(epoch, format, utc:) {
         Ok(output) => { gnu.write_text(f"{output}\n"); return true }
         Err(failure) => gnu.error(failure.message)
       }
@@ -31,12 +143,14 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
   var file = ""
   var reference = ""
   var setting = false
+  var set_option = false
   var format = "%a %b %e %H:%M:%S %Z %Y"
   var specified_format = false
   var source = ""
   var resolution = false
   var index = 0
   var operands = false
+  var date_operand = false
   while index < argv.len() {
     let arg = argv[index]
     index += 1
@@ -74,7 +188,7 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
       let kind = if arg.starts_with("-f") or arg.starts_with("--file") { "file" } else if arg.starts_with("-r") or arg.starts_with("--reference") { "reference" } else if arg.starts_with("-s") or arg.starts_with("--set") { "set" } else { "date" }
       if source != "" and source != kind { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
       source = kind
-      if arg.starts_with("-f") or arg.starts_with("--file") { file = value } else if arg.starts_with("-r") or arg.starts_with("--reference") { reference = value } else { date = value; setting = arg.starts_with("-s") or arg.starts_with("--set") }
+      if arg.starts_with("-f") or arg.starts_with("--file") { file = value } else if arg.starts_with("-r") or arg.starts_with("--reference") { reference = value } else { date = value; setting = arg.starts_with("-s") or arg.starts_with("--set"); set_option = setting }
       continue
     }
     if arg.starts_with("+") {
@@ -82,21 +196,22 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
       format = arg.byte_slice(1); specified_format = true
     } else if ! operands and arg.starts_with("-") and arg != "-" { gnu.usage_error(f"unrecognized option {gnu.quote(arg)}") } else {
       if source != "" {
+        if date_operand { gnu.extra_operand(arg) }
         gnu.error(f"the argument {arg} lacks a leading '+';\nwhen using an option to specify date(s), any non-option\nargument must be a format string beginning with '+'")
         exit 1
       }
-      source = "set"; date = arg; setting = true
+      source = "set"; date = arg; setting = true; date_operand = true
     }
   }
   if resolution {
     if source != "" { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
     let nanos = time.clock_resolution()?
-    if specified_format or format != "%a %b %e %H:%M:%S %Z %Y" { gnu.write_text(f"{time.format(nanos, format, utc:)?}\n") } else { gnu.write_text(f"{nanos / 1000000000}.{time.format(nanos % 1000000000, "%N", utc: true)?}\n") }
+    if specified_format or format != "%a %b %e %H:%M:%S %Z %Y" { gnu.write_text(f"{format_date(nanos, format, utc:)?}\n") } else { gnu.write_text(f"{nanos / 1000000000}.{format_date(nanos % 1000000000, "%N", utc: true)?}\n") }
     return
   }
   if source == "reference" {
     match fs.stat(fp"{reference}", follow_symlinks: true) {
-      Ok(meta) => { gnu.write_text(f"{time.format(meta.mtime_ns, format, utc:)?}\n"); return }
+      Ok(meta) => { gnu.write_text(f"{format_date(meta.mtime_ns, format, utc:)?}\n"); return }
       Err(failure) => { gnu.name_error(reference, failure); exit 1 }
     }
   }
@@ -121,7 +236,9 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
     return
   }
   if setting {
-    match date_parse.parse(date, utc:) {
+    if date_operand and date == "" { gnu.error(f"invalid date {gnu.quote(date)}"); exit 1 }
+    let parsed = if set_option { parse_date(date, utc:) } else { date_parse.parse(date, utc:) }
+    match parsed {
       Ok(epoch) => {
         if let Err(failure) = linux.set_system_clock(epoch / 1000000) {
           gnu.error(f"cannot set date: {gnu.strerror(failure)}")

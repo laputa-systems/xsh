@@ -37,11 +37,34 @@ pure color_key(key: Str) -> Str {
     "other_writable" | "owr" => "ow"
     "sticky" => "st"
     "exec" => "ex"
-    "leftcode" => "lc"
-    "rightcode" => "rc"
-    "endcode" => "ec"
+    "left" | "leftcode" => "lc"
+    "right" | "rightcode" => "rc"
+    "end" | "endcode" => "ec"
+    "clrtoeol" => "cl"
     else => ""
   }
+}
+
+pure shell_output_field(text: Str) -> Str {
+  var output = ""
+  var needs_escape = true
+  for char in text {
+    if char == "'" {
+      output = f"{output}'\\''"
+      needs_escape = true
+    } else if char == "\\" or char == "^" {
+      output = f"{output}{char}"
+      needs_escape = !needs_escape
+    } else if char == ":" or char == "=" {
+      if needs_escape { output = f"{output}\\" }
+      output = f"{output}{char}"
+      needs_escape = true
+    } else {
+      output = f"{output}{char}"
+      needs_escape = true
+    }
+  }
+  output
 }
 
 proc main(...argv: List[Str]) [process, env, io, fs, error] {
@@ -114,12 +137,14 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
     line_number += 1
     var line = original.trim()
     if line == "" or line.starts_with("#") { continue }
-    let comment_at = line.find(" #") ?? -1
-    if comment_at >= 0 { line = line.byte_slice(0, comment_at).trim() }
     let words = line.replace("\t", with: " ").split(" ") |> where . != ""
     if words.len() < 2 { gnu.error(f"{file}:{line_number}: invalid line; missing second token"); exit 1 }
     let key = words[0]
-    let value = line.byte_slice(key.byte_len()).trim()
+    var value = line.byte_slice(key.byte_len()).trim()
+    if value.starts_with("#") { gnu.error(f"{file}:{line_number}: invalid line; missing second token"); exit 1 }
+    let value_comment_at = value.find("#") ?? -1
+    if value_comment_at >= 0 { value = value.byte_slice(0, value_comment_at).trim() }
+    if value == "" { gnu.error(f"{file}:{line_number}: invalid line; missing second token"); exit 1 }
     if key.lower() == "term" or key.lower() == "colorterm" {
       if ! selectors or entries { selected = false; entries = false; selectors = true }
       if term_matches(value, if key.lower() == "term" { term } else { colorterm }) { selected = true }
@@ -132,8 +157,8 @@ proc main(...argv: List[Str]) [process, env, io, fs, error] {
     let code = if key.starts_with(".") { f"*{key}" } else if key.starts_with("*") { key } else { named }
     if code == "" { gnu.error(f"{file}:{line_number}: unrecognized keyword {gnu.quote(key)}"); exit 1 }
     if display { output = f"{output}\x1b[{value}m{code}\t{value}\x1b[0m\n" } else {
-      let escaped_code = code.replace("'", with: "'\\''").replace(":", with: "\\:")
-      let escaped_value = value.replace("'", with: "'\\''").replace(":", with: "\\:")
+      let escaped_code = shell_output_field(code)
+      let escaped_value = shell_output_field(value)
       output = f"{output}{escaped_code}={escaped_value}:"
     }
   }

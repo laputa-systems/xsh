@@ -7,6 +7,62 @@ test test_date_format { |ctx|
   assert offset.trim() == "+0000"
 }
 
+test test_date_format_modifiers_and_width_bounds { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let output = run.text ${ctx.xsh_bin} $script -- -u -d "1999-06-01 05:00:00" "+%10Y|%_5m|%-5d|%^B|%#P|%Om|%02j|%+6Y"
+  assert output == "0000001999|    6|1|JUNE|am|06|152|+01999\n"
+  let nanos = run.text ${ctx.xsh_bin} $script -- -u -d "@0" "+%_3N|%-N|%-3N|%10N"
+  assert nanos == "0  |000000000|0|0000000000\n"
+  let modifiers = run.text ${ctx.xsh_bin} $script -- -u -d "@0" "+%EN|%ON"
+  assert modifiers == "%EN|000000000\n"
+
+  let oversized = run.capture --text ${ctx.xsh_bin} $script -- -u -d "@0" "+%8888888888888s"
+  assert oversized.status.exited_with(1)
+  assert oversized.stdout == ""
+  assert oversized.stderr == "date: format modifier width '8888888888888' is too large for specifier '%s'\n"
+
+  let overflowing = run.capture --text ${ctx.xsh_bin} $script -- -u -d "@0" "+%999999999999999999999999999999999Y"
+  assert overflowing.status.exited_with(1)
+  assert overflowing.stdout == ""
+  assert overflowing.stderr == "date: date format width too large\n"
+}
+
+test test_date_dash_input_means_midnight_today { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d - +%T
+  assert output == "00:00:00\n"
+}
+
+test test_date_empty_date_option_means_midnight_today { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d "" +%T
+  assert output == "00:00:00\n"
+}
+
+test test_date_negative_relative_offset { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d "2000-01-02 00:00:00 -1 hour" +%F_%T
+  assert output == "2000-01-01_23:00:00\n"
+}
+
+test test_date_bare_dash_remains_invalid { |ctx|
+  let output = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -
+  assert output.status.exited_with(1)
+  assert output.stdout == ""
+  assert output.stderr.starts_with("date: invalid date")
+}
+
+test test_date_empty_operand_remains_invalid { |ctx|
+  let output = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- ""
+  assert output.status.exited_with(1)
+  assert output.stdout == ""
+  assert output.stderr.starts_with("date: invalid date")
+}
+
+test test_date_second_operand_is_reported_as_extra { |ctx|
+  let output = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- test extra
+  assert output.status.exited_with(1)
+  assert output.stdout == ""
+  assert "date: extra operand 'extra'\n" in output.stderr
+}
+
 test test_date_native_epoch_and_nanoseconds { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -u -d "@-0.000000001" "+%Y-%m-%d %H:%M:%S.%N %s"
   assert output == "1969-12-31 23:59:59.999999999 -1\n"
