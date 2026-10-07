@@ -190,6 +190,13 @@ improves from 54/163 to 56/161 across 217 tests, fixing the version-sort stable
 and unstable cases with no regressions. GNU 9.11 probes match; the two helper
 cases that add `--debug` still fail because key annotations are not implemented.
 Reports are in `results/sort-version/`.
+Follow-up `60485511` adds `--debug` annotations for the supported default,
+case-folded, dictionary, zero-delimited, and version sort paths. Native sort
+tests pass 18/18; the optimized debug Gate 3 slice improves from 56/161 to
+63/154 across 217 tests, fixing `default_unsorted_ints`, `dictionary_order`,
+`ignore_case`, `version`, `version_empty_lines`, `words_unique`, and
+`zero_terminated` with no regressions. Detailed key-range and locale debug
+annotations remain open; reports are in `results/sort-debug/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays
