@@ -76,6 +76,7 @@ test test_dd_character_set_roundtrip { |ctx|
     assert decoded.stdout == original
   }
   assert invoke(ctx, ["status=none", "conv=ebcdic,ucase"], b"a")?.stdout == b"\xc1"
+  assert invoke(ctx, ["status=none", "cbs=4", "conv=block,ebcdic"], b"a\n")?.stdout == b"\x81\x40\x40\x40"
 }
 
 test test_dd_regular_file_copy_and_records { |ctx|
@@ -103,6 +104,99 @@ test test_dd_rejects_overflowing_block_offsets { |ctx|
   let skip = invoke(ctx, ["skip=17592186044416", "ibs=1048576"])?
   assert skip.status == 1
   assert skip.stderr == "dd: Value too large for defined data type\n"
+}
+
+test test_dd_sparse_copy_preserves_zero_file_as_a_hole { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-sparse")?
+  let input = fp"{root}/input"
+  let output = fp"{root}/output"
+  input.write(bytes.zero(1048576)?)
+
+  let result = invoke(ctx, ["status=none", "bs=32K", f"if={input}", f"of={output}", "conv=sparse"])?
+  assert result.status == 0, result.stderr
+  let meta = output.metadata()?
+  assert meta.size == 1048576
+  assert meta.blocks_512 * 512 < meta.size, "zero blocks should remain unallocated"
+}
+
+test test_dd_sparse_copy_writes_data_after_a_hole_at_the_right_offset { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-sparse-offset")?
+  let input = fp"{root}/input"
+  let output = fp"{root}/output"
+  let data = bytes.concat([b"head", bytes.zero(1048576)?, b"tail"])
+  input.write(data)
+
+  let result = invoke(ctx, ["status=none", "bs=32K", f"if={input}", f"of={output}", "conv=sparse"])?
+  assert result.status == 0, result.stderr
+  assert output.read_bytes()? == data
+  let meta = output.metadata()?
+  assert meta.blocks_512 * 512 < meta.size, "zero blocks should remain unallocated"
+}
+
+test test_dd_accepts_very_large_blocks_without_allocating_a_block_buffer { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-large-bs")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "bs=4G", "if=/dev/null", "of=/dev/null", "skip=1", "count=0"]
+  let status = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "ulimit -v 131072; exec \"$@\"", "dd-large-bs"].extend(argv),
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+  assert status.exited_with(0), stderr.read_text()?
+  assert stderr.read_text()? == ""
+}
+
+test test_dd_rejects_an_unbounded_output_record_size_cleanly { |ctx|
+  let result = invoke(ctx, ["obs=1PB"])?
+  assert result.status == 1
+  assert "memory" in result.stderr
+}
+
+test test_dd_large_cbs_pads_until_output_fails { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-large-cbs")?
+  let input = fp"{root}/input"
+  input.write("x\n")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "conv=block", "cbs=1PB", f"if={input}", "of=/dev/full"]
+  let status = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "ulimit -v 131072; exec \"$@\"", "dd-large-cbs"].extend(argv),
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+  assert status.exited_with(1)
+  assert "No space left on device" in stderr.read_text()?
+}
+
+test test_dd_reports_output_records_when_a_write_is_limited { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-write-limit")?
+  let output = fp"{root}/output"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), f"if=/dev/zero", f"of={output}", "bs=512K", "count=3"]
+  let status = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "trap '' XFSZ; ulimit -f 1536; exec \"$@\"", "dd-write-limit"].extend(argv),
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+  assert status.exited_with(1)
+  let message = stderr.read_text()?
+  assert "1+1 records out" in message, message
+  assert "786432 bytes" in message, message
+  assert output.metadata()?.size == 786432
+}
+
+test test_dd_block_conversion_reports_partial_output_when_limited { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-block-write-limit")?
+  let input = fp"{root}/input"
+  let output = fp"{root}/output"
+  input.write("x\n")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), f"if={input}", f"of={output}", "conv=block", "cbs=1M", "obs=64K"]
+  let status = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "trap '' XFSZ; ulimit -f 400; exec \"$@\"", "dd-block-write-limit"].extend(argv),
+    root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s))?
+  assert status.exited_with(1)
+  let message = stderr.read_text()?
+  assert "3+1 records out" in message, message
+  assert "204800 bytes" in message, message
+  assert output.metadata()?.size == 204800
 }
 
 test test_dd_skip_past_input_warns_without_failing { |ctx|
