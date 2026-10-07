@@ -163,6 +163,11 @@ and diagnostic. Native sort tests pass 11/11; the optimized debug Gate 3 slice
 improves from 46/171 to 47/170 across 217 tests, fixing
 `test_verifies_out_file` with no regressions. Reports are in
 `results/sort-output-open-followup/`.
+Follow-up `373a6c63` uses GNU's uppercase case-fold key and raw-line tie
+breaker for `sort -f`. Native sort tests pass 12/12; the optimized debug Gate 3
+slice improves from 47/170 to 49/168 across 217 tests, fixing both punctuation
+ordering tests with no regressions. A GNU 9.11 C-locale probe matches; reports
+are in `results/sort-fold-case/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays

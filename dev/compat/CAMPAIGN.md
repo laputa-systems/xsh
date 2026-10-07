@@ -132,6 +132,11 @@ remain historical evidence only.
   and diagnostic. Focused native sort tests pass 11/11; Gate 3 improves from
   46/171 to 47/170 across 217 tests, fixing `test_verifies_out_file` with no
   regressions. Reports are in `results/sort-output-open-followup/`.
+- Follow-up `373a6c63` uses GNU's uppercase case-fold key and raw-line tie
+  breaker for `sort -f`. Focused native sort tests pass 12/12; Gate 3 improves
+  from 47/170 to 49/168 across 217 tests, fixing both punctuation-ordering
+  tests with no regressions. The GNU 9.11 C-locale probe matches; reports are
+  in `results/sort-fold-case/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
