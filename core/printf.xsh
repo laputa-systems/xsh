@@ -754,7 +754,7 @@ proc main(...argv: List[Str]) [error, io, process, env] {
   return Err(usage_error("printf", "FORMAT [ARG...]")) when arguments.is_empty()
   let values = arguments[1..]
   let output = render(arguments[0], values)
-  io.write_stdout(output.text)
+  gnu.write_text(output.text)
   if ! output.stopped and output.next_argument < values.len() {
     gnu.error(f"warning: ignoring excess arguments, starting with {gnu.quote_value(values[output.next_argument])}")
   }

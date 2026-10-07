@@ -38,6 +38,25 @@ proc printf_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Resul
   {status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?}
 }
 
+test test_printf_flushes_stdout_and_reports_write_errors { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+  let root = test.temp_dir(ctx, name: "printf-write-error")?
+  let script = fp"{ctx.core_dir}/printf.xsh"
+  let error_path = fp"{root}/error"
+  let failed = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "greeting"], root,
+    {LC_ALL: "C"}, b"", p"/dev/full", error_path))?
+  let empty_error = fp"{root}/empty-error"
+  let empty = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), ""], root,
+    {LC_ALL: "C"}, b"", p"/dev/full", empty_error))?
+
+  assert failed.exit_code()? == 1
+  assert error_path.read_text()? == "printf: write error: No space left on device\n"
+  assert empty.exit_code()? == 0
+  assert empty_error.read_text()? == ""
+}
+
 test test_printf_warns_about_arguments_after_literal_format { |ctx|
   let literal = printf_run(ctx, ["a", "b"])?
   let repeated = printf_run(ctx, ["%s", "a", "b"])?
