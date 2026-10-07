@@ -184,6 +184,7 @@ compatibility gates.
 | `ls` | 186/207, unchanged | 37/37 |
 | `sort` | 154/217 → 164/217 (+10, no regressions) | 48/48 |
 | `env` and `printf` | 206/252 → 214/252 (+8, no regressions) | 34/34 and 39/39 |
+| `text-a1` | 295/360 → 303/360 (+8, no regressions) | cat 12, tac 11, tee 16, head 10, tail 17, rev 5 |
 
 The `ls` lane added two GNU-verified color-output regressions; no applet fix was
 warranted. The `sort` lane corrected key-field parsing and UTF-8 range handling.
@@ -192,8 +193,13 @@ remaining debug-key discrepancy is output-marker formatting, and the warning
 case depends on a locale diagnostic unavailable in the Alpine image. The `env`
 lane added GNU-verified ignore, default, and signal-list handling. Blocking
 signals still need a signal-mask API, and a broken-pipe case depends on
-SIGPIPE behavior across the existing exec boundary. Lane reports and logs are
-under `.work/ls-wave4/`, `.work/sort-wave4/`, and `.work/wave4/`.
+SIGPIPE behavior across the existing exec boundary. The `text-a1` lane streams
+`cat -A` device input and follows already-open regular-file descriptors in
+`tail`; descriptor truncation detection and `--follow=name` remain unsupported.
+Its selected GNU differential passed 3/3 on both sides with no differences.
+The `tail/pid.sh` case was excluded because the shared adapter passes a
+uutils-only `---disable-inotify` argument. Lane reports and logs are under
+`.work/ls-wave4/`, `.work/sort-wave4/`, and `.work/wave4/`.
 
 ### Gate C BusyBox pilot
 
