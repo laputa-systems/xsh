@@ -416,7 +416,7 @@ proc main(...argv: List[Str]) [fs, env, io, time, error] {
       exit 1
     }
     let name = item
-    let target = if item == "-" { fp"/proc/self/fd/0" } else { fp"{item}" }
+    let target = if item == "-" { fp"/dev/stdin" } else { fp"{item}" }
     if file_system {
       let stats = fs.statvfs(target)?
       let mount = fs.mount_for(target.resolve()?)?

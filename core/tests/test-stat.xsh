@@ -10,6 +10,14 @@ test test_stat { |ctx|
   assert "rw" in modes
 }
 
+test test_stat_dash_uses_standard_input { |ctx|
+  let input = test.temp_file(ctx, name: "stat-stdin", contents: b"hello")?
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%F %s" - < $input
+
+  assert result.status.exited_with(0), result.stderr
+  assert result.stdout == "regular file 5\n"
+}
+
 pure stat_hex(value: Int) -> Str {
   let digits = "0123456789abcdef"
   var rest = value

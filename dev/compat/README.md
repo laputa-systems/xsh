@@ -108,20 +108,27 @@ The campaign resumed on 2026-10-07. See the current checkpoint in
 [`CAMPAIGN.md`](CAMPAIGN.md) and the completed 16-lane ownership record in
 [`CLAIMS.md`](CLAIMS.md).
 
-Gate 3 was rerun at `fabe52f6` against pinned uutils
+Gate 3 was rerun at `92a91b12` against pinned uutils
 `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the `Dockerfile.test` image.
-The current report records 5,124 pass, 825 fail, and four exclusions across
-106 utilities; the previous full run had 5,110 pass at the same nonexcluded
-denominator, with no regressions in the new run. The pinned GNU baseline still
-has 571 PASS, 46 FAIL, 101 SKIP and one ERROR. The XSH-side GNU run and
-differential, BusyBox suite, expanded Linux surface, and clean-image smoke
-remain open.
+The report records 5,125 pass, 824 fail, and four exclusions across 106
+utilities; it improves the preceding full run by one pass with no regressions.
+The pinned GNU 9.12 XSH run at the same revision records 367 PASS, 189 FAIL,
+25 ERROR, and 138 SKIP across 719 tests. Its four-cell differential has 358
+shared passes, 213 uutils-only passes, 9 XSH-only passes, and 52 shared
+failures. `wc::test_files0_progressive_stream` timed out at 120 seconds in
+Gate 3, and `uniq/uniq-c-width.sh` reached the GNU harness's 600-second limit.
+The pinned GNU uutils baseline has 571 PASS, 46 FAIL, 101 SKIP and one ERROR.
+BusyBox comparison, the expanded Linux surface, aarch64 debug gate, and
+clean-image smoke remain open. See the current checkpoint and full results in
+[`CAMPAIGN.md`](CAMPAIGN.md) and `results/`.
 
 The most recent full native suite passed at parent revision `a0b9ce93`
-(4,731 passed, 0 failed, 38 skipped). The changed applet suites at `fabe52f6`
-passed 57 focused tests. Full suites run serially; each new baseline records
-its exact source revision, reference pin, and test image. Offline manifest,
-lane-ownership, ignored-option, kernel-read and exclusion checks passed during
-the resumed campaign; these checks do not establish behavioral parity.
+(4,731 passed, 0 failed, 38 skipped). Focused native suites passed after later
+changes to printf, seq, tail, bytes, tr, od, wc, and stat. The `stat -` path
+now uses `/dev/stdin`; its 9-test suite and the zero-direct-reader ratchet
+pass. Full suites run serially; each new baseline records its exact source
+revision, reference pin, and test image. Offline manifest, lane-ownership,
+ignored-option, kernel-read and exclusion checks passed during the resumed
+campaign; these checks do not establish behavioral parity.
 The x86_64 results do not close the pinned `aarch64-unknown-linux-musl` gate;
 it still needs a debug-profile run in the test image.

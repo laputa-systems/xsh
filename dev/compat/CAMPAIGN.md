@@ -49,39 +49,39 @@ remain historical evidence only.
   their work. Their ownership record is in `CLAIMS.md`. XSH owns command
   behavior, with Rust limited to necessary reusable OS and byte boundaries.
 
-### Current integration result (2026-10-07, `fabe52f6`)
+### Current integration result (2026-10-07, `92a91b12`)
 
 - The full native suite passed at parent revision `a0b9ce93` in the pinned
-  `Dockerfile.test` image: 4,731 passed, 0 failed, 38 skipped. On
-  `fabe52f6`, the focused suites for the changed applets passed: cat 10/10,
-  chgrp 7/7, ls 34/34, dir 3/3, and vdir 3/3.
+  `Dockerfile.test` image: 4,731 passed, 0 failed, 38 skipped. Later focused
+  suites passed for the applets changed in this wave, including cat, chgrp,
+  ls, dir, vdir, printf, seq, tail, bytes, tr, od, wc, and stat.
 - Gate 3 ran all 106 in-scope utilities against uutils commit
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the pinned x86_64 musl image,
   using the optimized debug profile, three nextest workers, and test children
-  as UID/GID 1000. The committed JSON report records 5,124 pass, 825 fail,
-  0 skip, and 4 excluded (5,949 nonexcluded tests). Nextest reported one
-  timeout at 120 seconds in `wc::test_files0_progressive_stream`; it remains
-  an open parity failure. The raw JUnit report is retained in local campaign
-  scratch results.
-- Comparing with the immediately preceding full run at the same denominator
-  changed 5,110 passing tests to 5,124, with 14 fixes and no new regressions.
-  Compared with the older committed baseline, four test IDs still differ:
-  `ls::test_explicit_color_always_works_with_f`,
-  `ls::test_ls_color_do_not_reset`, `ls::test_ls_zero`, and
-  `uname::test_uname_operating_system`. GNU 9.11 checks confirmed the three
-  color results follow its `TERM` and `--zero` behavior; `uname -o` reports
-  `GNU/Linux` on this Linux host while uutils' musl expectation is `Linux`.
-  The campaign-wide GNU differential remains open.
-- The generated per-utility manifest now uses this Gate 3 report. The focused
-  `ls` native suite passed 34/34 after the last source edit;
-  `parity.py --check` and `lanes.py check` passed.
-- These full native and uutils results are x86_64 musl evidence. The pinned
-  `aarch64-unknown-linux-musl` gate still needs a debug-profile run in the
-  `Dockerfile.test` image.
+  as UID/GID 1000. The report records 5,125 pass, 824 fail, 0 skip, and 4
+  excluded (5,949 nonexcluded tests). Nextest timed out after 120 seconds in
+  `wc::test_files0_progressive_stream`. Comparing with the preceding full run
+  at the same denominator gives one additional pass and no regressions. The
+  timeout and 824 failing cases remain open parity work.
+- Gate 4 ran the 719 selected GNU 9.12 tests against XSH in the same pinned
+  image and debug profile, with three jobs and UID/GID 1000. Results were
+  367 PASS, 189 FAIL, 25 ERROR, and 138 SKIP. The four-cell differential
+  against the pinned uutils baseline records 358 tests passing on both sides,
+  213 passing only on uutils, 9 passing only on XSH, and 52 failing on both.
+  `uniq/uniq-c-width.sh` reached the GNU harness's 600-second timeout. These
+  reports are in `results/gnu-xsh.json` and `results/gnu-differential.json`.
+- The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
+  runs, `stat -` was changed to use `/dev/stdin` instead of a direct
+  `/proc/self/fd/0` path; its native suite passed 9/9 and the kernel-reader
+  ratchet returned zero direct readers. The complete suites have not been
+  rerun after that focused change.
+- The generated per-utility manifest uses the current Gate 3 report.
+  `parity.py --check`, `lanes.py check`, the ignored-option ratchet, and the
+  four-exclusion check passed.
 
-The campaign remains active and incomplete. The 825 failing uutils cases,
-the timed-out `wc` case, the GNU differential, BusyBox comparison, expanded
-Linux surface, and clean-image smoke remain to be addressed.
+The campaign remains active and incomplete. The 824 failing uutils cases,
+the `wc` and GNU `uniq` timeouts, the GNU differential gaps, BusyBox comparison,
+expanded Linux surface, aarch64 debug gate, and clean-image smoke remain open.
 
 ## Wind-down report (2026-10-06)
 

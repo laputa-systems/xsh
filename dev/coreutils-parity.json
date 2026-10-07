@@ -104,7 +104,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -122,7 +127,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -140,7 +150,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 14,
+        "fail": 7,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -194,7 +209,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -302,7 +322,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -320,7 +345,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 44,
+        "fail": 12,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -338,7 +368,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -356,7 +391,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -374,7 +414,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 6,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -392,7 +437,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 9,
+        "fail": 11,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -482,7 +532,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -500,7 +555,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -518,7 +578,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -554,7 +619,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -572,7 +642,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 4,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -590,7 +665,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -626,7 +706,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -662,7 +747,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 4,
+        "fail": 6,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -680,7 +770,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 33,
+        "fail": 15,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
@@ -705,7 +800,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 8,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -723,7 +823,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -741,7 +846,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 34,
+        "fail": 7,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -759,7 +869,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -777,7 +892,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -795,7 +915,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 4,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -813,7 +938,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -849,7 +979,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -885,7 +1020,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 5,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -903,7 +1043,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -921,7 +1066,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -939,7 +1089,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 4,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -975,7 +1130,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 36,
+        "fail": 8,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -993,7 +1153,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1011,7 +1176,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1029,7 +1199,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1047,7 +1222,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1085,7 +1265,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 23,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1103,7 +1288,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 11,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1139,7 +1329,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1152,12 +1347,17 @@
       "native_tests": "core/tests/test-tail.xsh",
       "uutils_test_count": 170,
       "uutils_integration": {
-        "pass": 101,
-        "fail": 66,
+        "pass": 102,
+        "fail": 65,
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 8,
+        "fail": 29,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1175,7 +1375,12 @@
         "skip": 0,
         "excluded": 1
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [
         "test_tee::test_short_help_is_long_help"
@@ -1195,7 +1400,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1213,7 +1423,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 13,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1231,7 +1446,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1267,7 +1487,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 9,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1303,7 +1528,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1339,7 +1569,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1357,7 +1592,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1411,7 +1651,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 6,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1447,7 +1692,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 6,
+        "fail": 3,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1465,7 +1715,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 21,
+        "fail": 8,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1483,7 +1738,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 6,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1555,7 +1815,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1615,7 +1880,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
@@ -1693,7 +1963,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 14,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1711,7 +1986,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 2,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1729,7 +2009,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 1,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1747,7 +2032,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 3,
+        "fail": 0,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1765,7 +2055,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 4,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1783,7 +2078,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 5,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1855,7 +2155,12 @@
         "skip": 0,
         "excluded": 0
       },
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 5,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1977,7 +2282,12 @@
       "native_tests": null,
       "uutils_test_count": 24,
       "uutils_integration": null,
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 1,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -1990,7 +2300,12 @@
       "native_tests": null,
       "uutils_test_count": 8,
       "uutils_integration": null,
-      "gnu_differential": null,
+      "gnu_differential": {
+        "pass": 0,
+        "fail": 2,
+        "skip": 0,
+        "excluded": 0
+      },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []

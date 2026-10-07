@@ -148,7 +148,8 @@ for name in Path(expected).read_text().splitlines():
     trs = log.with_suffix(".trs")
     if not log.is_file() or not trs.is_file():
         sys.exit(f"missing GNU test evidence for {name}; not updating results")
-    results = re.findall(r"^:test-result: (PASS|FAIL|SKIP|ERROR|XFAIL|XPASS)$", trs.read_text(), re.M)
+    # Test output is arbitrary bytes; the result markers themselves are ASCII.
+    results = re.findall(r"^:test-result: (PASS|FAIL|SKIP|ERROR|XFAIL|XPASS)$", trs.read_text(errors="replace"), re.M)
     if len(results) != 1:
         sys.exit(f"invalid GNU test result in {trs}; not updating results")
     result = results[0]
@@ -167,7 +168,7 @@ if not summary.is_file():
     sys.exit("missing GNU harness summary; not updating results")
 summary_counts = {}
 for key in ("TOTAL", "PASS", "FAIL", "SKIP", "ERROR", "XFAIL", "XPASS"):
-    values = re.findall(rf"^# {key}:\s*(\d+)\s*$", summary.read_text(), re.M)
+    values = re.findall(rf"^# {key}:\s*(\d+)\s*$", summary.read_text(errors="replace"), re.M)
     if len(values) != 1:
         sys.exit(f"missing or duplicate GNU summary count {key}; not updating results")
     summary_counts[key] = int(values[0])

@@ -1447,8 +1447,8 @@
       "applet": true
     },
     "tail": {
-      "pass": 101,
-      "fail": 66,
+      "pass": 102,
+      "fail": 65,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -1478,7 +1478,6 @@
         "test_tail::test_failed_warning_write_is_reported",
         "test_tail::test_failed_write_is_reported",
         "test_tail::test_failed_write_is_reported_on_seekable_input",
-        "test_tail::test_fifo_with_pid",
         "test_tail::test_follow_dangling_symlink",
         "test_tail::test_follow_descriptor_vs_rename1",
         "test_tail::test_follow_descriptor_vs_rename2",
@@ -1761,8 +1760,8 @@
     }
   },
   "totals": {
-    "pass": 5124,
-    "fail": 825,
+    "pass": 5125,
+    "fail": 824,
     "skip": 0,
     "excluded": 4
   }
