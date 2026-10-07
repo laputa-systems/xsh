@@ -214,6 +214,20 @@ test test_sort_numeric_unique_debug_annotates_only_the_numeric_key { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_numeric_unique_keeps_first_equal_line_when_reversed { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-unique-first")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"1\n00000001\n576,446.890\n576,446.88800000\n"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-nur"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"576,446.890\n1\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_numeric_key_character_offset { |ctx|
   let root = test.temp_dir(ctx, name: "sort-numeric-key-offset")?
   let script = fp"{ctx.core_dir}/sort.xsh"

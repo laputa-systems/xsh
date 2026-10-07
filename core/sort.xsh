@@ -989,10 +989,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       input_lines |> sort-by field_sort_key(., delimiter, key_field, opts)
     }
   } else if is_numeric_sort(opts) {
+    ## Keep the first spelling for each number before a reverse sort can reorder equal keys.
+    let numeric_lines = if opts.unique { input_lines |> unique-by numeric_sort_key(., true) } else { input_lines }
     if opts.reverse {
-      input_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique)
+      numeric_lines |> sort-by(desc: true) numeric_sort_key(., opts.stable or opts.unique)
     } else {
-      input_lines |> sort-by numeric_sort_key(., opts.stable or opts.unique)
+      numeric_lines |> sort-by numeric_sort_key(., opts.stable or opts.unique)
     }
   } else if opts.blank {
     blank_sorted(input_lines, opts.reverse, opts)
