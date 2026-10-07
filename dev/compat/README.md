@@ -130,6 +130,13 @@ FIFO. The optimized debug Gate 3 `sort` slice improves from 34/183 to 37/180
 across 217 cases, with three fixes and no regressions. Its native sort suite
 passes 2/2, and the per-utility report and JUnit are in
 `results/sort-followup/`.
+Follow-up `273f1312` adds `sort -c`/`-C` conflict diagnostics and NUL-delimited
+`-z` checking and output. Native sort tests pass 6/6; its optimized debug Gate
+3 slice improves from 37/180 to 41/176 across 217 cases, with four fixes and
+no regressions. GNU 9.11 emits the NUL record terminator in a `-z -c`
+diagnostic; the corresponding uutils test expects a newline and remains a
+known expectation difference. Reports are in
+`results/sort-check-zero-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays

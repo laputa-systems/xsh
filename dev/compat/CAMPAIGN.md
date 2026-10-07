@@ -100,6 +100,13 @@ remain historical evidence only.
   blocking on an earlier FIFO. Its optimized debug Gate 3 slice improves from
   34/183 to 37/180 across 217 cases, fixing three tests with no regressions;
   the native sort suite passes 2/2. Reports are in `results/sort-followup/`.
+- Follow-up `273f1312` adds `sort -c`/`-C` conflict diagnostics and checks
+  NUL-delimited records with `-z`. Normal `-z` sorting preserves the NUL
+  separators. The native sort suite passes 6/6; Gate 3 improves from 37/180
+  to 41/176 across 217 tests, with four fixes and no regressions. GNU 9.11
+  emits the NUL record terminator in a `-z -c` disorder diagnostic, while the
+  corresponding uutils test expects a newline; that test remains a known
+  expectation difference. Reports are in `results/sort-check-zero-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
