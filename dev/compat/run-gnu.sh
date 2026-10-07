@@ -88,7 +88,9 @@ prepare() {
 
 point_path_at() {
 	local dir=$1 expr
-	expr="s|^[[:blank:]]*PATH=.*|  PATH='${dir}\$(PATH_SEPARATOR)'\"\$\$PATH\" \\\\|"
+	# The suite also calls GNU's internal helpers such as getlimits; keep their
+	# build directory after the XSH program map.
+	expr="s|^[[:blank:]]*PATH=.*|  PATH='${dir}\$(PATH_SEPARATOR)${gnu}/src\$(PATH_SEPARATOR)'\"\$\$PATH\" \\\\|"
 	for f in Makefile tests/local.mk; do
 		[ -f "$gnu/$f" ] && as_user sed -i "$expr" "$gnu/$f"
 	done

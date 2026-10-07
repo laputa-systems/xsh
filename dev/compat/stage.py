@@ -12,8 +12,7 @@ Layout written to STAGE (default: target/compat-stage):
                             path because the uutils framework clears the environment
     STAGE/gnu-bin/          (with --gnu-programs) every GNU program name: a
                             symlink into bin/ when XSH provides it, otherwise a
-                            copy of `false`, so a missing command fails instead
-                            of silently falling through to the host's GNU copy
+                            copy of `false`, plus lib/ for imports from PATH
 
 This mirrors `dev/release.xsh::package_core` (suffix dropped for applets, kept
 for lib modules) so the suites exercise the installed shape, not core/ in the
@@ -101,6 +100,9 @@ def main() -> int:
     if args.gnu_programs:
         gnu_dir = stage / "gnu-bin"
         gnu_dir.mkdir()
+        # XSH resolves `use lib.*` next to the invoked script path. GNU tests
+        # find applets through gnu-bin, so expose the same staged libraries there.
+        (gnu_dir / "lib").symlink_to(bin_dir / "lib", target_is_directory=True)
         false = shutil.which("false") or "/bin/false"
         provided = set(names) | set(aliases)
         missing = []

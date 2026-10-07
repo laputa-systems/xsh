@@ -19,10 +19,10 @@ class GnuRunnerTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.root.chmod(0o755)
-        for name in ("uutils", "uutils/target", "uutils/target/release", "gnu", "gnu/tests", "gnu/tests/ls", "tools", "results"):
+        for name in ("uutils", "uutils/target", "uutils/target/debug", "gnu", "gnu/src", "gnu/tests", "gnu/tests/ls", "tools", "results"):
             (self.root / name).mkdir(mode=0o777)
             (self.root / name).chmod(0o777)
-        binary = self.root / "uutils/target/release/coreutils"
+        binary = self.root / "uutils/target/debug/coreutils"
         binary.write_text("#!/bin/sh\nexit 0\n")
         binary.chmod(0o755)
         for name in ("Makefile", "Makefile.in", "tests/local.mk"):
@@ -96,6 +96,12 @@ sys.exit(124 if scenario == 'timeout' else 2)
         })
         self.assertTrue(unrelated.exists())
         self.assertEqual(list((self.root / "results").glob(".gnu-run.*")), [])
+        for name in ("Makefile", "tests/local.mk"):
+            contents = (self.root / "gnu" / name).read_text()
+            self.assertIn(
+                f"{self.root}/uutils/target/debug$(PATH_SEPARATOR){self.root}/gnu/src$(PATH_SEPARATOR)",
+                contents,
+            )
 
     def test_harness_failures_preserve_previous_report(self):
         for scenario in ("no-report", "partial", "mismatch", "bad-summary", "no-summary", "timeout", "all-pass-error"):
