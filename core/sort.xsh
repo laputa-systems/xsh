@@ -39,6 +39,27 @@ pure numeric_field_key(line: Str, delimiter: Str, field: Int) -> Int {
   field_key(line, delimiter, field, false).parse_int() ?? 0
 }
 
+pure trim_leading_blanks(line: Str) -> Str {
+  var at = 0
+  while at < line.byte_len() and line.byte_slice(at, length: 1) in [" ", "\t"] { at += 1 }
+  line.byte_slice(at)
+}
+
+pure blank_text_key(line: Str, fold_case: Bool) -> Str {
+  let key = trim_leading_blanks(line)
+  if fold_case { key.lower() } else { key }
+}
+
+## GNU sort uses the full line as a last-resort key after the blank-skipping key.
+pure blank_sorted(lines: List[Str], reverse: Bool, fold_case: Bool) -> List[Str] {
+  let fallback = if reverse { lines |> sort-by(desc: true) . } else { lines |> sort }
+  if reverse {
+    fallback |> sort-by(desc: true) blank_text_key(., fold_case)
+  } else {
+    fallback |> sort-by blank_text_key(., fold_case)
+  }
+}
+
 pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
   let pair = [left, right]
   let ordered = if opts.numeric and has_key {
@@ -47,6 +68,8 @@ pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, ke
     if opts.reverse { pair |> sort-by(desc: true) field_key(., opts.delimiter, key_field, opts.fold_case) } else { pair |> sort-by field_key(., opts.delimiter, key_field, opts.fold_case) }
   } else if opts.numeric {
     if opts.reverse { pair |> sort-by(desc: true) numeric_key(.) } else { pair |> sort-by numeric_key(.) }
+  } else if opts.blank {
+    blank_sorted(pair, opts.reverse, opts.fold_case)
   } else if opts.fold_case {
     if opts.reverse { pair |> sort-by(desc: true) .lower() } else { pair |> sort-by .lower() }
   } else if opts.reverse {
@@ -64,6 +87,8 @@ pure same_sort_key(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_
     field_key(left, opts.delimiter, key_field, opts.fold_case) == field_key(right, opts.delimiter, key_field, opts.fold_case)
   } else if opts.numeric {
     numeric_key(left) == numeric_key(right)
+  } else if opts.blank {
+    blank_text_key(left, opts.fold_case) == blank_text_key(right, opts.fold_case)
   } else if opts.fold_case {
     left.lower() == right.lower()
   } else {
@@ -121,7 +146,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         default: false,
       },
       blank: {
-        form: "-b",
+        form: "-b --ignore-leading-blanks",
         default: false,
       },
       key: {
@@ -236,6 +261,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     } else {
       input_lines |> sort-by numeric_key(.)
     }
+  } else if opts.blank {
+    blank_sorted(input_lines, opts.reverse, opts.fold_case)
   } else if opts.fold_case {
     if opts.reverse {
       input_lines |> sort-by(desc: true) .lower()

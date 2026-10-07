@@ -135,3 +135,25 @@ test test_sort_keeps_unterminated_input_files_separate { |ctx|
   assert stdout.read_bytes()? == b"a\nb\nb\n"
   assert stderr.read_bytes()?.is_empty()
 }
+
+test test_sort_ignores_leading_blanks_before_raw_tie_break { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-leading-blanks")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let input = test.temp_file(ctx, name: "input", contents: b" z\na\nx\n x\n")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-b", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\n x\nx\n z\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let unsorted = test.temp_file(ctx, name: "unsorted", contents: b" z\na\n")?
+  let checked = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-b", "-c", unsorted.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert checked.exit_code()? == 1
+  assert stderr.read_text()? == f"sort: {unsorted}:2: disorder: a\n"
+  assert stdout.read_bytes()?.is_empty()
+}
