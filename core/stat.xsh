@@ -171,6 +171,14 @@ pure pad_stat(text: Str, width: Int, left: Bool, zero: Bool, numeric: Bool) -> S
   padded
 }
 
+pure pad_stat_bytes(text: Bytes, width: Int, left: Bool) -> Bytes {
+  var padded = text
+  while padded.len() < width {
+    padded = if left { bytes.concat([padded, b" "]) } else { bytes.concat([b" ", padded]) }
+  }
+  padded
+}
+
 pure stat_time(value: Int, precision: Int?, width: Int, left: Bool, zero: Bool) -> Str {
   let negative = value < 0
   let absolute = if negative { -value } else { value }
@@ -230,17 +238,27 @@ proc stat_quote(name: Str, always = false) [env] -> Str {
   }
 }
 
+proc stat_quote_bytes(name: Bytes, always = false) [env] -> Bytes {
+  match name.utf8() {
+    Ok(text) => bytes.from_text(stat_quote(text, always))
+    Err(_) => {
+      let style = env.get_or("QUOTING_STYLE", "shell-escape") ?? "shell-escape"
+      if style == "literal" { name } else { bytes.from_text(gnu.quote_bytes(name, always: always or style.ends_with("-always"))) }
+    }
+  }
+}
+
 proc stat_mount_point(target: Path) [fs, error] -> Str {
   let resolved = target.resolve()?
   let mount = fs.mount_for(resolved)?
   mount.mounted_on.display()
 }
 
-proc stat_terse(meta: FsStat, name: Str) [env] -> Str {
-  f"{stat_quote(name)} {meta.size} {meta.blocks_512} {hex(meta.mode)} {meta.uid} {meta.gid} {meta.dev} {meta.nlink} {meta.ino} {meta.rdev} 0 {meta.atime_ns / 1000000000} {meta.mtime_ns / 1000000000} {meta.ctime_ns / 1000000000} {meta.blksize}"
+proc stat_terse(meta: FsStat, name: Bytes) [env] -> Bytes {
+  bytes.concat([stat_quote_bytes(name), bytes.from_text(f" {meta.size} {meta.blocks_512} {hex(meta.mode)} {meta.uid} {meta.gid} {meta.dev} {meta.nlink} {meta.ino} {meta.rdev} 0 {meta.atime_ns / 1000000000} {meta.mtime_ns / 1000000000} {meta.ctime_ns / 1000000000} {meta.blksize}")])
 }
 
-proc render_fs_format(fmt: Str, target: Path, name: Str, printf = false) [fs, env, error] -> FormatResult {
+proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, env, error] -> FormatResult {
   let stats = fs.statvfs(target)?
   let resolved = target.resolve()?
   let mount = fs.mount_for(resolved)?
@@ -281,20 +299,20 @@ proc render_fs_format(fmt: Str, target: Path, name: Str, printf = false) [fs, en
       "f" => f"{stats.blocks_free}"
       "i" => hex(stats.fsid)
       "l" => f"{stats.name_max}"
-      "n" => name
-      "Qn" => stat_quote(name)
+      "n" | "Qn" => ""
       "s" => f"{stats.block_size}"
       "S" => f"{stats.fragment_size}"
       "t" => hex(stats.type_magic ?? 0)
       "T" => mount.fstype
       else => ""
     }
-    output = bytes.concat([output, bytes.from_text(value)])
+    let rendered = if specifier == "n" { name } else if specifier == "Qn" { stat_quote_bytes(name) } else { bytes.from_text(value) }
+    output = bytes.concat([output, rendered])
   }
   {output: output, invalid: null, warning: null}
 }
 
-proc render_format(fmt: Str, target: Path, name: Str, meta: FsStat, printf = false) [fs, env, time, error] -> FormatResult {
+proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = false) [fs, env, time, error] -> FormatResult {
   var owner = f"{meta.uid}"
   var owner_group = f"{meta.gid}"
 
@@ -445,19 +463,26 @@ proc render_format(fmt: Str, target: Path, name: Str, meta: FsStat, printf = fal
       "z" => time.format(meta.ctime_ns, "%Y-%m-%d %H:%M:%S.%N %z")?
       "m" => stat_mount_point(target)
       "F" => file_type_name(meta.kind)
-      "n" => name
+      "n" => ""
       "N" => {
-        let quoted_name = stat_quote(name)
-        if meta.kind == "symlink" { f"{quoted_name} -> {stat_quote(target.readlink()?.display())}" } else { quoted_name }
+        ""
       }
-      "Qn" => stat_quote(name)
+      "Qn" => ""
       else => ""
     }
     if code in ["X", "Y", "Z"] {
       output = bytes.concat([output, bytes.from_text(value)])
-    } else if code == "n" and precision != null {
+    } else if specifier == "n" and precision != null {
       let size = precision ?? 0
-      output = bytes.concat([output, bytes.from_text(value)[..size]])
+      let length = if size < name.len() { size } else { name.len() }
+      output = bytes.concat([output, name[..length]])
+    } else if specifier == "n" {
+      output = bytes.concat([output, pad_stat_bytes(name, width, left)])
+    } else if specifier in ["N", "Qn"] {
+      let rendered = if specifier == "N" and meta.kind == "symlink" {
+        bytes.concat([stat_quote_bytes(name), b" -> ", stat_quote_bytes(target.readlink()?.bytes())])
+      } else { stat_quote_bytes(name) }
+      output = bytes.concat([output, pad_stat_bytes(rendered, width, left)])
     } else {
       output = bytes.concat([output, bytes.from_text(pad_stat(value, width, left, zero, numeric))])
     }
@@ -506,7 +531,6 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
     let item_bytes = argument_bytes(item, prepared.raw)
     let stdin_operand = item_bytes == b"-"
     let target = if stdin_operand { fp"/dev/stdin" } else { Path.parse_bytes(item_bytes)? }
-    let name = item_bytes.utf8() ?? target.display()
     if file_system and stdin_operand {
       gnu.error("using '-' to denote standard input does not work in file system mode")
       exit 1
@@ -518,19 +542,19 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
       }
       let mount = fs.mount_for(target.resolve()?)?
       if terse {
-        let selected = if format != "" or printf != null { render_fs_format(fmt, target, name, printf != null) } else {
-          {output: bytes.from_text(f"{stat_quote(name)} {stats.blocks} {stats.files} {hex(stats.fsid)} {stats.name_max} {stats.block_size} {stats.fragment_size} {hex(stats.type_magic ?? 0)} {mount.fstype}"), invalid: null, warning: null}
+        let selected = if format != "" or printf != null { render_fs_format(fmt, target, item_bytes, printf != null) } else {
+          {output: bytes.concat([stat_quote_bytes(item_bytes), bytes.from_text(f" {stats.blocks} {stats.files} {hex(stats.fsid)} {stats.name_max} {stats.block_size} {stats.fragment_size} {hex(stats.type_magic ?? 0)} {mount.fstype}")]), invalid: null, warning: null}
         }
         gnu.write_bytes(selected.output)
         if printf == null and selected.invalid == null { gnu.write_bytes(b"\n") }
         if let invalid = selected.invalid { report_format_error(prepared.text, fmt, printf != null, invalid); exit 1 }
       } else if format != "" or printf != null {
-        let rendered = render_fs_format(fmt, target, name, printf != null)
+        let rendered = render_fs_format(fmt, target, item_bytes, printf != null)
         gnu.write_bytes(rendered.output)
         if printf == null and rendered.invalid == null { gnu.write_bytes(b"\n") }
         if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, printf != null, invalid); exit 1 }
       } else {
-        print f"  File: {stat_quote(name)}"
+        gnu.write_bytes(bytes.concat([b"  File: ", stat_quote_bytes(item_bytes), b"\n"]))
         print f"    ID: {hex(stats.fsid)} Namelen: {stats.name_max} Type: {mount.fstype}"
         print f"Block size: {stats.block_size}"
         print f"Blocks: Total: {stats.blocks} Free: {stats.blocks_free} Available: {stats.blocks_available}"
@@ -544,26 +568,26 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
     }
 
     if terse {
-      gnu.write_text(f"{stat_terse(meta, name)}\n")
+      gnu.write_bytes(bytes.concat([stat_terse(meta, item_bytes), b"\n"]))
     } else if printf != null {
-      let rendered = render_format(fmt, target, name, meta, printf: true)
+      let rendered = render_format(fmt, target, item_bytes, meta, printf: true)
       gnu.write_bytes(rendered.output)
       if let warning = rendered.warning { gnu.error(f"warning: {warning}") }
       if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, true, invalid); exit 1 }
     } else if format != "" {
-      let rendered = render_format(fmt, target, name, meta)
+      let rendered = render_format(fmt, target, item_bytes, meta)
       let ending = if rendered.invalid == null { b"\n" } else { b"" }
       gnu.write_bytes(bytes.concat([rendered.output, ending]))
       if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, false, invalid); exit 1 }
     } else {
-      print f"  File: {stat_quote(name)}"
+      gnu.write_bytes(bytes.concat([b"  File: ", stat_quote_bytes(item_bytes), b"\n"]))
       print f"  Size: {meta.size} Blocks: {meta.blocks_512} IO Block: {meta.blksize} {stat_file_type(meta)}"
       print f"kind {meta.kind}"
       print f"size {meta.size}"
       print f"mode {meta.mode}"
       print f"uid {meta.uid}"
       print f"gid {meta.gid}"
-      print f"path {name}"
+      gnu.write_bytes(bytes.concat([b"path ", item_bytes, b"\n"]))
     }
   }
 }

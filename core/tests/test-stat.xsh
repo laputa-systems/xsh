@@ -1,4 +1,5 @@
 type TerminalRun = {status: Int, stdout: Str, stderr: Str}
+type RawTerminalRun = {status: Int, stdout: Bytes, stderr: Str}
 
 proc run_stat_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[TerminalRun] {
   let pty = unix.open_pty()?
@@ -13,14 +14,14 @@ proc run_stat_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, error
   Ok({status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.replace("\r\n", with: "\n")})
 }
 
-proc run_stat_with_path(ctx: TestContext, options: List[Path], name: Path) [fs, process, error] -> Result[TerminalRun] {
+proc run_stat_with_path(ctx: TestContext, options: List[Path], name: Path) [fs, process, error] -> Result[RawTerminalRun] {
   let root = test.temp_dir(ctx, name: "stat-path")?
   let stdout = fp"{root}/stdout"
   let stderr = fp"{root}/stderr"
   let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/stat.xsh", p"--"].extend(options).extend([name])
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, stderr)
   let status = process.run(plan)?
-  Ok({status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.read_text()?})
+  Ok({status: status.exit_code()?, stdout: stdout.read_bytes()?, stderr: stderr.read_text()?})
 }
 
 test test_stat { |ctx|
@@ -196,10 +197,30 @@ test test_stat_reports_non_utf8_missing_names { |ctx|
     let name = names[index]
     for options in [[], [p"-L"], [p"-f"]] {
       let result = run_stat_with_path(ctx, options, name)?
-      assert result.status == 1, f"{result.status}|{result.stdout}|{result.stderr}"
+      assert result.status == 1, f"{result.status}|{result.stderr}"
       let message = if options == [p"-f"] { "cannot read file system information for" } else { "cannot statx" }
       let expected = f"stat: {message} {quoted_names[index]}: No such file or directory\n"
       assert result.stderr == expected, result.stderr
     }
   }
+}
+
+test test_stat_preserves_non_utf8_names_in_output_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "stat-raw-name")?
+  let name = Path.parse_bytes(bytes.concat([root.bytes(), b"/raw-\xff"]))?
+  name.write("data")
+  let quoted_name = bytes.from_text(f"'{root}/raw-'$'\\377'")
+
+  let default = run_stat_with_path(ctx, [], name)?
+  assert default.status == 0, default.stderr
+  assert default.stdout.starts_with(bytes.concat([b"  File: ", quoted_name, b"\n"]))
+  assert default.stdout.ends_with(bytes.concat([b"path ", name.bytes(), b"\n"]))
+
+  let format = run_stat_with_path(ctx, [p"--format=%n"], name)?
+  assert format.status == 0, format.stderr
+  assert format.stdout == bytes.concat([name.bytes(), b"\n"])
+
+  let printf = run_stat_with_path(ctx, [p"--printf=%N"], name)?
+  assert printf.status == 0, printf.stderr
+  assert printf.stdout == quoted_name
 }
