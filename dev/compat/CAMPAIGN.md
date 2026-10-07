@@ -176,6 +176,11 @@ remain historical evidence only.
   passes 32/32; the optimized debug Gate 3 slice improves from 131/21 to
   134/18 across 152 cases, with no regressions. Reports are in
   `results/printf-char-warning/`.
+- Follow-up `6c6af179` uses GNU shell-escape quoting for `%q` arguments with
+  control bytes and embedded apostrophes. The native printf suite passes
+  33/33; the optimized debug Gate 3 slice improves from 134/18 to 135/17
+  across 152 cases, with one fix and no regressions. Its control-and-apostrophe
+  result matches pinned GNU 9.11. Reports are in `results/printf-shell-quote/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

@@ -203,6 +203,11 @@ fixes the warning case plus two partial-character cases. The native printf
 suite passes 32/32; the optimized debug Gate 3 slice improves from 131/21 to
 134/18 across 152 cases, with no regressions. Reports are in
 `results/printf-char-warning/`.
+Follow-up `6c6af179` uses GNU's shell-escape quoting for `%q` arguments that
+contain control bytes, including embedded apostrophes. The native printf suite
+passes 33/33; the optimized debug Gate 3 slice improves from 134/18 to 135/17
+across 152 cases, with one fix and no regressions. The control-and-apostrophe
+case matches pinned GNU 9.11. Reports are in `results/printf-shell-quote/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
