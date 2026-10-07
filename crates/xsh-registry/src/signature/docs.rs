@@ -670,6 +670,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The root boundary is enforced before the host lookup, including for symlink-sensitive paths.",
             &["filesystem", "rooted", "metadata"],
         )),
+        ("fs", "root_stat") => Some((
+            "Returns complete stat metadata for a path below a rooted filesystem capability.",
+            "Paths are resolved relative to the open root without rebuilding a host pathname. Final symlinks are not followed by default; set follow_symlinks to true to inspect the target. Traversal outside the root is rejected, and host errors preserve errno when available.",
+            &["filesystem", "rooted", "metadata", "symlink"],
+        )),
         ("fs", "root_readlink") => Some((
             "Reads a symlink target below a rooted filesystem capability.",
             "The target is returned as a lossless Path value without following it; callers must treat it as untrusted path data.",
@@ -1223,6 +1228,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
 
         ("unix", "read_fd") => Some(("Reads one bounded chunk from a descriptor.", "max_bytes must be positive. A single descriptor read returns short reads as they occur and empty bytes at EOF, without read-ahead; EINTR retries and host errors retain errno.", &["unix", "io"])),
         ("unix", "write_fd") => Some(("Writes one chunk to a descriptor.", "Returns the number of bytes written, which may be less than data.len(); callers must handle short writes. EINTR retries and host errors retain errno.", &["unix", "io"])),
+        ("unix", "seek_fd") => Some(("Moves a descriptor to an absolute byte offset.", "offset must be nonnegative and representable by the host. Only seekable descriptors succeed; EINTR retries and host errors retain errno.", &["unix", "io", "file"])),
         ("unix", "poll_fd") => Some((
             "Waits for descriptor readiness and reports terminal conditions.",
             "Requested events are readable and writable; returned events may also include error, hangup, and invalid. An empty request observes terminal conditions. Timeout defaults to zero, -1 waits indefinitely, and nonnegative millisecond deadlines survive interruptions.",
@@ -1563,6 +1569,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "write" => "root_write",
             "write_atomic" => "root_write_atomic",
             "metadata" => "root_metadata",
+            "stat" => "root_stat",
             "exists" => "root_exists",
             "mkdir" => "root_mkdir",
             "remove" => "root_remove",

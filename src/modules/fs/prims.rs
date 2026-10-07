@@ -10,9 +10,11 @@ use rustix::fs::{self as rfs, AtFlags, CWD, Mode, StatVfsMountFlags, Timespec, T
 use rustix::fs::{UTIME_NOW, UTIME_OMIT};
 use std::fs::File;
 use std::io::{Read, Write};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use xsh_root::Root;
 
 const NANOS: i64 = 1_000_000_000;
 
@@ -56,6 +58,10 @@ fn stat_unnamed(path: PathBuf, follow: bool, span: Span) -> Result<Value, Runtim
         std::fs::symlink_metadata(&path)
     }
     .map_err(|error| RuntimeError::host("fs-stat", &error).with_span(span))?;
+    Ok(stat_from_metadata(&metadata))
+}
+
+fn stat_from_metadata(metadata: &std::fs::Metadata) -> Value {
     let birth = metadata
         .created()
         .ok()
@@ -63,7 +69,7 @@ fn stat_unnamed(path: PathBuf, follow: bool, span: Span) -> Result<Value, Runtim
         .map_or(Value::Null, |since| {
             time_ns(since.as_secs() as i64, i64::from(since.subsec_nanos()))
         });
-    Ok(Value::Record(RecordMap::from([
+    Value::Record(RecordMap::from([
         (
             key("kind"),
             Value::Str(kind_name(metadata.file_type()).into()),
@@ -91,7 +97,73 @@ fn stat_unnamed(path: PathBuf, follow: bool, span: Span) -> Result<Value, Runtim
             time_ns(metadata.ctime(), metadata.ctime_nsec()),
         ),
         (key("birth_ns"), birth),
-    ])))
+    ]))
+}
+
+/// Stats a rooted child relative to its open parent descriptor instead of
+/// rebuilding a host pathname.
+pub(crate) fn stat_root(
+    root: &Root,
+    path: &Path,
+    follow_symlinks: bool,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let trailing_separator = path.as_os_str().as_bytes().last() == Some(&b'/');
+    if follow_symlinks || trailing_separator || path.file_name().is_none() {
+        let file = root
+            .open_stat_target(path)
+            .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
+        let metadata = file
+            .metadata()
+            .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
+        return Ok(stat_from_metadata(&metadata));
+    }
+
+    let name = path.file_name().expect("checked rooted stat path");
+    let parent_path = path.parent().unwrap_or_else(|| Path::new("."));
+    if parent_path.as_os_str().is_empty() {
+        let stat = rfs::statat(root, name, AtFlags::SYMLINK_NOFOLLOW)
+            .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
+        return Ok(stat_from_raw(&stat));
+    }
+
+    let parent = root
+        .open_dir(parent_path)
+        .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
+    let stat = rfs::statat(&parent, name, AtFlags::SYMLINK_NOFOLLOW)
+        .map_err(|error| RuntimeError::host("fs-root-stat", &error).with_span(span))?;
+    Ok(stat_from_raw(&stat))
+}
+
+fn stat_from_raw(stat: &rfs::Stat) -> Value {
+    let mode = stat.st_mode as u32;
+    let kind = match rfs::FileType::from_raw_mode(mode as _) {
+        rfs::FileType::Directory => "dir",
+        rfs::FileType::RegularFile => "file",
+        rfs::FileType::Symlink => "symlink",
+        rfs::FileType::Fifo => "fifo",
+        rfs::FileType::Socket => "socket",
+        rfs::FileType::BlockDevice => "block",
+        rfs::FileType::CharacterDevice => "char",
+        rfs::FileType::Unknown => "other",
+    };
+    Value::Record(RecordMap::from([
+        (key("kind"), Value::Str(kind.into())),
+        (key("mode"), Value::Int(i64::from(mode))),
+        (key("size"), Value::Int(stat.st_size as i64)),
+        (key("blocks_512"), Value::Int(stat.st_blocks as i64)),
+        (key("blksize"), Value::Int(stat.st_blksize as i64)),
+        (key("uid"), Value::Int(i64::from(stat.st_uid))),
+        (key("gid"), Value::Int(i64::from(stat.st_gid))),
+        (key("nlink"), Value::Int(stat.st_nlink as i64)),
+        (key("dev"), Value::Int(stat.st_dev as i64)),
+        (key("ino"), Value::Int(stat.st_ino as i64)),
+        (key("rdev"), Value::Int(stat.st_rdev as i64)),
+        (key("atime_ns"), time_ns(stat.st_atime, stat.st_atime_nsec as i64)),
+        (key("mtime_ns"), time_ns(stat.st_mtime, stat.st_mtime_nsec as i64)),
+        (key("ctime_ns"), time_ns(stat.st_ctime, stat.st_ctime_nsec as i64)),
+        (key("birth_ns"), Value::Null),
+    ]))
 }
 
 pub(crate) fn set_owner(

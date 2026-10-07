@@ -5322,6 +5322,28 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::FsRootStat if (2..=3).contains(&values.len()) => {
+                let follow_symlinks = lowered_bool_arg_or(
+                    values.get(2).cloned(),
+                    false,
+                    "fs.root_stat",
+                    span,
+                )?;
+                let path = lowered_path_arg(
+                    values.remove(1),
+                    "fs.root_stat",
+                    span,
+                )?;
+                let root = values.remove(0);
+                let rel = pathbuf_from_path_value(&path);
+                lowered_runtime_result(
+                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
+                        .and_then(|dir| {
+                            fs_module::rooted_stat(dir, &rel, follow_symlinks, span)
+                        }),
+                    span,
+                )?
+            }
             RuntimeOp::FsRootExists if values.len() == 2 => {
                 let path = lowered_path_arg(
                     values.pop().expect("checked value length"),
@@ -8229,6 +8251,11 @@ impl Evaluator {
                 let fd = lowered_int_arg(values.first().cloned(), "unix.write_fd", span)?;
                 let data = lowered_bytes_arg(values.get(1).ok_or_else(|| RuntimeError::new("type-error", "unix.write_fd expected Bytes").with_span(span))?, "unix.write_fd", span)?;
                 lowered_runtime_result(unix_module::write_fd(fd, data, span), span)?
+            }
+            RuntimeOp::UnixSeekFd => {
+                let fd = lowered_int_arg(values.first().cloned(), "unix.seek_fd", span)?;
+                let offset = lowered_int_arg(values.get(1).cloned(), "unix.seek_fd", span)?;
+                lowered_runtime_result(unix_module::seek_fd(fd, offset, span), span)?
             }
             RuntimeOp::RegexFindBytes if (2..=4).contains(&values.len()) => {
                 let pattern = lowered_str_arg_owned(values.first().cloned(), "", "regex.find_bytes", span)?;

@@ -1396,6 +1396,13 @@ pub(crate) fn write_fd(fd: i64, data: &[u8], span: Span) -> Result<Value, Runtim
     }
 }
 
+pub(crate) fn seek_fd(fd: i64, offset: i64, span: Span) -> Result<Value, RuntimeError> {
+    match seek_fd_native(fd, offset, span) {
+        Ok(position) => Ok(Value::ok(Value::Int(position))),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
 // A single descriptor write exposes short writes to the caller instead of
 // hiding stream progress behind a buffer or retry loop.
 fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeError> {
@@ -1406,6 +1413,27 @@ fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeErr
         let written = unsafe { libc::write(fd, data.as_ptr().cast(), count) };
         if written >= 0 {
             return Ok(written as usize);
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        return Err(RuntimeError::host(kind, &error).with_span(span));
+    }
+}
+
+fn seek_fd_native(fd: i64, offset: i64, span: Span) -> Result<i64, RuntimeError> {
+    let kind = "unix-seek-fd";
+    let fd = raw_fd_arg(fd, kind, span)?;
+    if offset < 0 {
+        return Err(RuntimeError::new(kind, "offset must be non-negative").with_span(span));
+    }
+    let offset = libc::off_t::try_from(offset)
+        .map_err(|_| RuntimeError::new(kind, "offset is outside the host range").with_span(span))?;
+    loop {
+        let position = unsafe { libc::lseek(fd, offset, libc::SEEK_SET) };
+        if position >= 0 {
+            return Ok(position as i64);
         }
         let error = io::Error::last_os_error();
         if error.kind() == io::ErrorKind::Interrupted {

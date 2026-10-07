@@ -315,6 +315,7 @@ pub fn legacy_fs_root_method(function: &str) -> Option<&'static str> {
         "root_write" => Some("write"),
         "root_write_atomic" => Some("write_atomic"),
         "root_metadata" => Some("metadata"),
+        "root_stat" => Some("stat"),
         "root_exists" => Some("exists"),
         "root_mkdir" => Some("mkdir"),
         "root_remove" => Some("remove"),

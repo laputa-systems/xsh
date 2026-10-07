@@ -1162,6 +1162,16 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::FsRootMetadata,
                 ),
                 method(
+                    "stat",
+                    vec![
+                        param("path", Type::Path),
+                        default_param("follow_symlinks", Type::Bool),
+                    ],
+                    result(crate::records::fs_stat_type()),
+                    false,
+                    RuntimeOp::FsRootStat,
+                ),
+                method(
                     "exists",
                     vec![param("path", Type::Path)],
                     result(Type::Bool),

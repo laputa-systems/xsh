@@ -387,6 +387,34 @@ test test_fs_root_operations_reject_traversal { |ctx|
   root.close()
 }
 
+test test_fs_root_stat_preserves_metadata_and_symlink_policy { |ctx|
+  let root_dir = test.temp_dir(ctx, name: "fs-root-stat")?
+  let root = fs.open_root(root_dir)?
+  root.mkdir(p"nested")
+  root.write(p"nested/data.txt", "rooted")
+  root.symlink(p"data.txt", p"nested/link")
+
+  let file = root.stat(p"nested/data.txt")?
+  assert file.kind == "file"
+  assert file.size == 6
+  assert file.mode > 0 and file.blocks_512 >= 0 and file.blksize > 0
+  assert file.uid >= 0 and file.gid >= 0 and file.rdev >= 0
+  assert file.dev >= 0 and file.ino > 0 and file.nlink > 0
+  assert file.atime_ns > 0 and file.mtime_ns > 0 and file.ctime_ns > 0
+
+  let link = root.stat(p"nested/link")?
+  assert link.kind == "symlink"
+  let followed = root.stat(p"nested/link", follow_symlinks: true)?
+  assert followed.kind == "file"
+  assert followed.dev == file.dev and followed.ino == file.ino
+
+  let directory = root.stat(p"nested")?
+  assert directory.kind == "dir"
+  test.error_kind(root.stat(p"nested/missing"), "fs-root-stat")
+  test.error_kind(root.stat(../outside), "fs-root-stat")
+  root.close()
+}
+
 test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
   if system.uname()?.sysname == "Darwin" {
     test.skip("macOS filesystems reject non-UTF-8 filenames")

@@ -421,6 +421,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::FsRootWrite
             | RuntimeOp::FsRootWriteAtomic
             | RuntimeOp::FsRootMetadata
+            | RuntimeOp::FsRootStat
             | RuntimeOp::FsRootExists
             | RuntimeOp::FsRootMkdir
             | RuntimeOp::FsRootRemove
@@ -561,6 +562,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::RegexCapturesBytes
             | RuntimeOp::UnixReadFd
             | RuntimeOp::UnixWriteFd
+            | RuntimeOp::UnixSeekFd
             | RuntimeOp::CompressionTransform
             | RuntimeOp::CompressionGzipName
             | RuntimeOp::LinuxModulePlan

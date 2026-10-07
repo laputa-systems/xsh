@@ -74,7 +74,8 @@ pub(crate) use xattr::{xattr_get, xattr_list, xattr_remove, xattr_set};
 pub(crate) use prims::chmod as chmod_path;
 pub(crate) use prims::{
     CopyFile, Policy, SetTimes, copy_file as copy_file_with, data_ranges, dev_major, dev_minor,
-    link, makedev, mknod, rename_noreplace, set_owner, set_times, stat, statvfs_record, umask,
+    link, makedev, mknod, rename_noreplace, set_owner, set_times, stat, stat_root as rooted_stat,
+    statvfs_record, umask,
 };
 
 #[derive(Default)]

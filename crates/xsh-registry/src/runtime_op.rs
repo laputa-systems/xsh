@@ -119,6 +119,7 @@ pub enum RuntimeOp {
     FloatAtan2,
     UnixReadFd,
     UnixWriteFd,
+    UnixSeekFd,
 
     CompressionTransform,
 
@@ -208,6 +209,7 @@ pub enum RuntimeOp {
     FsRootWrite,
     FsRootWriteAtomic,
     FsRootMetadata,
+    FsRootStat,
     FsRootExists,
     FsRootMkdir,
     FsRootRemove,

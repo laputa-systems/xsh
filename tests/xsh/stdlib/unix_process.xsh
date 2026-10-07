@@ -215,6 +215,26 @@ assert unix.write_fd(2147483647, b"x") is Err(is HostIo)
   assert file.read_bytes()? == b"-bytes"
 }
 
+test test_unix_seek_fd_uses_absolute_positions { |ctx|
+  let file = test.temp_file(ctx, contents: b"abcdef")?
+  let fd = unix.open_fd(file)?
+  defer unix.close_fd(fd)
+  assert unix.seek_fd(fd, 3)? == 3
+  assert unix.read_fd(fd, 2)? == b"de"
+  assert unix.seek_fd(fd, 0)? == 0
+  assert unix.read_fd(fd, 1)? == b"a"
+  test.error_kind(unix.seek_fd(-1, 0), "unix-seek-fd")
+  test.error_kind(unix.seek_fd(fd, -1), "unix-seek-fd")
+  test.error_kind(unix.seek_fd(2147483648, 0), "unix-seek-fd")
+
+  let fifo_dir = test.temp_dir(ctx, name: "seek-fifo")?
+  let fifo = fp"{fifo_dir}/pipe"
+  fs.mkfifo(fifo, mode: 0o600)?
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  defer unix.close_fd(reader)
+  assert unix.seek_fd(reader, 0) is Err(is HostIo)
+}
+
 test test_unix_read_fd_preserves_byte_cursor_and_eof { |ctx|
   let file = test.temp_file(ctx, contents: b"\0\xffabc")?
   let result = test.run_script(ctx, r"""
