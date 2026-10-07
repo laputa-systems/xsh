@@ -259,4 +259,61 @@ test test_env_help_lists_options { |ctx|
   assert result.status == 0, result.stderr
   assert "Options:" in result.stdout
   assert "--unset" in result.stdout
+  assert "--ignore-signal" in result.stdout
+}
+
+test test_env_ignored_signal_survives_exec { |ctx|
+  let result = env_run(ctx, ["--ignore-signal=USR1", "/bin/sh", "-c", r"kill -USR1 $$; printf survived"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "survived"
+  assert result.stderr == ""
+}
+
+test test_env_lists_signal_actions_and_restores_defaults { |ctx|
+  let result = env_run(ctx, ["--ignore-signal=USR1,USR2", "--list-signal-handling", "/bin/true"])?
+  let restored = env_run(ctx, ["--ignore-signal=USR1,USR2", "--default-signal=USR1", "--list-signal-handling", "/bin/true"])?
+
+  assert result.status == 0, result.stderr
+  assert "USR1" in result.stderr
+  assert "USR2" in result.stderr
+  assert "IGNORE" in result.stderr
+  assert restored.status == 0, restored.stderr
+  assert "USR1" not in restored.stderr
+  assert "USR2" in restored.stderr
+}
+
+test test_env_resets_all_signal_actions { |ctx|
+  let ignored = env_run(ctx, ["--ignore-signal", "--list-signal-handling", "/bin/true"])?
+  let restored = env_run(ctx, ["--ignore-signal", "--default-signal", "--list-signal-handling", "/bin/true"])?
+
+  assert ignored.status == 0, ignored.stderr
+  assert "IGNORE" in ignored.stderr
+  assert "KILL" not in ignored.stderr
+  assert restored.status == 0, restored.stderr
+  assert restored.stderr == ""
+}
+
+test test_env_accepts_empty_optional_signal_list { |ctx|
+  let result = env_run(ctx, ["--ignore-signal=", "/bin/true"])?
+
+  assert result.status == 0, result.stderr
+  assert result.stderr == ""
+}
+
+test test_env_reports_invalid_signal_names { |ctx|
+  let result = env_run(ctx, ["--ignore-signal=NOSUCH", "/bin/true"])?
+  let without_command = env_run(ctx, ["--ignore-signal=NOSUCH"])?
+
+  assert result.status == 125
+  assert "'NOSUCH': invalid signal" in result.stderr
+  assert without_command.status == 125
+  assert "'NOSUCH': invalid signal" in without_command.stderr
+}
+
+test test_env_reports_uncatchable_signal_actions { |ctx|
+  let result = env_run(ctx, ["--ignore-signal=KILL", "/bin/true"])?
+
+  assert result.status == 125
+  assert result.stderr == "env: failed to set signal action for signal 9: Invalid argument\n"
 }

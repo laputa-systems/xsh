@@ -11,12 +11,17 @@ Options:
   -u, --unset=NAME       remove variable from the environment
   -C, --chdir=DIR        change working directory to DIR
   -S, --split-string=S   process and split S into separate arguments
+      --ignore-signal[=SIG]  set signal dispositions to ignore
+      --default-signal[=SIG] set signal dispositions to default
+      --list-signal-handling report ignored signals
   -v, --debug            print verbose information for each processing step
       --help             display this help and exit
       --version          output version information and exit
 
 A mere - implies -i.  If no COMMAND, print the resulting environment.
 """
+
+type SignalActionOption = {action: Str, names: List[Str]?}
 
 pure variable_reference_error(text: Str, at: Int) -> Str {
   let prefix = r"only ${VARNAME} expansion is supported"
@@ -179,6 +184,68 @@ proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments
   Ok(environment)
 }
 
+pure signal_names(text: Str) -> List[Str] {
+  var names: List[Str] = []
+  for name in text.split(",") {
+    if ! name.is_empty() { names += [name] }
+  }
+  names
+}
+
+proc validate_signal_names(names: List[Str]) [process, env, error] {
+  for name in names {
+    let signal = match process.signal(name) {
+      Ok(signal) => signal
+      Err(_) => { gnu.error(f"{gnu.quote(name)}: invalid signal"); exit 125 }
+    }
+    if signal.number == 0 {
+      gnu.error(f"{gnu.quote(name)}: invalid signal")
+      exit 125
+    }
+  }
+}
+
+proc apply_signal_actions(options: List[SignalActionOption]) [process, env, error] {
+  for option in options {
+    if let names = option.names {
+      for name in names {
+        let signal = match process.signal(name) {
+          Ok(signal) => signal
+          Err(_) => { gnu.error(f"{gnu.quote(name)}: invalid signal"); exit 125 }
+        }
+        if signal.number == 0 {
+          gnu.error(f"{gnu.quote(name)}: invalid signal")
+          exit 125
+        }
+        if let Err(failure) = process.set_signal_action(signal.name, option.action) {
+          gnu.error(f"failed to set signal action for signal {signal.number}: {gnu.strerror(failure)}")
+          exit 125
+        }
+      }
+    } else {
+      # The all-signals form skips dispositions the host does not allow changing.
+      for signal in process.signals() {
+        if signal.number == 0 { continue }
+        if let Err(_) = process.set_signal_action(signal.name, option.action) { continue }
+      }
+    }
+  }
+}
+
+proc list_signal_actions() [process, error, io] {
+  for signal in process.signals() {
+    if signal.number == 0 { continue }
+    let action = process.signal_action(signal.name)?
+    if action != "ignore" { continue }
+
+    var name_field = signal.name
+    while name_field.byte_len() < 10 { name_field += " " }
+    let number = f"{signal.number}"
+    let number_field = if number.byte_len() < 2 { f" {number}" } else { number }
+    io.write_stderr(f"{name_field} ({number_field}): IGNORE\n")
+  }
+}
+
 proc split_words(source: Bytes, verbose: Bool) [process, env, error, io] -> List[Bytes] {
   let text = match source.utf8() { Ok(text) => text, Err(_) => { split_error("invalid split string"); "" } }
   let words = split_string(text)
@@ -297,6 +364,8 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
   var argv0: Bytes? = null
   var unset_names: List[Str] = []
   var assignments: Map[Str, Str] = {}
+  var signal_actions: List[SignalActionOption] = []
+  var list_signal_handling = false
   var option_index = 0
 
   while option_index < argv.len() {
@@ -363,8 +432,24 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
       continue
     }
 
-    if raw_word in [b"--ignore-signal", b"--default-signal", b"--block-signal", b"--list-signal-handling"] or byte_prefix(raw_word, b"--ignore-signal=") or byte_prefix(raw_word, b"--default-signal=") or byte_prefix(raw_word, b"--block-signal=") {
-      gnu.error(f"{gnu.quote_bytes(raw_word, always: false)}: signal options are unsupported by the process command API")
+    if raw_word == b"--list-signal-handling" { list_signal_handling = true; option_index += 1; continue }
+    if raw_word in [b"--ignore-signal", b"--default-signal"] or byte_prefix(raw_word, b"--ignore-signal=") or byte_prefix(raw_word, b"--default-signal=") {
+      let action = if raw_word == b"--ignore-signal" or byte_prefix(raw_word, b"--ignore-signal=") { "ignore" } else { "default" }
+      let names: List[Str]? = if raw_word == b"--ignore-signal" or raw_word == b"--default-signal" {
+        null
+      } else {
+        let value_start = if action == "ignore" { 16 } else { 17 }
+        let value = raw_word[value_start..].utf8()?
+        let names = signal_names(value)
+        validate_signal_names(names)
+        names
+      }
+      signal_actions += [{action, names}]
+      option_index += 1
+      continue
+    }
+    if raw_word == b"--block-signal" or byte_prefix(raw_word, b"--block-signal=") {
+      gnu.error("signal mask operations are unavailable in this runtime")
       exit 125
     }
 
@@ -431,5 +516,7 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
     return
   }
   if null_delimited { gnu.error("cannot specify --null (-0) with command"); exit 125 }
+  apply_signal_actions(signal_actions)
+  if list_signal_handling { list_signal_actions() }
   run_command(argv, cwd, environment, argv0, verbose, ignore_inherited)
 }
