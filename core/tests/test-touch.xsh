@@ -8,6 +8,30 @@ test test_touch { |ctx|
   assert ! missing.exists()?
 }
 
+test test_touch_accepts_non_utf8_operand { |ctx|
+  let root = test.temp_dir(ctx, name: "touch-raw-path")?
+  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/touch.xsh"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, p"--", script, p"--", target], root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exited_with(0), stderr.read_text()?
+  assert fs.stat(target) is Ok(_)
+
+  let reference = Path.parse_bytes(bytes.concat([root.bytes(), b"/reference\xfe"]))?
+  reference.write("reference")
+  fs.set_times(reference, mtime_ns: 2000000002)
+  let relative_target = fp"{root}/relative-target"
+  relative_target.write("target")
+  fs.set_times(relative_target, mtime_ns: 1000000001)
+  let reference_status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, p"--", script, p"-m", p"-r", reference, relative_target], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert reference_status.exited_with(0), stderr.read_text()?
+  assert fs.stat(relative_target)?.mtime_ns == 2000000002
+}
+
 test test_touch_selected_reference_times { |ctx|
   let root = test.temp_dir(ctx, name: "touch-selected")?
   let reference = fp"{root}/reference"

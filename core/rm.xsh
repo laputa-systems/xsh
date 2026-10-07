@@ -1,16 +1,48 @@
 #!/bin/xsh
 use lib.gnu
+use lib.search as search
 
 type RmOptions = {recursive: Bool, force: Bool, directory: Bool, verbose: Bool, progress: Bool, one_file_system: Bool, preserve_root: Str, no_preserve_root: Bool, interactive_always: Bool, interactive_once: Bool, interactive: Str?, help: Bool, version: Bool, targets: List[Str]}
-
+type RawArgument = {marker: Str, value: Bytes}
+type RmArguments = {argv: List[Str], raw: List[RawArgument], presume_input_tty: Bool}
 type Removal = {ok: Bool, removed: Bool, write_error: Error?}
 
-pure operand_label(raw: Str) -> Str {
-  var end = raw.byte_len()
-  while end > 0 and raw.byte_slice(end - 1, length: 1) == "/" { end -= 1 }
-  return "/" when end == 0 and raw != ""
-  let trimmed = raw.byte_slice(0, length: end)
-  if end < raw.byte_len() and fp"{trimmed}".basename() in [".", ".."] { f"{trimmed}/" } else { trimmed }
+pure prepare_arguments(argv: List[Bytes], posix: Bool) -> RmArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+  var options = true
+  var presume_input_tty = false
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    if options and argument == b"---presume-input-tty" {
+      presume_input_tty = true
+      continue
+    }
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0rm-raw-argument-{index}\0"
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
+      }
+    }
+    if argument == b"--" or (posix and options and (argument == b"-" or ! argument.starts_with(b"-"))) { options = false }
+  }
+  {argv: text, raw: raw, presume_input_tty: presume_input_tty}
+}
+
+pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
+  for argument in raw { if argument.marker == value { return argument.value } }
+  bytes.from_text(value)
+}
+
+pure operand_label(raw: Bytes) -> Bytes {
+  var end = raw.len()
+  while end > 0 and raw.byte_at(end - 1) == 47 { end -= 1 }
+  return b"/" when end == 0 and raw != b""
+  let trimmed = raw[..end]
+  let base = search.basename_bytes(trimmed)
+  if end < raw.len() and (base == b"." or base == b"..") { bytes.concat([trimmed, b"/"]) } else { trimmed }
 }
 
 proc confirm(question: Str) [process, io, error] -> Bool {
@@ -26,28 +58,28 @@ pure file_kind(kind: Str, size: Int) -> Str {
 
 # Flush before the next prompt. Return write failures so removal continues
 # and the caller reports a broken output stream once after processing operands.
-proc report_removed(name: Str, directory: Bool) [process, env, io, error] -> Result[Unit] {
+proc report_removed(name: Bytes, directory: Bool) [process, env, io, error] -> Result[Unit] {
   let verb = if directory { "removed directory" } else { "removed" }
-  io.write_stdout(f"{verb} {gnu.quote(name)}\n")?
+  io.write_stdout(f"{verb} {gnu.quote_bytes(name)}\n")?
   io.flush_stdout()
 }
 
-proc report_progress(name: Str, opts: RmOptions) [process, env, io, error] -> Result[Unit] {
+proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] -> Result[Unit] {
   return when ! opts.progress or opts.verbose or unix.tty_attrs(2) is Err(_)
-  io.write_stderr(f"\rRemoving {gnu.quote(name)}... done\n")?
+  io.write_stderr(f"\rRemoving {gnu.quote_bytes(name)}... done\n")?
   io.flush_stderr()
 }
 
 # Classify with lstat: a symbolic link to a directory is removed as a link,
 # and recursive traversal never crosses into its referent.
-proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, interactive: Bool, automatic: Bool, presume_input_tty: Bool) [fs, process, env, error, io] -> Removal {
+proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, interactive: Bool, automatic: Bool, presume_input_tty: Bool) [fs, process, env, error, io] -> Removal {
   guard let meta = fs.stat(target) else { |failure|
     return {ok: true, removed: true, write_error: null} when opts.force and gnu.errno(failure) == 2
-    gnu.cannot("remove", name, failure)
+    gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
     return {ok: false, removed: false, write_error: null}
   }
   if opts.one_file_system and meta.kind == "dir" and meta.dev != device {
-    gnu.error(f"skipping {gnu.quote(name)}, since it's on a different device")
+    gnu.error(f"skipping {gnu.quote_bytes(name)}, since it's on a different device")
     return {ok: true, removed: false, write_error: null}
   }
   var success = true
@@ -56,7 +88,7 @@ proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, intera
   if ! opts.force and meta.kind != "symlink" and (interactive or (automatic and (unix.isatty(0) or presume_input_tty))) {
     match fs.access(target, write: true) {
       Ok(writable) => protected = ! writable
-      Err(failure) => { gnu.cannot("remove", name, failure)
+      Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
         return {ok: false, removed: false, write_error: null} }
     }
   }
@@ -65,7 +97,7 @@ proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, intera
     guard let children = fs.children(target, stat: false) else { |failure|
       if gnu.errno(failure) == 13 {
         if interactive {
-          return {ok: true, removed: false, write_error: null} when ! confirm(f"attempt removal of inaccessible directory {gnu.quote(name)}")
+          return {ok: true, removed: false, write_error: null} when ! confirm(f"attempt removal of inaccessible directory {gnu.quote_bytes(name)}")
         }
         if target.remove_dir() is Ok(_) {
           if opts.verbose {
@@ -77,18 +109,18 @@ proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, intera
           return {ok: true, removed: true, write_error: write_error}
         }
       }
-      gnu.cannot("remove", name, failure)
+      gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
       return {ok: false, removed: false, write_error: null}
     }
     let entries = children.collect()
     if (interactive or protected) and ! entries.is_empty() {
-      return {ok: true, removed: false, write_error: null} when ! confirm(f"descend into {protection}directory {gnu.quote(name)}")
+      return {ok: true, removed: false, write_error: null} when ! confirm(f"descend into {protection}directory {gnu.quote_bytes(name)}")
     }
     var retained = false
     for child in entries {
-      let base = child.path.basename()
-      let child_name = if name == "/" { f"/{base}" } else { f"{name}/{base}" }
-      let child_target = fp"{target}/{base}"
+      let base = search.basename_bytes(child.path.bytes())
+      let child_name = if name == b"/" { bytes.concat([b"/", base]) } else { bytes.concat([name, b"/", base]) }
+      let child_target = search.child(target, base)?
       let result = remove_target(child_target, child_name, opts, device, interactive, automatic, presume_input_tty)
       if ! result.ok { success = false }
       if let failure = result.write_error { if write_error == null { write_error = failure } }
@@ -98,14 +130,14 @@ proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, intera
 
   }
   if meta.kind == "dir" and ! opts.recursive and ! opts.directory {
-    gnu.error(f"cannot remove {gnu.quote(name)}: Is a directory")
+    gnu.error(f"cannot remove {gnu.quote_bytes(name)}: Is a directory")
     return {ok: false, removed: false, write_error: null}
   }
   if interactive or protected {
-    var question = f"remove {protection}{file_kind(meta.kind, meta.size)} {gnu.quote(name)}"
+    var question = f"remove {protection}{file_kind(meta.kind, meta.size)} {gnu.quote_bytes(name)}"
     if meta.kind == "dir" and ! opts.recursive {
       if let Ok(accessible) = fs.access(target, read: true, execute: true) {
-        if ! accessible { question = f"attempt removal of inaccessible directory {gnu.quote(name)}" }
+        if ! accessible { question = f"attempt removal of inaccessible directory {gnu.quote_bytes(name)}" }
       }
     }
     return {ok: true, removed: false, write_error: write_error} when ! confirm(question)
@@ -124,7 +156,7 @@ proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, intera
     }
     Err(failure) => {
       if ! (opts.force and gnu.errno(failure) == 2) {
-        gnu.cannot("remove", name, failure)
+        gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
         success = false
       }
     }
@@ -169,26 +201,7 @@ proc dash_filename_hint(argv: List[Str]) [fs, process, env, error] {
   }
 }
 
-type RmArguments = {argv: List[Str], presume_input_tty: Bool}
-
-# The hidden GNU spelling has three leading dashes. Keep its exact spelling
-# outside the normal long-option grammar, and honor operand termination.
-pure prepare_arguments(argv: List[Str], posix: Bool) -> RmArguments {
-  var arguments = []
-  var options = true
-  var presume_input_tty = false
-  for raw in argv {
-    if options and raw == "---presume-input-tty" {
-      presume_input_tty = true
-      continue
-    }
-    arguments += [raw]
-    if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { options = false }
-  }
-  {argv: arguments, presume_input_tty: presume_input_tty}
-}
-
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let posix = env.get("POSIXLY_CORRECT") is Ok(_)
   let prepared = prepare_arguments(argv, posix)
   dash_filename_hint(prepared.argv)
@@ -232,12 +245,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if let choice = opts.interactive {
     if choice in ["never", "no", "none"] { prompt_mode = 0 } else if choice == "once" { prompt_mode = 1 } else if choice in ["always", "yes"] { prompt_mode = 2 } else { gnu.usage_error(f"invalid argument {gnu.quote_value(choice)} for 'interactive'") }
   }
-  if opts.targets.is_empty() {
+  let targets: List[Bytes] = collect { for target in opts.targets { yield argument_bytes(target, prepared.raw) } }
+  if targets.is_empty() {
     return when force
     gnu.missing_operand()
   }
-  if prompt_mode == 1 and (opts.recursive or opts.targets.len() > 3) {
-    let count = opts.targets.len()
+  if prompt_mode == 1 and (opts.recursive or targets.len() > 3) {
+    let count = targets.len()
     let noun = if count == 1 { "argument" } else { "arguments" }
     let recursive = if opts.recursive { " recursively" } else { "" }
     return when ! confirm(f"remove {count} {noun}{recursive}")
@@ -245,18 +259,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var success = true
   var write_error: Error? = null
   let root = fs.stat(p"/")?
-  for name in opts.targets {
-    let target = fp"{name}"
-    if target.basename() in [".", ".."] {
-      gnu.error(f"refusing to remove '.' or '..' directory: skipping {gnu.quote(operand_label(name))}")
+  for name in targets {
+    let target = Path.parse_bytes(name)?
+    let base = search.basename_bytes(target.bytes())
+    if base == b"." or base == b".." {
+      gnu.error(f"refusing to remove '.' or '..' directory: skipping {gnu.quote_bytes(operand_label(name))}")
       success = false
       continue
     }
     if opts.recursive {
       if let Ok(meta) = fs.stat(target) {
         if preserve_root and meta.kind == "dir" and meta.dev == root.dev and meta.ino == root.ino {
-          let same = if name == "/" { "" } else { " (same as '/')" }
-          gnu.error(f"it is dangerous to operate recursively on {gnu.quote(name)}{same}")
+          let same = if target.bytes() == b"/" { "" } else { " (same as '/')" }
+          gnu.error(f"it is dangerous to operate recursively on {gnu.quote_bytes(name)}{same}")
           gnu.error("use --no-preserve-root to override this failsafe")
           success = false
           continue
@@ -267,7 +282,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       if let Ok(meta) = fs.stat(target) {
         if let Ok(parent) = fs.stat(target.parent(), follow_symlinks: true) {
           if meta.dev != parent.dev {
-            gnu.error(f"skipping {gnu.quote(name)}, since it's on a different device")
+            gnu.error(f"skipping {gnu.quote_bytes(name)}, since it's on a different device")
             success = false
             continue
           }

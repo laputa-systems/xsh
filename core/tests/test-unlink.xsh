@@ -12,6 +12,25 @@ test test_unlink_removes_link_and_refuses_directory { |ctx|
   assert root.is_dir()?
 }
 
+test test_unlink_accepts_non_utf8_operand { |ctx|
+  let root = test.temp_dir(ctx, name: "unlink-raw-path")?
+  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  target.write("remove")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/unlink.xsh"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, p"--", script, p"--", target], root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exited_with(0), stderr.read_text()?
+  assert fs.stat(target) is Err(_)
+  let missing_status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, p"--", script, p"--", target], root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  let missing_error = stderr.read_text()?
+  assert missing_status.exited_with(1)
+  assert r"\377" in missing_error
+  assert "No such file or directory" in missing_error
+}
+
 test test_unlink_extra_operand_is_not_removed { |ctx|
   let root = test.temp_dir(ctx)?
   let a = fp"{root}/a"

@@ -7,6 +7,35 @@ test test_rm_force_recursive { |ctx|
   assert ! dir.exists()?
 }
 
+test test_rm_accepts_non_utf8_operands { |ctx|
+  let root = test.temp_dir(ctx, name: "rm-raw-path")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  file.write("remove")
+  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/directory\xfe"]))?
+  let child = Path.parse_bytes(bytes.concat([directory.bytes(), b"/child\xfd"]))?
+  directory.mkdir()
+  child.write("remove")
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/rm.xsh"
+  let file_status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, p"--", script, p"--", file], root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert file_status.exited_with(0), stderr.read_text()?
+  assert fs.stat(file) is Err(_)
+  let missing_status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, p"--", script, p"--", file], root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  let missing_error = stderr.read_text()?
+  assert missing_status.exited_with(1)
+  assert r"\377" in missing_error
+  assert "No such file or directory" in missing_error
+
+  let directory_status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin, p"--", script, p"-r", p"--", directory], root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert directory_status.exited_with(0), stderr.read_text()?
+  assert fs.stat(directory) is Err(_)
+  assert fs.stat(child) is Err(_)
+}
+
 test test_rm_progress_options { |ctx|
   let root = test.temp_dir(ctx, name: "rm-progress")?
   let file = fp"{root}/file"

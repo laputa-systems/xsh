@@ -6,6 +6,30 @@ type TouchOptions = {
   obsolete_force: Bool, no_create: Bool, reference: Str?, access: Bool, modify: Bool,
   no_dereference: Bool, date: Str?, timestamp: Str?, time: Str?, help: Bool, version: Bool, paths: List[Str],
 }
+type RawArgument = {marker: Str, value: Bytes}
+type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
+
+pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0touch-raw-argument-{index}\0"
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
+      }
+    }
+  }
+  {text: text, raw: raw}
+}
+
+pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
+  for argument in raw { if argument.marker == value { return argument.value } }
+  bytes.from_text(value)
+}
 
 # date_parse recognizes a signed displacement as a separate token, while GNU
 # touch accepts the sign attached to its number.
@@ -14,8 +38,9 @@ pure normalize_date_displacement(text: Str) -> Str {
   if signed.is_empty() { text } else { f"{signed[1]} {signed[2]} {signed[3]}" }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
-  let opts: TouchOptions = cli.applet(argv, {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
+  let prepared = prepare_arguments(argv)
+  let opts: TouchOptions = cli.applet(prepared.text, {
     gnu: {status: 1},
     # GNU retains the obsolete -f spelling for compatibility; it requests
     # no operation and does not alter creation or error handling.
@@ -57,10 +82,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   var atime: Int? = null
   var mtime: Int? = null
   if let reference = opts.reference {
-    match fs.stat(fp"{reference}", follow_symlinks: ! opts.no_dereference) {
+    let reference_bytes = argument_bytes(reference, prepared.raw)
+    let reference_path = Path.parse_bytes(reference_bytes)?
+    match fs.stat(reference_path, follow_symlinks: ! opts.no_dereference) {
       Ok(meta) => { atime = meta.atime_ns
         mtime = meta.mtime_ns }
-      Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote(reference)}: {gnu.strerror(failure)}")
+      Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote_bytes(reference_bytes)}: {gnu.strerror(failure)}")
         exit 1 }
     }
   }
@@ -113,8 +140,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
   }
   var failed = false
-  for name in paths {
-    let target = if name == "-" { p"/dev/stdout" } else { fp"{name}" }
+  let path_names: List[Bytes] = collect { for path_value in paths { yield argument_bytes(path_value, prepared.raw) } }
+  for name in path_names {
+    let target = if name == b"-" { p"/dev/stdout" } else { Path.parse_bytes(name)? }
     # Try timestamps before opening: directories and unwritable owned files
     # can be touched without obtaining a writable descriptor.
     var creating = false
@@ -123,14 +151,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       mtime_ns: if modify { mtime } else { null },
       atime_now: access and atime == null,
       mtime_now: modify and mtime == null,
-      follow_symlinks: name == "-" or ! opts.no_dereference)
+      follow_symlinks: name == b"-" or ! opts.no_dereference)
     if let Err(failure) = changed {
       if gnu.errno(failure) == 2 {
         continue when opts.no_create
-        if ! opts.no_dereference and name != "-" {
+        if ! opts.no_dereference and name != b"-" {
           creating = true
-          if name.ends_with("/") {
-            gnu.error(f"cannot touch {gnu.quote(name)}: No such file or directory")
+          if name.len() > 0 and name.byte_at(name.len() - 1) == 47 {
+            gnu.error(f"cannot touch {gnu.quote_bytes(name)}: No such file or directory")
             failed = true
             continue
           }
@@ -147,7 +175,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       }
     }
     if let Err(failure) = changed {
-      if creating { gnu.cannot("touch", name, failure) } else { gnu.error(f"setting times of {gnu.quote(name)}: {gnu.strerror(failure)}") }
+      if creating { gnu.error(f"cannot touch {gnu.quote_bytes(name)}: {gnu.strerror(failure)}") } else { gnu.error(f"setting times of {gnu.quote_bytes(name)}: {gnu.strerror(failure)}") }
       failed = true
     }
   }
