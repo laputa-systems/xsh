@@ -49,6 +49,14 @@ test test_b2sum_check_and_strict_status { |ctx|
   assert strict.stdout == b""
 }
 
+test test_b2sum_invalid_length_diagnostics { |ctx|
+  for length in ["513", "1024", "18446744073709551616"] {
+    let result = invoke(ctx, ["--length", length], b"")?
+    assert result.status == 1
+    assert result.stderr == f"b2sum: invalid length: '{length}'\nb2sum: maximum digest length for 'BLAKE2b' is 512 bits\n"
+  }
+}
+
 test test_b2sum_zero_binary_and_tagged { |ctx|
   let binary = invoke(ctx, ["-bz"], b"abc")?
   assert binary.status == 0

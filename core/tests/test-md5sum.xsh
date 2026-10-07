@@ -138,10 +138,54 @@ test test_md5sum_check_preserves_leading_space_filename { |ctx|
   assert err.read_text()? == ""
 }
 
+test test_md5sum_check_accepts_bsd_alternate_format { |ctx|
+  let root = test.temp_dir(ctx, name: "alternate-format-check")?
+  for name in ["a", " b", "*c"] {
+    fp"{root}/{name}".write("")
+  }
+  let list = fp"{root}/check.md5sum"
+  list.write("d41d8cd98f00b204e9800998ecf8427e a\nd41d8cd98f00b204e9800998ecf8427e  b\nd41d8cd98f00b204e9800998ecf8427e *c\n")
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/md5sum.xsh"
+  let plan = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "--", "--strict", "--check", list.display()],
+    root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  assert status.exit_code()? == 0
+  assert out.read_bytes()? == b"a: OK\n' b': OK\n'*c': OK\n"
+  assert err.read_text()? == ""
+}
+
+test test_md5sum_invalid_prefix_does_not_select_list_format { |ctx|
+  let file = test.temp_file(ctx, name: "format-prefix-file", contents: b"")?
+  let list = test.temp_file(ctx, name: "format-prefix-list", contents: bytes.from_text(
+    f"not-a-digest garbage\nd41d8cd98f00b204e9800998ecf8427e  {file}\n"))?
+  let result = invoke(ctx, ["--check", "--warn", list.display()], b"")?
+  assert result.status == 0
+  assert result.stdout == bytes.from_text(f"{file}: OK\n")
+  assert result.stderr.find(f"{list}: 1: improperly formatted MD5 checksum line") != null
+  assert result.stderr.find("WARNING: 1 line is improperly formatted") != null
+}
+
 test test_md5sum_invalid_option_uses_gnu_exit_status { |ctx|
   let result = invoke(ctx, ["--definitely-invalid"], b"")?
   assert result.status == 1
   assert result.stderr.find("unrecognized option") != null
+}
+
+test test_md5sum_invalid_modes_omit_help_hint { |ctx|
+  let tagged_check = invoke(ctx, ["--tag", "--check", "/dev/null"], b"")?
+  assert tagged_check.status == 1
+  assert tagged_check.stderr == "md5sum: the --tag option is meaningless when verifying checksums\n"
+
+  let tagged_text = invoke(ctx, ["--tag", "--text"], b"")?
+  assert tagged_text.status == 1
+  assert tagged_text.stderr == "md5sum: --tag does not support --text mode\n"
+
+  let ignore_missing = invoke(ctx, ["--ignore-missing"], b"")?
+  assert ignore_missing.status == 1
+  assert ignore_missing.stderr == "md5sum: the --ignore-missing option is meaningful only when verifying checksums\n"
 }
 
 test test_md5sum_missing_check_path_keeps_original_name { |ctx|

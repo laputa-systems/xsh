@@ -255,6 +255,14 @@ pure byte_lines(data: Bytes) -> List[Bytes] {
   result
 }
 
+# The first valid checksum record selects GNU's alternate format for the list;
+# in that mode a leading star is part of a filename, not a binary marker.
+pure bsd_alternate_format(line: Bytes) -> Bool {
+  if line.len() == 0 or line.byte_at(0) == 92 or last_byte_separator(line) != null { return false }
+  let separator = byte_index(line, 32, 0) ?? -1
+  separator > 0 and separator + 1 < line.len() and line.byte_at(separator + 1) != 32 and line.byte_at(separator + 1) != 42
+}
+
 pure decoded_digest_bytes(value: Str) -> Int {
   if is_hex(value) { return value.byte_len() / 2 }
   value.byte_len() / 4 * 3 - (if value.ends_with("==") { 2 } else if value.ends_with("=") { 1 } else { 0 })
@@ -267,7 +275,10 @@ pure malformed_label(line: Bytes, previous: Str) -> Str {
     var end = open
     while end > 0 and value.byte_at(end - 1) == 32 { end -= 1 }
     if end > 0 {
-      if let Ok(tag) = value[..end].utf8() { return tag }
+      if let Ok(tag) = value[..end].utf8() {
+        if tag.starts_with("SHA3-") { return "SHA3" }
+        return tag
+      }
     }
   }
   previous
@@ -275,7 +286,7 @@ pure malformed_label(line: Bytes, previous: Str) -> Str {
 
 # The digest width determines the separator location: spaces and leading stars
 # in a filename are data, and tagged lines may carry their own algorithm.
-pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Check? {
+pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool, alternate_format: Bool) -> Check? {
   var line = original
   if line.ends_with("\r") { line = line.byte_slice(0, length: line.byte_len() - 1) }
   let escape = line.starts_with("\\")
@@ -356,7 +367,9 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
     if separator <= 0 { return null }
     expected = line.byte_slice(0, length: separator)
     let remainder = line.byte_slice(separator + 1)
-    if remainder.starts_with(" ") {
+    if alternate_format {
+      name = remainder
+    } else if remainder.starts_with(" ") {
       if !remainder.starts_with(" *") { alternate_path = remainder }
       name = remainder.byte_slice(1)
     } else if remainder.starts_with("*") {
@@ -392,7 +405,7 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
   {digest: expected, base64: encoded, path: bytes.from_text(name), alternate_path: alternate, algorithm: selected, length: bits}
 }
 
-pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool) -> Check? {
+pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool, alternate_format: Bool) -> Check? {
   var line = original
   if line.len() > 0 and line.byte_at(line.len() - 1) == 13 { line = line[..line.len() - 1] }
   let escape = line.byte_at(0) == 92
@@ -406,7 +419,7 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool) 
     var normalized = bytes.concat([content[..open + 1], placeholder, content[separator.close..]])
     if escape { normalized = bytes.concat([b"\\", normalized]) }
     let parsed = match normalized.utf8() {
-      Ok(value) => parse_line(value, algorithm, length, infer)
+      Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
       Err(_) => null
     }
     if parsed == null { return null }
@@ -418,16 +431,16 @@ pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool) 
   if separator <= 0 { return null }
   var name_start = separator + 1
   let marker = content.byte_at(name_start)
-  if marker == 32 or marker == 42 { name_start += 1 }
+  if !alternate_format and (marker == 32 or marker == 42) { name_start += 1 }
   let normalized = bytes.concat([content[..name_start], b"__XSH_RAW_CHECK_PATH__"])
   let text = normalized.utf8()
   let parsed = match text {
-    Ok(value) => parse_line(value, algorithm, length, infer)
+    Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
     Err(_) => null
   }
   if parsed == null { return null }
   let item = parsed ?? {digest: "", base64: false, path: b"", alternate_path: null, algorithm: "", length: 0}
-  let alternate: Bytes? = if marker == 32 and content.byte_at(name_start) != 42 { content[separator + 1..] } else { null }
+  let alternate: Bytes? = if !alternate_format and marker == 32 and content.byte_at(name_start) != 42 { content[separator + 1..] } else if !alternate_format and marker == 42 { content[separator + 2..] } else { null }
   {...item, path: content[name_start..], alternate_path: alternate}
 }
 
@@ -471,13 +484,25 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
   var valid = 0
   var line_number = 0
   var previous_label = label(algorithm, length)
+  var format_decided = false
+  var alternate_format = false
   for line in byte_lines(data) {
     line_number += 1
     if line.len() == 0 or (line.len() == 1 and line.byte_at(0) == 13) { continue }
     if line.byte_at(0) == 35 { continue }
+    if !format_decided {
+      let valid_record = match line.utf8() {
+        Ok(value) => parse_line(value, algorithm, length, infer, false) != null
+        Err(_) => parse_byte_line(line, algorithm, length, infer, false) != null
+      }
+      if valid_record {
+        alternate_format = bsd_alternate_format(line)
+        format_decided = true
+      }
+    }
     let entry = match line.utf8() {
-      Ok(value) => parse_line(value, algorithm, length, infer)
-      Err(_) => parse_byte_line(line, algorithm, length, infer)
+      Ok(value) => parse_line(value, algorithm, length, infer, alternate_format)
+      Err(_) => parse_byte_line(line, algorithm, length, infer, alternate_format)
     }
     if entry == null {
       malformed += 1
@@ -570,7 +595,8 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
   }
   opts = {...opts, warn: warning_mode(argv)}
   if opts.help {
-    gnu.help(f"Usage: {gnu.prog()} [OPTION]... [FILE]...\nPrint or check checksums. With no FILE, or when FILE is -, read standard input.\n  -b, --binary       read in binary mode\n  -c, --check        read checksums and verify files\n  -t, --text         read in text mode\n      --tag          create a BSD-style checksum\n  -z, --zero         end each output line with NUL\n      --quiet        omit OK when checking\n      --status       suppress check output\n      --strict       fail on malformed check lines\n  -w, --warn         warn about malformed check lines\n      --ignore-missing  ignore missing files when checking\n      --help         display this help\n      --version      display version")
+    let digest_help = if cksum { "\nDIGEST determines the digest algorithm and default output format:\n  - sysv:     (equivalent to sum -s)\n  - bsd:      (equivalent to sum -r)\n  - crc:      (equivalent to cksum)\n  - crc32b:   (only available through cksum)\n  - md5:      (equivalent to md5sum)\n  - sha1:     (equivalent to sha1sum)\n  - sha2:     (equivalent to sha{224,256,384,512}sum)\n  - sha3:     (only available through cksum)\n  - blake2b:  (equivalent to b2sum)\n  - sm3:      (only available through cksum)" } else { "" }
+    gnu.help(f"Usage: {gnu.prog()} [OPTION]... [FILE]...\nPrint or check checksums. With no FILE, or when FILE is -, read standard input.\n  -b, --binary       read in binary mode\n  -c, --check        read checksums and verify files\n  -t, --text         read in text mode\n      --tag          create a BSD-style checksum\n  -z, --zero         end each output line with NUL\n      --quiet        omit OK when checking\n      --status       suppress check output\n      --strict       fail on malformed check lines\n  -w, --warn         warn about malformed check lines\n      --ignore-missing  ignore missing files when checking\n      --help         display this help\n      --version      display version{digest_help}")
     return
   }
   if opts.version { gnu.version(gnu.prog()); return }
@@ -590,13 +616,15 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
       if length < 0 {
         if decimal_text(opts.length) {
           gnu.error(f"invalid length: {gnu.quote(opts.length)}")
-          gnu.usage_error(f"digest length for '{algorithm.upper()}' must be 224, 256, 384, or 512")
+          gnu.error(f"digest length for '{algorithm.upper()}' must be 224, 256, 384, or 512")
+          exit 1
         }
         gnu.usage_error(f"invalid length: {gnu.quote(opts.length)}")
       }
       if length != 224 and length != 256 and length != 384 and length != 512 {
         gnu.error(f"invalid length: {gnu.quote(opts.length)}")
-        gnu.usage_error(f"digest length for '{algorithm.upper()}' must be 224, 256, 384, or 512")
+        gnu.error(f"digest length for '{algorithm.upper()}' must be 224, 256, 384, or 512")
+        exit 1
       }
       if algorithm == "sha2" { algorithm = f"sha{length}" }
     }
@@ -604,14 +632,16 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
     if length < 0 {
       if decimal_text(opts.length) and algorithm == "blake2b" {
         gnu.error(f"invalid length: {gnu.quote(opts.length)}")
-        gnu.usage_error(f"maximum digest length for '{label(algorithm, 512)}' is 512 bits")
+        gnu.error(f"maximum digest length for '{label(algorithm, 512)}' is 512 bits")
+        exit 1
       }
       gnu.usage_error(f"invalid length: {gnu.quote(opts.length)}")
     }
     if length == 0 { length = if algorithm == "blake2b" { 512 } else { 256 } }
     if algorithm == "blake2b" and length > 512 {
       gnu.error(f"invalid length: {gnu.quote(opts.length)}")
-      gnu.usage_error(f"maximum digest length for '{label(algorithm, 512)}' is 512 bits")
+      gnu.error(f"maximum digest length for '{label(algorithm, 512)}' is 512 bits")
+      exit 1
     }
     if length % 8 != 0 {
       gnu.error(f"invalid length: {gnu.quote(opts.length)}")
@@ -626,13 +656,17 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
   let is_numeric = algorithm == "crc" or algorithm == "bsd" or algorithm == "sysv" or algorithm == "crc32b"
   if !is_numeric and algorithm != "blake2b" and algorithm != "sha2" and algorithm != "sha3" and algorithm != "blake3" and algorithm != "shake128" and algorithm != "shake256" and digest_length(algorithm) == 0 { gnu.usage_error(f"invalid argument {gnu.quote(algorithm)} for 'checksum algorithm'") }
   if !opts.check {
-    for flag in [if opts.quiet { "quiet" } else { "" }, if opts.status { "status" } else { "" }, if opts.warn { "warn" } else { "" }, if opts.strict { "strict" } else { "" }, if opts.ignore_missing { "ignore-missing" } else { "" }] {
+    for flag in [if opts.quiet { "quiet" } else { "" }, if opts.status { "status" } else { "" }, if opts.warn { "warn" } else { "" }, if opts.strict { "strict" } else { "" }] {
       if flag != "" { gnu.usage_error(f"the --{flag} option is meaningful only when verifying checksums") }
     }
+    if opts.ignore_missing {
+      gnu.error("the --ignore-missing option is meaningful only when verifying checksums")
+      exit 1
+    }
   }
-  if opts.tag and opts.text and !binary { gnu.usage_error("--tag does not support --text mode") }
+  if opts.tag and opts.text and !binary { gnu.error("--tag does not support --text mode"); exit 1 }
   if cksum and opts.text and !binary and tagged { gnu.usage_error("--text mode is only supported with --untagged") }
-  if opts.check and opts.tag { gnu.usage_error("the --tag option is meaningless when verifying checksums") }
+  if opts.check and opts.tag { gnu.error("the --tag option is meaningless when verifying checksums"); exit 1 }
   if opts.check and (opts.binary or opts.text) { gnu.usage_error("the --binary and --text options are meaningless when verifying checksums") }
   if opts.check and is_numeric and (!cksum or opts.algorithm != "") {
     gnu.error("--check is not supported with --algorithm={bsd,sysv,crc,crc32b}")

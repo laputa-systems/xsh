@@ -102,6 +102,37 @@ test test_cksum_length_policy_diagnostics { |ctx|
   assert too_long.stderr.find("maximum digest length for 'BLAKE2b' is 512 bits") != null
 }
 
+test test_cksum_invalid_sha3_lengths_have_gnu_diagnostics { |ctx|
+  for length in ["216", "248", "376", "504", "513", "1024", "18446744073709551616"] {
+    let expected = f"cksum: invalid length: '{length}'\ncksum: digest length for 'SHA3' must be 224, 256, 384, or 512\n"
+    let generate = invoke(ctx, ["--algorithm=sha3", "--length", length], b"")?
+    assert generate.status == 1
+    assert generate.stderr == expected
+
+    let check = invoke(ctx, ["--algorithm=sha3", "--length", length, "--check"], b"")?
+    assert check.status == 1
+    assert check.stderr == expected
+  }
+}
+
+test test_cksum_invalid_sha3_tag_reports_sha3_family { |ctx|
+  let file = test.temp_file(ctx, name: "sha3-malformed-tag", contents: b"")?
+  let list = test.temp_file(ctx, name: "sha3-malformed-list", contents: bytes.from_text(
+    f"SHA3-248 ({file}) = b4753bf1696fda712821b665494c89090ffb0e87b8645559ad9f5db25b42d4f3\n"))?
+  let result = invoke(ctx, ["--check", "--warn", list.display()], b"")?
+  assert result.status == 1
+  assert result.stderr.find(f"{list}: 1: improperly formatted SHA3 checksum line") != null
+  assert result.stderr.find("SHA3-248 checksum line") == null
+}
+
+test test_cksum_help_lists_supported_algorithms { |ctx|
+  let result = invoke(ctx, ["--help"], b"")?
+  assert result.status == 0
+  let output = result.stdout.utf8()?
+  let digest_help = "DIGEST determines the digest algorithm and default output format:\n  - sysv:     (equivalent to sum -s)\n  - bsd:      (equivalent to sum -r)\n  - crc:      (equivalent to cksum)\n  - crc32b:   (only available through cksum)\n  - md5:      (equivalent to md5sum)\n  - sha1:     (equivalent to sha1sum)\n  - sha2:     (equivalent to sha{224,256,384,512}sum)\n  - sha3:     (only available through cksum)\n  - blake2b:  (equivalent to b2sum)\n  - sm3:      (only available through cksum)"
+  assert output.find(digest_help) != null
+}
+
 test test_cksum_check_and_text_option_diagnostics { |ctx|
   let tagged_check = invoke(ctx, ["--check", "--tag", "missing"], b"")?
   assert tagged_check.status == 1
