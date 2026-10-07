@@ -8,15 +8,16 @@ type DuOptions = {
   depth: Str?, count_links: Bool, follow_all: Bool, follow_args: Bool, no_follow: Bool,
   separate: Bool, one_file_system: Bool, inodes: Bool, zero: Bool, threshold: Str?,
   excludes: List[Str], exclude_files: List[Str], files0: Str?,
-  time: Str?, time_style: Str?, help: Bool, version: Bool, targets: List[Str],
+  time: Str?, time_style: Str?, verbose: Bool, help: Bool, version: Bool, targets: List[Str],
 }
 type Policy = {
   all: Bool, total: Bool, apparent: Bool, count_links: Bool, follow_all: Bool,
   follow_args: Bool, separate: Bool, one_file_system: Bool, inodes: Bool,
   depth: Int, threshold: Int?, negative: Bool, units: disk.Units,
-  excludes: List[Regex], ending: Str, time: Str, time_style: Str,
+  excludes: List[Regex], ending: Str, time: Str, time_style: Str, verbose: Bool,
 }
 type Usage = {size: Int, accounted: Int, counted: Bool, links: Map[Bool], latest: Int, failed: Bool, directory: Bool}
+type EntryMetadata = {meta: FsStat, external_target: Path?}
 
 pure glob_regex(pattern: Str) -> Str {
   let chars = [ch for ch in pattern]
@@ -51,7 +52,7 @@ pure glob_regex(pattern: Str) -> Str {
       }
 
       if close >= total {
-        out = f"{out}\\["
+        out = f"{out}["
       } else {
         var body = ""
         var inner = at
@@ -104,18 +105,77 @@ proc emit_usage(name: Str, size: Int, latest: Int, policy: Policy) [process, env
   }
   let units = if policy.inodes { {...policy.units, block: 1} } else { policy.units }
   let timestamp = if policy.time == "" { "" } else { f"\t{time.format(latest, policy.time_style)?}" }
-  gnu.write_text(f"{disk.amount(size, units)}{timestamp}\t{name}{policy.ending}")
+  var amount = disk.amount(size, units)
+  if units.human != 0 {
+    let locale = env.get_or("LC_ALL", env.get_or("LC_NUMERIC", env.get_or("LANG", "C") ?? "C") ?? "C") ?? "C"
+    if locale.starts_with("fr") or locale.starts_with("de") or locale.starts_with("es") or locale.starts_with("it") or locale.starts_with("pt") {
+      amount = amount.replace(".", with: ",")
+    }
+  }
+  gnu.write_text(f"{amount}{timestamp}\t{name}{policy.ending}")
+}
+
+proc entry_metadata(root: FsRoot, entry: Path, name: Str, follow: Bool) [fs, error] -> Result[EntryMetadata, Error] {
+  match root.stat(entry, follow_symlinks: follow) {
+    Ok(meta) => Ok({meta: meta, external_target: null})
+    Err(failure) => {
+      return Err(failure) when ! follow
+      match root.stat(entry, follow_symlinks: false) {
+        Ok(link) => {
+          return Err(failure) when link.kind != "symlink"
+          let target = root.readlink(entry)?.display()
+          let resolved = if target.starts_with("/") { fp"{target}" } else {
+            let directory = root.host_path()?.display()
+            fp"{if directory.ends_with("/") { f"{directory}{target}" } else { f"{directory}/{target}" }}"
+          }
+          match fs.stat(resolved, follow_symlinks: true) {
+            Ok(meta) => Ok({meta: meta, external_target: resolved})
+            Err(target_failure) => Err(target_failure)
+          }
+        }
+        Err(_) => Err(failure)
+      }
+    }
+  }
+}
+
+pure children_failure(errno: Int?, state: Str) -> Str {
+  if let code = errno {
+    match code {
+      1 => "Operation not permitted"
+      2 => "No such file or directory"
+      5 => "Input/output error"
+      9 => "Bad file descriptor"
+      11 => "Resource temporarily unavailable"
+      13 => "Permission denied"
+      20 => "Not a directory"
+      24 => "Too many open files"
+      36 => "File name too long"
+      40 => "Too many levels of symbolic links"
+      else => f"OS error {code}"
+    }
+  } else if state == "truncated" {
+    "directory entry limit exceeded"
+  } else {
+    state
+  }
 }
 
 # Account in bytes until printing, and track device/inode identity across all
 # operands. A link contributes once unless the caller requests link counting.
-proc disk_usage(target: Path, policy: Policy, depth: Int, device: Int, links: Map[Bool], ancestors: List[Str]) [fs, process, env, io, time, error] -> Usage {
-  let name = target.display()
-  for pattern in policy.excludes { return {size: 0, accounted: 0, counted: false, links: links, latest: 0, failed: false, directory: false} when pattern.matches(name) }
-  guard let meta = fs.stat(target, follow_symlinks: policy.follow_all or (policy.follow_args and depth == 0)) else { |failure|
+proc disk_usage(root: FsRoot, entry: Path, name: Str, policy: Policy, depth: Int, device: Int, links: Map[Bool], ancestors: List[Str]) [fs, process, env, io, time, error] -> Usage {
+  for pattern in policy.excludes {
+    if pattern.matches(name) {
+      if policy.verbose { gnu.write_text(f"{gnu.quote(name)} ignored\n") }
+      return {size: 0, accounted: 0, counted: false, links: links, latest: 0, failed: false, directory: false}
+    }
+  }
+  let follow = policy.follow_all or (policy.follow_args and depth == 0) or name.ends_with("/")
+  guard let found = entry_metadata(root, entry, name, follow) else { |failure|
     gnu.cannot_access(name, failure)
     return {size: 0, accounted: 0, counted: false, links: links, latest: 0, failed: true, directory: false}
   }
+  let meta = found.meta
   let identity = f"{meta.dev}:{meta.ino}"
   if meta.kind == "dir" and identity in ancestors {
     if ! policy.follow_all { gnu.error(f"WARNING: Circular directory structure at {gnu.quote(name)}") }
@@ -130,23 +190,39 @@ proc disk_usage(target: Path, policy: Policy, depth: Int, device: Int, links: Ma
   var latest = if policy.time == "atime" { meta.atime_ns } else if policy.time == "ctime" { meta.ctime_ns } else { meta.mtime_ns }
   var failed = false
   if meta.kind == "dir" {
-    match fs.children(target, stat: false, ordered: false) {
-      Ok(children) => {
-        for child in children {
-          let base = child.path.basename()
-          let child_name = if name.ends_with("/") { f"{name}{base}" } else { f"{name}/{base}" }
-          let result = disk_usage(fp"{child_name}", policy, depth + 1, if depth == 0 { meta.dev } else { device }, seen, ancestors.push(identity))
-          seen = result.links
-          accounted += result.accounted
-          if ! policy.separate or ! result.directory {
-            size += result.size
-            if result.counted and result.latest > latest { latest = result.latest }
+    let opened = if let host_path = found.external_target { fs.open_root(host_path) } else { root.open_root(entry) }
+    match opened {
+      Ok(child_root) => {
+        defer child_root.close()
+        match child_root.children(p".") {
+          Ok(listing) => {
+            for child in listing.children {
+              let base = child.basename()
+              let child_name = if name.ends_with("/") { f"{name}{base}" } else { f"{name}/{base}" }
+              let result = disk_usage(child_root, child, child_name, policy, depth + 1, if depth == 0 { meta.dev } else { device }, seen, ancestors.push(identity))
+              seen = result.links
+              accounted += result.accounted
+              if ! policy.separate or ! result.directory {
+                size += result.size
+                if result.counted and result.latest > latest { latest = result.latest }
+              }
+              failed = failed or result.failed
+            }
+            if ! listing.enumeration_succeeded {
+              gnu.error(f"cannot read directory {gnu.quote(name)}: {children_failure(listing.errno, listing.state)}")
+              failed = true
+            }
           }
-          failed = failed or result.failed
+          Err(failure) => {
+            gnu.error(f"cannot read directory {gnu.quote(name)}: {gnu.strerror(failure)}")
+            failed = true
+          }
         }
       }
-      Err(failure) => { gnu.error(f"cannot read directory {gnu.quote(name)}: {gnu.strerror(failure)}")
-        failed = true }
+      Err(failure) => {
+        gnu.error(f"cannot read directory {gnu.quote(name)}: {gnu.strerror(failure)}")
+        failed = true
+      }
     }
   }
   if depth <= policy.depth and (meta.kind == "dir" or policy.all or depth == 0) {
@@ -155,11 +231,31 @@ proc disk_usage(target: Path, policy: Policy, depth: Int, device: Int, links: Ma
   {size: size, accounted: accounted, counted: true, links: seen, latest: latest, failed: failed, directory: meta.kind == "dir"}
 }
 
+proc disk_usage_operand(target: Path, policy: Policy, links: Map[Bool]) [fs, process, env, io, time, error] -> Usage {
+  let name = target.display()
+  let component = target.basename()
+  let entry = if component == "/" { p"." } else { fp"{component}" }
+  match fs.open_root(target.parent()) {
+    Ok(root) => {
+      defer root.close()
+      disk_usage(root, entry, name, policy, 0, 0, links, [])
+    }
+    Err(failure) => {
+      gnu.cannot_access(name, failure)
+      {size: 0, accounted: 0, counted: false, links: links, latest: 0, failed: true, directory: false}
+    }
+  }
+}
+
 proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
+  if argv.len() > 0 and argv[-1] == "--threshold" {
+    gnu.error("error: a value is required for '--threshold <SIZE>' but none was supplied\nFor more information, try '--help'.")
+    exit 1
+  }
   let opts: DuOptions = cli.applet(argv, {
     gnu: {status: 1},
     summarize: {form: "-s --summarize", default: false}, all: {form: "-a --all", default: false}, total: {form: "-c --total", default: false},
-    apparent: {form: "--apparent-size", default: false}, bytes: {form: "-b --bytes", default: false},
+    apparent: {form: "-A --apparent-size", default: false}, bytes: {form: "-b --bytes", default: false},
     human: {form: "-h --human-readable", default: false}, si: {form: "--si", default: false},
     kilo: {form: "-k", default: false}, mega: {form: "-m", default: false}, block: {form: "-B --block-size SIZE", repeated: true},
     depth: {form: "-d --max-depth N"}, count_links: {form: "-l --count-links", default: false},
@@ -168,6 +264,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     no_follow: {form: "-P --no-dereference", default: false, conflicts: ["follow_all", "follow_args"]},
     separate: {form: "-S --separate-dirs", default: false}, one_file_system: {form: "-x --one-file-system", default: false},
     inodes: {form: "--inodes", default: false}, zero: {form: "-0 --null", default: false}, threshold: {form: "-t --threshold SIZE"},
+    verbose: {form: "-v --verbose", default: false},
     excludes: {form: "--exclude PATTERN", repeated: true}, exclude_files: {form: "-X --exclude-from FILE", repeated: true},
     files0: {form: "--files0-from FILE"}, time: {form: "--time[=WORD]", optional_default: "mtime"}, time_style: {form: "--time-style STYLE"},
     help: {form: "--help", default: false, stop: true}, version: {form: "--version", default: false, stop: true},
@@ -206,7 +303,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   for filename in opts.exclude_files {
     match fp"{filename}".read_text() {
       Ok(text) => { excludes = excludes.extend(text.lines().collect()) }
-      Err(failure) => { gnu.name_error(filename, failure)
+      Err(failure) => { gnu.error(gnu.strerror(failure))
         failed = true }
     }
   }
@@ -265,13 +362,13 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     }
     targets = valid
   } else if targets.is_empty() { targets = ["."] }
-  let policy: Policy = {all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth: depth, threshold: threshold, negative: negative, units: units, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style}
+  let policy: Policy = {all: opts.all, total: opts.total, apparent: opts.apparent or opts.bytes, count_links: opts.count_links, follow_all: opts.follow_all, follow_args: opts.follow_args, separate: opts.separate, one_file_system: opts.one_file_system, inodes: opts.inodes, depth: depth, threshold: threshold, negative: negative, units: units, excludes: patterns, ending: if opts.zero { "\0" } else { "\n" }, time: time_field, time_style: style, verbose: opts.verbose}
   var links: Map[Bool] = {}
   var total = 0
   var latest = 0
   var timestamp_seen = false
   for name in targets {
-    let result = disk_usage(fp"{name}", policy, 0, 0, links, [])
+    let result = disk_usage_operand(fp"{name}", policy, links)
     links = result.links
     total += result.accounted
     if result.counted and (! timestamp_seen or result.latest > latest) { latest = result.latest

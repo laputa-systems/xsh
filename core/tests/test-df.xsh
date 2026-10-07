@@ -82,3 +82,33 @@ test test_df_explicit_decimal_block_label_and_invalid_suffix { |ctx|
   assert invalid.status.exited_with(1)
   assert invalid.stderr == "df: invalid suffix in --block-size argument '1fb'\n"
 }
+
+pure df_percent(used: Int, available: Int) -> Str {
+  let total = used + available
+  return "-" when total <= 0 or used < 0
+
+  f"{(used * 100 + total - 1) / total}%"
+}
+
+# Other processes can change the host filesystem between df and statvfs reads.
+test test_df_reports_filesystem_capacity_counters { |ctx|
+  let root = test.temp_dir(ctx, name: "df-capacity")?
+  fp"{root}/payload".write("capacity")
+  let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B1 --output=size,used,avail,pcent $root
+  assert output.status.exited_with(0), output.stderr
+  let stats = fs.statvfs(root)?
+  let expected_size = stats.blocks * stats.fragment_size
+  let expected_used = (stats.blocks - stats.blocks_free) * stats.fragment_size
+  let expected_available = stats.blocks_available * stats.fragment_size
+  let lines = output.stdout.lines().collect()
+  assert lines.len() == 2
+  let fields = lines[1].words()
+  assert fields[0] == f"{expected_size}"
+  let used = fields[1].parse_int()?
+  let available = fields[2].parse_int()?
+  let used_delta = if used > expected_used { used - expected_used } else { expected_used - used }
+  let available_delta = if available > expected_available { available - expected_available } else { expected_available - available }
+  assert used_delta <= 16 * stats.fragment_size
+  assert available_delta <= 16 * stats.fragment_size
+  assert fields[3] == df_percent(used, available)
+}

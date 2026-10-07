@@ -76,6 +76,27 @@ test test_du_depth_inode_exclusion_and_dereference_invariants { |ctx|
   assert followed.stdout == f"12\t{link}\n"
 }
 
+test test_du_repeated_options_verbose_exclusion_and_locale_decimal { |ctx|
+  let root = test.temp_dir(ctx, name: "du-repeat")?
+  let tree = fp"{root}/tree"
+  tree.mkdir()
+  fp"{tree}/keep".write("keep")
+  fp"{tree}/skip".write("excluded")
+  let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -s -A -A --verbose --exclude=skip $tree
+  assert output.status.exited_with(0), output.stderr
+  let lines = output.stdout.lines().collect()
+  assert lines.len() == 2
+  assert f"'{tree}/skip' ignored" in lines[0]
+  assert lines[1] == f"1\t{tree}"
+
+  let file = fp"{root}/large"
+  file.write("")
+  file.truncate(8500)
+  let localized = run.capture --text LC_ALL=fr_FR.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -h -A $file
+  assert localized.status.exited_with(0), localized.stderr
+  assert localized.stdout == f"8,4K\t{file}\n"
+}
+
 test test_du_time_uses_latest_counted_entry { |ctx|
   let root = test.temp_dir(ctx, name: "du-time")?
   let file = fp"{root}/file"
@@ -138,5 +159,80 @@ test test_du_missing_exclude_file_continues_operands { |ctx|
   let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -b -X $missing $file
   assert output.status.exited_with(1)
   assert output.stdout == f"4\t{file}\n"
-  assert output.stderr == f"du: {missing}: No such file or directory\n"
+  assert output.stderr == "du: No such file or directory\n"
+}
+
+test test_du_walks_long_nested_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "du-long-path")?
+  let tree = fp"{root}/tree"
+  tree.mkdir()
+  var deepest = tree
+  var component = ""
+  for _ in range(10) { component = f"{component}0123456789" }
+
+  for index in range(15) {
+    let child = fp"{deepest}/{component}{index}"
+    child.mkdir()
+    deepest = child
+  }
+
+  let payload = fp"{deepest}/payload"
+  payload.write("content")
+
+  let summarized = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -bs $tree
+  assert summarized.status.exited_with(0), summarized.stderr
+  assert summarized.stdout == f"7\t{tree}\n"
+
+  let all = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -ab $tree
+  assert all.status.exited_with(0), all.stderr
+  assert f"7\t{payload}\n" in all.stdout
+}
+
+test test_du_preserves_names_with_spaces_and_null_records { |ctx|
+  let root = test.temp_dir(ctx, name: "du-quote")?
+  let file = fp"{root}/a b"
+  file.write("abc")
+
+  let quoted = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -b $file
+  assert quoted.status.exited_with(0), quoted.stderr
+  assert quoted.stdout == f"3\t{file}\n"
+
+  let nul = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -b0 $file
+  assert nul.status.exited_with(0), nul.stderr
+  assert nul.stdout == f"3\t{file}\0"
+}
+
+test test_du_walks_long_paths_from_unreadable_cwd { |ctx|
+  let root = test.temp_dir(ctx, name: "du-path-limit")?
+  let tree = fp"{root}/tree"
+  tree.mkdir()
+  let inaccessible = fp"{root}/inaccessible"
+  inaccessible.mkdir()
+  var component = ""
+  for _ in range(20) { component = f"{component}0123456789" }
+  let first = fp"{tree}/{component}20"
+  var deep_root = fs.open_root(tree)?
+  for remaining in range(20) {
+    let name = fp"{component}{20 - remaining}"
+    deep_root.mkdir(name)
+    let child = deep_root.open_root(name)?
+    deep_root.close()
+    deep_root = child
+  }
+  defer deep_root.close()
+  deep_root.write(p"payload", "content")
+  assert deep_root.children(p".")?.children == [p"payload"]
+  assert deep_root.metadata(p"payload")?.size == 7
+
+  let result = run.capture --text sh -c r"""
+cd "$1" || exit
+chmod 000 .
+"$2" "$3" -- -s "$4"
+status=$?
+chmod 700 .
+exit "$status"
+""" sh $inaccessible ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" $first
+
+  assert result.status.exited_with(0), result.stderr
+  assert result.stdout.ends_with(f"{first}\n")
 }
