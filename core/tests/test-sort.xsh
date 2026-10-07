@@ -170,3 +170,47 @@ test test_sort_version_option { |ctx|
   assert "sort" in stdout.read_text()?
   assert stderr.read_bytes()?.is_empty()
 }
+
+test test_sort_output_alias_and_duplicate_rules { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-output-options")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let input = test.temp_file(ctx, name: "input", contents: b"b\na\n")?
+  let alias_output = fp"{root}/alias-output"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+
+  let via_alias = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--output", alias_output.display(), input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert via_alias.exit_code()? == 0
+  assert stdout.read_bytes()?.is_empty()
+  assert alias_output.read_bytes()? == b"a\nb\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let long_dash = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--output", "--dash-file", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert long_dash.exit_code()? == 0
+  assert fp"{root}/--dash-file".read_bytes()? == b"a\nb\n"
+
+  let short_dash = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-o", "--another-dash-file", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert short_dash.exit_code()? == 0
+  assert fp"{root}/--another-dash-file".read_bytes()? == b"a\nb\n"
+
+  let same_output = fp"{root}/same-output"
+  let repeated = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-o", same_output.display(), "-o", same_output.display(), input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert repeated.exit_code()? == 0
+  assert same_output.read_bytes()? == b"a\nb\n"
+
+  let first_output = fp"{root}/first-output"
+  let second_output = fp"{root}/second-output"
+  let conflicting = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-o", first_output.display(), "-o", second_output.display(), input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert conflicting.exit_code()? == 2
+  assert stderr.read_text()? == "sort: multiple output files specified\n"
+}

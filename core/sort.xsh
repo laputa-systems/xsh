@@ -9,7 +9,7 @@ type SortOptions = {
   blank: Bool,
   key: Str,
   delimiter: Str,
-  output: Str,
+  output: List[Str],
   check: Str,
   short_check: Bool,
   silent_check: Bool,
@@ -110,6 +110,29 @@ pure input_records(input: Str, zero_terminated: Bool) -> List[Str] {
   }
 }
 
+## A required output operand may start with a dash, so attach it before parsing options.
+pure normalize_output_args(argv: List[Str]) -> List[Str] {
+  var normalized: List[Str] = []
+  var operands_only = false
+  var at = 0
+  while at < argv.len() {
+    let arg = argv[at]
+    if ! operands_only and arg == "--" {
+      normalized += [arg]
+      operands_only = true
+      at += 1
+    } else if ! operands_only and arg in ["-o", "--output"] and at + 1 < argv.len() and argv[at + 1].starts_with("--") {
+      let value = argv[at + 1]
+      normalized += [if arg == "-o" { f"-o{value}" } else { f"--output={value}" }]
+      at += 2
+    } else {
+      normalized += [arg]
+      at += 1
+    }
+  }
+  normalized
+}
+
 ## A final unterminated record in one operand ends before the next operand starts.
 proc read_sort_input(paths: List[Str], separator: Str) [fs, io, error] -> Result[Str, Error] {
   var sources = paths
@@ -128,7 +151,7 @@ proc read_sort_input(paths: List[Str], separator: Str) [fs, io, error] -> Result
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: SortOptions = cli.applet(
-    argv,
+    normalize_output_args(argv),
     {
       reverse: {
         form: "-r --reverse",
@@ -160,7 +183,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
       output: {
         form: "-o FILE",
-        default: "",
+        repeated: true,
       },
       check: {
         form: "--check[=TYPE]",
@@ -197,8 +220,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let has_key = opts.key != ""
   let key_field = if has_key { key_index(opts.key) } else { 0 }
-  let has_output = opts.output != ""
-  let output = if has_output { fp"{opts.output}" } else { p"" }
+  let output_path = opts.output.get(0) ?? ""
+  let has_output = ! opts.output.is_empty()
+  for candidate in opts.output[1..] {
+    if candidate != output_path {
+      gnu.error("multiple output files specified")
+      exit 2
+    }
+  }
+  let output = if has_output { fp"{output_path}" } else { p"" }
   let check_mode = if opts.check != "" { opts.check } else if opts.short_check { "diagnose-first" } else { "" }
   let check_enabled = check_mode != "" or opts.silent_check
   let silent_check = opts.silent_check or check_mode in ["silent", "quiet", "silen", "quie", "s", "q"]
