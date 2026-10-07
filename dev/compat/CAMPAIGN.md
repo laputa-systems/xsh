@@ -194,6 +194,12 @@ remain historical evidence only.
   `test_mixed_floats_ints_chars_numeric_reverse` with no regressions. A pinned
   GNU 9.12 probe matches the retained representatives. Reports are in
   `results/sort-numeric-unique-reverse-followup/`.
+- Follow-up `02d9ef8e` orders failed `-g` conversions before NaN and numeric
+  values, and accepts abbreviated `--sort=general-numeric` mode names. Focused
+  native sort tests pass 32/32; Gate 3 improves from 94/123 to 95/122 across
+  217 tests, fixing `test_multiple_decimals_general` with no regressions. The
+  pinned GNU 9.12 fixture matches. Reports are in
+  `results/sort-general-invalid-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
