@@ -7,6 +7,38 @@ test test_rm_force_recursive { |ctx|
   assert ! dir.exists()?
 }
 
+test test_rm_progress_options { |ctx|
+  let root = test.temp_dir(ctx, name: "rm-progress")?
+  let file = fp"{root}/file"
+  file.write("remove")
+  let short = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- -g $file
+  assert short.status.exited_with(0), short.stderr
+  assert short.stderr == ""
+  assert ! file.exists()?
+
+  let tree = fp"{root}/tree"
+  let nested = fp"{tree}/nested"
+  nested.mkdir()
+  fp"{nested}/child".write("remove")
+  let recursive = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- --progress -r $tree
+  assert recursive.status.exited_with(0), recursive.stderr
+  assert recursive.stderr == ""
+  assert ! tree.exists()?
+
+  let missing = fp"{root}/missing"
+  let failed = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- --progress $missing
+  assert failed.status.exited_with(1)
+  assert failed.stdout == ""
+  assert "No such file or directory" in failed.stderr
+
+  let verbose = fp"{root}/verbose"
+  verbose.write("remove")
+  let reported = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- -gv $verbose
+  assert reported.status.exited_with(0), reported.stderr
+  assert verbose.basename() in reported.stdout
+  assert reported.stderr == ""
+}
+
 test test_rm_symlinks_do_not_remove_referents { |ctx|
   let root = test.temp_dir(ctx, name: "rm-symlink")?
   let directory = fp"{root}/directory"

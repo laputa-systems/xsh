@@ -1,7 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 
-type RmOptions = {recursive: Bool, force: Bool, directory: Bool, verbose: Bool, one_file_system: Bool, preserve_root: Str, no_preserve_root: Bool, interactive_always: Bool, interactive_once: Bool, interactive: Str?, help: Bool, version: Bool, targets: List[Str]}
+type RmOptions = {recursive: Bool, force: Bool, directory: Bool, verbose: Bool, progress: Bool, one_file_system: Bool, preserve_root: Str, no_preserve_root: Bool, interactive_always: Bool, interactive_once: Bool, interactive: Str?, help: Bool, version: Bool, targets: List[Str]}
 
 type Removal = {ok: Bool, removed: Bool, write_error: Error?}
 
@@ -30,6 +30,12 @@ proc report_removed(name: Str, directory: Bool) [process, env, io, error] -> Res
   let verb = if directory { "removed directory" } else { "removed" }
   io.write_stdout(f"{verb} {gnu.quote(name)}\n")?
   io.flush_stdout()
+}
+
+proc report_progress(name: Str, opts: RmOptions) [process, env, io, error] -> Result[Unit] {
+  return when ! opts.progress or opts.verbose or unix.tty_attrs(2) is Err(_)
+  io.write_stderr(f"\rRemoving {gnu.quote(name)}... done\n")?
+  io.flush_stderr()
 }
 
 # Classify with lstat: a symbolic link to a directory is removed as a link,
@@ -64,6 +70,9 @@ proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, intera
         if target.remove_dir() is Ok(_) {
           if opts.verbose {
             if let Err(output_failure) = report_removed(name, true) { write_error = output_failure }
+          }
+          if let Err(output_failure) = report_progress(name, opts) {
+            if write_error == null { write_error = output_failure }
           }
           return {ok: true, removed: true, write_error: write_error}
         }
@@ -109,6 +118,9 @@ proc remove_target(target: Path, name: Str, opts: RmOptions, device: Int, intera
           if write_error == null { write_error = failure }
         }
       }
+      if let Err(failure) = report_progress(name, opts) {
+        if write_error == null { write_error = failure }
+      }
     }
     Err(failure) => {
       if ! (opts.force and gnu.errno(failure) == 2) {
@@ -134,7 +146,7 @@ proc dash_filename_hint(argv: List[Str]) [fs, process, env, error] {
       if name in long_names { matches = [name] }
       break when matches.len() != 1
       let option = matches[0]
-      break when option in ["help", "version", "progress"]
+      break when option in ["help", "version"]
       break when option == "no-preserve-root" and name != option
       break when "=" in raw and option not in ["interactive", "preserve-root"]
       continue
@@ -144,7 +156,7 @@ proc dash_filename_hint(argv: List[Str]) [fs, process, env, error] {
       continue
     }
     for letter in raw.byte_slice(1) {
-      if letter not in "dfiIrvR" {
+      if letter not in "dfgiIrvR" {
         if fs.stat(fp"{raw}") is Ok(_) {
           gnu.error(f"invalid option -- {gnu.quote_value(letter)}")
           eprint f"Try '{gnu.phrase()} ./{gnu.quote_maybe(raw)}' to remove the file {gnu.quote(raw)}."
@@ -181,13 +193,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let prepared = prepare_arguments(argv, posix)
   dash_filename_hint(prepared.argv)
   let opts: RmOptions = cli.applet(prepared.argv, {
-    gnu: {status: 1, unsupported: {"--progress": "progress display is not available"}},
+    gnu: {status: 1},
     interactive_always: {form: "-i", default: false, conflicts: ["force", "interactive_once", "interactive"]},
     interactive_once: {form: "-I", default: false, conflicts: ["force", "interactive_always", "interactive"]},
     interactive: {form: "--interactive[=WHEN]", optional_default: "always", conflicts: ["force", "interactive_always", "interactive_once"]},
     recursive: {form: "-r -R --recursive", default: false},
     force: {form: "-f --force", default: false, conflicts: ["interactive_always", "interactive_once", "interactive"]},
     directory: {form: "-d --dir", default: false},
+    progress: {form: "-g --progress", default: false},
     one_file_system: {form: "--one-file-system", default: false},
     preserve_root: {form: "--preserve-root[=WHEN]", default: "root", optional_default: "root", conflicts: ["no_preserve_root"]},
     no_preserve_root: {form: "--no-preserve-root", default: false, conflicts: ["preserve_root"]},
@@ -197,7 +210,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     targets: {form: "...FILE"},
   })?
   if opts.help {
-    gnu.help("Usage: rm [OPTION]... FILE...\nRemove files and directories.\n  -f, --force  ignore nonexistent files\n  -i  prompt for each removal\n  -I  prompt once for recursive removal or more than three operands\n      --interactive[=WHEN]  never, once, or always\n  -r, -R, --recursive  remove directory contents\n  -d, --dir  remove empty directories\n  -v, --verbose  report removals\n      --one-file-system  skip directories on a different device\n      --preserve-root[=all]  protect /; all also rejects mount-point operands\n      --no-preserve-root  allow recursive operation on /\n")
+    gnu.help("Usage: rm [OPTION]... FILE...\nRemove files and directories.\n  -f, --force  ignore nonexistent files\n  -i  prompt for each removal\n  -I  prompt once for recursive removal or more than three operands\n      --interactive[=WHEN]  never, once, or always\n  -r, -R, --recursive  remove directory contents\n  -d, --dir  remove empty directories\n  -v, --verbose  report removals\n  -g, --progress  display a progress indicator on a terminal\n      --one-file-system  skip directories on a different device\n      --preserve-root[=all]  protect /; all also rejects mount-point operands\n      --no-preserve-root  allow recursive operation on /\n")
     return
   }
   if opts.version { gnu.version("rm")
