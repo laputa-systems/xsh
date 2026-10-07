@@ -31,6 +31,21 @@ test test_mktemp_dry_run_and_tmpdir { |ctx|
   assert run_applet(ctx, root, ["bad.XX"])?.status == 1
 }
 
+test test_mktemp_missing_tmpdir_value_reports_required_value { |ctx|
+  let root = test.temp_dir(ctx, name: "mktemp-missing-tmpdir")?
+  let result = run_applet(ctx, root, ["-p"])?
+  assert result.status == 1
+  assert "a value is required for '-p <DIR>' but none was supplied" in result.stderr, result.stderr
+  assert result.stdout == ""
+}
+
+test test_mktemp_option_terminator_keeps_dash_p_as_template { |ctx|
+  let root = test.temp_dir(ctx, name: "mktemp-dash-p-template")?
+  let result = run_applet(ctx, root, ["--", "-p"])?
+  assert result.status == 1
+  assert "too few X's in template '-p'" in result.stderr, result.stderr
+}
+
 
 test test_mktemp_tmpdir_aliases_obey_command_line_order { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-option-order")?

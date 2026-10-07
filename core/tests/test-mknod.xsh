@@ -38,3 +38,11 @@ test test_mknod_invalid_device_numbers_report_invalid_value { |ctx|
     assert ! fp"{root}/node".exists()?
   }
 }
+
+test test_mknod_unknown_long_option_reports_unexpected_argument { |ctx|
+  let root = test.temp_dir(ctx, name: "mknod-unknown-option")?
+  let result = run_applet(ctx, root, ["--foo"])?
+  assert result.status == 1
+  assert "unexpected argument '--foo' found" in result.stderr, result.stderr
+  assert result.stdout == ""
+}

@@ -36,3 +36,11 @@ test test_readlink_missing_components_and_silent_failure { |ctx|
   assert silent.stdout == "missing\n"
   assert run_applet(ctx, root, ["-z", "link"])?.stdout == "missing\0"
 }
+
+test test_readlink_without_a_file_reports_required_argument { |ctx|
+  let root = test.temp_dir(ctx, name: "readlink-no-file")?
+  let result = run_applet(ctx, root, [])?
+  assert result.status == 1
+  assert "the following required arguments were not provided" in result.stderr, result.stderr
+  assert result.stdout == ""
+}

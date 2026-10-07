@@ -47,3 +47,31 @@ test test_shred_pattern_passes_and_rename_collisions { |ctx|
   assert ! fp"{root}/test".exists()?
   assert fp"{root}/000".read_text()? == "keep"
 }
+
+test test_shred_force_changes_only_permission_bits { |ctx|
+  let root = test.temp_dir(ctx, name: "shred-force")?
+  let file = fp"{root}/file"
+  file.write("secret")
+  file.chmod(0o400)
+  let result = run_applet(ctx, root, ["-u", "-f", "file"])?
+  assert result.status == 0, result.stderr
+  assert ! file.exists()?
+}
+
+test test_shred_known_random_source_keeps_the_twenty_pass_order { |ctx|
+  let root = test.temp_dir(ctx, name: "shred-twenty-passes")?
+  fp"{root}/Us".write(bytes.from_ints([85 for _ in range(102400)])?)
+  fp"{root}/file".write("1")
+  let result = run_applet(ctx, root, ["-v", "-u", "-n20", "-s4096", "--random-source=Us", "file"])?
+  assert result.status == 0, result.stderr
+  let labels = [
+    "pass 1/20 (random)", "pass 2/20 (ffffff)", "pass 3/20 (924924)", "pass 4/20 (888888)",
+    "pass 5/20 (db6db6)", "pass 6/20 (777777)", "pass 7/20 (492492)", "pass 8/20 (bbbbbb)",
+    "pass 9/20 (555555)", "pass 10/20 (aaaaaa)", "pass 11/20 (random)", "pass 12/20 (6db6db)",
+    "pass 13/20 (249249)", "pass 14/20 (999999)", "pass 15/20 (111111)", "pass 16/20 (000000)",
+    "pass 17/20 (b6db6d)", "pass 18/20 (eeeeee)", "pass 19/20 (333333)", "pass 20/20 (random)",
+  ]
+  for label in labels {
+    assert label in result.stderr, result.stderr
+  }
+}

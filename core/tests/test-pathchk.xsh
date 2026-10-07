@@ -18,3 +18,11 @@ test test_pathchk_portability_and_missing_paths { |ctx|
   assert run_applet(ctx, root, ["-P", "dir/-file"])?.status == 1
   assert run_applet(ctx, root, ["--portability", ""])?.stderr == "pathchk: empty file name\n"
 }
+
+test test_pathchk_without_a_name_reports_required_argument { |ctx|
+  let root = test.temp_dir(ctx, name: "pathchk-no-name")?
+  let result = run_applet(ctx, root, [])?
+  assert result.status == 1
+  assert "the following required arguments were not provided" in result.stderr, result.stderr
+  assert result.stdout == ""
+}

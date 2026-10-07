@@ -17,7 +17,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   })?
   if opts.help { gnu.help("Usage: truncate OPTION... FILE...\nShrink or extend each FILE to the specified size.\n  -s, --size=SIZE\n  -r, --reference=FILE\n  -c, --no-create\n  -o, --io-blocks\n"); return }
   if opts.version { gnu.version("truncate"); return }
-  if opts.size == null and opts.reference == null { gnu.usage_error("you must specify either '--size' or '--reference'") }
+  if opts.size == null and opts.reference == null { gnu.usage_error("error: the following required arguments were not provided: --size or --reference") }
   if opts.blocks and opts.size == null { gnu.usage_error("'--io-blocks' was specified but '--size' was not") }
   if opts.paths.is_empty() { gnu.missing_operand() }
   let raw = opts.size ?? ""

@@ -29,6 +29,17 @@ proc report_created(target: Path, name: Str, directory: Bool) [fs, process, env,
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  # The applet parser uses different wording for this required directory value.
+  var preflight_at = 0
+  while preflight_at < argv.len() {
+    let arg = argv[preflight_at]
+    break when arg == "--"
+    if arg == "-p" and preflight_at + 1 == argv.len() {
+      gnu.error("a value is required for '-p <DIR>' but none was supplied")
+      exit 1
+    }
+    preflight_at += 1
+  }
   let opts: Options = cli.applet(argv, {
     gnu: {status: 1},
     directory: {form: "-d --directory", default: false},

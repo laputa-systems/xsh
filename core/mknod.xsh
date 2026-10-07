@@ -5,6 +5,21 @@ use lib.fs_misc
 type Options = {mode: Str?, help: Bool, version: Bool, operands: List[Str]}
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  # Keep supported long-option abbreviations while matching unknown-option diagnostics.
+  var option_at = 0
+  while option_at < argv.len() {
+    let arg = argv[option_at]
+    break when arg == "--"
+    if arg.starts_with("--") {
+      let option_name = arg.split("=")[0]
+      var recognized = false
+      for option in ["--mode", "--help", "--version"] {
+        if option.starts_with(arg) or (option == "--mode" and option.starts_with(option_name)) { recognized = true }
+      }
+      if ! recognized { gnu.error(f"unexpected argument {gnu.quote(arg)} found"); exit 1 }
+    }
+    option_at += 1
+  }
   let opts: Options = cli.applet(argv, {
     gnu: {status: 1, unsupported: {"-Z": "security labels require a native security context API", "--context": "security labels require a native security context API"}},
     mode: {form: "-m --mode MODE"},

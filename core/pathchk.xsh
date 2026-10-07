@@ -15,7 +15,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   })?
   if opts.help { gnu.help("Usage: pathchk [OPTION]... NAME...\nCheck whether file names are valid or portable.\n  -p  check for most POSIX systems\n  -P  check for empty names and leading hyphens\n  --portability  check all portability constraints\n"); return }
   if opts.version { gnu.version("pathchk"); return }
-  if opts.paths.is_empty() { gnu.missing_operand() }
+  if opts.paths.is_empty() { gnu.usage_error("error: the following required arguments were not provided: <NAME>") }
   let portable = opts.portable or opts.portability
   let special = opts.special or opts.portability
   var failed = false

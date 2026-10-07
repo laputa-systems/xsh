@@ -61,3 +61,11 @@ test test_truncate_unicode_invalid_size_is_an_operand_error { |ctx|
   assert "Invalid number" in result.stderr
   assert ! fp"{root}/file".exists()?
 }
+
+test test_truncate_without_size_or_reference_reports_required_argument { |ctx|
+  let root = test.temp_dir(ctx, name: "truncate-no-size")?
+  let result = run_applet(ctx, root, ["file"])?
+  assert result.status == 1
+  assert "error: the following required arguments were not provided:" in result.stderr, result.stderr
+  assert result.stdout == ""
+}

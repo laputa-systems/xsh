@@ -20,7 +20,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var failed = false
   let mode = if opts.data { "data" } else if opts.filesystem { "filesystem" } else { "all" }
   for name in opts.paths {
-    if let Err(failure) = fs.sync_path(fp"{name}", mode: mode) {
+    let target = fp"{name}"
+    # An unreadable directory can report EISDIR before its permission error.
+    let metadata = fs.stat(target, follow_symlinks: true)
+    if let Ok(info) = metadata {
+      if info.kind == "dir" and applet.current_euid() != 0 and ! fs.access(target, read: true)? {
+        gnu.error(f"error opening {gnu.quote(name)}: Permission denied")
+        failed = true
+        continue
+      }
+    }
+    if let Err(failure) = fs.sync_path(target, mode: mode) {
       let verb = if (failure.errno ?? 0) in [2, 13, 20] { "opening" } else { "syncing" }
       # fdatasync on a FIFO returns EINVAL; this command reports it as "Invalid input".
       let detail = if mode == "data" and (failure.errno ?? 0) == 22 { "Invalid input" } else { gnu.strerror(failure) }

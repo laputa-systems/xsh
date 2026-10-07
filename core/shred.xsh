@@ -40,11 +40,12 @@ pure pattern_label(data: Bytes) -> Str {
 }
 
 # Pattern passes are distributed between random passes, with random data at
-# both ends. For up to three iterations every pass uses random data.
+# both ends. The listed pattern order is stable. For up to three iterations
+# every pass uses random data.
 pure pass_patterns(passes: Int) -> List[Bytes] {
   var sequence: List[Bytes] = []
   if passes <= 3 { for unused in range(passes) { sequence += [b""] }; return sequence }
-  let patterns = [b"\x00\x00\x00", b"\xff\xff\xff", b"\x55\x55\x55", b"\xaa\xaa\xaa", b"\x24\x92\x49", b"\x49\x24\x92", b"\x6d\xb6\xdb", b"\x92\x49\x24", b"\xb6\xdb\x6d", b"\xdb\x6d\xb6", b"\x11\x11\x11", b"\x22\x22\x22", b"\x33\x33\x33", b"\x44\x44\x44", b"\x66\x66\x66", b"\x77\x77\x77", b"\x88\x88\x88", b"\x99\x99\x99", b"\xbb\xbb\xbb", b"\xcc\xcc\xcc", b"\xdd\xdd\xdd", b"\xee\xee\xee"]
+  let patterns = [b"\xff\xff\xff", b"\x92\x49\x24", b"\x88\x88\x88", b"\xdb\x6d\xb6", b"\x77\x77\x77", b"\x49\x24\x92", b"\xbb\xbb\xbb", b"\x55\x55\x55", b"\xaa\xaa\xaa", b"\x6d\xb6\xdb", b"\x24\x92\x49", b"\x99\x99\x99", b"\x11\x11\x11", b"\x00\x00\x00", b"\xb6\xdb\x6d", b"\xee\xee\xee", b"\x33\x33\x33", b"\x22\x22\x22", b"\x44\x44\x44", b"\x66\x66\x66", b"\xcc\xcc\xcc", b"\xdd\xdd\xdd"]
   let randoms = if passes / 10 > 3 { passes / 10 } else { 3 }
   let count = passes - randoms
   sequence += [b""]
@@ -109,7 +110,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let info = metadata?
     if info.kind != "file" { gnu.error(f"{gnu.quote_maybe(name)}: {if info.kind == "dir" { "Is a directory" } else { "invalid file type" }}"); failed = true; continue }
     if opts.force {
-      if let Err(failure) = target.chmod(info.mode.bit_or(0o200)) { gnu.name_error(name, failure); failed = true; continue }
+      if let Err(failure) = target.chmod(info.mode.bit_and(0o777).bit_or(0o200)) { gnu.name_error(name, failure); failed = true; continue }
     }
     var length = size ?? info.size
     if ! opts.exact and size == null and length > 0 {

@@ -30,3 +30,15 @@ test test_sync_data_fifo_reports_invalid_input { |ctx|
   assert result.status == 1
   assert result.stderr == "sync: error syncing 'fifo': Invalid input\n", result.stderr
 }
+
+test test_sync_reports_permission_denied_before_directory_sync { |ctx|
+  if applet.current_euid() == 0 { test.skip("requires an unprivileged caller"); return }
+  let root = test.temp_dir(ctx, name: "sync-no-permission")?
+  fp"{root}/private".mkdir()
+  fp"{root}/private".chmod(0)
+  for args in [["--data", "private"], ["private"]] {
+    let result = run_applet(ctx, root, args)?
+    assert result.status == 1
+    assert "error opening 'private': Permission denied" in result.stderr, result.stderr
+  }
+}

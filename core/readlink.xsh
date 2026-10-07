@@ -24,7 +24,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   })?
   if opts.help { gnu.help("Usage: readlink [OPTION]... FILE...\nPrint symbolic link targets or canonical file names.\n  -f, --canonicalize\n  -e, --canonicalize-existing\n  -m, --canonicalize-missing\n  -n, --no-newline\n  -z, --zero\n  -v, --verbose\n  -q, --quiet\n  -s, --silent\n"); return }
   if opts.version { gnu.version("readlink"); return }
-  if opts.paths.is_empty() { gnu.missing_operand() }
+  if opts.paths.is_empty() { gnu.usage_error("error: the following required arguments were not provided: <FILE>") }
   if opts.no_newline and opts.paths.len() > 1 { gnu.error("ignoring --no-newline with multiple arguments") }
   let ending = if opts.no_newline and opts.paths.len() == 1 { "" } else if opts.zero { "\0" } else { "\n" }
   var verbose = opts.verbose or env.get("POSIXLY_CORRECT") is Ok(_)
