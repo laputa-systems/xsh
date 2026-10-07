@@ -149,6 +149,12 @@ remain historical evidence only.
   GNU; the native printf suite passes 27/27, and the optimized debug Gate 3
   slice improves from 126/26 to 127/25 across 152 cases with one fix and no
   regressions. Reports are in `results/printf-precision-followup/`.
+- Follow-up `79c1dca3` detects decimal floating overflow and underflow,
+  retaining GNU's `inf` or zero output and `Result not representable`
+  diagnostic. Eight direct GNU 9.12 probes match; the native printf suite
+  passes 28/28. The Gate 3 slice stays 127/25 because
+  `test_extreme_exponent_does_not_overflow` expects `Numerical result out of
+  range` instead. Its report is in `results/printf-range-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
   runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
   but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;

@@ -176,6 +176,12 @@ the scalar formatter's limit. Its 70,123-digit case matches pinned GNU; the
 native suite passes 27/27, and the optimized debug Gate 3 slice improves from
 126/26 to 127/25 across 152 cases with one fix and no regressions. Reports are
 in `results/printf-precision-followup/`.
+Follow-up `79c1dca3` detects decimal floating overflow and underflow while
+preserving pinned GNU's `inf` or zero output and `Result not representable`
+diagnostic. Eight GNU 9.12 probes match and the native suite passes 28/28.
+The Gate 3 slice stays 127/25 because `test_extreme_exponent_does_not_overflow`
+expects `Numerical result out of range`. Its report is in
+`results/printf-range-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on
