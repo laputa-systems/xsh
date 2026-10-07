@@ -42,6 +42,14 @@ test test_date_negative_relative_offset { |ctx|
   assert output == "2000-01-01_23:00:00\n"
 }
 
+test test_date_embedded_posix_timezone { |ctx|
+  for item in [{zone: "CET-1", expected: "1969-12-31_23:00:00"}, {zone: "EST5", expected: "1970-01-01_05:00:00"}, {zone: "CET1", expected: "1970-01-01_01:00:00"}, {zone: "UTC0", expected: "1970-01-01_00:00:00"}] {
+    let input = f"TZ=\"{item.zone}\" 1970-01-01 00:00"
+    let output = run.text env LC_ALL=C TZ=UTC0 ${ctx.xsh_bin} fp"{ctx.core_dir}/date.xsh" -- -d $input +%F_%T
+    assert output == f"{item.expected}\n"
+  }
+}
+
 test test_date_debug_diagnostics { |ctx|
   let script = fp"{ctx.core_dir}/date.xsh"
   let output = run.capture --text ${ctx.xsh_bin} $script -- -u --debug -d "2005-01-01" +%Y

@@ -14,6 +14,20 @@ proc parse_date(text: Str, utc: Bool) [time, error] -> Result[Int, Error] {
       input = f"{if prefix == "" { "" } else { f"{prefix} " }}{count[1]} {words[-1]} ago"
     }
   }
+  # A fixed POSIX TZ offset can use the shared parser's explicit numeric zone without changing process TZ.
+  let timezone_prefix = "TZ=\""
+  let timezone_end = input.find("\" ") ?? -1
+  if input.starts_with(timezone_prefix) and timezone_end > timezone_prefix.byte_len() {
+    let embedded_timezone = rx"^([A-Za-z]{3,})([+-]?)([0-9]{1,2})?(?::([0-9]{2}))?(?::([0-9]{2}))?$".captures(input.byte_slice(timezone_prefix.byte_len(), length: timezone_end - timezone_prefix.byte_len()))
+    if ! embedded_timezone.is_empty() and (embedded_timezone[2] == "" or embedded_timezone[3] != "") {
+      let hours = if embedded_timezone[3] == "" { 0 } else { embedded_timezone[3].parse_int_decimal()? }
+      let minutes = if embedded_timezone[4] == "" { 0 } else { embedded_timezone[4].parse_int_decimal()? }
+      let seconds = if embedded_timezone[5] == "" { 0 } else { embedded_timezone[5].parse_int_decimal()? }
+      let sign = if embedded_timezone[2] == "-" { "+" } else { "-" }
+      let offset = f"{sign}{hours:02}{minutes:02}{if seconds == 0 { "" } else { f"{seconds:02}" }}"
+      input = f"{input.byte_slice(timezone_end + 2)} {offset}"
+    }
+  }
   date_parse.parse(input, utc:)
 }
 
