@@ -1,10 +1,20 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "", diagnostics: Str = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/shred.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), root, {TMPDIR: tempdir, LC_ALL: "C"}, b"", out, err)
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), root, {TMPDIR: tempdir, LC_ALL: "C", UUTILS_DIAG: diagnostics}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
+}
+
+proc run_applet_paths(ctx: TestContext, root: Path, args: List[Union[Str, Path]]) [fs, process, error] -> Result[Outcome] {
+  let out = fp"{root}/stdout-bytes"
+  let err = fp"{root}/stderr-bytes"
+  let script = fp"{ctx.core_dir}/shred.xsh"
+  let words: List[Union[Str, Path]] = collect { yield ctx.xsh_bin; yield script; yield "--"; for arg in args { yield arg } }
+  let plan = process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
 }
@@ -74,4 +84,28 @@ test test_shred_known_random_source_keeps_the_twenty_pass_order { |ctx|
   for label in labels {
     assert label in result.stderr, result.stderr
   }
+}
+
+test test_shred_non_utf8_path { |ctx|
+  let root = test.temp_dir(ctx, name: "shred-path-bytes")?
+  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/file_\xff\xfe"]))?
+  target.write("secret")
+  let args: List[Union[Str, Path]] = ["-n", "0", "-z", "-x", target]
+  let result = run_applet_paths(ctx, root, args)?
+  assert result.status == 0, result.stderr
+  assert target.read_bytes()? == b"\0\0\0\0\0\0"
+}
+
+test test_shred_size_diagnostics_locate_invalid_units { |ctx|
+  let root = test.temp_dir(ctx, name: "shred-size-diagnostic")?
+  fp"{root}/wipe_me".write("keep")
+  let unknown_unit = run_applet(ctx, root, ["-s", "4vv", "wipe_me"], diagnostics: "always")?
+  assert unknown_unit.status == 1
+  assert "shred:1:11" in unknown_unit.stderr, unknown_unit.stderr
+  assert "not a known unit" in unknown_unit.stderr, unknown_unit.stderr
+  let no_number = run_applet(ctx, root, ["--size=vv", "wipe_me"], diagnostics: "always")?
+  assert no_number.status == 1
+  assert "shred:1:14" in no_number.stderr, no_number.stderr
+  assert !("not a known unit" in no_number.stderr), no_number.stderr
+  assert fp"{root}/wipe_me".read_text()? == "keep"
 }

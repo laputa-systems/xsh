@@ -1,10 +1,10 @@
 type Outcome = {status: Int, stdout: Str, stderr: Str}
 
-proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "") [fs, process, error] -> Result[Outcome] {
+proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = "", diagnostics: Str = "") [fs, process, error] -> Result[Outcome] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/truncate.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), root, {TMPDIR: tempdir, LC_ALL: "C"}, b"", out, err)
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), root, {TMPDIR: tempdir, LC_ALL: "C", UUTILS_DIAG: diagnostics}, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
 }
@@ -68,6 +68,17 @@ test test_truncate_without_size_or_reference_reports_required_argument { |ctx|
   assert result.status == 1
   assert "error: the following required arguments were not provided:" in result.stderr, result.stderr
   assert result.stdout == ""
+}
+
+test test_truncate_size_diagnostic_counts_the_relative_mode { |ctx|
+  let root = test.temp_dir(ctx, name: "truncate-size-diagnostic")?
+  let file = fp"{root}/probe"
+  file.write("keep")
+  let result = run_applet(ctx, root, ["--size=+2Zx", "probe"], diagnostics: "always")?
+  assert result.status == 1
+  assert "truncate:1:19" in result.stderr, result.stderr
+  assert "not a known unit" in result.stderr, result.stderr
+  assert file.read_text()? == "keep"
 }
 
 test test_truncate_non_utf8_paths { |ctx|

@@ -9,6 +9,18 @@ proc run_applet(ctx: TestContext, root: Path, args: List[Str], tempdir: Str = ""
   Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
 }
 
+type ByteOutcome = {status: Int, stdout: Bytes, stderr: Str}
+
+proc run_applet_paths(ctx: TestContext, root: Path, args: List[Union[Str, Path]]) [fs, process, error] -> Result[ByteOutcome] {
+  let out = fp"{root}/stdout-bytes"
+  let err = fp"{root}/stderr-bytes"
+  let script = fp"{ctx.core_dir}/mktemp.xsh"
+  let words: List[Union[Str, Path]] = collect { yield ctx.xsh_bin; yield script; yield "--"; for arg in args { yield arg } }
+  let plan = process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 test test_mktemp_templates_suffix_and_private_modes { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp")?
   let file = run_applet(ctx, root, ["--suffix=.txt", "file.XXXXXX"])?
@@ -46,6 +58,60 @@ test test_mktemp_option_terminator_keeps_dash_p_as_template { |ctx|
   assert "too few X's in template '-p'" in result.stderr, result.stderr
 }
 
+test test_mktemp_non_utf8_template_is_preserved { |ctx|
+  let root = test.temp_dir(ctx, name: "mktemp-template-bytes")?
+  let pattern = Path.parse_bytes(b"template_\xff\xfe_XXXXXX")?
+  let args: List[Union[Str, Path]] = [pattern]
+  let result = run_applet_paths(ctx, root, args)?
+  assert result.status == 0, result.stderr
+  assert result.stdout.starts_with(b"template_\xff\xfe_")
+  assert result.stdout.ends_with(b"\n")
+  let created = Path.parse_bytes(bytes.concat([root.bytes(), b"/", result.stdout[0..result.stdout.len() - 1]]))?
+  assert created.exists()?
+}
+
+test test_mktemp_non_utf8_tmpdir_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "mktemp-tmpdir-bytes")?
+  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/dir_\xff\xfe"]))?
+  directory.mkdir(parents: false)?
+  let short_args: List[Union[Str, Path]] = ["-p", directory]
+  let short = run_applet_paths(ctx, root, short_args)?
+  assert short.status == 0, short.stderr
+  assert short.stdout.starts_with(bytes.concat([directory.bytes(), b"/tmp."]))
+  let created_short = Path.parse_bytes(short.stdout[0..short.stdout.len() - 1])?
+  assert created_short.exists()?
+  let tmpdir_option = Path.parse_bytes(bytes.concat([b"--tmpdir=", directory.bytes()]))?
+  let long_args: List[Union[Str, Path]] = [tmpdir_option, "tmpXXXXXX"]
+  let long = run_applet_paths(ctx, root, long_args)?
+  assert long.status == 0, long.stderr
+  assert long.stdout.starts_with(bytes.concat([directory.bytes(), b"/tmp"]))
+  let created_long = Path.parse_bytes(long.stdout[0..long.stdout.len() - 1])?
+  assert created_long.exists()?
+}
+
+test test_mktemp_non_utf8_suffix { |ctx|
+  let root = test.temp_dir(ctx, name: "mktemp-suffix-bytes")?
+  let suffix = Path.parse_bytes(b"\xc3|\xed\xba\xad")?
+  let args: List[Union[Str, Path]] = ["-p", root, "--suffix", suffix, "tmpXXXXXX"]
+  let result = run_applet_paths(ctx, root, args)?
+  assert result.status == 0, result.stderr
+  assert result.stdout.ends_with(bytes.concat([suffix.bytes(), b"\n"]))
+  let created = Path.parse_bytes(result.stdout[0..result.stdout.len() - 1])?
+  assert created.exists()?
+}
+
+test test_mktemp_creates_directory_under_non_utf8_tmpdir { |ctx|
+  let root = test.temp_dir(ctx, name: "mktemp-dir-bytes")?
+  let parent = Path.parse_bytes(bytes.concat([root.bytes(), b"/parent_\xff\xfe"]))?
+  parent.mkdir(parents: false)?
+  let args: List[Union[Str, Path]] = ["-d", "-p", parent]
+  let result = run_applet_paths(ctx, root, args)?
+  assert result.status == 0, result.stderr
+  assert result.stdout.starts_with(bytes.concat([parent.bytes(), b"/tmp."]))
+  let created = Path.parse_bytes(result.stdout[0..result.stdout.len() - 1])?
+  assert fs.stat(created)?.kind == "dir"
+}
+
 
 test test_mktemp_tmpdir_aliases_obey_command_line_order { |ctx|
   let root = test.temp_dir(ctx, name: "mktemp-option-order")?
@@ -55,6 +121,11 @@ test test_mktemp_tmpdir_aliases_obey_command_line_order { |ctx|
   let last_short = run_applet(ctx, root, ["-u", "--tmpdir", "file.XXXX", "-p", "."])?
   assert last_short.status == 0
   assert last_short.stdout.starts_with("./file.")
+  let legacy_parent_args: List[Union[Str, Path]] = ["-t", "-p", root, "legacy.XXXX"]
+  let legacy_parent = run_applet_paths(ctx, root, legacy_parent_args)?
+  assert legacy_parent.status == 0, legacy_parent.stderr
+  assert legacy_parent.stdout.starts_with(bytes.concat([root.bytes(), b"/legacy."]))
+  assert Path.parse_bytes(legacy_parent.stdout[0..legacy_parent.stdout.len() - 1])?.exists()?
 }
 
 # Command file sinks persist captured output; descriptor redirection keeps the

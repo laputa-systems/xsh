@@ -2,23 +2,91 @@
 use lib.gnu
 
 type Options = {directory: Bool, dry: Bool, quiet: Bool, suffix: Str?, tmpdir: Str?, parent: Str?, legacy: Bool, help: Bool, version: Bool, templates: List[Str]}
+type RawArgument = {marker: Str, value: Bytes}
+type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
+
+pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0mktemp-raw-argument-{index}\0"
+        if argument.starts_with(b"--suffix=") {
+          text += [f"--suffix={marker}"]
+          raw += [{marker: marker, value: argument[9..]}]
+        } else if argument.starts_with(b"--tmpdir=") {
+          text += [f"--tmpdir={marker}"]
+          raw += [{marker: marker, value: argument[9..]}]
+        } else {
+          text += [marker]
+          raw += [{marker: marker, value: argument}]
+        }
+      }
+    }
+  }
+  {text: text, raw: raw}
+}
+
+pure directory_option(argv: List[Bytes], initial: Bytes) -> Bytes {
+  var directory = initial
+  var at = 0
+  while at < argv.len() {
+    let arg = argv[at]
+    break when arg == b"--"
+    if arg.starts_with(b"--") {
+      var equals = 0
+      while equals < arg.len() {
+        break when arg.byte_at(equals) == 61
+        equals += 1
+      }
+      let name = arg[0..equals].utf8() ?? ""
+      if name.starts_with("--") and name.byte_len() > 2 and "--tmpdir".starts_with(name) {
+        directory = if equals < arg.len() { arg[equals + 1..] } else { b"" }
+      }
+    } else if arg.starts_with(b"-") {
+      for index in range(1, arg.len()) {
+        if arg.byte_at(index) == 112 {
+          if index + 1 < arg.len() {
+            directory = arg[index + 1..]
+          } else if at + 1 < argv.len() {
+            at += 1
+            directory = argv[at]
+          }
+          break
+        }
+      }
+    }
+    at += 1
+  }
+  directory
+}
+
+pure contains_separator(value: Bytes) -> Bool {
+  for index in range(value.len()) { if value.byte_at(index) == 47 { return true } }
+  false
+}
 
 proc create_directory(target: Path) [fs, error] -> Result[Unit] {
   let parent_root = fs.open_root(target.parent())?
-  parent_root.mkdir(fp"{target.basename()}", mode: 0o700.clear_bits(fs.umask()?))
+  let components = target.components()
+  parent_root.mkdir(components[components.len() - 1], mode: 0o700.clear_bits(fs.umask()?))
 }
 
 # Creation is rolled back if its name cannot be delivered to the caller.
-proc remove_created(target: Path, name: Str, directory: Bool) [fs, process, env, error] {
+proc remove_created(target: Path, name: Bytes, directory: Bool) [fs, process, env, error] {
   if directory {
-    if let Err(failure) = target.remove_dir() { gnu.cannot("remove", name, failure) }
+    if let Err(failure) = target.remove_dir() { gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}") }
   } else {
-    if let Err(failure) = target.remove() { gnu.cannot("remove", name, failure) }
+    if let Err(failure) = target.remove() { gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}") }
   }
 }
 
-proc report_created(target: Path, name: Str, directory: Bool) [fs, process, env, error, io] {
-  if let Err(failure) = io.write_stdout(name + "\n") {
+proc report_created(target: Path, name: Bytes, directory: Bool) [fs, process, env, error, io] {
+  let output = bytes.concat([name, b"\n"])
+  if let Err(failure) = io.write_stdout_bytes(output) {
     remove_created(target, name, directory)
     gnu.write_failed(failure)
   }
@@ -28,11 +96,11 @@ proc report_created(target: Path, name: Str, directory: Bool) [fs, process, env,
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   # The applet parser uses different wording for this required directory value.
   var preflight_at = 0
   while preflight_at < argv.len() {
-    let arg = argv[preflight_at]
+    let arg = argv[preflight_at].utf8() ?? ""
     break when arg == "--"
     if arg == "-p" and preflight_at + 1 == argv.len() {
       gnu.error("a value is required for '-p <DIR>' but none was supplied")
@@ -40,7 +108,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     preflight_at += 1
   }
-  let opts: Options = cli.applet(argv, {
+  let prepared = prepare_arguments(argv)
+  let opts: Options = cli.applet(prepared.text, {
     gnu: {status: 1},
     directory: {form: "-d --directory", default: false},
     dry: {form: "-u --dry-run", default: false},
@@ -56,39 +125,29 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.help { gnu.help("Usage: mktemp [OPTION]... [TEMPLATE]\nCreate a temporary file or directory, safely, and print its name.\n  -d, --directory\n  -u, --dry-run\n  -q, --quiet\n  --suffix=SUFF\n  --tmpdir[=DIR]\n  -p DIR\n  -t\n"); return }
   if opts.version { gnu.version("mktemp"); return }
   if opts.templates.len() > 1 { gnu.usage_error("too many templates") }
-  let pattern = if opts.templates.is_empty() { "tmp.XXXXXXXXXX" } else { opts.templates[0] }
-  if opts.suffix != null and ! pattern.ends_with("X") { gnu.error(f"with --suffix, template {gnu.quote(pattern)} must end in X"); exit 1 }
-  let raw = bytes.from_text(pattern)
-  var end = raw.len()
-  while end > 0 and raw.byte_at(end - 1) != 88 { end -= 1 }
+  let pattern = if opts.templates.is_empty() { b"tmp.XXXXXXXXXX" } else { gnu.argument_bytes(opts.templates[0], prepared.raw) }
+  let option_suffix = if opts.suffix == null { b"" } else { gnu.argument_bytes(opts.suffix ?? "", prepared.raw) }
+  if opts.suffix != null and !pattern.ends_with(b"X") { gnu.error(f"with --suffix, template {gnu.quote_bytes(pattern)} must end in X"); exit 1 }
+  var end = pattern.len()
+  while end > 0 and pattern.byte_at(end - 1) != 88 { end -= 1 }
   var start = end
-  while start > 0 and raw.byte_at(start - 1) == 88 { start -= 1 }
-  if end - start < 3 { gnu.error(f"too few X's in template {gnu.quote(pattern)}"); exit 1 }
-  let suffix = pattern.byte_slice(end) + (opts.suffix ?? "")
-  if "/" in suffix { gnu.error(f"invalid suffix {gnu.quote(suffix)}, contains directory separator"); exit 1 }
-  if opts.legacy and "/" in pattern { gnu.error(f"invalid template, {gnu.quote(pattern)}, contains directory separator"); exit 1 }
-  let default_dir = env.get_or("TMPDIR", "/tmp") ?? "/tmp"
-  var directory = opts.parent ?? opts.tmpdir ?? ""
-  var option_at = 0
-  while option_at < argv.len() {
-    let arg = argv[option_at]
-    break when arg == "--"
-    let long = arg.split("=")
-    if long[0].starts_with("--") and long[0].byte_len() > 2 and "--tmpdir".starts_with(long[0]) {
-      directory = if long.len() > 1 { long[1] } else { "" }
-    } else if arg.starts_with("-") and ! arg.starts_with("--") {
-      let at = arg.find("p") ?? -1
-      if at >= 1 {
-        if at + 1 < arg.byte_len() { directory = arg.byte_slice(at + 1) } else if option_at + 1 < argv.len() { option_at += 1; directory = argv[option_at] }
-      }
-    }
-    option_at += 1
-  }
+  while start > 0 and pattern.byte_at(start - 1) == 88 { start -= 1 }
+  if end - start < 3 { gnu.error(f"too few X's in template {gnu.quote_bytes(pattern)}"); exit 1 }
+  let suffix = bytes.concat([pattern[end..], option_suffix])
+  if contains_separator(suffix) { gnu.error(f"invalid suffix {gnu.quote_bytes(suffix)}, contains directory separator"); exit 1 }
+  if opts.legacy and contains_separator(pattern) { gnu.error(f"invalid template, {gnu.quote_bytes(pattern)}, contains directory separator"); exit 1 }
+  # An empty fallback preserves raw TMPDIR bytes and shows whether -t should override -p.
+  let configured_tmpdir = env.path("TMPDIR", p"")?.bytes()
+  let has_tmpdir = !configured_tmpdir.is_empty()
+  let default_dir = if has_tmpdir { configured_tmpdir } else { b"/tmp" }
+  var directory = if opts.parent != null { gnu.argument_bytes(opts.parent ?? "", prepared.raw) } else if opts.tmpdir != null { gnu.argument_bytes(opts.tmpdir ?? "", prepared.raw) } else { b"" }
+  directory = directory_option(argv, directory)
   let use_dir = opts.tmpdir != null or opts.parent != null or opts.legacy or opts.templates.is_empty()
-  if opts.legacy and (env.get_or("TMPDIR", "") ?? "") != "" { directory = default_dir }
-  if use_dir and directory == "" { directory = if default_dir == "" { "/tmp" } else { default_dir } }
-  if use_dir and pattern.starts_with("/") { gnu.error(f"invalid template, {gnu.quote(pattern)}; with --tmpdir, it may not be absolute"); exit 1 }
-  let prefix = (if use_dir { directory + "/" } else { "" }) + pattern.byte_slice(0, length: start)
+  if opts.legacy and has_tmpdir { directory = default_dir }
+  if use_dir and directory.is_empty() { directory = if default_dir.is_empty() { b"/tmp" } else { default_dir } }
+  if use_dir and pattern.starts_with(b"/") { gnu.error(f"invalid template, {gnu.quote_bytes(pattern)}; with --tmpdir, it may not be absolute"); exit 1 }
+  let path_prefix = if use_dir { bytes.concat([directory, b"/"]) } else { b"" }
+  let prefix = bytes.concat([path_prefix, pattern[0..start]])
   let alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
   for attempt in range(256) {
     var random = ""
@@ -102,19 +161,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         break when random.byte_len() == end - start
       }
     }
-    let name = prefix + random + suffix
-    let target = fp"{name}"
-    if opts.dry { gnu.write_text(name + "\n"); return }
+    let name = bytes.concat([prefix, bytes.from_text(random), suffix])
+    let target = Path.parse_bytes(name)?
+    if opts.dry { gnu.write_bytes(bytes.concat([name, b"\n"])); return }
     let made = if opts.directory {
       create_directory(target)
     } else { fs.mknod(target, "file", 0o600) }
     if made is Ok(_) { report_created(target, name, opts.directory); return }
     if let Err(failure) = made {
       continue when failure.errno == 17
-      if ! opts.quiet { gnu.error(f"failed to create {if opts.directory { "directory" } else { "file" }} via template {gnu.quote((if use_dir { directory + "/" } else { "" }) + pattern)}: {gnu.strerror(failure)}") }
+      if ! opts.quiet { gnu.error(f"failed to create {if opts.directory { "directory" } else { "file" }} via template {gnu.quote_bytes(bytes.concat([path_prefix, pattern]))}: {gnu.strerror(failure)}") }
       exit 1
     }
   }
-  if ! opts.quiet { gnu.error(f"failed to create via template {gnu.quote(pattern)}: File exists") }
+  if ! opts.quiet { gnu.error(f"failed to create via template {gnu.quote_bytes(pattern)}: File exists") }
   exit 1
 }

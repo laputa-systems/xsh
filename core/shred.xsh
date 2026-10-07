@@ -5,6 +5,7 @@ use lib.fs_misc
 error ShredError = Invalid : InvalidArgument
 
 type Options = {force: Bool, iterations: Str, size: Str?, exact: Bool, zero: Bool, unlink: Bool, remove: Str?, source: Str?, verbose: Bool, help: Bool, version: Bool, paths: List[Str]}
+type SizeSource = {index: Int, start: Int}
 
 # Writes bounded chunks in place so hard links refer to the overwritten inode.
 proc overwrite(target: Path, length: Int, pattern: Bytes, source: Path, source_offset: Int) [fs, error] -> Result[Int] {
@@ -59,8 +60,69 @@ pure pass_patterns(passes: Int) -> List[Bytes] {
   sequence
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
-  let opts: Options = cli.applet(argv, {
+proc quote_maybe_bytes(name: Bytes) [env] -> Str {
+  match name.utf8() {
+    Ok(text) => gnu.quote_maybe(text)
+    Err(_) => gnu.quote_bytes(name, always: false)
+  }
+}
+
+proc name_error(name: Bytes, failure: Error) [process, env] -> Unit {
+  gnu.error(f"{quote_maybe_bytes(name)}: {gnu.strerror(failure)}")
+}
+
+pure size_source(argv: List[Bytes]) -> SizeSource {
+  for index in range(argv.len()) {
+    let arg = argv[index].utf8() ?? ""
+    if arg in ["-s", "--size"] { return {index: index + 1, start: 0} }
+    if arg.starts_with("--size=") { return {index: index, start: 7} }
+    if arg.starts_with("-s") and arg.byte_len() > 2 { return {index: index, start: 2} }
+  }
+  {index: 0, start: 0}
+}
+
+pure numeric_prefix_length(value: Str) -> Int {
+  var index = 0
+  while index < value.byte_len() {
+    let char = value.byte_slice(index, length: 1)
+    break when char not in "0123456789"
+    index += 1
+  }
+  index
+}
+
+proc size_error(argv: List[Bytes], value: Str, message: Str) [env, process, error] {
+  gnu.error(message)
+  let requested = env.get_or("UUTILS_DIAG", "") ?? ""
+  return when requested == "never"
+  if requested != "always" and ! unix.isatty(2) { return }
+  let source = size_source(argv)
+  let program = gnu.prog()
+  var command = program
+  for arg in argv { command += " " + (arg.utf8() ?? gnu.quote_bytes(arg)) }
+  var column = program.byte_len() + 1
+  for index in range(source.index) { column += argv[index].len() + 1 }
+  let number_length = numeric_prefix_length(value)
+  let span_start = source.start + (if number_length > 0 { number_length } else { 0 })
+  let span_length = value.byte_len() - (if number_length > 0 { number_length } else { 0 })
+  column += span_start
+  let spacing = [" " for _ in range(column)].join("")
+  let marker = if number_length > 0 { "─┬" } else { ["─" for _ in range(span_length)].join("") }
+  eprint f"   ╭─[ {program}:1:{column + 1} ]"
+  eprint "   │"
+  eprint f" 1 │ {command}"
+  eprint f"   │ {spacing}{marker}"
+  if number_length > 0 {
+    eprint f"   │ {spacing} ╰── not a known unit"
+    eprint "   │"
+    eprint "   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000"
+  }
+  eprint "───╯"
+}
+
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
+  let opts: Options = cli.applet(prepared.text, {
     gnu: {status: 1},
     force: {form: "-f --force", default: false},
     iterations: {form: "-n --iterations N", default: "3"},
@@ -84,7 +146,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var size: Int? = null
   if opts.size != null {
     size = fs_misc.size_value(opts.size ?? "")
-    if size == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size ?? "")}"); exit 1 }
+    if size == null { size_error(argv, opts.size ?? "", f"invalid file size: {gnu.quote_value(opts.size ?? "")}"); exit 1 }
   }
   var remove = opts.remove ?? (if opts.unlink { "wipesync" } else { "" })
   if remove != "" {
@@ -95,22 +157,24 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if matches.len() != 1 { gnu.error(f"invalid argument {gnu.quote(remove)} for 'remove'"); exit 1 }
     remove = matches[0]
   }
-  let source = fp"{opts.source ?? "/dev/urandom"}"
+  let source_bytes = if opts.source == null { b"/dev/urandom" } else { gnu.argument_bytes(opts.source ?? "", prepared.raw) }
+  let source = Path.parse_bytes(source_bytes)?
   if opts.source != null {
     let info = fs.stat(source, follow_symlinks: true)
-    if let Err(failure) = info { gnu.error(f"{gnu.quote_maybe(source.display())}: {gnu.strerror(failure)}"); exit 1 }
-    if info?.kind == "dir" { gnu.error(f"{gnu.quote_maybe(source.display())}: Is a directory"); exit 1 }
+    if let Err(failure) = info { gnu.error(f"{quote_maybe_bytes(source_bytes)}: {gnu.strerror(failure)}"); exit 1 }
+    if info?.kind == "dir" { gnu.error(f"{quote_maybe_bytes(source_bytes)}: Is a directory"); exit 1 }
   }
   var failed = false
   var source_offset = 0
-  for name in opts.paths {
-    let target = fp"{name}"
+  for path_name in opts.paths {
+    let name = gnu.argument_bytes(path_name, prepared.raw)
+    let target = Path.parse_bytes(name)?
     let metadata = fs.stat(target, follow_symlinks: true)
-    if let Err(failure) = metadata { gnu.name_error(name, failure); failed = true; continue }
+    if let Err(failure) = metadata { name_error(name, failure); failed = true; continue }
     let info = metadata?
-    if info.kind != "file" { gnu.error(f"{gnu.quote_maybe(name)}: {if info.kind == "dir" { "Is a directory" } else { "invalid file type" }}"); failed = true; continue }
+    if info.kind != "file" { gnu.error(f"{quote_maybe_bytes(name)}: {if info.kind == "dir" { "Is a directory" } else { "invalid file type" }}"); failed = true; continue }
     if opts.force {
-      if let Err(failure) = target.chmod(info.mode.bit_and(0o777).bit_or(0o200)) { gnu.name_error(name, failure); failed = true; continue }
+      if let Err(failure) = target.chmod(info.mode.bit_and(0o777).bit_or(0o200)) { name_error(name, failure); failed = true; continue }
     }
     var length = size ?? info.size
     if ! opts.exact and size == null and length > 0 {
@@ -124,30 +188,32 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       break when length == 0
       let pattern = schedule[pass]
       let label = if pattern.is_empty() { "random" } else { pattern_label(pattern) }
-      if opts.verbose { gnu.error(f"{gnu.quote_maybe(name)}: pass {pass + 1}/{schedule.len()} ({label})...") }
+      if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: pass {pass + 1}/{schedule.len()} ({label})...") }
       let result = overwrite(target, length, pattern, source, if opts.source == null { 0 } else { source_offset })
-      if let Err(failure) = result { gnu.error(f"{gnu.quote(name)}: error writing: {gnu.strerror(failure)}"); failed = true; complete = false; break }
+      if let Err(failure) = result { gnu.error(f"{gnu.quote_bytes(name)}: error writing: {gnu.strerror(failure)}"); failed = true; complete = false; break }
       if opts.source != null and pattern.is_empty() { source_offset = result? }
     }
     if ! complete or remove == "" { continue }
-    if opts.verbose { gnu.error(f"{gnu.quote_maybe(name)}: removing") }
-    if let Err(failure) = target.truncate(0) { gnu.name_error(name, failure); failed = true; continue }
+    if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: removing") }
+    if let Err(failure) = target.truncate(0) { name_error(name, failure); failed = true; continue }
     var last = target
     if remove != "unlink" {
       let parent_dir = target.parent()
-      for index in range(target.basename().byte_len()) {
-        let width = target.basename().byte_len() - index
+      let components = target.components()
+      let leaf = components[components.len() - 1].bytes()
+      for index in range(leaf.len()) {
+        let width = leaf.len() - index
         var digits: List[Int] = []
         for unused in range(width) { digits += [0] }
         let alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         while true {
           var renamed_name = ""
           for digit in digits { renamed_name += alphabet.byte_slice(digit, length: 1) }
-          let next = fp"{parent_dir}/{renamed_name}"
+          let next = Path.parse_bytes(bytes.concat([parent_dir.bytes(), b"/", bytes.from_text(renamed_name)]))?
           let renamed = fs.rename_noreplace(last, next)
           if let Err(failure) = renamed {
             if failure.errno != 17 {
-              gnu.error(f"{gnu.quote_maybe(name)}: Couldn't rename to {gnu.quote(next.display())}: {gnu.strerror(failure)}")
+              gnu.error(f"{quote_maybe_bytes(name)}: Couldn't rename to {gnu.quote_bytes(next.bytes())}: {gnu.strerror(failure)}")
               failed = true
               complete = false
               break
@@ -162,10 +228,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
             break when overflow
             continue
           }
-          if opts.verbose { gnu.error(f"{gnu.quote_maybe(name)}: renamed to {gnu.quote_maybe(next.basename())}") }
+          let next_components = next.components()
+          if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: renamed to {quote_maybe_bytes(next_components[next_components.len() - 1].bytes())}") }
           last = next
           if remove == "wipesync" {
-            if let Err(failure) = fs.fsync(parent_dir) { gnu.name_error(name, failure); failed = true; complete = false }
+            if let Err(failure) = fs.fsync(parent_dir) { name_error(name, failure); failed = true; complete = false }
           }
           break
         }
@@ -173,10 +240,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       }
     }
     if complete {
-      if let Err(failure) = last.remove() { gnu.cannot("remove", name, failure); failed = true } else {
-        if opts.verbose { gnu.error(f"{gnu.quote_maybe(name)}: removed") }
+      if let Err(failure) = last.remove() { gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}"); failed = true } else {
+        if opts.verbose { gnu.error(f"{quote_maybe_bytes(name)}: removed") }
         if remove == "wipesync" {
-          if let Err(failure) = fs.fsync(last.parent()) { gnu.name_error(name, failure); failed = true }
+          if let Err(failure) = fs.fsync(last.parent()) { name_error(name, failure); failed = true }
         }
       }
     }
