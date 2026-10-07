@@ -30,6 +30,20 @@ pub(crate) fn open_stat_target(dirfd: BorrowedFd<'_>, path: &CStr) -> io::Result
     file_from_fd(openat2(dirfd, path, libc::O_PATH | libc::O_CLOEXEC, 0)?)
 }
 
+pub(crate) fn open_readable_dir(dirfd: BorrowedFd<'_>) -> io::Result<File> {
+    let path = std::ffi::CString::new(format!("/proc/self/fd/{}", dirfd.as_raw_fd()))
+        .expect("a descriptor path cannot contain a NUL byte");
+    // SAFETY: this names a still-open directory descriptor already resolved
+    // beneath the root, so reopening it cannot introduce another path lookup.
+    let fd = unsafe {
+        libc::open(
+            path.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        )
+    };
+    file_from_fd(fd)
+}
+
 pub(crate) fn open_file(
     dirfd: BorrowedFd<'_>,
     path: &CStr,

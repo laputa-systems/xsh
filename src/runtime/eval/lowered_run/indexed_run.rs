@@ -7095,7 +7095,7 @@ impl Evaluator {
                         }
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                     };
-                ControlFlow::Continue(self.lowered_stream_list_result(
+                ControlFlow::Continue(super::lowered_runtime_stream_result(
                     fs_module::list_filesystem(self.host_path(&path), stat, ordered, span),
                     span,
                 )?)

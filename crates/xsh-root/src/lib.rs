@@ -48,13 +48,23 @@ impl Root {
     /// Unlike [`Root::open_dir`], this returns a readable descriptor. Requiring
     /// a directory during the confined open also prevents blocking on a FIFO.
     pub fn open_readable_dir(&self, path: impl AsRef<Path>) -> io::Result<File> {
-        let path = relative_path_to_cstring(path.as_ref())?;
-        platform::open_file(
+        let path = path.as_ref();
+        let c_path = relative_path_to_cstring(path)?;
+        match platform::open_file(
             self.fd.as_fd(),
-            &path,
+            &c_path,
             libc::O_RDONLY | libc::O_DIRECTORY,
             0,
-        )
+        ) {
+            Ok(directory) => Ok(directory),
+            Err(error)
+                if path == Path::new(".")
+                    && error.kind() == io::ErrorKind::PermissionDenied =>
+            {
+                platform::open_readable_dir(self.fd.as_fd())
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// Opens a file or directory for descriptor-based metadata queries without reading its data.
@@ -217,10 +227,14 @@ fn invalid_path(message: &'static str) -> io::Error {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    pub(super) use crate::linux::{open_dir, open_file, open_root, open_stat_target};
+    pub(super) use crate::linux::{
+        open_dir, open_file, open_readable_dir, open_root, open_stat_target,
+    };
 }
 
 #[cfg(target_os = "macos")]
 mod platform {
-    pub(super) use crate::macos::{open_dir, open_file, open_root, open_stat_target};
+    pub(super) use crate::macos::{
+        open_dir, open_file, open_readable_dir, open_root, open_stat_target,
+    };
 }

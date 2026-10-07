@@ -2921,7 +2921,7 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
 
     # Stat each child separately so failed metadata still leaves a printable
     # entry and contributes a minor error instead of failing the directory.
-    let opened = fs.children(target, stat: false)
+    let opened = fs.children(target, stat: false, ordered: false)
 
     guard let lister = opened else { |problem|
       gnu.cannot("open directory", display, problem)

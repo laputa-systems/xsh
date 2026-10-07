@@ -11,6 +11,7 @@ use rustix::fs::{
     self as rfs, AtFlags, CWD, FlockOperation, Gid, StatVfs, StatVfsMountFlags, Timespec,
     Timestamps, UTIME_NOW,
 };
+use std::os::fd::AsRawFd;
 use std::sync::{Arc, LazyLock};
 
 static K_PATH: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("path"));
@@ -224,9 +225,9 @@ pub(crate) fn rooted_children(
         Ok(directory) => directory,
         Err(error) => return Ok(root_children_failure(error, Vec::new())),
     };
-    let mut entries = match rfs::Dir::read_from(&directory) {
+    let mut entries = match RootDirectoryEntries::open(&directory) {
         Ok(entries) => entries,
-        Err(error) => return Ok(root_children_failure(error.into(), Vec::new())),
+        Err(error) => return Ok(root_children_failure(error, Vec::new())),
     };
     let mut children = Vec::new();
     let mut hard_limit_reached = false;
@@ -234,9 +235,9 @@ pub(crate) fn rooted_children(
     while let Some(entry) = entries.read() {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(error) => return Ok(root_children_failure(error.into(), children)),
+            Err(error) => return Ok(root_children_failure(error, children)),
         };
-        let name = entry.file_name().to_bytes();
+        let name = entry.as_bytes();
         if name == b"." || name == b".." {
             continue;
         }
@@ -250,7 +251,7 @@ pub(crate) fn rooted_children(
         } else {
             path.to_path_buf()
         };
-        child.push(OsString::from_vec(name.to_vec()));
+        child.push(entry);
         children.push(child);
     }
 
@@ -276,6 +277,47 @@ pub(crate) fn rooted_children(
         errno: None,
         error_kind: None,
     })
+}
+
+enum RootDirectoryEntries {
+    Rustix(rfs::Dir),
+    Standard(std::fs::ReadDir),
+}
+
+impl RootDirectoryEntries {
+    fn open(directory: &std::fs::File) -> std::io::Result<Self> {
+        match rfs::Dir::read_from(directory) {
+            Ok(entries) => Ok(Self::Rustix(entries)),
+            Err(error) => {
+                let error: std::io::Error = error.into();
+                if error.kind() != ErrorKind::PermissionDenied {
+                    return Err(error);
+                }
+                // rustix opens "." through the directory descriptor to get an
+                // independent cursor, which requires search permission. A
+                // descriptor path refers to the already-confined directory
+                // and lets std's fdopendir-based iterator use read permission.
+                #[cfg(target_os = "linux")]
+                let descriptor_path = format!("/proc/self/fd/{}", directory.as_raw_fd());
+                #[cfg(target_os = "macos")]
+                let descriptor_path = format!("/dev/fd/{}", directory.as_raw_fd());
+                std::fs::read_dir(descriptor_path).map(Self::Standard)
+            }
+        }
+    }
+
+    fn read(&mut self) -> Option<std::io::Result<OsString>> {
+        match self {
+            Self::Rustix(entries) => entries.read().map(|entry| {
+                entry
+                    .map(|entry| OsString::from_vec(entry.file_name().to_bytes().to_vec()))
+                    .map_err(Into::into)
+            }),
+            Self::Standard(entries) => entries
+                .next()
+                .map(|entry| entry.map(|entry| entry.file_name())),
+        }
+    }
 }
 
 fn root_children_failure(error: std::io::Error, children: Vec<PathBuf>) -> RootChildrenResult {

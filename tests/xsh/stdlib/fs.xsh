@@ -415,6 +415,30 @@ test test_fs_root_stat_preserves_metadata_and_symlink_policy { |ctx|
   root.close()
 }
 
+test test_fs_root_children_reads_without_search_permission { |ctx|
+  if system.uname()?.sysname != "Linux" {
+    test.skip("Linux descriptor semantics are required")
+    return
+  }
+  if unix.id()?.euid == 0 {
+    test.skip("root bypasses directory permission checks")
+    return
+  }
+
+  let root_dir = test.temp_dir(ctx, name: "fs-root-read-no-search")?
+  let blocked = fp"{root_dir}/blocked"
+  blocked.mkdir()
+  fp"{blocked}/child".write("data")
+  defer { blocked.chmod(0o700) }
+  blocked.chmod(0o600)
+  let root = fs.open_root(root_dir)?
+  defer root.close()
+  let listing = root.children(p"blocked")?
+  assert listing.enumeration_succeeded
+  assert listing.children == [p"blocked/child"]
+  assert root.stat(p"blocked/child") is Err(_)
+}
+
 test test_fs_root_and_children_preserve_non_utf8_name { |ctx|
   if system.uname()?.sysname == "Darwin" {
     test.skip("macOS filesystems reject non-UTF-8 filenames")

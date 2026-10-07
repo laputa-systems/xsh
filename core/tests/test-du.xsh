@@ -236,3 +236,39 @@ exit "$status"
   assert result.status.exited_with(0), result.stderr
   assert result.stdout.ends_with(f"{first}\n")
 }
+
+test test_du_reports_children_blocked_by_directory_search_permissions { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses directory permission checks") }
+  let root = test.temp_dir(ctx, name: "du-denied")?
+  let no_search = fp"{root}/d/no-x"
+  let blocked_child = fp"{no_search}/y"
+  blocked_child.mkdir(parents: true)
+  defer { no_search.chmod(0o700) }
+  no_search.chmod(0o600)
+  let script = fp"{ctx.core_dir}/du.xsh"
+  let inaccessible_out = fp"{root}/inaccessible.out"
+  let inaccessible_err = fp"{root}/inaccessible.err"
+  let inaccessible_status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-s", "d"],
+    root, {LC_ALL: "C"}, b"", inaccessible_out, inaccessible_err))?
+  assert inaccessible_status.exited_with(1)
+  assert inaccessible_err.read_text()? == "du: cannot access 'd/no-x/y': Permission denied\n"
+}
+
+test test_du_reports_unreadable_directories { |ctx|
+  if unix.id()?.euid == 0 { test.skip("root bypasses directory permission checks") }
+  let root = test.temp_dir(ctx, name: "du-unreadable")?
+  let script = fp"{ctx.core_dir}/du.xsh"
+  let no_read = fp"{root}/subdir/links"
+  no_read.mkdir(parents: true)
+  fp"{no_read}/child".write("content")
+  defer { no_read.chmod(0o700) }
+  no_read.chmod(0o300)
+  let unreadable_out = fp"{root}/unreadable.out"
+  let unreadable_err = fp"{root}/unreadable.err"
+  let unreadable_status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "subdir/links"],
+    root, {LC_ALL: "C"}, b"", unreadable_out, unreadable_err))?
+  assert unreadable_status.exited_with(1)
+  assert unreadable_err.read_text()? == "du: cannot read directory 'subdir/links': Permission denied\n"
+}

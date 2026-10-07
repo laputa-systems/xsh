@@ -3894,22 +3894,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::ForItems { target, body, span } => match value {
                 FrameValue::Value(value) => {
-                    let script_stream = match &value {
-                        LoweredValue::Stream(stream) => stream.script().is_some(),
-                        _ => false,
+                    let value = match value {
+                        LoweredValue::Stream(stream) => {
+                            self.calls[index].work.push(FrameWork::ForStream {
+                                target,
+                                stream: *stream,
+                                body,
+                                span,
+                            });
+                            return Ok(());
+                        }
+                        value => value,
                     };
-                    if script_stream {
-                        let LoweredValue::Stream(stream) = value else {
-                            unreachable!("checked above")
-                        };
-                        self.calls[index].work.push(FrameWork::ForStream {
-                            target,
-                            stream: *stream,
-                            body,
-                            span,
-                        });
-                        return Ok(());
-                    }
                     let value = match LoweredScalarCursor::try_new(value) {
                         Ok(cursor) => {
                             self.calls[index].work.push(FrameWork::ForScalars {

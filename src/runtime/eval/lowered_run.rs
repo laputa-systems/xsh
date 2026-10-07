@@ -4908,7 +4908,7 @@ impl Evaluator {
                 let ordered = lowered_bool_arg_or(values.get(2).cloned(), true, operation, span)?;
                 let stat = lowered_bool_arg_or(values.get(1).cloned(), true, operation, span)?;
                 let path = lowered_path_arg(values.remove(0), operation, span)?;
-                self.lowered_stream_list_result(
+                lowered_runtime_stream_result(
                     fs_module::list_filesystem(self.host_path(&path), stat, ordered, span),
                     span,
                 )?

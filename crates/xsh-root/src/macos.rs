@@ -38,6 +38,15 @@ pub(crate) fn open_stat_target(dirfd: BorrowedFd<'_>, path: &CStr) -> io::Result
     ))
 }
 
+pub(crate) fn open_readable_dir(dirfd: BorrowedFd<'_>) -> io::Result<File> {
+    // macOS roots already hold readable directory descriptors, so duplication
+    // preserves the opened object without another pathname lookup.
+    // SAFETY: `dirfd` remains borrowed for this call and fcntl returns a new
+    // descriptor that is adopted exactly once below.
+    let fd = unsafe { libc::fcntl(dirfd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+    file_from_fd(fd)
+}
+
 pub(crate) fn open_file(
     dirfd: BorrowedFd<'_>,
     path: &CStr,
