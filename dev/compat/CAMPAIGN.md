@@ -179,8 +179,15 @@ remain historical evidence only.
   text keys. It also omits the secondary whole-line `--debug` annotation under
   `-u`. The native sort suite passes 27/27; the optimized debug Gate 3 slice
   improves from 69/148 to 88/129 across 217 tests, fixing 19 cases with no
-  regressions. Human numeric sort and remaining general-numeric cases remain
-  open. Reports are in `results/sort-numeric-debug-followup/`.
+  regressions. Remaining general-numeric cases remain open. Reports are in
+  `results/sort-numeric-debug-followup/`.
+- Follow-up `ed9055ce` adds `-h`/`--human-numeric-sort` and the `--sort`
+  aliases. XSH orders recognized units before exact decimal values, preserves
+  stable zero ties, and matches GNU's human numeric key annotations. Focused
+  native sort tests pass 30/30; the optimized debug Gate 3 slice improves from
+  88/129 to 93/124 across 217 tests, fixing five cases with no regressions.
+  Pinned GNU 9.12 probes match unit order and zero handling. Reports are in
+  `results/sort-human-numeric-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
