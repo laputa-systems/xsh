@@ -16,7 +16,7 @@ type PrintfSpec = {
   valid: Bool,
 }
 
-type Escape = {text: Str, next: Int, stop: Bool}
+type Escape = {text: Str, next: Int, stop: Bool, issue: Str?}
 type Rendered = {text: Str, stop: Bool, failed: Bool}
 type Pass = {text: Str, next_argument: Int, conversions: Int, stop: Bool, failed: Bool}
 type DecimalScan = {value: Int, next: Int}
@@ -355,20 +355,20 @@ pure codepoint_text(value: Int) -> Result[Str] {
 
 pure scan_escape(text: Str, slash: Int) -> Result[Escape] {
   let next = slash + 1
-  if next >= text.byte_len() { return {text: "\\", next: next, stop: false} }
+  if next >= text.byte_len() { return {text: "\\", next: next, stop: false, issue: null} }
   let code = text.byte_slice(next, length: 1)
 
   match code {
-    "a" => {text: "\u{7}", next: next + 1, stop: false}
-    "b" => {text: "\u{8}", next: next + 1, stop: false}
-    "e" => {text: "\u{1b}", next: next + 1, stop: false}
-    "f" => {text: "\u{c}", next: next + 1, stop: false}
-    "n" => {text: "\n", next: next + 1, stop: false}
-    "r" => {text: "\r", next: next + 1, stop: false}
-    "t" => {text: "\t", next: next + 1, stop: false}
-    "v" => {text: "\u{b}", next: next + 1, stop: false}
-    "c" => {text: "", next: next + 1, stop: true}
-    "\\" | "'" | "\"" => {text: code, next: next + 1, stop: false}
+    "a" => {text: "\u{7}", next: next + 1, stop: false, issue: null}
+    "b" => {text: "\u{8}", next: next + 1, stop: false, issue: null}
+    "e" => {text: "\u{1b}", next: next + 1, stop: false, issue: null}
+    "f" => {text: "\u{c}", next: next + 1, stop: false, issue: null}
+    "n" => {text: "\n", next: next + 1, stop: false, issue: null}
+    "r" => {text: "\r", next: next + 1, stop: false, issue: null}
+    "t" => {text: "\t", next: next + 1, stop: false, issue: null}
+    "v" => {text: "\u{b}", next: next + 1, stop: false, issue: null}
+    "c" => {text: "", next: next + 1, stop: true, issue: null}
+    "\\" | "'" | "\"" => {text: code, next: next + 1, stop: false, issue: null}
     "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" => {
       var at = next
       var value = 0
@@ -378,7 +378,7 @@ pure scan_escape(text: Str, slash: Int) -> Result[Escape] {
         at += 1
         count += 1
       }
-      {text: byte_character(value % 256)?, next: at, stop: false}
+      {text: byte_character(value % 256)?, next: at, stop: false, issue: null}
     }
     "x" => {
       var at = next + 1
@@ -391,24 +391,36 @@ pure scan_escape(text: Str, slash: Int) -> Result[Escape] {
         at += 1
         count += 1
       }
-      if count == 0 { {text: "\\x", next: next + 1, stop: false} } else { {text: byte_character(value)?, next: at, stop: false} }
+      if count == 0 {
+        {text: "", next: at, stop: false, issue: "missing hexadecimal number in escape"}
+      } else {
+        {text: byte_character(value)?, next: at, stop: false, issue: null}
+      }
     }
     "u" | "U" => {
       let digits = if code == "u" { 4 } else { 8 }
       let start = next + 1
       let end = start + digits
-      if end > text.byte_len() { {text: "\\" + code, next: next + 1, stop: false} } else {
+      if end > text.byte_len() {
+        {text: "", next: text.byte_len(), stop: false, issue: "missing hexadecimal number in escape"}
+      } else {
         let raw = text.byte_slice(start, length: digits)
+        let raw_escape = text.byte_slice(slash, length: end - slash)
         var value = 0
         var valid = true
         for at in range(digits) {
           let digit = digit_value(raw.byte_slice(at, length: 1))
           if digit == null { valid = false } else { value = value * 16 + (digit ?? 0) }
         }
-        if ! valid { {text: "\\" + code, next: next + 1, stop: false} } else { {text: codepoint_text(value)?, next: end, stop: false} }
+        let invalid_scalar = value > 1114111 or (value >= 55296 and value <= 57343)
+        if ! valid or invalid_scalar {
+          {text: "", next: end, stop: false, issue: "invalid universal character name " + raw_escape}
+        } else {
+          {text: codepoint_text(value)?, next: end, stop: false, issue: null}
+        }
       }
     }
-    else => {text: "\\" + code, next: next + 1, stop: false}
+    else => {text: "\\" + code, next: next + 1, stop: false, issue: null}
   }
 }
 
@@ -420,7 +432,8 @@ pure unescape_text(text: Str) -> Result[Escape] {
     let byte = text.byte_at(at) ?? 0
     if byte == 92 {
       let escaped = scan_escape(text, at)?
-      if escaped.stop { return {text: output, next: escaped.next, stop: true} }
+      if let issue = escaped.issue { return {text: output, next: escaped.next, stop: false, issue: issue} }
+      if escaped.stop { return {text: output, next: escaped.next, stop: true, issue: null} }
       output += escaped.text
       at = escaped.next
     } else {
@@ -430,7 +443,7 @@ pure unescape_text(text: Str) -> Result[Escape] {
     }
   }
 
-  {text: output, next: at, stop: false}
+  {text: output, next: at, stop: false, issue: null}
 }
 
 pure scientific(value: Float, precision: Int, upper: Bool) -> Str {
@@ -527,7 +540,7 @@ pure shell_quote(text: Str) -> Str {
   "'" + text.replace("'", with: "'\\''") + "'"
 }
 
-proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int?) [process, env, error] -> Result[Rendered] {
+proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int?, prefix: Str) [process, env, error, io] -> Result[Rendered] {
   let left = spec.flags.find("-") != null or width < 0
   let field_width = if width < 0 { -width } else { width }
   let fill = if spec.flags.find("0") != null and ! left and precision == null { "0" } else { " " }
@@ -549,6 +562,11 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
 
   if spec.conversion == "b" {
     let expanded = unescape_text(argument)?
+    if let issue = expanded.issue {
+      io.write_stdout(prefix)
+      gnu.error(issue)
+      exit 1
+    }
     return {text: pad_text(expanded.text, field_width, left, " "), stop: expanded.stop, failed: false}
   }
 
@@ -597,7 +615,7 @@ proc conversion_text(spec: PrintfSpec, argument: Str, width: Int, precision: Int
   {text: pad_text(raw, field_width, left, if fill == "0" { " " } else { fill }), stop: false, failed: parsed.issue != null}
 }
 
-proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, io, process, env] -> Pass {
+proc render_pass(fmt: Str, values: List[Str], first_argument: Int, prefix: Str) [error, io, process, env] -> Pass {
   var output = ""
   var at = 0
   var argument_index = first_argument
@@ -609,6 +627,11 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, io, p
     let byte = fmt.byte_at(at) ?? 0
     if byte == 92 {
       let escaped = scan_escape(fmt, at)?
+      if let issue = escaped.issue {
+        io.write_stdout(prefix + output)
+        gnu.error(issue)
+        exit 1
+      }
       output += escaped.text
       if escaped.stop { return {text: output, next_argument: next_argument, conversions: conversions, stop: true, failed: failed} }
       at = escaped.next
@@ -623,7 +646,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, io, p
       let spec = parse_spec(fmt, at)
       if ! spec.valid {
         let shown = fmt.byte_slice(at, length: if spec.end > at { spec.end - at } else { 1 })
-        io.write_stdout(output)
+        io.write_stdout(prefix + output)
         gnu.error(f"{shown}: invalid conversion specification")
         exit 1
       }
@@ -648,7 +671,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, io, p
         } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
       }
       if width > 1000000 or width < -1000000 {
-        io.write_stdout(output)
+        io.write_stdout(prefix + output)
         gnu.error("field width too large")
         exit 1
       }
@@ -659,7 +682,7 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, io, p
         argument_index += 1
         next_argument = if argument_index > values.len() { values.len() } else if argument_index > next_argument { argument_index } else { next_argument }
       } else { next_argument = consumed_arguments(next_argument, index, values.len()) }
-      let rendered = conversion_text(spec, value, width, precision)?
+      let rendered = conversion_text(spec, value, width, precision, prefix + output)?
       output += rendered.text
       failed = failed or rendered.failed
       conversions += 1
@@ -672,14 +695,14 @@ proc render_pass(fmt: Str, values: List[Str], first_argument: Int) [error, io, p
 }
 
 proc render(fmt: Str, values: List[Str]) [error, io, process, env] -> PrintfOutput {
-  let first = render_pass(fmt, values, 0)
+  let first = render_pass(fmt, values, 0, "")
   var output = first.text
   var failed = first.failed
   var argument = first.next_argument
   if first.stop or first.conversions == 0 { return {text: output, failed: failed, next_argument: argument, stopped: first.stop} }
 
   while argument < values.len() {
-    let next = render_pass(fmt, values, argument)
+    let next = render_pass(fmt, values, argument, output)
     output += next.text
     failed = failed or next.failed
     argument = next.next_argument

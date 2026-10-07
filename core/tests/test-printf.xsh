@@ -245,6 +245,26 @@ test test_printf_hex_float_input_and_unsigned_wraparound { |ctx|
   assert output.stderr == ""
 }
 
+test test_printf_reports_malformed_hex_and_unicode_escapes { |ctx|
+  let missing_hex = printf_run(ctx, ["prefix\\x"])?
+  let missing_unicode = printf_run(ctx, ["\\uabc"])?
+  let invalid_unicode = printf_run(ctx, ["\\uD9D0"])?
+  let bad_backslash_argument = printf_run(ctx, ["prefix%b", "\\x"])?
+
+  assert missing_hex.status == 1
+  assert missing_hex.stdout == "prefix"
+  assert missing_hex.stderr == "printf: missing hexadecimal number in escape\n"
+  assert missing_unicode.status == 1
+  assert missing_unicode.stdout == ""
+  assert missing_unicode.stderr == "printf: missing hexadecimal number in escape\n"
+  assert invalid_unicode.status == 1
+  assert invalid_unicode.stdout == ""
+  assert invalid_unicode.stderr == "printf: invalid universal character name \\uD9D0\n"
+  assert bad_backslash_argument.status == 1
+  assert bad_backslash_argument.stdout == "prefix"
+  assert bad_backslash_argument.stderr == "printf: missing hexadecimal number in escape\n"
+}
+
 test test_printf_escape_sequences_and_backslash_b { |ctx|
   let escaped = printf_run(ctx, ["A\\101\\x42\\u0043\\n%%"])?
   let expanded = printf_run(ctx, ["[%b]", "x\\t\\101\\cignored"])?
