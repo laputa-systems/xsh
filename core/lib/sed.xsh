@@ -5,7 +5,7 @@ error SedError = Invalid : Usage
 
 type RegexSpec = {pattern: Str, insensitive: Bool, groups: Int}
 enum RegexChoice { Explicit(RegexSpec), Previous }
-enum Address { Line(Int), Last, Relative(Int), PatternAddress(RegexChoice) }
+enum Address { Line(Int), Stride(Int, Int), Last, Relative(Int), PatternAddress(RegexChoice) }
 enum Primitive {
   Delete, DeleteFirst, Print, PrintFirst, Store, AppendHold, Load,
   AppendPattern, Exchange, Next, AppendNext, Quit, QuitQuiet, Number, Clear
@@ -144,6 +144,10 @@ pure address(input: Bytes, start: Int, second: Bool, previous: RegexSpec?, exten
   let ch = input.byte_at(at) ?? -1
   if ch >= 48 and ch <= 57 {
     let found = number(input, at)?
+    if input.byte_at(found.next) == 126 {
+      let step = number(input, found.next + 1)?
+      return Ok({value: .Stride(found.value, step.value), next: step.next, previous: previous})
+    }
     return Ok({value: .Line(found.value), next: found.next, previous: previous})
   }
   if ch == 36 { return Ok({value: .Last, next: at + 1, previous: previous}) }
@@ -353,6 +357,11 @@ pure resolve(choice: RegexChoice, previous: RegexSpec?) -> Result[RegexSpec, Err
 pure address_matches(address: Address, line: Int, total: Int, pattern: Bytes, start: Int, previous: RegexSpec?, extended: Bool) -> Result[AddressMatch, Error] {
   match address {
     Line(value) => Ok({matched: line == value, previous: previous})
+    Stride(first, step) => {
+      let start = if first == 0 and step > 0 { step } else { first }
+      let matched = if step == 0 { line == start } else { line >= start and (line - start) % step == 0 }
+      Ok({matched: matched, previous: previous})
+    }
     Last => Ok({matched: line == total, previous: previous})
     Relative(value) => Ok({matched: line >= start + value, previous: previous})
     PatternAddress(choice) => {

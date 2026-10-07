@@ -112,3 +112,14 @@ test sed_empty_unterminated_prints_emit_separators { |ctx|
   let output = run.bytes ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- -n "z;p;p" $file
   assert output == b"\n"
 }
+
+test sed_numeric_stride_addresses { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"1\n2\n3\n4\n5\n6\n7\n8\n")?
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let zero_origin = run.text ${ctx.xsh_bin} $app -- -n "0~3p" $file
+  assert zero_origin == "3\n6\n"
+  let offset = run.text ${ctx.xsh_bin} $app -- -n "2~3p" $file
+  assert offset == "2\n5\n8\n"
+  let zero_step = run.text ${ctx.xsh_bin} $app -- -n "5~0p" $file
+  assert zero_step == "5\n"
+}
