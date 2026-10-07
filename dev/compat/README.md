@@ -238,6 +238,11 @@ slice improves from 95/122 to 100/117 across 217 tests, fixing five month
 cases with no regressions. GNU Coreutils 9.11 order and check-mode probes
 match; localized `LC_TIME` month names remain open. Reports are in
 `results/sort-month-followup/`.
+Follow-up `2309ff5e` adds `--files0-from` input lists, preserving arbitrary
+POSIX filename bytes and rejecting empty entries before opening operands. The
+native sort suite passes 34/34; its optimized debug Gate 3 slice improves from
+100/117 to 115/102 across 217 tests, fixing 15 list-input cases with no
+regressions. Reports are in `results/sort-files0-followup/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays

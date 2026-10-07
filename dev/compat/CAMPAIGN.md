@@ -208,6 +208,11 @@ remain historical evidence only.
   regressions. GNU Coreutils 9.11 order and check-mode probes match; localized
   `LC_TIME` month names remain open. Reports are in
   `results/sort-month-followup/`.
+- Follow-up `2309ff5e` adds `--files0-from` input lists, preserving arbitrary
+  POSIX filename bytes and rejecting empty entries before opening operands.
+  The native sort suite passes 34/34; Gate 3 improves from 100/117 to 115/102
+  across 217 tests, fixing 15 list-input cases with no regressions. Reports are
+  in `results/sort-files0-followup/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
