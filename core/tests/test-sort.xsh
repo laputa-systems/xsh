@@ -10,3 +10,27 @@ test test_sort_unique_reverse { |ctx|
   assert by_second_lines[0] == "c,1"
   assert by_second_lines[2] == "b,20"
 }
+
+test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-input-check")?
+  let fifo = fp"{root}/FIFO"
+  let missing = fp"{root}/missing"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  fs.mkfifo(fifo, mode: 0o600)?
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/sort.xsh".display(), fifo.display(), missing.display()],
+    root,
+    {LC_ALL: "C"},
+    b"",
+    stdout,
+    stderr,
+    timeout: 2s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exited_with(2), stderr.read_text()?
+  assert stderr.read_text()? == f"sort: cannot read: {missing}: No such file or directory\n"
+  assert stdout.read_bytes()?.is_empty()
+}

@@ -1,4 +1,5 @@
 #!/bin/xsh
+use lib.gnu
 use lib.text_input
 
 type SortOptions = {
@@ -35,7 +36,7 @@ pure numeric_field_key(line: Str, delimiter: Str, field: Int) -> Int {
   field_key(line, delimiter, field, false).parse_int() ?? 0
 }
 
-proc main(...argv: List[Str]) [fs, error, io] {
+proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: SortOptions = cli.applet(
     argv,
     {
@@ -81,6 +82,15 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let has_output = opts.output != ""
   let output = if has_output { fp"{opts.output}" } else { p"" }
   let {delimiter, paths, ..} = opts
+
+  for input_path in paths {
+    if input_path != "-" {
+      if let Err(failure) = fs.stat(fp"{input_path}", follow_symlinks: true) {
+        gnu.error(f"cannot read: {gnu.quote_maybe(input_path)}: {gnu.strerror(failure)}")
+        exit 2
+      }
+    }
+  }
 
   let input = text_input.read_text(paths)?
 
