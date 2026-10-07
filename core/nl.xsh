@@ -4,15 +4,23 @@ use lib.text_a2 as text
 
 type Options = {body: Str, header: Str, footer: Str, delimiter: Str, increment: Str, blanks: Str, format: Str, no_reset: Bool, separator: Str, start: Str, width: Str, help: Bool, version: Bool, paths: List[Str]}
 
-# The integer parser rejects the unsigned magnitude of the minimum signed
-# value; preserve the full signed range until parse_int accepts it directly.
 proc number(value: Str, what: Str, minimum: Int, maximum: Int) -> Int {
   if value == "-9223372036854775808" and minimum == -9223372036854775807 - 1 { return minimum }
-  guard let parsed = value.parse_int() else { |_| gnu.usage_error(f"invalid {what}: {gnu.quote_value(value)}"); exit 1 }
-  if parsed < minimum or parsed > maximum {
-    gnu.usage_error(f"invalid {what}: {gnu.quote_value(value)}")
+  match value.parse_int() {
+    Ok(parsed) => {
+      if parsed < minimum or parsed > maximum {
+        let reason = if parsed < minimum { ": Result not representable" } else { ": Value too large for data type" }
+        gnu.error(f"invalid {what}: {gnu.quote_value(value)}{reason}")
+        exit 1
+      }
+      parsed
+    }
+    Err(_) => {
+      let overflow = rx"^[+-]?[0-9]+$".matches(value)
+      gnu.error(f"invalid {what}: {gnu.quote_value(value)}{if overflow { ": Value too large for data type" } else { "" }}")
+      exit 1
+    }
   }
-  parsed
 }
 
 proc check_style(style: Str) {
@@ -50,10 +58,10 @@ proc main(...argv: List[Str]) {
   if opts.version { gnu.version("nl"); return }
   check_style(opts.body); check_style(opts.header); check_style(opts.footer)
   if opts.format not in ["ln", "rn", "rz"] { gnu.usage_error(f"invalid line numbering format: {gnu.quote_value(opts.format)}") }
-  let width = number(opts.width, "number width", 1, 2147483647)
+  let width = number(opts.width, "line number field width", 1, 2147483647)
   let increment = number(opts.increment, "line number increment", -9223372036854775807 - 1, 9223372036854775807)
   let start = number(opts.start, "starting line number", -9223372036854775807 - 1, 9223372036854775807)
-  let blanks = number(opts.blanks, "blank line count", 0, 9223372036854775807)
+  let blanks = number(opts.blanks, "line number of blank lines", 0, 9223372036854775807)
   let delimiter = if opts.delimiter.count_chars() == 1 { opts.delimiter + ":" } else { opts.delimiter }
   var lines: List[Bytes] = []
   var failed = false
