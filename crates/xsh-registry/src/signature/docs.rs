@@ -380,7 +380,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("hash", "digest_file" | "digest_stdin") => Some((
             "Calculates a digest using bounded file or remaining stdin reads.",
-            "Algorithms are md5, sha1, sha224, sha256, sha384, sha512, and blake2b. BLAKE2b length defaults to 512 bits and must be a multiple of 8 from 8 through 512; it selects algorithm parameters rather than truncating a 512-bit digest. Reads use at most 64 KiB of input buffering. Invalid algorithms, lengths and I/O errors return explicit errors.",
+            "Algorithms are md5, sha1, sha224, sha256, sha384, sha512, blake2b, sha3, shake128, shake256, sm3, and blake3. length is in bits: BLAKE2b defaults to 512 and accepts multiples of 8 from 8 through 512; SHA3 accepts 224, 256, 384, or 512; SHAKE defaults to 256/512 for SHAKE128/SHAKE256 and accepts positive lengths; SM3 is fixed at 256; BLAKE3 defaults to 256 and accepts positive multiples of 8. A zero length selects an algorithm default where one exists. Reads use at most 64 KiB of input buffering. Invalid algorithms, lengths and I/O errors return explicit errors.",
             &["hash", "digest", "streaming"],
         )),
         ("hash", "sha256" | "sha512" | "sha1" | "md5") => Some((

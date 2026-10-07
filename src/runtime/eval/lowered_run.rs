@@ -6076,13 +6076,13 @@ impl Evaluator {
             }
             RuntimeOp::HashDigestFile if (2..=3).contains(&values.len()) => {
                 let algorithm = lowered_str_arg_owned(values.get(1).cloned(), "", "hash.digest_file", span)?;
-                let length = lowered_int_arg_or(values.get(2).cloned(), 512, "hash.digest_file", span)?;
+                let length = lowered_int_arg_or(values.get(2).cloned(), 0, "hash.digest_file", span)?;
                 let path = lowered_path_arg(values.remove(0), "hash.digest_file", span)?;
                 lowered_runtime_result(hash_module::named_digest_file(&algorithm, length, &self.host_path(&path), span).map(Value::digest), span)?
             }
             RuntimeOp::HashDigestStdin if (1..=2).contains(&values.len()) => {
                 let algorithm = lowered_str_arg_owned(values.get(0).cloned(), "", "hash.digest_stdin", span)?;
-                let length = lowered_int_arg_or(values.get(1).cloned(), 512, "hash.digest_stdin", span)?;
+                let length = lowered_int_arg_or(values.get(1).cloned(), 0, "hash.digest_stdin", span)?;
                 lowered_runtime_result(hash_module::named_digest_reader(&algorithm, length, &mut std::io::stdin().lock(), span).map(Value::digest), span)?
             }
             RuntimeOp::HashChecksum if values.len() == 2 => {

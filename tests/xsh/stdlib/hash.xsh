@@ -281,6 +281,23 @@ test test_hash_streaming_algorithm_vectors { |ctx|
   assert hash.digest_file(empty, "blake2b")?.hex() == "786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce"
 }
 
+test test_hash_sha3_shake_sm3_and_blake3_vectors { |ctx|
+  let data = test.temp_file(ctx, name: "extended-checksums.bin", contents: b"abc")?
+  assert hash.digest_file(data, "sha3", length: 256)?.hex() == "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532"
+  assert hash.digest_file(data, "sm3")?.hex() == "66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0"
+  assert hash.digest_file(data, "blake3")?.hex() == "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+  test.error_kind(hash.digest_file(data, "sha3"), "hash-length")
+  test.error_kind(hash.digest_file(data, "sm3", length: 256), "hash-length")
+  test.error_kind(hash.digest_file(data, "shake128", length: -1), "hash-length")
+  test.error_kind(hash.digest_file(data, "blake3", length: 9), "hash-length")
+
+  let shake = test.temp_file(ctx, name: "shake-checksum.bin", contents: b"xxx")?
+  assert hash.digest_file(shake, "shake128")?.hex() == "ac8549b2861a151896ab721bd29d7a20c1a3d1f75b31266f786f20d963fb0fdf"
+  assert hash.digest_file(shake, "shake128", length: 3)?.hex() == "04"
+  assert hash.digest_file(shake, "shake256")?.hex() == "2fa631503c3ea5fe85131dbfa24805185474740e6dcb5f2a64f69d932bcb55f7b24958f3e3c4cc0e71f1fe6f054cd3fb28b9efb62b4f8f3fbe6d50d90f5c6eba"
+  assert hash.digest_file(shake, "shake256", length: 3)?.hex() == "07"
+}
+
 # Cross-block vectors use distinct lengths around the final-block boundary.
 test test_blake2b_final_block_boundaries { |ctx|
   let data_127 = test.temp_file(ctx, name: "blake-127", contents: bytes.zero(127)?)?

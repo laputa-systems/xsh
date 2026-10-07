@@ -164,11 +164,109 @@ pub(crate) fn named_digest_file(
 pub(crate) fn named_digest_reader(
     algorithm: &str, length: i64, reader: &mut dyn Read, span: Span,
 ) -> Result<DigestValue, RuntimeError> {
-    if !matches!(algorithm, "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512" | "blake2b") {
+    if !matches!(algorithm, "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512" | "blake2b" | "sha3" | "shake128" | "shake256" | "sm3" | "blake3") {
         return Err(RuntimeError::new("hash-algorithm", "unsupported digest algorithm").with_span(span));
     }
-    let (bytes, _, _) = hash_reader(algorithm, length, reader, span)?;
+    let bytes = match algorithm {
+        "sha3" => {
+            let bytes = match length {
+                224 => digest_stream::<sha3::Sha3_224>(reader, span)?,
+                256 => digest_stream::<sha3::Sha3_256>(reader, span)?,
+                384 => digest_stream::<sha3::Sha3_384>(reader, span)?,
+                512 => digest_stream::<sha3::Sha3_512>(reader, span)?,
+                _ => return Err(RuntimeError::new("hash-length", "SHA3 length must be 224, 256, 384, or 512 bits").with_span(span)),
+            };
+            bytes
+        }
+        "shake128" => {
+            let bits = output_bits(length, 256, "SHAKE128", span)?;
+            shake_digest::<shake::Shake128>(reader, bits, span)?
+        }
+        "shake256" => {
+            let bits = output_bits(length, 512, "SHAKE256", span)?;
+            shake_digest::<shake::Shake256>(reader, bits, span)?
+        }
+        "sm3" => {
+            if length != 0 {
+                return Err(RuntimeError::new("hash-length", "SM3 does not accept an output length").with_span(span));
+            }
+            digest_stream::<sm3::Sm3>(reader, span)?
+        }
+        "blake3" => {
+            let bits = output_bits(length, 256, "BLAKE3", span)?;
+            if bits % 8 != 0 {
+                return Err(RuntimeError::new("hash-length", "BLAKE3 length must be a multiple of 8 bits").with_span(span));
+            }
+            blake3_digest(reader, bits / 8, span)?
+        }
+        "blake2b" => {
+            let bits = if length == 0 { 512 } else { length };
+            let (bytes, _, _) = hash_reader(algorithm, bits, reader, span)?;
+            bytes
+        }
+        _ => {
+            let (bytes, _, _) = hash_reader(algorithm, 0, reader, span)?;
+            bytes
+        }
+    };
     Ok(DigestValue { algorithm: algorithm.to_string(), bytes })
+}
+
+fn output_bits(length: i64, default: usize, name: &str, span: Span) -> Result<usize, RuntimeError> {
+    if length == 0 {
+        return Ok(default);
+    }
+    usize::try_from(length)
+        .ok()
+        .filter(|bits| *bits > 0)
+        .ok_or_else(|| RuntimeError::new("hash-length", format!("{name} length must be positive")).with_span(span))
+}
+
+fn digest_output_buffer(length: usize, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(length)
+        .map_err(|error| RuntimeError::new("hash-length", format!("digest output cannot be allocated: {error}")).with_span(span))?;
+    bytes.resize(length, 0);
+    Ok(bytes)
+}
+
+fn shake_digest<D: sha3::digest::Update + sha3::digest::ExtendableOutput + Default>(
+    reader: &mut dyn Read,
+    output_bits: usize,
+    span: Span,
+) -> Result<Vec<u8>, RuntimeError> {
+    let output_bytes = output_bits / 8 + usize::from(output_bits % 8 != 0);
+    let mut digest = D::default();
+    stream_update(reader, span, |chunk| sha3::digest::Update::update(&mut digest, chunk))?;
+    let mut xof = sha3::digest::ExtendableOutput::finalize_xof(digest);
+    let mut output = digest_output_buffer(output_bytes, span)?;
+    sha3::digest::XofReader::read(&mut xof, &mut output);
+    let remaining_bits = output_bits % 8;
+    if remaining_bits != 0 {
+        output[output_bytes - 1] &= (1_u8 << remaining_bits) - 1;
+    }
+    Ok(output)
+}
+
+fn blake3_digest(reader: &mut dyn Read, output_bytes: usize, span: Span) -> Result<Vec<u8>, RuntimeError> {
+    let mut digest = blake3::Hasher::new();
+    stream_update(reader, span, |chunk| { digest.update(chunk); })?;
+    let mut output = digest_output_buffer(output_bytes, span)?;
+    digest.finalize_xof().fill(&mut output);
+    Ok(output)
+}
+
+fn stream_update(reader: &mut dyn Read, span: Span, mut update: impl FnMut(&[u8])) -> Result<(), RuntimeError> {
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let count = match reader.read(&mut buffer) {
+            Ok(count) => count,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(RuntimeError::host("hash-read", &error).with_span(span)),
+        };
+        if count == 0 { return Ok(()); }
+        update(&buffer[..count]);
+    }
 }
 
 pub(crate) fn checksum_file(
