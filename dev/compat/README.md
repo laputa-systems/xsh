@@ -173,6 +173,11 @@ including their conflicts with numeric sorting. Native sort tests pass 14/14;
 the optimized debug Gate 3 slice improves from 49/168 to 51/166 across 217
 tests, fixing the Unicode character cases with no regressions. GNU 9.11 probes
 match; reports are in `results/sort-char-modes/`.
+Follow-up `6a652532` treats a leading `+` as nonnumeric for `sort -n` and uses
+the full line to order equal numeric keys. Native sort tests pass 15/15; the
+optimized debug Gate 3 slice improves from 51/166 to 52/165 across 217 tests,
+fixing the leading-plus case with no regressions. GNU 9.11 output matches;
+reports are in `results/sort-numeric-plus/`.
 Follow-up commit `76f5b213` distinguishes an omitted `tail --sleep-interval`
 from an explicit empty argument; the latter now fails with GNU 9.11's
 diagnostic. The native tail suite passes 14/14. Its pinned Gate 3 slice stays

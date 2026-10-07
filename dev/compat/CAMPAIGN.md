@@ -142,6 +142,11 @@ remain historical evidence only.
   pass 14/14; Gate 3 improves from 49/168 to 51/166 across 217 tests, fixing
   the Unicode character cases with no regressions. GNU 9.11 probes match;
   reports are in `results/sort-char-modes/`.
+- Follow-up `6a652532` treats a leading `+` as nonnumeric for `sort -n` and
+  uses the full line to order equal numeric keys. Focused native sort tests
+  pass 15/15; Gate 3 improves from 51/166 to 52/165 across 217 tests, fixing
+  the leading-plus case with no regressions. GNU 9.11 output matches; reports
+  are in `results/sort-numeric-plus/`.
 - Follow-up at `76f5b213` keeps `tail --sleep-interval` as an optional value,
   distinguishing an unset option from an explicitly empty argument. The empty
   value now fails with the diagnostic emitted by GNU 9.11; the native tail
