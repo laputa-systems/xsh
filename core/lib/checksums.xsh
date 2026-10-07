@@ -8,7 +8,8 @@ type Options = {
   help: Bool, version: Bool, files: List[Str],
 }
 type Numeric = {checksum: Int, size: Int}
-type Check = {digest: Str, base64: Bool, path: Str, algorithm: Str, length: Int}
+type Check = {digest: Str, base64: Bool, path: Bytes, alternate_path: Bytes?, algorithm: Str, length: Int}
+type Separator = {close: Int, digest: Int}
 
 # Repeated mode switches obey argument order, including bundled short flags.
 pure binary_mode(argv: List[Str]) -> Bool {
@@ -34,6 +35,30 @@ pure tagged_mode(argv: List[Str], cksum: Bool) -> Bool {
     if arg == "--untagged" { tag = false }
   }
   tag
+}
+
+# Preserve GNU's option-argument forms while the shared parser requires the
+# equals-separated short form to be split into an option and its value.
+pure checksum_args(argv: List[Str]) -> List[Str] {
+  var result = []
+  var options = true
+  for arg in argv {
+    if arg == "--" { options = false; result += [arg] } else if options and arg.starts_with("-a=") { result += ["-a", arg.byte_slice(3)] } else if options and arg.starts_with("--algo=") { result += ["--algorithm", arg.byte_slice(7)] } else if options and arg.starts_with("-l=") { result += ["-l", arg.byte_slice(3)] } else { result += [arg] }
+  }
+  result
+}
+
+pure warning_mode(argv: List[Str]) -> Bool {
+  var enabled = false
+  for arg in argv {
+    if arg == "--" { break }
+    if arg == "--status" { enabled = false } else if arg == "--warn" { enabled = true } else if arg.starts_with("-") and !arg.starts_with("--") {
+      for index in range(1, arg.byte_len()) {
+        if arg.byte_slice(index, length: 1) == "w" { enabled = true }
+      }
+    }
+  }
+  enabled
 }
 
 # The default length is zero, so validation must distinguish an omitted length
@@ -125,17 +150,83 @@ pure unescape(name: Str) -> Str? {
   result
 }
 
-pure last_separator(line: Str) -> Int? {
+pure last_separator(line: Str) -> Separator? {
   var offset = 0
-  var found: Int? = null
+  var found: Separator? = null
   while offset < line.byte_len() {
-    let next = line.byte_slice(offset).find(") = ")
+    let next = line.byte_slice(offset).find(")")
     if next == null { break }
-    offset += next ?? 0
-    found = offset
-    offset += 1
+    let close = offset + (next ?? 0)
+    var after = close + 1
+    while after < line.byte_len() and line.byte_slice(after, length: 1) == " " { after += 1 }
+    if after < line.byte_len() and line.byte_slice(after, length: 1) == "=" {
+      after += 1
+      if after < line.byte_len() and line.byte_slice(after, length: 1) == " " {
+        while after < line.byte_len() and line.byte_slice(after, length: 1) == " " { after += 1 }
+        found = {close: close, digest: after}
+      }
+    }
+    offset = close + 1
   }
   found
+}
+
+pure byte_index(data: Bytes, byte: Int, start: Int) -> Int? {
+  var at = start
+  while at < data.len() {
+    if data.byte_at(at) == byte { return at }
+    at += 1
+  }
+  null
+}
+
+pure last_byte_separator(line: Bytes) -> Separator? {
+  var offset = 0
+  var found: Separator? = null
+  while offset < line.len() {
+    let next = byte_index(line, 41, offset)
+    if next == null { break }
+    let close = next ?? 0
+    var after = close + 1
+    while after < line.len() and line.byte_at(after) == 32 { after += 1 }
+    if after < line.len() and line.byte_at(after) == 61 {
+      after += 1
+      if after < line.len() and line.byte_at(after) == 32 {
+        while after < line.len() and line.byte_at(after) == 32 { after += 1 }
+        found = {close: close, digest: after}
+      }
+    }
+    offset = close + 1
+  }
+  found
+}
+
+pure byte_lines(data: Bytes) -> List[Bytes] {
+  var result = []
+  var start = 0
+  for at in range(data.len()) {
+    if data.byte_at(at) == 10 { result += [data[start..at]]; start = at + 1 }
+  }
+  if start < data.len() { result += [data[start..]] }
+  result
+}
+
+pure decoded_digest_bytes(value: Str) -> Int {
+  if is_hex(value) { return value.byte_len() / 2 }
+  value.byte_len() / 4 * 3 - (if value.ends_with("==") { 2 } else if value.ends_with("=") { 1 } else { 0 })
+}
+
+pure malformed_label(line: Bytes, previous: Str) -> Str {
+  let value = if line.byte_at(0) == 92 { line[1..] } else { line }
+  let open = byte_index(value, 40, 0) ?? -1
+  if open > 0 {
+    var end = open
+    while end > 0 and value.byte_at(end - 1) == 32 { end -= 1 }
+    if end > 0 {
+      if let Ok(tag) = value[..end].utf8() { return tag }
+    }
+  }
+  previous
 }
 
 # The digest width determines the separator location: spaces and leading stars
@@ -149,14 +240,19 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
   var bits = length
   var expected = ""
   var name = ""
-  let tag_end = line.find(" (") ?? -1
-  let split = last_separator(line) ?? -1
-  if tag_end > 0 and split > tag_end {
+  var alternate_path: Str? = null
+  let open = line.find("(") ?? -1
+  let tag_end = if open > 0 and line.byte_slice(open - 1, length: 1) == " " { open - 1 } else { open }
+  let split = last_separator(line)
+  let separator = split ?? {close: -1, digest: -1}
+  if tag_end > 0 and split != null and separator.close > tag_end {
     let tag = line.byte_slice(0, length: tag_end)
     if infer {
       selected = tag.lower()
       if selected == "blake2b" {
         bits = 512
+      } else if selected == "blake3" {
+        bits = 256
       } else if selected.starts_with("blake2b-") {
         bits = selected.byte_slice(8).parse_int() ?? 0
         selected = "blake2b"
@@ -182,14 +278,22 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
       }
       if algorithm == "sha2" and selected != "sha224" and selected != "sha256" and selected != "sha384" and selected != "sha512" { return null }
       if algorithm == "sha3" and selected != "sha3" { return null }
+    } else if selected == "blake2b" and tag == "BLAKE2b" {
+      bits = 512
     } else if selected == "blake2b" and tag.starts_with("BLAKE2b-") {
       bits = tag.byte_slice(8).parse_int() ?? 0
+    } else if selected == "blake3" and tag == "BLAKE3" {
+      bits = 256
     } else if selected == "blake3" and tag.starts_with("BLAKE3-") {
       bits = tag.byte_slice(7).parse_int() ?? 0
     } else if selected == "shake128" and tag.starts_with("SHAKE128-") {
       bits = tag.byte_slice(9).parse_int() ?? 0
+    } else if selected == "shake128" and tag == "SHAKE128" {
+      bits = 256
     } else if selected == "shake256" and tag.starts_with("SHAKE256-") {
       bits = tag.byte_slice(9).parse_int() ?? 0
+    } else if selected == "shake256" and tag == "SHAKE256" {
+      bits = 512
     } else if selected == "sha3" and tag.starts_with("SHA3-") {
       bits = tag.byte_slice(5).parse_int() ?? 0
     }
@@ -198,25 +302,23 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
     if selected == "blake3" and (bits < 8 or bits % 8 != 0) { return null }
     let sha2_variant = selected == "sha224" or selected == "sha256" or selected == "sha384" or selected == "sha512"
     let shake_default_tag = (selected == "shake128" and bits == 256 and tag == "SHAKE128") or (selected == "shake256" and bits == 512 and tag == "SHAKE256")
-    if tag != label(selected, bits) and !(sha2_variant and tag == f"SHA2-{selected.byte_slice(3)}") and !shake_default_tag { return null }
-    name = line.byte_slice(tag_end + 2, length: split - tag_end - 2)
-    expected = line.byte_slice(split + 4)
+    let blake2b_512_alias = selected == "blake2b" and bits == 512 and tag == "BLAKE2b-512"
+    let blake3_default_tag = selected == "blake3" and bits == 256 and tag == "BLAKE3"
+    if tag != label(selected, bits) and !(sha2_variant and tag == f"SHA2-{selected.byte_slice(3)}") and !shake_default_tag and !blake2b_512_alias and !blake3_default_tag { return null }
+    name = line.byte_slice(open + 1, length: separator.close - open - 1)
+    expected = line.byte_slice(separator.digest)
   } else {
     let separator = line.find(" ") ?? -1
     if separator <= 0 { return null }
     expected = line.byte_slice(0, length: separator)
     let remainder = line.byte_slice(separator + 1)
-    if remainder.starts_with(" ") or remainder.starts_with("*") {
+    if remainder.starts_with(" ") {
+      if !remainder.starts_with(" *") { alternate_path = remainder }
+      name = remainder.byte_slice(1)
+    } else if remainder.starts_with("*") {
       name = remainder.byte_slice(1)
     } else {
       name = remainder
-    }
-    if infer and algorithm == "crc" {
-      selected = if is_hex(expected) {
-        match expected.byte_len() { 32 => "md5", 40 => "sha1", 56 => "sha224", 64 => "sha256", 96 => "sha384", 128 => "sha512", _ => "" }
-      } else {
-        match expected.byte_len() { 24 => "md5", 28 => "sha1", 40 => "sha224", 44 => "sha256", 64 => "sha384", 88 => "sha512", _ => "" }
-      }
     }
     if infer and algorithm == "sha2" {
       selected = if is_hex(expected) {
@@ -226,12 +328,12 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
       }
     }
     if infer and algorithm == "sha3" {
-      let digest_bytes = if is_hex(expected) { expected.byte_len() / 2 } else { expected.byte_len() / 4 * 3 - (if expected.ends_with("==") { 2 } else if expected.ends_with("=") { 1 } else { 0 }) }
+      let digest_bytes = decoded_digest_bytes(expected)
       if digest_bytes != 28 and digest_bytes != 32 and digest_bytes != 48 and digest_bytes != 64 { return null }
       bits = digest_bytes * 8
     }
     if selected == "blake2b" or selected == "blake3" or selected == "shake128" or selected == "shake256" {
-      let digest_bytes = if is_hex(expected) { expected.byte_len() / 2 } else { expected.byte_len() / 4 * 3 - (if expected.ends_with("==") { 2 } else if expected.ends_with("=") { 1 } else { 0 }) }
+      let digest_bytes = decoded_digest_bytes(expected)
       bits = digest_bytes * 8
       if selected == "blake2b" and (bits < 8 or bits > 512) { return null }
     }
@@ -242,11 +344,59 @@ pure parse_line(original: Str, algorithm: Str, length: Int, infer: Bool) -> Chec
   if escape {
     if let decoded = unescape(name) { name = decoded } else { return null }
   }
-  {digest: expected, base64: encoded, path: name, algorithm: selected, length: bits}
+  let alternate: Bytes? = if let value = alternate_path { bytes.from_text(value) } else { null }
+  {digest: expected, base64: encoded, path: bytes.from_text(name), alternate_path: alternate, algorithm: selected, length: bits}
+}
+
+pure parse_byte_line(original: Bytes, algorithm: Str, length: Int, infer: Bool) -> Check? {
+  var line = original
+  if line.len() > 0 and line.byte_at(line.len() - 1) == 13 { line = line[..line.len() - 1] }
+  let escape = line.byte_at(0) == 92
+  let content = if escape { line[1..] } else { line }
+  let open = byte_index(content, 40, 0) ?? -1
+  let close = last_byte_separator(content)
+  if open > 0 and close != null {
+    let separator = close ?? {close: -1, digest: -1}
+    if separator.close <= open { return null }
+    let placeholder = b"__XSH_RAW_CHECK_PATH__"
+    var normalized = bytes.concat([content[..open + 1], placeholder, content[separator.close..]])
+    if escape { normalized = bytes.concat([b"\\", normalized]) }
+    let parsed = match normalized.utf8() {
+      Ok(value) => parse_line(value, algorithm, length, infer)
+      Err(_) => null
+    }
+    if parsed == null { return null }
+    let item = parsed ?? {digest: "", base64: false, path: b"", alternate_path: null, algorithm: "", length: 0}
+    return {...item, path: content[open + 1..separator.close], alternate_path: null}
+  }
+
+  let separator = byte_index(content, 32, 0) ?? -1
+  if separator <= 0 { return null }
+  var name_start = separator + 1
+  let marker = content.byte_at(name_start)
+  if marker == 32 or marker == 42 { name_start += 1 }
+  let normalized = bytes.concat([content[..name_start], b"__XSH_RAW_CHECK_PATH__"])
+  let text = normalized.utf8()
+  let parsed = match text {
+    Ok(value) => parse_line(value, algorithm, length, infer)
+    Err(_) => null
+  }
+  if parsed == null { return null }
+  let item = parsed ?? {digest: "", base64: false, path: b"", alternate_path: null, algorithm: "", length: 0}
+  let alternate: Bytes? = if marker == 32 and content.byte_at(name_start) != 42 { content[separator + 1..] } else { null }
+  {...item, path: content[name_start..], alternate_path: alternate}
 }
 
 proc digest(name: Str, algorithm: Str, length: Int) [fs, io] -> Result[Digest] {
   if name == "-" { hash.digest_stdin(algorithm, length: length) } else { hash.digest_file(fp"{name}", algorithm, length: length) }
+}
+
+proc digest_path(name: Bytes, algorithm: Str, length: Int) [fs, io, error] -> Result[Digest] {
+  if name == b"-" { hash.digest_stdin(algorithm, length: length) } else { hash.digest_file(Path.parse_bytes(name)?, algorithm, length: length) }
+}
+
+proc name_error_bytes(name: Bytes, failure: Error) [process, env] -> Unit {
+  gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
 }
 
 proc numeric(name: Str, algorithm: Str) [fs, io] -> Result[Numeric] {
@@ -265,8 +415,8 @@ pure raw_digest(hex: Str) -> Result[Bytes] {
 }
 
 proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer: Bool) [fs, io, error, process, env] -> Bool {
-  let content = if source == "-" { io.stdin_text() } else { fp"{source}".read_text() }
-  let text = match content {
+  let content = if source == "-" { io.stdin_bytes() } else { fp"{source}".read_bytes() }
+  let data = match content {
     Ok(value) => value
     Err(failure) => { gnu.name_error(source, failure); return false }
   }
@@ -276,22 +426,40 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
   var checked = 0
   var valid = 0
   var line_number = 0
-  for line in text.lines() {
+  var previous_label = label(algorithm, length)
+  for line in byte_lines(data) {
     line_number += 1
-    if line == "" or line == "\r" { continue }
-    if line.starts_with("#") { continue }
-    let entry = parse_line(line, algorithm, length, infer)
+    if line.len() == 0 or (line.len() == 1 and line.byte_at(0) == 13) { continue }
+    if line.byte_at(0) == 35 { continue }
+    let entry = match line.utf8() {
+      Ok(value) => parse_line(value, algorithm, length, infer)
+      Err(_) => parse_byte_line(line, algorithm, length, infer)
+    }
     if entry == null {
       malformed += 1
-      if opts.warn and !opts.status {
-        gnu.error(f"{source}: {line_number}: improperly formatted {label(algorithm, length)} checksum line")
+      if opts.warn {
+        gnu.error(f"{source}: {line_number}: improperly formatted {malformed_label(line, previous_label)} checksum line")
       }
       continue
     }
     let item = entry
     valid += 1
-    let shown = gnu.quote_maybe(item.path)
-    match digest(item.path, item.algorithm, item.length) {
+    previous_label = label(item.algorithm, item.length)
+    var checked_path = item.path
+    var result = digest_path(checked_path, item.algorithm, item.length)
+    if let Err(failure) = result {
+      if item.alternate_path != null and gnu.errno(failure) == 2 {
+        let alternate = item.alternate_path ?? item.path
+        match digest_path(alternate, item.algorithm, item.length) {
+          Ok(value) => { checked_path = alternate; result = Ok(value) }
+          Err(alternate_failure) => {
+            if gnu.errno(alternate_failure) != 2 { checked_path = alternate; result = Err(alternate_failure) }
+          }
+        }
+      }
+    }
+    let shown = gnu.quote_bytes(checked_path, always: false)
+    match result {
       Ok(value) => {
         checked += 1
         let actual = if item.base64 { value.base64() } else { value.hex() }
@@ -305,10 +473,8 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
       Err(failure) => {
         if opts.ignore_missing and gnu.errno(failure) == 2 { continue }
         unreadable += 1
-        if !opts.status {
-          gnu.name_error(item.path, failure)
-          gnu.write_text(f"{shown}: FAILED open or read\n")
-        }
+        name_error_bytes(checked_path, failure)
+        if !opts.status { gnu.write_text(f"{shown}: FAILED open or read\n") }
       }
     }
   }
@@ -316,18 +482,18 @@ proc verify_list(source: Str, opts: Options, algorithm: Str, length: Int, infer:
     gnu.error(f"{if source == "-" { "'standard input'" } else { source }}: no properly formatted checksum lines found")
     return false
   }
-  if !opts.status {
+  if !opts.status or opts.warn {
     if malformed > 0 { gnu.error(f"WARNING: {malformed} {if malformed == 1 { "line is" } else { "lines are" }} improperly formatted") }
     if unreadable > 0 { gnu.error(f"WARNING: {unreadable} listed {if unreadable == 1 { "file could" } else { "files could" }} not be read") }
     if mismatched > 0 { gnu.error(f"WARNING: {mismatched} computed {if mismatched == 1 { "checksum did" } else { "checksums did" }} NOT match") }
-    if checked == 0 and unreadable == 0 { gnu.error(f"{source}: no file was verified") }
   }
+  if checked == 0 and unreadable == 0 { gnu.error(f"{if source == "-" { "'standard input'" } else { source }}: no file was verified") }
   checked > 0 and unreadable == 0 and mismatched == 0 and (!opts.strict or malformed == 0)
 }
 
 ## Parse conventional checksum options, hash files or stdin, and verify lists.
 export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs, io, error, process, env] -> Unit {
-  let opts: Options = cli.applet(argv, {
+  let parsed = cli.applet(checksum_args(argv), {
     gnu: {status: 1},
     binary: {form: "-b --binary", default: false},
     text: {form: "-t --text", default: false},
@@ -348,7 +514,17 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     files: {form: "...FILE"},
-  })?
+  })
+  var opts: Options = match parsed {
+    Ok(value) => value
+    Err(failure) => {
+      let prefix = f"{gnu.prog()}: "
+      let diagnostic = if failure.message.starts_with(prefix) { failure.message.byte_slice(prefix.byte_len()) } else { failure.message }
+      gnu.error(diagnostic)
+      exit 1
+    }
+  }
+  opts = {...opts, warn: warning_mode(argv)}
   if opts.help {
     gnu.help(f"Usage: {gnu.prog()} [OPTION]... [FILE]...\nPrint or check checksums. With no FILE, or when FILE is -, read standard input.\n  -b, --binary       read in binary mode\n  -c, --check        read checksums and verify files\n  -t, --text         read in text mode\n      --tag          create a BSD-style checksum\n  -z, --zero         end each output line with NUL\n      --quiet        omit OK when checking\n      --status       suppress check output\n      --strict       fail on malformed check lines\n  -w, --warn         warn about malformed check lines\n      --ignore-missing  ignore missing files when checking\n      --help         display this help\n      --version      display version")
     return
@@ -412,10 +588,13 @@ export proc execute(argv: List[Str], default_algorithm: Str, cksum = false) [fs,
   if cksum and opts.text and !binary and tagged { gnu.usage_error("--text mode is only supported with --untagged") }
   if opts.check and opts.tag { gnu.usage_error("the --tag option is meaningless when verifying checksums") }
   if opts.check and (opts.binary or opts.text) { gnu.usage_error("the --binary and --text options are meaningless when verifying checksums") }
-  if opts.check and is_numeric and (!cksum or opts.algorithm != "") { gnu.usage_error("--check is not supported with --algorithm={bsd,sysv,crc,crc32b}") }
+  if opts.check and is_numeric and (!cksum or opts.algorithm != "") {
+    gnu.error("--check is not supported with --algorithm={bsd,sysv,crc,crc32b}")
+    exit 1
+  }
   let files = if opts.files.is_empty() { ["-"] } else { opts.files }
   if opts.raw and files.len() > 1 { gnu.usage_error("the --raw option is not supported with multiple files") }
-  if opts.raw and opts.base64 { gnu.usage_error("the --base64 and --raw options are mutually exclusive") }
+  if opts.raw and opts.base64 { gnu.usage_error("--base64 cannot be used with --raw") }
   var failed = false
   for name in files {
     if opts.check {

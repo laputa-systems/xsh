@@ -38,6 +38,19 @@ test test_cksum_digest_modes { |ctx|
   assert raw.stdout.len() == 16
 }
 
+test test_cksum_algorithm_equals_and_repeated_options { |ctx|
+  let result = invoke(ctx, ["-a=sha1", "--algo=sha256", "-a=md5"], b"abc")?
+  assert result.status == 0
+  assert result.stdout == b"MD5 (-) = 900150983cd24fb0d6963f7d28e17f72\n"
+  assert result.stderr == ""
+}
+
+test test_cksum_invalid_option_uses_gnu_exit_status { |ctx|
+  let result = invoke(ctx, ["--definitely-invalid"], b"")?
+  assert result.status == 1
+  assert result.stderr.find("unrecognized option") != null
+}
+
 test test_cksum_short_blake2b_length { |ctx|
   let short = invoke(ctx, ["--algorithm=blake2b", "--length=8"], b"abc")?
   assert short.status == 0
@@ -170,4 +183,107 @@ test test_cksum_shake_default_tags_verify_without_length { |ctx|
   let shake_checked = invoke(ctx, ["--check", "--algorithm=shake128", shake_list.display()], b"")?
   assert shake_checked.status == 0
   assert shake_checked.stdout == bytes.from_text(f"{file}: OK\n")
+}
+
+test test_cksum_check_algorithm_tag_aliases { |ctx|
+  let file = test.temp_file(ctx, name: "algorithm-tag-data", contents: b"")?
+  let sums = bytes.from_text(f"BLAKE3 ({file}) = af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\nBLAKE2b-512 ({file}) = 786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce\n")
+  let list = test.temp_file(ctx, name: "algorithm-tag-list", contents: sums)?
+
+  let inferred = invoke(ctx, ["--check", list.display()], b"")?
+  assert inferred.status == 0
+  assert inferred.stdout == bytes.from_text(f"{file}: OK\n{file}: OK\n")
+
+  let explicit = bytes.from_text(f"BLAKE3 ({file}) = af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262\n")
+  let explicit_list = test.temp_file(ctx, name: "blake3-default-tag-list", contents: explicit)?
+  let explicit_check = invoke(ctx, ["--check", "--algorithm=blake3", explicit_list.display()], b"")?
+  assert explicit_check.status == 0
+  assert explicit_check.stdout == bytes.from_text(f"{file}: OK\n")
+}
+
+test test_cksum_check_warn_status_order_and_missing_files { |ctx|
+  let empty = test.temp_file(ctx, name: "status-warn-empty", contents: b"")?
+  let lines = bytes.from_text(f"MD5 ({empty}) = d41d8cd98f00b204e9800998ecf8427e\nmalformed\n")
+  let list = test.temp_file(ctx, name: "status-warn-list", contents: lines)?
+
+  let warn_after_status = invoke(ctx, ["--status", "--warn", "--check", list.display()], b"")?
+  assert warn_after_status.status == 0
+  assert warn_after_status.stdout == b""
+  assert warn_after_status.stderr.find("improperly formatted") != null
+
+  let status_after_warn = invoke(ctx, ["--warn", "--status", "--check", list.display()], b"")?
+  assert status_after_warn.status == 0
+  assert status_after_warn.stdout == b""
+  assert status_after_warn.stderr == ""
+
+  let missing = bytes.from_text("SHA256 (missing) = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n")
+  let missing_list = test.temp_file(ctx, name: "status-missing-list", contents: missing)?
+  let status_missing = invoke(ctx, ["--check", "--status", missing_list.display()], b"")?
+  assert status_missing.status == 1
+  assert status_missing.stdout == b""
+  assert status_missing.stderr.find("missing: No such file or directory") != null
+
+  let ignored = invoke(ctx, ["--check", "--ignore-missing"], missing)?
+  assert ignored.status == 1
+  assert ignored.stderr.find("'standard input': no file was verified") != null
+}
+
+test test_cksum_check_diagnostic_labels_and_algorithm_errors { |ctx|
+  let empty = test.temp_file(ctx, name: "diagnostic-context", contents: b"")?
+  let malformed = bytes.from_text(f"SM3 ({empty}) = 1ab21d8355cfa17f8e61194831e81a8f22bec8c728fefb747ed035eb5082aa2b\nmalformed\n")
+  let warned = invoke(ctx, ["--check", "--warn"], malformed)?
+  assert warned.status == 0
+  assert warned.stderr.find("improperly formatted SM3 checksum line") != null
+
+  let numeric = invoke(ctx, ["--check", "--algorithm=crc"], b"")?
+  assert numeric.status == 1
+  assert numeric.stderr == "cksum: --check is not supported with --algorithm={bsd,sysv,crc,crc32b}\n"
+
+  let conflict = invoke(ctx, ["--base64", "--raw"], b"")?
+  assert conflict.status == 1
+  assert conflict.stderr.find("--base64 cannot be used with --raw") != null
+}
+
+test test_cksum_default_check_rejects_untagged_digest_lines { |ctx|
+  let untagged_md5 = bytes.from_text("d41d8cd98f00b204e9800998ecf8427e  empty\n")
+  let rejected = invoke(ctx, ["--check"], untagged_md5)?
+  assert rejected.status == 1
+  assert rejected.stderr.find("no properly formatted checksum lines found") != null
+
+  let empty = test.temp_file(ctx, name: "mixed-format-empty", contents: b"")?
+  let mixed = bytes.from_text(f"BLAKE2b ({empty}) = 786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce\n786a02f742015903c6c6fd852552d272912f4740e15847618a86e217f71f5419d25e1031afee585313896444934eb04b903a685b1448b755d56f701afe9be2ce  {empty}\n")
+  let mixed_list = test.temp_file(ctx, name: "mixed-format-list", contents: mixed)?
+  let checked = invoke(ctx, ["--check", mixed_list.display()], b"")?
+  assert checked.status == 0
+  assert checked.stdout == bytes.from_text(f"{empty}: OK\n")
+  assert checked.stderr.find("WARNING: 1 line is improperly formatted") != null
+}
+
+test test_cksum_check_handles_non_utf8_names_and_comments { |ctx|
+  let root = test.temp_dir(ctx, name: "non-utf8-check")?
+  let filename = Path.parse_bytes(bytes.concat([root.bytes(), b"/funky\xffname"]))?
+  filename.write("")
+  let missing = Path.parse_bytes(bytes.concat([root.bytes(), b"/FFF\xffFFF"]))?
+  let directory = Path.parse_bytes(bytes.concat([root.bytes(), b"/FFF\xffDIR"]))?
+  directory.mkdir()
+
+  let lines = bytes.concat([
+    b"# ignored comment with invalid byte: \xff\nSHA256 (",
+    filename.bytes(),
+    b") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nSHA256 (",
+    missing.bytes(),
+    b") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\nSHA256 (",
+    directory.bytes(),
+    b") = e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n",
+  ])
+  let list = test.temp_file(ctx, name: "non-utf8-check-list", contents: lines)?
+  let checked = invoke(ctx, ["--check", list.display()], b"")?
+  let output = checked.stdout.utf8()?
+
+  assert checked.status == 1
+  assert output.find("funky'$'\\377''name': OK\n") != null
+  assert output.find("FFF'$'\\377''FFF': FAILED open or read\n") != null
+  assert output.find("FFF'$'\\377''DIR': FAILED open or read\n") != null
+  assert checked.stderr.find("FFF'$'\\377''FFF': No such file or directory") != null
+  assert checked.stderr.find("FFF'$'\\377''DIR': Is a directory") != null
 }

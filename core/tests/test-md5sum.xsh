@@ -106,3 +106,49 @@ test test_md5sum_check_ignores_blank_lines { |ctx|
   assert checked.stderr.find(": 4: improperly formatted MD5 checksum line") != null
   assert checked.stderr.find("WARNING: 1 line is improperly formatted") != null
 }
+
+test test_md5sum_compact_tag_separator { |ctx|
+  let directory = test.temp_dir(ctx, name: "compact-tag")?
+  let file = fp"{directory}/f"
+  file.write("")
+  let list = test.temp_file(ctx, name: "compact-tag-list", contents: bytes.from_text(
+    f"MD5({file})= d41d8cd98f00b204e9800998ecf8427e\n"))?
+
+  let checked = invoke(ctx, ["--check", list.display()], b"")?
+  assert checked.status == 0
+  assert checked.stdout == bytes.from_text(f"{file}: OK\n")
+  assert checked.stderr == ""
+}
+
+test test_md5sum_check_preserves_leading_space_filename { |ctx|
+  let root = test.temp_dir(ctx, name: "leading-space-check")?
+  let file = fp"{root}/ b"
+  file.write(" b\n")
+  let list = fp"{root}/check.md5sum"
+  list.write("bf35d7536c785cf06730d5a40301eba2  b\n")
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/md5sum.xsh"
+  let plan = process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "--", "--strict", "--check", list.display()],
+    root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  assert status.exit_code()? == 0
+  assert out.read_bytes()? == b"' b': OK\n"
+  assert err.read_text()? == ""
+}
+
+test test_md5sum_invalid_option_uses_gnu_exit_status { |ctx|
+  let result = invoke(ctx, ["--definitely-invalid"], b"")?
+  assert result.status == 1
+  assert result.stderr.find("unrecognized option") != null
+}
+
+test test_md5sum_missing_check_path_keeps_original_name { |ctx|
+  let list = test.temp_file(ctx, name: "missing-check-path", contents: bytes.from_text(
+    "d41d8cd98f00b204e9800998ecf8427e  missing\n"))?
+  let checked = invoke(ctx, ["--check", list.display()], b"")?
+  assert checked.status == 1
+  assert checked.stdout == b"missing: FAILED open or read\n"
+  assert checked.stderr.find("missing: No such file or directory") != null
+}
