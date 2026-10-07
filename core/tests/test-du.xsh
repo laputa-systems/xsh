@@ -1,3 +1,18 @@
+type TerminalRun = {status: Int, stderr: Str}
+
+proc run_du_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[TerminalRun] {
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  let root = test.temp_dir(ctx, name: "du-terminal")?
+  let stdout = fp"{root}/stdout"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/du.xsh".display()].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, fp"{pty.name}")
+  let status = process.run(plan)?
+  let stderr = unix.read_fd(pty.master, 8192)?.utf8()?
+  Ok({status: status.exit_code()?, stderr: stderr.replace("\r\n", with: "\n")})
+}
+
 test test_du { |ctx|
   let target = test.temp_file(ctx, name: "du.txt", contents: b"abcdef")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- $target
@@ -141,6 +156,10 @@ test test_du_null_filename_lists_human_sizes_and_logical_cycles { |ctx|
   let human = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- --apparent-size -h $file
   assert human.status.exited_with(0), human.stderr
   assert human.stdout == f"8.4K\t{file}\n"
+  let block_human = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -B human-readable $file
+  assert block_human.status.exited_with(0), block_human.stderr
+  let block_si = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/du.xsh" -- -B si $file
+  assert block_si.status.exited_with(0), block_si.stderr
   let tree = fp"{root}/tree"
   tree.mkdir()
   fp"{tree}/payload".write("data")
@@ -160,6 +179,40 @@ test test_du_missing_exclude_file_continues_operands { |ctx|
   assert output.status.exited_with(1)
   assert output.stdout == f"4\t{file}\n"
   assert output.stderr == "du: No such file or directory\n"
+}
+
+test test_du_size_errors_point_into_terminal_arguments { |ctx|
+  let unknown = run_du_on_terminal(ctx, ["-B", "1fb"])?
+  assert unknown.status == 1
+  assert unknown.stderr == """du: invalid suffix in --block-size argument '1fb'
+   ╭─[ du:1:8 ]
+   │
+ 1 │ du -B 1fb
+   │        ─┬
+   │         ╰── not a known unit
+   │
+   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000
+───╯
+""", unknown.stderr
+
+  let attached = run_du_on_terminal(ctx, ["--block-size=1fb"])?
+  assert attached.status == 1
+  assert "du:1:18" in attached.stderr, attached.stderr
+  assert "not a known unit" in attached.stderr, attached.stderr
+
+  let zero = run_du_on_terminal(ctx, ["-B", "0"])?
+  assert zero.status == 1
+  assert "du:1:7" in zero.stderr, zero.stderr
+  assert ! ("not a known unit" in zero.stderr), zero.stderr
+
+  let rejected_threshold = run_du_on_terminal(ctx, ["-t", "-0"])?
+  assert rejected_threshold.status == 1
+  assert "du:1:7" in rejected_threshold.stderr, rejected_threshold.stderr
+
+  let unknown_threshold_unit = run_du_on_terminal(ctx, ["-t", "-1fb"])?
+  assert unknown_threshold_unit.status == 1
+  assert "du:1:9" in unknown_threshold_unit.stderr, unknown_threshold_unit.stderr
+  assert "not a known unit" in unknown_threshold_unit.stderr, unknown_threshold_unit.stderr
 }
 
 test test_du_walks_long_nested_paths { |ctx|

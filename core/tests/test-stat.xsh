@@ -1,3 +1,18 @@
+type TerminalRun = {status: Int, stdout: Str, stderr: Str}
+
+proc run_stat_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[TerminalRun] {
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  let root = test.temp_dir(ctx, name: "stat-terminal")?
+  let stdout = fp"{root}/stdout"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/stat.xsh".display()].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, fp"{pty.name}")
+  let status = process.run(plan)?
+  let stderr = unix.read_fd(pty.master, 8192)?.utf8()?
+  Ok({status: status.exit_code()?, stdout: stdout.read_text()?, stderr: stderr.replace("\r\n", with: "\n")})
+}
+
 test test_stat { |ctx|
   let target = test.temp_file(ctx, name: "stat.txt", contents: b"hello")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- $target
@@ -135,4 +150,31 @@ test test_stat_format_errors_keep_the_directive_and_output_prefix { |ctx|
   let printf = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --printf -%n p"/"
   assert printf.status.exited_with(0), printf.stderr
   assert printf.stdout == "-/"
+}
+
+test test_stat_format_errors_point_into_terminal_arguments { |ctx|
+  let format = run_stat_on_terminal(ctx, ["-c", "%d%.3", "/dev/null"])?
+  assert format.status == 1
+  assert format.stdout != ""
+  assert format.stderr == """stat: '%.3': invalid directive
+   ╭─[ stat:1:11 ]
+   │
+ 1 │ stat -c %d%.3 /dev/null
+   │           ───
+   │
+   │ Help: a directive is %[FLAGS][WIDTH][.PRECISION]LETTER, as in %-10.2s; a literal % is written %%
+───╯
+""", format.stderr
+
+  let printf = run_stat_on_terminal(ctx, ["--printf=%12", "/dev/null"])?
+  assert printf.status == 1
+  assert printf.stderr == """stat: '%12': invalid directive
+   ╭─[ stat:1:15 ]
+   │
+ 1 │ stat --printf=%12 /dev/null
+   │               ───
+   │
+   │ Help: a directive is %[FLAGS][WIDTH][.PRECISION]LETTER, as in %-10.2s; a literal % is written %%
+───╯
+""", printf.stderr
 }

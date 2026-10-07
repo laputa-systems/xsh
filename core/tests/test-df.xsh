@@ -10,6 +10,21 @@ proc normalize_df_mounts(text: Str) [error] -> Str {
   lines.join("\n")
 }
 
+type TerminalRun = {status: Int, stderr: Str}
+
+proc run_df_on_terminal(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[TerminalRun] {
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+  let root = test.temp_dir(ctx, name: "df-terminal")?
+  let stdout = fp"{root}/stdout"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/df.xsh".display()].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", stdout, fp"{pty.name}")
+  let status = process.run(plan)?
+  let stderr = unix.read_fd(pty.master, 8192)?.utf8()?
+  Ok({status: status.exit_code()?, stderr: stderr.replace("\r\n", with: "\n")})
+}
+
 test test_df { |ctx|
   let root = test.temp_dir(ctx, name: "df")?
   fp"{root}/payload.txt".write("abcdef")
@@ -56,6 +71,11 @@ test test_df_k_and_portability_select_units_and_header { |ctx|
   let ordinary = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- $root
   assert ordinary.status.exited_with(0), ordinary.stderr
   assert ordinary.stdout.lines().collect()[0].words().join(" ") == "Filesystem 1K-blocks Used Available Use% Mounted on"
+  let block_human = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B human-readable $root
+  assert block_human.status.exited_with(0), block_human.stderr
+  assert block_human.stdout.lines().collect()[0].words().join(" ") == "Filesystem Size Used Avail Use% Mounted on"
+  let block_si = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B si $root
+  assert block_si.status.exited_with(0), block_si.stderr
 }
 
 test test_df_column_selection_total_and_error_continuation { |ctx|
@@ -111,4 +131,25 @@ test test_df_reports_filesystem_capacity_counters { |ctx|
   assert used_delta <= 16 * stats.fragment_size
   assert available_delta <= 16 * stats.fragment_size
   assert fields[3] == df_percent(used, available)
+}
+
+test test_df_block_size_errors_point_into_terminal_arguments { |ctx|
+  let unknown = run_df_on_terminal(ctx, ["-B", "1fb"])?
+  assert unknown.status == 1
+  assert unknown.stderr == """df: invalid suffix in --block-size argument '1fb'
+   ╭─[ df:1:8 ]
+   │
+ 1 │ df -B 1fb
+   │        ─┬
+   │         ╰── not a known unit
+   │
+   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000
+───╯
+""", unknown.stderr
+
+  let zero = run_df_on_terminal(ctx, ["--block-size=0"])?
+  assert zero.status == 1
+  assert "df: invalid --block-size argument '0'" in zero.stderr, zero.stderr
+  assert "df:1:17" in zero.stderr, zero.stderr
+  assert ! ("not a known unit" in zero.stderr), zero.stderr
 }

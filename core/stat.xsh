@@ -64,6 +64,71 @@ pure hex(value: Int) -> Str {
 }
 
 type FormatResult = {output: Bytes, invalid: Str?, warning: Str?}
+# Format parsing reports the invalid directive text; recover its source position from the selected argv value.
+type ValueLocation = {index: Int, offset: Int}
+
+pure diagnostic_spaces(count: Int) -> Str { [" " for _ in range(count)].join("") }
+
+pure argument_source(program: Str, argv: List[Str]) -> Str {
+  if argv.is_empty() { program } else { f"{program} {argv.join(" ")}" }
+}
+
+pure argument_column(program: Str, argv: List[Str], location: ValueLocation) -> Int {
+  var prefix = program
+  for index in range(location.index) { prefix = f"{prefix} {argv[index]}" }
+  prefix.byte_len() + 2 + location.offset
+}
+
+pure format_location(argv: List[Str], printf: Bool) -> ValueLocation? {
+  let short = "-c"
+  let long = if printf { "--printf" } else { "--format" }
+  let long_name = long.byte_slice(2)
+  var found: ValueLocation? = null
+  var index = 0
+  while index < argv.len() {
+    let raw = argv[index]
+    if raw == "--" { return found }
+    if raw == short {
+      found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
+      index += 2
+      continue
+    }
+    if raw.starts_with(short) {
+      found = {index: index, offset: short.byte_len()}
+      index += 1
+      continue
+    }
+    if raw.starts_with("--") {
+      let equal = raw.find("=")
+      let equal_at = equal ?? 0
+      let name = if equal == null { raw.byte_slice(2) } else { raw.byte_slice(2, length: equal_at - 2) }
+      if name != "" and long_name.starts_with(name) {
+        if equal != null {
+          found = {index: index, offset: equal_at + 1}
+          index += 1
+        } else {
+          found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
+          index += 2
+        }
+        continue
+      }
+    }
+    index += 1
+  }
+  found
+}
+
+proc report_format_error(argv: List[Str], fmt: Str, printf: Bool, invalid: Str) [env, process, error] {
+  gnu.error(f"'{invalid}': invalid directive")
+  return when ! unix.isatty(2)
+  guard let location = format_location(argv, printf) else { return }
+  let offset = fmt.find(invalid) ?? 0
+  let span = {index: location.index, offset: location.offset + offset}
+  let column = argument_column("stat", argv, span)
+  let source = argument_source("stat", argv)
+  let marker = ["─" for _ in range(invalid.byte_len())].join("")
+  eprint f"   ╭─[ stat:1:{column} ]\n   │\n 1 │ {source}\n   │{diagnostic_spaces(column)}{marker}\n   │\n   │ Help: a directive is %[FLAGS][WIDTH][.PRECISION]LETTER, as in %-10.2s; a literal % is written %%\n───╯"
+}
 
 pure pad_stat(text: Str, width: Int, left: Bool, zero: Bool, numeric: Bool) -> Str {
   let fill = if zero and numeric { "0" } else { " " }
@@ -426,12 +491,12 @@ proc main(...argv: List[Str]) [fs, env, io, time, error] {
         }
         gnu.write_bytes(selected.output)
         if printf == null and selected.invalid == null { gnu.write_bytes(b"\n") }
-        if let invalid = selected.invalid { gnu.error(f"'{invalid}': invalid directive"); exit 1 }
+        if let invalid = selected.invalid { report_format_error(argv, fmt, printf != null, invalid); exit 1 }
       } else if format != "" or printf != null {
         let rendered = render_fs_format(fmt, target, name, printf != null)
         gnu.write_bytes(rendered.output)
         if printf == null and rendered.invalid == null { gnu.write_bytes(b"\n") }
-        if let invalid = rendered.invalid { gnu.error(f"'{invalid}': invalid directive"); exit 1 }
+        if let invalid = rendered.invalid { report_format_error(argv, fmt, printf != null, invalid); exit 1 }
       } else {
         print f"  File: {stat_quote(name)}"
         print f"    ID: {hex(stats.fsid)} Namelen: {stats.name_max} Type: {mount.fstype}"
@@ -452,12 +517,12 @@ proc main(...argv: List[Str]) [fs, env, io, time, error] {
       let rendered = render_format(fmt, target, name, meta, printf: true)
       gnu.write_bytes(rendered.output)
       if let warning = rendered.warning { gnu.error(f"warning: {warning}") }
-      if let invalid = rendered.invalid { gnu.error(f"'{invalid}': invalid directive"); exit 1 }
+      if let invalid = rendered.invalid { report_format_error(argv, fmt, true, invalid); exit 1 }
     } else if format != "" {
       let rendered = render_format(fmt, target, name, meta)
       let ending = if rendered.invalid == null { b"\n" } else { b"" }
       gnu.write_bytes(bytes.concat([rendered.output, ending]))
-      if let invalid = rendered.invalid { gnu.error(f"'{invalid}': invalid directive"); exit 1 }
+      if let invalid = rendered.invalid { report_format_error(argv, fmt, false, invalid); exit 1 }
     } else {
       print f"  File: {stat_quote(name)}"
       print f"  Size: {meta.size} Blocks: {meta.blocks_512} IO Block: {meta.blksize} {stat_file_type(meta)}"

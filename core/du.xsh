@@ -18,6 +18,115 @@ type Policy = {
 }
 type Usage = {size: Int, accounted: Int, counted: Bool, links: Map[Bool], latest: Int, failed: Bool, directory: Bool}
 type EntryMetadata = {meta: FsStat, external_target: Path?}
+# The option parser yields values without source offsets; retain a location in the original argv.
+type ValueLocation = {index: Int, offset: Int}
+
+pure diagnostic_spaces(count: Int) -> Str { [" " for _ in range(count)].join("") }
+
+pure argument_source(program: Str, argv: List[Str]) -> Str {
+  if argv.is_empty() { program } else { f"{program} {argv.join(" ")}" }
+}
+
+pure argument_column(program: Str, argv: List[Str], location: ValueLocation) -> Int {
+  var prefix = program
+  for index in range(location.index) { prefix = f"{prefix} {argv[index]}" }
+  prefix.byte_len() + 2 + location.offset
+}
+
+proc report_size_error(program: Str, argv: List[Str], location: ValueLocation, value: Str, message: Str) [env, process, error] {
+  gnu.error(message)
+  return when ! unix.isatty(2)
+
+  let unsupported = message.starts_with("invalid suffix in")
+  let signed_threshold = unsupported and value.starts_with("-") and message.find("--threshold") != null
+  let prefix_value = if signed_threshold { value.byte_slice(1) } else { value }
+  let prefix = if unsupported { (rx"^(0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+)".captures(prefix_value).get(0) ?? "").byte_len() } else { 0 }
+  let offset = prefix + (if signed_threshold { 1 } else { 0 })
+  let column = argument_column(program, argv, location) + offset
+  let source = argument_source(program, argv)
+  let width = value.byte_len() - offset
+  let marker = ["─" for _ in range(if unsupported { width - 1 } else { width })].join("")
+  let annotation = if unsupported { f"\n   │{diagnostic_spaces(column + 1)}╰── not a known unit" } else { "" }
+  let tail = if unsupported { "\n   │\n   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000" } else { "\n   │" }
+  eprint f"   ╭─[ {program}:1:{column} ]\n   │\n 1 │ {source}\n   │{diagnostic_spaces(column)}{marker}{if unsupported { "┬" } else { "" }}{annotation}{tail}\n───╯"
+}
+
+pure threshold_location(argv: List[Str]) -> ValueLocation? {
+  var found: ValueLocation? = null
+  var index = 0
+  while index < argv.len() {
+    let raw = argv[index]
+    if raw == "--" { return found }
+    if raw == "-t" or raw == "--threshold" {
+      found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
+      index += 2
+      continue
+    }
+    if raw.starts_with("--") {
+      let equal = raw.find("=")
+      let equal_at = equal ?? 0
+      let name = if equal == null { raw.byte_slice(2) } else { raw.byte_slice(2, length: equal_at - 2) }
+      if name != "" and "threshold".starts_with(name) {
+        if equal != null { found = {index: index, offset: equal_at + 1} } else {
+          found = if index + 1 < argv.len() { {index: index + 1, offset: 0} } else { null }
+          index += 2
+          continue
+        }
+      }
+    } else if raw.starts_with("-t") and raw != "-t" {
+      found = {index: index, offset: 2}
+    }
+    index += 1
+  }
+  found
+}
+
+# Check explicit sizes before the shared unit selector emits an error without argv location.
+proc validate_block_sizes(argv: List[Str]) [env, process, error] {
+  var index = 0
+  let posix = env.get("POSIXLY_CORRECT") is Ok(_)
+  while index < argv.len() {
+    let raw = argv[index]
+    if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { break }
+    var location: ValueLocation? = null
+    var value = ""
+    if raw.starts_with("--") {
+      let equal = raw.find("=")
+      let equal_at = equal ?? 0
+      let name = if equal == null { raw.byte_slice(2) } else { raw.byte_slice(2, length: equal_at - 2) }
+      if name != "" and "block-size".starts_with(name) {
+        if let at = equal {
+          location = {index: index, offset: at + 1}
+          value = raw.byte_slice(at + 1)
+        } else if index + 1 < argv.len() {
+          index += 1
+          location = {index: index, offset: 0}
+          value = argv[index]
+        }
+      }
+    } else if raw == "-B" {
+      if index + 1 < argv.len() {
+        index += 1
+        location = {index: index, offset: 0}
+        value = argv[index]
+      }
+    } else if raw.starts_with("-B") {
+      location = {index: index, offset: 2}
+      value = raw.byte_slice(2)
+    }
+    if let found = location {
+      if value not in ["human-readable", "si"] {
+        if let size = disk.parse_size(value) {
+          if size <= 0 { report_size_error("du", argv, found, value, disk.size_error(value, "block-size")); exit 1 }
+        } else {
+          report_size_error("du", argv, found, value, disk.size_error(value, "block-size"))
+          exit 1
+        }
+      }
+    }
+    index += 1
+  }
+}
 
 pure glob_regex(pattern: Str) -> Str {
   let chars = [ch for ch in pattern]
@@ -293,10 +402,16 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
     let unsigned = if raw.starts_with("-") or raw.starts_with("+") { raw.byte_slice(1) } else { raw }
     threshold = disk.parse_size(unsigned)
     if threshold == null or (negative and threshold == 0) {
-      gnu.error(disk.size_error(unsigned, "threshold").replace(gnu.quote_value(unsigned), with: gnu.quote_value(raw)))
+      let message = disk.size_error(unsigned, "threshold").replace(gnu.quote_value(unsigned), with: gnu.quote_value(raw))
+      if let location = threshold_location(argv) {
+        report_size_error("du", argv, location, raw, message)
+      } else {
+        gnu.error(message)
+      }
       exit 1
     }
   }
+  validate_block_sizes(argv)
   let units = disk.argument_units(argv, disk.environment_units("du"), ["B", "block-size", "d", "max-depth", "t", "threshold", "X", "exclude-from", "exclude", "files0-from", "time-style"])
   var excludes = opts.excludes
   var failed = false

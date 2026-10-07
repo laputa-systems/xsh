@@ -33,6 +33,83 @@ pure row(mount: Mount, counts: Counters, units: disk.Units) -> Map[Str] {
 
 pure left_column(field: Str) -> Bool { field in ["source", "fstype", "target", "file"] }
 
+# The option parser yields values without source offsets; retain a location in the original argv.
+type ValueLocation = {index: Int, offset: Int}
+
+pure diagnostic_spaces(count: Int) -> Str { [" " for _ in range(count)].join("") }
+
+pure argument_source(program: Str, argv: List[Str]) -> Str {
+  if argv.is_empty() { program } else { f"{program} {argv.join(" ")}" }
+}
+
+pure argument_column(program: Str, argv: List[Str], location: ValueLocation) -> Int {
+  var prefix = program
+  for index in range(location.index) { prefix = f"{prefix} {argv[index]}" }
+  prefix.byte_len() + 2 + location.offset
+}
+
+proc report_size_error(program: Str, argv: List[Str], location: ValueLocation, value: Str, message: Str) [env, process, error] {
+  gnu.error(message)
+  return when ! unix.isatty(2)
+
+  let source = argument_source(program, argv)
+  let unsupported = message.starts_with("invalid suffix in")
+  let offset = if unsupported { (rx"^(0[xX][0-9a-fA-F]+|0[bB][01]+|[0-9]+)".captures(value).get(0) ?? "").byte_len() } else { 0 }
+  let column = argument_column(program, argv, location) + offset
+  let width = value.byte_len() - offset
+  let marker = ["─" for _ in range(if unsupported { width - 1 } else { width })].join("")
+  let annotation = if unsupported { f"\n   │{diagnostic_spaces(column + 1)}╰── not a known unit" } else { "" }
+  let tail = if unsupported { "\n   │\n   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000" } else { "\n   │" }
+  eprint f"   ╭─[ {program}:1:{column} ]\n   │\n 1 │ {source}\n   │{diagnostic_spaces(column)}{marker}{if unsupported { "┬" } else { "" }}{annotation}{tail}\n───╯"
+}
+
+# Check explicit sizes before the shared unit selector emits an error without argv location.
+proc validate_block_sizes(argv: List[Str]) [env, process, error] {
+  var index = 0
+  let posix = env.get("POSIXLY_CORRECT") is Ok(_)
+  while index < argv.len() {
+    let raw = argv[index]
+    if raw == "--" or (posix and (raw == "-" or ! raw.starts_with("-"))) { break }
+    var location: ValueLocation? = null
+    var value = ""
+    if raw.starts_with("--") {
+      let equal = raw.find("=")
+      let equal_at = equal ?? 0
+      let name = if equal == null { raw.byte_slice(2) } else { raw.byte_slice(2, length: equal_at - 2) }
+      if name != "" and "block-size".starts_with(name) {
+        if let at = equal {
+          location = {index: index, offset: at + 1}
+          value = raw.byte_slice(at + 1)
+        } else if index + 1 < argv.len() {
+          index += 1
+          location = {index: index, offset: 0}
+          value = argv[index]
+        }
+      }
+    } else if raw == "-B" {
+      if index + 1 < argv.len() {
+        index += 1
+        location = {index: index, offset: 0}
+        value = argv[index]
+      }
+    } else if raw.starts_with("-B") {
+      location = {index: index, offset: 2}
+      value = raw.byte_slice(2)
+    }
+    if let found = location {
+      if value not in ["human-readable", "si"] {
+        if let size = disk.parse_size(value) {
+          if size <= 0 { report_size_error("df", argv, found, value, disk.size_error(value, "block-size")); exit 1 }
+        } else {
+          report_size_error("df", argv, found, value, disk.size_error(value, "block-size"))
+          exit 1
+        }
+      }
+    }
+    index += 1
+  }
+}
+
 proc main(...argv: List[Str]) [fs, env, process, io, error] {
   let opts: DfOptions = cli.applet(argv, {
     gnu: {status: 1},
@@ -68,6 +145,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     }
   }
   if invalid_types { exit 1 }
+  validate_block_sizes(argv)
   var units = disk.argument_units(argv, disk.environment_units("df", opts.portable), ["B", "block-size", "t", "type", "x", "exclude-type"], "H")
   if opts.portable and units.human == 0 { units = {...units, label: f"{units.block}-blocks"} }
   var columns: List[Str] = []
