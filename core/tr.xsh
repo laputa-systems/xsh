@@ -10,8 +10,7 @@ proc set_error(message: Str) {
   exit 1
 }
 
-proc warnings(spec: Str) {
-  let data = bytes.from_text(spec)
+proc warnings(data: Bytes) {
   var at = 0
   while at < data.len() {
     let item = atom(data, at)
@@ -43,6 +42,15 @@ pure atom(data: Bytes, at: Int) -> Atom {
   }
   let value = if escaped == 97 { 7 } else if escaped == 98 { 8 } else if escaped == 102 { 12 } else if escaped == 110 { 10 } else if escaped == 114 { 13 } else if escaped == 116 { 9 } else if escaped == 118 { 11 } else { escaped }
   {value: value, next: at + 2}
+}
+
+pure find_sequence(data: Bytes, sequence: Bytes, start: Int) -> Int? {
+  let last = data.len() - sequence.len()
+  if start > last { return null }
+  for at in range(start, last + 1) {
+    if data[at..at + sequence.len()] == sequence { return at }
+  }
+  null
 }
 
 pure class_member(name: Str, byte: Int) -> Bool {
@@ -86,63 +94,63 @@ pure contains(runs: List[Run], byte: Int) -> Bool {
   false
 }
 
-proc repeat_count(raw: Str) -> Count {
+proc repeat_count(raw: Bytes) -> Count {
   var value = ZERO
-  let radix = if raw.starts_with("0") { 8 } else { 10 }
-  for byte in bytes.from_text(raw) {
+  let radix = if raw.starts_with(b"0") { 8 } else { 10 }
+  for byte in raw {
     let digit = byte - 48
-    if digit < 0 or digit >= radix { set_error(f"invalid repeat count {gnu.quote_value(raw)} in [c*n] construct") }
+    if digit < 0 or digit >= radix { set_error(f"invalid repeat count {gnu.quote_value_bytes(raw)} in [c*n] construct") }
     let low = value.minor * radix + digit
     value = {major: value.major * radix + low / 1000000000, minor: low % 1000000000}
-    if compare(value, MAX_REPEAT) > 0 { set_error(f"invalid repeat count {gnu.quote_value(raw)} in [c*n] construct") }
+    if compare(value, MAX_REPEAT) > 0 { set_error(f"invalid repeat count {gnu.quote_value_bytes(raw)} in [c*n] construct") }
   }
   value
 }
 
-proc parse_set(spec: Str, fill: Count, second: Bool) -> List[Run] {
-  let data = bytes.from_text(spec)
+proc parse_set(data: Bytes, fill: Count, second: Bool) -> List[Run] {
   var at = 0
   var out: List[Run] = []
   var indefinite = false
   while at < data.len() {
     if data.byte_at(at) == 91 and data.byte_at(at + 1) == 58 and data.byte_at(at + 2) != 42 {
-      let rest = data[at + 2..].utf8()?
-      let close = rest.find(":]")
+      let close = find_sequence(data, b":]", at + 2)
       if close == null { set_error("missing terminating ] in character class"); exit 1 }
-      let name = rest.byte_slice(0, close)
+      let name = data[at + 2..close].utf8()?
       if name == "" { set_error(f"missing character class name {gnu.quote_value("[::]")}") }
       if name not in ["alnum", "alpha", "blank", "cntrl", "digit", "graph", "lower", "print", "punct", "space", "upper", "xdigit"] { set_error(f"invalid character class {gnu.quote_value(name)}") }
       var first = true
       for byte in range(256) {
         if class_member(name, byte) { out += [{byte: byte, count: ONE, character_class: if first { name } else { "" }}]; first = false }
       }
-      at += close + 4; continue
+      at = close + 2; continue
     }
     if data.byte_at(at) == 91 and data.byte_at(at + 1) == 61 and data.byte_at(at + 2) != 42 {
       if data[at..at + 4] == b"[==]" { set_error(f"missing equivalence class character {gnu.quote_value("[==]")}") }
       let item = atom(data, at + 2)
       if data.byte_at(item.next) != 61 or data.byte_at(item.next + 1) != 93 {
-        let rest = data[at + 2..].utf8()?
-        let close = rest.find("=]")
-        if let end = close { set_error(f"{rest.byte_slice(0, end)}: equivalence class operand must be a single character") } else { set_error("invalid equivalence class") }
+        let close = find_sequence(data, b"=]", at + 2)
+        if let end = close {
+          let raw = data[at + 2..end]
+          let operand = raw.utf8() ?? gnu.quote_value_bytes(raw)
+          set_error(f"{operand}: equivalence class operand must be a single character")
+        } else { set_error("invalid equivalence class") }
       }
       out += [{byte: item.value, count: ONE, character_class: ""}]; at = item.next + 2; continue
     }
     if data.byte_at(at) == 91 {
       let item = atom(data, at + 1)
       if data.byte_at(item.next) == 42 {
-        let rest = data[item.next + 1..].utf8()?
-        let close = rest.find("]")
-        if close != null and ! rest.starts_with("\\") {
-          let raw = rest.byte_slice(0, close)
+        let close = find_sequence(data, b"]", item.next + 1)
+        if close != null and data.byte_at(item.next + 1) != 92 {
+          let raw = data[item.next + 1..close]
           let count = repeat_count(raw)
-          let next = item.next + close + 2
+          let next = close + 1
           var size = count
           if count == ZERO {
             if ! second { set_error("the [c*] repeat construct may not appear in string1") }
             if indefinite { set_error("only one [c*] repeat construct may appear in string2") }
             indefinite = true
-            let suffix = total(parse_set(spec.byte_slice(next), ZERO, true))
+            let suffix = total(parse_set(data[next..], ZERO, true))
             let used = add(total(out), suffix)
             size = if compare(fill, used) > 0 { subtract(fill, used) } else { ZERO }
           }
@@ -162,7 +170,7 @@ proc parse_set(spec: Str, fill: Count, second: Bool) -> List[Run] {
   out
 }
 
-proc validate_classes(first_spec: Str, second_spec: Str, first: List[Run], second: List[Run], truncate: Bool) {
+proc validate_classes(second_spec: Bytes, first: List[Run], second: List[Run], truncate: Bool) {
   var position = ZERO
   for item in second {
     if item.character_class != "" {
@@ -177,8 +185,12 @@ proc validate_classes(first_spec: Str, second_spec: Str, first: List[Run], secon
     }
     position = add(position, item.count)
   }
-  if ! truncate and compare(total(first), total(second)) > 0 and (second_spec.ends_with("[:upper:]") or second_spec.ends_with("[:lower:]")) {
-    set_error("when translating with string1 longer than string2, the latter string must not end with a character class")
+  let upper_suffix = b"[:upper:]"
+  let lower_suffix = b"[:lower:]"
+  let upper_end = second_spec.len() >= upper_suffix.len() and second_spec[second_spec.len() - upper_suffix.len()..] == upper_suffix
+  let lower_end = second_spec.len() >= lower_suffix.len() and second_spec[second_spec.len() - lower_suffix.len()..] == lower_suffix
+  if ! truncate and compare(total(first), total(second)) > 0 and (upper_end or lower_end) {
+    set_error("when translating with string1 longer than string2,\nthe latter string must not end with a character class")
   }
 }
 
@@ -192,8 +204,9 @@ pure value_at(runs: List[Run], position: Count) -> Int {
   runs[-1].byte
 }
 
-proc main(...argv: List[Str]) {
-  let opts: Options = cli.applet(argv, {
+proc main(...argv: List[Bytes]) {
+  let arguments = text.normalize_arguments(argv)
+  let opts: Options = cli.applet(arguments.values, {
     gnu: {status: 1, permute: false},
     delete: {form: "-d --delete", default: false},
     squeeze: {form: "-s --squeeze-repeats", default: false},
@@ -210,15 +223,16 @@ proc main(...argv: List[Str]) {
   if opts.delete and ! opts.squeeze and opts.sets.len() > 1 { gnu.usage_error(f"extra operand {gnu.quote_value(opts.sets[1])}\nOnly one string may be given when deleting without squeezing repeats.") }
   if opts.sets.len() == 1 and opts.delete and opts.squeeze { gnu.usage_error(f"missing operand after {gnu.quote_value(opts.sets[0])}\nTwo strings must be given when both deleting and squeezing repeats.") }
   if opts.sets.len() == 1 and ! opts.delete and ! opts.squeeze { gnu.missing_operand_after(opts.sets[0]) }
-  warnings(opts.sets[0])
-  if opts.sets.len() == 2 { warnings(opts.sets[1]) }
-  let original = parse_set(opts.sets[0], ZERO, false)
+  let sets = text.argument_bytes_list(arguments, opts.sets)
+  warnings(sets[0])
+  if sets.len() == 2 { warnings(sets[1]) }
+  let original = parse_set(sets[0], ZERO, false)
   let first: List[Run] = if opts.complement { [{byte: byte, count: ONE, character_class: ""} for byte in range(256) if ! contains(original, byte)] } else { original }
-  let second = if opts.sets.len() == 2 { parse_set(opts.sets[1], total(first), true) } else { [] }
+  let second = if sets.len() == 2 { parse_set(sets[1], total(first), true) } else { [] }
   let translate = ! opts.delete and opts.sets.len() == 2
-  if translate { validate_classes(opts.sets[0], opts.sets[1], original, second, opts.truncate) }
+  if translate { validate_classes(sets[1], original, second, opts.truncate) }
   if translate and ! opts.truncate and second.is_empty() and ! first.is_empty() { set_error("when not truncating set1, string2 must be non-empty") }
-  if translate and opts.complement and "[:" in opts.sets[0] {
+  if translate and opts.complement and find_sequence(sets[0], b"[:", 0) != null {
     let unique = [byte for byte in range(256) if contains(second, byte)]
     if unique.len() > 1 or compare(total(second), total(first)) > 0 or (opts.truncate and compare(total(first), total(second)) > 0) { set_error("when translating with complemented character classes,\nstring2 must map all characters in the domain to one") }
   }

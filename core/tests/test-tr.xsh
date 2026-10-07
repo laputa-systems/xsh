@@ -62,6 +62,13 @@ test test_tr_repeat_leaves_room_for_suffix_and_rejects_misaligned_classes { |ctx
   assert ! status.exited_with(0)
 }
 
+test test_tr_requires_a_longer_first_set_to_end_with_plain_characters { |ctx|
+  let error = test.temp_path(ctx, name: "tr.err")
+  let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- "[:upper:]a" "[:upper:]" < /dev/null 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "tr: when translating with string1 longer than string2,\nthe latter string must not end with a character class\n"
+}
+
 test test_tr_keeps_repeat_runs_compressed_and_indexes_unsigned_counts { |ctx|
   let input = test.temp_file(ctx, name: "bytes", contents: b"abc")?
   let first = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- "[a*9223372036854775808]" b < $input
@@ -110,4 +117,29 @@ test test_tr_errors_identify_range_and_delete_mode_requirements { |ctx|
   let squeeze_error = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" -- -ds ab < /dev/null 2> $error
   assert squeeze_error.exited_with(1)
   assert "Two strings must be given when both deleting and squeezing repeats." in error.read_text()?
+}
+
+test test_tr_preserves_non_utf8_set_operands { |ctx|
+  let input = test.temp_file(ctx, name: "raw-set-input", contents: b"\x01amp\xfe\xff")?
+  let translated = test.temp_path(ctx, name: "translated")
+  let translate_command = "set1=$(printf 'a\\\\376\\\\377z'); exec \"$1\" \"$2\" \"$set1\" 01234 < \"$3\" > \"$4\""
+  let translate_status = run.status env LC_ALL=C sh -c $translate_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" $input $translated
+  assert translate_status.exited_with(0)
+  assert translated.read_bytes()? == b"\x010mp12"
+
+  let escaped_input = test.temp_file(ctx, name: "escaped-input", contents: b"(1\xff)")?
+  let deleted = test.temp_path(ctx, name: "deleted")
+  let error = test.temp_path(ctx, name: "tr.err")
+  let delete_command = "set1=$(printf '\\\\501\\\\377'); exec \"$1\" \"$2\" -d \"$set1\" < \"$3\" > \"$4\""
+  let delete_status = run.status env LC_ALL=C sh -c $delete_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" $escaped_input $deleted 2> $error
+  assert delete_status.exited_with(0)
+  assert deleted.read_bytes()? == b")"
+  assert "warning: the ambiguous octal escape" in error.read_text()?
+
+  let malformed = test.temp_path(ctx, name: "malformed-repeat")
+  let malformed_error = test.temp_path(ctx, name: "malformed-repeat.err")
+  let malformed_command = "set1=$(printf '[a*\\377]'); exec \"$1\" \"$2\" \"$set1\" x < /dev/null > \"$3\" 2> \"$4\""
+  let malformed_status = run.status env LC_ALL=C sh -c $malformed_command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/tr.xsh" $malformed $malformed_error
+  assert malformed_status.exited_with(1)
+  assert "invalid repeat count" in malformed_error.read_text()?
 }
