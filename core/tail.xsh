@@ -326,8 +326,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 
   if let sleep_interval = opts.sleep {
     if ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(sleep_interval) {
-      gnu.error(f"invalid number of seconds: {gnu.quote_value(sleep_interval)}")
-      exit 1
+      gnu.usage_error(f"invalid number of seconds: {gnu.quote_value(sleep_interval)}")
     }
   }
 

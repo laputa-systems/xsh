@@ -89,12 +89,34 @@ test test_tail_counts_accept_gnu_suffixes_and_reject_others { |ctx|
   assert plus_error.stderr == "tail: invalid number of lines: '+1fb'\n", plus_error.stderr
 }
 
-test test_tail_rejects_an_explicitly_empty_sleep_interval { |ctx|
+test test_tail_invalid_sleep_intervals_use_usage_diagnostics { |ctx|
   let root = test.temp_dir(ctx, name: "tail-sleep-interval")?
-  let result = tail_run(ctx, root, ["--sleep-interval", ""])?
+  let invalid = [
+    "1_000",
+    ".",
+    "' '",
+    " ",
+    "",
+    "0,0",
+    "one.zero",
+    ".zero",
+    "one.",
+    "0..0",
+    "1.0s",
+    "1.0e^1000",
+  ]
 
-  assert result.status == 1
-  assert result.stderr == "tail: invalid number of seconds: ''\n", result.stderr
+  for value in invalid {
+    let result = tail_run(ctx, root, ["--sleep-interval", value])?
+
+    assert result.status == 1
+    assert result.stdout.is_empty()
+    assert result.stderr.starts_with("tail: invalid number of seconds: "), result.stderr
+    assert result.stderr.ends_with("\nTry 'tail --help' for more information.\n"), result.stderr
+    if value == "" {
+      assert result.stderr == "tail: invalid number of seconds: ''\nTry 'tail --help' for more information.\n", result.stderr
+    }
+  }
 }
 
 test test_tail_zero_terminated_lines_and_non_utf8_bytes { |ctx|
@@ -206,7 +228,7 @@ test test_tail_validates_follow_options { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
 
   assert tail_run(ctx, root, ["--pid=-1", "-f"])?.stderr == "tail: invalid PID: '-1'\n"
-  assert tail_run(ctx, root, ["-s", "1.0s", "-"])?.stderr == "tail: invalid number of seconds: '1.0s'\n"
+  assert tail_run(ctx, root, ["-s", "1.0s", "-"])?.stderr == "tail: invalid number of seconds: '1.0s'\nTry 'tail --help' for more information.\n"
   assert tail_run(ctx, root, ["--max-unchanged-stats=x", "-"])?.stderr == "tail: invalid maximum number of unchanged stats between opens: 'x'\n"
   assert tail_run(ctx, root, ["-s.1", "-"], b"a\n")?.stdout == b"a\n"
 
