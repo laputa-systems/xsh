@@ -54,6 +54,8 @@ type UniqOptions = {
 # characters compared (-1 for the whole rest), case folded or not.
 type Key = {fields: Int, skip: Int, width: Int, fold: Bool, utf8: Bool}
 
+type CountState = {line: Bytes, compare: Bytes, count: Int, printed: Int, active: Bool}
+
 # Which groups print (`unique` singletons, `first` whether a repeated group
 # prints its last line too, `later` every repeated group line by line), and how
 # groups are delimited.
@@ -266,6 +268,31 @@ pure number_prefix(count: Int) -> Str {
   f"{pad}{text} "
 }
 
+proc print_counted_group(line: Bytes, count: Int, select: Selection, mark: Bytes, printed: Int) [process, env, io] -> Int {
+  let selected = (count == 1 and select.unique) or (count > 1 and select.first)
+
+  return printed when ! selected
+
+  gnu.write_bytes(bytes.concat([bytes.from_text(number_prefix(count)), line, mark]))
+  printed + 1
+}
+
+proc count_record(state: CountState, line: Bytes, key: Key, select: Selection, mark: Bytes) [error, process, env, io] -> CountState {
+  let compare = key_of(line, key)
+
+  if state.active and compare == state.compare {
+    return {...state, count: state.count + 1}
+  }
+
+  let printed = if state.active {
+    print_counted_group(state.line, state.count, select, mark, state.printed)
+  } else {
+    state.printed
+  }
+
+  {line: line, compare: compare, count: 1, printed: printed, active: true}
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if let option = invalid_obsolete_short(argv) {
     gnu.error(f"error: unexpected argument '{option}' found")
@@ -364,14 +391,101 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let input_name = opts.files.get(0) ?? "-"
   let output_name = opts.files.get(1) ?? "-"
+  let sep = if opts.zero { 0 } else { 10 }
+  let mark = bytes.from_ints([sep])?
+
+  if opts.count and output_name == "-" {
+    guard let source = tio.open_source(input_name) else { |failure|
+      gnu.name_error(input_name, failure)
+      exit 1
+    }
+
+    var offset = 0
+    var pending = b""
+    var state: CountState = {line: b"", compare: b"", count: 0, printed: 0, active: false}
+
+    loop {
+      guard let chunk = tio.read_chunk(source, offset) else { |failure|
+        gnu.name_error(input_name, failure)
+        exit 1
+      }
+
+      break when chunk.is_empty()
+      offset += chunk.len()
+
+      var data = bytes.concat([pending, chunk])
+
+      # Bulk-count exact records only when no option transforms the comparison key.
+      if key.fields == 0 and key.skip == 0 and key.width < 0 and ! key.fold {
+        var end = 0
+
+        while end < data.len() and data.byte_at(end) != sep {
+          end += 1
+        }
+
+        if end < data.len() {
+          let line = data[0..end]
+          let pattern = bytes.concat([line, mark])
+          let copies = bytes.repeat_prefix_count(data, pattern)?
+
+          if copies > 1 {
+            state = count_record(state, line, key, select, mark)
+            state = {...state, count: state.count + copies - 1}
+            data = data[copies * pattern.len()..]
+          }
+        }
+      }
+
+      var start = 0
+
+      if sep == 10 {
+        for item in data.lines() {
+          let end = start + item.len()
+          let after = data.byte_at(end) ?? -1
+          let crlf = after == 13 and (data.byte_at(end + 1) ?? -1) == 10
+
+          if after == 10 or crlf {
+            let line = data[start..end + (if crlf { 1 } else { 0 })]
+            state = count_record(state, line, key, select, mark)
+            start = end + (if crlf { 2 } else { 1 })
+          } else {
+            break
+          }
+        }
+      } else {
+        var at = 0
+
+        loop {
+          break when at >= data.len()
+
+          if data.byte_at(at) == sep {
+            state = count_record(state, data[start..at], key, select, mark)
+            start = at + 1
+          }
+
+          at += 1
+        }
+      }
+
+      pending = data[start..]
+    }
+
+    if ! pending.is_empty() {
+      state = count_record(state, pending, key, select, mark)
+    }
+
+    if state.active {
+      let _ = print_counted_group(state.line, state.count, select, mark, state.printed)
+    }
+
+    return
+  }
 
   guard let data = gnu.read_operand(input_name) else { |failure|
     gnu.name_error(input_name, failure)
     exit 1
   }
 
-  let sep = if opts.zero { 0 } else { 10 }
-  let mark = bytes.from_ints([sep])?
   let records = split_records(data, sep)?
   var out: List[Bytes] = []
   var bunch: List[Bytes] = []

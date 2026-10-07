@@ -448,6 +448,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The target byte must be between 0 and 255. Other bytes are copied unchanged; runs are collapsed only within this input buffer.",
             &["bytes", "conversion", "runs"],
         )),
+        ("bytes", "repeat_prefix_count") => Some((
+            "Counts complete copies of a byte pattern at the beginning of a buffer.",
+            "The pattern must not be empty. A trailing partial copy is not counted.",
+            &["bytes", "comparison", "runs"],
+        )),
         ("bytes", "from_text") => Some((
             "Encodes UTF-8 text as Bytes.",
             "The conversion is lossless for Str and does not append a terminator.",

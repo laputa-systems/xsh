@@ -54,6 +54,18 @@ test test_api_bytes_squeeze_documents_its_byte_range_and_buffer_scope {
   )
 }
 
+test test_api_bytes_repeat_prefix_count_documents_full_pattern_counting {
+  api(["api:bytes.repeat_prefix_count"])? |> assert_contains(
+    _,
+    [
+      "api: module.bytes.repeat_prefix_count",
+      "bytes.repeat_prefix_count(data: Bytes, pattern: Bytes) -> Result[Int, Error]",
+      "pattern must not be empty",
+      "complete copies of a byte pattern at the beginning of a buffer",
+    ],
+  )
+}
+
 test test_api_builtin_templates_render_receiver_argument_and_result_relationships {
   api(
     [

@@ -25,6 +25,14 @@ test test_head_lines_bytes_and_obsolete_counts { |ctx|
   assert head_run(ctx, root, ["-n", "0", "n20"])?.stdout == b""
 }
 
+test test_head_reads_standard_input_across_chunks { |ctx|
+  let root = test.temp_dir(ctx, name: "head")?
+  let input = bytes.concat([b"x\n" for _ in range(40000)])
+  let expected = bytes.concat([b"x\n" for _ in range(32769)])
+
+  assert head_run(ctx, root, ["-n", "32769"], input)?.stdout == expected
+}
+
 test test_head_elides_the_tail_with_a_leading_minus { |ctx|
   let root = test.temp_dir(ctx, name: "head")?
 

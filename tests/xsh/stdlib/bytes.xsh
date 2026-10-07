@@ -57,6 +57,14 @@ test test_bytes_squeeze_collapses_only_the_selected_byte {
   test.error_kind(bytes.squeeze(b"x", 256), "bytes-squeeze")
 }
 
+test test_bytes_counts_complete_repeated_prefixes {
+  assert bytes.repeat_prefix_count(b"ababax", b"ab")? == 2
+  assert bytes.repeat_prefix_count(b"xyxy", b"xy")? == 2
+  assert bytes.repeat_prefix_count(b"", b"x")? == 0
+  assert bytes.repeat_prefix_count(b"yxx", b"x")? == 0
+  test.error_kind(bytes.repeat_prefix_count(b"abc", b""), "bytes-repeat-prefix-count")
+}
+
 test test_bytes_methods_and_decode_errors {
   let encoded = b"\0hello\xff".base64()
   assert encoded == "AGhlbGxv/w=="

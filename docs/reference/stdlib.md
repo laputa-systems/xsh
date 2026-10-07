@@ -38,6 +38,7 @@ Byte inspection, encoding, decoding, copying, and hashing helpers.
 - `bytes.pack_be(value: Int, width: Int) -> Result[Bytes, Error]` — Packs an integer into fixed-width little- or big-endian bytes.
 - `bytes.pack_le(value: Int, width: Int) -> Result[Bytes, Error]` — Packs an integer into fixed-width little- or big-endian bytes.
 - `bytes.read_at(path: Path, offset: UInt, length: Int, regular: Bool = default) -> Result[Bytes, Error]` — Reads, writes, or clears a byte range at an explicit offset.
+- `bytes.repeat_prefix_count(data: Bytes, pattern: Bytes) -> Result[Int, Error]` — Counts complete copies of a byte pattern at the beginning of a buffer.
 - `bytes.resize(path: Path, size: Int, create: Bool = default, exclusive: Bool = default, regular: Bool = default) -> Result[Unit, Error]` — Resizes a file through its opened descriptor.
 - `bytes.squeeze(data: Bytes, byte: Int) -> Result[Bytes, Error]` — Collapses repeated adjacent copies of one byte.
 - `bytes.unpack_be(data: Bytes, width: Int, offset: UInt = default) -> Result[Int, Error]` — Unpacks fixed-width little- or big-endian bytes into an integer.

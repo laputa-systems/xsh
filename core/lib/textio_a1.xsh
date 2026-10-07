@@ -3,9 +3,8 @@
 ##! A `Source` is one input operand (`-` is standard input). Callers read it
 ##! with `read_chunk` until an empty chunk and report a failure by its errno:
 ##! `is_directory` marks the read error GNU words differently from an open
-##! failure. Regular files are read in bounded chunks; standard input and
-##! non-seekable files are read whole, because the runtime has no incremental
-##! stdin or pipe read.
+##! failure. Regular files and standard input are read in bounded chunks;
+##! other non-seekable file operands are read whole.
 
 use gnu
 
@@ -15,15 +14,14 @@ export const MAX_COUNT = 9223372036854775807
 ## The size of one chunked read.
 export const CHUNK = 65536
 
-# Device input beyond this many bytes fails: stdout is only flushed when the
-# applet exits, so output from an unbounded device (`/dev/zero`) could never
-# be delivered and would only exhaust memory.
+# Bound reads from unbounded device operands so consumers that must retain a
+# whole input, such as tac, do not accumulate data indefinitely.
 const DEVICE_LIMIT = 67108864
 
-## `mode` is `stdin`, `file` (nonempty regular file, chunked and seekable),
-## `device` (character or block device read in chunks), or `whole` (read in
-## one call). `kind` is the file type nibble of `st_mode` (8 regular, 4
-## directory, 1 FIFO).
+## `mode` is `stdin` (read incrementally), `file` (nonempty regular file,
+## chunked and seekable), `device` (character or block device read in chunks),
+## or `whole` (read in one call). `kind` is the file type nibble of `st_mode`
+## (8 regular, 4 directory, 1 FIFO).
 export type Source = {name: Str, path: Path, mode: Str, kind: Int, size: Int}
 
 ## Position, append flag, and file identity of a standard descriptor.
@@ -51,7 +49,7 @@ export proc open_source(name: Str) [fs, error] -> Result[Source, Error] {
 ## The bytes of `source` from `offset`, at most `count` for chunked sources
 ## and everything for the others. An empty result is the end of the input.
 export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, io] -> Result[Bytes, Error] {
-  return if offset == 0 { io.stdin_bytes() } else { Ok(b"") } when source.mode == "stdin"
+  return io.stdin_read(count) when source.mode == "stdin"
 
   if source.mode == "whole" {
     return if offset == 0 { source.path.read_bytes() } else { Ok(b"") }

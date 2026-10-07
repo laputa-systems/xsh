@@ -718,6 +718,15 @@ fn bytes_module() -> ModuleSig {
             ),
         ),
         (
+            "repeat_prefix_count",
+            sig(
+                vec![param("data", Type::Bytes), param("pattern", Type::Bytes)],
+                result(Type::Int),
+                true,
+                RuntimeOp::BytesRepeatPrefixCount,
+            ),
+        ),
+        (
             "from_text",
             sig(
                 vec![param("text", Type::Str)],

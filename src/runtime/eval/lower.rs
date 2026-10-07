@@ -360,6 +360,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::BytesCopyFile
             | RuntimeOp::BytesFromInts
             | RuntimeOp::BytesSqueeze
+            | RuntimeOp::BytesRepeatPrefixCount
             | RuntimeOp::BytesConcat
             | RuntimeOp::BytesPackLe
             | RuntimeOp::BytesPackBe

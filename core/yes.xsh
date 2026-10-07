@@ -9,11 +9,7 @@ Repeatedly output a line with all specified STRING(s), or 'y'.
       --version  output version information and exit
 """
 
-# The runtime buffers stdout until the script ends and reports no write
-# failures, so an endless loop would only grow memory. The output is bounded to
-# this many bytes of whole lines (at least 16 lines for very long operands);
-# real `yes` runs until its reader closes the pipe.
-const OUTPUT_LIMIT = 33554432
+const CHUNK_BYTES = 65536
 
 type YesOptions = {help: Bool, version: Bool, words: List[Str]}
 
@@ -54,8 +50,13 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let line = (if opts.words.is_empty() { "y" } else { opts.words.join(" ") }) + "\n"
-  let fitting = OUTPUT_LIMIT / line.byte_len()
-  let count = if fitting < 16 { 16 } else { fitting }
+  let line_bytes = line.byte_len()
+  let count = if line_bytes > CHUNK_BYTES { 1 } else { CHUNK_BYTES / line_bytes }
+  let chunk = bytes.from_text(repeated(line, count))
 
-  gnu.write_text(repeated(line, count))
+  # Keep writes bounded so a closed pipe can stop the producer before it
+  # accumulates output in memory.
+  while true {
+    gnu.write_bytes(chunk)
+  }
 }

@@ -6536,6 +6536,22 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
+            RuntimeOp::BytesRepeatPrefixCount if values.len() == 2 => {
+                let pattern = lowered_bytes_arg(
+                    values.get(1).expect("checked value length"),
+                    "bytes.repeat_prefix_count",
+                    span,
+                )?;
+                let data = lowered_bytes_arg(
+                    values.first().expect("checked value length"),
+                    "bytes.repeat_prefix_count",
+                    span,
+                )?;
+                match bytes_module::repeat_prefix_count(&data, &pattern, span) {
+                    Ok(count) => lowered_result_ok(LoweredValue::Int(count)),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
             RuntimeOp::BytesConcat if values.len() == 1 => {
                 let chunks = lowered_bytes_list_arg(values.pop(), "bytes.concat", span)?;
                 LoweredValue::Bytes(bytes_module::concat(chunks).into())

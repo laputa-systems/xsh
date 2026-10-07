@@ -37,6 +37,13 @@ test test_uniq_merges_adjacent_lines_and_counts { |ctx|
   assert uniq_run(ctx, root, [], b"")?.stdout == b""
 }
 
+test test_uniq_count_spans_stdin_chunks { |ctx|
+  let root = test.temp_dir(ctx, name: "uniq")?
+  let input = bytes.concat([b"y\n" for _ in range(40000)])
+
+  assert uniq_run(ctx, root, ["-c"], input)?.stdout == b"  40000 y\n"
+}
+
 test test_uniq_repeated_unique_and_all_repeated { |ctx|
   let root = test.temp_dir(ctx, name: "uniq")?
   let input = b"a\na\nb\nc\nc\n"

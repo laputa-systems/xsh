@@ -161,6 +161,32 @@ pub(crate) fn squeeze(bytes: &[u8], byte: i64, span: Span) -> Result<Vec<u8>, Ru
     Ok(output)
 }
 
+pub(crate) fn repeat_prefix_count(
+    bytes: &[u8],
+    pattern: &[u8],
+    span: Span,
+) -> Result<i64, RuntimeError> {
+    if pattern.is_empty() {
+        return Err(RuntimeError::new(
+            "bytes-repeat-prefix-count",
+            "pattern must not be empty",
+        )
+        .with_span(span));
+    }
+
+    let count = bytes
+        .chunks_exact(pattern.len())
+        .take_while(|part| *part == pattern)
+        .count();
+    i64::try_from(count).map_err(|_| {
+        RuntimeError::new(
+            "bytes-repeat-prefix-count",
+            "repetition count exceeds the supported integer range",
+        )
+        .with_span(span)
+    })
+}
+
 pub(crate) fn from_text(text: &str) -> Vec<u8> {
     text.as_bytes().to_vec()
 }

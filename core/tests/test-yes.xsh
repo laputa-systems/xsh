@@ -20,21 +20,17 @@ proc applet_run(
   Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
 }
 
-test test_yes_repeats_a_bounded_number_of_lines { |ctx|
-  let plain = applet_run(ctx, [])?
-  assert plain.status == 0
-  assert plain.stdout.starts_with("y\ny\ny\n")
-  assert plain.bytes.len() == 33554432, "output is bounded to 32 MiB of whole lines"
+test test_yes_streams_past_the_old_output_cap { |ctx|
+  let yes = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/yes.xsh".display()]
+  let head = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-c", "33554433"]
+  let wc = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/wc.xsh".display(), "-c"]
+  let count = run.text --accept=[0, 141] @yes | run @head | run @wc
 
-  let words = applet_run(ctx, ["a", "bar", "c"])?
-  assert words.stdout.starts_with("a bar c\na bar c\n")
-  assert words.bytes.len() % 8 == 0
-}
+  assert count == "33554433\n", count
 
-test test_yes_odd_length_lines_repeat_whole { |ctx|
-  let result = applet_run(ctx, ["abcdef"])?
-  assert result.stdout.starts_with("abcdef\nabcdef\n")
-  assert result.bytes.len() % 7 == 0
+  let odd = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/yes.xsh".display(), "abcdef"]
+  let two = run.text --accept=[0, 141] @odd | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-n", "2"])
+  assert two == "abcdef\nabcdef\n"
 }
 
 test test_yes_help_version_and_invalid_options { |ctx|
