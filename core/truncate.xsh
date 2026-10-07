@@ -3,9 +3,45 @@ use lib.gnu
 use lib.fs_misc
 
 type Options = {size: Str?, reference: Str?, no_create: Bool, blocks: Bool, help: Bool, version: Bool, paths: List[Str]}
+type RawArgument = {marker: Str, value: Bytes}
+type PreparedArguments = {text: List[Str], raw: List[RawArgument]}
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
-  let opts: Options = cli.applet(argv, {
+# The shared option parser takes text; NUL-marked operands preserve Unix argv bytes.
+pure prepare_arguments(argv: List[Bytes]) -> PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[RawArgument] = []
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0truncate-raw-argument-{index}\0"
+        text += [marker]
+        raw += [{marker: marker, value: argument}]
+      }
+    }
+  }
+  {text: text, raw: raw}
+}
+
+pure argument_bytes(value: Str, raw: List[RawArgument]) -> Bytes {
+  for argument in raw {
+    if argument.marker == value { return argument.value }
+  }
+  bytes.from_text(value)
+}
+
+proc cannot_stat(name: Bytes, failure: Error) [process, env] {
+  gnu.error(f"cannot stat {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+}
+
+proc cannot_open(name: Bytes, failure: Error) [process, env] {
+  gnu.error(f"cannot open {gnu.quote_bytes(name)} for writing: {gnu.strerror(failure)}")
+}
+
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = prepare_arguments(argv)
+  let opts: Options = cli.applet(prepared.text, {
     gnu: {status: 1},
     size: {form: "-s --size SIZE"},
     reference: {form: "-r --reference FILE"},
@@ -40,15 +76,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   var reference = 0
   if opts.reference != null {
-    let name = opts.reference ?? ""
-    let info = fs.stat(fp"{name}", follow_symlinks: true)
-    if let Err(failure) = info { gnu.cannot("stat", name, failure); exit 1 }
+    let name = argument_bytes(opts.reference ?? "", prepared.raw)
+    let info = fs.stat(Path.parse_bytes(name)?, follow_symlinks: true)
+    if let Err(failure) = info { cannot_stat(name, failure); exit 1 }
     reference = info?.size
   }
   if opts.reference != null and opts.size != null and operation == "" { gnu.error("you must specify a relative size with --reference"); exit 1 }
   var failed = false
-  for name in opts.paths {
-    let target = fp"{name}"
+  for operand in opts.paths {
+    let name = argument_bytes(operand, prepared.raw)
+    let target = Path.parse_bytes(name)?
     let metadata = fs.stat(target, follow_symlinks: true)
     if let Err(failure) = metadata {
       if opts.no_create and failure.errno == 2 { continue }
@@ -57,28 +94,28 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var amount = quantity
     if opts.blocks {
       let info = if metadata is Ok(_) { metadata } else { fs.stat(target.parent(), follow_symlinks: true) }
-      if let Err(failure) = info { gnu.cannot("stat", name, failure); failed = true; continue }
+      if let Err(failure) = info { cannot_stat(name, failure); failed = true; continue }
       let block = info?.blksize
       if amount > 9223372036854775807 / block { gnu.error(f"Invalid number: {gnu.quote_value(raw)}"); failed = true; continue }
       amount *= block
     }
     if opts.size != null {
       if operation == "+" {
-        if current > 9223372036854775807 - amount { gnu.error(f"overflow in {gnu.quote(name)}"); failed = true; continue }
+        if current > 9223372036854775807 - amount { gnu.error(f"overflow in {gnu.quote_bytes(name)}"); failed = true; continue }
         current += amount
       } else if operation == "-" { current = if amount > current { 0 } else { current - amount } } else if operation == "<" { current = if current < amount { current } else { amount } } else if operation == ">" { current = if current > amount { current } else { amount } } else if operation == "/" { current -= current % amount } else if operation == "%" {
         let remainder = current % amount
         if remainder != 0 {
-          if current > 9223372036854775807 - (amount - remainder) { gnu.error(f"overflow in {gnu.quote(name)}"); failed = true; continue }
+          if current > 9223372036854775807 - (amount - remainder) { gnu.error(f"overflow in {gnu.quote_bytes(name)}"); failed = true; continue }
           current += amount - remainder
         }
       } else { current = amount }
     }
     if metadata is Err(_) {
-      if let Err(failure) = target.touch() { gnu.cannot_open(name, failure, mode: "writing"); failed = true; continue }
+      if let Err(failure) = target.touch() { cannot_open(name, failure); failed = true; continue }
     }
     if let Err(failure) = target.truncate(current) {
-      if (failure.errno ?? 0) in [2, 6, 13, 20, 40] { gnu.cannot_open(name, failure, mode: "writing") } else { gnu.error(f"failed to truncate {gnu.quote(name)} at {current} bytes: {gnu.strerror(failure)}") }
+      if (failure.errno ?? 0) in [2, 6, 13, 20, 40] { cannot_open(name, failure) } else { gnu.error(f"failed to truncate {gnu.quote_bytes(name)} at {current} bytes: {gnu.strerror(failure)}") }
       failed = true
     }
   }

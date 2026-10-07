@@ -26,3 +26,16 @@ test test_pathchk_without_a_name_reports_required_argument { |ctx|
   assert "the following required arguments were not provided" in result.stderr, result.stderr
   assert result.stdout == ""
 }
+
+test test_pathchk_accepts_non_utf8_path_names { |ctx|
+  let root = test.temp_dir(ctx, name: "pathchk-invalid-utf8")?
+  let non_utf8_path = Path.parse_bytes(b"\xff\xfe")?
+  let script = fp"{ctx.core_dir}/pathchk.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", non_utf8_path]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 0
+  assert stdout.read_bytes()? == b""
+  assert stderr.read_bytes()? == b""
+}

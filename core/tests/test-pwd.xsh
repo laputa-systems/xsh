@@ -9,6 +9,17 @@ proc run_applet(ctx: TestContext, root: Path, args: List[Str], logical_pwd: Str 
   Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
 }
 
+proc run_applet_in_deleted_directory(ctx: TestContext, root: Path) [fs, process, error] -> Result[Outcome] {
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/pwd.xsh"
+  let setup = "mkdir child && cd child && rmdir ../child && exec \"$@\""
+  let argv = ["sh", "-c", setup, "sh", ctx.xsh_bin.display(), script.display(), "--"]
+  let plan = process.command_argv(p"/bin/sh", argv, root, {PWD: root.display(), LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_text()?, stderr: err.read_text()?})
+}
+
 test test_pwd { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pwd.xsh"
   assert output.trim() == fs.cwd()?.display()
@@ -27,4 +38,13 @@ test test_pwd_validates_logical_directory_and_warns_for_operands { |ctx|
   let extra = run_applet(ctx, physical, ["arg"])?
   assert extra.status == 0
   assert extra.stderr == "pwd: ignoring non-option arguments\n"
+}
+
+
+test test_pwd_fails_from_a_deleted_working_directory { |ctx|
+  let root = test.temp_dir(ctx, name: "pwd-deleted")?.resolve()?
+  let result = run_applet_in_deleted_directory(ctx, root)?
+  assert result.status == 1
+  assert result.stdout == ""
+  assert result.stderr == "pwd: failed to get current directory: No such file or directory\n", result.stderr
 }

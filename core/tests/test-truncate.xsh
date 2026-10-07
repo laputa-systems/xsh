@@ -69,3 +69,33 @@ test test_truncate_without_size_or_reference_reports_required_argument { |ctx|
   assert "error: the following required arguments were not provided:" in result.stderr, result.stderr
   assert result.stdout == ""
 }
+
+test test_truncate_non_utf8_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "truncate-invalid-utf8")?.resolve()?
+  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]))?
+  target.write("test content")
+  let script = fp"{ctx.core_dir}/truncate.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", "-s", "10", target]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 0
+  assert fs.stat(target)?.size == 10
+}
+
+test test_truncate_non_utf8_reference_path { |ctx|
+  let root = test.temp_dir(ctx, name: "truncate-reference-invalid-utf8")?.resolve()?
+  let reference = Path.parse_bytes(bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]))?
+  let target = fp"{root}/target"
+  target.write("initial")
+  let script = fp"{ctx.core_dir}/truncate.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let create: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", "-s", "+5KB", reference]
+  let created = process.run(process.command_argv(ctx.xsh_bin, create, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert created.exit_code()? == 0
+  let copy_size: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", "--reference", reference, target]
+  let copied = process.run(process.command_argv(ctx.xsh_bin, copy_size, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert copied.exit_code()? == 0
+  assert fs.stat(target)?.size == 5000
+}

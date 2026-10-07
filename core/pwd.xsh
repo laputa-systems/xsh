@@ -25,7 +25,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   let physical = fs.cwd()
   if let Err(failure) = physical { gnu.error(f"failed to get current directory: {gnu.strerror(failure)}"); exit 1 }
-  var value = physical?.display()
+  let physical_path = physical?
+  var value = physical_path.display()
+  if value == "." {
+    let resolved = physical_path.resolve()
+    if let Err(failure) = resolved { gnu.error(f"failed to get current directory: {gnu.strerror(failure)}"); exit 1 }
+    value = resolved?.display()
+  }
   if logical {
     let pwd = env.get_or("PWD", "") ?? ""
     let parts = pwd.split("/")

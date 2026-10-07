@@ -46,3 +46,22 @@ test test_realpath_empty_relative_options_fail { |ctx|
   assert run_applet(ctx, root, ["--relative-to=", "."])?.status == 1
   assert run_applet(ctx, root, ["--relative-base=", "--relative-to=.", "."])?.status == 1
 }
+
+test test_realpath_accepts_non_utf8_existing_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "realpath-invalid-utf8")?.resolve()?
+  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/test_\xff\xfe.txt"]))?
+  target.write("ok")
+  let script = fp"{ctx.core_dir}/realpath.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, target]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 0
+  assert stdout.read_bytes()? == bytes.concat([target.bytes(), b"\n"])
+  assert stderr.read_bytes()? == b""
+
+  let relative_words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", "--relative-to=.", target]
+  let relative_status = process.run(process.command_argv(ctx.xsh_bin, relative_words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert relative_status.exit_code()? == 0
+  assert stdout.read_bytes()? == b"test_\xff\xfe.txt\n"
+}

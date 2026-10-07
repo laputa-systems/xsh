@@ -44,3 +44,19 @@ test test_readlink_without_a_file_reports_required_argument { |ctx|
   assert "the following required arguments were not provided" in result.stderr, result.stderr
   assert result.stdout == ""
 }
+
+test test_readlink_accepts_non_utf8_symlink_names { |ctx|
+  let root = test.temp_dir(ctx, name: "readlink-invalid-utf8")?.resolve()?
+  let target = Path.parse_bytes(bytes.concat([root.bytes(), b"/target_file"]))?
+  let link = Path.parse_bytes(bytes.concat([root.bytes(), b"/symlink_\xff\xfe"]))?
+  target.write("ok")
+  link.symlink(to: target)
+  let script = fp"{ctx.core_dir}/readlink.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, link]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 0
+  assert stdout.read_bytes()? == bytes.concat([target.bytes(), b"\n"])
+  assert stderr.read_bytes()? == b""
+}

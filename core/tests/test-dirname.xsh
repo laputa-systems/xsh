@@ -31,3 +31,21 @@ test test_dirname_unicode_components { |ctx|
   let root = test.temp_dir(ctx, name: "dirname-unicode")?
   assert run_applet(ctx, root, ["emoji/😀", "😀/.", "😀///file"])?.stdout == "emoji\n😀\n😀\n"
 }
+
+test test_dirname_invalid_utf8_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "dirname-invalid-utf8")?
+  let script = fp"{ctx.core_dir}/dirname.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let first_name = Path.parse_bytes(b"test_\xff\xfe/file.txt")?
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", first_name]
+  let first = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert first.exit_code()? == 0
+  assert stdout.read_bytes()? == b"test_\xff\xfe\n"
+
+  let second_name = Path.parse_bytes(b"/test_\xff\xfe/.")?
+  let second_words: List[Union[Str, Path]] = [ctx.xsh_bin, script, "--", second_name]
+  let second = process.run(process.command_argv(ctx.xsh_bin, second_words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert second.exit_code()? == 0
+  assert stdout.read_bytes()? == b"/test_\xff\xfe\n"
+}

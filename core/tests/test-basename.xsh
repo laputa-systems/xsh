@@ -138,3 +138,21 @@ test test_basename_unicode_final_component { |ctx|
   assert basename_run(ctx, ["path/😀"])?.stdout == "😀\n"
   assert basename_run(ctx, ["😀///"])?.stdout == "😀\n"
 }
+
+test test_basename_invalid_utf8_arguments { |ctx|
+  let root = test.temp_dir(ctx, name: "basename-invalid-utf8")?
+  let script = fp"{ctx.core_dir}/basename.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let name = Path.parse_bytes(b"/tmp/some-\xc0-file.k\xf3")?
+  let suffix = Path.parse_bytes(b".k\xf3")?
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, script, name]
+  let first = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert first.exit_code()? == 0
+  assert stdout.read_bytes()? == b"some-\xc0-file.k\xf3\n"
+
+  let words_with_suffix: List[Union[Str, Path]] = [ctx.xsh_bin, script, name, suffix]
+  let second = process.run(process.command_argv(ctx.xsh_bin, words_with_suffix, root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert second.exit_code()? == 0
+  assert stdout.read_bytes()? == b"some-\xc0-file\n"
+}
