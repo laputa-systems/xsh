@@ -22,7 +22,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   for name in opts.paths {
     if let Err(failure) = fs.sync_path(fp"{name}", mode: mode) {
       let verb = if (failure.errno ?? 0) in [2, 13, 20] { "opening" } else { "syncing" }
-      gnu.error(f"error {verb} {gnu.quote(name)}: {gnu.strerror(failure)}")
+      # fdatasync on a FIFO returns EINVAL; this command reports it as "Invalid input".
+      let detail = if mode == "data" and (failure.errno ?? 0) == 22 { "Invalid input" } else { gnu.strerror(failure) }
+      gnu.error(f"error {verb} {gnu.quote(name)}: {detail}")
       failed = true
     }
   }
