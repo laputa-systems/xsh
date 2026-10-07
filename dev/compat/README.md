@@ -124,6 +124,12 @@ out in the historical full run. The report is in `results/wc-followup/`.
 The matching pinned GNU 9.12 `wc` subset has 6 shared passes and one shared
 Shift-JIS skip, with no differential mismatches; its reports are in the same
 directory.
+Follow-up commit `8f989405` preflights every named `sort` input before opening
+any operand, so a missing later file is reported without blocking on an earlier
+FIFO. The optimized debug Gate 3 `sort` slice improves from 34/183 to 37/180
+across 217 cases, with three fixes and no regressions. Its native sort suite
+passes 2/2, and the per-utility report and JUnit are in
+`results/sort-followup/`.
 `uniq/uniq-c-width.sh` counted 16,777,216 lines rather than 30,352,436
 because XSH `yes` stopped after 32 MiB. Follow-up commit `35faa674` streams
 `yes` output and `uniq -c` input; the selected GNU stress test now passes on

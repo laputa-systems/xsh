@@ -95,9 +95,14 @@ remain historical evidence only.
   1 SKIP (`wc-sjis.sh`, because Shift-JIS is unavailable), with 6 shared
   passes and no differential mismatches. These reports are in
   `results/wc-followup/`.
+- Follow-up at `8f989405` checks every named `sort` input with `fs.stat`
+  before opening any of them. A missing later operand is now reported without
+  blocking on an earlier FIFO. Its optimized debug Gate 3 slice improves from
+  34/183 to 37/180 across 217 cases, fixing three tests with no regressions;
+  the native sort suite passes 2/2. Reports are in `results/sort-followup/`.
 - The full Gate 3 and Gate 4 reports describe revision `92a91b12`. After those
-  runs, focused changes to `stat`, `yes`, `uniq`, and `wc` have landed, but
-  the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
+  runs, focused changes to `stat`, `sort`, `yes`, `uniq`, and `wc` have landed,
+  but the complete suites have not been rerun. `stat -` now uses `/dev/stdin`;
   its native suite passed 9/9 and the kernel-reader ratchet returned zero
   direct readers.
 - The generated per-utility manifest uses the current Gate 3 report.
@@ -107,9 +112,10 @@ remain historical evidence only.
 The campaign remains active and incomplete. The 824 failing uutils cases in
 the historical full report, remaining GNU differential gaps, BusyBox
 comparison, expanded Linux surface, aarch64 debug gate, and clean-image smoke
-remain open. The selected `uniq` stress case and the previously failing
-`wc` slice pass in focused follow-ups; the full Gate 4 report still describes
-its earlier state at `92a91b12`.
+remain open. The selected `uniq` stress case and the previously failing `wc`
+slice pass in focused follow-ups; the `sort` slice fixes three tests with no
+regressions. The full Gate 4 report still describes its earlier state at
+`92a91b12`.
 
 ## Wind-down report (2026-10-06)
 
