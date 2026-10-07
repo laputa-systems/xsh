@@ -20,8 +20,19 @@ type SortOptions = {
   paths: List[Str],
 }
 
+type NumericSortKey = {number: Int, raw: Str}
+
 pure numeric_key(line: Str) -> Int {
-  (line.trim().words().get(0) ?? "0").parse_int() ?? 0
+  let text = line.trim().words().get(0) ?? "0"
+  if text.starts_with("+") { 0 } else { text.parse_int() ?? 0 }
+}
+
+pure numeric_sort_key(line: Str) -> NumericSortKey {
+  {number: numeric_key(line), raw: line}
+}
+
+pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
+  {number: numeric_field_key(line, delimiter, field, opts), raw: line}
 }
 
 pure key_index(spec: Str) -> Int {
@@ -82,11 +93,11 @@ pure blank_sorted(lines: List[Str], reverse: Bool, opts: SortOptions) -> List[St
 pure pair_is_ordered(left: Str, right: Str, opts: SortOptions, has_key: Bool, key_field: Int) -> Bool {
   let pair = [left, right]
   let ordered = if opts.numeric and has_key {
-    if opts.reverse { pair |> sort-by(desc: true) numeric_field_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by numeric_field_key(., opts.delimiter, key_field, opts) }
+    if opts.reverse { pair |> sort-by(desc: true) numeric_field_sort_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by numeric_field_sort_key(., opts.delimiter, key_field, opts) }
   } else if has_key {
     if opts.reverse { pair |> sort-by(desc: true) field_key(., opts.delimiter, key_field, opts) } else { pair |> sort-by field_key(., opts.delimiter, key_field, opts) }
   } else if opts.numeric {
-    if opts.reverse { pair |> sort-by(desc: true) numeric_key(.) } else { pair |> sort-by numeric_key(.) }
+    if opts.reverse { pair |> sort-by(desc: true) numeric_sort_key(.) } else { pair |> sort-by numeric_sort_key(.) }
   } else if opts.blank {
     blank_sorted(pair, opts.reverse, opts)
   } else if opts.fold_case or opts.dictionary or opts.ignore_nonprinting {
@@ -323,9 +334,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let sorted = if opts.numeric and has_key {
     if opts.reverse {
-      input_lines |> sort-by(desc: true) numeric_field_key(., delimiter, key_field, opts)
+      input_lines |> sort-by(desc: true) numeric_field_sort_key(., delimiter, key_field, opts)
     } else {
-      input_lines |> sort-by numeric_field_key(., delimiter, key_field, opts)
+      input_lines |> sort-by numeric_field_sort_key(., delimiter, key_field, opts)
     }
   } else if has_key {
     if opts.reverse {
@@ -335,9 +346,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   } else if opts.numeric {
     if opts.reverse {
-      input_lines |> sort-by(desc: true) numeric_key(.)
+      input_lines |> sort-by(desc: true) numeric_sort_key(.)
     } else {
-      input_lines |> sort-by numeric_key(.)
+      input_lines |> sort-by numeric_sort_key(.)
     }
   } else if opts.blank {
     blank_sorted(input_lines, opts.reverse, opts)

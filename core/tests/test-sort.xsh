@@ -70,6 +70,19 @@ test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
   }
 }
 
+test test_sort_numeric_rejects_leading_plus_and_uses_line_tie_break { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-numeric-plus")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n"], root,
+    {LC_ALL: "C"}, b"+2\n+1\n+10\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"+1\n+10\n+2\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_checks_all_input_paths_before_opening_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "sort-input-check")?
   let fifo = fp"{root}/FIFO"
