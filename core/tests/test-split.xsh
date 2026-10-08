@@ -116,6 +116,10 @@ test test_split_separator_verbose_filter_and_errors { |ctx|
   assert piece(root, "f-aa.out")? == b"x\n"
   assert split_run(ctx, root, ["--filter=exit 3", "-"], b"x\n")?.status == 1
 
+  assert split_run(ctx, root, ["-b", "2", "--filter=cat > $FILE.out", "-", "b-"], b"abcd")?.status == 0
+  assert piece(root, "b-aa.out")? == b"ab"
+  assert piece(root, "b-ab.out")? == b"cd"
+
   let missing = split_run(ctx, root, ["nosuch"])?
   assert missing.status == 1
   assert missing.stderr == "split: cannot open 'nosuch' for reading: No such file or directory\n", missing.stderr
@@ -128,6 +132,55 @@ test test_split_separator_verbose_filter_and_errors { |ctx|
   fp"{root}/xaa".write("keep")
   assert split_run(ctx, root, [], b"")?.status == 0
   assert piece(root, "xaa")? == b"keep", "empty input creates no output and leaves existing files alone"
+}
+
+test test_split_filter_round_robin_stops_when_filters_exit { |ctx|
+  let root = test.temp_dir(ctx, name: "split-filter-round-robin")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let split = fp"{ctx.core_dir}/split.xsh"
+  let command = r"""yes | "$1" "$2" 1 "$1" "$3" --filter='head -c1 >$FILE.out' -n r/2 -"""
+  let plan = process.command_argv(
+    p"/bin/sh",
+    ["sh", "-c", command, "split-filter-round-robin", ctx.xsh_bin.display(), timeout.display(), split.display()],
+    root,
+    {LC_ALL: "C", TMPDIR: root, XSH_EXECUTION_PHRASE: ""},
+    b"",
+    stdout,
+    stderr,
+    timeout: 3s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exited_with(0), stderr.read_text()?
+  assert piece(root, "xaa.out")? == b"y"
+  assert piece(root, "xab.out")? == b"y"
+}
+
+test test_split_filter_byte_chunks_keep_processing_until_timeout { |ctx|
+  let root = test.temp_dir(ctx, name: "split-filter-byte-chunks")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let split = fp"{ctx.core_dir}/split.xsh"
+  let command = r"""yes | "$1" "$2" -k .2 .5 "$1" "$3" -b 1000 --filter='printf x >>$FILE.started; sleep .02; head -c1 >/dev/null' -"""
+  let plan = process.command_argv(
+    p"/bin/sh",
+    ["sh", "-c", command, "split-filter-byte-chunks", ctx.xsh_bin.display(), timeout.display(), split.display()],
+    root,
+    {LC_ALL: "C", TMPDIR: root, XSH_EXECUTION_PHRASE: ""},
+    b"",
+    stdout,
+    stderr,
+    timeout: 2s,
+  )
+  let status = process.run(plan)?
+
+  assert status.exited_with(124), stderr.read_text()?
+  assert stderr.read_text()? == "", stderr.read_text()?
+  assert fp"{root}/xaa.started".exists()?
+  assert fp"{root}/xab.started".exists()?
 }
 
 test test_split_missing_separator_and_invalid_obsolete_cluster { |ctx|

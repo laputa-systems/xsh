@@ -2,6 +2,15 @@
 use lib.gnu
 use lib.textio_a1 as tio
 
+# Exiting through a signal hook runs deferred cleanup for active filter FIFOs.
+on INT [] {
+  exit 130
+}
+
+on TERM [] {
+  exit 143
+}
+
 const USAGE = """Usage: split [OPTION]... [FILE [PREFIX]]
 Output pieces of FILE to PREFIXaa, PREFIXab, ...;
 default size is 1000 lines, and default PREFIX is 'x'.
@@ -534,6 +543,294 @@ pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
   out
 }
 
+# Round-robin filters run concurrently so one can stop reading without buffering all input.
+type FilterPipe = {handle: ProcessHandle, fd: Int, open: Bool, done: Bool, status: Int}
+
+# Short waits let managed timeout signals interrupt a blocked filter pipeline.
+const FILTER_POLL = 50ms
+
+proc run_filter(command: Str, name: Str, input: Bytes) [process, error] -> Result[Int] {
+  let status = process.run(process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, input))?
+  status.shell_code()
+}
+
+proc check_filter(command: Str, status: Int) [process, env, io] {
+  if status != 0 {
+    gnu.error(f"with filter '{command}': failed")
+    exit 1
+  }
+}
+
+proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: Bool) [process, env, error, io] {
+  var made = 0
+  var eof = false
+
+  while ! eof {
+    var parts: List[Bytes] = []
+    var remaining = size
+
+    while remaining > 0 {
+      let count = if remaining < tio.CHUNK { remaining } else { tio.CHUNK }
+      let data = io.stdin_read(count)?
+
+      if data.is_empty() {
+        eof = true
+        break
+      }
+
+      parts += [data]
+      remaining -= data.len()
+    }
+
+    let piece = bytes.concat(parts)
+
+    if piece.is_empty() {
+      return
+    }
+
+    let tail = suffix_name(made, naming)
+
+    if tail == "" {
+      gnu.error("output file suffixes exhausted")
+      exit 1
+    }
+
+    let name = f"{naming.prefix}{tail}{naming.extra}"
+
+    if verbose {
+      gnu.write_text(f"creating file {gnu.quote(name)}\n")
+    }
+
+    check_filter(command, run_filter(command, name, piece)?)
+    made += 1
+  }
+}
+
+proc start_filter_pipe(root: Path, slot: Int, command: Str, name: Str) [fs, process, error] -> Result[FilterPipe] {
+  let fifo = fp"{root}/filter-{slot}"
+  fs.mkfifo(fifo, 0o600)?
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  let writer = unix.open_fd(fifo, write: true, nonblock: true)?
+  let plan = process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, stdin: fifo)
+  let child = spawn plan?
+  unix.close_fd(reader)?
+
+  Ok({handle: child, fd: writer, open: true, done: false, status: -1})
+}
+
+proc close_filter_pipe(pipe: FilterPipe) [process, error] -> Result[FilterPipe] {
+  if pipe.fd >= 0 {
+    unix.close_fd(pipe.fd)?
+  }
+
+  Ok({...pipe, fd: -1, open: false})
+}
+
+proc close_filter_pipes(pipes: List[FilterPipe?]) [process, error] {
+  for pipe in pipes {
+    if let current = pipe {
+      if current.fd >= 0 {
+        unix.close_fd(current.fd)?
+      }
+    }
+  }
+}
+
+# Pipe writes report EAGAIN as 11 on Linux and 35 on Darwin and BSD.
+proc write_filter_pipe(pipe: FilterPipe, data: Bytes) [process, error] -> Result[FilterPipe] {
+  return Ok(pipe) when ! pipe.open or data.is_empty()
+
+  var offset = 0
+  var current = pipe
+
+  while offset < data.len() {
+    match unix.write_fd(current.fd, data[offset..]) {
+      Ok(written) => {
+        if written == 0 {
+          return Err(error.failure("filter input made no write progress"))
+        }
+
+        offset += written
+      }
+      Err(failure) => {
+        let number = gnu.errno(failure)
+
+        if number == 32 {
+          current = close_filter_pipe(current)?
+          break
+        } else if number == 4 {
+          continue
+        } else if number == 11 or number == 35 {
+          let events = unix.poll_fd(current.fd, ["writable"], timeout_ms: 50)?
+
+          if "error" in events or "hangup" in events or "invalid" in events {
+            current = close_filter_pipe(current)?
+            break
+          }
+        } else {
+          return Err(failure)
+        }
+      }
+    }
+  }
+
+  Ok(current)
+}
+
+proc refresh_filter_pipe(pipe: FilterPipe) [process, error] -> Result[FilterPipe] {
+  return Ok(pipe) when pipe.done
+
+  if let finished = process.wait_timeout([pipe.handle], 0ms)? {
+    let closed = close_filter_pipe(pipe)?
+    return Ok({...closed, done: true, status: finished.status.shell_code()?})
+  }
+
+  Ok(pipe)
+}
+
+proc wait_filter_pipe(pipe: FilterPipe) [process, error] -> Result[FilterPipe] {
+  var current = close_filter_pipe(pipe)?
+
+  while ! current.done {
+    if let finished = process.wait_timeout([current.handle], FILTER_POLL)? {
+      current = {...current, done: true, status: finished.status.shell_code()?}
+    }
+  }
+
+  Ok(current)
+}
+
+proc refresh_filter_pipes(pipes: List[FilterPipe?]) [process, error] -> Result[List[FilterPipe?]] {
+  var current = pipes
+
+  for slot in range(current.len()) {
+    if let pipe = current[slot] {
+      current[slot] = refresh_filter_pipe(pipe)?
+    }
+  }
+
+  Ok(current)
+}
+
+pure filter_pipes_finished(pipes: List[FilterPipe?]) -> Bool {
+  for pipe in pipes {
+    if let current = pipe {
+      return false when ! current.done
+    } else {
+      return false
+    }
+  }
+
+  true
+}
+
+proc feed_filter_record(
+  pipes: List[FilterPipe?],
+  root: Path,
+  slot: Int,
+  command: Str,
+  naming: Naming,
+  data: Bytes,
+  verbose: Bool,
+) [fs, process, env, error, io] -> Result[List[FilterPipe?]] {
+  var current = pipes
+
+  if current[slot] == null {
+    let tail = suffix_name(slot, naming)
+
+    if tail == "" {
+      gnu.error("output file suffixes exhausted")
+      exit 1
+    }
+
+    let name = f"{naming.prefix}{tail}{naming.extra}"
+
+    if verbose {
+      gnu.write_text(f"creating file {gnu.quote(name)}\n")
+    }
+
+    current[slot] = start_filter_pipe(root, slot, command, name)?
+  }
+
+  if let pipe = current[slot] {
+    current[slot] = write_filter_pipe(pipe, data)?
+  }
+
+  refresh_filter_pipes(current)
+}
+
+proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int, elide: Bool, verbose: Bool) [fs, process, env, error, io] {
+  let scratch = fs.tempdir()?
+  defer scratch.close()
+  let root = scratch.host_path()?
+  var pipes: List[FilterPipe?] = [null for _ in range(count)]
+  defer { close_filter_pipes(pipes)? }
+  var pending = b""
+  var record_index = 0
+  var eof = false
+  var stopped = false
+
+  while ! eof and ! stopped {
+    let chunk = io.stdin_read(tio.CHUNK)?
+    eof = chunk.is_empty()
+    pending = bytes.concat([pending, chunk])
+    var start = 0
+
+    for index in range(pending.len()) {
+      if pending.byte_at(index) == sep {
+        pipes = feed_filter_record(pipes, root, record_index % count, command, naming, pending[start..index + 1], verbose)?
+        start = index + 1
+        record_index += 1
+        stopped = filter_pipes_finished(pipes)
+
+        if stopped {
+          break
+        }
+      }
+    }
+
+    pending = pending[start..]
+  }
+
+  if ! stopped and eof and ! pending.is_empty() {
+    pipes = feed_filter_record(pipes, root, record_index % count, command, naming, pending, verbose)?
+    stopped = filter_pipes_finished(pipes)
+  }
+
+  for slot in range(pipes.len()) {
+    if let pipe = pipes[slot] {
+      pipes[slot] = wait_filter_pipe(pipe)?
+    }
+  }
+
+  if ! elide {
+    for slot in range(pipes.len()) {
+      if pipes[slot] == null {
+        let tail = suffix_name(slot, naming)
+
+        if tail == "" {
+          gnu.error("output file suffixes exhausted")
+          exit 1
+        }
+
+        let name = f"{naming.prefix}{tail}{naming.extra}"
+
+        if verbose {
+          gnu.write_text(f"creating file {gnu.quote(name)}\n")
+        }
+
+        check_filter(command, run_filter(command, name, b"")?)
+      }
+    }
+  }
+
+  for pipe in pipes {
+    if let current = pipe {
+      check_filter(command, current.status)
+    }
+  }
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let rewritten = modernize(argv)
 
@@ -878,6 +1175,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let input_name = opts.files.get(0) ?? "-"
+
+  if opts.filter != null and input_name == "-" {
+    let command = opts.filter
+
+    if size > 0 {
+      filter_bytes_from_stdin(command, naming, size, opts.verbose)
+      return
+    }
+
+    if chunks.kind == "r" {
+      filter_round_robin_stdin(command, naming, chunks.n, sep, opts.elide, opts.verbose)
+      return
+    }
+  }
 
   var input_ino = -1
   var input_dev = -1
