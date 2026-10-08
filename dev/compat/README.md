@@ -91,7 +91,7 @@ differential requires identical test selections on both sides.
 | `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
 | `dev/compat/run-busybox.sh [UTIL...]` | pinned BusyBox tests against staged XSH applets; selected applets or every available suite |
-| `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for 49 commands; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
+| `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for 54 commands; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
 | `python3 dev/compat/check_kernel_reads.py` | Gate 9 ratchet: no `/proc`/`/sys` literal in a top-level applet |
@@ -150,7 +150,7 @@ for 363 passed, 24 failed, and 2 skipped. The tracked report is
 `.work/compat-results/busybox/full-wave4/` directory.
 
 The Gate 5 pilot compares pinned Clap declarations with XSH's `cli.applet`
-schemas for forty-nine commands and separately recognizes the manual
+schemas for fifty-four commands and separately recognizes the manual
 help/version branches in `true` and `false`:
 
 | Command | uutils spellings | XSH spellings | Differences |
@@ -165,12 +165,16 @@ help/version branches in `true` and `false`:
 | `factor` | 5 | 4 | uutils-only `-V` |
 | `false` | 2 | 2 | none |
 | `fold` | 12 | 10 | uutils-only `-h`, `-V` |
+| `fmt` | 30 | 24 | uutils-only `-m`, `--preserve-headers`, `-T`, `--tab-width`, `-h`, `-V` |
 | `groups` | 4 | 2 | uutils-only `-h`, `-V` |
 | `hostid` | 4 | 2 | uutils-only `-h`, `-V` |
 | `hostname` | 12 | 10 | uutils-only `-h`, `-V` |
+| `id` | 23 | 17 | uutils-only `--ignore`, `-A`, `-p`, `-P`, `-h`, `-V` |
 | `join` | 19 | 17 | uutils-only `-h`, `-V` |
+| `kill` | 12 | 9 | uutils-only `-L`, `-h`, `-V` |
 | `link` | 4 | 2 | uutils-only `-h`, `-V` |
 | `logname` | 4 | 2 | uutils-only `-h`, `-V` |
+| `mkdir` | 12 | 8 | uutils-only `--context`, `-Z`, `-h`, `-V` |
 | `more` | 27 | 25 | uutils-only `-h`, `-V` |
 | `nice` | 6 | 4 | uutils-only `-h`, `-V` |
 | `nl` | 25 | 24 | uutils-only `-V` |
@@ -186,6 +190,7 @@ help/version branches in `true` and `false`:
 | `realpath` | 23 | 21 | uutils-only `-h`, `-V` |
 | `rmdir` | 9 | 7 | uutils-only `-h`, `-V` |
 | `seq` | 12 | 10 | uutils-only `-h`, `-V` |
+| `shuf` | 18 | 15 | uutils-only `--random-seed`, `-h`, `-V` |
 | `sleep` | 4 | 2 | uutils-only `-h`, `-V` |
 | `stat` | 13 | 11 | uutils-only `-h`, `-V` |
 | `sum` | 7 | 5 | uutils-only `-h`, `-V` |
@@ -214,8 +219,14 @@ both sides, matching cat's documented ignored option. `sum -r` is also
 parsed-but-unused on both sides; XSH reads `-s` and `--sysv` from raw byte
 arguments and leaves `-r` as a no-op. The uutils-only `-U`/`--no-utf8` options
 on `expand` and `unexpand` are absent from GNU 9.12, so XSH does not implement
-them. The 49 comparisons cover 511 uutils spellings and 418 XSH spellings; Gate
-5 remains open for the other 57 utilities. Fifteen parser tests pass.
+them. Uutils adds `fmt -m/--preserve-headers` and `-T/--tab-width`, which GNU
+9.12 does not provide; `id` also omits uutils-only `--ignore`, `-A`, `-p`, and
+`-P` (XSH's `-a` remains a no-op without the long alias). `kill` has uutils'
+extra `-L` table alias. XSH explicitly rejects `mkdir -Z/--context` because
+security labels are unavailable and `shuf --random-seed` as a uutils
+extension. The 54 comparisons cover 606 uutils spellings and 491 XSH
+spellings; Gate 5 remains open for the other 52 utilities. Sixteen parser
+tests pass.
 
 The historical full Gate 3 and Gate 4 results at `92a91b12` were 5,125/824/0
 with four exclusions for Gate 3, and 367 PASS, 189 FAIL, 25 ERROR, and 138

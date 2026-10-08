@@ -727,7 +727,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds -m/--preserve-headers and -T/--tab-width, which GNU 9.12 fmt does not provide; its generated -h and -V forms are also absent from GNU."
+      ]
     },
     {
       "utility": "fold",
@@ -946,7 +948,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils accepts --context and -Z for security labels, which XSH explicitly rejects because security labels are unavailable; the generated -h and -V forms are also absent."
+      ]
     },
     {
       "utility": "mktemp",
@@ -1445,7 +1449,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds --random-seed, which XSH explicitly rejects as a uutils extension and directs callers to --random-source=FILE; the generated -h and -V forms are also absent."
+      ]
     },
     {
       "utility": "sleep",
@@ -2089,7 +2095,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds -L as an alias for -t/--table and generates -h and -V; XSH exposes the table option only as -t/--table and omits the generated short help/version forms."
+      ]
     },
     {
       "utility": "nohup",
@@ -2395,7 +2403,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds --ignore, -A, -p, and -P; XSH supports the -a no-op but not its --ignore alias, and also omits the generated -h and -V forms."
+      ]
     },
     {
       "utility": "install",

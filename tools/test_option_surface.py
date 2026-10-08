@@ -354,6 +354,52 @@ proc main(...argv: List[Str]) {
                     },
                 )
 
+    def test_registered_surfaces_capture_additional_uutils_options(self):
+        expected_uutils_only = {
+            "fmt": {
+                "--preserve-headers": 0,
+                "--tab-width": 1,
+                "-T": 1,
+                "-V": 0,
+                "-h": 0,
+                "-m": 0,
+            },
+            "id": {
+                "--ignore": 0,
+                "-A": 0,
+                "-P": 0,
+                "-V": 0,
+                "-h": 0,
+                "-p": 0,
+            },
+            "kill": {"-L": 0, "-V": 0, "-h": 0},
+            "mkdir": {"--context": 1, "-V": 0, "-Z": 0, "-h": 0},
+            "shuf": {"--random-seed": 1, "-V": 0, "-h": 0},
+        }
+        uutils_root = surface.REPO.parent / "ref" / "uutils-coreutils"
+
+        for utility, expected in expected_uutils_only.items():
+            with self.subTest(utility=utility):
+                self.assertIn(utility, surface.SUPPORTED_UTILITIES)
+                uutils_source, xsh_source = surface.SOURCE_PATHS[utility]
+                uutils = surface.parse_uutils_declarations(
+                    (uutils_root / "src" / "uu" / uutils_source).read_text()
+                )
+                xsh = surface.parse_xsh_declarations(
+                    (surface.REPO / "core" / xsh_source).read_text(), utility
+                )
+                self.assertEqual(
+                    surface.compare(
+                        {spelling: int(entry["arity"]) for spelling, entry in uutils.items()},
+                        {spelling: int(entry["arity"]) for spelling, entry in xsh.items()},
+                    ),
+                    {
+                        "uutils_only": expected,
+                        "xsh_only": {},
+                        "arity_mismatches": {},
+                    },
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

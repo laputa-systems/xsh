@@ -176,7 +176,7 @@ subset, the largest failure groups are `cp` (7), `date` (4), `printf` (4),
 `tr` (2), and `unexpand` (2); `od`, `seq`, `sort`, `sum`, and `test` each have
 one failure. The pinned report is `results/busybox.json`; run logs remain under
 ignored `.work/compat-results/busybox/full-wave4/`. Gate 5 remains open for
-the other 57 utilities. The practical expanded Linux suite and clean-image
+the other 52 utilities. The practical expanded Linux suite and clean-image
 smoke also remain open. The attempted AArch64 debug run was stopped after
 ARM64 was removed from scope; it produced no gate result and is not an open
 campaign item. The parity inventory currently has 99 of 125 expanded Linux
@@ -235,7 +235,7 @@ three Python tests and a multicall adapter dispatch probe pass. The full
 with XSH's `cli.applet` schema, including generated help/version spellings,
 aliases, argument arity, and parsed-but-unused fields. The `true` and `false`
 applets use narrowly recognized manual help/version branches instead of
-`cli.applet`. Forty-nine commands are covered:
+`cli.applet`. Fifty-four commands are covered:
 
 | Command | uutils spellings | XSH spellings | Differences |
 |---|---:|---:|---|
@@ -249,12 +249,16 @@ applets use narrowly recognized manual help/version branches instead of
 | `factor` | 5 | 4 | uutils-only `-V` |
 | `false` | 2 | 2 | none |
 | `fold` | 12 | 10 | uutils-only `-h`, `-V` |
+| `fmt` | 30 | 24 | uutils-only `-m`, `--preserve-headers`, `-T`, `--tab-width`, `-h`, `-V` |
 | `groups` | 4 | 2 | uutils-only `-h`, `-V` |
 | `hostid` | 4 | 2 | uutils-only `-h`, `-V` |
 | `hostname` | 12 | 10 | uutils-only `-h`, `-V` |
+| `id` | 23 | 17 | uutils-only `--ignore`, `-A`, `-p`, `-P`, `-h`, `-V` |
 | `join` | 19 | 17 | uutils-only `-h`, `-V` |
+| `kill` | 12 | 9 | uutils-only `-L`, `-h`, `-V` |
 | `link` | 4 | 2 | uutils-only `-h`, `-V` |
 | `logname` | 4 | 2 | uutils-only `-h`, `-V` |
+| `mkdir` | 12 | 8 | uutils-only `--context`, `-Z`, `-h`, `-V` |
 | `more` | 27 | 25 | uutils-only `-h`, `-V` |
 | `nice` | 6 | 4 | uutils-only `-h`, `-V` |
 | `nl` | 25 | 24 | uutils-only `-V` |
@@ -270,6 +274,7 @@ applets use narrowly recognized manual help/version branches instead of
 | `realpath` | 23 | 21 | uutils-only `-h`, `-V` |
 | `rmdir` | 9 | 7 | uutils-only `-h`, `-V` |
 | `seq` | 12 | 10 | uutils-only `-h`, `-V` |
+| `shuf` | 18 | 15 | uutils-only `--random-seed`, `-h`, `-V` |
 | `sleep` | 4 | 2 | uutils-only `-h`, `-V` |
 | `stat` | 13 | 11 | uutils-only `-h`, `-V` |
 | `sum` | 7 | 5 | uutils-only `-h`, `-V` |
@@ -299,9 +304,14 @@ contain only the long help/version forms. The comparison also reports cat's
 `-u` as parsed-but-unused on both sides, matching its documented ignored
 behavior. `sum -r` is parsed-but-unused on both sides; the raw-byte XSH option
 scan handles `-s` and `--sysv` without treating `-r` as an override. Its
-native regression passes with the four-test `sum` suite. The comparisons cover
-511 uutils spellings and 418 XSH spellings. All fifteen parser tests pass. Gate
-5 remains open for the other 57 utilities.
+native regression passes with the four-test `sum` suite. Uutils adds
+`fmt -m/--preserve-headers` and `-T/--tab-width`, which GNU 9.12 does not
+provide; `id` also omits uutils-only `--ignore`, `-A`, `-p`, and `-P` (XSH's
+`-a` remains a no-op without the long alias). `kill` has uutils' extra `-L`
+table alias. XSH explicitly rejects `mkdir -Z/--context` because security
+labels are unavailable and `shuf --random-seed` as a uutils extension.
+The comparisons cover 606 uutils spellings and 491 XSH spellings. All sixteen
+parser tests pass. Gate 5 remains open for the other 52 utilities.
 
 ## Sort merge follow-up (`a860f47a`)
 
