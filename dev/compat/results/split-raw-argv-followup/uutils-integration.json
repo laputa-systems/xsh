@@ -1,0 +1,23 @@
+{
+  "suite": "uutils-integration",
+  "utilities": {
+    "split": {
+      "pass": 130,
+      "fail": 3,
+      "skip": 0,
+      "excluded": 0,
+      "failing": [
+        "test_split::diagnostics::test_snippet_points_at_the_unknown_unit",
+        "test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value",
+        "test_split::test_round_robin_limited_file_descriptors"
+      ],
+      "applet": true
+    }
+  },
+  "totals": {
+    "pass": 130,
+    "fail": 3,
+    "skip": 0,
+    "excluded": 0
+  }
+}

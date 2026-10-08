@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.textio_a1 as tio
+use lib.text_a2 as text
 
 # Exiting through a signal hook runs deferred cleanup for active filter FIFOs.
 on INT [] {
@@ -78,7 +79,7 @@ type Chunks = {kind: Str, k: Int, n: Int}
 
 # How output names are built: radix and width of the suffix, its first value,
 # and whether the width grows when the names run out.
-type Naming = {prefix: Str, radix: Int, width: Int, start: Int, widen: Bool, extra: Str}
+type Naming = {prefix: Bytes, radix: Int, width: Int, start: Int, widen: Bool, extra: Bytes}
 
 type Rewritten = {argv: List[Str], obsolete: Str, blksize: Str}
 
@@ -335,6 +336,18 @@ pure suffix_name(index: Int, naming: Naming) -> Str {
   fill + digits
 }
 
+pure output_name(index: Int, naming: Naming) -> Bytes {
+  bytes.concat([naming.prefix, bytes.from_text(suffix_name(index, naming)), naming.extra])
+}
+
+pure contains_slash(value: Bytes) -> Bool {
+  for at in range(value.len()) {
+    return true when value.byte_at(at) == 47
+  }
+
+  false
+}
+
 # Offsets just past each record separator, plus the end of an unterminated
 # final record.
 proc record_ends(data: Bytes, sep: Int) [error] -> Result[List[Int]] {
@@ -549,7 +562,7 @@ type FilterPipe = {handle: ProcessHandle, fd: Int, open: Bool, done: Bool, statu
 # Short waits let managed timeout signals interrupt a blocked filter pipeline.
 const FILTER_POLL = 50ms
 
-proc run_filter(command: Str, name: Str, input: Bytes) [process, error] -> Result[Int] {
+proc run_filter(command: Str, name: Path, input: Bytes) [process, error] -> Result[Int] {
   let status = process.run(process.command_argv("sh", ["sh", "-c", command], p".", {FILE: name}, input))?
   status.shell_code()
 }
@@ -561,7 +574,7 @@ proc check_filter(command: Str, status: Int) [process, env, io] {
   }
 }
 
-proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: Bool) [process, env, error, io] {
+proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: Bool) [fs, process, env, error, io] {
   var made = 0
   var eof = false
 
@@ -595,10 +608,10 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
       exit 1
     }
 
-    let name = f"{naming.prefix}{tail}{naming.extra}"
+    let name = Path.parse_bytes(output_name(made, naming))?
 
     if verbose {
-      gnu.write_text(f"creating file {gnu.quote(name)}\n")
+      gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
     }
 
     check_filter(command, run_filter(command, name, piece)?)
@@ -606,7 +619,7 @@ proc filter_bytes_from_stdin(command: Str, naming: Naming, size: Int, verbose: B
   }
 }
 
-proc start_filter_pipe(root: Path, slot: Int, command: Str, name: Str) [fs, process, error] -> Result[FilterPipe] {
+proc start_filter_pipe(root: Path, slot: Int, command: Str, name: Path) [fs, process, error] -> Result[FilterPipe] {
   let fifo = fp"{root}/filter-{slot}"
   fs.mkfifo(fifo, 0o600)?
   let reader = unix.open_fd(fifo, nonblock: true)?
@@ -743,10 +756,10 @@ proc feed_filter_record(
       exit 1
     }
 
-    let name = f"{naming.prefix}{tail}{naming.extra}"
+    let name = Path.parse_bytes(output_name(slot, naming))?
 
     if verbose {
-      gnu.write_text(f"creating file {gnu.quote(name)}\n")
+      gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
     }
 
     current[slot] = start_filter_pipe(root, slot, command, name)?
@@ -813,10 +826,10 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
           exit 1
         }
 
-        let name = f"{naming.prefix}{tail}{naming.extra}"
+        let name = Path.parse_bytes(output_name(slot, naming))?
 
         if verbose {
-          gnu.write_text(f"creating file {gnu.quote(name)}\n")
+          gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
         }
 
         check_filter(command, run_filter(command, name, b"")?)
@@ -831,18 +844,19 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
-  let rewritten = modernize(argv)
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
+  let rewritten = modernize(prepared.text)
 
   if rewritten.obsolete != "" {
-    if let option = invalid_obsolete_short(argv) {
+    if let option = invalid_obsolete_short(prepared.text) {
       gnu.error(f"error: unexpected argument '{option}' found")
       gnu.error("For more information, try '--help'.")
       exit 1
     }
   }
 
-  if missing_separator_value(argv) {
+  if missing_separator_value(prepared.text) {
     gnu.error("error: a value is required for '--separator <SEP>' but none was supplied")
     gnu.error("For more information, try '--help'.")
     exit 1
@@ -962,7 +976,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.files.len() > 2 {
-    gnu.extra_operand(opts.files[2])
+    gnu.usage_error(f"extra operand {gnu.quote_bytes(gnu.argument_bytes(opts.files[2], prepared.raw))}")
   }
 
   var blksize = 131072
@@ -1078,11 +1092,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   var sep = 10
-  var distinct: List[Str] = []
+  var distinct: List[Bytes] = []
 
   for text in opts.separator {
-    if ! (text in distinct) {
-      distinct += [text]
+    let value = gnu.argument_bytes(text, prepared.raw)
+    if ! (value in distinct) {
+      distinct += [value]
     }
   }
 
@@ -1092,20 +1107,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if distinct.len() == 1 {
-    let text = distinct[0]
+    let value = distinct[0]
 
-    if text == "\\0" {
+    if value == b"\\0" {
       sep = 0
-    } else if text.byte_len() == 1 {
-      sep = text.byte_at(0) ?? 10
+    } else if value.len() == 1 {
+      sep = value.byte_at(0) ?? 10
     } else {
-      gnu.error(f"multi-character separator {gnu.quote(text)}")
+      gnu.error(f"multi-character separator {gnu.quote_bytes(value)}")
       exit 1
     }
   }
 
-  if opts.additional.find("/") != null {
-    gnu.usage_error(f"invalid suffix {gnu.quote(opts.additional)}, contains directory separator")
+  let additional = gnu.argument_bytes(opts.additional, prepared.raw)
+
+  if contains_slash(additional) {
+    gnu.usage_error(f"invalid suffix {gnu.quote_bytes(additional)}, contains directory separator")
   }
 
   let numbered = opts.short_numeric or opts.numeric != "-"
@@ -1167,16 +1184,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     width = 2
   }
 
-  let naming: Naming = Naming(prefix: opts.files.get(1) ?? "x", radix:, width:, start:, widen:, extra: opts.additional)
+  let prefix = if opts.files.len() > 1 { gnu.argument_bytes(opts.files[1], prepared.raw) } else { b"x" }
+  let naming: Naming = Naming(prefix:, radix:, width:, start:, widen:, extra: additional)
 
   if ! widen and fixed_name(start, radix, width) == "" {
     gnu.error("numerical suffix start value is too large for the suffix length")
     exit 1
   }
 
-  let input_name = opts.files.get(0) ?? "-"
+  let input_name = if ! opts.files.is_empty() { gnu.argument_bytes(opts.files[0], prepared.raw) } else { b"-" }
 
-  if opts.filter != null and input_name == "-" {
+  if opts.filter != null and input_name == b"-" {
     let command = opts.filter
 
     if size > 0 {
@@ -1193,31 +1211,32 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var input_ino = -1
   var input_dev = -1
 
-  if input_name != "-" {
-    if let Ok(found) = fs.stat(fp"{input_name}", follow_symlinks: true) {
+  if input_name != b"-" {
+    let input_path = Path.parse_bytes(input_name)?
+    if let Ok(found) = fs.stat(input_path, follow_symlinks: true) {
       input_ino = found.ino
       input_dev = found.dev
 
       # Size-dependent chunks must reject virtual devices before reading:
       # a zero metadata size does not imply a finite or empty byte stream.
-      if chunks.n > 0 and found.kind != "file" and input_name != "/dev/null" {
-        gnu.error(f"{gnu.quote_maybe(input_name)}: cannot determine file size")
+      if chunks.n > 0 and found.kind != "file" and input_name != b"/dev/null" {
+        gnu.error(f"{gnu.quote_bytes(input_name, always: false)}: cannot determine file size")
         exit 1
       }
     }
   }
 
-  guard let data = gnu.read_operand(input_name) else { |failure|
+  guard let data = text.read_operand_bytes(input_name) else { |failure|
     if gnu.errno(failure) == 21 {
-      gnu.error_reading(input_name, failure)
+      gnu.error(f"error reading {gnu.quote_bytes(input_name)}: {gnu.strerror(failure)}")
     } else {
-      gnu.cannot_open(input_name, failure)
+      gnu.error(f"cannot open {gnu.quote_bytes(input_name)} for reading: {gnu.strerror(failure)}")
     }
 
     exit 1
   }
 
-  if input_name == "-" and chunks.n > 0 and data.len() > blksize {
+  if input_name == b"-" and chunks.n > 0 and data.len() > blksize {
     gnu.error("-: cannot determine input size")
     exit 1
   }
@@ -1277,19 +1296,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    let name = f"{naming.prefix}{tail}{naming.extra}"
+    let name = Path.parse_bytes(output_name(made, naming))?
 
     if input_ino >= 0 {
-      if let Ok(found) = fs.stat(fp"{name}", follow_symlinks: true) {
+      if let Ok(found) = fs.stat(name, follow_symlinks: true) {
         if found.ino == input_ino and found.dev == input_dev {
-          gnu.error(f"{gnu.quote(name)} would overwrite input; aborting")
+          gnu.error(f"{gnu.quote_bytes(name.bytes())} would overwrite input; aborting")
           exit 1
         }
       }
     }
 
     if opts.verbose {
-      gnu.write_text(f"creating file {gnu.quote(name)}\n")
+      gnu.write_text(f"creating file {gnu.quote_bytes(name.bytes())}\n")
     }
 
     if opts.filter != null {
@@ -1301,11 +1320,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         gnu.error(f"with filter '{command}': failed")
         exit 1
       }
-    } else if let Err(failure) = fp"{name}".write(piece) {
+    } else if let Err(failure) = name.write(piece) {
       if gnu.errno(failure) == 28 {
-        gnu.name_error(name, failure)
+        text.name_error_bytes(name.bytes(), failure)
       } else {
-        gnu.error(f"{gnu.quote(name)}: {gnu.strerror(failure)}")
+        gnu.error(f"{gnu.quote_bytes(name.bytes())}: {gnu.strerror(failure)}")
       }
 
       exit 1

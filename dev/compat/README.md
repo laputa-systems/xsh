@@ -22,22 +22,14 @@ addition's reason without requesting approval again.
 git clone https://github.com/uutils/coreutils ../ref/uutils-coreutils
 git -C ../ref/uutils-coreutils checkout "$(python3 -c 'import json;print(json.load(open("dev/compat/upstream.lock.json"))["uutils"]["commit"])')"
 export UUTILS_ROOT=$PWD/../ref/uutils-coreutils
-export CARGO_PROFILE_DEV_OPT_LEVEL=1
-export CARGO_PROFILE_DEV_CODEGEN_UNITS=256
-export CARGO_PROFILE_DEV_LTO=false
-export CARGO_PROFILE_TEST_OPT_LEVEL=1
-export CARGO_PROFILE_TEST_CODEGEN_UNITS=256
-export CARGO_PROFILE_TEST_LTO=false
-cargo build -p xsh --bins -p xsht --bin xsht
+cargo build --release -p xsh --bins -p xsht --bin xsht
 cargo install --debug cargo-nextest --locked   # if run-uutils.sh needs it
 ```
 
 Campaign verification is correctness and parity only; no benchmark or
-performance threshold gates a change. Use Cargo's debug profiles with the
-modest optimization, 256 codegen units, and LTO disabled, and run
-`target/debug/xsh` and `target/debug/xsht`. Do not use `--release` or
-`--profile dist` for campaign checks. Linux checks still run inside the
-`Dockerfile.test` image.
+performance threshold gates a change. Run native XSH suites with
+`target/release/xsh` and `target/release/xsht`. Do not use `--profile dist` for
+campaign checks. Linux checks still run inside the `Dockerfile.test` image.
 
 GNU runs also need a C toolchain, autotools, perl and the packages uutils'
 `build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
@@ -59,7 +51,7 @@ still belong to the invoking user. Staged executable shebangs pass `--` before
 the script path so an applet's own leading option separator is preserved.
 On a musl host, `run-uutils.sh` uses the C linker driver and disables static
 crt linking for the reference test harness's `stdbuf` cdylib; this does not
-change the XSH debug-profile flags.
+change the static flags used for the XSH release build.
 
 For campaign runs in this checkout, keep `TMPDIR` inside ignored `.work`.
 Create a private directory owned by the test UID, then set its mode to 0700
@@ -144,6 +136,11 @@ pinned uutils (one shared pass); the Gate 3 `split` slice remains 126/133 with
 no regressions. Reports are in `results/split-filter-followup/`. `tee/tee.sh`
 passes and `misc/yes.sh` fails. See `CAMPAIGN.md` and `results/` for reports
 and remaining limits.
+
+The later split raw-argument follow-up fixes four pinned cases involving
+non-UTF-8 input paths, prefixes, and additional suffixes: the focused split
+slice is now 130/133 with no regressions, and the release native suite passes
+11/11. Its report is in `results/split-raw-argv-followup/`.
 
 The pinned BusyBox 1.36.1 route runs through the staged XSH multicall adapter.
 The full default selection covered 71 available staged applet suites: 561

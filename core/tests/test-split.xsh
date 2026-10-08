@@ -183,6 +183,55 @@ test test_split_filter_byte_chunks_keep_processing_until_timeout { |ctx|
   assert fp"{root}/xab.started".exists()?
 }
 
+test test_split_non_utf8_input_path { |ctx|
+  let root = test.temp_dir(ctx, name: "split-raw-input")?
+  let input_name = b"input-\xff"
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/", input_name]))?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let command = r"""name=$(printf 'input-\377'); exec "$1" "$2" "$name" """
+  input.write("A\nB\n")
+
+  let status = process.run(process.command_argv(
+    p"/bin/sh",
+    ["sh", "-c", command, "split-raw-input", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    root,
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+    b"",
+    stdout,
+    stderr,
+    timeout: 5s,
+  ))?
+
+  assert status.exited_with(0), stderr.read_text()?
+  assert piece(root, "xaa")? == b"A\nB\n"
+}
+
+test test_split_non_utf8_prefix_and_additional_suffix { |ctx|
+  let root = test.temp_dir(ctx, name: "split-raw-names")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let command = r"""prefix=$(printf 'p\377'); suffix=$(printf '\376'); exec "$1" "$2" -b 1 --additional-suffix "$suffix" input.txt "$prefix" """
+  fp"{root}/input.txt".write("AB")
+
+  let status = process.run(process.command_argv(
+    p"/bin/sh",
+    ["sh", "-c", command, "split-raw-names", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    root,
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+    b"",
+    stdout,
+    stderr,
+    timeout: 5s,
+  ))?
+  let first = Path.parse_bytes(bytes.concat([root.bytes(), b"/p\xffaa\xfe"]))?
+  let second = Path.parse_bytes(bytes.concat([root.bytes(), b"/p\xffab\xfe"]))?
+
+  assert status.exited_with(0), stderr.read_text()?
+  assert first.read_bytes()? == b"A"
+  assert second.read_bytes()? == b"B"
+}
+
 test test_split_missing_separator_and_invalid_obsolete_cluster { |ctx|
   let root = test.temp_dir(ctx, name: "split-options")?
 

@@ -12,24 +12,16 @@ benchmarks, latency or memory thresholds, and throughput targets are not
 acceptance gates. A timeout remains a parity-test result, but it does not add
 a separate performance requirement.
 
-Build and test with Cargo's debug profiles only, using modest optimization
-and many codegen units to keep iteration builds quick while retaining debug
-assertions:
+Run native XSH tests with release binaries. Build the user-facing tools with
+the exact packages they own:
 
 ```sh
-export CARGO_PROFILE_DEV_OPT_LEVEL=1
-export CARGO_PROFILE_DEV_CODEGEN_UNITS=256
-export CARGO_PROFILE_DEV_LTO=false
-export CARGO_PROFILE_TEST_OPT_LEVEL=1
-export CARGO_PROFILE_TEST_CODEGEN_UNITS=256
-export CARGO_PROFILE_TEST_LTO=false
-cargo build -p xsh --bins -p xsht --bin xsht
+cargo build --release -p xsh --bins -p xsht --bin xsht
 ```
 
-Use `target/debug/xsh` and `target/debug/xsht`; this keeps debug assertions,
-uses opt-level 1 and 256 codegen units, and disables LTO. Do not use `--release`
-or `--profile dist` for campaign verification. Keep Linux checks inside the
-`Dockerfile.test` image. Earlier release-build results and benchmark notes
+Run native suites with `target/release/xsh` and `target/release/xsht`. Do not
+use `--profile dist` for campaign verification. Keep Linux builds and tests
+inside the `Dockerfile.test` image. Earlier debug-profile and benchmark results
 remain historical evidence only.
 
 ## Resume checkpoint (2026-10-07)
@@ -179,6 +171,16 @@ regressions. GNU 9.12 `tests/split/filter.sh` passes on both XSH and pinned
 uutils; its one differential cell is a shared pass. The focused reports are
 under `results/split-filter-followup/`. The earlier full Gate 4 counts above
 remain unchanged; the `split/filter.sh` failure is resolved in this follow-up.
+
+### Focused split raw-argument follow-up (2026-10-08)
+
+`split` now restores undecodable argv bytes for input paths, output prefixes,
+and `--additional-suffix`; generated names and filter `FILE` values stay byte
+preserving. The release native split suite passes 11/11. The pinned Gate 3
+split slice improves from 126/133 to 130/133: all four non-UTF-8 path and name
+cases pass, with no regressions. The three remaining failures are unchanged:
+two diagnostic-snippet expectations and the limited-file-descriptors fixture.
+The report is under `results/split-raw-argv-followup/`.
 
 The full BusyBox run at `8d92a7e2` selected 71 available staged XSH applet
 suites: 561 pass, 119 fail, and 65 skipped. The 50 in-scope coreutils applets
