@@ -16,13 +16,16 @@ Run native XSH tests with release binaries. Build the user-facing tools with
 the exact packages they own:
 
 ```sh
-cargo build --release -p xsh --bins -p xsht --bin xsht
+cargo build --release --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht
+export XSH_BIN="$PWD/target/x86_64-unknown-linux-musl/release/xsh"
 ```
 
-Run native suites with `target/release/xsh` and `target/release/xsht`. Do not
-use `--profile dist` for campaign verification. Keep Linux builds and tests
-inside the `Dockerfile.test` image. Earlier debug-profile and benchmark results
-remain historical evidence only.
+In the xsh-test image, the explicit target is required because a native Cargo
+build cannot produce the required proc-macro crate types for the musl host.
+Run native suites with the release `xsht` beside `XSH_BIN`. Do not use
+`--profile dist` for campaign verification. Keep Linux builds and tests inside
+the `Dockerfile.test` image. Earlier debug-profile and benchmark results remain
+historical evidence only.
 
 ## Resume checkpoint (2026-10-07)
 
@@ -181,6 +184,19 @@ split slice improves from 126/133 to 130/133: all four non-UTF-8 path and name
 cases pass, with no regressions. The three remaining failures are unchanged:
 two diagnostic-snippet expectations and the limited-file-descriptors fixture.
 The report is under `results/split-raw-argv-followup/`.
+
+### Full GNU Gate 4 refresh (2026-10-08, source `020558d2`)
+
+The release XSH binary ran all 719 selected GNU 9.12 tests: 415 PASS, 155 FAIL,
+16 ERROR, and 133 SKIP. The differential records 398 shared passes, 173
+uutils-only passes, 17 XSH-only passes, and 44 shared failures. Compared with
+the previous full run, `factor/factor-parallel.sh` and `split/filter.sh` changed
+from FAIL to PASS; `ls/stat-free-color.sh` changed from SKIP to PASS; and
+`ls/stat-free-symlinks.sh` changed from SKIP to FAIL. `install/stdin.sh` changed
+from PASS to SKIP because the non-interactive container invocation had closed
+stdin. No prior PASS became FAIL or ERROR. Full reports are
+`results/gnu-xsh.json` and `results/gnu-differential.json`; `gnu-uutils.json`
+remains the baseline for the pinned uutils commit.
 
 The full BusyBox run at `8d92a7e2` selected 71 available staged XSH applet
 suites: 561 pass, 119 fail, and 65 skipped. The 50 in-scope coreutils applets

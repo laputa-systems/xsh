@@ -62,7 +62,7 @@ def manifest(names: list[str], aliases: dict[str, str]) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", default=str(REPO / "target" / "compat-stage"))
-    parser.add_argument("--xsh", default=os.environ.get("XSH_BIN", str(REPO / "target" / "debug" / "xsh")))
+    parser.add_argument("--xsh", default=os.environ.get("XSH_BIN", str(REPO / "target" / "release" / "xsh")))
     parser.add_argument("--gnu-programs", help="file listing GNU program names, one per line")
     args = parser.parse_args()
 

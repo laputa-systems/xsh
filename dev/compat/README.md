@@ -22,14 +22,17 @@ addition's reason without requesting approval again.
 git clone https://github.com/uutils/coreutils ../ref/uutils-coreutils
 git -C ../ref/uutils-coreutils checkout "$(python3 -c 'import json;print(json.load(open("dev/compat/upstream.lock.json"))["uutils"]["commit"])')"
 export UUTILS_ROOT=$PWD/../ref/uutils-coreutils
-cargo build --release -p xsh --bins -p xsht --bin xsht
+cargo build --release --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht
+export XSH_BIN=$PWD/target/x86_64-unknown-linux-musl/release/xsh
 cargo install --debug cargo-nextest --locked   # if run-uutils.sh needs it
 ```
 
 Campaign verification is correctness and parity only; no benchmark or
-performance threshold gates a change. Run native XSH suites with
-`target/release/xsh` and `target/release/xsht`. Do not use `--profile dist` for
-campaign checks. Linux checks still run inside the `Dockerfile.test` image.
+performance threshold gates a change. Run native XSH suites with the release
+`xsht` beside `XSH_BIN`. The explicit musl target is required in the xsh-test
+image because a host build cannot produce the required proc-macro crate types.
+Do not use `--profile dist` for campaign checks. Linux checks still run inside
+the `Dockerfile.test` image.
 
 GNU runs also need a C toolchain, autotools, perl and the packages uutils'
 `build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
@@ -141,6 +144,13 @@ The later split raw-argument follow-up fixes four pinned cases involving
 non-UTF-8 input paths, prefixes, and additional suffixes: the focused split
 slice is now 130/133 with no regressions, and the release native suite passes
 11/11. Its report is in `results/split-raw-argv-followup/`.
+
+The 2026-10-08 full Gate 4 refresh at source `020558d2` records 415 PASS,
+155 FAIL, 16 ERROR, and 133 SKIP across 719 tests. The differential has 398
+shared passes, 173 uutils-only passes, 17 XSH-only passes, and 44 shared
+failures. `split/filter.sh` passes in this run; `install/stdin.sh` skipped
+because the non-interactive container invocation had closed stdin. The current
+reports are `results/gnu-xsh.json` and `results/gnu-differential.json`.
 
 The pinned BusyBox 1.36.1 route runs through the staged XSH multicall adapter.
 The full default selection covered 71 available staged applet suites: 561

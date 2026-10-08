@@ -7,7 +7,7 @@
 # and uutils-integration.json under COMPAT_RESULTS_DIR.
 #
 # Environment: UUTILS_ROOT (required), XSH_BIN (interpreter for the stage; default
-# target/debug/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
+# target/release/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
 # UUTESTS_THREADS (default 3), UUTILS_SUITE_LOCK, UUTESTS_RUN_UID/GID (root runs).
 #
 # Build notes:

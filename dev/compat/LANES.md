@@ -25,12 +25,10 @@ Rust only when a reusable native operation is required for correctness or
 cannot be expressed faithfully in XSH. Performance is not a campaign gate.
 See `CAMPAIGN.md` for verification policy.
 
-Campaign verification uses Cargo's debug profiles only, with modest
-optimization and many codegen units: set `CARGO_PROFILE_DEV_OPT_LEVEL=1`,
-`CARGO_PROFILE_DEV_CODEGEN_UNITS=256`, `CARGO_PROFILE_DEV_LTO=false`,
-`CARGO_PROFILE_TEST_OPT_LEVEL=1`, `CARGO_PROFILE_TEST_CODEGEN_UNITS=256`, and
-`CARGO_PROFILE_TEST_LTO=false`. Keep debug assertions enabled. Do not use
-`--release`, `--profile dist`, or performance benchmarks as campaign gates.
+Campaign verification uses release binaries. Build them in the xsh-test image
+for the explicit x86_64 musl target, set `XSH_BIN` to the resulting `xsh`, and
+use its sibling `xsht`. Do not use `--profile dist` or performance benchmarks
+as campaign gates.
 
 1. **Foundation before fan-out.** Wave 0 (shared option grammar, diagnostics,
    invoked name, byte helpers, harness, baseline) lands serially. Lanes that
@@ -86,7 +84,7 @@ ships a workaround that parses text or discards the option.
 Use the current checkout and host paths in every brief. `lanes.py brief`
 defaults `LANES_ROOT` to the checkout path, `LANES_TARGETS` to the sibling
 `xsh-lane-targets` directory, and `XSH_SHARED_BIN` to the checkout's
-`target/debug`. Existing environment overrides remain supported. The
+`target/release`. Existing environment overrides remain supported. The
 worktree path is `${LANES_ROOT}-lanes/<lane>`.
 
 The host's memory cgroup is shared by every build, lane and suite: size
@@ -96,8 +94,8 @@ Size concurrency to the host. The reference cloud VM has 2 cores, 7 GB RAM
 and about 30 GB free. Keep native builds serialized to limit memory use.
 
 - **Script-only lanes** (most `core/*.xsh` work) do not compile. They share
-  one optimized debug `xsh`/`xsht` built from the integration branch at
-  `$XSH_SHARED_BIN` (default `<checkout>/target/debug`) and run
+  one release `xsh`/`xsht` built from the integration branch at
+  `$XSH_SHARED_BIN` (default `<checkout>/target/release`) and run
   `XSH_BIN=$XSH_SHARED_BIN/xsh`. The integrator rebuilds it after merging any
   runtime change and tells running lanes.
 - **Native lanes** (Rust under `src/`) each use their own
@@ -138,11 +136,11 @@ Merge queue (integrator, one lane at a time, FIFO):
    in a lane-owned file, send it back to the lane; on conflict in an
    integrator-owned file, the lane touched something it should not have.
 2. Fast gates in the lane worktree: `python3 dev/compat/check_ignored_options.py`,
-   `target/debug/xsht check` on changed files, the lane's `core/tests`
+   `target/release/xsht check` on changed files, the lane's `core/tests`
    files, and the Rust tests its item names.
 3. Lane slice: `dev/compat/run-uutils.sh <its utilities>`.
 4. `git -C <checkout> merge --no-ff lane/<lane>`.
-5. Rebuild the optimized debug binaries on the integration branch, then run the full
+5. Rebuild the release binaries on the integration branch, then run the full
    uutils suite and compare with the committed
    `results/uutils-integration.json` using `python3 dev/compat/compare.py
    OLD NEW`. Any test that passed before and fails now reverts the merge
@@ -308,7 +306,7 @@ Goal: <utilities> pass their applicable uutils tests (current: <pass>/<total>);
       remove discard buckets in owned applets; implement or explicitly reject every option.
 Use: core/lib/gnu.xsh diagnostics and the cli GNU mode; the pinned uutils source at
      $UUTILS_ROOT/src/uu/<util> and tests/by-util/test_<util>.rs are the behavior spec.
-Verify: target/debug/xsht test core/tests/test-<util>.xsh; dev/compat/run-uutils.sh <utils>
+Verify: target/release/xsht test core/tests/test-<util>.xsh; dev/compat/run-uutils.sh <utils>
         only when told the suite is idle; python3 dev/compat/check_ignored_options.py.
 Budget: <size>. Stop and report at twice the budget.
 Commit on lane/<lane> when green (never push, merge, or rebase others).

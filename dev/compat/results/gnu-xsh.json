@@ -267,7 +267,7 @@
     "expr.log": "PASS"
   },
   "factor": {
-    "factor-parallel.log": "FAIL",
+    "factor-parallel.log": "PASS",
     "factor.log": "FAIL"
   },
   "fmt": {
@@ -320,7 +320,7 @@
     "install-C-selinux.log": "SKIP",
     "install-C.log": "PASS",
     "install-Z-selinux.log": "SKIP",
-    "stdin.log": "PASS",
+    "stdin.log": "SKIP",
     "strip-program.log": "PASS",
     "trap.log": "PASS"
   },
@@ -386,8 +386,8 @@
     "sort-width-option.log": "PASS",
     "stat-dtype.log": "SKIP",
     "stat-failed.log": "PASS",
-    "stat-free-color.log": "SKIP",
-    "stat-free-symlinks.log": "SKIP",
+    "stat-free-color.log": "PASS",
+    "stat-free-symlinks.log": "FAIL",
     "stat-vs-dirent.log": "PASS",
     "symlink-loop.log": "FAIL",
     "symlink-quote.log": "PASS",
@@ -697,7 +697,7 @@
     "additional-suffix.log": "PASS",
     "b-chunk.log": "PASS",
     "fail.log": "PASS",
-    "filter.log": "FAIL",
+    "filter.log": "PASS",
     "guard-input.log": "FAIL",
     "l-chunk-root.log": "SKIP",
     "l-chunk.log": "PASS",

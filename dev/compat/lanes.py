@@ -140,7 +140,7 @@ def main() -> int:
         ).strip()
         root = os.environ.get("LANES_ROOT", str(REPO))
         targets = os.environ.get("LANES_TARGETS", str(REPO.parent / "xsh-lane-targets"))
-        shared = os.environ.get("XSH_SHARED_BIN", str(REPO / "target/debug"))
+        shared = os.environ.get("XSH_SHARED_BIN", str(REPO / "target/release"))
         for name in sys.argv[2:]:
             print(brief(name, sha, root, targets, shared))
         return 0

@@ -36,7 +36,7 @@ results=${COMPAT_RESULTS_DIR:-$repo/.work/compat-results/busybox}
 report=${BUSYBOX_REPORT:-$results/busybox.json}
 logs=${BUSYBOX_LOG_DIR:-$results/busybox-logs}
 work_root=${BUSYBOX_WORK_ROOT:-$repo/.work/compat-work/busybox}
-xsh=${XSH_BIN:-$repo/target/debug/xsh}
+xsh=${XSH_BIN:-$repo/target/release/xsh}
 lockfile=$repo/dev/compat/upstream.lock.json
 
 busybox_source_root=${BUSYBOX_SOURCE_ROOT:-$repo/.work/upstream/busybox}

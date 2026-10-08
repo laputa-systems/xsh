@@ -1,9 +1,9 @@
 {
   "suite": "gnu-differential",
   "counts": {
-    "uutils_pass_xsh_pass": 395,
-    "uutils_pass_xsh_fail": 176,
-    "uutils_fail_xsh_pass": 18,
+    "uutils_pass_xsh_pass": 398,
+    "uutils_pass_xsh_fail": 173,
+    "uutils_fail_xsh_pass": 17,
     "uutils_fail_xsh_fail": 44
   },
   "cells": {
@@ -141,6 +141,7 @@
       "env/env-S-script.log",
       "env/env-null.log",
       "expr/expr.log",
+      "factor/factor-parallel.log",
       "fmt/goal-option.log",
       "fmt/non-space.log",
       "fmt/width.log",
@@ -190,6 +191,7 @@
       "ls/size-align.log",
       "ls/sort-width-option.log",
       "ls/stat-failed.log",
+      "ls/stat-free-color.log",
       "ls/stat-vs-dirent.log",
       "ls/symlink-quote.log",
       "ls/symlink-slash.log",
@@ -341,6 +343,7 @@
       "split/additional-suffix.log",
       "split/b-chunk.log",
       "split/fail.log",
+      "split/filter.log",
       "split/l-chunk.log",
       "split/lines.log",
       "split/numeric.log",
@@ -451,7 +454,6 @@
       "env/env-S.log",
       "expand/bounded-memory.log",
       "expand/expand.log",
-      "factor/factor-parallel.log",
       "factor/factor.log",
       "fmt/base.log",
       "fmt/long-line.log",
@@ -478,7 +480,6 @@
       "ls/quote-align.log",
       "ls/root-rel-symlink-color.log",
       "ls/stat-dtype.log",
-      "ls/stat-free-color.log",
       "ls/stat-free-symlinks.log",
       "ls/symlink-loop.log",
       "ls/w-option.log",
@@ -541,7 +542,6 @@
       "sort/sort-u-FMR.log",
       "sort/sort-unique-segv.log",
       "sort/sort-version.log",
-      "split/filter.log",
       "split/guard-input.log",
       "split/line-bytes.log",
       "split/non-utf8.log",
@@ -591,7 +591,6 @@
       "fold/fold-nbsp.log",
       "fold/fold-spaces.log",
       "fold/fold-zero-width.log",
-      "install/stdin.log",
       "join/join-utf8.log",
       "mv/mv-special-1.log",
       "nl/multibyte.log",
@@ -838,12 +837,11 @@
       "blockers": []
     },
     "factor": {
-      "pass": 0,
-      "fail": 2,
+      "pass": 1,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "factor/factor-parallel.log",
         "factor/factor.log"
       ]
     },
@@ -903,7 +901,7 @@
       ]
     },
     "install": {
-      "pass": 6,
+      "pass": 5,
       "fail": 1,
       "skip": 0,
       "excluded": 0,
@@ -932,8 +930,8 @@
       ]
     },
     "ls": {
-      "pass": 34,
-      "fail": 14,
+      "pass": 35,
+      "fail": 13,
       "skip": 0,
       "excluded": 0,
       "blockers": [
@@ -947,7 +945,6 @@
         "ls/quote-align.log",
         "ls/root-rel-symlink-color.log",
         "ls/stat-dtype.log",
-        "ls/stat-free-color.log",
         "ls/stat-free-symlinks.log",
         "ls/symlink-loop.log",
         "ls/w-option.log"
@@ -1181,12 +1178,11 @@
       ]
     },
     "split": {
-      "pass": 11,
-      "fail": 4,
+      "pass": 12,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "split/filter.log",
         "split/guard-input.log",
         "split/line-bytes.log",
         "split/non-utf8.log"

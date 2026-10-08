@@ -667,8 +667,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 2,
+        "pass": 1,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -901,8 +901,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 34,
-        "fail": 14,
+        "pass": 35,
+        "fail": 13,
         "skip": 0,
         "excluded": 0
       },
@@ -1517,8 +1517,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 11,
-        "fail": 4,
+        "pass": 12,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -2421,7 +2421,7 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 6,
+        "pass": 5,
         "fail": 1,
         "skip": 0,
         "excluded": 0
