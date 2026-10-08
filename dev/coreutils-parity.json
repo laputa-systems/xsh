@@ -593,7 +593,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates -h and -V help/version controls; XSH follows GNU echo's manual scan for -n, -e, and -E, so those short controls are printed as text."
+      ]
     },
     {
       "utility": "expand",

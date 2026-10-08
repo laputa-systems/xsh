@@ -21,6 +21,7 @@ SUPPORTED_UTILITIES = (
     "chroot",
     "comm",
     "dirname",
+    "echo",
     "expand",
     "factor",
     "false",
@@ -77,6 +78,7 @@ SOURCE_PATHS = {
     "chroot": ("chroot/src/chroot.rs", "chroot.xsh"),
     "comm": ("comm/src/comm.rs", "comm.xsh"),
     "dirname": ("dirname/src/dirname.rs", "dirname.xsh"),
+    "echo": ("echo/src/echo.rs", "echo.xsh"),
     "expand": ("expand/src/expand.rs", "expand.xsh"),
     "factor": ("factor/src/factor.rs", "factor.xsh"),
     "false": ("false/src/false.rs", "false.xsh"),
@@ -132,6 +134,15 @@ MANUAL_RAW_OPTION_USES = {
     "sum": {
         "-s": "if flag == 115",
         "--sysv": 'if arg == b"--sysv"',
+    },
+}
+# Echo declares Clap metadata for help text but scans raw option bytes itself.
+# These source branches distinguish implemented flags from parsed-only fields.
+MANUAL_UUTILS_OPTION_USES = {
+    "echo": {
+        "options::NO_NEWLINE": "b'n' => options_.trailing_newline = false",
+        "options::ENABLE_BACKSLASH_ESCAPE": "b'e' => options_.escape = true",
+        "options::DISABLE_BACKSLASH_ESCAPE": "b'E' => options_.escape = false",
     },
 }
 
@@ -257,7 +268,9 @@ def _rust_char_argument(body: str, method: str) -> str | None:
     return match.group(1) if match else None
 
 
-def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
+def parse_uutils_declarations(
+    source: str, utility: str | None = None
+) -> dict[str, dict[str, int | str]]:
     """Read literal Clap declarations, including generated help flags."""
     constants = _rust_string_constants(source)
     signature = r"\bpub\s+fn\s+uu_app\s*\(\)"
@@ -298,10 +311,12 @@ def parse_uutils_declarations(source: str) -> dict[str, dict[str, int | str]]:
         if not arg_id:
             raise SurfaceParseError("option argument has no readable Arg ID")
         field = arg_id.group(1).removeprefix("options::")
+        manual_use = MANUAL_UUTILS_OPTION_USES.get(utility, {}).get(arg_id.group(1))
         disposition = (
             "implemented"
             if action_name in ("Help", "Version")
             or re.search(rf"\b{re.escape(arg_id.group(1))}\b", behavior)
+            or (manual_use is not None and manual_use in source)
             else "parsed-but-unused"
         )
 
@@ -401,17 +416,35 @@ def _form_entries(form: str, field: str) -> list[tuple[str, int]]:
 
 
 def _manual_xsh_declarations(source: str, utility: str) -> dict[str, dict[str, int | str]]:
-    if utility not in ("true", "false"):
+    if utility not in ("true", "false", "echo"):
         raise SurfaceParseError("XSH applet has no cli.applet schema")
     if not re.search(r"argv\.len\(\)\s*(?:==|!=)\s*1", source):
         raise SurfaceParseError(f"manual {utility} help/version guard is not recognized")
     spellings = set(re.findall(r'argv\s*\[\s*0\s*\]\s*==\s*"(--[A-Za-z0-9-]+)"', source))
     if spellings != {"--help", "--version"}:
         raise SurfaceParseError(f"manual {utility} option branches are not recognized")
-    return {
+    declarations = {
         spelling: {"arity": 0, "field": "manual", "disposition": "implemented"}
         for spelling in sorted(spellings)
     }
+
+    if utility == "echo":
+        markers = (
+            'rx"^-[neE]+$"',
+            'flag == "e"',
+            'flag == "E"',
+            "newline = false",
+        )
+        if not all(marker in source for marker in markers):
+            raise SurfaceParseError("manual echo option scan is not recognized")
+        declarations.update(
+            {
+                spelling: {"arity": 0, "field": "manual", "disposition": "implemented"}
+                for spelling in ("-n", "-e", "-E")
+            }
+        )
+
+    return declarations
 
 
 def parse_xsh_declarations(
@@ -506,7 +539,7 @@ def main() -> int:
         root, revision = _uutils_root()
         uutils_source, xsh_source = SOURCE_PATHS[args.util]
         uutils_declarations = parse_uutils_declarations(
-            (root / "src/uu" / uutils_source).read_text()
+            (root / "src/uu" / uutils_source).read_text(), args.util
         )
         xsh_declarations = parse_xsh_declarations(
             (REPO / "core" / xsh_source).read_text(), args.util

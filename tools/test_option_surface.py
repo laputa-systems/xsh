@@ -270,7 +270,7 @@ proc main(...argv: List[Str]) {
                 self.assertIn(utility, surface.SUPPORTED_UTILITIES)
                 uutils_source, xsh_source = surface.SOURCE_PATHS[utility]
                 uutils = surface.parse_uutils_declarations(
-                    (uutils_root / "src" / "uu" / uutils_source).read_text()
+                    (uutils_root / "src" / "uu" / uutils_source).read_text(), utility
                 )
                 xsh = surface.parse_xsh_declarations(
                     (surface.REPO / "core" / xsh_source).read_text(), utility
@@ -296,6 +296,7 @@ proc main(...argv: List[Str]) {
             "arch",
             "chroot",
             "comm",
+            "echo",
             "factor",
             "groups",
             "hostname",
@@ -354,6 +355,25 @@ proc main(...argv: List[Str]) {
                     },
                 )
 
+    def test_echo_manual_options_are_recognized_as_implemented(self):
+        uutils_root = surface.REPO.parent / "ref" / "uutils-coreutils"
+        uutils_source, xsh_source = surface.SOURCE_PATHS["echo"]
+        uutils = surface.parse_uutils_declarations(
+            (uutils_root / "src" / "uu" / uutils_source).read_text(), "echo"
+        )
+        xsh = surface.parse_xsh_declarations(
+            (surface.REPO / "core" / xsh_source).read_text(), "echo"
+        )
+
+        self.assertEqual(
+            {spelling: uutils[spelling]["disposition"] for spelling in ("-n", "-e", "-E")},
+            {spelling: "implemented" for spelling in ("-n", "-e", "-E")},
+        )
+        self.assertEqual(
+            {spelling for spelling, entry in xsh.items() if entry["disposition"] == "implemented"},
+            {"-n", "-e", "-E", "--help", "--version"},
+        )
+
     def test_registered_surfaces_capture_additional_uutils_options(self):
         expected_uutils_only = {
             "fmt": {
@@ -383,7 +403,7 @@ proc main(...argv: List[Str]) {
                 self.assertIn(utility, surface.SUPPORTED_UTILITIES)
                 uutils_source, xsh_source = surface.SOURCE_PATHS[utility]
                 uutils = surface.parse_uutils_declarations(
-                    (uutils_root / "src" / "uu" / uutils_source).read_text()
+                    (uutils_root / "src" / "uu" / uutils_source).read_text(), utility
                 )
                 xsh = surface.parse_xsh_declarations(
                     (surface.REPO / "core" / xsh_source).read_text(), utility

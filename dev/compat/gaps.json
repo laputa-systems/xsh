@@ -22,6 +22,9 @@
     "dirname": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 dirname's short-option string omits both, so XSH accepts --help and --version without them."
     ],
+    "echo": [
+      "Uutils generates -h and -V help/version controls; XSH follows GNU echo's manual scan for -n, -e, and -E, so those short controls are printed as text."
+    ],
     "expand": [
       "The pinned uutils version adds -U/--no-utf8 and Clap-generated -h/-V; GNU 9.12 expand exposes none of these options, and XSH follows GNU's option surface."
     ],

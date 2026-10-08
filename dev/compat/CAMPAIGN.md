@@ -208,7 +208,7 @@ subset, the largest failure groups are `cp` (7), `date` (4), `printf` (4),
 `tr` (2), and `unexpand` (2); `od`, `seq`, `sort`, `sum`, and `test` each have
 one failure. The pinned report is `results/busybox.json`; run logs remain under
 ignored `.work/compat-results/busybox/full-wave4/`. Gate 5 remains open for
-the other 52 utilities. The practical expanded Linux suite and clean-image
+the other 51 utilities. The practical expanded Linux suite and clean-image
 smoke also remain open. The attempted AArch64 debug run was stopped after
 ARM64 was removed from scope; it produced no gate result and is not an open
 campaign item. The parity inventory currently has 99 of 125 expanded Linux
@@ -265,9 +265,10 @@ three Python tests and a multicall adapter dispatch probe pass. The full
 
 `check_option_surface.py --util UTIL` compares pinned uutils Clap declarations
 with XSH's `cli.applet` schema, including generated help/version spellings,
-aliases, argument arity, and parsed-but-unused fields. The `true` and `false`
-applets use narrowly recognized manual help/version branches instead of
-`cli.applet`. Fifty-four commands are covered:
+aliases, argument arity, and parsed-but-unused fields. `true` and `false` use
+narrowly recognized manual help/version branches; `echo` uses a recognized
+manual short-option scan and help/version guard. Fifty-five commands are
+covered:
 
 | Command | uutils spellings | XSH spellings | Differences |
 |---|---:|---:|---|
@@ -277,6 +278,7 @@ applets use narrowly recognized manual help/version branches instead of
 | `chroot` | 7 | 5 | uutils-only `-h`, `-V` |
 | `comm` | 13 | 11 | uutils-only `-h`, `-V` |
 | `dirname` | 6 | 4 | uutils-only `-h`, `-V` |
+| `echo` | 7 | 5 | uutils-only `-h`, `-V` |
 | `expand` | 10 | 6 | uutils-only `-U`, `--no-utf8`, `-h`, `-V` |
 | `factor` | 5 | 4 | uutils-only `-V` |
 | `false` | 2 | 2 | none |
@@ -332,7 +334,10 @@ command. The uutils-only `-U`/`--no-utf8` options on `expand` and `unexpand` are
 also absent from GNU 9.12, so XSH does not implement them. Direct cat probes
 confirm both sides accept `--help` and `--version`,
 while only uutils accepts `-h` and `-V`; direct `true` and `false` declarations
-contain only the long help/version forms. The comparison also reports cat's
+contain only the long help/version forms. The `echo` scan recognizes `-n`,
+`-e`, and `-E`, with only `--help` and `--version` as separate controls; uutils
+generates short `-h` and `-V` controls that GNU echo treats as text. The
+comparison also reports cat's
 `-u` as parsed-but-unused on both sides, matching its documented ignored
 behavior. `sum -r` is parsed-but-unused on both sides; the raw-byte XSH option
 scan handles `-s` and `--sysv` without treating `-r` as an override. Its
@@ -342,8 +347,8 @@ provide; `id` also omits uutils-only `--ignore`, `-A`, `-p`, and `-P` (XSH's
 `-a` remains a no-op without the long alias). `kill` has uutils' extra `-L`
 table alias. XSH explicitly rejects `mkdir -Z/--context` because security
 labels are unavailable and `shuf --random-seed` as a uutils extension.
-The comparisons cover 606 uutils spellings and 491 XSH spellings. All sixteen
-parser tests pass. Gate 5 remains open for the other 52 utilities.
+The comparisons cover 613 uutils spellings and 496 XSH spellings. All seventeen
+parser tests pass. Gate 5 remains open for the other 51 utilities.
 
 ## Sort merge follow-up (`a860f47a`)
 
