@@ -19,6 +19,18 @@ The expanded Linux inventory contains 99 of 125 commands, leaving 26 absent.
 The practical expanded Linux suite and clean-image smoke remain open. See the
 current gate reports below before starting another verification run.
 
+Completed Git worktrees were removed; the unfinished `cp` residual worktrees
+and `text-b2-wave4` worktree remain. The separate `../xsh-resume-results`
+archive was preserved. Ignored worktree scratch and the unregistered
+`bytes-enc` build-cache residue are under `.work/wind-down-retained/`.
+
+The pinned uutils checkout is currently absent at `../ref/uutils-coreutils`.
+The latest Gate 5 audit summary and log remain under
+`.work/tmp/option-surface-alias-current/`; reattach the pinned checkout or set
+`UUTILS_ROOT` before rerunning per-command audits. The parity manifest can still
+be checked offline against its committed inventory with
+`python3 dev/compat/parity.py --check`.
+
 ## Campaign verification policy (2026-10-07)
 
 Campaign gates measure correctness and behavioral parity. Performance
