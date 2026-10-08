@@ -1,0 +1,337 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="nextest-run" tests="133" skipped="0" failures="7" errors="0" uuid="85fec3ad-e0bf-4267-8090-0469aa2c4e0c" timestamp="2026-10-08T00:39:50.650+00:00" time="5.866">
+    <testsuite name="coreutils::tests" tests="133" skipped="0" errors="0" failures="7">
+        <testcase name="test_split::diagnostics::test_plain_message_when_stderr_is_a_pipe" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.655+00:00" time="0.029"/>
+        <testcase name="test_split::diagnostics::test_snippet_points_at_the_unknown_unit" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.685+00:00" time="0.032">
+            <failure message="thread &apos;test_split::diagnostics::test_snippet_points_at_the_unknown_unit&apos; (410164) panicked at tests/by-util/test_split.rs:2234:9" type="test failure with exit code 101">thread &apos;test_split::diagnostics::test_snippet_points_at_the_unknown_unit&apos; (410164) panicked at tests/by-util/test_split.rs:2234:9:
+assertion `left == right` failed
+  left: &quot;split: invalid number of bytes: &apos;7zq&apos;&quot;
+ right: &quot;split: invalid number of bytes: &apos;7zq&apos;\n   ╭─[ split:1:11 ]\n   │\n 1 │ split -b 7zq /dev/null\n   │           ─┬\n   │            ╰── not a known unit\n   │\n   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests split -b 7zq /dev/null
+test test_split::diagnostics::test_snippet_points_at_the_unknown_unit ... FAILED
+
+failures:
+
+failures:
+    test_split::diagnostics::test_snippet_points_at_the_unknown_unit
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_split::diagnostics::test_snippet_points_at_the_unknown_unit&apos; (410164) panicked at tests/by-util/test_split.rs:2234:9:
+assertion `left == right` failed
+  left: &quot;split: invalid number of bytes: &apos;7zq&apos;&quot;
+ right: &quot;split: invalid number of bytes: &apos;7zq&apos;\n   ╭─[ split:1:11 ]\n   │\n 1 │ split -b 7zq /dev/null\n   │           ─┬\n   │            ╰── not a known unit\n   │\n   │ Help: a size is a number and an optional unit: K, M, G and so on for 1024, KB, MB, GB for 1000\n───╯&quot;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.718+00:00" time="0.032">
+            <failure message="thread &apos;test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value&apos; (410174) panicked at tests/by-util/test_split.rs:2258:9" type="test failure with exit code 101">thread &apos;test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value&apos; (410174) panicked at tests/by-util/test_split.rs:2258:9:
+split: invalid number of bytes: &apos;3qq&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests split --line-bytes=3qq /dev/null
+test test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value ... FAILED
+
+failures:
+
+failures:
+    test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value&apos; (410174) panicked at tests/by-util/test_split.rs:2258:9:
+split: invalid number of bytes: &apos;3qq&apos;
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_split::diagnostics::test_snippet_underlines_a_count_with_no_number" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.750+00:00" time="0.031"/>
+        <testcase name="test_split::test_additional_suffix_dir_separator" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.781+00:00" time="0.029"/>
+        <testcase name="test_split::test_allow_empty_files" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.810+00:00" time="0.028"/>
+        <testcase name="test_split::test_alphabetic_dynamic_suffix_length" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.838+00:00" time="0.053"/>
+        <testcase name="test_split::test_dev_zero" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.891+00:00" time="0.029"/>
+        <testcase name="test_split::test_dynamic_suffix_length_off_with_suffix_start" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.920+00:00" time="0.028"/>
+        <testcase name="test_split::test_dynamic_suffix_length_on_with_suffix_start_no_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.948+00:00" time="0.031"/>
+        <testcase name="test_split::test_effective_suffix_hex_last" classname="coreutils::tests" timestamp="2026-10-08T00:39:50.980+00:00" time="0.028"/>
+        <testcase name="test_split::test_effective_suffix_numeric_last" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.008+00:00" time="0.029"/>
+        <testcase name="test_split::test_elide_dev_null_l_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.036+00:00" time="0.029"/>
+        <testcase name="test_split::test_elide_dev_null_n_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.065+00:00" time="0.028"/>
+        <testcase name="test_split::test_elide_empty_files_l_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.093+00:00" time="0.027"/>
+        <testcase name="test_split::test_elide_empty_files_n_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.121+00:00" time="0.029"/>
+        <testcase name="test_split::test_empty_input_does_not_create_output" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.150+00:00" time="0.200"/>
+        <testcase name="test_split::test_empty_input_preserves_existing_output" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.350+00:00" time="0.104"/>
+        <testcase name="test_split::test_empty_input_with_output_directory" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.454+00:00" time="0.105"/>
+        <testcase name="test_split::test_filter" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.559+00:00" time="0.039"/>
+        <testcase name="test_split::test_filter_broken_pipe" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.598+00:00" time="0.118"/>
+        <testcase name="test_split::test_filter_command_fails" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.717+00:00" time="0.042"/>
+        <testcase name="test_split::test_filter_with_env_var_set" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.758+00:00" time="0.040"/>
+        <testcase name="test_split::test_filter_with_kth_chunk" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.799+00:00" time="0.074"/>
+        <testcase name="test_split::test_guard_input" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.873+00:00" time="0.077"/>
+        <testcase name="test_split::test_hex_dynamic_suffix_length" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.950+00:00" time="0.039"/>
+        <testcase name="test_split::test_hex_suffix" classname="coreutils::tests" timestamp="2026-10-08T00:39:51.990+00:00" time="0.030"/>
+        <testcase name="test_split::test_hex_suffix_alias" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.019+00:00" time="0.029"/>
+        <testcase name="test_split::test_hex_suffix_no_equal" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.048+00:00" time="0.029"/>
+        <testcase name="test_split::test_hex_suffix_no_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.077+00:00" time="0.029"/>
+        <testcase name="test_split::test_include_newlines" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.107+00:00" time="0.029"/>
+        <testcase name="test_split::test_invalid_arg" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.136+00:00" time="0.028"/>
+        <testcase name="test_split::test_invalid_suffix_length" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.164+00:00" time="0.030"/>
+        <testcase name="test_split::test_large_suffix_length_is_rejected" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.194+00:00" time="0.033"/>
+        <testcase name="test_split::test_line_bytes" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.227+00:00" time="0.030"/>
+        <testcase name="test_split::test_line_bytes_concatenated_with_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.257+00:00" time="0.029"/>
+        <testcase name="test_split::test_line_bytes_no_empty_file" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.286+00:00" time="0.029"/>
+        <testcase name="test_split::test_line_bytes_no_eof" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.315+00:00" time="0.028"/>
+        <testcase name="test_split::test_line_bytes_no_final_newline" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.343+00:00" time="0.028"/>
+        <testcase name="test_split::test_line_bytes_overflow" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.372+00:00" time="0.030"/>
+        <testcase name="test_split::test_long_lines" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.401+00:00" time="0.032"/>
+        <testcase name="test_split::test_multiple_of_input_chunk" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.433+00:00" time="0.031"/>
+        <testcase name="test_split::test_number_by_bytes_dev_zero" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.465+00:00" time="0.029"/>
+        <testcase name="test_split::test_number_by_lines" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.494+00:00" time="0.029"/>
+        <testcase name="test_split::test_number_by_lines_fewer_bytes_than_chunks_elide" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.523+00:00" time="0.029"/>
+        <testcase name="test_split::test_number_by_lines_kth" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.552+00:00" time="0.029"/>
+        <testcase name="test_split::test_number_by_lines_kth_dev_null" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.581+00:00" time="0.029"/>
+        <testcase name="test_split::test_number_by_lines_kth_huge_number_of_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.611+00:00" time="0.028"/>
+        <testcase name="test_split::test_number_by_lines_kth_no_end_sep" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.639+00:00" time="0.055"/>
+        <testcase name="test_split::test_number_by_lines_rr_kth_no_end_sep" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.694+00:00" time="0.028"/>
+        <testcase name="test_split::test_number_kth_of_n" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.722+00:00" time="0.202"/>
+        <testcase name="test_split::test_number_kth_of_n_round_robin" classname="coreutils::tests" timestamp="2026-10-08T00:39:52.924+00:00" time="0.176"/>
+        <testcase name="test_split::test_number_n" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.100+00:00" time="0.058"/>
+        <testcase name="test_split::test_numeric_dynamic_suffix_length" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.159+00:00" time="0.032"/>
+        <testcase name="test_split::test_numeric_suffix" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.191+00:00" time="0.029"/>
+        <testcase name="test_split::test_numeric_suffix_inferred" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.220+00:00" time="0.029"/>
+        <testcase name="test_split::test_numeric_suffix_no_equal" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.249+00:00" time="0.029"/>
+        <testcase name="test_split::test_numeric_suffix_no_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.277+00:00" time="0.030"/>
+        <testcase name="test_split::test_obsolete_lines_not_read_after_double_dash" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.308+00:00" time="0.028"/>
+        <testcase name="test_split::test_round_robin" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.336+00:00" time="0.028"/>
+        <testcase name="test_split::test_round_robin_limited_file_descriptors" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.364+00:00" time="0.006">
+            <failure message="thread &apos;test_split::test_round_robin_limited_file_descriptors&apos; (410950) panicked at tests/by-util/test_split.rs:1696:10" type="test failure with exit code 101">thread &apos;test_split::test_round_robin_limited_file_descriptors&apos; (410950) panicked at tests/by-util/test_split.rs:1696:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = /bin/sh: line 0: 3: Invalid argument
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests split -n r/40 onehundredlines.txt
+test test_split::test_round_robin_limited_file_descriptors ... FAILED
+
+failures:
+
+failures:
+    test_split::test_round_robin_limited_file_descriptors
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err>
+thread &apos;test_split::test_round_robin_limited_file_descriptors&apos; (410950) panicked at tests/by-util/test_split.rs:1696:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = /bin/sh: line 0: 3: Invalid argument
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_split::test_short_combination" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.370+00:00" time="0.028"/>
+        <testcase name="test_split::test_short_hex_suffix_no_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.398+00:00" time="0.029"/>
+        <testcase name="test_split::test_short_hex_suffix_with_value_spaced" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.426+00:00" time="0.028"/>
+        <testcase name="test_split::test_short_numeric_suffix_no_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.455+00:00" time="0.029"/>
+        <testcase name="test_split::test_short_numeric_suffix_with_value_spaced" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.484+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_additional_suffix" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.514+00:00" time="0.041"/>
+        <testcase name="test_split::test_split_additional_suffix_hyphen_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.555+00:00" time="0.041"/>
+        <testcase name="test_split::test_split_both_lines_and_obs_lines_standalone" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.596+00:00" time="0.052"/>
+        <testcase name="test_split::test_split_by_bytes_short_concatenated_with_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.647+00:00" time="0.031"/>
+        <testcase name="test_split::test_split_bytes_prime_part_size" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.678+00:00" time="0.031"/>
+        <testcase name="test_split::test_split_chunks_by_line_or_round_robin_zero_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.709+00:00" time="0.054"/>
+        <testcase name="test_split::test_split_default" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.762+00:00" time="0.044"/>
+        <testcase name="test_split::test_split_default_with_io_blksize" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.806+00:00" time="0.042"/>
+        <testcase name="test_split::test_split_directory_already_exists" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.848+00:00" time="0.101"/>
+        <testcase name="test_split::test_split_invalid_bytes_size" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.949+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_invalid_input" classname="coreutils::tests" timestamp="2026-10-08T00:39:53.976+00:00" time="0.099"/>
+        <testcase name="test_split::test_split_invalid_io_blksize" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.075+00:00" time="0.051"/>
+        <testcase name="test_split::test_split_lines_interfere_with_io_buf_capacity" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.126+00:00" time="0.031"/>
+        <testcase name="test_split::test_split_lines_number" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.157+00:00" time="0.121"/>
+        <testcase name="test_split::test_split_lines_short_concatenated_with_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.278+00:00" time="0.092"/>
+        <testcase name="test_split::test_split_multiple_obs_lines_standalone" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.370+00:00" time="0.034"/>
+        <testcase name="test_split::test_split_multiple_obs_lines_within_combined" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.404+00:00" time="0.032"/>
+        <testcase name="test_split::test_split_non_existing_file" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.436+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_non_utf8_additional_suffix_is_byte_preserving" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.465+00:00" time="0.025">
+            <failure message="thread &apos;test_split::test_split_non_utf8_additional_suffix_is_byte_preserving&apos; (411256) panicked at tests/by-util/test_split.rs:2094:10" type="test failure with exit code 101">thread &apos;test_split::test_split_non_utf8_additional_suffix_is_byte_preserving&apos; (411256) panicked at tests/by-util/test_split.rs:2094:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 6 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmpznRtOh/input.txt
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests split -b 1 input.txt --additional-suffix ��
+test test_split::test_split_non_utf8_additional_suffix_is_byte_preserving ... FAILED
+
+failures:
+
+failures:
+    test_split::test_split_non_utf8_additional_suffix_is_byte_preserving
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.02s
+
+</system-out>
+            <system-err>
+thread &apos;test_split::test_split_non_utf8_additional_suffix_is_byte_preserving&apos; (411256) panicked at tests/by-util/test_split.rs:2094:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 6 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_split::test_split_non_utf8_argument_unix" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.491+00:00" time="0.034">
+            <failure message="thread &apos;test_split::test_split_non_utf8_argument_unix&apos; (411264) panicked at tests/by-util/test_split.rs:1750:40" type="test failure with exit code 101">thread &apos;test_split::test_split_non_utf8_argument_unix&apos; (411264) panicked at tests/by-util/test_split.rs:1750:40:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 3 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests split --additional-suffix fo�o test_split_non_utf8_argument
+test test_split::test_split_non_utf8_argument_unix ... FAILED
+
+failures:
+
+failures:
+    test_split::test_split_non_utf8_argument_unix
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.03s
+
+</system-out>
+            <system-err>
+thread &apos;test_split::test_split_non_utf8_argument_unix&apos; (411264) panicked at tests/by-util/test_split.rs:1750:40:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 3 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_split::test_split_non_utf8_paths" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.525+00:00" time="0.026">
+            <failure message="thread &apos;test_split::test_split_non_utf8_paths&apos; (411272) panicked at tests/by-util/test_split.rs:2037:25" type="test failure with exit code 101">thread &apos;test_split::test_split_non_utf8_paths&apos; (411272) panicked at tests/by-util/test_split.rs:2037:25:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 2 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests split ��
+test test_split::test_split_non_utf8_paths ... FAILED
+
+failures:
+
+failures:
+    test_split::test_split_non_utf8_paths
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.02s
+
+</system-out>
+            <system-err>
+thread &apos;test_split::test_split_non_utf8_paths&apos; (411272) panicked at tests/by-util/test_split.rs:2037:25:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 2 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_split::test_split_non_utf8_prefix_is_byte_preserving" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.551+00:00" time="0.024">
+            <failure message="thread &apos;test_split::test_split_non_utf8_prefix_is_byte_preserving&apos; (411280) panicked at tests/by-util/test_split.rs:2058:10" type="test failure with exit code 101">thread &apos;test_split::test_split_non_utf8_prefix_is_byte_preserving&apos; (411280) panicked at tests/by-util/test_split.rs:2058:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 5 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <system-out>
+running 1 test
+bin: &quot;/home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests&quot;
+write(default): /tmp/.tmp1WByRW/input.txt
+write(default): /tmp/.tmp1WByRW/p�aa
+write(default): /tmp/.tmp1WByRW/p�ab
+run: /home/josh/d/laputa-systems/xsh/target/compat-stage/xsh-uutests split -b 1 input.txt p�
+test test_split::test_split_non_utf8_prefix_is_byte_preserving ... FAILED
+
+failures:
+
+failures:
+    test_split::test_split_non_utf8_prefix_is_byte_preserving
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6027 filtered out; finished in 0.02s
+
+</system-out>
+            <system-err>
+thread &apos;test_split::test_split_non_utf8_prefix_is_byte_preserving&apos; (411280) panicked at tests/by-util/test_split.rs:2058:10:
+Command was expected to succeed. code: 2
+stdout = 
+ stderr = xsh: argument 5 is not valid UTF-8
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+        <testcase name="test_split::test_split_num_prefixed_chunks_by_lines" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.575+00:00" time="0.092"/>
+        <testcase name="test_split::test_split_number_chunks_short_concatenated_with_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.667+00:00" time="0.030"/>
+        <testcase name="test_split::test_split_number_oversized_stdin" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.697+00:00" time="0.030"/>
+        <testcase name="test_split::test_split_number_with_io_blksize" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.728+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_numeric_prefixed_chunks_by_bytes" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.757+00:00" time="0.030"/>
+        <testcase name="test_split::test_split_obs_lines_as_other_option_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:54.787+00:00" time="0.248"/>
+        <testcase name="test_split::test_split_obs_lines_standalone" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.035+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_obs_lines_standalone_overflow" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.064+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_obs_lines_starts_combined_shorts" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.094+00:00" time="0.033"/>
+        <testcase name="test_split::test_split_obs_lines_within_combined_shorts" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.126+00:00" time="0.032"/>
+        <testcase name="test_split::test_split_obs_lines_within_combined_shorts_tailing_suffix_length" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.158+00:00" time="0.036"/>
+        <testcase name="test_split::test_split_obs_lines_within_combined_with_number" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.195+00:00" time="0.052"/>
+        <testcase name="test_split::test_split_obs_lines_within_invalid_combined_shorts" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.246+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_overflow_bytes_size" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.275+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_invalid_usage" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.302+00:00" time="0.075"/>
+        <testcase name="test_split::test_split_separator_nl_line_bytes" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.377+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_separator_nl_lines" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.406+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_nl_number_l" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.434+00:00" time="0.027"/>
+        <testcase name="test_split::test_split_separator_nl_number_r" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.462+00:00" time="0.027"/>
+        <testcase name="test_split::test_split_separator_no_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.489+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_nul_line_bytes" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.516+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_nul_lines" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.545+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_separator_nul_number_l" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.574+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_nul_number_r" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.602+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_same_multiple" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.630+00:00" time="0.100"/>
+        <testcase name="test_split::test_split_separator_semicolon_line_bytes" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.730+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_separator_semicolon_lines" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.759+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_separator_semicolon_number_kth_l" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.788+00:00" time="0.027"/>
+        <testcase name="test_split::test_split_separator_semicolon_number_kth_r" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.815+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_semicolon_number_l" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.843+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_separator_semicolon_number_r" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.872+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_stdin_num_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.901+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_stdin_num_kth_chunk" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.929+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_stdin_num_kth_line_chunk" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.958+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_stdin_num_line_chunks" classname="coreutils::tests" timestamp="2026-10-08T00:39:55.986+00:00" time="0.028"/>
+        <testcase name="test_split::test_split_str_prefixed_chunks_by_bytes" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.014+00:00" time="0.029"/>
+        <testcase name="test_split::test_split_str_prefixed_chunks_by_lines" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.042+00:00" time="0.093"/>
+        <testcase name="test_split::test_split_suffix_length_short_concatenated_with_value" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.135+00:00" time="0.093"/>
+        <testcase name="test_split::test_split_to_non_seekable" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.228+00:00" time="0.030"/>
+        <testcase name="test_split::test_suffix_auto_width_with_number" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.258+00:00" time="0.059"/>
+        <testcase name="test_split::test_suffix_length_req" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.317+00:00" time="0.028"/>
+        <testcase name="test_split::test_suffix_length_zero" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.346+00:00" time="0.083"/>
+        <testcase name="test_split::test_suffixes_exhausted" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.429+00:00" time="0.029"/>
+        <testcase name="test_split::test_verbose" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.458+00:00" time="0.029"/>
+        <testcase name="test_split::test_write_error_on_full_device" classname="coreutils::tests" timestamp="2026-10-08T00:39:56.488+00:00" time="0.028"/>
+    </testsuite>
+</testsuites>

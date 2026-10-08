@@ -137,10 +137,13 @@ FAIL, 16 ERROR, and 134 SKIP. Its 633-cell differential records 395 shared
 passes, 176 uutils-only passes, 18 XSH-only passes, and 44 shared failures.
 Compared with the previous full run at `89c4e143`, one XSH failure became a
 pass and there were no regressions from a prior pass. The `split/filter.sh`
-test was stopped after its internal `timeout 10` had run for more than six
-minutes; it is recorded as exit 137 and remains incomplete. `tee/tee.sh` passes
-and `misc/yes.sh` fails. See `CAMPAIGN.md` and `results/` for the reports and
-remaining limits.
+row in that full report was stopped after its internal `timeout 10` had run
+for more than six minutes and is recorded as exit 137. Follow-up commit
+`d622a855` makes the focused GNU 9.12 `tests/split/filter.sh` pass on XSH and
+pinned uutils (one shared pass); the Gate 3 `split` slice remains 126/133 with
+no regressions. Reports are in `results/split-filter-followup/`. `tee/tee.sh`
+passes and `misc/yes.sh` fails. See `CAMPAIGN.md` and `results/` for reports
+and remaining limits.
 
 The pinned BusyBox 1.36.1 route runs through the staged XSH multicall adapter.
 The full default selection covered 71 available staged applet suites: 561

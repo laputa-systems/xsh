@@ -168,6 +168,18 @@ suite then passed 65/65.
   `results/gnu-differential.json`, and the pinned baseline
   `results/gnu-uutils.json`; run logs remain in ignored `.work/logs/`.
 
+### Focused split filter follow-up (2026-10-08, `d622a855`)
+
+`split --filter` now consumes stdin in bounded byte chunks and streams
+round-robin records through per-filter FIFOs, so filters can exit early without
+making split buffer an infinite input. TERM and INT exit through hooks that run
+the FIFO cleanup. The release native split suite passes 9/9. The Gate 3 split
+slice remains 126 pass and 7 fail, matching the committed full report with no
+regressions. GNU 9.12 `tests/split/filter.sh` passes on both XSH and pinned
+uutils; its one differential cell is a shared pass. The focused reports are
+under `results/split-filter-followup/`. The earlier full Gate 4 counts above
+remain unchanged; the `split/filter.sh` failure is resolved in this follow-up.
+
 The full BusyBox run at `8d92a7e2` selected 71 available staged XSH applet
 suites: 561 pass, 119 fail, and 65 skipped. The 50 in-scope coreutils applets
 account for 363 pass, 24 fail, and 2 skipped; the other 21 staged applets and

@@ -1,0 +1,27 @@
+{
+  "suite": "uutils-integration",
+  "utilities": {
+    "split": {
+      "pass": 126,
+      "fail": 7,
+      "skip": 0,
+      "excluded": 0,
+      "failing": [
+        "test_split::diagnostics::test_snippet_points_at_the_unknown_unit",
+        "test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value",
+        "test_split::test_round_robin_limited_file_descriptors",
+        "test_split::test_split_non_utf8_additional_suffix_is_byte_preserving",
+        "test_split::test_split_non_utf8_argument_unix",
+        "test_split::test_split_non_utf8_paths",
+        "test_split::test_split_non_utf8_prefix_is_byte_preserving"
+      ],
+      "applet": true
+    }
+  },
+  "totals": {
+    "pass": 126,
+    "fail": 7,
+    "skip": 0,
+    "excluded": 0
+  }
+}
