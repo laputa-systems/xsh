@@ -147,10 +147,10 @@
       "applet": true
     },
     "cp": {
-      "pass": 367,
+      "pass": 359,
       "fail": 19,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 8,
       "failing": [
         "test_cp::test_copy_dir_preserve_permissions_inaccessible_file",
         "test_cp::test_cp_arg_suffix_without_backup_option",
@@ -512,13 +512,14 @@
       "applet": true
     },
     "ls": {
-      "pass": 186,
-      "fail": 21,
+      "pass": 185,
+      "fail": 22,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_ls::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
         "test_ls::diagnostics::test_snippet_underlines_a_zero_block_size",
+        "test_ls::test_acl_display_symlink",
         "test_ls::test_explicit_color_always_works_with_f",
         "test_ls::test_localized_possible_values",
         "test_ls::test_ls_color",
@@ -1365,9 +1366,9 @@
     }
   },
   "totals": {
-    "pass": 5500,
-    "fail": 449,
+    "pass": 5491,
+    "fail": 450,
     "skip": 0,
-    "excluded": 4
+    "excluded": 12
   }
 }

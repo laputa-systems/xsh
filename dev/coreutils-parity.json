@@ -50,7 +50,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+      ]
     },
     {
       "utility": "base64",
@@ -68,7 +70,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+      ]
     },
     {
       "utility": "basename",
@@ -120,7 +124,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+      ]
     },
     {
       "utility": "cat",
@@ -149,7 +155,7 @@
       },
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 cat's short-option string omits both, so XSH accepts --help and --version without those short forms."
+        "XSH retains GNU's hidden ---presume-input-pipe test option, which uutils cat does not expose; uutils also generates -h/-V while GNU 9.12 cat omits both short controls."
       ]
     },
     {
@@ -173,7 +179,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+      ]
     },
     {
       "utility": "b2sum",
@@ -191,7 +199,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "XSH's shared checksum schema parses --algorithm/-a, --base64, --debug, --raw, and --untagged for b2sum, then rejects them as unsupported; uutils generates short -h/-V forms that XSH omits."
+      ]
     },
     {
       "utility": "md5sum",
@@ -214,7 +224,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for md5sum; uutils generates short -h/-V forms that XSH omits."
+      ]
     },
     {
       "utility": "nice",
@@ -262,7 +274,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha1sum; uutils generates short -h/-V forms that XSH omits."
+      ]
     },
     {
       "utility": "sha224sum",
@@ -280,7 +294,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha224sum; uutils generates short -h/-V forms that XSH omits."
+      ]
     },
     {
       "utility": "sha256sum",
@@ -303,7 +319,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha256sum; uutils generates short -h/-V forms that XSH omits."
+      ]
     },
     {
       "utility": "sha384sum",
@@ -321,7 +339,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha384sum; uutils generates short -h/-V forms that XSH omits."
+      ]
     },
     {
       "utility": "sha512sum",
@@ -344,7 +364,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha512sum; uutils generates short -h/-V forms that XSH omits."
+      ]
     },
     {
       "utility": "comm",
@@ -384,10 +406,10 @@
       "native_tests": "core/tests/test-cp.xsh",
       "uutils_test_count": 398,
       "uutils_integration": {
-        "pass": 367,
+        "pass": 359,
         "fail": 19,
         "skip": 0,
-        "excluded": 0
+        "excluded": 8
       },
       "gnu_differential": {
         "pass": 46,
@@ -401,7 +423,16 @@
         "skip": 0,
         "excluded": 0
       },
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_cp::test_copy_dir_preserve_permissions",
+        "test_cp::test_copy_dir_preserve_readonly_source_with_files",
+        "test_cp::test_copy_dir_preserve_subdir_permissions",
+        "test_cp::test_cp_parents_with_permissions_copy_dir",
+        "test_cp::test_cp_parents_with_permissions_copy_file",
+        "test_cp::test_cp_preserve_all",
+        "test_cp::test_cp_preserve_no_args",
+        "test_cp::test_cp_preserve_no_args_before_opts"
+      ],
       "known_semantic_gaps": []
     },
     {
@@ -425,7 +456,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "cut",
@@ -453,7 +486,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "date",
@@ -470,7 +505,7 @@
       },
       "gnu_differential": {
         "pass": 4,
-        "fail": 5,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -481,7 +516,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+      ]
     },
     {
       "utility": "dd",
@@ -545,7 +582,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+      ]
     },
     {
       "utility": "dirname",
@@ -789,7 +828,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils also accepts hidden --presume-input-pipe; XSH strips only the shared ---presume-input-pipe test form. Uutils generates -h/-V."
+      ]
     },
     {
       "utility": "hostid",
@@ -887,7 +928,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "ls",
@@ -897,14 +940,14 @@
       "native_tests": "core/tests/test-ls.xsh",
       "uutils_test_count": 219,
       "uutils_integration": {
-        "pass": 186,
-        "fail": 21,
+        "pass": 185,
+        "fail": 22,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
         "pass": 35,
-        "fail": 13,
+        "fail": 12,
         "skip": 0,
         "excluded": 0
       },
@@ -975,7 +1018,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "mv",
@@ -1003,7 +1048,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds -Z/--context, -g, and generated -h/-V; XSH omits these uutils-only forms and shares the backup and update options with pinned uutils."
+      ]
     },
     {
       "utility": "nl",
@@ -1056,7 +1103,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "od",
@@ -1084,7 +1133,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils accepts -e as a floating-point format option and generates -V; XSH's manual legacy-format scan omits -e and the short version form."
+      ]
     },
     {
       "utility": "paste",
@@ -1158,7 +1209,8 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`."
+        "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`.",
+        "Pinned uutils requires a value for -e/--expand-tabs; XSH accepts it optionally. XSH also exposes -i/--output-tabs, -c/--show-control-chars, and -v/--show-nonprinting, which pinned uutils omits; uutils generates -V, which XSH omits."
       ]
     },
     {
@@ -1345,7 +1397,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Pinned uutils has a hidden test switch --presume-input-tty and its ---presume-input-tty alias; XSH omits both along with uutils-generated -h and -V."
+      ]
     },
     {
       "utility": "rmdir",
@@ -1392,7 +1446,7 @@
       },
       "gnu_differential": {
         "pass": 4,
-        "fail": 3,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1428,7 +1482,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "shuf",
@@ -1445,7 +1501,7 @@
       },
       "gnu_differential": {
         "pass": 1,
-        "fail": 1,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1492,7 +1548,7 @@
       },
       "gnu_differential": {
         "pass": 6,
-        "fail": 20,
+        "fail": 16,
         "skip": 0,
         "excluded": 0
       },
@@ -1503,7 +1559,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds --help, --key, --output, --field-separator, --parallel, --compress-program, --random-source and random-sort controls; XSH exposes key/output/separator only as short forms and omits the other options. Uutils also accepts repeated -c/--check values, while XSH limits --check to one optional type and keeps -c as a flag."
+      ]
     },
     {
       "utility": "split",
@@ -1519,14 +1577,16 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 12,
+        "pass": 11,
         "fail": 3,
         "skip": 0,
         "excluded": 0
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils accepts hidden --io-blksize while XSH strips only ---io-blksize; XSH also accepts -u/--unbuffered, absent in pinned uutils. Uutils generates -h/-V."
+      ]
     },
     {
       "utility": "sum",
@@ -1593,7 +1653,7 @@
       },
       "gnu_differential": {
         "pass": 9,
-        "fail": 28,
+        "fail": 27,
         "skip": 0,
         "excluded": 0
       },
@@ -1604,7 +1664,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds --debug, --use-polling and aliases --dis/---disable-inotify, plus hidden --presume-input-pipe and generated -h/-V; XSH accepts only the shared triple-dash test form."
+      ]
     },
     {
       "utility": "tee",
@@ -1634,7 +1696,9 @@
       "excluded_tests": [
         "test_tee::test_short_help_is_long_help"
       ],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds -i/--ignore-interrupts and generated -V; XSH omits these forms."
+      ]
     },
     {
       "utility": "test",
@@ -1690,7 +1754,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils generates -V as a short version control; XSH accepts only --version. The obsolete -f/--force no-op is parsed but unused on both sides."
+      ]
     },
     {
       "utility": "tr",
@@ -1718,7 +1784,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "true",
@@ -1892,7 +1960,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils accepts an optional value with -D as well as --all-repeated; XSH keeps -D as a flag and accepts an optional value only with --all-repeated. Uutils also generates -h/-V."
+      ]
     },
     {
       "utility": "unlink",
@@ -1947,7 +2017,7 @@
       },
       "gnu_differential": {
         "pass": 7,
-        "fail": 2,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1996,14 +2066,16 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 6,
-        "fail": 3,
+        "pass": 5,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Pinned uutils permits zero or more values for --output, while XSH accepts one optional value; uutils also generates -V, which XSH omits."
+      ]
     },
     {
       "utility": "du",
@@ -2031,7 +2103,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Pinned uutils permits zero or more values for --time, while XSH accepts one optional value; uutils also generates -V, which XSH omits."
+      ]
     },
     {
       "utility": "env",
@@ -2206,7 +2280,7 @@
       },
       "gnu_differential": {
         "pass": 2,
-        "fail": 4,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -2281,7 +2355,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils declares --no-preserve-root but does not read it; XSH resets its default false state. Uutils also generates -V, which XSH omits."
+      ]
     },
     {
       "utility": "chmod",
@@ -2304,7 +2380,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils declares --no-preserve-root but does not read it; XSH resets its default false state. Uutils also generates -V, which XSH omits."
+      ]
     },
     {
       "utility": "chown",
@@ -2327,7 +2405,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils declares --no-preserve-root but does not read it; XSH resets its default false state. Uutils also generates -V, which XSH omits."
+      ]
     },
     {
       "utility": "chroot",
@@ -2394,7 +2474,7 @@
       },
       "gnu_differential": {
         "pass": 0,
-        "fail": 4,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -2424,13 +2504,15 @@
       },
       "gnu_differential": {
         "pass": 5,
-        "fail": 1,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds security-label options (-Z, --context, --preserve-context, --unprivileged), -P, and generated -h/-V; XSH omits these uutils-only forms."
+      ]
     },
     {
       "utility": "logname",
@@ -2468,7 +2550,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+      ]
     },
     {
       "utility": "mknod",
@@ -2486,7 +2570,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+      ]
     },
     {
       "utility": "stat",
@@ -2554,7 +2640,8 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Child libc buffering cannot be controlled by parent pipes or XSH byte streams. GNU/uutils stdbuf requires an ABI-compatible preload shared library with a setvbuf constructor; the standalone static musl release ships no such library. The applet validates options and exits 125 explicitly without launching a command."
+        "Child libc buffering cannot be controlled by parent pipes or XSH byte streams. GNU/uutils stdbuf requires an ABI-compatible preload shared library with a setvbuf constructor; the standalone static musl release ships no such library. The applet validates options and exits 125 explicitly without launching a command.",
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
     },
     {
@@ -2621,7 +2708,8 @@
         "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
         "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
         "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
-        "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
+        "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`.",
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
     },
     {
@@ -2632,12 +2720,7 @@
       "native_tests": null,
       "uutils_test_count": 24,
       "uutils_integration": null,
-      "gnu_differential": {
-        "pass": 0,
-        "fail": 1,
-        "skip": 0,
-        "excluded": 0
-      },
+      "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []
@@ -2650,12 +2733,7 @@
       "native_tests": null,
       "uutils_test_count": 8,
       "uutils_integration": null,
-      "gnu_differential": {
-        "pass": 0,
-        "fail": 2,
-        "skip": 0,
-        "excluded": 0
-      },
+      "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": []

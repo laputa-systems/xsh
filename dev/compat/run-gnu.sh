@@ -104,6 +104,25 @@ check_test_tree() {
 	as_user test -r "$gnu/Makefile" || { echo "GNU test account cannot read $gnu/Makefile" >&2; return 1; }
 }
 
+# A test can leave a child blocked after the shell receives TERM. Kill the
+# shell after a short grace period so the GNU harness can record the timeout.
+ensure_test_timeout() {
+	python3 - "$gnu/build-aux/test-driver" <<'EOF'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+contents = path.read_text()
+timeout = '/usr/bin/timeout 600 "$@"'
+bounded_timeout = '/usr/bin/timeout -k 5 600 "$@"'
+if contents.count(bounded_timeout) == 1:
+    raise SystemExit(0)
+if contents.count(timeout) != 1:
+    sys.exit(f"expected one GNU test timeout in {path}")
+path.write_text(contents.replace(timeout, bounded_timeout))
+EOF
+}
+
 run_suite() {
 	local out=$1 status=0
 	shift
@@ -188,6 +207,7 @@ EOF
 
 run_uutils() {
 	check_test_tree
+	ensure_test_timeout
 	point_path_at "$uu_build"
 	as_user test -x "$uu_build/coreutils" || { echo "GNU test account cannot execute $uu_build/coreutils" >&2; return 1; }
 	run_suite "$results/gnu-uutils.json" "$@"
@@ -195,6 +215,7 @@ run_uutils() {
 
 run_xsh() {
 	check_test_tree
+	ensure_test_timeout
 	(cd "$gnu" && ./build-aux/gen-lists-of-programs.sh --list-progs) >"$stage.gnu-programs"
 	python3 "$repo/dev/compat/stage.py" --stage "$stage" --gnu-programs "$stage.gnu-programs"
 	restore_path=true

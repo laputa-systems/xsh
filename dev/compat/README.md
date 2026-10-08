@@ -34,9 +34,11 @@ image because a host build cannot produce the required proc-macro crate types.
 Do not use `--profile dist` for campaign checks. Linux checks still run inside
 the `Dockerfile.test` image.
 
-GNU runs also need a C toolchain, autotools, perl and the packages uutils'
-`build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
-sandbox where `apt` cannot open `/dev/null` as its `_apt` user, add
+GNU runs also need Bash, make, a C toolchain, autotools, Perl and the packages
+uutils' `build-gnu.sh` uses: `quilt gperf texinfo gettext/autopoint gawk
+help2man rsync`. The `Dockerfile.test` image installs these tools and the
+`acl-dev`, `libcap-dev`, and `openssl-dev` libraries used by GNU helper binaries.
+In a sandbox where `apt` cannot open `/dev/null` as its `_apt` user, add
 `-o APT::Sandbox::User=root` to `apt-get update` and `install` (signature
 verification stays on). GNU `configure` refuses to run as root, so `run-gnu.sh`
 bypasses that check for configure only. Root suite runs use `setpriv` with an
@@ -44,7 +46,8 @@ existing account: `GNU_RUN_UID` and `GNU_RUN_GID` fall back to the corresponding
 `UUTESTS_RUN_UID/GID` settings, then UID 1000 and the same GID. The prepared GNU
 tree, including `Makefile.in`, must be writable by that account; the runner
 reports permission failures and does not change ownership. `GNU_JOBS`
-(default 3) sets `make -j`.
+(default 3) sets `make -j`. GNU test scripts have a 600-second timeout and a
+five-second kill-after so a blocked child cannot hold the suite indefinitely.
 
 Root invocations run reference tests through `setpriv` as an existing
 unprivileged account (`UUTESTS_RUN_UID=1000`, GID defaults to that UID).
@@ -86,7 +89,7 @@ differential requires identical test selections on both sides.
 | `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
 | `dev/compat/run-busybox.sh [UTIL...]` | pinned BusyBox tests against staged XSH applets; selected applets or every available suite |
-| `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for 55 commands; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
+| `python3 dev/compat/check_option_surface.py --util UTIL` | Gate 5 pilot for 97 commands; reports spelling, arity, and parsed-but-unused fields against pinned uutils |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
 | `python3 dev/compat/check_kernel_reads.py` | Gate 9 ratchet: no `/proc`/`/sys` literal in a top-level applet |
@@ -118,22 +121,38 @@ module-owned byte-path and text fixes, and external `sort -S` spill runs. The
 sort native suite passes 48/48 and its current pinned slice passes 164/217;
 selected GNU 9.12 sort tests have no XSH-only disagreement. Other focused
 uutils slices fixed additional cases in `cp`, `date`, filesystem applets,
-`stat`, text utilities, `sum`, and `env`. The last full optimized-debug native
-suite passed 4,964/0/38 (pass/fail/skip) at source `89c4e143`. The runtime
-services pending termination signals while an XSH child waits on stdin, and
-unhooked SIGINT/SIGTERM completes with the default shell status. The current
-full Gate 3 release report used source `020558d2`: 5,500 pass, 449 fail, 0
-skip, and 4 excluded. Compared with the previous optimized-debug report,
-`expand` and `pr` each gain one pass and `split` gains four; the comparison also
-flags `shuf::test_getrandom_fail`. That test injects EAGAIN into `getrandom`,
-and XSH panics during regex-literal compilation before the applet runs. This
-runtime limitation remains unresolved. Six earlier `pr` expectation
+`stat`, text utilities, `sum`, and `env`. An earlier optimized-debug native
+suite passed 4,964/0/38 (pass/fail/skip) at source `89c4e143`. The latest full
+x86_64 release native suite passed 4,984/0/39 (pass/fail/skip; 5,023 total) in
+the rebuilt `Dockerfile.test` image as UID/GID 1000, with one worker and a
+container init process. It used a private `.work` `TMPDIR` with an empty
+`xsht-config.ini` so temp lint fixtures use the default rule set. The runtime
+services pending termination signals while an XSH child waits on stdin,
+preserves inherited ignored SIGINT/SIGTERM actions, and unhooked SIGINT/SIGTERM
+completes with the default shell status. The current full Gate 3 release report
+uses the worktree based on `5d95d7d4` plus the cross-applet fixes: 5,491 pass,
+450 fail, 0 skip, and 12 excluded. A repeat in the rebuilt image has the same
+per-utility results and no new failing IDs. Its log is
+`.work/tmp/uutils-current-image/full-gate3.log`; the JUnit and utility report
+are under `.work/compat-results/uutils-current-image/`.
+The runner now puts staged XSH applets first in test-child `PATH`, while
+preserving the build-time and GNU-reference
+paths. This exercises direct cross-applet calls that previously reached
+BusyBox or returned early. The full run used one worker and the short
+`/home/josh/w` alias to a private `.work` `TMPDIR`. The earlier
+full report at `020558d2` showed gains over the preceding optimized-debug run:
+`expand` and `pr` each gained one pass and `split` gained four. The comparison
+also flags `shuf::test_getrandom_fail`: that test injects EAGAIN into
+`getrandom`, and XSH panics during regex-literal compilation before the applet
+runs. This limitation remains unresolved. Six earlier `pr` expectation
 differences remain: direct GNU 9.11 probes match XSH diagnostics, while uutils
-expects different clap messages. The latest full Gate 4 report uses the
-optimized-debug XSH binary built from source `b23d37ea`: 719 selected tests,
-413 PASS, 156 FAIL, 16 ERROR, and 134 SKIP. Its 633-cell differential records
-395 shared passes, 176 uutils-only passes, 18 XSH-only passes, and 44 shared
-failures.
+expects different clap messages. The focused current-worktree `cp` and `stat`
+slices pass 359/386 and 51/51 respectively; `cp`'s eight post-copy atime
+expectations are categorized `gnu-semantics` because GNU 9.12 saves source
+timestamps before reading or traversal. A preceding full Gate 4
+optimized-debug report used source `b23d37ea`: 719 tests, 413 PASS, 156 FAIL,
+16 ERROR, and 134 SKIP. Its four-cell differential recorded 395 shared
+passes, 176 uutils-only passes, 18 XSH-only passes, and 44 shared failures.
 Compared with the previous full run at `89c4e143`, one XSH failure became a
 pass and there were no regressions from a prior pass. The `split/filter.sh`
 row in that full report was stopped after its internal `timeout 10` had run
@@ -149,100 +168,36 @@ non-UTF-8 input paths, prefixes, and additional suffixes: the focused split
 slice is now 130/133 with no regressions, and the release native suite passes
 11/11. Its report is in `results/split-raw-argv-followup/`.
 
-The 2026-10-08 full Gate 4 refresh at source `020558d2` records 415 PASS,
-155 FAIL, 16 ERROR, and 133 SKIP across 719 tests. The differential has 398
-shared passes, 173 uutils-only passes, 17 XSH-only passes, and 44 shared
-failures. `split/filter.sh` passes in this run; `install/stdin.sh` skipped
-because the non-interactive container invocation had closed stdin. The current
-reports are `results/gnu-xsh.json` and `results/gnu-differential.json`.
+The current full Gate 4 refresh in the rebuilt x86_64 `Dockerfile.test` image
+records 413 PASS, 155 FAIL, 16 ERROR, and 135 SKIP across 719 GNU tests. Its
+same-image uutils baseline is 543/53/6/117 (PASS/FAIL/ERROR/SKIP); the
+differential has 398 shared passes, 145 uutils-only passes, 15 XSH-only passes,
+and 52 shared failures. Two cases (`split/filter.sh` and `df/df-symlink.sh`)
+moved from PASS to SKIP compared with the preceding full XSH report, with no
+prior pass becoming a failure or error. The reports are `results/gnu-uutils.json`,
+`results/gnu-xsh.json`, and `results/gnu-differential.json`.
 
 The pinned BusyBox 1.36.1 route runs through the staged XSH multicall adapter.
-The full default selection covered 71 available staged applet suites: 561
-passed, 119 failed, and 65 skipped. Its 50 in-scope coreutils applets account
-for 363 passed, 24 failed, and 2 skipped. The tracked report is
-`results/busybox.json`; per-applet logs remain under the ignored
-`.work/compat-results/busybox/full-wave4/` directory.
+The latest full default selection covered 71 available staged applet suites:
+561 passed, 119 failed, and 65 skipped. The 50 in-scope coreutils applets
+account for 363 passed, 24 failed, and 2 skipped. All per-applet results match
+the previous full report. The tracked report is `results/busybox.json`; current
+per-applet logs remain under `.work/compat-results/busybox-current-image/logs/`.
 
-The Gate 5 pilot compares pinned Clap declarations with XSH's `cli.applet`
-schemas for fifty-five commands. It also recognizes the manual help/version
-branches in `true` and `false` and `echo`'s manual option scan:
-
-| Command | uutils spellings | XSH spellings | Differences |
-|---|---:|---:|---|
-| `arch` | 4 | 2 | uutils-only `-h`, `-V` |
-| `basename` | 10 | 8 | uutils-only `-h`, `-V` |
-| `cat` | 21 | 19 | uutils-only `-h`, `-V` |
-| `chroot` | 7 | 5 | uutils-only `-h`, `-V` |
-| `comm` | 13 | 11 | uutils-only `-h`, `-V` |
-| `dirname` | 6 | 4 | uutils-only `-h`, `-V` |
-| `echo` | 7 | 5 | uutils-only `-h`, `-V` |
-| `expand` | 10 | 6 | uutils-only `-U`, `--no-utf8`, `-h`, `-V` |
-| `factor` | 5 | 4 | uutils-only `-V` |
-| `false` | 2 | 2 | none |
-| `fold` | 12 | 10 | uutils-only `-h`, `-V` |
-| `fmt` | 30 | 24 | uutils-only `-m`, `--preserve-headers`, `-T`, `--tab-width`, `-h`, `-V` |
-| `groups` | 4 | 2 | uutils-only `-h`, `-V` |
-| `hostid` | 4 | 2 | uutils-only `-h`, `-V` |
-| `hostname` | 12 | 10 | uutils-only `-h`, `-V` |
-| `id` | 23 | 17 | uutils-only `--ignore`, `-A`, `-p`, `-P`, `-h`, `-V` |
-| `join` | 19 | 17 | uutils-only `-h`, `-V` |
-| `kill` | 12 | 9 | uutils-only `-L`, `-h`, `-V` |
-| `link` | 4 | 2 | uutils-only `-h`, `-V` |
-| `logname` | 4 | 2 | uutils-only `-h`, `-V` |
-| `mkdir` | 12 | 8 | uutils-only `--context`, `-Z`, `-h`, `-V` |
-| `more` | 27 | 25 | uutils-only `-h`, `-V` |
-| `nice` | 6 | 4 | uutils-only `-h`, `-V` |
-| `nl` | 25 | 24 | uutils-only `-V` |
-| `nohup` | 4 | 2 | uutils-only `-h`, `-V` |
-| `nproc` | 6 | 4 | uutils-only `-h`, `-V` |
-| `paste` | 10 | 8 | uutils-only `-h`, `-V` |
-| `pathchk` | 7 | 5 | uutils-only `-h`, `-V` |
-| `pinky` | 13 | 12 | uutils-only `-V` |
-| `printenv` | 6 | 4 | uutils-only `-h`, `-V` |
-| `ptx` | 37 | 35 | uutils-only `-h`, `-V` |
-| `pwd` | 8 | 6 | uutils-only `-h`, `-V` |
-| `readlink` | 20 | 18 | uutils-only `-h`, `-V` |
-| `realpath` | 23 | 21 | uutils-only `-h`, `-V` |
-| `rmdir` | 9 | 7 | uutils-only `-h`, `-V` |
-| `seq` | 12 | 10 | uutils-only `-h`, `-V` |
-| `shuf` | 18 | 15 | uutils-only `--random-seed`, `-h`, `-V` |
-| `sleep` | 4 | 2 | uutils-only `-h`, `-V` |
-| `stat` | 13 | 11 | uutils-only `-h`, `-V` |
-| `sum` | 7 | 5 | uutils-only `-h`, `-V` |
-| `sync` | 8 | 6 | uutils-only `-h`, `-V` |
-| `tac` | 10 | 8 | uutils-only `-h`, `-V` |
-| `timeout` | 14 | 12 | uutils-only `-h`, `-V` |
-| `true` | 2 | 2 | none |
-| `truncate` | 12 | 10 | uutils-only `-h`, `-V` |
-| `tsort` | 5 | 5 | none |
-| `tty` | 7 | 5 | uutils-only `-h`, `-V` |
-| `uname` | 26 | 24 | uutils-only `-h`, `-V` |
-| `unexpand` | 12 | 8 | uutils-only `-U`, `--no-utf8`, `-h`, `-V` |
-| `unlink` | 4 | 2 | uutils-only `-h`, `-V` |
-| `uptime` | 8 | 6 | uutils-only `-h`, `-V` |
-| `users` | 4 | 2 | uutils-only `-h`, `-V` |
-| `wc` | 17 | 15 | uutils-only `-h`, `-V` |
-| `whoami` | 4 | 2 | uutils-only `-h`, `-V` |
-| `yes` | 4 | 2 | uutils-only `-h`, `-V` |
-
-All other spellings and arities match. The short help/version forms are
-Clap-generated and absent from GNU 9.12. The strict checker exits 1 whenever
-the inventories differ, and `gaps.json` records each difference. Direct cat
-probes confirm both sides accept `--help` and `--version`, while only uutils accepts
-`-h` and `-V`. The comparison also reports `cat -u` as parsed-but-unused on
-both sides, matching cat's documented ignored option. `sum -r` is also
-parsed-but-unused on both sides; XSH reads `-s` and `--sysv` from raw byte
-arguments and leaves `-r` as a no-op. The uutils-only `-U`/`--no-utf8` options
-on `expand` and `unexpand` are absent from GNU 9.12, so XSH does not implement
-them. Uutils adds `fmt -m/--preserve-headers` and `-T/--tab-width`, which GNU
-9.12 does not provide; `id` also omits uutils-only `--ignore`, `-A`, `-p`, and
-`-P` (XSH's `-a` remains a no-op without the long alias). `kill` has uutils'
-extra `-L` table alias. XSH explicitly rejects `mkdir -Z/--context` because
-security labels are unavailable and `shuf --random-seed` as a uutils
-extension. XSH's manual `echo` scan follows GNU and treats `-h` and `-V` as
-text; uutils generates those short help/version controls. The 55 comparisons
-cover 613 uutils spellings and 496 XSH spellings; Gate 5 remains open for the
-other 51 utilities. Seventeen parser tests pass.
+The Gate 5 option-surface pilot compares pinned uutils Clap declarations with
+XSH CLI schemas and parser behavior, including literal aliases, fixed and ranged
+argument counts, shared option builders, hidden test arguments, raw scanners,
+and parsed-but-unused fields. The current refresh parsed all 97 supported
+commands: four surfaces match exactly and 93 report one or more differences.
+It covers 1,544 uutils spellings and 1,385 XSH spellings; 9 in-scope utilities
+remain unaudited. All 28 parser tests pass. The checker follows the shared
+checksum builders and XSH checksum schema, the shared base encoding builder,
+basenc selector scanner, and the manual option parsers for date, dircolors, and
+expr.
+Exact command differences and the per-command audit are
+in `CAMPAIGN.md` under Gate 5; the current log and summary are
+`.work/tmp/option-surface-alias-current/output.log` and
+`.work/tmp/option-surface-alias-current/summary.json`.
 
 The historical full Gate 3 and Gate 4 results at `92a91b12` were 5,125/824/0
 with four exclusions for Gate 3, and 367 PASS, 189 FAIL, 25 ERROR, and 138

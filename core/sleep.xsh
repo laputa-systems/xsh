@@ -149,8 +149,13 @@ proc main(...argv: List[Str]) [process, env, time, error, io] {
     exit 1
   }
 
-  process.set_signal_action("INT", "default")?
-  process.set_signal_action("TERM", "default")?
+  # Exec preserves ignored signals; don't replace an explicit ignore with the default action.
+  if process.signal_action("INT")? == "handler" {
+    process.set_signal_action("INT", "default")?
+  }
+  if process.signal_action("TERM")? == "handler" {
+    process.set_signal_action("TERM", "default")?
+  }
 
   var remaining = total * 1000.0
 

@@ -82,3 +82,30 @@ test test_sleep_help_and_version { |ctx|
   assert help.stdout.starts_with("Usage: sleep NUMBER[SUFFIX]...\n")
   assert applet_run(ctx, ["--version"])?.stdout.starts_with("sleep ")
 }
+
+test test_sleep_preserves_an_inherited_ignored_signal { |ctx|
+  let env_script = fp"{ctx.core_dir}/env.xsh"
+  let sleep_script = fp"{ctx.core_dir}/sleep.xsh"
+  for signal in ["INT", "TERM"] {
+    let root = test.temp_dir(ctx, name: f"sleep-ignored-{signal}")?
+    let argv = [
+      ctx.xsh_bin.display(),
+      env_script.display(),
+      f"--ignore-signal={signal}",
+      ctx.xsh_bin.display(),
+      sleep_script.display(),
+      "30",
+    ]
+    let child = spawn process.command_argv(ctx.xsh_bin, argv, root)?
+
+    time.sleep(100ms)?
+    process.kill(child.pid, signal: signal)?
+    let still_running = process.wait_timeout([child], 100ms)? == null
+
+    if still_running {
+      child.cancel(signal: "KILL", kill_after: 0ms)?
+    }
+
+    assert still_running, signal
+  }
+}

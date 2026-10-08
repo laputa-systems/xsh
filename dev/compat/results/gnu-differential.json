@@ -2,9 +2,9 @@
   "suite": "gnu-differential",
   "counts": {
     "uutils_pass_xsh_pass": 398,
-    "uutils_pass_xsh_fail": 173,
-    "uutils_fail_xsh_pass": 17,
-    "uutils_fail_xsh_fail": 44
+    "uutils_pass_xsh_fail": 145,
+    "uutils_fail_xsh_pass": 15,
+    "uutils_fail_xsh_fail": 52
   },
   "cells": {
     "uutils_pass_xsh_pass": [
@@ -14,13 +14,13 @@
       "cat/cat-proc.log",
       "cat/cat-self.log",
       "cat/splice.log",
-      "chmod/c-option.log",
       "chmod/equal-x.log",
       "chmod/equals.log",
       "chmod/ignore-symlink.log",
       "chmod/inaccessible.log",
       "chmod/no-x.log",
       "chmod/octal.log",
+      "chmod/only-op.log",
       "chmod/partial-fail.log",
       "chmod/silent.log",
       "chmod/symlinks.log",
@@ -62,7 +62,6 @@
       "cp/dir-rm-dest.log",
       "cp/dir-slash.log",
       "cp/dir-vs-file.log",
-      "cp/existing-perm-dir.log",
       "cp/file-perm-race.log",
       "cp/into-self.log",
       "cp/keep-directory-symlink.log",
@@ -83,7 +82,6 @@
       "cp/proc-short-read.log",
       "cp/proc-zero-len.log",
       "cp/r-vs-symlink.log",
-      "cp/readonly-dir.log",
       "cp/reflink-auto.log",
       "cp/reflink-perm.log",
       "cp/same-file.log",
@@ -112,7 +110,6 @@
       "dd/unblock-sync.log",
       "dd/unblock.log",
       "df/df-P.log",
-      "df/df-symlink.log",
       "df/header.log",
       "df/total-unprocessed.log",
       "df/total-verify.log",
@@ -140,11 +137,17 @@
       "du/trailing-slash.log",
       "env/env-S-script.log",
       "env/env-null.log",
+      "expand/mb.log",
+      "expr/expr-multibyte.log",
       "expr/expr.log",
       "factor/factor-parallel.log",
       "fmt/goal-option.log",
       "fmt/non-space.log",
       "fmt/width.log",
+      "fold/fold-characters.log",
+      "fold/fold-nbsp.log",
+      "fold/fold-spaces.log",
+      "fold/fold-zero-width.log",
       "fold/multiple-files.log",
       "groups/groups-dash.log",
       "groups/groups-process-all.log",
@@ -153,11 +156,8 @@
       "head/head-n0.log",
       "head/quote-headers.log",
       "help/help-version-getopt.log",
-      "install/create-leading.log",
-      "install/d-slashdot.log",
-      "install/install-C.log",
-      "install/strip-program.log",
       "install/trap.log",
+      "join/join-utf8.log",
       "ln/backup-suffix-traversal.log",
       "ln/hard-backup.log",
       "ln/non-utf8-src.log",
@@ -204,7 +204,6 @@
       "misc/dirname.log",
       "misc/echo.log",
       "misc/false-status.log",
-      "misc/invalid-opt.log",
       "misc/mknod.log",
       "misc/no-fork.log",
       "misc/nohup.log",
@@ -220,8 +219,6 @@
       "mkdir/p-slashdot.log",
       "mkdir/p-thru-slink.log",
       "mkdir/p-v.log",
-      "mkdir/parents.log",
-      "mkdir/special-1.log",
       "mkdir/t-slash.log",
       "mktemp/bad-unicode.log",
       "mktemp/mktemp-misc.log",
@@ -262,6 +259,7 @@
       "mv/trailing-slash.log",
       "mv/update.log",
       "nice/nice-fail.log",
+      "nl/multibyte.log",
       "nl/multiple-files.log",
       "nl/nl.log",
       "nproc/nproc-avail.log",
@@ -272,6 +270,7 @@
       "od/od-endian.log",
       "od/od-float.log",
       "od/od-x8.log",
+      "paste/multi-byte.log",
       "paste/paste.log",
       "printf/printf-hex.log",
       "printf/printf-indexed.log",
@@ -343,7 +342,6 @@
       "split/additional-suffix.log",
       "split/b-chunk.log",
       "split/fail.log",
-      "split/filter.log",
       "split/l-chunk.log",
       "split/lines.log",
       "split/numeric.log",
@@ -382,6 +380,7 @@
       "touch/no-create-missing.log",
       "touch/no-dereference.log",
       "touch/no-rights.log",
+      "touch/not-owner.log",
       "touch/read-only.log",
       "touch/relative.log",
       "touch/trailing-slash.log",
@@ -396,6 +395,7 @@
       "truncate/truncate-overflow.log",
       "truncate/truncate-parameters.log",
       "truncate/truncate-relative.log",
+      "unexpand/mb.log",
       "uniq/uniq-c-width.log",
       "uniq/uniq-collate.log",
       "uniq/uniq-perf.log",
@@ -411,17 +411,15 @@
       "basenc/base64.log",
       "basenc/basenc.log",
       "basenc/bounded-memory.log",
-      "chcon/chcon-fail.log",
       "chmod/setgid.log",
       "chown/deref.log",
       "cksum/cksum-c.log",
       "comm/comm.log",
       "cp/backup-is-src.log",
-      "cp/copy-FMR.log",
       "cp/cp-i.log",
-      "cp/cp-parents.log",
       "cp/fail-perm.log",
       "cp/link-heap.log",
+      "cp/nfs-removal-race.log",
       "cp/non-utf8-name.log",
       "cp/preserve-link.log",
       "cp/sparse.log",
@@ -431,7 +429,6 @@
       "csplit/csplit.log",
       "cut/cut-huge-range.log",
       "cut/cut.log",
-      "date/date-locale-hour.log",
       "date/date-sec.log",
       "date/reference.log",
       "dd/direct.log",
@@ -442,32 +439,25 @@
       "dd/stats.log",
       "dd/stderr.log",
       "df/df-output.log",
-      "df/no-mtab-status-masked-proc.log",
       "df/sync.log",
       "du/2g.log",
       "du/bigtime.log",
       "du/files0-from.log",
       "du/long-from-unreadable.log",
-      "du/long-sloop.log",
       "du/threshold.log",
       "du/two-args.log",
-      "env/env-S.log",
       "expand/bounded-memory.log",
       "expand/expand.log",
       "factor/factor.log",
-      "fmt/base.log",
       "fmt/long-line.log",
-      "fold/fold.log",
       "head/head-c.log",
       "head/head-pos.log",
       "head/head-write-error.log",
       "head/head.log",
       "id/uid.log",
       "id/zero.log",
-      "install/basic-1.log",
       "ln/backup-1.log",
       "ln/hard-to-sym.log",
-      "ln/misc.log",
       "ln/relative.log",
       "ln/sf-1.log",
       "ls/color-norm.log",
@@ -478,23 +468,17 @@
       "ls/ls-misc.log",
       "ls/m-option.log",
       "ls/quote-align.log",
-      "ls/root-rel-symlink-color.log",
       "ls/stat-dtype.log",
       "ls/stat-free-symlinks.log",
       "ls/symlink-loop.log",
       "ls/w-option.log",
       "misc/coreutils.log",
       "misc/dircolors.log",
-      "misc/empty-backup-suffix.log",
-      "misc/just-created.log",
       "misc/kill.log",
       "misc/time-style.log",
-      "misc/usage_vs_getopt.log",
-      "misc/user.log",
       "misc/xstrtol.log",
       "misc/yes.log",
       "mkdir/p-3.log",
-      "mkdir/perm.log",
       "mv/backup-dir.log",
       "mv/backup-is-src.log",
       "mv/diag.log",
@@ -507,7 +491,6 @@
       "od/od-multiple-t.log",
       "printf/printf-cov.log",
       "printf/printf-surprise.log",
-      "pwd/pwd-long.log",
       "readlink/can-e.log",
       "readlink/can-f.log",
       "readlink/can-m.log",
@@ -520,26 +503,19 @@
       "rm/sunos-1.log",
       "rmdir/t-slash.log",
       "seq/seq-epipe.log",
-      "seq/seq-long-double.log",
       "seq/seq.log",
-      "shuf/shuf-reservoir.log",
       "sort/sort-buffer-size.log",
       "sort/sort-compress-hang.log",
       "sort/sort-compress-proc.log",
       "sort/sort-compress.log",
-      "sort/sort-continue.log",
       "sort/sort-debug-keys.log",
-      "sort/sort-debug-warn.log",
       "sort/sort-discrim.log",
       "sort/sort-field-limit.log",
       "sort/sort-files0-from.log",
       "sort/sort-float.log",
       "sort/sort-merge.log",
-      "sort/sort-month.log",
       "sort/sort-rand.log",
       "sort/sort-spinlock-abuse.log",
-      "sort/sort-stale-thread-mem.log",
-      "sort/sort-u-FMR.log",
       "sort/sort-unique-segv.log",
       "sort/sort-version.log",
       "split/guard-input.log",
@@ -559,7 +535,6 @@
       "tail/inotify-hash-abuse2.log",
       "tail/inotify-only-regular.log",
       "tail/inotify-rotate.log",
-      "tail/overlay-headers.log",
       "tail/pid.log",
       "tail/pipe-f.log",
       "tail/pipe-f2.log",
@@ -571,39 +546,35 @@
       "tail/wait.log",
       "test/test-N.log",
       "test/test-file.log",
-      "timeout/init-parent.log",
-      "timeout/timeout-group.log",
       "timeout/timeout-parameters.log",
       "timeout/timeout.log",
       "touch/obsolescent.log",
       "tty/tty.log",
       "unexpand/bounded-memory.log",
       "unexpand/unexpand.log",
-      "uniq/uniq.log",
-      "wc/wc-sjis.log"
+      "uniq/uniq.log"
     ],
     "uutils_fail_xsh_pass": [
-      "chmod/only-op.log",
+      "chmod/c-option.log",
+      "cp/existing-perm-dir.log",
+      "cp/readonly-dir.log",
       "date/date-tz.log",
-      "expand/mb.log",
-      "expr/expr-multibyte.log",
-      "fold/fold-characters.log",
-      "fold/fold-nbsp.log",
-      "fold/fold-spaces.log",
-      "fold/fold-zero-width.log",
-      "join/join-utf8.log",
+      "install/create-leading.log",
+      "install/d-slashdot.log",
+      "install/install-C.log",
+      "install/strip-program.log",
+      "misc/invalid-opt.log",
+      "mkdir/parents.log",
+      "mkdir/special-1.log",
       "mv/mv-special-1.log",
-      "nl/multibyte.log",
-      "paste/multi-byte.log",
       "pr/options.log",
       "tail/follow-name.log",
-      "tail/pid-pipe.log",
-      "touch/not-owner.log",
-      "unexpand/mb.log"
+      "tail/pid-pipe.log"
     ],
     "uutils_fail_xsh_fail": [
       "cat/cat-distinct-err.log",
       "comm/dash-dash.log",
+      "cp/cp-parents.log",
       "cut/bounded-memory.log",
       "date/date-debug.log",
       "date/date.log",
@@ -611,31 +582,38 @@
       "dd/misc.log",
       "dd/nocache.log",
       "du/block-size.log",
+      "du/long-sloop.log",
+      "env/env-S.log",
       "env/env-signal-handler.log",
       "env/env.log",
       "env/env0-from.log",
       "env/printenv.log",
-      "id/context.log",
-      "id/no-context.log",
+      "fmt/base.log",
+      "fold/fold.log",
+      "install/basic-1.log",
+      "install/stdin.log",
       "join/join.log",
+      "ln/misc.log",
       "misc/close-stdin.log",
+      "misc/empty-backup-suffix.log",
       "misc/io-errors.log",
+      "misc/just-created.log",
       "misc/printenv.log",
       "misc/read-errors.log",
-      "misc/responsive.log",
       "misc/stdbuf.log",
-      "misc/traversal-missing.log",
+      "misc/usage_vs_getopt.log",
       "misc/warning-errors.log",
       "misc/write-errors.log",
+      "mkdir/perm.log",
       "od/od.log",
       "pr/bounded-memory.log",
       "pr/pr-tests.log",
       "ptx/ptx.log",
+      "pwd/pwd-long.log",
       "rm/rm-readdir-fail.log",
-      "runcon/runcon-compute.log",
-      "runcon/runcon-no-reorder.log",
       "shred/fifo.log",
       "shred/shred-remove.log",
+      "sort/sort-debug-warn.log",
       "sort/sort.log",
       "tail/debug.log",
       "tail/follow-symlink.log",
@@ -666,15 +644,6 @@
       "skip": 0,
       "excluded": 0,
       "blockers": []
-    },
-    "chcon": {
-      "pass": 0,
-      "fail": 1,
-      "skip": 0,
-      "excluded": 0,
-      "blockers": [
-        "chcon/chcon-fail.log"
-      ]
     },
     "chmod": {
       "pass": 14,
@@ -726,11 +695,10 @@
       "excluded": 0,
       "blockers": [
         "cp/backup-is-src.log",
-        "cp/copy-FMR.log",
         "cp/cp-i.log",
-        "cp/cp-parents.log",
         "cp/fail-perm.log",
         "cp/link-heap.log",
+        "cp/nfs-removal-race.log",
         "cp/non-utf8-name.log",
         "cp/preserve-link.log",
         "cp/sparse.log",
@@ -760,11 +728,10 @@
     },
     "date": {
       "pass": 4,
-      "fail": 5,
+      "fail": 4,
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "date/date-locale-hour.log",
         "date/date-sec.log",
         "date/reference.log"
       ]
@@ -785,13 +752,12 @@
       ]
     },
     "df": {
-      "pass": 6,
-      "fail": 3,
+      "pass": 5,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "blockers": [
         "df/df-output.log",
-        "df/no-mtab-status-masked-proc.log",
         "df/sync.log"
       ]
     },
@@ -805,7 +771,6 @@
         "du/bigtime.log",
         "du/files0-from.log",
         "du/long-from-unreadable.log",
-        "du/long-sloop.log",
         "du/threshold.log",
         "du/two-args.log"
       ]
@@ -815,9 +780,7 @@
       "fail": 5,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "env/env-S.log"
-      ]
+      "blockers": []
     },
     "expand": {
       "pass": 1,
@@ -851,7 +814,6 @@
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "fmt/base.log",
         "fmt/long-line.log"
       ]
     },
@@ -860,9 +822,7 @@
       "fail": 1,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "fold/fold.log"
-      ]
+      "blockers": []
     },
     "groups": {
       "pass": 3,
@@ -892,7 +852,7 @@
     },
     "id": {
       "pass": 0,
-      "fail": 4,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "blockers": [
@@ -902,12 +862,10 @@
     },
     "install": {
       "pass": 5,
-      "fail": 1,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "install/basic-1.log"
-      ]
+      "blockers": []
     },
     "join": {
       "pass": 1,
@@ -924,14 +882,13 @@
       "blockers": [
         "ln/backup-1.log",
         "ln/hard-to-sym.log",
-        "ln/misc.log",
         "ln/relative.log",
         "ln/sf-1.log"
       ]
     },
     "ls": {
       "pass": 35,
-      "fail": 13,
+      "fail": 12,
       "skip": 0,
       "excluded": 0,
       "blockers": [
@@ -943,7 +900,6 @@
         "ls/ls-misc.log",
         "ls/m-option.log",
         "ls/quote-align.log",
-        "ls/root-rel-symlink-color.log",
         "ls/stat-dtype.log",
         "ls/stat-free-symlinks.log",
         "ls/symlink-loop.log",
@@ -952,18 +908,14 @@
     },
     "misc": {
       "pass": 17,
-      "fail": 19,
+      "fail": 16,
       "skip": 0,
       "excluded": 0,
       "blockers": [
         "misc/coreutils.log",
         "misc/dircolors.log",
-        "misc/empty-backup-suffix.log",
-        "misc/just-created.log",
         "misc/kill.log",
         "misc/time-style.log",
-        "misc/usage_vs_getopt.log",
-        "misc/user.log",
         "misc/xstrtol.log",
         "misc/yes.log"
       ]
@@ -974,8 +926,7 @@
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "mkdir/p-3.log",
-        "mkdir/perm.log"
+        "mkdir/p-3.log"
       ]
     },
     "mktemp": {
@@ -1077,9 +1028,7 @@
       "fail": 1,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "pwd/pwd-long.log"
-      ]
+      "blockers": []
     },
     "readlink": {
       "pass": 5,
@@ -1116,21 +1065,13 @@
         "rmdir/t-slash.log"
       ]
     },
-    "runcon": {
-      "pass": 0,
-      "fail": 2,
-      "skip": 0,
-      "excluded": 0,
-      "blockers": []
-    },
     "seq": {
       "pass": 4,
-      "fail": 3,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "blockers": [
         "seq/seq-epipe.log",
-        "seq/seq-long-double.log",
         "seq/seq.log"
       ]
     },
@@ -1143,16 +1084,14 @@
     },
     "shuf": {
       "pass": 1,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "shuf/shuf-reservoir.log"
-      ]
+      "blockers": []
     },
     "sort": {
       "pass": 6,
-      "fail": 20,
+      "fail": 16,
       "skip": 0,
       "excluded": 0,
       "blockers": [
@@ -1160,25 +1099,20 @@
         "sort/sort-compress-hang.log",
         "sort/sort-compress-proc.log",
         "sort/sort-compress.log",
-        "sort/sort-continue.log",
         "sort/sort-debug-keys.log",
-        "sort/sort-debug-warn.log",
         "sort/sort-discrim.log",
         "sort/sort-field-limit.log",
         "sort/sort-files0-from.log",
         "sort/sort-float.log",
         "sort/sort-merge.log",
-        "sort/sort-month.log",
         "sort/sort-rand.log",
         "sort/sort-spinlock-abuse.log",
-        "sort/sort-stale-thread-mem.log",
-        "sort/sort-u-FMR.log",
         "sort/sort-unique-segv.log",
         "sort/sort-version.log"
       ]
     },
     "split": {
-      "pass": 12,
+      "pass": 11,
       "fail": 3,
       "skip": 0,
       "excluded": 0,
@@ -1209,7 +1143,7 @@
     },
     "tail": {
       "pass": 9,
-      "fail": 28,
+      "fail": 27,
       "skip": 0,
       "excluded": 0,
       "blockers": [
@@ -1224,7 +1158,6 @@
         "tail/inotify-hash-abuse2.log",
         "tail/inotify-only-regular.log",
         "tail/inotify-rotate.log",
-        "tail/overlay-headers.log",
         "tail/pid.log",
         "tail/pipe-f.log",
         "tail/pipe-f2.log",
@@ -1255,12 +1188,10 @@
     },
     "timeout": {
       "pass": 2,
-      "fail": 4,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "timeout/init-parent.log",
-        "timeout/timeout-group.log",
         "timeout/timeout-parameters.log",
         "timeout/timeout.log"
       ]
@@ -1318,12 +1249,10 @@
     },
     "wc": {
       "pass": 7,
-      "fail": 2,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "wc/wc-sjis.log"
-      ]
+      "blockers": []
     }
   }
 }

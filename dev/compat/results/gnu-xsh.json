@@ -203,7 +203,7 @@
   "df": {
     "df-P.log": "PASS",
     "df-output.log": "FAIL",
-    "df-symlink.log": "PASS",
+    "df-symlink.log": "SKIP",
     "header.log": "PASS",
     "no-mtab-status-masked-proc.log": "SKIP",
     "over-mount-device.log": "SKIP",
@@ -697,7 +697,7 @@
     "additional-suffix.log": "PASS",
     "b-chunk.log": "PASS",
     "fail.log": "PASS",
-    "filter.log": "PASS",
+    "filter.log": "SKIP",
     "guard-input.log": "FAIL",
     "l-chunk-root.log": "SKIP",
     "l-chunk.log": "PASS",

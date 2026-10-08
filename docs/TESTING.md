@@ -217,6 +217,11 @@ runs the same image. A build outside that image is not evidence about Linux.
 The driver passes `--init` so orphaned stopped jobs are reaped. For a native
 gate inside the image, run the container-built
 `target/aarch64-unknown-linux-musl/release/xsht`.
+The image includes Python 3 for native tests that run `dev/compat/stage.py`,
+util-linux `setpriv` for tests that drop to an unprivileged user, and a `compat`
+account with UID/GID 1000 for those runs. Bash, make, Perl, autotools, the
+uutils GNU preparation tools, and ACL/capability/crypto headers support the
+GNU compatibility suite and runner.
 
 ## Interactive parity
 

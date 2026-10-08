@@ -34,9 +34,9 @@ proc utmp_record(kind: Int, line: Str, account: Str, host: Str) [error] -> Resul
 
 # A passwd file and utmp file the applet reads through XSH_PASSWD_FILE and
 # XSH_UTMP_FILE, plus a home directory for the long format.
-type World = {passwd: Path, utmp: Path, home: Path}
+type World = {passwd: Path, utmp: Path, home: Path, bob_line: Str, stranger_line: Str}
 
-proc world(ctx: TestContext, records: List[Bytes]) [fs, error] -> Result[World] {
+proc world(ctx: TestContext, records: List[Bytes], bob_line: Str = "pts/8", stranger_line: Str = "pts/7") [fs, error] -> Result[World] {
   let root = test.temp_dir(ctx, name: "pinky")?
   let home = fp"{root}/home"
   home.mkdir()
@@ -48,7 +48,7 @@ blank:x:1003:1003::/home/blank:/bin/sh
 """)
   let utmp = fp"{root}/utmp"
   utmp.write(bytes.concat(records))
-  Ok({passwd: passwd, utmp: utmp, home: home})
+  Ok({passwd: passwd, utmp: utmp, home: home, bob_line: bob_line, stranger_line: stranger_line})
 }
 
 proc pinky_run(
@@ -69,15 +69,20 @@ proc pinky_run(
   Ok({status: status.exit_code()?, stdout: if sink == null { out.read_text()? } else { "" }, stderr: err.read_text()?})
 }
 
-proc sessions(ctx: TestContext) [fs, error] -> Result[World] {
+proc sessions(ctx: TestContext) [fs, process, error] -> Result[World] {
+  # Devpts names are numeric without padding, so prefixed names cannot alias a live PTY.
+  let suffix = process.current_pid()? % 100
+  let bob_line = f"pts/x{suffix:02}"
+  let stranger_line = f"pts/x{(suffix + 1) % 100:02}"
   world(
     ctx,
     [
       utmp_record(USER_PROCESS, "ttyNotThere", "alice", "example.org:0")?,
       utmp_record(DEAD_PROCESS, "pts/9", "bob", "")?,
-      utmp_record(USER_PROCESS, "pts/8", "bob", "::1")?,
-      utmp_record(USER_PROCESS, "pts/7", "stranger", "")?,
+      utmp_record(USER_PROCESS, bob_line, "bob", "::1")?,
+      utmp_record(USER_PROCESS, stranger_line, "stranger", "")?,
     ],
+    bob_line: bob_line, stranger_line: stranger_line,
   )
 }
 
@@ -86,28 +91,29 @@ test test_pinky_short_format_lists_user_sessions_with_names { |ctx|
   let result = pinky_run(ctx, [], w)?
   assert result.status == 0
   assert result.stderr == ""
-  assert result.stdout == HEADING + """alice    Alice Liddell       ?ttyNotThere ?????  Nov 14 22:13 example.org:0
-bob      Bob Builder         ?pts/8    ?????  Nov 14 22:13 ::1
-stranger                 ??? ?pts/7    ?????  Nov 14 22:13
-""", result.stdout
+  let expected = HEADING + f"""alice    Alice Liddell       ?ttyNotThere ?????  Nov 14 22:13 example.org:0
+bob      Bob Builder         ?{w.bob_line}  ?????  Nov 14 22:13 ::1
+stranger                 ??? ?{w.stranger_line}  ?????  Nov 14 22:13
+"""
+  assert result.stdout == expected, result.stdout
 }
 
 test test_pinky_column_options_drop_columns { |ctx|
   let w = sessions(ctx)?
   assert pinky_run(ctx, ["-f"], w)?.stdout.starts_with("alice    Alice Liddell")
   let no_name = pinky_run(ctx, ["-w"], w)?.stdout
-  assert no_name == "Login     TTY      Idle   When         Where\nalice    ?ttyNotThere ?????  Nov 14 22:13 example.org:0\nbob      ?pts/8    ?????  Nov 14 22:13 ::1\nstranger ?pts/7    ?????  Nov 14 22:13\n", no_name
+  assert no_name == f"Login     TTY      Idle   When         Where\nalice    ?ttyNotThere ?????  Nov 14 22:13 example.org:0\nbob      ?{w.bob_line}  ?????  Nov 14 22:13 ::1\nstranger ?{w.stranger_line}  ?????  Nov 14 22:13\n", no_name
   let no_host = pinky_run(ctx, ["-i"], w)?.stdout
-  assert no_host == "Login     TTY      Idle   When        \nalice    ?ttyNotThere ?????  Nov 14 22:13\nbob      ?pts/8    ?????  Nov 14 22:13\nstranger ?pts/7    ?????  Nov 14 22:13\n", no_host
+  assert no_host == f"Login     TTY      Idle   When        \nalice    ?ttyNotThere ?????  Nov 14 22:13\nbob      ?{w.bob_line}  ?????  Nov 14 22:13\nstranger ?{w.stranger_line}  ?????  Nov 14 22:13\n", no_host
   let quiet = pinky_run(ctx, ["-q"], w)?.stdout
-  assert quiet == "Login     TTY      When        \nalice    ?ttyNotThere Nov 14 22:13\nbob      ?pts/8    Nov 14 22:13\nstranger ?pts/7    Nov 14 22:13\n", quiet
+  assert quiet == f"Login     TTY      When        \nalice    ?ttyNotThere Nov 14 22:13\nbob      ?{w.bob_line}  Nov 14 22:13\nstranger ?{w.stranger_line}  Nov 14 22:13\n", quiet
   assert pinky_run(ctx, ["-s"], w)?.stdout == pinky_run(ctx, [], w)?.stdout
 }
 
 test test_pinky_names_select_sessions { |ctx|
   let w = sessions(ctx)?
   let result = pinky_run(ctx, ["-f", "bob", "nobody"], w)?
-  assert result.stdout == "bob      Bob Builder         ?pts/8    ?????  Nov 14 22:13 ::1\n", result.stdout
+  assert result.stdout == f"bob      Bob Builder         ?{w.bob_line}  ?????  Nov 14 22:13 ::1\n", result.stdout
 }
 
 test test_pinky_terminal_file_gives_mesg_and_idle { |ctx|

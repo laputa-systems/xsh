@@ -50,14 +50,14 @@ pure mode_string(kind: Str, mode: Int) -> Str {
 
 pure hex(value: Int) -> Str {
   let digits = "0123456789abcdef"
-  return "0" when value == 0
-
   var rest = value
   var out = ""
-  while rest > 0 {
+
+  loop {
     let index = rest % 16
     out = f"{digits[index..index + 1]}{out}"
     rest /= 16
+    break when rest == 0
   }
 
   out

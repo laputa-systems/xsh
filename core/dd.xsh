@@ -269,6 +269,19 @@ proc prepare_stdout_seek(offset: Int) [error, io, env, process] {
   }
 }
 
+proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, error] -> Result[Unit] {
+  let fd = unix.open_fd(dest, nonblock: false)?
+  var discarded = 0
+  while discarded < offset {
+    let width = if offset - discarded < block_size { offset - discarded } else { block_size }
+    let block = unix.read_fd(fd, width)?
+    break when block.is_empty()
+    discarded += block.len()
+  }
+  unix.close_fd(fd)?
+  Ok()
+}
+
 proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
   let dest = if let output = opts.output { output } else { p"" }
   var output_fd: Int? = null
@@ -277,7 +290,10 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
     if "nocreat" in opts.conv and ! dest.exists() { fail "No such file or directory" }
     if ! dest.exists() and ! ("nocreat" in opts.conv) { dest.write(b"")? }
     output_kind = dest.metadata()?.mode / 4096 % 16
-    if output_kind in [1, 2, 6, 8] { output_fd = unix.open_fd(dest, write: true, nonblock: false)? }
+    if output_kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs)? }
+    if output_kind in [1, 2, 6, 8] and ! (output_kind == 1 and opts.count == 0) {
+      output_fd = unix.open_fd(dest, write: true, nonblock: false)?
+    }
     if output_kind == 8 {
       if ! ("notrunc" in opts.conv) { dest.truncate(seek)? }
       if let fd = output_fd { let _ = unix.seek_fd(fd, seek)? }
@@ -554,31 +570,34 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
       if dest.metadata()?.mode / 4096 % 16 == 8 { dest.truncate(seek)? }
     }
     let kind = dest.metadata()?.mode / 4096 % 16
+    if kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs)? }
     if kind in [1, 2, 6, 8] {
-      let fd = unix.open_fd(dest, write: true, nonblock: false)?
-      if kind == 8 { let _ = unix.seek_fd(fd, seek)? }
-      if converted.blocks.is_empty() {
-        let outcome = write_fd_all(fd, converted.data)
-        written += outcome.written
-        write_failure = outcome.failure
-      } else {
-        for record in converted.blocks {
-          break when write_failure != null
-          let outcome = write_fd_all(fd, record.data)
+      if kind != 1 or opts.count != 0 {
+        let fd = unix.open_fd(dest, write: true, nonblock: false)?
+        if kind == 8 { let _ = unix.seek_fd(fd, seek)? }
+        if converted.blocks.is_empty() {
+          let outcome = write_fd_all(fd, converted.data)
           written += outcome.written
           write_failure = outcome.failure
-          var padding = record.padding
-          while padding > 0 and write_failure == null {
-            let width = if padding < 8192 { padding } else { 8192 }
-            let bytes_out = bytes.from_ints([record.pad_byte for _ in range(width)])?
-            let pad_outcome = write_fd_all(fd, bytes_out)
-            written += pad_outcome.written
-            write_failure = pad_outcome.failure
-            padding -= pad_outcome.written
+        } else {
+          for record in converted.blocks {
+            break when write_failure != null
+            let outcome = write_fd_all(fd, record.data)
+            written += outcome.written
+            write_failure = outcome.failure
+            var padding = record.padding
+            while padding > 0 and write_failure == null {
+              let width = if padding < 8192 { padding } else { 8192 }
+              let bytes_out = bytes.from_ints([record.pad_byte for _ in range(width)])?
+              let pad_outcome = write_fd_all(fd, bytes_out)
+              written += pad_outcome.written
+              write_failure = pad_outcome.failure
+              padding -= pad_outcome.written
+            }
           }
         }
+        unix.close_fd(fd)?
       }
-      unix.close_fd(fd)?
     } else {
       if converted.blocks.is_empty() {
         let outcome = write_path_chunk(dest, seek, converted.data, ! ("nocreat" in opts.conv))

@@ -3829,6 +3829,9 @@ checkpoints: between statements, at loop iterations, around deferred actions,
 while waiting on processes, pipelines, and network jobs, during `time.sleep`,
 and while scheduling or collecting parallel stream work. CPU-bound expression
 evaluation and blocking host calls observe a signal at the next checkpoint.
+At startup, the script runner leaves inherited `SIGINT` and `SIGTERM` actions
+set to `SIG_IGN` unchanged, so an ignored signal remains ignored across an
+`exec` into XSH.
 
 ### 12.2 Signal hooks
 

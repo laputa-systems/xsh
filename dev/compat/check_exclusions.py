@@ -28,6 +28,7 @@ CATEGORIES = {
     "uutils-internal": "exercises uutils itself, not command behavior",
     "platform": "tests another platform's behavior",
     "clap-wording": "asserts clap's diagnostic wording; XSH follows GNU getopt_long wording",
+    "gnu-semantics": "asserts behavior that conflicts with the pinned GNU behavior XSH follows",
     "uutils-extension": "asserts a uutils extension GNU does not have; XSH follows GNU",
 }
 ID = re.compile(r"^test_([a-z0-9_]+)::([A-Za-z0-9_:]+)$")

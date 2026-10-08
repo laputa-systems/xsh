@@ -11,8 +11,8 @@ Layout written to STAGE (default: target/compat-stage):
     STAGE/xsh-uutests       the uutils multicall adapter; it finds the stage from its own
                             path because the uutils framework clears the environment
     STAGE/gnu-bin/          (with --gnu-programs) every GNU program name: a
-                            symlink into bin/ when XSH provides it, otherwise a
-                            copy of `false`, plus lib/ for imports from PATH
+    symlink into bin/ when XSH provides it, otherwise a
+    command that exits with `false` status, plus lib/ for imports from PATH
 
 This mirrors `dev/release.xsh::package_core` (suffix dropped for applets, kept
 for lib modules) so the suites exercise the installed shape, not core/ in the
@@ -26,7 +26,6 @@ import argparse
 import json
 import os
 import shutil
-import stat
 import sys
 from pathlib import Path
 
@@ -103,7 +102,6 @@ def main() -> int:
         # XSH resolves `use lib.*` next to the invoked script path. GNU tests
         # find applets through gnu-bin, so expose the same staged libraries there.
         (gnu_dir / "lib").symlink_to(bin_dir / "lib", target_is_directory=True)
-        false = shutil.which("false") or "/bin/false"
         provided = set(names) | set(aliases)
         missing = []
         for prog in Path(args.gnu_programs).read_text().split():
@@ -113,8 +111,8 @@ def main() -> int:
             elif prog == "ginstall" and "install" in provided:
                 dst.symlink_to(bin_dir / "install")
             else:
-                shutil.copy(false, dst)
-                dst.chmod(dst.stat().st_mode | stat.S_IXUSR)
+                dst.write_text("#!/bin/sh\nexit 1\n")
+                dst.chmod(0o755)
                 missing.append(prog)
         (stage / "gnu-missing.json").write_text(json.dumps(sorted(missing), indent=2) + "\n")
     return 0

@@ -24,6 +24,54 @@
       "utility": "sleep",
       "category": "uutils-extension",
       "reason": "uutils quotes an argument containing an apostrophe as \"'1\" (double quotes); GNU quote() prints '\\'1' (verified on GNU coreutils 9.4: `sleep \"'1\"`), and XSH follows GNU via gnu.quote_value."
+    },
+    {
+      "id": "test_cp::test_copy_dir_preserve_permissions",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures directory metadata before traversal and restores that earlier atime on the destination, while traversal can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_copy_dir_preserve_readonly_source_with_files",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures directory metadata before traversal and restores that earlier atime on the destination, while traversal can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_copy_dir_preserve_subdir_permissions",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures directory metadata before traversal and restores that earlier atime on the destination, while traversal can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_parents_with_permissions_copy_dir",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before traversal and restores that earlier atime on the destination, while traversal can update source directory atimes; XSH follows GNU's saved timestamps."
+    },
+    {
+      "id": "test_cp::test_cp_parents_with_permissions_copy_file",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_preserve_all",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_preserve_no_args",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cp::test_cp_preserve_no_args_before_opts",
+      "utility": "cp",
+      "category": "gnu-semantics",
+      "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
     }
   ]
 }

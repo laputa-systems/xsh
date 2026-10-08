@@ -1,9 +1,13 @@
 FROM alpine:edge
 ARG TARGETARCH
-RUN apk add --no-cache musl-dev linux-headers libgcc libunwind-dev git binutils tzdata zip strace \
+RUN apk add --no-cache bash make perl autoconf automake libtool gettext quilt gperf texinfo gawk help2man rsync \
+    acl-dev libcap-dev openssl-dev \
+    musl-dev linux-headers libgcc libunwind-dev git binutils tzdata zip strace \
     clang23 clang23-libclang \
-    findmnt lsblk lscpu util-linux-misc iproute2-minimal kmod pciutils usbutils cpupower \
+    findmnt lsblk lscpu util-linux util-linux-misc iproute2-minimal kmod pciutils usbutils cpupower \
     lm-sensors dmidecode
+# GNU test helpers link against the unversioned GCC runtime name.
+RUN ln -sf /usr/lib/libgcc_s.so.1 /usr/lib/libgcc_s.so
 RUN for tool in /bin/findmnt /bin/lsblk /usr/bin/lscpu /sbin/swapon /sbin/ip \
         /sbin/lsmod /usr/bin/lspci /usr/bin/lsusb /usr/bin/cpupower \
         /usr/bin/sensors /usr/sbin/dmidecode; do \
@@ -26,7 +30,8 @@ RUN rustup toolchain install nightly-2026-09-15 \
     --component llvm-tools-preview \
     --component rust-src
 # Clang and libclang are separate Alpine packages. The Rust nightly supplies
-# LLVM archive, strip, and linker tools, but not a C frontend.
+# LLVM archive, strip, and linker tools, but not a C frontend. Copy those tools
+# out of root's rustup tree so unprivileged compatibility tests can execute them.
 RUN case "$TARGETARCH" in \
         amd64) host=x86_64-unknown-linux-musl ;; \
         arm64) host=aarch64-unknown-linux-musl ;; \
@@ -34,7 +39,7 @@ RUN case "$TARGETARCH" in \
     esac \
     && tool_bin="$(rustc --print sysroot)/lib/rustlib/$host/bin" \
     && for tool in llvm-ar llvm-strip rust-lld; do \
-        test -x "$tool_bin/$tool" && ln -s "$tool_bin/$tool" "/usr/local/bin/$tool"; \
+        test -x "$tool_bin/$tool" && install -m 0755 "$tool_bin/$tool" "/usr/local/bin/$tool"; \
     done \
     && test -f /usr/lib/llvm23/lib/libclang.so
 # musl-dev lacks crtbegin/crtend. The empty target-correct objects satisfy
@@ -79,3 +84,6 @@ RUN host_libdir="$(rustc --print target-libdir)" \
 RUN for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do \
         llvm-ar rc "$(rustc --print target-libdir --target "$target")/libutil.a"; \
     done
+RUN apk add --no-cache python3 \
+    && addgroup -g 1000 compat \
+    && adduser -D -u 1000 -G compat -h /home/compat compat

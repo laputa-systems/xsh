@@ -22,6 +22,9 @@
 #   uutils binary itself and do not apply.
 # - The framework clears the child environment, so the adapter is installed
 #   inside the stage and locates the stage from its own path.
+# - Test children search staged applets before host programs. This lets helpers
+#   such as scene.cmd("truncate") use XSH while non-applet tools still come
+#   from the image; build-time and GNU-oracle PATH values stay unchanged.
 # - Each test process (nextest wrapper) and each applet (adapter) runs under an
 #   address-space cap, because a buggy applet can emit gigabytes that the test
 #   process then buffers (XSH `date +%99999999999c` wrote 2 GiB). Applet cap (XSH_COMPAT_MEM_KB, default 3 GiB)
@@ -70,6 +73,7 @@ results=$(cd "$results" && pwd -P)
 junit=$results/uutils-nextest.xml
 
 python3 "$repo/dev/compat/stage.py" --stage "$stage"
+stage=$(cd "$stage" && pwd -P)
 
 target=${UUTILS_TARGET_DIR:-$uutils/target}
 export CARGO_TARGET_DIR=$target
@@ -86,11 +90,12 @@ case "$host_target" in
 	*-musl)
 		target_key=$(printf '%s' "$host_target" | tr '[:lower:]-' '[:upper:]_')
 		linker_env="CARGO_TARGET_${target_key}_LINKER"
+		linker=${CC:-cc}
 		ref_rustflags=${RUSTFLAGS:-}
 		RUSTFLAGS="${ref_rustflags:+$ref_rustflags }-C target-feature=-crt-static"
 		export RUSTFLAGS
 		cargo_nextest() {
-			env "$linker_env=cc" cargo nextest "$@"
+			env "$linker_env=$linker" cargo nextest "$@"
 		}
 		;;
 	*)
@@ -135,13 +140,13 @@ if [ "$(id -u)" -eq 0 ]; then
     test_runner="setpriv --reuid=$run_uid --regid=$run_gid --clear-groups --"
 fi
 
-profile_dir=$uutils/.config
+profile_dir=$results/.nextest
 mkdir -p "$profile_dir"
 cat >"$profile_dir/nextest-xsh.toml" <<'EOF'
 experimental = ["wrapper-scripts"]
 
 [scripts.wrapper.xsh-memcap]
-command = ["sh", "-c", "ulimit -v @TEST_MEM_KB@; exec @TEST_RUNNER@ \"$@\"", "sh"]
+command = ["sh", "-c", "PATH=@STAGE_PATH@:\"$PATH\"; export PATH; ulimit -v @TEST_MEM_KB@; exec @TEST_RUNNER@ \"$@\"", "sh"]
 
 [[profile.xsh.scripts]]
 filter = "all()"
@@ -158,13 +163,15 @@ store-failure-output = true
 EOF
 sed -i "s/@TEST_MEM_KB@/${UUTESTS_TEST_MEM_KB:-4194304}/" "$profile_dir/nextest-xsh.toml"
 sed -i "s|@TEST_RUNNER@|$test_runner|" "$profile_dir/nextest-xsh.toml"
-python3 - "$profile_dir/nextest-xsh.toml" "$junit" <<'PY'
+python3 - "$profile_dir/nextest-xsh.toml" "$junit" "$stage/bin" <<'PY'
 import json
 from pathlib import Path
+import shlex
 import sys
 
 config = Path(sys.argv[1])
 contents = config.read_text()
+contents = contents.replace("@STAGE_PATH@", shlex.quote(sys.argv[3]))
 contents = contents.replace("@JUNIT_PATH@", json.dumps(sys.argv[2], ensure_ascii=False))
 config.write_text(contents)
 PY

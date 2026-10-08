@@ -270,6 +270,17 @@ test test_env_ignored_signal_survives_exec { |ctx|
   assert result.stderr == ""
 }
 
+test test_env_ignored_signal_survives_xsh_startup { |ctx|
+  let root = test.temp_dir(ctx, name: "env-signal")?
+  let script = fp"{root}/signal.xsh"
+  script.write("print process.signal_action(\"INT\")?\n")
+  let result = env_run(ctx, ["--ignore-signal=INT", ctx.xsh_bin.display(), script.display()])?
+
+  assert result.status == 0, result.stderr
+  assert result.stdout == "ignore\n"
+  assert result.stderr == ""
+}
+
 test test_env_lists_signal_actions_and_restores_defaults { |ctx|
   let result = env_run(ctx, ["--ignore-signal=USR1,USR2", "--list-signal-handling", "/bin/true"])?
   let restored = env_run(ctx, ["--ignore-signal=USR1,USR2", "--default-signal=USR1", "--list-signal-handling", "/bin/true"])?

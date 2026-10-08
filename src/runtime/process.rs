@@ -28,7 +28,7 @@ static PRIMARY_SIGNAL: AtomicI32 = AtomicI32::new(0);
 static ESCALATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
 
 pub fn install_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> {
-    SignalHandlerGuard::install_many(&[libc::SIGINT, libc::SIGTERM])
+    SignalHandlerGuard::install_many_preserving_ignored(&[libc::SIGINT, libc::SIGTERM])
 }
 
 pub fn install_interactive_signal_handlers() -> io::Result<SignalHandlerGuard> {
@@ -133,6 +133,35 @@ pub struct SignalHandlerGuard {
 impl SignalHandlerGuard {
     fn install_many(signals: &[i32]) -> io::Result<Self> {
         Self::install_many_with(signals, handle_cancellation_signal as *const () as usize)
+    }
+
+    // Exec preserves ignored dispositions, so the CLI must not replace one
+    // while installing handlers for cancellation signals.
+    fn install_many_preserving_ignored(signals: &[i32]) -> io::Result<Self> {
+        let mut previous = Vec::new();
+        for signal in signals {
+            let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+            let result = unsafe { libc::sigaction(*signal, std::ptr::null(), &mut current) };
+            if result != 0 {
+                for (installed, old) in previous.into_iter().rev() {
+                    restore_signal_handler(installed, &old);
+                }
+                return Err(io::Error::last_os_error());
+            }
+            if current.sa_sigaction == libc::SIG_IGN {
+                continue;
+            }
+            match install_signal_handler(*signal, handle_cancellation_signal as *const () as usize) {
+                Ok(old) => previous.push((*signal, old)),
+                Err(error) => {
+                    for (installed, old) in previous.into_iter().rev() {
+                        restore_signal_handler(installed, &old);
+                    }
+                    return Err(error);
+                }
+            }
+        }
+        Ok(Self { previous })
     }
 
     fn ignore_many(signals: &[i32]) -> io::Result<Self> {

@@ -27,22 +27,26 @@ test test_cp_preserve_mode_and_nanosecond_times { |ctx|
   assert meta.mtime_ns == 1500000000987654321
 }
 
-test test_cp_preserves_source_atime_after_copy_reads { |ctx|
+test test_cp_preserves_timestamps_captured_before_source_reads { |ctx|
   let root = test.temp_dir(ctx, name: "cp-atime")?
   let source_dir = fp"{root}/source-dir"
   source_dir.mkdir()
   fp"{source_dir}/file".write("contents")
-  fs.set_times(source_dir, atime_ns: 1400000000000000000, mtime_ns: 1500000000000000000)
+  let directory_atime = 1400000000000000000
+  let directory_mtime = 1500000000000000000
+  fs.set_times(source_dir, atime_ns: directory_atime, mtime_ns: directory_mtime)
+  let source_file = fp"{source_dir}/file"
+  let file_atime = 1400000000123456789
+  let file_mtime = 1500000000987654321
+  fs.set_times(source_file, atime_ns: file_atime, mtime_ns: file_mtime)
   let copied_dir = fp"{root}/copied-dir"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p -R $source_dir $copied_dir
-  assert fs.stat(copied_dir)?.atime_ns == fs.stat(source_dir)?.atime_ns
-
-  let source_file = fp"{root}/source-file"
-  source_file.write("contents")
-  fs.set_times(source_file, atime_ns: 1400000000000000000, mtime_ns: 1500000000000000000)
-  let copied_file = fp"{root}/copied-file"
-  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -p $source_file $copied_file
-  assert fs.stat(copied_file)?.atime_ns == fs.stat(source_file)?.atime_ns
+  let copied_dir_meta = fs.stat(copied_dir)?
+  assert copied_dir_meta.atime_ns == directory_atime
+  assert copied_dir_meta.mtime_ns == directory_mtime
+  let copied_file_meta = fs.stat(fp"{copied_dir}/file")?
+  assert copied_file_meta.atime_ns == file_atime
+  assert copied_file_meta.mtime_ns == file_mtime
 }
 
 test test_cp_dereference_order_and_recursive_default { |ctx|
@@ -474,6 +478,11 @@ test test_cp_xattr_preservation_is_selected_and_binary { |ctx|
   let explicit = fp"{root}/explicit"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --preserve=xattr $source $explicit
   assert fs.xattr_get(explicit, "user.cp_test")? == payload
+  source.chmod(0o444)
+  let readonly = fp"{root}/readonly"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --preserve=xattr $source $readonly
+  assert fs.xattr_get(readonly, "user.cp_test")? == payload
+  assert fs.stat(readonly)?.mode.bit_and(0o777) == 0o444
   let omitted = fp"{root}/omitted"
   run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -a --no-preserve=xattr $source $omitted
   assert "user.cp_test" not in fs.xattr_list(omitted)?

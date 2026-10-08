@@ -5,6 +5,20 @@ Campaign platform scope is x86_64 only; ARM64 verification is out of scope.
 The 2026-10-06 wind-down report below is historical and does not describe the
 current integration run.
 
+## Wind-down handoff (2026-10-08)
+
+The campaign remains active and incomplete. The x86_64-only scope and
+correctness/parity workflow remain in force; ARM64 is out of scope. Gate 5
+currently audits 97 of 106 utilities: four surfaces match, 93 differ, and the
+audit covers 1,544 uutils and 1,385 XSH spellings. The 28 parser tests pass.
+The unaudited utilities are `cp`, `dd`, `dir`, `env`, `ls`, `printf`, `stty`,
+`test`, and `vdir`; the per-command summary and log are under
+`.work/tmp/option-surface-alias-current/`.
+
+The expanded Linux inventory contains 99 of 125 commands, leaving 26 absent.
+The practical expanded Linux suite and clean-image smoke remain open. See the
+current gate reports below before starting another verification run.
+
 ## Campaign verification policy (2026-10-07)
 
 Campaign gates measure correctness and behavioral parity. Performance
@@ -126,44 +140,53 @@ the child's deferred cleanup marker. Focused suites passed: timeout 14/14,
 split 7/7, standard I/O 11/11, unix process 19 passed with 2 privilege skips,
 and signal hooks 13/13.
 
-### Last full native gate (source `89c4e143`)
+### Last full native gate (2026-10-08)
 
-The full optimized-debug native suite passed in the pinned `Dockerfile.test`
-image as UID/GID 1000 with `HOME=/home/compat` and one worker: 4,964 passed,
-0 failed, 38 skipped. Before this run, the generated API surface fixture was
-refreshed for the already-intended `fs.tempdir_in` API addition; the focused API
-suite then passed 65/65.
+The full x86_64 release native suite passed in the rebuilt `Dockerfile.test`
+image as UID/GID 1000 with `HOME=/home/compat` and one worker: 4,984 passed,
+0 failed, 39 skipped. The host-specific live coreutils comparison was skipped
+through `XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1`. The run used a container init
+process and an empty `xsht-config.ini` in its private `.work` `TMPDIR`, so lint
+fixtures use the default rule set. Its log is
+`.work/tmp/native-current-image-isolated/full-suite.log`.
 
 ### Latest full compatibility gates
 
-- Gate 3's current full run used release XSH from source `020558d2` and pinned
-  uutils `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the x86_64 musl
-  `Dockerfile.test` image, with three workers and UID/GID 1000. It recorded
-  5,500 pass, 449 fail, 0 skip, and 4 excluded (5,953 total; 5,949 applicable).
-  Compared with the previous full report at `d53ed7d1` (optimized-debug), six
-  failing cases now pass: `expand` +1, `pr` +1, and `split` +4. The comparison
-  also flags `shuf::test_getrandom_fail`: its `strace` injection forces
-  `getrandom` to return EAGAIN, and XSH panics while `regex-lite` compiles a
-  literal regex, before the applet runs. This is a release-run limitation in
-  regex compilation, not a change to `shuf`; it remains unresolved. The report
-  is `results/uutils-integration.json`, with run artifacts under ignored
-  `.work/compat-results/uutils-gate3-current-release/`. Six earlier `pr`
-  expectation differences remain: direct GNU 9.11 probes match XSH's
-  diagnostics, while uutils expects different clap messages. This run used a
-  short container alias for a private mode-0700 `TMPDIR` inside `.work` to
-  preserve path-sensitive fixtures.
-- Gate 4's full run used the optimized-debug XSH binary built from source
-  `b23d37ea`: 719 selected GNU 9.12 tests, 413 PASS, 156 FAIL, 16 ERROR, and
-  134 SKIP. The four-cell differential records 395 shared passes, 176
-  uutils-only passes, 18 XSH-only passes, and 44 shared failures. Compared with
-  the previous full run at `89c4e143`, one XSH failure became a pass, one error
-  became a fail, and there were no regressions from a prior pass. The changed
-  error was `split/filter.sh`: its internal `timeout 10` did not stop the
-  child, so the run was terminated after more than six minutes and recorded as
-  exit 137. Treat that test result as incomplete. `tee/tee.sh` passes and
-  `misc/yes.sh` fails. Reports are `results/gnu-xsh.json`,
-  `results/gnu-differential.json`, and the pinned baseline
-  `results/gnu-uutils.json`; run logs remain in ignored `.work/logs/`.
+- Gate 3's current full release run used the XSH worktree based on `5d95d7d4`
+  plus the current cross-applet fixes, and pinned uutils
+  `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the x86_64 musl
+  `Dockerfile.test` image with one worker and UID/GID 1000. It recorded
+  **5,491 pass, 450 fail, 0 skip, and 12 excluded** (5,953 total; 5,941
+  applicable). Test children resolve staged XSH applets before host programs;
+  the build-time path and GNU-reference path stay unchanged. Compared with the
+  previous full report, six cases now pass (`cp` one, `dd` one, `env` two, and
+  `ls` two), with zero regressions. The run used a private mode-0700 `.work`
+  directory as `TMPDIR`, exposed as `/home/josh/w` inside the container to keep
+  path-sensitive fixtures within their expected lengths. A repeat on the
+  rebuilt `Dockerfile.test` image had the same per-utility results and no new
+  failing IDs. Its report is `results/uutils-integration.json`; artifacts are
+  in `.work/compat-results/uutils-current-image/` and the full log is
+  `.work/tmp/uutils-current-image/full-gate3.log`. The comparison still
+  flags `shuf::test_getrandom_fail`: its `strace` injection forces `getrandom`
+  to return EAGAIN, and XSH panics while `regex-lite` compiles a literal regex
+  before the applet runs. This release-run limitation remains unresolved.
+  Six earlier `pr` expectation differences remain: direct GNU 9.11 probes
+  match XSH diagnostics, while uutils expects different clap messages.
+- A focused current-worktree Gate 3 refresh ran `cp` and `stat` in the release
+  x86_64 image: `cp` recorded 359 pass, 19 fail, and 8 excluded out of 386;
+  `stat` passed 51/51. The eight `cp` exclusions use category
+  `gnu-semantics`: those tests compare destination atime with the source after
+  copying, but pinned GNU 9.12 captures file metadata before reading and
+  directory metadata before traversal, then applies the saved timestamps to
+  the destination. Source atime may change during reads. The tests still run;
+  this post-copy equality is not a GNU-compatible invariant. All 19 remaining
+  `cp` failures match the prior slice, and `stat` is unchanged. The persisted
+  slice was merged temporarily into the preceding full report; the complete
+  current Gate 3 report above now supersedes that partial aggregate.
+- The earlier optimized-debug Gate 4 report used source `b23d37ea`: 719
+  selected GNU 9.12 tests, 413 PASS, 156 FAIL, 16 ERROR, and 134 SKIP. It is
+  superseded by the current release-profile refresh below. `tee/tee.sh` passes
+  and `misc/yes.sh` fails in the current report.
 
 ### Focused split filter follow-up (2026-10-08, `d622a855`)
 
@@ -200,15 +223,32 @@ stdin. No prior PASS became FAIL or ERROR. Full reports are
 `results/gnu-xsh.json` and `results/gnu-differential.json`; `gnu-uutils.json`
 remains the baseline for the pinned uutils commit.
 
-The full BusyBox run at `8d92a7e2` selected 71 available staged XSH applet
-suites: 561 pass, 119 fail, and 65 skipped. The 50 in-scope coreutils applets
-account for 363 pass, 24 fail, and 2 skipped; the other 21 staged applets and
-aliases account for 198 pass, 95 fail, and 63 skipped. Within the coreutils
-subset, the largest failure groups are `cp` (7), `date` (4), `printf` (4),
-`tr` (2), and `unexpand` (2); `od`, `seq`, `sort`, `sum`, and `test` each have
-one failure. The pinned report is `results/busybox.json`; run logs remain under
-ignored `.work/compat-results/busybox/full-wave4/`. Gate 5 remains open for
-the other 51 utilities. The practical expanded Linux suite and clean-image
+### Current-image GNU Gate 4 refresh (2026-10-08, worktree based on `5d95d7d4`)
+
+The current release XSH binary ran all 719 selected GNU 9.12 tests in the
+rebuilt x86_64 `Dockerfile.test` image: 413 PASS, 155 FAIL, 16 ERROR, and 135
+SKIP. The same-image uutils baseline records 543 PASS, 53 FAIL, 6 ERROR, and
+117 SKIP. The four-cell differential records 398 shared passes, 145
+uutils-only passes, 15 XSH-only passes, and 52 shared failures. Compared with
+the preceding full XSH report, `split/filter.sh` and `df/df-symlink.sh` moved
+from PASS to SKIP on this image; no prior pass became a failure or error. The
+stage fallback regression for missing GNU programs is fixed and covered by
+`dev/tests/test-compat-stage.xsh::test_compat_stage_missing_gnu_programs_behave_as_false`.
+Reports are `results/gnu-uutils.json`, `results/gnu-xsh.json`, and
+`results/gnu-differential.json`; the current XSH log is
+`.work/tmp/gnu-current/xsh-stagefix-docker.log`.
+
+The current-image BusyBox rerun, using the worktree based on `5d95d7d4`,
+selected 71 available staged XSH applet suites: 561 pass, 119 fail, and 65
+skipped. All 71 per-applet results match the preceding full report at
+`8d92a7e2`. The 50 in-scope coreutils applets account for 363 pass, 24 fail,
+and 2 skipped; the other 21 staged applets and aliases account for 198 pass,
+95 fail, and 63 skipped. Within the coreutils subset, the largest failure
+groups are `cp` (7), `date` (4), `printf` (4), `tr` (2), and `unexpand` (2);
+`od`, `seq`, `sort`, `sum`, and `test` each have one failure. The pinned report
+is `results/busybox.json`; current per-applet logs are under
+`.work/compat-results/busybox-current-image/logs/`. Gate 5 remains open for
+the other 9 utilities. The practical expanded Linux suite and clean-image
 smoke also remain open. The attempted AArch64 debug run was stopped after
 ARM64 was removed from scope; it produced no gate result and is not an open
 campaign item. The parity inventory currently has 99 of 125 expanded Linux
@@ -243,6 +283,36 @@ The `tail/pid.sh` case was excluded because the shared adapter passes a
 uutils-only `---disable-inotify` argument. Lane reports and logs are under
 `.work/ls-wave4/`, `.work/sort-wave4/`, and `.work/wave4/`.
 
+### Full native release gate refresh (2026-10-08, working tree based on `5d95d7d4`)
+
+The full x86_64 release native suite passed in the `Dockerfile.test` image as
+UID/GID 1000 (`compat`), with one worker: **4,984 passed, 0 failed, 39
+skipped** (5,023 total). A container init process kept the test runner from
+becoming PID 1. It used
+`target/x86_64-unknown-linux-musl/release/xsht test -j 1`, with the matching
+release tools first on `PATH`, `HOME=/home/compat`, `LC_ALL=C`, `TZ=UTC`, and
+`TMPDIR` under `.work/tmp/native-current-image-isolated`, with an empty
+`xsht-config.ini` there so temp lint fixtures use default rules instead of the
+repository's project overrides. The image includes util-linux `setpriv` and
+`make`; compared with the preceding full run, the make-facade test now passes
+and one new compatibility-stage test was selected. The existing
+`XSH_SKIP_LIVE_COREUTILS_COMPARISONS=1` setting skips the host-only BusyBox
+`df` comparison; the rest of the suite completed. The full log is
+`.work/tmp/native-current-image-isolated/full-suite.log`.
+
+This run includes the current fixes: `cp -p` restores metadata captured before
+reading files or walking directories and can preserve attributes on read-only
+targets; `stat` formats negative filesystem IDs as hexadecimal; `dd` seeks on
+FIFO output; `ls -l` marks POSIX ACLs; and XSH startup and `sleep` preserve
+inherited ignored SIGINT/SIGTERM actions. Focused release suites passed for
+`sleep` (7), `env` (35), `cp` (46), `dd` (26), and `ls` (38). The test image
+provides Python 3, util-linux `setpriv`, and a `compat` account for the native
+and compatibility tests; `docs/TESTING.md` records those needs.
+The current Gate 3 report above includes this worktree; Gate 4 has been
+refreshed on the current image below. Gate 5 still lacks audits for 9
+utilities, the expanded Linux surface still lacks 26 of 125 commands, and the
+full BusyBox and clean-image smoke gates remain open.
+
 ### Gate C BusyBox pilot
 
 `upstream.lock.json` pins BusyBox 1.36.1 by archive SHA-256. The runner
@@ -259,7 +329,8 @@ The optimized-debug `cat` pilot ran in the pinned Docker test image as UID/GID
 1000 with `LC_ALL=C` and `TZ=UTC`: **6 pass, 0 fail, 0 skipped**. The report
 and verbose log are in `.work/compat-results/busybox/`. The report parser's
 three Python tests and a multicall adapter dispatch probe pass. The full
-50-suite run has not been recorded.
+At the time of this pilot the full run had not been recorded; its latest
+current-image refresh is summarized above.
 
 ### Gate 5 option-surface pilot
 
@@ -267,64 +338,112 @@ three Python tests and a multicall adapter dispatch probe pass. The full
 with XSH's `cli.applet` schema, including generated help/version spellings,
 aliases, argument arity, and parsed-but-unused fields. `true` and `false` use
 narrowly recognized manual help/version branches; `echo` uses a recognized
-manual short-option scan and help/version guard. Fifty-five commands are
-covered:
+manual short-option scan and help/version guard. The checker also reads literal
+Clap aliases, `who`'s related platform implementation, shared uucore backup and
+update arguments, fixed or ranged argument counts, XSH's shared hidden GNU test
+argument filters, raw scanners for `od` and `split`, constants used by
+short-option declarations, the shared permission argument builder, checksum
+command builders with their shared XSH schema, base encoding builders with
+basenc selector scans, and manual option scans for `date`, `dircolors`, and
+`expr`. Ninety-seven commands are covered:
 
 | Command | uutils spellings | XSH spellings | Differences |
 |---|---:|---:|---|
 | `arch` | 4 | 2 | uutils-only `-h`, `-V` |
+| `b2sum` | 21 | 25 | uutils-only `-h`, `-V`; XSH-only `-a`, `--algorithm`, `--base64`, `--debug`, `--raw`, `--untagged` |
+| `base32` | 11 | 9 | uutils-only `-h`, `-V` |
+| `base64` | 11 | 9 | uutils-only `-h`, `-V` |
 | `basename` | 10 | 8 | uutils-only `-h`, `-V` |
-| `cat` | 21 | 19 | uutils-only `-h`, `-V` |
+| `basenc` | 20 | 18 | uutils-only `-h`, `-V` |
+| `cat` | 21 | 20 | uutils-only `-h`, `-V`; XSH-only `---presume-input-pipe` |
+| `chgrp` | 22 | 21 | uutils-only `-V` |
+| `chmod` | 21 | 20 | uutils-only `-V` |
+| `chown` | 22 | 21 | uutils-only `-V` |
 | `chroot` | 7 | 5 | uutils-only `-h`, `-V` |
+| `cksum` | 27 | 25 | uutils-only `-h`, `-V` |
 | `comm` | 13 | 11 | uutils-only `-h`, `-V` |
+| `csplit` | 19 | 17 | uutils-only `-h`, `-V` |
+| `cut` | 24 | 22 | uutils-only `-h`, `-V` |
+| `date` | 25 | 23 | uutils-only `-h`, `-V` |
+| `df` | 29 | 28 | uutils-only `-V`; `--output` arity differs (`0..N` vs `0..1`) |
+| `dircolors` | 13 | 11 | uutils-only `-h`, `-V` |
 | `dirname` | 6 | 4 | uutils-only `-h`, `-V` |
+| `du` | 48 | 47 | uutils-only `-V`; `--time` arity differs (`0..N` vs `0..1`) |
 | `echo` | 7 | 5 | uutils-only `-h`, `-V` |
 | `expand` | 10 | 6 | uutils-only `-U`, `--no-utf8`, `-h`, `-V` |
+| `expr` | 2 | 2 | none |
 | `factor` | 5 | 4 | uutils-only `-V` |
 | `false` | 2 | 2 | none |
 | `fold` | 12 | 10 | uutils-only `-h`, `-V` |
 | `fmt` | 30 | 24 | uutils-only `-m`, `--preserve-headers`, `-T`, `--tab-width`, `-h`, `-V` |
 | `groups` | 4 | 2 | uutils-only `-h`, `-V` |
+| `head` | 17 | 14 | uutils-only `--presume-input-pipe`, `-h`, `-V` |
 | `hostid` | 4 | 2 | uutils-only `-h`, `-V` |
 | `hostname` | 12 | 10 | uutils-only `-h`, `-V` |
 | `id` | 23 | 17 | uutils-only `--ignore`, `-A`, `-p`, `-P`, `-h`, `-V` |
+| `install` | 37 | 30 | uutils-only `--context`, `--preserve-context`, `--unprivileged`, `-P`, `-Z`, `-h`, `-V` |
 | `join` | 19 | 17 | uutils-only `-h`, `-V` |
 | `kill` | 12 | 9 | uutils-only `-L`, `-h`, `-V` |
 | `link` | 4 | 2 | uutils-only `-h`, `-V` |
+| `ln` | 28 | 26 | uutils-only `-h`, `-V` |
 | `logname` | 4 | 2 | uutils-only `-h`, `-V` |
+| `md5sum` | 19 | 25 | uutils-only `-h`, `-V`; XSH-only `-a`, `--algorithm`, `-l`, `--length`, `--base64`, `--debug`, `--raw`, `--untagged` |
 | `mkdir` | 12 | 8 | uutils-only `--context`, `-Z`, `-h`, `-V` |
+| `mkfifo` | 8 | 4 | uutils-only `--context`, `-Z`, `-h`, `-V` |
+| `mknod` | 8 | 4 | uutils-only `--context`, `-Z`, `-h`, `-V` |
+| `mktemp` | 14 | 12 | uutils-only `-h`, `-V` |
 | `more` | 27 | 25 | uutils-only `-h`, `-V` |
+| `mv` | 29 | 24 | uutils-only `--context`, `-g`, `-Z`, `-h`, `-V` |
 | `nice` | 6 | 4 | uutils-only `-h`, `-V` |
 | `nl` | 25 | 24 | uutils-only `-V` |
 | `nohup` | 4 | 2 | uutils-only `-h`, `-V` |
 | `nproc` | 6 | 4 | uutils-only `-h`, `-V` |
+| `numfmt` | 22 | 20 | uutils-only `-h`, `-V` |
+| `od` | 38 | 36 | uutils-only `-e`, `-V` |
 | `paste` | 10 | 8 | uutils-only `-h`, `-V` |
 | `pathchk` | 7 | 5 | uutils-only `-h`, `-V` |
 | `pinky` | 13 | 12 | uutils-only `-V` |
+| `pr` | 45 | 50 | uutils-only `-V`; XSH-only `-i`, `-c`, `-v`, `--output-tabs`, `--show-control-chars`, `--show-nonprinting`; arity differs for `-e`/`--expand-tabs` |
 | `printenv` | 6 | 4 | uutils-only `-h`, `-V` |
 | `ptx` | 37 | 35 | uutils-only `-h`, `-V` |
 | `pwd` | 8 | 6 | uutils-only `-h`, `-V` |
 | `readlink` | 20 | 18 | uutils-only `-h`, `-V` |
 | `realpath` | 23 | 21 | uutils-only `-h`, `-V` |
+| `rm` | 23 | 19 | uutils-only `--presume-input-tty`, `---presume-input-tty`, `-h`, `-V` |
 | `rmdir` | 9 | 7 | uutils-only `-h`, `-V` |
 | `seq` | 12 | 10 | uutils-only `-h`, `-V` |
+| `sha1sum` | 19 | 25 | uutils-only `-h`, `-V`; XSH-only `-a`, `--algorithm`, `-l`, `--length`, `--base64`, `--debug`, `--raw`, `--untagged` |
+| `sha224sum` | 19 | 25 | uutils-only `-h`, `-V`; XSH-only `-a`, `--algorithm`, `-l`, `--length`, `--base64`, `--debug`, `--raw`, `--untagged` |
+| `sha256sum` | 19 | 25 | uutils-only `-h`, `-V`; XSH-only `-a`, `--algorithm`, `-l`, `--length`, `--base64`, `--debug`, `--raw`, `--untagged` |
+| `sha384sum` | 19 | 25 | uutils-only `-h`, `-V`; XSH-only `-a`, `--algorithm`, `-l`, `--length`, `--base64`, `--debug`, `--raw`, `--untagged` |
+| `sha512sum` | 19 | 25 | uutils-only `-h`, `-V`; XSH-only `-a`, `--algorithm`, `-l`, `--length`, `--base64`, `--debug`, `--raw`, `--untagged` |
+| `shred` | 19 | 17 | uutils-only `-h`, `-V` |
 | `shuf` | 18 | 15 | uutils-only `--random-seed`, `-h`, `-V` |
 | `sleep` | 4 | 2 | uutils-only `-h`, `-V` |
+| `sort` | 53 | 43 | uutils-only `--help`, `--key`, `--output`, `--field-separator`, `--parallel`, `--compress-program`, `--random-source`, `--check-silent`, `--random-sort`, `-R`; `--check` and `-c` arity differs |
+| `split` | 27 | 26 | uutils-only `--io-blksize`, `-h`, `-V`; XSH-only `-u`, `--unbuffered` |
 | `stat` | 13 | 11 | uutils-only `-h`, `-V` |
+| `stdbuf` | 10 | 8 | uutils-only `-h`, `-V` |
 | `sum` | 7 | 5 | uutils-only `-h`, `-V` |
 | `sync` | 8 | 6 | uutils-only `-h`, `-V` |
 | `tac` | 10 | 8 | uutils-only `-h`, `-V` |
+| `tail` | 29 | 22 | uutils-only `--debug`, `--use-polling`, `--dis`, `---disable-inotify`, `--presume-input-pipe`, `-h`, `-V` |
+| `tee` | 10 | 7 | uutils-only `-i`, `--ignore-interrupts`, `-V` |
 | `timeout` | 14 | 12 | uutils-only `-h`, `-V` |
+| `touch` | 16 | 15 | uutils-only `-V` |
 | `true` | 2 | 2 | none |
+| `tr` | 13 | 11 | uutils-only `-h`, `-V` |
 | `truncate` | 12 | 10 | uutils-only `-h`, `-V` |
 | `tsort` | 5 | 5 | none |
 | `tty` | 7 | 5 | uutils-only `-h`, `-V` |
 | `uname` | 26 | 24 | uutils-only `-h`, `-V` |
 | `unexpand` | 12 | 8 | uutils-only `-U`, `--no-utf8`, `-h`, `-V` |
+| `uniq` | 23 | 21 | uutils-only `-h`, `-V`; `-D` arity differs (`0..1` vs `0`) |
 | `unlink` | 4 | 2 | uutils-only `-h`, `-V` |
 | `uptime` | 8 | 6 | uutils-only `-h`, `-V` |
 | `users` | 4 | 2 | uutils-only `-h`, `-V` |
 | `wc` | 17 | 15 | uutils-only `-h`, `-V` |
+| `who` | 33 | 31 | uutils-only `-h`, `-V` |
 | `whoami` | 4 | 2 | uutils-only `-h`, `-V` |
 | `yes` | 4 | 2 | uutils-only `-h`, `-V` |
 
@@ -347,8 +466,19 @@ provide; `id` also omits uutils-only `--ignore`, `-A`, `-p`, and `-P` (XSH's
 `-a` remains a no-op without the long alias). `kill` has uutils' extra `-L`
 table alias. XSH explicitly rejects `mkdir -Z/--context` because security
 labels are unavailable and `shuf --random-seed` as a uutils extension.
-The comparisons cover 613 uutils spellings and 496 XSH spellings. All seventeen
-parser tests pass. Gate 5 remains open for the other 51 utilities.
+The comparisons cover 1,544 uutils spellings and 1,385 XSH spellings. All
+twenty-eight parser tests pass. Gate 5 remains open for the other 9 utilities. The checker
+preserves optional and variable arity ranges, shared argument builders, and
+commented-out declarations. The `du --time` and `df --output` differences are
+reported rather than flattened to a single fixed count. The `who` report
+identifies `--short` and `-s` as declared but unused by pinned uutils.
+
+The current-worktree refresh parsed all 97 supported commands without parser
+errors: four have identical surfaces and 93 report at least one difference.
+The per-command output and summary are in
+`.work/tmp/option-surface-alias-current/output.log` and
+`.work/tmp/option-surface-alias-current/summary.json`. The other 9 in-scope
+utilities remain unaudited by this checker.
 
 ## Sort merge follow-up (`a860f47a`)
 
@@ -1042,8 +1172,11 @@ results, excluded test IDs, known semantic gaps.
   JUnit report with [`results.py`](results.py) into
   `results/uutils-integration.json`. Partial runs (named utilities) update
   only their entries.
-- Cross-utility calls such as `scene.ccmd("touch")` also go to XSH. Fix
-  widely used cheap applets first; their failures cascade.
+- Cross-utility calls such as `scene.ccmd("touch")` and plain applet names
+  invoked by test children resolve to staged XSH applets first. Non-applet
+  host tools still come from the image; GNU-reference helpers retain the
+  build-time host `PATH`. Fix widely used cheap applets first; their failures
+  cascade.
 - [`host-deps.json`](host-deps.json) lists the 28 utilities whose tests spawn
   host programs directly (`sh`, `strace`, `setfacl`, `unshare`, `locale`,
   ...) or compare against a host GNU tool. These are explicit, not

@@ -164,6 +164,7 @@ Filesystem reads, writes, metadata, links, permissions, locking, and installatio
 - `fs.sync_path(path: Path, mode: Str = default) -> Result[Unit, Error]` — Synchronizes a file or its containing filesystem.
 - `fs.temp_sibling(path: Path) -> Result[Path, Error]` — Names a hidden temporary path beside a path, for producing a file that is then renamed over it.
 - `fs.tempdir() -> Result[FsRoot, Error]` — Creates a temporary resource under XSH ownership.
+- `fs.tempdir_in(directory: Path) -> Result[FsRoot, Error]` — Creates a private temporary directory below a chosen parent.
 - `fs.tempfile() -> Result[{path: Path, root: FsRoot}, Error]` — Creates a temporary resource under XSH ownership.
 - `fs.umask() -> Result[Int, Error]` — Returns the process file-creation mask.
 - `fs.unlock(lock: {id: Int, path: Path, shared: Bool}) -> Result[Unit, Error]` — Releases a filesystem lock record.

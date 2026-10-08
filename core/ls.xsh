@@ -1484,6 +1484,7 @@ type File = {
   ok: Bool,
   st: FsStat,
   kind: Str,
+  acl: Bool,
   arg: Bool,
   q: Bytes,
   qw: Int,
@@ -1647,6 +1648,17 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     }
   }
 
+  # ACL decoration is optional; unsupported or unreadable xattrs do not fail a listing.
+  let follow_acl = ctx.deref == "always" or (arg and ctx.deref in ["cmdline", "cmdline_dir"])
+  let acl = if ok and ctx.format == "long" {
+    match fs.xattr_list(target, follow_symlinks: follow_acl) {
+      Ok(names) => "system.posix_acl_access" in names or "system.posix_acl_default" in names
+      Err(_) => false
+    }
+  } else {
+    false
+  }
+
   let shown = quote_name(ctx, name, ctx.qs)
   let file: File = File(
     raw: name,
@@ -1655,6 +1667,7 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     ok:,
     st:,
     kind:,
+    acl:,
     arg:,
     q: shown.q,
     qw: shown.w,
@@ -2331,7 +2344,8 @@ pure mode_string(f: File) -> Str {
   let r3 = if mode_has(mode, 4) { "r" } else { "-" }
   let w3 = if mode_has(mode, 2) { "w" } else { "-" }
 
-  f"{letter}{r1}{w1}{user_x}{r2}{w2}{group_x}{r3}{w3}{other_x}"
+  let permissions = f"{letter}{r1}{w1}{user_x}{r2}{w2}{group_x}{r3}{w3}{other_x}"
+  if f.acl { f"{permissions}+" } else { permissions }
 }
 
 # The character ls -F / -p / --file-type appends, or "".

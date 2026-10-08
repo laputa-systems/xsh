@@ -16,7 +16,7 @@ proc run_applet_paths(ctx: TestContext, root: Path, args: List[Union[Str, Path]]
   let err = fp"{root}/stderr-bytes"
   let script = fp"{ctx.core_dir}/mktemp.xsh"
   let words: List[Union[Str, Path]] = collect { yield ctx.xsh_bin; yield script; yield "--"; for arg in args { yield arg } }
-  let plan = process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", out, err)
+  let plan = process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C", TMPDIR: ""}, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }

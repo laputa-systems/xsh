@@ -286,22 +286,22 @@ test test_dd_zero_count_skips_an_input_fifo { |ctx|
   assert (wait writer?).exited_with(0)
 }
 
-test test_dd_zero_count_opens_an_output_fifo { |ctx|
+test test_dd_zero_count_seeks_an_output_fifo_by_reading { |ctx|
   let root = test.temp_dir(ctx, name: "dd-seek-fifo")?
   let fifo = fp"{root}/fifo"
-  let received = fp"{root}/received"
+  let payload = fp"{root}/payload"
+  payload.write(bytes.zero(512)?)
   fs.mkfifo(fifo, 0o600)
-  let reader_script = fp"{root}/reader.xsh"
-  reader_script.write(f"let data = fp\"{fifo}\".read_bytes()?\nfp\"{received}\".write(data)\n")
-  let reader = spawn run timeout -s KILL 2 ${ctx.xsh_bin} $reader_script ?
-  defer reader.cancel(kill_after: 100ms)
+  let writer_script = fp"{root}/writer.xsh"
+  writer_script.write(f"fp\"{fifo}\".write(fp\"{payload}\".read_bytes()?)\n")
+  let writer = spawn run timeout -s KILL 2 ${ctx.xsh_bin} $writer_script ?
+  defer writer.cancel(kill_after: 100ms)
 
   let result = invoke(ctx, ["status=noxfer", f"of={fifo}", "seek=1", "count=0"])?
   assert result.status == 0, result.stderr
   assert result.stdout == b""
   assert result.stderr == "0+0 records in\n0+0 records out\n"
-  assert (wait reader?).exited_with(0)
-  assert received.read_bytes()? == b""
+  assert (wait writer?).exited_with(0)
 }
 
 test test_dd_streams_output_records_to_a_fifo { |ctx|

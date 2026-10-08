@@ -94,22 +94,34 @@ proc preserve_xattrs(source: Path, target: Path, opts: Options, follow: Bool, ta
   }
 }
 
-proc preserve(source: Path, target: Path, opts: Options, follow: Bool, created = false) {
-  let meta = source_stat(source, follow)?
-  let target_link = meta.kind == "symlink" or opts.symlink
+# Use metadata captured before copying reads a file or walks a directory.
+proc preserve(source: Path, target: Path, opts: Options, follow: Bool, source_meta: FsStat, created = false) {
+  let target_link = source_meta.kind == "symlink" or opts.symlink
   if opts.owner {
-    fs.set_owner(target, uid: meta.uid, gid: meta.gid, follow_symlinks: ! target_link)
+    fs.set_owner(target, uid: source_meta.uid, gid: source_meta.gid, follow_symlinks: ! target_link)
   }
-  preserve_xattrs(source, target, opts, follow, target_link)
+  if ! target_link and (opts.xattr != "none" or opts.context != "none") {
+    let target_mode = fs.stat(target)?.mode.bit_and(0o7777)
+    if target_mode.bit_and(0o200) == 0 {
+      target.chmod(target_mode.bit_or(0o200))
+      let attributes = preserve_xattrs(source, target, opts, follow, target_link)
+      target.chmod(target_mode)
+      attributes?
+    } else {
+      preserve_xattrs(source, target, opts, follow, target_link)
+    }
+  } else {
+    preserve_xattrs(source, target, opts, follow, target_link)
+  }
   if opts.mode and ! target_link {
-    target.chmod(meta.mode.bit_and(0o7777))
+    target.chmod(source_meta.mode.bit_and(0o7777))
   } else if opts.owner and created and ! target_link {
-    let mask = if meta.kind == "dir" { 0o1777 } else { 0o777 }
-    let defaults = if meta.kind == "dir" { 0o777 } else { 0o666 }
-    target.chmod((if opts.no_mode { defaults } else { meta.mode.bit_and(mask) }).clear_bits(fs.umask()?))
+    let mask = if source_meta.kind == "dir" { 0o1777 } else { 0o777 }
+    let defaults = if source_meta.kind == "dir" { 0o777 } else { 0o666 }
+    target.chmod((if opts.no_mode { defaults } else { source_meta.mode.bit_and(mask) }).clear_bits(fs.umask()?))
   }
   if opts.times {
-    fs.set_times(target, atime_ns: meta.atime_ns, mtime_ns: meta.mtime_ns,
+    fs.set_times(target, atime_ns: source_meta.atime_ns, mtime_ns: source_meta.mtime_ns,
       follow_symlinks: ! target_link)
   }
 }
@@ -124,7 +136,7 @@ proc mkdir_copy(target: Path, source_mode: Int, opts: Options) {
   target.chmod(mode)
 }
 
-type ParentDirectory = {source: Path, target: Path, mode: Int, created: Bool}
+type ParentDirectory = {source: Path, target: Path, meta: FsStat, created: Bool}
 
 # Newly created ancestors stay searchable during the copy. Their source modes
 # and timestamps are applied after the child operations finish.
@@ -136,14 +148,14 @@ proc prepare_parents(source: Path, target: Path, root: Path, opts: Options) -> R
     let meta = source_stat(from, true)?
     let exists = dest.exists()?
     if ! exists or fs.stat(dest, follow_symlinks: true)?.kind == "dir" {
-      pairs = [{source: from, target: dest, mode: meta.mode, created: ! exists}] + pairs
+      pairs = [{source: from, target: dest, meta: meta, created: ! exists}] + pairs
     }
     from = from.parent()
     dest = dest.parent()
   }
   for pair in pairs {
     if pair.created {
-      mkdir_copy(pair.target, pair.mode, opts)
+      mkdir_copy(pair.target, pair.meta.mode, opts)
       if opts.verbose { gnu.write_text(f"{gnu.quote_maybe(pair.source.display())} -> {gnu.quote_maybe(pair.target.display())}\n") }
     }
   }
@@ -154,9 +166,9 @@ proc finish_parents(pairs: List[ParentDirectory], opts: Options) {
   for index in range(pairs.len()) {
     let pair = pairs[pairs.len() - index - 1]
     if pair.created and ! opts.mode and ! opts.owner {
-      pair.target.chmod((if opts.no_mode { 0o777 } else { pair.mode.bit_and(0o1777) }).clear_bits(fs.umask()?))
+      pair.target.chmod((if opts.no_mode { 0o777 } else { pair.meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?))
     }
-    preserve(pair.source, pair.target, opts, true, created: pair.created)
+    preserve(pair.source, pair.target, opts, true, pair.meta, created: pair.created)
   }
 }
 
@@ -274,7 +286,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       }
     }
     if ! exists and ! opts.mode and ! opts.owner { target.chmod((if opts.no_mode { 0o777 } else { meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?)) }
-    preserve(source, target, opts, follow, created: created)
+    preserve(source, target, opts, follow, meta, created: created)
     copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: meta.kind}]
     return Ok({copies: copies, failed: failed})
   }
@@ -444,7 +456,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         gnu.write_text(f"copy offload: {offload}, reflink: {reflink}, sparse detection: {sparse}\n")
       }
     }
-    preserve(input, target, opts, follow, created: created)
+    preserve(input, target, opts, follow, meta, created: created)
   }
   copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: fs.stat(target)?.kind}]
   if opts.verbose { gnu.write_text(f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}\n") }

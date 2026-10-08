@@ -1,3 +1,5 @@
+use core.lib.acl
+
 type Ran = {status: Int, out: Bytes, text: Str, err: Str}
 
 # Runs core/ls.xsh through a symlink named `applet` (the installed alias shape,
@@ -83,6 +85,43 @@ test test_ls_long_reports_inaccessible_entries_as_minor_failure { |ctx|
   let unreadable = ls_in(ctx, work, ["dir"])?
   assert unreadable.status == 2, unreadable.err
   assert unreadable.err == "ls: cannot open directory 'dir': Permission denied\n", unreadable.err
+}
+
+test test_ls_long_marks_default_acl { |ctx|
+  let work = sandbox(ctx)?
+  let with_acl = fp"{work}/with-acl"
+  let without_acl = fp"{work}/without-acl"
+  let file = fp"{work}/file"
+  with_acl.mkdir()
+  without_acl.mkdir()
+  file.write("contents")
+  let access = acl.parse("u::rw-,u:12345:r--,g::r--,m::r--,o::r--")?
+  let installed_access = fs.xattr_set(file, "system.posix_acl_access", acl.encode(access)?)
+  if let Err(failure) = installed_access {
+    if (failure.errno ?? -1) in [1, 95, 93] { test.skip(f"access ACL fixture unavailable: {failure.message}"); return }
+    test.fail(failure.message)
+  }
+  let entries = acl.parse("u::rwx,u:12345:r-x,g::r-x,m::r-x,o::r-x", defaults: true)?
+  let installed = fs.xattr_set(with_acl, "system.posix_acl_default", acl.encode(entries)?)
+  if let Err(failure) = installed {
+    if (failure.errno ?? -1) in [1, 95, 93] { test.skip(f"default ACL fixture unavailable: {failure.message}"); return }
+    test.fail(failure.message)
+  }
+
+  let result = ls_in(ctx, work, ["-ld", "with-acl", "without-acl"])?
+  assert result.status == 0, result.err
+  assert "drwxr-xr-x+" in result.text, result.text
+  assert "drwxr-xr-x " in result.text, result.text
+
+  let access_line = ls_in(ctx, work, ["-l", "file"])?
+  assert "-rw-r--r--+ 1 " in access_line.text, access_line.text
+  let link = fp"{work}/link"
+  link.symlink(to: with_acl)
+  let followed = ls_in(ctx, work, ["-lLd", "link"])?
+  assert "drwxr-xr-x+" in followed.text, followed.text
+  let not_followed = ls_in(ctx, work, ["-ld", "link"])?
+  assert "lrwxrwxrwx " in not_followed.text, not_followed.text
+  assert "lrwxrwxrwx+" not in not_followed.text, not_followed.text
 }
 
 test test_ls_directory_operands_and_headers { |ctx|

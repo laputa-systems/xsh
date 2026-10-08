@@ -21,3 +21,34 @@ test test_compat_stage_gnu_path_resolves_applet_libraries { |ctx|
   let output = run.bytes @argv ?
   assert output == b"2\n"
 }
+
+test test_compat_stage_missing_gnu_programs_behave_as_false { |ctx|
+  let root = test.temp_dir(ctx, name: "stage-gnu-missing")?
+  let stage = fp"{root}/stage"
+  let programs = fp"{root}/programs"
+  let tools = fp"{root}/tools"
+  tools.mkdir()
+  programs.write("coreutils\n")
+  fp"{tools}/false".write(
+    r"""#!/bin/sh
+case "$0" in
+  */false) exit 1 ;;
+  *) printf '%s: applet not found\n' "${0##*/}" >&2; exit 127 ;;
+esac
+""",
+    mode: 0o755,
+  )
+
+  let inherited_path = env.get_or("PATH", "")?
+  let setup_path = f"{tools}:{inherited_path}"
+  let setup = process.command_argv(
+    "python3",
+    ["python3", "dev/compat/stage.py", "--stage", stage.display(), "--gnu-programs", programs.display()],
+    env: {XSH_BIN: ctx.xsh_bin.display(), PATH: setup_path},
+  )
+  assert process.run(setup)?.exited_with(0)
+
+  let missing = fp"{stage}/gnu-bin/coreutils"
+  let status = process.run(process.command_argv(missing, [missing.display(), "--invalid"]))?
+  assert status.exited_with(1)
+}

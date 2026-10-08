@@ -13,14 +13,32 @@
     "mkdir": [
       "Uutils accepts --context and -Z for security labels, which XSH explicitly rejects because security labels are unavailable; the generated -h and -V forms are also absent."
     ],
+    "mkfifo": [
+      "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+    ],
+    "mknod": [
+      "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+    ],
+    "mktemp": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
     "shuf": [
       "Uutils adds --random-seed, which XSH explicitly rejects as a uutils extension and directs callers to --random-source=FILE; the generated -h and -V forms are also absent."
     ],
+    "shred": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
     "cat": [
-      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 cat's short-option string omits both, so XSH accepts --help and --version without those short forms."
+      "XSH retains GNU's hidden ---presume-input-pipe test option, which uutils cat does not expose; uutils also generates -h/-V while GNU 9.12 cat omits both short controls."
+    ],
+    "cut": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "dirname": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 dirname's short-option string omits both, so XSH accepts --help and --version without them."
+    ],
+    "df": [
+      "Pinned uutils permits zero or more values for --output, while XSH accepts one optional value; uutils also generates -V, which XSH omits."
     ],
     "echo": [
       "Uutils generates -h and -V help/version controls; XSH follows GNU echo's manual scan for -n, -e, and -E, so those short controls are printed as text."
@@ -30,6 +48,9 @@
     ],
     "hostid": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 hostid has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "install": [
+      "Uutils adds security-label options (-Z, --context, --preserve-context, --unprivileged), -P, and generated -h/-V; XSH omits these uutils-only forms."
     ],
     "fold": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 fold has no matching short forms, so XSH accepts --help and --version without them."
@@ -64,6 +85,9 @@
     "unexpand": [
       "The pinned uutils version adds -U/--no-utf8 and Clap-generated -h/-V; GNU 9.12 unexpand exposes none of these options, and XSH follows GNU's option surface."
     ],
+    "uniq": [
+      "Uutils accepts an optional value with -D as well as --all-repeated; XSH keeps -D as a flag and accepts an optional value only with --all-repeated. Uutils also generates -h/-V."
+    ],
     "wc": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 wc's short-option string omits both, so XSH accepts --help and --version without them."
     ],
@@ -78,6 +102,12 @@
     ],
     "comm": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "csplit": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "du": [
+      "Pinned uutils permits zero or more values for --time, while XSH accepts one optional value; uutils also generates -V, which XSH omits."
     ],
     "factor": [
       "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
@@ -94,8 +124,14 @@
     "link": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
+    "ln": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
     "nice": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "od": [
+      "Uutils accepts -e as a floating-point format option and generates -V; XSH's manual legacy-format scan omits -e and the short version form."
     ],
     "nl": [
       "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
@@ -128,6 +164,9 @@
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "tac": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "tr": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "truncate": [
@@ -166,14 +205,22 @@
       "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise.",
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
+    "mv": [
+      "Uutils adds -Z/--context, -g, and generated -h/-V; XSH omits these uutils-only forms and shares the backup and update options with pinned uutils."
+    ],
     "pr": [
-      "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`."
+      "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`.",
+      "Pinned uutils requires a value for -e/--expand-tabs; XSH accepts it optionally. XSH also exposes -i/--output-tabs, -c/--show-control-chars, and -v/--show-nonprinting, which pinned uutils omits; uutils generates -V, which XSH omits."
+    ],
+    "rm": [
+      "Pinned uutils has a hidden test switch --presume-input-tty and its ---presume-input-tty alias; XSH omits both along with uutils-generated -h and -V."
     ],
     "who": [
       "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
       "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
       "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
-      "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
+      "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`.",
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "users": [
       "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written.",
@@ -192,7 +239,8 @@
       "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
     ],
     "stdbuf": [
-      "Child libc buffering cannot be controlled by parent pipes or XSH byte streams. GNU/uutils stdbuf requires an ABI-compatible preload shared library with a setvbuf constructor; the standalone static musl release ships no such library. The applet validates options and exits 125 explicitly without launching a command."
+      "Child libc buffering cannot be controlled by parent pipes or XSH byte streams. GNU/uutils stdbuf requires an ABI-compatible preload shared library with a setvbuf constructor; the standalone static musl release ships no such library. The applet validates options and exits 125 explicitly without launching a command.",
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "timeout": [
       "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor.",
@@ -257,6 +305,75 @@
     ],
     "halt": [
       "Direct syscall requires explicit --force; service-manager shutdown is unsupported."
+    ],
+    "head": [
+      "Uutils also accepts hidden --presume-input-pipe; XSH strips only the shared ---presume-input-pipe test form. Uutils generates -h/-V."
+    ],
+    "split": [
+      "Uutils accepts hidden --io-blksize while XSH strips only ---io-blksize; XSH also accepts -u/--unbuffered, absent in pinned uutils. Uutils generates -h/-V."
+    ],
+    "tail": [
+      "Uutils adds --debug, --use-polling and aliases --dis/---disable-inotify, plus hidden --presume-input-pipe and generated -h/-V; XSH accepts only the shared triple-dash test form."
+    ],
+    "tee": [
+      "Uutils adds -i/--ignore-interrupts and generated -V; XSH omits these forms."
+    ],
+    "touch": [
+      "Uutils generates -V as a short version control; XSH accepts only --version. The obsolete -f/--force no-op is parsed but unused on both sides."
+    ],
+    "sort": [
+      "Uutils adds --help, --key, --output, --field-separator, --parallel, --compress-program, --random-source and random-sort controls; XSH exposes key/output/separator only as short forms and omits the other options. Uutils also accepts repeated -c/--check values, while XSH limits --check to one optional type and keeps -c as a flag."
+    ],
+    "numfmt": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "chgrp": [
+      "Uutils declares --no-preserve-root but does not read it; XSH resets its default false state. Uutils also generates -V, which XSH omits."
+    ],
+    "chmod": [
+      "Uutils declares --no-preserve-root but does not read it; XSH resets its default false state. Uutils also generates -V, which XSH omits."
+    ],
+    "chown": [
+      "Uutils declares --no-preserve-root but does not read it; XSH resets its default false state. Uutils also generates -V, which XSH omits."
+    ],
+    "b2sum": [
+      "XSH's shared checksum schema parses --algorithm/-a, --base64, --debug, --raw, and --untagged for b2sum, then rejects them as unsupported; uutils generates short -h/-V forms that XSH omits."
+    ],
+    "cksum": [
+      "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+    ],
+    "md5sum": [
+      "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for md5sum; uutils generates short -h/-V forms that XSH omits."
+    ],
+    "sha1sum": [
+      "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha1sum; uutils generates short -h/-V forms that XSH omits."
+    ],
+    "sha224sum": [
+      "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha224sum; uutils generates short -h/-V forms that XSH omits."
+    ],
+    "sha256sum": [
+      "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha256sum; uutils generates short -h/-V forms that XSH omits."
+    ],
+    "sha384sum": [
+      "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha384sum; uutils generates short -h/-V forms that XSH omits."
+    ],
+    "sha512sum": [
+      "XSH's shared checksum schema parses --algorithm/-a, --length/-l, --base64, --debug, --raw, and --untagged, then rejects them as unsupported for sha512sum; uutils generates short -h/-V forms that XSH omits."
+    ],
+    "base32": [
+      "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+    ],
+    "base64": [
+      "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+    ],
+    "basenc": [
+      "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+    ],
+    "date": [
+      "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
+    ],
+    "dircolors": [
+      "Uutils generates short -h/-V help and version forms; XSH accepts only the long --help and --version forms."
     ]
   }
 }
