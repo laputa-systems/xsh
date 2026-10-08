@@ -11,7 +11,7 @@
     "cat-distinct-err.log": "FAIL",
     "cat-proc.log": "PASS",
     "cat-self.log": "PASS",
-    "splice.log": "FAIL"
+    "splice.log": "PASS"
   },
   "chcon": {
     "chcon-fail.log": "SKIP",
@@ -697,7 +697,7 @@
     "additional-suffix.log": "PASS",
     "b-chunk.log": "PASS",
     "fail.log": "PASS",
-    "filter.log": "ERROR",
+    "filter.log": "FAIL",
     "guard-input.log": "FAIL",
     "l-chunk-root.log": "SKIP",
     "l-chunk.log": "PASS",

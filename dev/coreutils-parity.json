@@ -30,7 +30,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "base32",
@@ -134,8 +136,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 2,
+        "pass": 5,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -235,7 +237,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "sha1sum",
@@ -368,7 +372,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "cp",
@@ -615,7 +621,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils version adds -U/--no-utf8 and Clap-generated -h/-V; GNU 9.12 expand exposes none of these options, and XSH follows GNU's option surface."
+      ]
     },
     {
       "utility": "expr",
@@ -671,7 +679,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
+      ]
     },
     {
       "utility": "false",
@@ -745,7 +755,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 fold has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "head",
@@ -821,7 +833,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "link",
@@ -839,7 +853,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "ln",
@@ -1009,7 +1025,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
+      ]
     },
     {
       "utility": "numfmt",
@@ -1088,7 +1106,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "pathchk",
@@ -1106,7 +1126,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "pr",
@@ -1202,7 +1224,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "pwd",
@@ -1260,7 +1284,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "realpath",
@@ -1283,7 +1309,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "rm",
@@ -1339,7 +1367,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "seq",
@@ -1367,7 +1397,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 seq has no matching short forms, so XSH accepts --help and --version without them."
+      ]
     },
     {
       "utility": "shred",
@@ -1534,7 +1566,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "tail",
@@ -1722,7 +1756,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "tsort",
@@ -1818,7 +1854,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils version adds -U/--no-utf8 and Clap-generated -h/-V; GNU 9.12 unexpand exposes none of these options, and XSH follows GNU's option surface."
+      ]
     },
     {
       "utility": "uniq",
@@ -1864,7 +1902,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "vdir",
@@ -2029,7 +2069,9 @@
         "excluded": 0
       },
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "kill",
@@ -2065,7 +2107,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "nproc",
@@ -2113,7 +2157,8 @@
         "A pipe on standard input is printed in full instead of paged; command input from /dev/tty is not integrated.",
         "Non-UTF-8 operands cannot be passed (this text applet requires UTF-8 argv): test_more::test_more_non_utf8_paths.",
         "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
-        "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
+        "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise.",
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
     },
     {
@@ -2132,7 +2177,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "timeout",
@@ -2156,7 +2203,8 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor."
+        "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor.",
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
     },
     {
@@ -2183,7 +2231,8 @@
       "known_semantic_gaps": [
         "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
         "`-p` and `-s` are procps options (not GNU coreutils); they are implemented because the uutils tests exercise them.",
-        "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`."
+        "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`.",
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
     },
     {
@@ -2291,7 +2340,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "groups",
@@ -2314,7 +2365,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "id",
@@ -2444,7 +2497,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+      ]
     },
     {
       "utility": "stty",
@@ -2509,7 +2564,8 @@
       "known_semantic_gaps": [
         "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
         "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
-        "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
+        "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
+        "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
       ]
     },
     {
@@ -2529,7 +2585,8 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written."
+        "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written.",
+        "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
     },
     {

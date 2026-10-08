@@ -1,8 +1,8 @@
 {
   "suite": "gnu-differential",
   "counts": {
-    "uutils_pass_xsh_pass": 394,
-    "uutils_pass_xsh_fail": 177,
+    "uutils_pass_xsh_pass": 395,
+    "uutils_pass_xsh_fail": 176,
     "uutils_fail_xsh_pass": 18,
     "uutils_fail_xsh_fail": 44
   },
@@ -13,6 +13,7 @@
       "cat/cat-buf.log",
       "cat/cat-proc.log",
       "cat/cat-self.log",
+      "cat/splice.log",
       "chmod/c-option.log",
       "chmod/equal-x.log",
       "chmod/equals.log",
@@ -407,7 +408,6 @@
       "basenc/base64.log",
       "basenc/basenc.log",
       "basenc/bounded-memory.log",
-      "cat/splice.log",
       "chcon/chcon-fail.log",
       "chmod/setgid.log",
       "chown/deref.log",
@@ -662,13 +662,11 @@
       ]
     },
     "cat": {
-      "pass": 4,
-      "fail": 2,
+      "pass": 5,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "cat/splice.log"
-      ]
+      "blockers": []
     },
     "chcon": {
       "pass": 0,

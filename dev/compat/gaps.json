@@ -7,8 +7,14 @@
     "dirname": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 dirname's short-option string omits both, so XSH accepts --help and --version without them."
     ],
+    "expand": [
+      "The pinned uutils version adds -U/--no-utf8 and Clap-generated -h/-V; GNU 9.12 expand exposes none of these options, and XSH follows GNU's option surface."
+    ],
     "hostid": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 hostid has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "fold": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 fold has no matching short forms, so XSH accepts --help and --version without them."
     ],
     "logname": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 logname has no matching short forms, so XSH accepts --help and --version without them."
@@ -22,6 +28,9 @@
     "pwd": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 pwd has no matching short forms, so XSH accepts --help and --version without them."
     ],
+    "seq": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 seq has no matching short forms, so XSH accepts --help and --version without them."
+    ],
     "sleep": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 sleep has only long help/version forms, which XSH follows."
     ],
@@ -34,11 +43,80 @@
     "uname": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 uname has no matching short forms, so XSH accepts --help and --version without them."
     ],
+    "unexpand": [
+      "The pinned uutils version adds -U/--no-utf8 and Clap-generated -h/-V; GNU 9.12 unexpand exposes none of these options, and XSH follows GNU's option surface."
+    ],
     "wc": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 wc's short-option string omits both, so XSH accepts --help and --version without them."
     ],
     "yes": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 yes has no matching short forms, so XSH accepts --help and --version without them."
+    ],
+    "arch": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "chroot": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "comm": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "factor": [
+      "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
+    ],
+    "groups": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "hostname": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "join": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "link": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "nice": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "nl": [
+      "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
+    ],
+    "nohup": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "paste": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "pathchk": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "ptx": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "readlink": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "realpath": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "rmdir": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "stat": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "sync": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "tac": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "truncate": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
+    ],
+    "unlink": [
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "basename": [
       "Text applets still require UTF-8 arguments; the launcher now supports raw argv only for scripts declaring List[Bytes] rest arguments.",
@@ -67,7 +145,8 @@
       "A pipe on standard input is printed in full instead of paged; command input from /dev/tty is not integrated.",
       "Non-UTF-8 operands cannot be passed (this text applet requires UTF-8 argv): test_more::test_more_non_utf8_paths.",
       "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
-      "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
+      "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise.",
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "pr": [
       "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`."
@@ -79,23 +158,27 @@
       "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
     ],
     "users": [
-      "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written."
+      "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written.",
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "uptime": [
       "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
       "`-p` and `-s` are procps options (not GNU coreutils); they are implemented because the uutils tests exercise them.",
-      "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`."
+      "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`.",
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "pinky": [
       "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
       "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
-      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
+      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
+      "The pinned uutils Clap builder generates -V as a short version control; XSH accepts only --version."
     ],
     "stdbuf": [
       "Child libc buffering cannot be controlled by parent pipes or XSH byte streams. GNU/uutils stdbuf requires an ABI-compatible preload shared library with a setvbuf constructor; the standalone static musl release ships no such library. The applet validates options and exits 125 explicitly without launching a command."
     ],
     "timeout": [
-      "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor."
+      "--foreground is explicitly rejected: managed spawn owns a new process group and transfers terminal ownership; leader-only signaling cannot provide the foreground process contract without a native spawn policy. Durations currently round positive intervals to a millisecond because time.millis is the narrowest public constructor.",
+      "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "awk": [
       "Parser and interpreter are implemented in XSH; full GNU awk language, locale and regex parity remains unverified."

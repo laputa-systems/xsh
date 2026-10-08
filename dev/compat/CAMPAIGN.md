@@ -155,14 +155,18 @@ suite then passed 65/65.
   lengths, this run used a short container alias for a private `TMPDIR` inside
   `.work`; the directory was owned by UID/GID 1000 with mode 0700 and no
   inherited setgid bit.
-- Gate 4's latest full run used source `89c4e143`: 719 selected GNU 9.12 tests,
-  412 PASS, 156 FAIL, 17 ERROR, and 134 SKIP. The four-cell differential
-  records 394 shared passes, 177 uutils-only passes, 18 XSH-only passes, and
-  44 shared failures. Relative to the preceding full Gate 4 run, this adds
-  two passes and removes one failure and one skip. `split/filter.sh` remains
-  an ERROR; `tee/tee.sh` passes and `misc/yes.sh` fails. Reports are
-  `results/gnu-xsh.json`, `results/gnu-differential.json`, and the pinned
-  baseline `results/gnu-uutils.json`.
+- Gate 4's full run used the optimized-debug XSH binary built from source
+  `b23d37ea`: 719 selected GNU 9.12 tests, 413 PASS, 156 FAIL, 16 ERROR, and
+  134 SKIP. The four-cell differential records 395 shared passes, 176
+  uutils-only passes, 18 XSH-only passes, and 44 shared failures. Compared with
+  the previous full run at `89c4e143`, one XSH failure became a pass, one error
+  became a fail, and there were no regressions from a prior pass. The changed
+  error was `split/filter.sh`: its internal `timeout 10` did not stop the
+  child, so the run was terminated after more than six minutes and recorded as
+  exit 137. Treat that test result as incomplete. `tee/tee.sh` passes and
+  `misc/yes.sh` fails. Reports are `results/gnu-xsh.json`,
+  `results/gnu-differential.json`, and the pinned baseline
+  `results/gnu-uutils.json`; run logs remain in ignored `.work/logs/`.
 
 The full BusyBox run at `8d92a7e2` selected 71 available staged XSH applet
 suites: 561 pass, 119 fail, and 65 skipped. The 50 in-scope coreutils applets
@@ -172,7 +176,7 @@ subset, the largest failure groups are `cp` (7), `date` (4), `printf` (4),
 `tr` (2), and `unexpand` (2); `od`, `seq`, `sort`, `sum`, and `test` each have
 one failure. The pinned report is `results/busybox.json`; run logs remain under
 ignored `.work/compat-results/busybox/full-wave4/`. Gate 5 remains open for
-the other 89 utilities. The practical expanded Linux suite and clean-image
+the other 57 utilities. The practical expanded Linux suite and clean-image
 smoke also remain open. The attempted AArch64 debug run was stopped after
 ARM64 was removed from scope; it produced no gate result and is not an open
 campaign item. The parity inventory currently has 99 of 125 expanded Linux
@@ -231,39 +235,73 @@ three Python tests and a multicall adapter dispatch probe pass. The full
 with XSH's `cli.applet` schema, including generated help/version spellings,
 aliases, argument arity, and parsed-but-unused fields. The `true` and `false`
 applets use narrowly recognized manual help/version branches instead of
-`cli.applet`. Seventeen commands are covered:
+`cli.applet`. Forty-nine commands are covered:
 
 | Command | uutils spellings | XSH spellings | Differences |
 |---|---:|---:|---|
+| `arch` | 4 | 2 | uutils-only `-h`, `-V` |
 | `basename` | 10 | 8 | uutils-only `-h`, `-V` |
 | `cat` | 21 | 19 | uutils-only `-h`, `-V` |
+| `chroot` | 7 | 5 | uutils-only `-h`, `-V` |
+| `comm` | 13 | 11 | uutils-only `-h`, `-V` |
 | `dirname` | 6 | 4 | uutils-only `-h`, `-V` |
+| `expand` | 10 | 6 | uutils-only `-U`, `--no-utf8`, `-h`, `-V` |
+| `factor` | 5 | 4 | uutils-only `-V` |
 | `false` | 2 | 2 | none |
+| `fold` | 12 | 10 | uutils-only `-h`, `-V` |
+| `groups` | 4 | 2 | uutils-only `-h`, `-V` |
 | `hostid` | 4 | 2 | uutils-only `-h`, `-V` |
+| `hostname` | 12 | 10 | uutils-only `-h`, `-V` |
+| `join` | 19 | 17 | uutils-only `-h`, `-V` |
+| `link` | 4 | 2 | uutils-only `-h`, `-V` |
 | `logname` | 4 | 2 | uutils-only `-h`, `-V` |
+| `more` | 27 | 25 | uutils-only `-h`, `-V` |
+| `nice` | 6 | 4 | uutils-only `-h`, `-V` |
+| `nl` | 25 | 24 | uutils-only `-V` |
+| `nohup` | 4 | 2 | uutils-only `-h`, `-V` |
 | `nproc` | 6 | 4 | uutils-only `-h`, `-V` |
+| `paste` | 10 | 8 | uutils-only `-h`, `-V` |
+| `pathchk` | 7 | 5 | uutils-only `-h`, `-V` |
+| `pinky` | 13 | 12 | uutils-only `-V` |
 | `printenv` | 6 | 4 | uutils-only `-h`, `-V` |
+| `ptx` | 37 | 35 | uutils-only `-h`, `-V` |
 | `pwd` | 8 | 6 | uutils-only `-h`, `-V` |
+| `readlink` | 20 | 18 | uutils-only `-h`, `-V` |
+| `realpath` | 23 | 21 | uutils-only `-h`, `-V` |
+| `rmdir` | 9 | 7 | uutils-only `-h`, `-V` |
+| `seq` | 12 | 10 | uutils-only `-h`, `-V` |
 | `sleep` | 4 | 2 | uutils-only `-h`, `-V` |
+| `stat` | 13 | 11 | uutils-only `-h`, `-V` |
 | `sum` | 7 | 5 | uutils-only `-h`, `-V` |
+| `sync` | 8 | 6 | uutils-only `-h`, `-V` |
+| `tac` | 10 | 8 | uutils-only `-h`, `-V` |
+| `timeout` | 14 | 12 | uutils-only `-h`, `-V` |
 | `true` | 2 | 2 | none |
+| `truncate` | 12 | 10 | uutils-only `-h`, `-V` |
+| `tsort` | 5 | 5 | none |
 | `tty` | 7 | 5 | uutils-only `-h`, `-V` |
 | `uname` | 26 | 24 | uutils-only `-h`, `-V` |
+| `unexpand` | 12 | 8 | uutils-only `-U`, `--no-utf8`, `-h`, `-V` |
+| `unlink` | 4 | 2 | uutils-only `-h`, `-V` |
+| `uptime` | 8 | 6 | uutils-only `-h`, `-V` |
+| `users` | 4 | 2 | uutils-only `-h`, `-V` |
 | `wc` | 17 | 15 | uutils-only `-h`, `-V` |
 | `whoami` | 4 | 2 | uutils-only `-h`, `-V` |
 | `yes` | 4 | 2 | uutils-only `-h`, `-V` |
 
 All other spellings and arities match. The short help/version forms are
 generated by Clap and absent from GNU 9.12; `gaps.json` records them per
-command. Direct cat probes confirm both sides accept `--help` and `--version`,
+command. The uutils-only `-U`/`--no-utf8` options on `expand` and `unexpand` are
+also absent from GNU 9.12, so XSH does not implement them. Direct cat probes
+confirm both sides accept `--help` and `--version`,
 while only uutils accepts `-h` and `-V`; direct `true` and `false` declarations
 contain only the long help/version forms. The comparison also reports cat's
 `-u` as parsed-but-unused on both sides, matching its documented ignored
 behavior. `sum -r` is parsed-but-unused on both sides; the raw-byte XSH option
 scan handles `-s` and `--sysv` without treating `-r` as an override. Its
 native regression passes with the four-test `sum` suite. The comparisons cover
-138 uutils spellings and 108 XSH spellings. All twelve parser tests pass. Gate
-5 remains open for the other 89 utilities.
+511 uutils spellings and 418 XSH spellings. All fifteen parser tests pass. Gate
+5 remains open for the other 57 utilities.
 
 ## Sort merge follow-up (`a860f47a`)
 

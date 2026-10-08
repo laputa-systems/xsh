@@ -192,6 +192,168 @@ proc main(...argv: List[Str]) {
         )
         self.assertEqual(declarations["-r"]["disposition"], "parsed-but-unused")
 
+    def test_seq_registers_its_option_schema_and_help_difference(self):
+        self.assertIn("seq", surface.SUPPORTED_UTILITIES)
+        uutils_source, xsh_source = surface.SOURCE_PATHS["seq"]
+        uutils_root = surface.REPO.parent / "ref" / "uutils-coreutils"
+        uutils = surface.parse_uutils_declarations(
+            (uutils_root / "src" / "uu" / uutils_source).read_text()
+        )
+        xsh = surface.parse_xsh_declarations(
+            (surface.REPO / "core" / xsh_source).read_text(), "seq"
+        )
+        self.assertEqual(
+            {spelling: int(entry["arity"]) for spelling, entry in xsh.items()},
+            {
+                "-f": 1,
+                "--format": 1,
+                "-s": 1,
+                "--separator": 1,
+                "-t": 1,
+                "--terminator": 1,
+                "-w": 0,
+                "--equal-width": 0,
+                "--help": 0,
+                "--version": 0,
+            },
+        )
+        self.assertEqual(
+            surface.compare(
+                {spelling: int(entry["arity"]) for spelling, entry in uutils.items()},
+                {spelling: int(entry["arity"]) for spelling, entry in xsh.items()},
+            ),
+            {"uutils_only": {"-V": 0, "-h": 0}, "xsh_only": {}, "arity_mismatches": {}},
+        )
+
+    def test_text_wrapping_utilities_register_their_option_differences(self):
+        uutils_root = surface.REPO.parent / "ref" / "uutils-coreutils"
+        expected_xsh = {
+            "fold": {
+                "-w": 1,
+                "--width": 1,
+                "-b": 0,
+                "--bytes": 0,
+                "-c": 0,
+                "--characters": 0,
+                "-s": 0,
+                "--spaces": 0,
+                "--help": 0,
+                "--version": 0,
+            },
+            "expand": {
+                "-i": 0,
+                "--initial": 0,
+                "-t": 1,
+                "--tabs": 1,
+                "--help": 0,
+                "--version": 0,
+            },
+            "unexpand": {
+                "-a": 0,
+                "--all": 0,
+                "-f": 0,
+                "--first-only": 0,
+                "-t": 1,
+                "--tabs": 1,
+                "--help": 0,
+                "--version": 0,
+            },
+        }
+        expected_uutils_only = {
+            "fold": {"-h": 0, "-V": 0},
+            "expand": {"-h": 0, "-U": 0, "-V": 0, "--no-utf8": 0},
+            "unexpand": {"-h": 0, "-U": 0, "-V": 0, "--no-utf8": 0},
+        }
+
+        for utility, xsh_options in expected_xsh.items():
+            with self.subTest(utility=utility):
+                self.assertIn(utility, surface.SUPPORTED_UTILITIES)
+                uutils_source, xsh_source = surface.SOURCE_PATHS[utility]
+                uutils = surface.parse_uutils_declarations(
+                    (uutils_root / "src" / "uu" / uutils_source).read_text()
+                )
+                xsh = surface.parse_xsh_declarations(
+                    (surface.REPO / "core" / xsh_source).read_text(), utility
+                )
+                xsh_options_actual = {
+                    spelling: int(entry["arity"]) for spelling, entry in xsh.items()
+                }
+                self.assertEqual(xsh_options_actual, xsh_options)
+                self.assertEqual(
+                    surface.compare(
+                        {spelling: int(entry["arity"]) for spelling, entry in uutils.items()},
+                        xsh_options_actual,
+                    ),
+                    {
+                        "uutils_only": expected_uutils_only[utility],
+                        "xsh_only": {},
+                        "arity_mismatches": {},
+                    },
+                )
+
+    def test_additional_registered_option_surfaces_match_pinned_sources(self):
+        utilities = (
+            "arch",
+            "chroot",
+            "comm",
+            "factor",
+            "groups",
+            "hostname",
+            "join",
+            "link",
+            "more",
+            "nice",
+            "nl",
+            "nohup",
+            "paste",
+            "pathchk",
+            "pinky",
+            "ptx",
+            "readlink",
+            "realpath",
+            "rmdir",
+            "stat",
+            "sync",
+            "tac",
+            "timeout",
+            "truncate",
+            "tsort",
+            "unlink",
+            "uptime",
+            "users",
+        )
+        uutils_only = {
+            utility: {"-h": 0, "-V": 0}
+            for utility in utilities
+            if utility not in {"factor", "nl", "pinky", "tsort"}
+        }
+        uutils_only.update(
+            {"factor": {"-V": 0}, "nl": {"-V": 0}, "pinky": {"-V": 0}, "tsort": {}}
+        )
+        uutils_root = surface.REPO.parent / "ref" / "uutils-coreutils"
+
+        for utility in utilities:
+            with self.subTest(utility=utility):
+                self.assertIn(utility, surface.SUPPORTED_UTILITIES)
+                uutils_source, xsh_source = surface.SOURCE_PATHS[utility]
+                uutils = surface.parse_uutils_declarations(
+                    (uutils_root / "src" / "uu" / uutils_source).read_text()
+                )
+                xsh = surface.parse_xsh_declarations(
+                    (surface.REPO / "core" / xsh_source).read_text(), utility
+                )
+                self.assertEqual(
+                    surface.compare(
+                        {spelling: int(entry["arity"]) for spelling, entry in uutils.items()},
+                        {spelling: int(entry["arity"]) for spelling, entry in xsh.items()},
+                    ),
+                    {
+                        "uutils_only": uutils_only[utility],
+                        "xsh_only": {},
+                        "arity_mismatches": {},
+                    },
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
