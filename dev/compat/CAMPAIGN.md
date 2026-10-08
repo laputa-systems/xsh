@@ -136,20 +136,22 @@ suite then passed 65/65.
 
 ### Latest full compatibility gates
 
-- Gate 3's latest full run used source `d53ed7d1` and pinned uutils
-  `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the x86_64 musl
-  `Dockerfile.test` image, with the optimized-debug profile, three workers,
-  and UID/GID 1000. It recorded 5,495 pass, 454 fail, 0 skip, and 4 excluded
-  (5,953 total; 5,949 applicable). Compared with the previous full report at
-  source `89c4e143`, this fixes 26 tests with no regressions: `cat` +1, `env`
-  +8, `sort` +10, and `tail` +7. The report is `results/uutils-integration.json`.
-  Six earlier `pr` expectation differences remain: direct GNU 9.11 probes
-  match XSH's diagnostics, while uutils expects different clap messages; those
-  differences were recorded against the prior full report at `92a91b12`.
-  To keep fixtures under ignored `.work` while preserving their expected path
-  lengths, this run used a short container alias for a private `TMPDIR` inside
-  `.work`; the directory was owned by UID/GID 1000 with mode 0700 and no
-  inherited setgid bit.
+- Gate 3's current full run used release XSH from source `020558d2` and pinned
+  uutils `e7c9f3194280835c4487c2945c68d5f01ccacc8d` in the x86_64 musl
+  `Dockerfile.test` image, with three workers and UID/GID 1000. It recorded
+  5,500 pass, 449 fail, 0 skip, and 4 excluded (5,953 total; 5,949 applicable).
+  Compared with the previous full report at `d53ed7d1` (optimized-debug), six
+  failing cases now pass: `expand` +1, `pr` +1, and `split` +4. The comparison
+  also flags `shuf::test_getrandom_fail`: its `strace` injection forces
+  `getrandom` to return EAGAIN, and XSH panics while `regex-lite` compiles a
+  literal regex, before the applet runs. This is a release-run limitation in
+  regex compilation, not a change to `shuf`; it remains unresolved. The report
+  is `results/uutils-integration.json`, with run artifacts under ignored
+  `.work/compat-results/uutils-gate3-current-release/`. Six earlier `pr`
+  expectation differences remain: direct GNU 9.11 probes match XSH's
+  diagnostics, while uutils expects different clap messages. This run used a
+  short container alias for a private mode-0700 `TMPDIR` inside `.work` to
+  preserve path-sensitive fixtures.
 - Gate 4's full run used the optimized-debug XSH binary built from source
   `b23d37ea`: 719 selected GNU 9.12 tests, 413 PASS, 156 FAIL, 16 ERROR, and
   134 SKIP. The four-cell differential records 395 shared passes, 176
@@ -638,12 +640,13 @@ at source `89c4e143`; the campaign remains active and incomplete.
   `parity.py --check`, `lanes.py check`, the ignored-option ratchet, and the
   four-exclusion check passed.
 
-The campaign remains active and incomplete. The current full uutils report has
-480 failures, and the GNU differential has unresolved failures and errors.
-BusyBox comparison, the remaining expanded Linux surface, and clean-image
-smoke also remain open. AArch64 was still listed as an open gate in this
-checkpoint; it is out of scope under the current x86_64-only campaign scope.
-The selected `uniq` stress case and the previously failing `wc` slice pass in
+The campaign remains active and incomplete. The current full release uutils
+report has 449 failures; the comparison with the previous optimized-debug run
+contains the unresolved `shuf::test_getrandom_fail` runtime difference noted
+above. The GNU differential still has failures and errors. BusyBox comparison,
+the remaining expanded Linux surface, and clean-image smoke also remain open.
+AArch64 is out of scope under the current x86_64-only campaign scope. The
+selected `uniq` stress case and the previously failing `wc` slice pass in
 focused follow-ups; the `sort` slice improves by nine uutils tests with no
 regressions within that slice.
 

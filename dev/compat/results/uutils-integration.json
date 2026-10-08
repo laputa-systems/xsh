@@ -337,13 +337,11 @@
       "applet": true
     },
     "expand": {
-      "pass": 44,
-      "fail": 1,
+      "pass": 45,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_expand::test_large_tab_stop_without_tabs_does_not_allocate"
-      ],
+      "failing": [],
       "applet": true
     },
     "expr": {
@@ -730,8 +728,8 @@
       "applet": true
     },
     "pr": {
-      "pass": 57,
-      "fail": 27,
+      "pass": 58,
+      "fail": 26,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -745,7 +743,6 @@
         "test_pr::test_merge_one_long_one_short",
         "test_pr::test_negative_expand_tabs",
         "test_pr::test_number_width_too_large",
-        "test_pr::test_offset_large_value_does_not_abort_under_memory_limit",
         "test_pr::test_with_columns",
         "test_pr::test_with_columns_across_option_and_column_separator",
         "test_pr::test_with_columns_and_across_option",
@@ -922,12 +919,13 @@
       "applet": true
     },
     "shuf": {
-      "pass": 68,
-      "fail": 9,
+      "pass": 67,
+      "fail": 10,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_shuf::test_echo_invalid_unicode_in_arguments",
+        "test_shuf::test_getrandom_fail",
         "test_shuf::test_invalid_unicode_in_filename",
         "test_shuf::test_range_permute_no_overflow_0_max",
         "test_shuf::test_seed_args_no_repeat",
@@ -1017,18 +1015,14 @@
       "applet": true
     },
     "split": {
-      "pass": 126,
-      "fail": 7,
+      "pass": 130,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_split::diagnostics::test_snippet_points_at_the_unknown_unit",
         "test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value",
-        "test_split::test_round_robin_limited_file_descriptors",
-        "test_split::test_split_non_utf8_additional_suffix_is_byte_preserving",
-        "test_split::test_split_non_utf8_argument_unix",
-        "test_split::test_split_non_utf8_paths",
-        "test_split::test_split_non_utf8_prefix_is_byte_preserving"
+        "test_split::test_round_robin_limited_file_descriptors"
       ],
       "applet": true
     },
@@ -1371,8 +1365,8 @@
     }
   },
   "totals": {
-    "pass": 5495,
-    "fail": 454,
+    "pass": 5500,
+    "fail": 449,
     "skip": 0,
     "excluded": 4
   }

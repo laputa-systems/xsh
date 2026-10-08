@@ -121,15 +121,19 @@ uutils slices fixed additional cases in `cp`, `date`, filesystem applets,
 `stat`, text utilities, `sum`, and `env`. The last full optimized-debug native
 suite passed 4,964/0/38 (pass/fail/skip) at source `89c4e143`. The runtime
 services pending termination signals while an XSH child waits on stdin, and
-unhooked SIGINT/SIGTERM completes with the default shell status. The latest
-full Gate 3 report used source `d53ed7d1`: 5,495 pass, 454 fail, 0 skip, and 4
-excluded. It fixes 26 tests over the previous full run with no regressions
-(cat +1, env +8, sort +10, tail +7). Six earlier `pr` expectation differences
-remain: direct GNU 9.11 probes match XSH diagnostics, while uutils expects
-different clap messages. The latest full Gate 4 report uses the optimized-debug
-XSH binary built from source `b23d37ea`: 719 selected tests, 413 PASS, 156
-FAIL, 16 ERROR, and 134 SKIP. Its 633-cell differential records 395 shared
-passes, 176 uutils-only passes, 18 XSH-only passes, and 44 shared failures.
+unhooked SIGINT/SIGTERM completes with the default shell status. The current
+full Gate 3 release report used source `020558d2`: 5,500 pass, 449 fail, 0
+skip, and 4 excluded. Compared with the previous optimized-debug report,
+`expand` and `pr` each gain one pass and `split` gains four; the comparison also
+flags `shuf::test_getrandom_fail`. That test injects EAGAIN into `getrandom`,
+and XSH panics during regex-literal compilation before the applet runs. This
+runtime limitation remains unresolved. Six earlier `pr` expectation
+differences remain: direct GNU 9.11 probes match XSH diagnostics, while uutils
+expects different clap messages. The latest full Gate 4 report uses the
+optimized-debug XSH binary built from source `b23d37ea`: 719 selected tests,
+413 PASS, 156 FAIL, 16 ERROR, and 134 SKIP. Its 633-cell differential records
+395 shared passes, 176 uutils-only passes, 18 XSH-only passes, and 44 shared
+failures.
 Compared with the previous full run at `89c4e143`, one XSH failure became a
 pass and there were no regressions from a prior pass. The `split/filter.sh`
 row in that full report was stopped after its internal `timeout 10` had run
