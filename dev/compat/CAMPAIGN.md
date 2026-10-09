@@ -9,9 +9,10 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 ## Active resume (2026-10-09)
 
 - Local `campaign-utils` now includes the `fs-misc`, `perm`, native byte/hash,
-  GNU patch classification, `legacy-buckets`, and `stat-du-df` merges. The
-  local `origin/campaign-utils` ref is still at `5de29706`; push after the
-  campaign evidence is refreshed. Pinned references are uutils
+  GNU patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, and
+  `proc-a` merges (integrator head `0d5ad97b`). The local `origin/campaign-utils`
+  ref is still at `5de29706`; push after the campaign evidence is refreshed.
+  Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
 - Setup is complete on native Linux x86_64. Docker is not used. The workspace
   uses `nightly-2026-09-15`, the `x86_64-unknown-linux-musl` target, and mold
@@ -29,14 +30,18 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   queryable items**; SHA-224 and SHA-384 APIs are implemented and their tests,
   generated docs, and docs project checks pass. Exact remaining utility
   failures and their causes are in `gaps.json`.
-- `printf-env` measured **225 / 252** (env 79/100, printf 146/152); native
-  tests and ratchets pass, and the committed branch is ready to integrate.
-  `proc-a` measured **103 / 125** (kill 47/50, nice 11/13, nohup 12/13,
-  stdbuf 11/20, timeout 22/29); all **57** native tests pass, including a fix
-  for the PTY test runner's intermittent SIGHUP. `text-a2` started from **17 /
-  663** across nine applets; cut, expand, unexpand, paste, fold, nl, and fmt are
-  under implementation. `bytes-enc` and `checksums` are active on the merged
-  byte/hash APIs; their brief baselines were **8 / 311** and **3 / 507**.
+- `printf-env` is merged at **225 / 252** (env 79/100, printf 146/152), with
+  native tests and ratchets passing. `proc-a` is merged at **103 / 125** (kill
+  47/50, nice 11/13, nohup 12/13, stdbuf 11/20, timeout 22/29); all **57**
+  native tests pass, including a fix for the PTY test runner's intermittent
+  SIGHUP. `text-a2` started from **17 / 663** across nine applets; cut, expand,
+  unexpand, paste, fold, nl, and fmt now pass their native tests; tr and pr
+  remain in progress. `bytes-enc` has implemented base32, base64, basenc, od,
+  and dd; native tests pass and its uutils slice is at **301+ / 311** with a
+  slow FIFO timeout and remaining behavior gaps under investigation.
+  `checksums` uses the shared byte/hash APIs and has native tests for all nine
+  mapped commands; its canonical uutils slice is running. The integrator owns
+  shared results and baselines; lane runs use scratch outputs.
   The integrator owns shared results and baselines; lane runs use scratch
   outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
