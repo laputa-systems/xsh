@@ -111,6 +111,11 @@ pure reflow(data: Bytes, width: Int, split: Bool, prefix: Bytes, exact_prefix: B
     } else if has_prefix(row, skip, exact_skip) {
       if paragraph.len() > 0 { out += [wrap_words(paragraph, width, marked_prefix)]; paragraph = [] }
       out += [row, b"\n"]
+      marked_prefix = b""
+    } else if prefix.len() > 0 and ! has_prefix(row, prefix, exact_prefix) {
+      if paragraph.len() > 0 { out += [wrap_words(paragraph, width, marked_prefix)]; paragraph = [] }
+      out += [row, b"\n"]
+      marked_prefix = b""
     } else {
       var body = row
       if has_prefix(row, prefix, exact_prefix) {
@@ -119,8 +124,15 @@ pure reflow(data: Bytes, width: Int, split: Bool, prefix: Bytes, exact_prefix: B
           while p < row.len() and (row.byte_at(p) ?? -1) in [9, 32] { p += 1 }
           p
         }
-        body = row[offset + prefix.len()..]
-        marked_prefix = bytes.concat([row[..offset], prefix])
+        var prefix_end = offset + prefix.len()
+        if prefix_end < row.len() and (row.byte_at(prefix_end) ?? -1) in [9, 32] { prefix_end += 1 }
+        body = row[prefix_end..]
+        marked_prefix = row[..prefix_end]
+      } else {
+        var indent = 0
+        while indent < row.len() and (row.byte_at(indent) ?? -1) in [9, 32] { indent += 1 }
+        if paragraph.len() == 0 { marked_prefix = row[..indent] }
+        body = row[indent..]
       }
       if split {
         if paragraph.len() > 0 { out += [wrap_words(paragraph, width, marked_prefix)]; paragraph = [] }
@@ -141,7 +153,7 @@ pure raw_files(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
   var stop = false
   while i < argv.len() {
     let arg = argv[i]
-    if ! stop and arg == "--" { stop = true; i += 1 } else if ! stop and arg in ["-w", "--width", "-g", "--goal", "-p", "--prefix", "-P", "--skip-prefix"] { i += 2 } else if ! stop and arg.starts_with("--") and arg.find("=") != null { i += 1 } else if ! stop and arg.starts_with("-") and arg != "-" { i += 1 } else { files += [raw[i]]; i += 1 }
+    if ! stop and arg == "--" { stop = true; i += 1 } else if ! stop and arg in ["-w", "--width", "-g", "--goal", "-p", "--prefix", "-P", "--skip-prefix", "--pref", "--skip-pref"] { i += 2 } else if ! stop and arg.starts_with("--") and arg.find("=") != null { i += 1 } else if ! stop and arg.starts_with("-") and arg != "-" { i += 1 } else { files += [raw[i]]; i += 1 }
   }
   files
 }
@@ -152,6 +164,15 @@ proc read_input(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  var arg_index = 0
+  for arg in argv {
+    if arg_index > 0 and rx"^-[0-9]".matches(arg) {
+      let digit = arg.byte_slice(1, length: 1)
+      gnu.error(f"invalid option -- {digit}; -WIDTH is recognized only when it is the first\noption; use -w N instead")
+      exit 1
+    }
+    arg_index += 1
+  }
   let opts: FmtOptions = cli.applet(
     positional_width(argv),
     {
@@ -178,7 +199,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     Ok(value) => value
     Err(_) => 70
   }
-  let width_text = final(opts.width, if opts.goal.len() > 0 { f"{goal_guess + 10}" } else { "75" })
+  let width_text = final(opts.width, if opts.goal.len() > 0 and goal_guess + 10 < 75 { f"{goal_guess + 10}" } else { "75" })
   let width = match width_text.parse_int() {
     Ok(value) => value
     Err(_) => { gnu.error(f"invalid width: {gnu.quote_value(width_text)}"); exit 1 }
@@ -192,11 +213,21 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     Ok(value) => value
     Err(_) => { gnu.error(f"invalid goal: {gnu.quote_value(goal_text)}"); exit 1 }
   }
-  if opts.goal.len() > 0 and opts.width.len() > 0 and goal > width { gnu.error("GOAL cannot be greater than WIDTH."); exit 1 }
+  if opts.goal.len() > 0 and goal > width { gnu.error("GOAL cannot be greater than WIDTH."); exit 1 }
   if opts.crown { gnu.error("crown-margin is not supported"); exit 1 }
   let names = raw_files(argv, cli.argv_bytes())
   var failed = false
   for name in if names.len() == 0 { [b"-"] } else { names } {
+    if name != b"-" {
+      let target_path = Path.parse_bytes(name)?
+      if let Ok(meta) = fs.stat(target_path, follow_symlinks: true) {
+        if meta.kind == "dir" {
+          gnu.error(f"{gnu.quote_bytes(name, always: false)}: Is a directory")
+          failed = true
+          continue
+        }
+      }
+    }
     guard let data = read_input(name) else { |failure|
       if gnu.errno(failure) == 21 { gnu.error(f"{gnu.quote_bytes(name, always: false)}: Is a directory") } else { gnu.cannot_open(gnu.quote_bytes(name, always: false), failure) }
       failed = true
