@@ -49,8 +49,8 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       multiple: {form: "-a --multiple", default: false},
       suffix: {form: "-s --suffix SUFFIX"},
       zero: {form: "-z --zero", default: false},
-      help: {form: "--help", default: false, stop: true},
-      version: {form: "--version", default: false, stop: true},
+      help: {form: "-h --help", default: false, stop: true},
+      version: {form: "-V --version", default: false, stop: true},
       names: {form: "...NAME"},
     },
   )?

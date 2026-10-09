@@ -5,3 +5,8 @@ test test_dirname { |ctx|
   assert "/tmp/a" in many
   assert "/tmp/b" in many
 }
+
+test test_dirname_root_empty_and_repeated_separators { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/dirname.xsh" -- "" / /// /usr//lib foo/bar/ ?
+  assert output == ".\n/\n/\n/usr\nfoo\n", output
+}
