@@ -48,6 +48,20 @@ test test_date_epoch_iso_and_modifiers { |ctx|
   assert email_locale.status == 0 and email_locale.stdout == email.stdout, email_locale.stdout
 }
 
+test test_date_french_month_abbreviations_match_gnu { |ctx|
+  let month = date_run(ctx, ["-d", "2026-02-12", "+%b"], {LC_ALL: "fr_FR.UTF-8", TZ: "UTC0"})?
+  assert month.status == 0 and month.stdout == "févr.\n", month.stdout
+
+  let dates = date_run(
+    ctx,
+    ["-f", "-", "+%A %a %B %b"],
+    {LC_ALL: "fr_FR.UTF-8", TZ: "UTC0"},
+    b"2026-01-01\n2026-06-07\n2026-12-26\n",
+  )?
+  assert dates.status == 0
+  assert dates.stdout == "jeudi jeu. janvier janv.\ndimanche dim. juin juin\nsamedi sam. décembre déc.\n", dates.stdout
+}
+
 test test_date_file_reference_and_error_options { |ctx|
   let batch = date_run(ctx, ["-u", "-f", "-", "+%F"] , {LC_ALL: "C", TZ: "UTC0"}, b"1970-01-01\n2000-02-29\n")?
   assert batch.stdout == "1970-01-01\n2000-02-29\n", batch.stdout
