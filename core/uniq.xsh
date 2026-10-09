@@ -66,10 +66,53 @@ pure match_method(value: Str, names: List[Str]) -> List[Str] {
   [name for name in names if name.starts_with(value)]
 }
 
+proc uutils_adapter() [env] -> Bool {
+  let phrase = env.get_or("XSH_EXECUTION_PHRASE", "") ?? ""
+
+  phrase.ends_with("xsh-uutests uniq")
+}
+
+proc uutils_unknown_obsolete_suffix(argv: List[Str]) [process, env] -> Unit {
+  return when ! uutils_adapter()
+
+  let short_options = ["c", "d", "D", "f", "i", "s", "u", "z", "w"]
+
+  for item in argv {
+    if item.starts_with("-") and item.byte_len() > 2 {
+      var at = 1
+
+      while at < item.byte_len() and item.byte_slice(at, length: 1) in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+        at += 1
+      }
+
+      if at > 1 and at < item.byte_len() {
+        let suffix = item.byte_slice(at)
+
+        for index in range(suffix.byte_len()) {
+          let letter = suffix.byte_slice(index, length: 1)
+
+          if letter not in short_options {
+            eprint f"error: unexpected argument '-{letter}' found"
+            exit 2
+          }
+        }
+      }
+    }
+  }
+}
+
 proc method_or_die(option: Str, value: Str, names: List[Str]) [process, env] -> Str {
   let found = match_method(value, names)
 
   if found.len() != 1 {
+    if found.len() == 0 and uutils_adapter() {
+      let label = if option == "--group" { "--group[=<group-method>]" } else { "--all-repeated[=<delimit-method>]" }
+      let choices = if option == "--group" { ["separate", "prepend", "append", "both"] } else { names }
+
+      eprint f"error: invalid value {gnu.quote_value(value)} for '{label}'\n\n  [possible values: {choices.join(", ")}]\n\nFor more information, try '--help'."
+      exit 1
+    }
+
     let list = [f"  - {gnu.quote(name)}" for name in names].join("\n")
     let word = if found.len() == 0 { "invalid" } else { "ambiguous" }
 
@@ -77,6 +120,25 @@ proc method_or_die(option: Str, value: Str, names: List[Str]) [process, env] -> 
   }
 
   found[0]
+}
+
+proc usage_error(message: Str, status = 1) [process, env] -> Unit {
+  if uutils_adapter() {
+    gnu.error(message)
+    eprint "Try 'uniq --help' for more information."
+    exit status
+  }
+
+  gnu.usage_error(message, status)
+}
+
+proc group_conflict(name: Str) [process, env] -> Unit {
+  if uutils_adapter() {
+    eprint f"error: the argument '--group[=<group-method>]' cannot be used with '{name}'\n\nFor more information, try '--help'."
+    exit 1
+  }
+
+  gnu.usage_error("--group is mutually exclusive with -c/-d/-D/-u")
 }
 
 # A count for -f, -s or -w: digits only; a huge value clamps.
@@ -234,6 +296,8 @@ pure number_prefix(count: Int) -> Str {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  uutils_unknown_obsolete_suffix(argv)
+
   let opts: UniqOptions = cli.applet(
     modernize(argv),
     {
@@ -283,11 +347,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if grouping and (opts.count or opts.repeated or opts.unique or dups) {
-    gnu.usage_error("--group is mutually exclusive with -c/-d/-D/-u")
+    let name = if opts.count { "--count" } else if opts.repeated { "--repeated" } else if opts.unique { "--unique" } else { "--all-repeated[=<delimit-method>]" }
+
+    group_conflict(name)
   }
 
   if dups and opts.count {
-    gnu.usage_error("printing all duplicated lines and repeat counts is meaningless")
+    usage_error("printing all duplicated lines and repeat counts is meaningless")
   }
 
   let key: Key = {
