@@ -103,6 +103,64 @@ fn cli_argv_bytes_preserves_non_utf8_script_arguments() {
     assert_eq!(output.stdout, b"ok\n");
 }
 
+#[cfg(unix)]
+#[test]
+fn uutils_dispatch_preserves_raw_args_and_deleted_working_directories() {
+    let root = temp_path("uutils-dispatch");
+    let _ = std::fs::remove_dir_all(&root);
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("create staged applet directory");
+    std::fs::write(root.join("mem-limit-kb"), "unlimited\n").expect("write memory limit");
+
+    let xsh = Path::new(cargo_env!("CARGO_BIN_EXE_xsh"));
+    let dispatcher = root.join("xsh-uutests");
+    std::os::unix::fs::symlink(xsh, &dispatcher).expect("link native dispatcher");
+    let applet = bin.join("raw-argv");
+    std::fs::write(
+        &applet,
+        format!(
+            "#!{}\nproc main(...argv: List[Str]) [io, error] {{\n  let raw = cli.argv_bytes()\n  assert raw.len() == 1\n  io.write_stdout_bytes(raw[0])?\n}}\n",
+            xsh.display()
+        ),
+    )
+    .expect("write raw argument probe applet");
+    std::fs::set_permissions(&applet, std::fs::Permissions::from_mode(0o755))
+        .expect("make probe applet executable");
+
+    let raw_argument = std::ffi::OsString::from_vec(b"raw\xffarg".to_vec());
+    let raw_output = Command::new(&dispatcher)
+        .arg("raw-argv")
+        .arg(raw_argument)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("run applet through native dispatcher");
+    assert_eq!(raw_output.status.code(), Some(0));
+    assert_eq!(raw_output.stdout, b"raw\xffarg");
+    assert!(raw_output.stderr.is_empty());
+
+    let work = root.join("work");
+    std::fs::create_dir_all(&work).expect("create deleted-cwd working directory");
+    let command = format!(
+        "cd '{}'; mkdir gone; cd gone; rmdir ../gone; exec '{}' raw-argv ok",
+        work.display(),
+        dispatcher.display()
+    );
+    let deleted_cwd_output = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(&command)
+        .current_dir(&root)
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("run dispatcher from a deleted working directory");
+    assert_eq!(deleted_cwd_output.status.code(), Some(0));
+    assert_eq!(deleted_cwd_output.stdout, b"ok");
+    assert!(deleted_cwd_output.stderr.is_empty());
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn integer_division_by_zero_is_a_structured_runtime_failure() {
     let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))

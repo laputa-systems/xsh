@@ -68,7 +68,7 @@ chown. `GNU_JOBS` (default 3) sets `make -j`.
 | `python3 dev/compat/parity.py` | regenerate `dev/coreutils-parity.json` from the pinned uutils tree and any results |
 | `python3 dev/compat/parity.py --check` | fail if the manifest is stale |
 | `python3 dev/compat/stage.py [--stage DIR]` | install `core/` in release shape with shebangs at the built `xsh`; writes `applets.json` |
-| `dev/compat/xsh-uutests UTIL ARGS...` | uutils multicall contract; `stage.py` installs a copy in the stage that finds the stage from its own path (the uutils framework clears the environment) |
+| `dev/compat/xsh-uutests UTIL ARGS...` | manual shell adapter for a generated stage; the suite uses a symlink to the native `xsh` dispatcher so argv, signals and deleted working directories pass through without an extra shell |
 | `dev/compat/run-uutils.sh [UTIL...]` | Gate 3: uutils `tests/by-util` against XSH; writes `results/uutils-integration.json` |
 | `python3 dev/compat/compare.py BEFORE.json AFTER.json` | merge gate: before/after totals, per-utility change, exit 1 on any test that passed before and fails now |
 | `dev/compat/run-gnu.sh prepare` | fetch GNU 9.12 and prepare its tests with uutils' `build-gnu.sh` |

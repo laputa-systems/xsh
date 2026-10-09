@@ -5,7 +5,11 @@ use xsh::execution::script::{
 };
 
 #[cfg(unix)]
-use std::os::unix::ffi::OsStrExt;
+use std::{
+    os::unix::{ffi::OsStrExt, fs::PermissionsExt, process::CommandExt},
+    path::Path,
+    process::Command,
+};
 use xsh::process::{clear_cancellation_request, install_cancellation_signal_handlers};
 
 const HELP: &str = "\
@@ -24,6 +28,12 @@ ambiguous; `xsh SCRIPT -- ARGS...` is also accepted.
 ";
 
 pub fn main() -> ExitCode {
+    let process_args: Vec<OsString> = std::env::args_os().collect();
+    #[cfg(unix)]
+    if let Some(status) = dispatch_uutils(&process_args) {
+        return status;
+    }
+
     let _signal_guard = match install_cancellation_signal_handlers() {
         Ok(guard) => guard,
         Err(error) => {
@@ -33,7 +43,7 @@ pub fn main() -> ExitCode {
     };
     clear_cancellation_request();
 
-    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    let args: Vec<OsString> = process_args.into_iter().skip(1).collect();
     let text_args: Vec<String> = args
         .iter()
         .map(|argument| argument.to_string_lossy().into_owned())
@@ -58,6 +68,93 @@ pub fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(unix)]
+fn dispatch_uutils(args: &[OsString]) -> Option<ExitCode> {
+    let invoked = Path::new(args.first()?).file_name()?;
+    if invoked != OsStr::new("xsh-uutests") {
+        return None;
+    }
+
+    Some(dispatch_uutils_applet(args))
+}
+
+#[cfg(unix)]
+fn dispatch_uutils_applet(args: &[OsString]) -> ExitCode {
+    let Some(invoked_as) = args.first() else {
+        return ExitCode::from(2);
+    };
+    let Some(utility) = args.get(1) else {
+        eprintln!("usage: xsh-uutests UTILITY [ARG...]");
+        return ExitCode::from(2);
+    };
+    let utility_bytes = utility.as_os_str().as_bytes();
+    if utility_bytes.is_empty()
+        || utility_bytes.contains(&b'/')
+        || utility.as_os_str() == OsStr::new(".")
+        || utility.as_os_str() == OsStr::new("..")
+    {
+        eprintln!(
+            "xsh-uutests: invalid utility name '{}'",
+            utility.to_string_lossy()
+        );
+        return ExitCode::from(2);
+    }
+
+    let stage = Path::new(invoked_as).parent().unwrap_or_else(|| Path::new("."));
+    let applet = stage.join("bin").join(utility);
+    let executable = std::fs::metadata(&applet).is_ok_and(|metadata| {
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    });
+    if !executable {
+        eprintln!(
+            "xsh-uutests: XSH provides no applet for '{}'",
+            utility.to_string_lossy()
+        );
+        return ExitCode::from(127);
+    }
+
+    apply_uutils_memory_limit(stage);
+
+    let phrase = format!("{} {}", invoked_as.to_string_lossy(), utility.to_string_lossy());
+    let mut command = Command::new(applet);
+    command
+        .args(args.iter().skip(2))
+        .env("XSH_EXECUTION_PHRASE", phrase);
+    let error = command.exec();
+    eprintln!(
+        "xsh-uutests: failed to execute '{}': {error}",
+        utility.to_string_lossy()
+    );
+    ExitCode::from(126)
+}
+
+#[cfg(all(unix, target_os = "linux"))]
+fn apply_uutils_memory_limit(stage: &Path) {
+    let limit_path = stage.join("mem-limit-kb");
+    let Ok(value) = std::fs::read_to_string(limit_path) else {
+        return;
+    };
+    let value = value.trim();
+    if value == "unlimited" {
+        return;
+    }
+    let Ok(kibibytes) = value.parse::<u64>() else {
+        return;
+    };
+    let bytes = kibibytes.saturating_mul(1024) as libc::rlim_t;
+    let limit = libc::rlimit {
+        rlim_cur: bytes,
+        rlim_max: bytes,
+    };
+    // The shell adapter treated a rejected `ulimit -v` as best effort.
+    unsafe {
+        let _ = libc::setrlimit(libc::RLIMIT_AS, &limit);
+    }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn apply_uutils_memory_limit(_stage: &Path) {}
 
 fn parse_run(args: Vec<OsString>) -> Result<Option<(RunOptions, Vec<Vec<u8>>)>, String> {
     let text_args: Vec<String> = args

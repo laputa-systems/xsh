@@ -901,7 +901,9 @@ lanes that consume them.
   one changing makes cargo recompile the whole test crate (five minutes).
   `run-uutils.sh` pins `PATH` and creates an empty placeholder.
 - The uutils framework runs each command with a cleared environment, so the
-  adapter finds its stage from its own path rather than from a variable.
+  staged native XSH dispatcher finds its stage from `argv[0]` rather than from
+  an environment variable. It execs the applet directly and applies the stage's
+  per-applet address-space limit.
 - Native-lane features need hardware or kernel facilities this VM lacks
   (QEMU/OVMF, NVMe devices, `scsi_debug`, privileged namespaces): those tests
   are written against synthetic fixtures here and run for real in the

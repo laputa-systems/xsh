@@ -20,9 +20,9 @@
 #   instead of passing on uutils' behavior. It is restored on exit.
 # - Only the `tests` target runs; `test_util_name` and `test_uudoc` exercise the
 #   uutils binary itself and do not apply.
-# - The framework clears the child environment, so the adapter is installed
-#   inside the stage and locates the stage from its own path.
-# - Each test process (nextest wrapper) and each applet (adapter) runs under an
+# - The framework clears the child environment, so the staged native xsh
+#   dispatcher locates its stage from argv[0].
+# - Each test process (nextest wrapper) and each applet (native dispatcher) runs under an
 #   address-space cap, because a buggy applet can emit gigabytes that the test
 #   process then buffers (XSH `date +%99999999999c` wrote 2 GiB). Applet cap (XSH_COMPAT_MEM_KB, default 3 GiB)
 #   and nextest runs UUTESTS_THREADS (default 3) tests at once: the host shares
