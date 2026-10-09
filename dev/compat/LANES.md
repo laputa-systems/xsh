@@ -26,9 +26,10 @@ work go to `xsh-routine` (`.claude/agents/xsh-routine.md`).
    process sampling, nvme, ...) has exactly one owning lane at a time; applet
    lanes consume it and request missing fields through the integrator. Native
    domain lanes land before the applet lanes that depend on them.
-7. **Lane model policy.** `xsh-lane` agents run on Sonnet 5.5 at high effort and
-   nothing else; the agent definition pins both and every spawn passes
-   `model: sonnet` explicitly. Opus is not used for lanes.
+7. **Lane model policy.** For this campaign run, every spawned lane uses
+   GPT-6 Luna at xhigh effort. Pass `model: "gpt-6-luna"` and
+   `reasoning_effort: "xhigh"` explicitly to the subagent tool; do not spawn a
+   lane on another model. Keep concurrency within the host budget below.
 
 ## Integrator-owned paths
 
@@ -60,9 +61,10 @@ ships a workaround that parses text or discards the option.
 
 ## Machine budget
 
-Paths in this file are the reference VM's (`/home/claude/...`); the integrator
-substitutes the host's layout in each brief (this session used
-`/home/user/xsh-lanes` and `/home/user/targets`). The host's memory cgroup is
+Paths in this file are examples; the integrator substitutes the host's layout
+in each brief. For the current native Linux x86_64 host, use worktrees under
+`/workspace/xsh-lanes` and isolated native targets under `/workspace/targets`.
+The host's memory cgroup is
 shared by every build, lane and suite: size concurrency to its limit, not only
 to cores.
 

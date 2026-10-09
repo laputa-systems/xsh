@@ -5,11 +5,48 @@ Tooling for the campaign in [`CAMPAIGN.md`](CAMPAIGN.md); lane process in
 
 ## Setup
 
+The utility campaign runs on a native Linux x86_64 host. Source the shared
+environment after installing the pinned Rust toolchain and mold:
+
+```sh
+export XSH_TOOLS_ROOT="${XSH_TOOLS_ROOT:-$(dirname "$PWD")/.tools}"
+export CARGO_HOME="${CARGO_HOME:-$XSH_TOOLS_ROOT/cargo}"
+export RUSTUP_HOME="${RUSTUP_HOME:-$XSH_TOOLS_ROOT/rustup}"
+mkdir -p "$CARGO_HOME" "$RUSTUP_HOME" "$XSH_TOOLS_ROOT"
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+  env CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" sh -s -- -y --no-modify-path --default-toolchain none
+"$CARGO_HOME/bin/rustup" toolchain install nightly-2026-09-15 --profile minimal
+curl -fL https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
+  -o "$XSH_TOOLS_ROOT/mold-3.0.0-x86_64-linux.tar.gz"
+(cd "$XSH_TOOLS_ROOT" && echo '6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189  mold-3.0.0-x86_64-linux.tar.gz' | sha256sum -c -)
+tar -xzf "$XSH_TOOLS_ROOT/mold-3.0.0-x86_64-linux.tar.gz" --strip-components=1 -C "$CARGO_HOME"
+source dev/compat/native-env.sh
+```
+
+`native-env.sh` defaults tool storage to `../.tools`, requires mold 3.0.0,
+and adds `-C link-arg=-fuse-ld=mold` to `RUSTFLAGS`. The release build and
+Cargo installs therefore use mold. The scope and evidence for this campaign
+are Linux x86_64 only; do not route these commands through Docker. GNU
+preparation needs a C compiler, autotools, Perl, quilt, gperf, texinfo,
+autopoint, gawk, help2man, rsync, ACL tools, and `filefrag`. Install them from
+the host package manager or provide them in `../.tools/gnu-env` when host
+package installation is unavailable.
+
+On this host, system package installation is unavailable to the session user.
+`../.tools/gnu-env` contains the GNU tools from conda-forge plus extracted
+Debian `quilt`, ACL, attr, capability, and e2fsprogs packages. `run-gnu.sh`
+detects the local pkg-config files and supplies their include/library paths to
+GNU configure; ACL and capability support are enabled in the prepared tree.
+The local `quilt` is Debian quilt 0.69 (the conda package named `quilt` is a
+different tool).
+
 ```sh
 git clone https://github.com/uutils/coreutils ../ref/uutils-coreutils
 git -C ../ref/uutils-coreutils checkout "$(python3 -c 'import json;print(json.load(open("dev/compat/upstream.lock.json"))["uutils"]["commit"])')"
+git clone https://github.com/laputa-systems/laputa ../laputa
+git -C ../laputa checkout master
 export UUTILS_ROOT=$PWD/../ref/uutils-coreutils
-cargo build --release -p xsh --bins -p xsht --bin xsht
+cargo build --release --locked -p xsh --bin xsh -p xsht --bin xsht
 cargo install cargo-nextest --locked          # for run-uutils.sh
 ```
 

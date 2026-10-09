@@ -60,7 +60,88 @@ prepare() {
 		mkdir -p "$gnu"
 		(cd "$gnu" && bash "$uutils/util/fetch-gnu.sh")
 	fi
-	(cd "$uutils" && FORCE_UNSAFE_CONFIGURE=1 PROFILE=release path_GNU="$gnu" bash util/build-gnu.sh)
+# This pinned uutils revision places its external libstdbuf under
+# target/release/build/uu_stdbuf/*/out instead of target/release/deps. Run a
+# temporary copy that links that built library (and tolerates a build without
+# the optional artifact); keep the pinned reference checkout itself untouched.
+	local build_helper helper_status gnu_tools
+	local -a prepare_env
+	gnu_tools=${XSH_TOOLS_ROOT:-$(dirname "$repo")/.tools}/gnu-env
+	prepare_env=(FORCE_UNSAFE_CONFIGURE=1 PROFILE=release "path_GNU=$gnu")
+	if [ -d "$gnu_tools/usr/lib/x86_64-linux-gnu/pkgconfig" ]; then
+		prepare_env+=(
+			"PKG_CONFIG_SYSROOT_DIR=$gnu_tools"
+			"PKG_CONFIG_PATH=$gnu_tools/usr/lib/x86_64-linux-gnu/pkgconfig:$gnu_tools/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+			"CPPFLAGS=${CPPFLAGS:+$CPPFLAGS }-I$gnu_tools/usr/include"
+			"LDFLAGS=${LDFLAGS:+$LDFLAGS }-L$gnu_tools/usr/lib/x86_64-linux-gnu -L$gnu_tools/usr/lib64"
+		)
+	fi
+	# A previous preparation removes generated factor-test names from
+	# tests/local.mk and leaves an empty continued assignment. If GNU needs to
+	# be reconfigured later, normalize only that already-empty list so
+	# autoreconf accepts the file; a fresh list with test names is unchanged.
+	if [ ! -f "$gnu/gnu-built" ] && [ -f "$gnu/tests/local.mk" ]; then
+		python3 - "$gnu/tests/local.mk" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines(keepends=True)
+for index, line in enumerate(lines):
+    if not line.startswith("factor_tests = \\"):
+        continue
+    end = index + 1
+    saw_continuation = False
+    while end < len(lines) and lines[end].strip() == "\\":
+        saw_continuation = True
+        end += 1
+    if saw_continuation and end < len(lines) and not lines[end].strip():
+        lines[index] = "factor_tests =\n"
+        del lines[index + 1:end + 1]
+    break
+path.write_text("".join(lines))
+PY
+	fi
+	build_helper=$(mktemp "$uutils/util/build-gnu.xsh.XXXXXX")
+	if ! cp "$uutils/util/build-gnu.sh" "$build_helper"; then
+		unlink "$build_helper"
+		return 2
+	fi
+	if ! python3 - "$build_helper" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+old = '    ln -vf "${UU_BUILD_DIR}"/deps/libstdbuf.* -t "${UU_BUILD_DIR}"\n'
+new = '''    stdbuf_lib_found=false
+    for lib in "${UU_BUILD_DIR}"/deps/libstdbuf.*; do
+        [ -e "$lib" ] || continue
+        ln -vf "$lib" -t "${UU_BUILD_DIR}"
+        stdbuf_lib_found=true
+    done
+    if [ "$stdbuf_lib_found" = false ]; then
+        for lib in "${UU_BUILD_DIR}"/build/uu_stdbuf/*/out/libstdbuf.so; do
+            [ -e "$lib" ] || continue
+            ln -vf "$lib" -t "${UU_BUILD_DIR}"
+        done
+    fi
+'''
+if source.count(old) != 1:
+    raise SystemExit("pinned build-gnu.sh no longer has the expected libstdbuf glob")
+path.write_text(source.replace(old, new))
+PY
+	then
+		unlink "$build_helper"
+		return 2
+	fi
+	if (cd "$uutils" && env "${prepare_env[@]}" bash "$build_helper"); then
+		unlink "$build_helper"
+	else
+		helper_status=$?
+		unlink "$build_helper"
+		return "$helper_status"
+	fi
 }
 
 point_path_at() {

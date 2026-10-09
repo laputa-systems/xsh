@@ -5,6 +5,24 @@ handoff and `CLAIMS.md`); scope widened on 2026-10-04 from coreutils parity to t
 integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 [`README.md`](README.md).
 
+## Active resume (2026-10-09)
+
+- `campaign-utils` starts at `95e35002`; `origin/campaign-utils` was fetched
+  and matched that head. Laputa is checked out at `048592b0`; the uutils
+  reference is at the locked commit `e7c9f319`.
+- This run is native Linux x86_64, uses mold 3.0.0 from the verified GitHub
+  release, and does not use Docker. The pinned nightly is installed in the
+  workspace-local tool prefix. See [`README.md`](README.md#setup) and
+  [`native-env.sh`](native-env.sh).
+- The release `xsh` and `xsht` binaries built successfully with mold.
+  `run-gnu.sh prepare` completed for GNU 9.12; the generated config enables
+  ACL, capability, and Linux xattr support. No compatibility test suite has
+  been run in this resume yet, so refresh the committed baselines before
+  measuring lane changes.
+- Spawned lanes for this resume use GPT-6 Luna at xhigh effort only. The
+  existing entries in [`CLAIMS.md`](CLAIMS.md) remain reserved until merged
+  or explicitly released.
+
 ## Handoff (2026-10-05, second session wound down)
 
 Read this first, then `CLAIMS.md`. Verified against the repository when written;
@@ -815,6 +833,20 @@ lanes that consume them.
 
 ## Environment notes
 
+- **Current execution scope:** native Linux x86_64 only, with no Docker.
+  Source `dev/compat/native-env.sh` after installing the pinned toolchain and
+  mold. It checks the host architecture, requires mold 3.0.0, and sets
+  `RUSTFLAGS` so Cargo links with mold. The release product build is
+  `cargo build --release --locked -p xsh --bin xsh -p xsht --bin xsht`.
+  See [`README.md`](README.md#setup) for the verified mold release SHA-256 and
+  local tool layout. `run-gnu.sh prepare` uses a temporary compatibility copy
+  of the pinned uutils helper because this revision puts external
+  `libstdbuf.so` under its Cargo build output rather than `target/release/deps`;
+  it also repairs a previously emptied factor-test list before a repeated
+  `autoreconf`. The reference checkout stays unchanged. This host has no system
+  package installation; GNU build tools and development headers are in the
+  workspace-local `../.tools/gnu-env` prefix. ACL and capability support are
+  enabled in the prepared GNU tree.
 - The repository pins `nightly-2026-09-15`; XSH uses no `#![feature]`, so
   stable 1.97 builds it when the pinned toolchain is unreachable
   (`RUSTUP_TOOLCHAIN=stable`). Do not commit a toolchain change for this.
@@ -840,6 +872,6 @@ lanes that consume them.
   (QEMU/OVMF, NVMe devices, `scsi_debug`, privileged namespaces): those tests
   are written against synthetic fixtures here and run for real in the
   `xsh-test` image or a privileged CI lane.
-- AGENTS.md makes `Dockerfile.test` (`xsh-test`, musl) the authority for Linux
-  evidence. Host-glibc runs are fast iteration only; gate results that count
-  come from the image.
+- This campaign run follows the user's native-host instruction: Linux x86_64
+  host runs are the evidence recorded here. `Dockerfile.test` is not used for
+  this run; do not generalize its result counts to other architectures.
