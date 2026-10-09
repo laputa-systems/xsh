@@ -47,3 +47,45 @@ test test_paste_repeated_stdin_operands_share_the_stream { |ctx|
   let serial = run.text sh -c f"printf 'a\\nb\\n' | {ctx.xsh_bin} {script} -s - - -" ?
   assert serial == f"a\tb\n\n\n"
 }
+
+type PasteStreamRun = {status: Int, stderr: Str}
+
+proc paste_dev_zero_run(ctx: TestContext, sink: Path) [fs, process, error] -> Result[PasteStreamRun] {
+  let root = test.temp_dir(ctx, name: "paste-dev-zero")?
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/paste.xsh"
+  let argv = [ctx.xsh_bin.display(), script.display(), "/dev/zero"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", sink, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stderr: err.read_text()?})
+}
+
+test test_paste_streams_dev_zero_to_full_and_reports_write_error { |ctx|
+  if ! p"/dev/zero".exists()? or ! p"/dev/full".exists()? {
+    test.skip("/dev/zero and /dev/full are required")
+  }
+
+  let result = paste_dev_zero_run(ctx, p"/dev/full")?
+  assert result.status == 1
+  assert result.stderr == "paste: write error: No space left on device\n", result.stderr
+}
+
+test test_paste_streams_dev_zero_to_closed_pipe_silently { |ctx|
+  if ! p"/dev/zero".exists()? { test.skip("/dev/zero is required") }
+
+  let root = test.temp_dir(ctx, name: "paste-broken-pipe")?
+  let script = fp"{ctx.core_dir}/paste.xsh"
+  let status_file = fp"{root}/status"
+  let err = fp"{root}/stderr"
+  const pipeline = """{
+  "$1" "$2" /dev/zero
+  printf '%s\\n' "$?" > "$3"
+} | head -c 0 >/dev/null"""
+  let argv = ["sh", "-c", pipeline, "sh", ctx.xsh_bin.display(), script.display(), status_file.display()]
+  let plan = process.command_argv("sh", argv, root, {LC_ALL: "C"}, b"", fp"{root}/stdout", err)
+  let _ = process.run(plan)?
+  let status = status_file.read_text()?.trim().parse_int() ?? -1
+
+  assert status == 141, f"expected SIGPIPE status 141, got {status}"
+  assert err.read_text()? == ""
+}
