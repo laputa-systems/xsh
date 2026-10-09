@@ -95,3 +95,8 @@ see `check_exclusions.py`.
 - `dd` needs typed descriptor and stream operations for partial reads/writes, seek position, file advice, direct I/O, no-atime, no-create, and directory modes. This would also unblock its FIFO/progressive-read cases; the lane has no text-parsing workaround.
 - `od` needs bounded/incremental stdin reads, seek-aware offsets and byte-to-float decoding. `-N`, stdin offsets, `/proc` streams, floating formats, and some wide ASCII rows remain incomplete.
 - Remaining applet gaps are recorded under `base32`, `base64`, `dd`, and `od` in `gaps.json`. In particular, base32/base64 still accept `-w/--wrap` without the required width; dd's EBCDIC conversion tables, statistics and diagnostics need follow-up; od's uint64 decimal formatting and diagnostic spans need support.
+
+## From `checksums` (merged; first slice 220/507 -> 367/507)
+
+- Extend the typed `hash` module with SHA3-224/256/384/512 and SM3 over `Bytes` and `Path`, plus Blake3 and SHAKE128/256 with selectable output lengths. `cksum` also needs tagged check-line support for `SHA3-*`, `SM3`, `BLAKE3-*`, and `SHAKE*`; no command should accept an algorithm and silently skip its digest.
+- The three `cksum --debug` failures need native x86 SIMD feature detection and `GLIBC_TUNABLES` reporting. Remaining exact IDs and counts are in `gaps.json` and the final lane result JSON.
