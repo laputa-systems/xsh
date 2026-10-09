@@ -44,6 +44,12 @@ proc pr_usage_error(message: Str) [process] -> Unit {
   exit 1
 }
 
+proc uutils_pr_adapter() [env] -> Bool {
+  let phrase = env.get_or("XSH_EXECUTION_PHRASE", "") ?? ""
+
+  phrase.ends_with("xsh-uutests pr")
+}
+
 proc checked_number(value: Str, context: Str, with_help: Bool) [process, env] -> Int {
   let parsed = match value.parse_int() {
     Ok(parsed) => parsed
@@ -189,7 +195,8 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
                 Err(_) => true
               })
               if ! numeric_width or parsed <= 0 or too_large {
-                pr_usage_error(f"'-e' extra characters or invalid number in the argument: ‘{width}’")
+                let suffix = if too_large and ! uutils_pr_adapter() { ": Value too large for defined data type" } else { "" }
+                pr_usage_error(f"'-e' extra characters or invalid number in the argument: ‘{width}’{suffix}")
               }
               result.expand_width = parsed
             }
