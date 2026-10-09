@@ -14,6 +14,8 @@ has no owner in any lane.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -77,6 +79,22 @@ def counts(utils: list[str]) -> tuple[int, int, list[str]]:
     return passed, total, lines
 
 
+def integration_root() -> Path:
+    """Return the main checkout root when called from a linked worktree."""
+    try:
+        common_dir = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return REPO
+    path = Path(common_dir).resolve()
+    return path.parent if path.name == ".git" else REPO
+
+
 def brief(name: str, sha: str, root: str, targets: str, shared: str,
           uutils_root: str) -> str:
     lane = load()[name]
@@ -132,12 +150,18 @@ def main() -> int:
                 print(f"{name:20} wave {lane['wave']} {lane['kind']:8} {len(lane['utilities']):3} utilities  depends: {' '.join(lane['depends']) or '-'}")
         return 0
     if len(sys.argv) >= 3 and sys.argv[1] == "brief":
-        import os
-        sha = os.popen("git rev-parse --short HEAD").read().strip()
-        root = os.environ.get("LANES_ROOT", str(REPO))
-        targets = os.environ.get("LANES_TARGETS", str(REPO.parent / "targets"))
-        shared = os.environ.get("XSH_SHARED_BIN", str(REPO / "target" / "release"))
-        uutils_root = os.environ.get("UUTILS_ROOT", str(REPO.parent / "ref" / "uutils-coreutils"))
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        campaign_root = integration_root()
+        root = os.environ.get("LANES_ROOT", str(campaign_root))
+        targets = os.environ.get("LANES_TARGETS", str(campaign_root.parent / "targets"))
+        shared = os.environ.get("XSH_SHARED_BIN", str(campaign_root / "target" / "release"))
+        uutils_root = os.environ.get("UUTILS_ROOT", str(campaign_root.parent / "ref" / "uutils-coreutils"))
         for name in sys.argv[2:]:
             print(brief(name, sha, root, targets, shared, uutils_root))
         return 0
