@@ -39,6 +39,11 @@ test test_tsort_reports_and_breaks_loops { |ctx|
   assert one.stdout == b"a\nb\nc\nd\n"
   assert one.stderr == "tsort: -: input contains a loop:\ntsort: b\ntsort: c\n", one.stderr
 
+  let wide = tsort_run(ctx, root, ["-w"], b"t b\nt s\ns t\n")?
+  assert wide.status == 1
+  assert wide.stdout == b"s\nt\nb\n"
+  assert wide.stderr == "tsort: -: input contains a loop:\ntsort: s\ntsort: t\n", wide.stderr
+
   let two = tsort_run(ctx, root, [], b"a b b c c b b d d b")?
   assert two.stdout == b"a\nb\nd\nc\n"
   assert two.stderr == "tsort: -: input contains a loop:\ntsort: b\ntsort: c\ntsort: -: input contains a loop:\ntsort: b\ntsort: d\n", two.stderr

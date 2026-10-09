@@ -146,7 +146,7 @@ PY
 
 point_path_at() {
 	local dir=$1 expr
-	expr="s|^[[:blank:]]*PATH=.*|  PATH='${dir}\$(PATH_SEPARATOR)'\"\$\$PATH\" \\\\|"
+	expr="s|^[[:blank:]]*PATH=.*|  PATH='${dir}\$(PATH_SEPARATOR)${gnu}/src\$(PATH_SEPARATOR)'\"\$\$PATH\" \\\\|"
 	for f in Makefile tests/local.mk; do
 		[ -f "$gnu/$f" ] && sed -i "$expr" "$gnu/$f"
 	done
@@ -169,6 +169,27 @@ run_suite() {
 		${1+TESTS="$*"} SUBDIRS=. RUN_EXPENSIVE_TESTS=yes RUN_VERY_EXPENSIVE_TESTS=yes \
 		VERBOSE=no gl_public_submodule_commit="" srcdir="$gnu") || true
 	python3 "$uutils/util/gnu-json-result.py" "$gnu/tests" >"$out"
+	python3 - "$gnu/tests" "$out" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+test_root = Path(sys.argv[1])
+report_path = Path(sys.argv[2])
+report = json.loads(report_path.read_text())
+for result_path in test_root.rglob("*.trs"):
+    status = None
+    for line in result_path.read_text(errors="replace").splitlines():
+        if line.startswith(":test-result: "):
+            status = line.removeprefix(":test-result: ")
+    if status not in {"PASS", "FAIL", "SKIP", "ERROR"}:
+        continue
+    current = report
+    for part in result_path.parent.relative_to(test_root).parts:
+        current = current.setdefault(part, {})
+    current[result_path.stem + ".log"] = status
+report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+PY
 }
 
 run_uutils() {

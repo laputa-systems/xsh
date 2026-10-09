@@ -48,10 +48,9 @@ fi
 limit=$(cat "$stage/mem-limit-kb" 2>/dev/null || echo 3145728)
 [ "$limit" = unlimited ] || ulimit -v "$limit" 2>/dev/null || true
 
-# uutils' usage_error helper expects the multicall hint `Try '<binary> <util>
-# --help'`; applets print `Try 'PHRASE --help'` with PHRASE taken from this
-# variable (see CAMPAIGN.md, Decisions). The adapter only sets it; it never
-# rewrites argv or output.
+# The uutils suite invokes this multicall adapter as `xsh-uutests UTIL` and
+# asserts that command phrase in usage hints. Direct GNU-stage applet calls
+# have the applet basename as their phrase instead.
 XSH_EXECUTION_PHRASE="$0 $util"
 export XSH_EXECUTION_PHRASE
 

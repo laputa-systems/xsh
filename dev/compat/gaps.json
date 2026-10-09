@@ -87,16 +87,22 @@
       "GNU diagnostic snippets need CLI argument spans (`test_od::diagnostics::*`); `test_od::test_hyphen_leading_byte_count_is_reported_as_invalid` and some multi-format row alignment still differ."
     ],
     "base32": [
-      "test_base32::test_wrap_no_arg still passes -w/--wrap without COLS and uses the default width; GNU rejects the missing operand."
+      "test_base32::test_wrap_no_arg expects clap's missing-value diagnostic; XSH rejects -w/--wrap without COLS using GNU's option-argument diagnostic."
     ],
     "base64": [
-      "test_base64::test_wrap_no_arg still passes -w/--wrap without COLS and uses the default width; GNU rejects the missing operand."
+      "test_base64::test_wrap_no_arg expects clap's missing-value diagnostic; XSH rejects -w/--wrap without COLS using GNU's option-argument diagnostic."
+    ],
+    "arch": [
+      "test_arch::test_arch_help expects uutils' 'Determine architecture name for current machine' wording; GNU coreutils 9.12 prints 'Print machine architecture', which XSH follows."
     ],
     "cksum": [
       "`test_cksum::debug_flag::test_debug_flag`, `test_debug_with_algorithms`, and `test_debug_with_glibc_tunables` need native x86 SIMD feature detection and GLIBC_TUNABLES reporting."
     ],
     "date": [
       "French `%b` abbreviations retain glibc/GNU punctuation (`févr.`, `janv.`, `déc.`), while uutils' ICU-based locale expectations omit the trailing dot. Known residuals: `test_date::test_locale_abbreviated_month_names` and `test_date::test_locale_names_for_several_dates_in_one_run`; keep GNU-compatible output."
+    ],
+    "chroot": [
+      "test_chroot::test_missing_operand expects clap's required-argument block; GNU coreutils 9.12 reports a missing operand with its standard help hint, which XSH follows."
     ],
     "dd": [
       "`test_dd::test_atoe_and_lcase`, `test_atoe_and_ucase`, `test_atoe_conv_spec`, `test_atoibm_and_lcase`, `test_atoibm_and_ucase`, `test_atoibm_conv_spec`, `test_etoa_and_lcase`, `test_etoa_and_ucase`, `test_etoa_conv_spec`, `test_iso8859_1_case_conversion`, `test_all_valid_ascii_ebcdic_ascii_roundtrip_conv_test`, `test_conv_ascii_implies_unblock` and `test_conv_ebcdic_implies_block` need the full ASCII/EBCDIC conversion tables and block/unblock semantics.",
@@ -196,10 +202,11 @@
       "Two `test_split::diagnostics::test_snippet_*` cases need source spans for size arguments; `test_split::test_split_obs_lines_within_invalid_combined_shorts` and `test_split::test_split_separator_no_value` remain option-parsing differences."
     ],
     "tsort": [
-      "`test_tsort::test_only_one_input_file` expects the applet to reject a second operand."
+      "`test_tsort::test_only_one_input_file` expects a basename-only `Try 'tsort --help'` hint from the uutils adapter; XSH reports the actual multicall command phrase `xsh-uutests tsort`. GNU-stage direct invocation uses `tsort`."
     ],
     "uniq": [
-      "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling; `test_uniq::uniq_basic_dedup_cases` expects the basename-only `Try 'uniq --help'` hint instead of the staged adapter path."
+      "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling.",
+      "`test_uniq::uniq_basic_dedup_cases` expects clap's invalid `--all-repeated` value diagnostic; XSH follows GNU's diagnostic for the incompatible repeated-line mode."
     ],
     "expr": [
       "The five remaining `test_expr::diagnostics::test_snippet_*` cases need source spans for argv operands so syntax and integer errors can render exact uutils carets and help text."
@@ -207,6 +214,9 @@
     "factor": [
       "test_factor::factors_many_primes_of_similar_size_completely exceeds uutils' 30-second command timeout while factoring a product of similarly sized 301-bit primes; the big-integer Pollard-rho path needs faster modular arithmetic.",
       "test_factor::test_invalid_negative_arg_shows_tip expects clap's `unexpected argument '-1' found` wording; XSH follows GNU option parsing and reports an invalid option."
+    ],
+    "false": [
+      "test_false::test_full expects 'false: No space left on device' when help or version output is sent to /dev/full; GNU coreutils 9.12 reports 'false: write error: No space left on device', which XSH follows."
     ],
     "numfmt": [
       "The 22 remaining `test_numfmt::diagnostics::test_snippet_*` and `test_numfmt::field_diagnostics::test_snippet_*` cases need source spans for formats, numeric fields, and option values to render uutils caret diagnostics.",
@@ -217,9 +227,6 @@
     ],
     "wc": [
       "`test_wc::test_simd_respects_glibc_tunables` requires x86 SIMD feature detection and `GLIBC_TUNABLES` reporting for `--debug`."
-    ],
-    "cat": [
-      "`test_cat::test_cat_non_utf8_paths` requires byte-preserving argv; `cli.applet` exposes applet arguments as `List[Str]`, which cannot represent non-UTF-8 pathname bytes."
     ],
     "head": [
       "`test_head::diagnostics::test_snippet_points_at_the_unknown_unit`, `test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling`, and `test_head::diagnostics::test_snippet_underlines_a_size_with_no_number` need argument spans from `cli.applet` to render uutils source carets.",

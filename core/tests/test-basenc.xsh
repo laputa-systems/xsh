@@ -33,6 +33,40 @@ test test_basenc_base2_and_decode { |ctx|
   assert decoded.stdout == b"lsbf"
 }
 
+test test_basenc_decoder_alphabets_and_whitespace { |ctx|
+  let url_garbage = invoke(ctx, ["--base64url", "-d", "-i"], b"+/SGVsbG8=/")?
+  assert url_garbage.status == 0
+  assert url_garbage.stdout == b"Hello"
+  let url_standard_alphabet = invoke(ctx, ["--base64url", "-d"], b"SGVsbG8+/")?
+  assert url_standard_alphabet.status == 1
+  assert url_standard_alphabet.stderr == "basenc: error: invalid input\n"
+
+  let hex_garbage = invoke(ctx, ["--base32hex", "-d", "-i"], b"WCPNMU===")?
+  assert hex_garbage.status == 0
+  assert hex_garbage.stdout == b"foo"
+  let hex_outside_alphabet = invoke(ctx, ["--base32hex", "-d"], b"WCPNMU===")?
+  assert hex_outside_alphabet.status == 1
+  assert hex_outside_alphabet.stderr == "basenc: error: invalid input\n"
+
+  let base58_whitespace = invoke(ctx, ["--base58", "-d"], b"72k1xXWG59fYdzSNoA ")?
+  assert base58_whitespace.status == 1
+  assert base58_whitespace.stderr == "basenc: error: invalid input\n"
+  let base58_newline = invoke(ctx, ["--base58", "-d"], b"2NEpo7TZRRrLZSi2U\n")?
+  assert base58_newline.status == 0
+  assert base58_newline.stdout == b"Hello World!"
+  let z85_newlines = invoke(ctx, ["--z85", "-d"], b"he\nl\nlo")?
+  assert z85_newlines.status == 0
+  assert z85_newlines.stdout == b"5jXu"
+
+  let hex_bad_tail = invoke(ctx, ["--base32hex", "-d"], b"VNC0FKD5W")?
+  assert hex_bad_tail.status == 1
+  assert hex_bad_tail.stdout == b"\xfd\xd8\x07\xd1\xa5"
+
+  let mixed_padding = invoke(ctx, ["--base64", "-d"], b"QWI=\nQQ")?
+  assert mixed_padding.status == 0
+  assert mixed_padding.stdout == b"AbA"
+}
+
 test test_basenc_last_encoding_wins { |ctx|
   let result = invoke(ctx, ["--base32", "--base64"], b"Hello, World!")?
   assert result.stdout == b"SGVsbG8sIFdvcmxkIQ==\n"

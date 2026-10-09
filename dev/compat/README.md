@@ -77,13 +77,13 @@ chown. `GNU_JOBS` (default 3) sets `make -j`.
 |---|---|
 | `python3 dev/compat/parity.py` | regenerate `dev/coreutils-parity.json` from the pinned uutils tree and any results |
 | `python3 dev/compat/parity.py --check` | fail if the manifest is stale |
-| `python3 dev/compat/stage.py [--stage DIR]` | install `core/` in release shape with shebangs at the built `xsh`; writes `applets.json` |
+| `python3 dev/compat/stage.py [--stage DIR]` | install `core/` in release shape with shebangs at the built `xsh`; writes `applets.json`; `--gnu-programs` also builds `gnu-bin` with the adjacent `lib` link needed for module imports |
 | `dev/compat/xsh-uutests UTIL ARGS...` | manual shell adapter for a generated stage; the suite uses a symlink to the native `xsh` dispatcher so argv, signals and deleted working directories pass through without an extra shell |
 | `dev/compat/run-uutils.sh [UTIL...]` | Gate 3: uutils `tests/by-util` against XSH; writes `results/uutils-integration.json` |
 | `python3 dev/compat/compare.py BEFORE.json AFTER.json` | merge gate: before/after totals, per-utility change, exit 1 on any test that passed before and fails now |
 | `dev/compat/run-gnu.sh prepare` | fetch GNU 9.12 and prepare its tests with uutils' `build-gnu.sh` |
 | `dev/compat/run-gnu.sh uutils [TEST...]` | GNU tests against pinned uutils (cached baseline) |
-| `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage |
+| `dev/compat/run-gnu.sh xsh [TEST...]` | the same tests against the XSH stage; GNU test helpers resolve from `${GNU_ROOT}/src` |
 | `dev/compat/run-gnu.sh diff` | Gate 4 four-cell differential into `results/gnu-differential.json` |
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
@@ -117,22 +117,29 @@ test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
 Keep this scope to native Linux x86_64. Use one integrator; any subagent must
 be GPT-6 Luna at xhigh.
 
-The latest merged uutils results combine the 2026-10-09 full run with a focused
-`factor sort unlink` refresh: 5,123 / 5,974 passing, 851 failing, and 4 excluded.
-Compared with the checked-in baseline, 2,755 test IDs now pass and none
-regressed. The focused `factor sort` result is 139 / 242 (factor 23/25, sort
-116/217). The byte-key fast path restored `test_factor::test_parallel`, and
-removing unneeded unique-sort key work brought the buffer-size test under its
-30-second limit. `--batch-size` validation and bounded merge tests pass. The
-large-factor case still times out. The `cat head tail tac rm tee touch` slice is 432 / 499, up 157
-passing IDs with no regressions. The `unlink` slice is 6 / 7; raw non-UTF-8
-operand paths now work, while its extra-operand wording follows GNU. The merged results and remaining failures are
-tracked in [`CAMPAIGN.md`](CAMPAIGN.md), `gaps.json`, and `results/`.
+The latest merged uutils results combine the 2026-10-09 full run with focused
+`factor sort unlink`, `cat head tail tac rm tee touch`, and `basenc` refreshes:
+5,124 / 5,974 passing, 850 failing, and 4 excluded. Compared with the checked-in
+baseline, 2,756 test IDs now pass and none regressed. The focused `factor sort`
+result is 139 / 242 (factor 23/25, sort 116/217). The byte-key fast path
+restored `test_factor::test_parallel`, and removing unneeded unique-sort key
+work brought the buffer-size test under its 30-second limit. `--batch-size`
+validation and bounded merge tests pass. The large-factor case still times out.
+The `cat head tail tac rm tee touch` slice is 432 / 499, up 157 passing IDs
+with no regressions. The `unlink` slice is 6 / 7; raw non-UTF-8 operand paths
+now work, while its extra-operand wording follows GNU. `basenc` remains 38 / 38.
+The merged results and remaining failures are tracked in [`CAMPAIGN.md`](CAMPAIGN.md),
+`gaps.json`, and `results/`.
 
 `run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
 The baseline run against uutils recorded 573 passed, 85 skipped, 58 failed,
 and 3 harness errors out of 719 test records. Remaining test gaps and exact
 results are maintained in `CAMPAIGN.md`, `gaps.json`, and `results/`.
+
+The XSH GNU stage adds `${GNU_ROOT}/src` to the test `PATH` after `gnu-bin/` so
+generated helpers such as `getlimits` resolve. `stage.py --gnu-programs` also
+creates `gnu-bin/lib` as a link to `stage/bin/lib`, which lets staged applets
+load shared XSH modules.
 
 On this host, the release `xsh` dispatcher build stalled in thin-LTO after its
 linker exited. Setting `CARGO_PROFILE_RELEASE_LTO=false` completed the same

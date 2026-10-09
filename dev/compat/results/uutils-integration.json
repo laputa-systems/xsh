@@ -56,13 +56,11 @@
       "applet": true
     },
     "cat": {
-      "pass": 52,
-      "fail": 1,
+      "pass": 53,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_cat::test_cat_non_utf8_paths"
-      ],
+      "failing": [],
       "applet": true
     },
     "chgrp": {
@@ -1780,8 +1778,8 @@
     }
   },
   "totals": {
-    "pass": 5123,
-    "fail": 851,
+    "pass": 5124,
+    "fail": 850,
     "skip": 0,
     "excluded": 4
   }

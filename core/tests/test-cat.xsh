@@ -10,6 +10,15 @@ proc cat_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, pr
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc cat_run_paths(ctx: TestContext, root: Path, args: List[Path]) [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/cat.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 test test_cat_file_and_stdin { |ctx|
   let root = test.temp_dir(ctx, name: "cat")?
   fp"{root}/in.txt".write(b"file\n")
@@ -27,6 +36,16 @@ test test_cat_preserves_non_utf8_bytes_across_chunks { |ctx|
 
   assert cat_run(ctx, root, ["big.bin"])?.stdout == big
   assert cat_run(ctx, root, [], big)?.stdout == big
+}
+
+test test_cat_reads_a_non_utf8_path { |ctx|
+  let root = test.temp_dir(ctx, name: "cat-raw")?
+  let file_path = Path.parse_bytes(bytes.concat([root.bytes(), b"/input-\xff"]))?
+  file_path.write(b"raw path contents")?
+
+  let result = cat_run_paths(ctx, root, [file_path])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"raw path contents"
 }
 
 test test_cat_numbers_squeezes_and_continues_across_files { |ctx|

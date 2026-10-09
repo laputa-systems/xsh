@@ -35,7 +35,14 @@ export type Fd = {pos: Int, append: Bool, ino: Int, mnt: Int}
 export proc open_source(name: Str) [fs, error] -> Result[Source, Error] {
   return Ok({name: name, path: /dev/stdin, mode: "stdin", kind: 0, size: 0}) when name == "-"
 
-  let target = fp"{name}".resolve()?
+  open_source_path(name, fp"{name}")
+}
+
+## Open a path operand whose original argv bytes are available to the caller.
+export proc open_source_path(name: Str, operand_path: Path) [fs, error] -> Result[Source, Error] {
+  return Ok({name: name, path: /dev/stdin, mode: "stdin", kind: 0, size: 0}) when name == "-"
+
+  let target = operand_path.resolve()?
   let entry = target.metadata()?
   let kind = entry.mode / 4096 % 16
   let mode = if kind == 8 and entry.size > 0 {

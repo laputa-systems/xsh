@@ -60,6 +60,21 @@ type State = {pending: Bytes, line: Int, blank: Bool}
 
 type Rendered = {out: Bytes, state: State}
 
+pure raw_file_arguments(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var files: List[Bytes] = []
+  var options = true
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    if options and argument == "--" {
+      options = false
+      continue
+    }
+    if options and argument != "-" and argument.starts_with("-") { continue }
+    files += [raw[index]]
+  }
+  files
+}
+
 const CARET = "@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_"
 const PRINTABLE = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
 
@@ -207,16 +222,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
+  let raw_files = raw_file_arguments(argv, cli.argv_bytes())
   let style = make_style(opts)
   let plain = ! (style.number or style.nonblank or style.squeeze or style.ends or style.convert)
   let operands = if opts.files.len() == 0 { ["-"] } else { opts.files }
+  let raw_operands = if opts.files.len() == 0 { [b"-"] } else { raw_files }
   let out = tio.standard_file(1)
   var state = {pending: b"", line: 1, blank: false}
   var written = 0
   var failed = false
 
-  for name in operands {
-    guard let source = tio.open_source(name) else { |failure|
+  for index in range(operands.len()) {
+    let name = operands[index]
+    guard let source = tio.open_source_path(name, Path.parse_bytes(raw_operands[index])?) else { |failure|
       gnu.name_error(name, failure)
       failed = true
       continue

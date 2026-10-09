@@ -32,7 +32,7 @@ type Options = {
   base2lsbf: Bool, base2msbf: Bool, base58: Bool, z85: Bool,
   decode: Bool, ignore: Bool, wrap: Str, help: Bool, version: Bool, files: List[Str]
 }
-type Clean = {text: Str, valid: Bool}
+type Clean = {text: Str, prefix: Str, valid: Bool}
 type Decoded = {data: Bytes, valid: Bool}
 
 pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
@@ -45,12 +45,15 @@ pure write_error(failure: Error) -> Str {
   if message.starts_with("write error: ") { message.byte_slice(13) } else { message }
 }
 
-pure is_white(byte: Int) -> Bool { byte == 9 or byte == 10 or byte == 11 or byte == 12 or byte == 13 or byte == 32 }
 pure alpha64(byte: Int, url: Bool) -> Bool {
-  (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (byte >= 48 and byte <= 57) or byte == 43 or byte == 47 or (url and (byte == 45 or byte == 95))
+  (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (byte >= 48 and byte <= 57) or (url and (byte == 45 or byte == 95)) or (! url and (byte == 43 or byte == 47))
 }
 pure alpha32(byte: Int, hex: Bool) -> Bool {
-  (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (hex and byte >= 48 and byte <= 57) or (! hex and byte >= 50 and byte <= 55)
+  if hex {
+    (byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 86) or (byte >= 97 and byte <= 118)
+  } else {
+    (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (byte >= 50 and byte <= 55)
+  }
 }
 pure alpha16(byte: Int) -> Bool { (byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 70) or (byte >= 97 and byte <= 102) }
 pure alpha2(byte: Int) -> Bool { byte == 48 or byte == 49 }
@@ -63,14 +66,29 @@ pure alpha85(byte: Int) -> Bool {
 
 pure clean(data: Bytes, ignore: Bool, encoding: Str) -> Clean {
   var text = ""
+  var prefix = ""
+  var prefix_open = true
   var valid = true
   for index in range(data.len()) {
     let byte = data.byte_at(index) ?? 0
-    if is_white(byte) { continue }
+    if byte == 10 {
+      if encoding == "base64" or encoding == "base64url" {
+        text = f"{text}\n"
+        if prefix_open { prefix = f"{prefix}\n" }
+      }
+      continue
+    }
     let allowed = if encoding == "base64" or encoding == "base64url" { alpha64(byte, encoding == "base64url") or byte == 61 } else if encoding == "base32" or encoding == "base32hex" { alpha32(byte, encoding == "base32hex") or byte == 61 } else if encoding == "base16" { alpha16(byte) } else if encoding == "base2lsbf" or encoding == "base2msbf" { alpha2(byte) } else if encoding == "base58" { alpha58(byte) } else { alpha85(byte) }
-    if allowed { text = f"{text}{data[index..index + 1].utf8() ?? ""}" } else if ! ignore { valid = false }
+    if allowed {
+      let character = data[index..index + 1].utf8() ?? ""
+      text = f"{text}{character}"
+      if prefix_open { prefix = f"{prefix}{character}" }
+    } else if ! ignore {
+      valid = false
+      prefix_open = false
+    }
   }
-  {text: text, valid: valid}
+  {text: text, prefix: prefix, valid: valid}
 }
 
 pure wrap(text: Str, width: Int) -> Bytes {
@@ -123,6 +141,31 @@ pure base32_decode_stream(text: Str) -> Decoded {
         if let Ok(prefix) = piece.byte_slice(0, valid_prefix).base32_decode() { chunks += [prefix] }
       }
       return {data: bytes.concat(chunks), valid: false}
+    }
+  }
+  {data: bytes.concat(chunks), valid: true}
+}
+
+pure base64_decode_stream(text: Str) -> Decoded {
+  var chunks: List[Bytes] = []
+  var pending = ""
+  for index in range(text.byte_len()) {
+    let part = text.byte_slice(index, 1)
+    if part == "\n" {
+      if pending.ends_with("=") {
+        match pending.base64_decode() {
+          Ok(decoded) => { chunks += [decoded]; pending = "" }
+          Err(_) => { return {data: bytes.concat(chunks), valid: false} }
+        }
+      }
+    } else {
+      pending = f"{pending}{part}"
+    }
+  }
+  if pending != "" {
+    match pending.base64_decode() {
+      Ok(decoded) => { chunks += [decoded] }
+      Err(_) => { return {data: bytes.concat(chunks), valid: false} }
     }
   }
   {data: bytes.concat(chunks), valid: true}
@@ -325,11 +368,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if let Err(failure) = io.write_stdout_bytes(wrap(encoded, width)) { gnu.error(write_error(failure)); exit 1 }
   } else {
     let cleaned = clean(data, opts.ignore, encoding)
-    if ! cleaned.valid { gnu.error("error: invalid input"); exit 1 }
+    if ! cleaned.valid {
+      if encoding == "base32" or encoding == "base32hex" {
+        let partial = if encoding == "base32" { base32_decode_stream(cleaned.prefix) } else { base32hex_decode(cleaned.prefix) }
+        if let Err(failure) = io.write_stdout_bytes(partial.data) { gnu.error(write_error(failure)); exit 1 }
+        if let Err(failure) = io.flush_stdout() { gnu.error(write_error(failure)); exit 1 }
+      }
+      gnu.error("error: invalid input"); exit 1
+    }
     let decoded = if encoding == "base64" or encoding == "base64url" {
       let standard = cleaned.text.replace("-", "+").replace("_", "/")
-      let one = standard.base64_decode()
-      match one { Ok(value) => {data: value, valid: true}, Err(_) => {data: b"", valid: false} }
+      base64_decode_stream(standard)
     } else if encoding == "base32" {
       base32_decode_stream(cleaned.text)
     } else if encoding == "base32hex" { base32hex_decode(cleaned.text) } else if encoding == "base16" { base16_decode(cleaned.text) } else if encoding == "base2lsbf" { base2_decode(cleaned.text, true) } else if encoding == "base2msbf" { base2_decode(cleaned.text, false) } else if encoding == "base58" { base58_decode(cleaned.text) } else { z85_decode(cleaned.text) }

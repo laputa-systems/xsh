@@ -99,6 +99,7 @@ def main() -> int:
     if args.gnu_programs:
         gnu_dir = stage / "gnu-bin"
         gnu_dir.mkdir()
+        (gnu_dir / "lib").symlink_to(bin_dir / "lib", target_is_directory=True)
         false = shutil.which("false") or "/bin/false"
         provided = set(names) | set(aliases)
         missing = []

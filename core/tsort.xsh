@@ -10,7 +10,7 @@ With no FILE, or when FILE is -, read standard input.
       --version     output version information and exit
 """
 
-type TsortOptions = {help: Bool, version: Bool, files: List[Str]}
+type TsortOptions = {warn: Bool, help: Bool, version: Bool, files: List[Str]}
 
 pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
   for index in range(argv.len()) {
@@ -128,6 +128,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     argv,
     {
       gnu: {status: 1},
+      # GNU accepts -w as a historical no-op.
+      warn: {form: "-w", default: false},
       help: {form: "-h --help", default: false, stop: true},
       version: {form: "-V --version", default: false, stop: true},
       files: {form: "...FILE"},
@@ -143,6 +145,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.version("tsort")
     return
   }
+
+  let _ = opts.warn
 
   if opts.files.len() > 1 {
     gnu.extra_operand(opts.files[1])

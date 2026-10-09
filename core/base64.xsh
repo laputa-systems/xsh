@@ -22,6 +22,31 @@ pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
   bytes.from_text(name)
 }
 
+pure missing_wrap_argument(argv: List[Str]) -> Str? {
+  var at = 0
+  while at < argv.len() {
+    let value = argv[at]
+    if value == "--" { return null }
+    if value == "-w" or (value.starts_with("--") and value.find("=") == null and "--wrap".starts_with(value)) {
+      return value when at + 1 == argv.len()
+      at += 2
+    } else {
+      at += 1
+    }
+  }
+  null
+}
+
+pure decimal_wrap_width(value: Str) -> Bool {
+  let start = if value.starts_with("+") or value.starts_with("-") { 1 } else { 0 }
+  if start == value.byte_len() { return false }
+  for index in range(start, value.byte_len()) {
+    let byte = value.byte_at(index) ?? 0
+    if byte < 48 or byte > 57 { return false }
+  }
+  true
+}
+
 pure alphabet(byte: Int) -> Bool {
   (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (byte >= 48 and byte <= 57) or byte == 43 or byte == 47
 }
@@ -80,6 +105,16 @@ pure wrapped(text: Str, width: Int) -> Bytes {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let missing_wrap = missing_wrap_argument(argv)
+  if missing_wrap != null {
+    let option = missing_wrap ?? ""
+    if option == "-w" {
+      gnu.usage_error("option requires an argument -- 'w'")
+    } else {
+      gnu.usage_error(f"option {gnu.quote(option)} requires an argument")
+    }
+  }
+
   let opts: Options = cli.applet(
     argv,
     {
@@ -98,7 +133,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.files.len() > 1 { gnu.extra_operand(opts.files[1]) }
 
   let width = match opts.wrap.parse_int() {
-    Ok(value) if value >= 0 => value,
+    Ok(value) if value >= 0 and decimal_wrap_width(opts.wrap) => value,
     _ => { gnu.error(f"invalid wrap size: {gnu.quote_value(opts.wrap)}"); exit 1; 0 },
   }
   let raw_args = cli.argv_bytes()

@@ -27,3 +27,33 @@ test test_base32_wrap_and_ignore { |ctx|
   assert decoded.status == 0
   assert decoded.stdout == b"Hello, World!"
 }
+
+test test_base32_wrap_requires_a_width { |ctx|
+  let short = invoke(ctx, ["-w"], b"input")?
+  assert short.status == 1
+  assert short.stdout == b""
+  assert short.stderr == "base32: option requires an argument -- 'w'\nTry 'base32 --help' for more information.\n"
+
+  let long = invoke(ctx, ["--wrap"], b"input")?
+  assert long.status == 1
+  assert long.stdout == b""
+  assert long.stderr == "base32: option '--wrap' requires an argument\nTry 'base32 --help' for more information.\n"
+}
+
+test test_base32_rejects_non_decimal_wrap_widths { |ctx|
+  let leading_zero = invoke(ctx, ["--wrap", "08"], b"a")?
+  assert leading_zero.status == 0
+  assert leading_zero.stdout == b"ME======\n"
+
+  let hex = invoke(ctx, ["-w0x0"], b"")?
+  assert hex.status == 1
+  assert hex.stderr == "base32: invalid wrap size: '0x0'\n"
+
+  let suffix = invoke(ctx, ["--wrap=1k"], b"")?
+  assert suffix.status == 1
+  assert suffix.stderr == "base32: invalid wrap size: '1k'\n"
+
+  let negative = invoke(ctx, ["-w-1"], b"")?
+  assert negative.status == 1
+  assert negative.stderr == "base32: invalid wrap size: '-1'\n"
+}

@@ -8,7 +8,7 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
 
 ## Active resume (2026-10-09)
 
-- Local `campaign-utils` is based at `70e13400` and includes `fs-misc`, `perm`, native byte/hash, GNU
+- Local `campaign-utils` includes `fs-misc`, `perm`, native byte/hash, GNU
   patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, `proc-a`,
   `checksums`, and `bytes-enc`; the parity manifest records 106 of 106 in-scope
   utilities present. Pinned references are uutils
@@ -43,8 +43,10 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   fmt 35/37, pr 80/84, tr 168/174); remaining `pr` failures cluster around
   merge/date behavior, formfeed input, multicolumn layouts, and help diagnostics. `bytes-enc` has implemented base32, base64,
   basenc, od, and dd; it is merged at **232 / 311** (base32 15/16, base64
-  24/25, basenc 38/38, od 56/80, dd 99/152) with all **22** native tests
-  passing. The base16 write-error case is resolved; remaining requests
+  24/25, basenc 38/38, od 56/80, dd 99/152) with its native tests passing.
+  The five focused `basenc` tests pass. Recent decoder fixes enforce base64url and base32hex alphabets,
+  preserve GNU's base32hex partial output, and handle LF-wrapped and mixed-pad
+  base64 streams. The base16 write-error case is resolved; remaining requests
   include typed fd/stream APIs for dd and bounded stdin/seek APIs for od.
   `checksums` is merged over the shared byte/hash APIs and its ten native tests
   pass. Its first slice was **220 / 507**; its latest pre-hash-API slice was
@@ -72,14 +74,16 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   `cli.argv_bytes()` and removes those paths correctly. The remaining multiple-
   operand test expects uutils' usage block; the applet follows GNU's
   extra-operand diagnostic.
-- The latest merged uutils results combine the full run and a focused `factor
-  sort unlink` refresh on 2026-10-09: **5,123 / 5,974 passing**, 851 failing, and 4
-  excluded. Against the checked-in baseline, 2,755 test IDs now pass with no
-  passing IDs regressed. The focused slice is **139 / 242** (`factor` 23/25,
+- The latest merged uutils results combine the 2026-10-09 full run and focused
+  `factor sort unlink`, `cat head tail tac rm tee touch`, and `basenc` refreshes:
+  **5,124 / 5,974 passing**, 850 failing, and 4 excluded. Against the checked-in
+  baseline, 2,756 test IDs now pass with no passing IDs regressed. The focused
+  slice is **139 / 242** (`factor` 23/25,
   `sort` 116/217). The default-sort byte-key fast path restored
   `test_factor::test_parallel`. The focused `cat head tail tac rm tee touch` slice is **432 / 499**
   passing, up 157 passing IDs with no regressions; `rm` is 75/75 and `tee` is
-  34/34. Full and focused results are merged in
+  34/34. `basenc` passes all **38 / 38** uutils tests after the decoder changes.
+  Full and focused results are merged in
   `results/uutils-integration.json`.
 - Native `io.write_stdout` and `io.write_stdout_bytes` now write immediately
   on the host path and report write errors. Focused release-binary checks
@@ -94,7 +98,15 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
 - The current date/dircolors slice remains **183 / 185** (date 164/166,
   dircolors 19/19); its native tests pass 16/16. A fresh rerun confirmed that
   the two French month-abbreviation cases match GNU 9.12 and glibc. GNU against
-  uutils **573 passed, 85 skipped, 58 failed, 3 harness errors** out of 719.
+  uutils **573 passed, 85 skipped, 58 failed, 3 harness errors** out of 719. The
+  current GNU differential is **259 / 314 / 4 / 60** (uutils-pass/XSH-pass,
+  uutils-pass/XSH-fail, uutils-fail/XSH-pass, both-fail); the focused basenc
+  run passes its alphabet, whitespace, partial-output, and mixed-padding vectors.
+  Its suite-level failure is the uutils-patched clap-style unknown-option
+  expectation, which differs from GNU diagnostics and is classified in
+  `gnu-patches.json`.
+  The latest native suite run passed **2,903**, failed **47**, and skipped **22**;
+  the remaining host/tool-dependent cases are listed in the run output.
   The release filesystem stdlib tests pass **27**, with one reflink skip; this
   includes FIFO reads, zero-sized `/proc` files, and a `/dev/zero` guard. The
   optimized `cargo test --release -p xsh` still crashes in rustc/LLVM
@@ -400,9 +412,10 @@ command family, matching its existing rule for `lib/auth.xsh` and
 - **Execution phrase.** Usage errors end with `Try 'PHRASE --help' for more
   information.` PHRASE is `$XSH_EXECUTION_PHRASE` when set, else the invoked
   name (the basename of the script path as the kernel passed it; aliases are
-  symlinks, so `dir` sees `dir`). The uutils adapter sets it to
-  `"<adapter path> <util>"`, the multicall form uutils' `usage_error` helper
-  expects.
+  symlinks, so `dir` sees `dir`). The uutils suite uses its multicall form,
+  `xsh-uutests UTIL`, so that dispatcher supplies the full `xsh-uutests UTIL`
+  phrase expected by the test harness. The GNU suite invokes staged applets
+  directly, so their hints use the applet basename (for example, `tsort`).
 - **Alias table shape.** `aliases.json` holds `{name, target}` entries, because
   XSH decodes a JSON object as a record and cannot schema-check an open map.
 - **Expanded-scope inventory.** [`surface.json`](surface.json) lists every
@@ -488,6 +501,11 @@ directory, then the XSH stage's `gnu-bin/`. `gnu-bin/` has every GNU program
 name; names XSH lacks are copies of `false`, so nothing falls through to host
 GNU binaries (uutils uses the same trick). Because both sides share one
 patched harness, uutils' patches cannot bias the differential.
+
+For XSH runs, `run-gnu.sh` adds `${GNU_ROOT}/src` after `gnu-bin/` on `PATH`
+for generated test helpers such as `getlimits`. `stage.py --gnu-programs`
+also links `gnu-bin/lib` to `stage/bin/lib`, which lets staged applets resolve
+shared XSH modules.
 
 Patch policy (revised): the brief asks to separate plumbing, accepted
 semantic divergences and uutils wording patches. That classification
@@ -873,7 +891,7 @@ changes only if needed to prove the interface.
    QEMU virtual disks and NVMe devices, QEMU/OVMF for EFI, `scsi_debug` and
    nvme loop facilities when safe. Never mutate the developer's real block
    devices, firmware variables, network interfaces or SMART state.
-8. **Clean smoke**: a Linux image with XSH first on `PATH` and no GNU
+8. **Clean smoke**: a native Linux x86_64 host with XSH first on `PATH` and no GNU
    coreutils, util-linux, procps, findutils, grep, sed, gawk, diffutils or
    kmod, running real workflows: file manipulation, archives, checksum
    verification, find/xargs, grep/sed/awk pipelines, process, mount/block,
@@ -909,7 +927,7 @@ lanes that consume them.
 | 1 | existing-applet repair (ignored buckets, GNU diagnostics); missing cheap coreutils; native fs, process/tty and bytes/hash primitives; text and checksum families; `system-report` collector extraction; `sed` and `awk` start |
 | 2 | difficult coreutils finish; GNU differential to zero blockers; native domains for block/partition, process sampling, compression streaming (+zstd), xattr/ACL/capability; compression CLIs; hardware/kmod/util-linux wrappers; procps and sampling tools; `ip`/`ss`/`ping`; grep/find/xargs; diff/cmp/patch; login/getent/udevadm |
 | 3 | block, mount and partition tools; FAT module and dosfstools surface; attributes/ACL/capabilities; namespace and process control; storage health (`smartctl`, `nvme`); `ethtool`, `iw`, diagnostics and HTTP; `cpio`; `efibootmgr`; Phase 6 commands |
-| 4 | BusyBox route; Gate 5 option comparison; Gate 8 clean smoke image; performance pass; final report |
+| 4 | BusyBox route; Gate 5 option comparison; Gate 8 clean smoke on a native host; performance pass; final report |
 
 ## Environment notes
 
@@ -930,11 +948,9 @@ lanes that consume them.
 - The repository pins `nightly-2026-09-15`; XSH uses no `#![feature]`, so
   stable 1.97 builds it when the pinned toolchain is unreachable
   (`RUSTUP_TOOLCHAIN=stable`). Do not commit a toolchain change for this.
-- Cloud sessions need network access to crates.io (`index.crates.io`,
-  `static.crates.io`), `static.rust-lang.org`, GitHub release downloads, and,
-  for the `xsh-test` image, Docker Hub and `dl-cdn.alpinelinux.org`. The
-  default **Trusted** environment level covers crates.io, the Rust
-  distribution host and Docker Hub; add anything else as a custom domain.
+- Setup needs network access to crates.io (`index.crates.io`,
+  `static.crates.io`), `static.rust-lang.org`, and GitHub release downloads.
+  Use native host tools and packages; Docker is outside this campaign's scope.
 - The reference host has 4 cores, about 15 GB RAM, a 14.3 GB memory cgroup
   shared by every process the session starts (builds, lanes and suites), and
   about 27 GB of disk. First full runs showed what that costs: a runaway
@@ -949,11 +965,13 @@ lanes that consume them.
 - The uutils framework runs each command with a cleared environment, so the
   staged native XSH dispatcher finds its stage from `argv[0]` rather than from
   an environment variable. It execs the applet directly and applies the stage's
-  per-applet address-space limit.
+  per-applet address-space limit. GNU suite links live in `stage/gnu-bin`; that
+  directory also links `lib` to `stage/bin/lib`, because XSH resolves a
+  script's imported modules relative to the invoked applet path.
 - Native-lane features need hardware or kernel facilities this VM lacks
   (QEMU/OVMF, NVMe devices, `scsi_debug`, privileged namespaces): those tests
-  are written against synthetic fixtures here and run for real in the
-  `xsh-test` image or a privileged CI lane.
+  are written against synthetic fixtures here and require a capable native
+  Linux host for hardware-backed runs.
 - This campaign run follows the user's native-host instruction: Linux x86_64
-  host runs are the evidence recorded here. `Dockerfile.test` is not used for
-  this run; do not generalize its result counts to other architectures.
+  host runs are the evidence recorded here. Do not generalize its result counts
+  to other architectures.
