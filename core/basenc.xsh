@@ -40,6 +40,11 @@ pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
   bytes.from_text(name)
 }
 
+pure write_error(failure: Error) -> Str {
+  let message = gnu.strerror(failure)
+  if message.starts_with("write error: ") { message.byte_slice(13) } else { message }
+}
+
 pure is_white(byte: Int) -> Bool { byte == 9 or byte == 10 or byte == 11 or byte == 12 or byte == 13 or byte == 32 }
 pure alpha64(byte: Int, url: Bool) -> Bool {
   (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or (byte >= 48 and byte <= 57) or byte == 43 or byte == 47 or (url and (byte == 45 or byte == 95))
@@ -317,7 +322,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   if ! opts.decode {
     let encoded = if encoding == "base64" { data.base64() } else if encoding == "base64url" { data.base64().replace("+", "-").replace("/", "_") } else if encoding == "base32" { data.base32() } else if encoding == "base32hex" { base32hex_encode(data) } else if encoding == "base16" { base16_encode(data) } else if encoding == "base2lsbf" { base2_encode(data, true) } else if encoding == "base2msbf" { base2_encode(data, false) } else if encoding == "base58" { base58_encode(data) } else if data.len() % 4 != 0 { gnu.error("error: invalid input (length must be multiple of 4 characters)"); exit 1 } else { z85_encode(data) }
-    gnu.write_bytes(wrap(encoded, width))
+    if let Err(failure) = io.write_stdout_bytes(wrap(encoded, width)) { gnu.error(write_error(failure)); exit 1 }
   } else {
     let cleaned = clean(data, opts.ignore, encoding)
     if ! cleaned.valid { gnu.error("error: invalid input"); exit 1 }
@@ -330,12 +335,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     } else if encoding == "base32hex" { base32hex_decode(cleaned.text) } else if encoding == "base16" { base16_decode(cleaned.text) } else if encoding == "base2lsbf" { base2_decode(cleaned.text, true) } else if encoding == "base2msbf" { base2_decode(cleaned.text, false) } else if encoding == "base58" { base58_decode(cleaned.text) } else { z85_decode(cleaned.text) }
     if ! decoded.valid {
       if encoding == "base32" or encoding == "base32hex" {
-        if let Err(failure) = io.write_stdout_bytes(decoded.data) { gnu.error(gnu.strerror(failure)); exit 1 }
-        if let Err(failure) = io.flush_stdout() { gnu.error(gnu.strerror(failure)); exit 1 }
+        if let Err(failure) = io.write_stdout_bytes(decoded.data) { gnu.error(write_error(failure)); exit 1 }
+        if let Err(failure) = io.flush_stdout() { gnu.error(write_error(failure)); exit 1 }
       }
       gnu.error("error: invalid input"); exit 1
     }
-    if let Err(failure) = io.write_stdout_bytes(decoded.data) { gnu.error(gnu.strerror(failure)); exit 1 }
+    if let Err(failure) = io.write_stdout_bytes(decoded.data) { gnu.error(write_error(failure)); exit 1 }
   }
-  if let Err(failure) = io.flush_stdout() { gnu.error(gnu.strerror(failure)); exit 1 }
+  if let Err(failure) = io.flush_stdout() { gnu.error(write_error(failure)); exit 1 }
 }

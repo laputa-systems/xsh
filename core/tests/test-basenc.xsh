@@ -1,14 +1,15 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
-proc invoke(ctx: TestContext, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
+proc invoke(ctx: TestContext, args: List[Str], input = b"", sink: Path? = null) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "basenc")?
-  let out = fp"{root}/stdout"
+  let out = sink ?? fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/basenc.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, input, out, err)
   let status = process.run(plan)?
-  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+  let stdout = if sink == null { fp"{root}/stdout".read_bytes()? } else { b"" }
+  Ok({status: status.exit_code()?, stdout: stdout, stderr: err.read_text()?})
 }
 
 test test_basenc_base16_base58_and_base32hex { |ctx|
@@ -35,4 +36,11 @@ test test_basenc_base2_and_decode { |ctx|
 test test_basenc_last_encoding_wins { |ctx|
   let result = invoke(ctx, ["--base32", "--base64"], b"Hello, World!")?
   assert result.stdout == b"SGVsbG8sIFdvcmxkIQ==\n"
+}
+
+test test_basenc_reports_write_error_without_runtime_prefix { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("/dev/full is not available") }
+  let result = invoke(ctx, ["--base16"], b"Hello, World!", sink: p"/dev/full")?
+  assert result.status == 1
+  assert result.stderr == "basenc: No space left on device\n"
 }

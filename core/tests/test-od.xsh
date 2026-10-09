@@ -16,12 +16,12 @@ test test_od_default_and_hex_byte_output { |ctx|
   assert default.status == 0
   assert "0000000 061141" in (default.stdout.utf8() ?? "")
   let hex = invoke(ctx, ["-An", "-tx1"], b"abc")?
-  assert hex.stdout == b"61 62 63\n"
+  assert hex.stdout == b" 61 62 63\n"
 }
 
 test test_od_skip_limit_and_invalid_type { |ctx|
   let result = invoke(ctx, ["-An", "-j1", "-N2", "-tx1"], b"abcd")?
-  assert result.stdout == b"62 63\n"
+  assert result.stdout == b" 62 63\n"
   let bad = invoke(ctx, ["-tq"], b"abc")?
   assert bad.status == 1
 }
@@ -38,4 +38,36 @@ test test_od_string_and_duplicate_output { |ctx|
   assert strings.stdout == b"0000000 a\n0000002 b\n"
   let duplicates = invoke(ctx, ["-tx1", "-w2"], b"\0\0\0\0")?
   assert duplicates.stdout == b"0000000 00 00\n*\n0000004\n"
+}
+
+test test_od_no_offset_and_character_escapes { |ctx|
+  let no_offset = invoke(ctx, ["-An", "-X", "-X"], b"\0\0\0\0")?
+  assert no_offset.stdout == b" 00000000\n 00000000\n"
+
+  let escaped = invoke(ctx, ["-An", "-tx1zacz"], b"A\0\n")?
+  let text = escaped.stdout.utf8() ?? ""
+  assert "  41  00  0a" in text
+  assert ">A..<" in text
+  assert "\\0" in text
+  assert "\\n" in text
+}
+
+test test_od_traditional_offsets_and_labels { |ctx|
+  let decimal = invoke(ctx, ["+1."], b"a")?
+  assert decimal.status == 0
+  assert decimal.stdout == b"0000001\n"
+
+  let labelled = invoke(ctx, ["--traditional", "-a", "-c", "-", "10", "0"], b"abcdefghijklmnopq")?
+  assert labelled.status == 0
+  let output = labelled.stdout.utf8() ?? ""
+  assert "0000010 (0000000)" in output
+  assert "                    i" in output
+  assert "0000021 (0000011)" in output
+
+  let no_address = invoke(ctx, ["-An", "--traditional", "-a", "-c", "-", "10", "0x10"], b"abcdefghijklmnopqrstuvwxyz")?
+  assert no_address.status == 0
+  let label_output = no_address.stdout.utf8() ?? ""
+  assert "(0000020)" in label_output
+  assert "            i" in label_output
+  assert "(0000042)" in label_output
 }
