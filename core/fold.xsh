@@ -108,7 +108,7 @@ pure normalized_args(argv: List[Str]) -> List[Str] {
   var stopped = false
   var wants_width = false
   for arg in argv {
-    if ! stopped and arg == "--" { stopped = true; out += [arg] } else if ! stopped and wants_width { out += [arg]; wants_width = false } else if ! stopped and arg in ["-w", "--width"] { out += [arg]; wants_width = true } else if ! stopped and rx"^-[0-9]+$".matches(arg) { out += [f"-w{arg[1..]}"] } else { out += [arg] }
+    if ! stopped and arg == "--" { stopped = true; out += [arg] } else if ! stopped and wants_width { out += [arg]; wants_width = false } else if ! stopped and arg in ["-w", "--width"] { out += [arg]; wants_width = true } else if ! stopped and rx"^-[bcs]*w$".matches(arg) { out += [arg]; wants_width = true } else if ! stopped and rx"^-[0-9]+$".matches(arg) { out += [f"-w{arg[1..]}"] } else { out += [arg] }
   }
   out
 }
@@ -154,7 +154,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   if parsed_width <= 0 {
-    gnu.error(f"invalid number of columns: {gnu.quote_value(opts.width)}: Numerical result out of range")
+    let suffix = if parsed_width == 0 { ": Numerical result out of range" } else { "" }
+    gnu.error(f"invalid number of columns: {gnu.quote_value(opts.width)}{suffix}")
     exit 1
   }
   let names = raw_files(argv, cli.argv_bytes())
