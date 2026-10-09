@@ -8,7 +8,7 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 ## Active resume (2026-10-09)
 
-- Current local integration head is `e4efc7ed`; origin was last pushed at
+- Current local integration head is `aa8a0183`; origin was last pushed at
   `5de29706`. The source references are pinned: uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
 - Setup and baseline work is complete on the native Linux x86_64 host. No
@@ -24,12 +24,14 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   The investigation traced the broad `ls` family failures to an incomplete
   `FsStat` literal after the timestamp API extension and `/dev/zero` being
   read as an unbounded stream. Both runtime issues are fixed at `d0ac7d7c`;
-  cp fixes are merged at `f06c924b` and mv/ln fixes at `e4efc7ed`. A full
-  regression run on this corrected head is pending. The focused
+  cp fixes are merged at `f06c924b` and mv/ln fixes at `e4efc7ed`. The
+  `fs-basic` lane is merged at `aa8a0183` with **188 / 203** passing; it also
+  fixes rm's `/dev/full` reporting path. A full regression run on this
+  corrected head is pending. The focused
   `ls dir vdir split` slice is **314 / 365**; it has no regressions among
   previously passing IDs and fixes the `/dev/zero` split cases.
-- Current Wave 1 lanes: `fs-basic` is rebasing for its final slice; `perm` and
-  `stat-du-df` are active; `printf-env` has started on `e4efc7ed`. Each lane
+- Current Wave 1 lanes: `perm` and `stat-du-df` are active; `printf-env` is
+  active from `e4efc7ed`. Each lane
   uses a separate worktree and scratch results; only the integrator writes
   shared campaign result JSON. The next full run will also compare against the
   pre-cp/mv report at `/tmp/uutils-before-cp-mv.json`.

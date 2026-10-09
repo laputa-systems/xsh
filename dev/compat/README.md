@@ -110,8 +110,8 @@ merge, a full run reached 2,368 / 5,974 with no regressions. A full run after
 the cp/mv integration found regressions that are documented in
 [`CAMPAIGN.md`](CAMPAIGN.md) and repaired on the current local head. A focused
 `ls dir vdir split` rerun passes 314 / 365 with no regression among previously
-passing tests. The next full run is pending the current filesystem and
-environment lane merges.
+passing tests. The next full run is pending the active `perm`, `stat-du-df`,
+and `printf-env` lane merges.
 
 `run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
 The baseline run against uutils recorded 573 passed, 85 skipped, 58 failed,
