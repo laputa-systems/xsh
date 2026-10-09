@@ -12,6 +12,13 @@ With no FILE, or when FILE is -, read standard input.
 
 type TsortOptions = {help: Bool, version: Bool, files: List[Str]}
 
+pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
+  for index in range(argv.len()) {
+    if argv[index] == name { return raw[index] }
+  }
+  bytes.from_text(name)
+}
+
 const HEX = "0123456789abcdef"
 
 # Hex of a token, so tokens that are not valid UTF-8 still order bytewise as text.
@@ -116,12 +123,13 @@ pure find_loop(top: List[List[Int]], done: List[Bool], order: List[Int]) -> List
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw_args = cli.argv_bytes()
   let opts: TsortOptions = cli.applet(
     argv,
     {
       gnu: {status: 1},
-      help: {form: "--help", default: false, stop: true},
-      version: {form: "--version", default: false, stop: true},
+      help: {form: "-h --help", default: false, stop: true},
+      version: {form: "-V --version", default: false, stop: true},
       files: {form: "...FILE"},
     },
   )?
@@ -141,15 +149,26 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let name = opts.files.get(0) ?? "-"
-
-  guard let data = gnu.read_operand(name) else { |failure|
-    if gnu.errno(failure) == 21 {
-      gnu.error(f"{gnu.quote_maybe(name)}: read error: Is a directory")
-    } else {
+  let raw_name = if opts.files.len() > 0 { raw_for(argv, raw_args, name) } else { b"-" }
+  let data = if name == "-" {
+    guard let found = gnu.read_operand(name) else { |failure|
       gnu.name_error(name, failure)
+      exit 1
     }
-
-    exit 1
+    found
+  } else {
+    let target = Path.parse_bytes(raw_name)?
+    if let Ok(found) = fs.stat(target, follow_symlinks: true) {
+      if found.kind == "dir" {
+        gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: read error: Is a directory")
+        exit 1
+      }
+    }
+    guard let found = target.read_bytes() else { |failure|
+      gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}")
+      exit 1
+    }
+    found
   }
 
   let tokens = tokenize(data)

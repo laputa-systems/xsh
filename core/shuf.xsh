@@ -39,6 +39,13 @@ type ShufOptions = {
 # draw that runs out of window bytes is not `ok` and is resumed after a refill.
 type Draw = {value: Int, pos: Int, state: Int, entropy: Int, ok: Bool}
 
+pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
+  for index in range(argv.len()) {
+    if argv[index] == name { return raw[index] }
+  }
+  bytes.from_text(name)
+}
+
 # Output stops here for an unbounded `-r`: stdout is flushed only when the
 # script ends, so endless output could never be delivered.
 const OUTPUT_LIMIT = 262144
@@ -122,6 +129,7 @@ pure parse_count(text: Str) -> Int? {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw_args = cli.argv_bytes()
   let opts: ShufOptions = cli.applet(
     argv,
     {
@@ -221,11 +229,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let sep = if opts.zero { 0 } else { 10 }
   let mark = bytes.from_ints([sep])?
   let output = opts.output.get(0) ?? "-"
+  let raw_output = if opts.output.len() > 0 { raw_for(argv, raw_args, output) } else { b"-" }
 
   if head == 0 {
     if output != "-" {
-      if let Err(failure) = fp"{output}".write(b"") {
-        gnu.error(f"failed to open {gnu.quote(output)} for writing: {gnu.strerror(failure)}")
+      if let Err(failure) = Path.parse_bytes(raw_output)?.write(b"") {
+        gnu.error(f"failed to open {gnu.quote_bytes(raw_output)} for writing: {gnu.strerror(failure)}")
         exit 1
       }
     }
@@ -238,12 +247,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   if opts.source != null {
     let name = opts.source ?? ""
-    let kind = if let Ok(found) = fs.stat(fp"{name}", follow_symlinks: true) { found.kind } else { "missing" }
+    let raw_name = raw_for(argv, raw_args, name)
+    let source_path = Path.parse_bytes(raw_name)?
+    let kind = if let Ok(found) = fs.stat(source_path, follow_symlinks: true) { found.kind } else { "missing" }
 
     if kind == "file" or kind == "missing" or name == "-" {
-      guard let data = gnu.read_operand(name) else { |failure|
-        gnu.name_error(name, failure)
-        exit 1
+      let data = if name == "-" {
+        guard let found = gnu.read_operand(name) else { |failure|
+          gnu.name_error(name, failure)
+          exit 1
+        }
+        found
+      } else {
+        guard let found = source_path.read_bytes() else { |failure|
+          gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}")
+          exit 1
+        }
+        found
       }
 
       source = data
@@ -251,7 +271,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
-  let device_path = if opts.source != null { fp"{opts.source ?? ""}" } else { p"/dev/urandom" }
+  let device_path = if opts.source != null { Path.parse_bytes(raw_for(argv, raw_args, opts.source ?? ""))? } else { p"/dev/urandom" }
 
   var items: List[Bytes] = []
   var total = 0
@@ -261,14 +281,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.range.len() > 0 {
     total = hi - lo + 1
   } else if opts.echo {
-    items = [bytes.from_text(item) for item in opts.operands]
+    items = [raw_for(argv, raw_args, item) for item in opts.operands]
     total = items.len()
   } else {
     let name = opts.operands.get(0) ?? "-"
-
-    guard let data = gnu.read_operand(name) else { |failure|
-      gnu.name_error(name, failure)
-      exit 1
+    let raw_name = if opts.operands.len() > 0 { raw_for(argv, raw_args, name) } else { b"-" }
+    let data = if name == "-" {
+      guard let found = gnu.read_operand(name) else { |failure|
+        gnu.name_error(name, failure)
+        exit 1
+      }
+      found
+    } else {
+      guard let found = Path.parse_bytes(raw_name)?.read_bytes() else { |failure|
+        gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}")
+        exit 1
+      }
+      found
     }
 
     items = split_records(data, sep)
@@ -278,7 +307,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     # reservoir of that many lines: each later line draws a slot and replaces
     # its line when the slot is inside the reservoir (and a last draw is spent
     # at the end), then the survivors are permuted as usual.
-    let place = if name == "-" { p"/dev/stdin" } else { fp"{name}" }
+    let place = if name == "-" { p"/dev/stdin" } else { Path.parse_bytes(raw_name)? }
     let regular = if let Ok(found) = fs.stat(place, follow_symlinks: true) { found.kind == "file" } else { false }
 
     if ! opts.repeat and ! regular and head < tio.MAX_COUNT and total >= head {
@@ -420,24 +449,24 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   # A permutation is written only once complete; repeated output goes out as
   # it is drawn.
   if failed and ! opts.repeat {
-    gnu.error(f"{gnu.quote(opts.source ?? "")}: end of file")
+    gnu.error("end of random source")
     exit 1
   }
 
   if output == "-" {
     gnu.write_bytes(bytes.concat(out))
-  } else if let Err(failure) = fp"{output}".write(bytes.concat(out)) {
+  } else if let Err(failure) = Path.parse_bytes(raw_output)?.write(bytes.concat(out)) {
     if gnu.errno(failure) == 28 {
       gnu.error(f"write error: {gnu.strerror(failure)}")
     } else {
-      gnu.error(f"failed to open {gnu.quote(output)} for writing: {gnu.strerror(failure)}")
+      gnu.error(f"failed to open {gnu.quote_bytes(raw_output)} for writing: {gnu.strerror(failure)}")
     }
 
     exit 1
   }
 
   if failed {
-    gnu.error(f"{gnu.quote(opts.source ?? "")}: end of file")
+    gnu.error("end of random source")
     exit 1
   }
 

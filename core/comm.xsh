@@ -44,6 +44,13 @@ type CommOptions = {
   files: List[Str],
 }
 
+pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
+  for index in range(argv.len()) {
+    if argv[index] == name { return raw[index] }
+  }
+  bytes.from_text(name)
+}
+
 # Records of `data` separated by `sep`; a final unterminated record counts.
 proc split_records(data: Bytes, sep: Int) [error] -> Result[List[Bytes]] {
   if let Ok(text) = data.utf8() {
@@ -83,9 +90,25 @@ pure order(left: Bytes, right: Bytes) -> Int {
   1
 }
 
-proc read_input(name: Str) [fs, process, env, error, io] -> Bytes {
-  guard let data = gnu.read_operand(name) else { |failure|
-    gnu.name_error(name, failure)
+proc read_input(name: Str, raw_name: Bytes) [fs, process, env, error, io] -> Bytes {
+  if name == "-" {
+    guard let data = gnu.read_operand(name) else { |failure|
+      gnu.name_error(name, failure)
+      exit 1
+    }
+    return data
+  }
+
+  let target = Path.parse_bytes(raw_name)?
+  if let Ok(found) = fs.stat(target, follow_symlinks: true) {
+    if found.kind == "dir" {
+      gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: Is a directory")
+      exit 1
+    }
+  }
+
+  guard let data = target.read_bytes() else { |failure|
+    gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}")
     exit 1
   }
 
@@ -121,6 +144,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
+  let raw_args = cli.argv_bytes()
+
   if opts.files.len() == 0 {
     gnu.missing_operand()
   }
@@ -150,8 +175,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let sep = if opts.zero { 0 } else { 10 }
   let mark = bytes.from_ints([sep])?
-  let left = split_records(read_input(opts.files[0]), sep)?
-  let right = split_records(read_input(opts.files[1]), sep)?
+  let left = split_records(read_input(opts.files[0], raw_for(argv, raw_args, opts.files[0])), sep)?
+  let right = split_records(read_input(opts.files[1], raw_for(argv, raw_args, opts.files[1])), sep)?
 
   let lead1 = if opts.hide1 { "" } else { delim }
   let lead2 = if opts.hide2 { "" } else { delim }

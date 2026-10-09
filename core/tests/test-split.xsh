@@ -10,6 +10,15 @@ proc split_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, 
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc split_run_paths(ctx: TestContext, root: Path, args: List[Path], input = b"") [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/split.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 proc piece(root: Path, name: Str) [fs, error] -> Result[Bytes] {
   fp"{root}/{name}".read_bytes()?
 }
@@ -128,4 +137,36 @@ test test_split_separator_verbose_filter_and_errors { |ctx|
   fp"{root}/xaa".write("keep")
   assert split_run(ctx, root, [], b"")?.status == 0
   assert piece(root, "xaa")? == b"keep", "empty input creates no output and leaves existing files alone"
+}
+
+test test_split_preserves_non_utf8_input_prefix_and_suffix { |ctx|
+  let root = test.temp_dir(ctx, name: "split-raw")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/input-\xff\xfe"]))?
+  input.write("line\n")
+
+  let from_raw_input = split_run_paths(ctx, root, [Path.parse_bytes(input.bytes())?])?
+  assert from_raw_input.status == 0, from_raw_input.stderr
+  assert fp"{root}/xaa".read_bytes()? == b"line\n"
+
+  let prefix = Path.parse_bytes(bytes.concat([root.bytes(), b"/p\xff"]))?
+  let prefixed = split_run_paths(ctx, root, [
+    Path.parse_bytes(b"-b")?,
+    Path.parse_bytes(b"1")?,
+    Path.parse_bytes(b"-")?,
+    Path.parse_bytes(prefix.bytes())?,
+  ], b"AB")?
+  assert prefixed.status == 0, prefixed.stderr
+  assert Path.parse_bytes(bytes.concat([prefix.bytes(), b"aa"]))?.read_bytes()? == b"A"
+  assert Path.parse_bytes(bytes.concat([prefix.bytes(), b"ab"]))?.read_bytes()? == b"B"
+
+  let suffixed = split_run_paths(ctx, root, [
+    Path.parse_bytes(b"-b")?,
+    Path.parse_bytes(b"1")?,
+    Path.parse_bytes(b"-")?,
+    Path.parse_bytes(b"--additional-suffix")?,
+    Path.parse_bytes(b"\xff\xfe")?,
+  ], b"CD")?
+  assert suffixed.status == 0, suffixed.stderr
+  assert Path.parse_bytes(bytes.concat([root.bytes(), b"/xaa\xff\xfe"]))?.exists()?
+  assert Path.parse_bytes(bytes.concat([root.bytes(), b"/xab\xff\xfe"]))?.exists()?
 }

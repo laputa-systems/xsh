@@ -10,6 +10,15 @@ proc shuf_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, p
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc shuf_run_paths(ctx: TestContext, root: Path, args: List[Path], input = b"") [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/shuf.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 pure sorted_lines(data: Bytes) -> List[Str] {
   [line for line in (data.utf8() ?? "").lines() |> sort-by .]
 }
@@ -49,7 +58,7 @@ test test_shuf_random_source_matches_gnu { |ctx|
   let exhausted = shuf_run(ctx, root, ["--random-source=short", "-r", "-i", "1-99"])?
   assert exhausted.status == 1
   assert exhausted.stdout == b"38\n30\n10\n26\n23\n61\n46\n99\n75\n43\n10\n89\n10\n44\n24\n59\n22\n51\n"
-  assert exhausted.stderr == "shuf: 'short': end of file\n", exhausted.stderr
+  assert exhausted.stderr == "shuf: end of random source\n", exhausted.stderr
 }
 
 test test_shuf_output_file_and_errors { |ctx|
@@ -85,4 +94,18 @@ test test_shuf_output_file_and_errors { |ctx|
   let seed = shuf_run(ctx, root, ["--random-seed=x"])?
   assert seed.status == 1
   assert seed.stderr.starts_with("shuf: option '--random-seed' is not supported"), seed.stderr
+}
+
+test test_shuf_preserves_non_utf8_arguments_and_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "shuf-raw")?
+  let raw_name = Path.parse_bytes(bytes.concat([root.bytes(), b"/input-\xff"]))?
+  raw_name.write("line\n")
+
+  let file = shuf_run_paths(ctx, root, [Path.parse_bytes(raw_name.bytes())?])?
+  assert file.status == 0, file.stderr
+  assert file.stdout == b"line\n"
+
+  let echo = shuf_run_paths(ctx, root, [Path.parse_bytes(b"-e")?, Path.parse_bytes(b"item-\xff")?])?
+  assert echo.status == 0, echo.stderr
+  assert echo.stdout == b"item-\xff\n"
 }

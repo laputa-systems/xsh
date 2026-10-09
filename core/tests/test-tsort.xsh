@@ -10,6 +10,15 @@ proc tsort_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, 
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc tsort_run_paths(ctx: TestContext, root: Path, args: List[Path], input = b"") [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/tsort.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 test test_tsort_orders_by_dependency_then_name { |ctx|
   let root = test.temp_dir(ctx, name: "tsort")?
 
@@ -59,4 +68,22 @@ test test_tsort_binary_tokens_and_errors { |ctx|
   fp"{root}/dir".mkdir()
   let directory = tsort_run(ctx, root, ["dir"])?
   assert directory.stderr == "tsort: dir: read error: Is a directory\n", directory.stderr
+
+  let help = tsort_run(ctx, root, ["-h"])?
+  assert help.status == 0
+  assert help.stdout.utf8()?.starts_with("Usage: tsort")
+
+  let version = tsort_run(ctx, root, ["-V"])?
+  assert version.status == 0
+  assert version.stdout.utf8()?.starts_with("tsort")
+}
+
+test test_tsort_reads_non_utf8_input_path { |ctx|
+  let root = test.temp_dir(ctx, name: "tsort-raw")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/input-\xff"]))?
+  input.write("a b\nb c\n")
+
+  let result = tsort_run_paths(ctx, root, [Path.parse_bytes(input.bytes())?])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"a\nb\nc\n"
 }
