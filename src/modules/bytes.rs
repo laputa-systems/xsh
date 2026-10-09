@@ -169,6 +169,43 @@ pub(crate) fn concat(chunks: Vec<Vec<u8>>) -> Vec<u8> {
     out
 }
 
+/// Copy a byte stream without buffering the entire input in memory.
+///
+/// `limit` bounds the number of bytes copied when it is present. Reads are
+/// retried after interruption and may return any positive short length.
+pub(crate) fn copy_stream(
+    reader: &mut dyn Read,
+    writer: &mut dyn Write,
+    limit: Option<u64>,
+) -> std::io::Result<u64> {
+    const BUFFER_SIZE: usize = 64 * 1024;
+
+    let mut buffer = [0_u8; BUFFER_SIZE];
+    let mut copied = 0_u64;
+    loop {
+        let size = match limit {
+            Some(limit) => usize::try_from((limit - copied).min(BUFFER_SIZE as u64))
+                .expect("bounded read size fits usize"),
+            None => BUFFER_SIZE,
+        };
+        if size == 0 {
+            return Ok(copied);
+        }
+
+        let read = loop {
+            match reader.read(&mut buffer[..size]) {
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                result => break result?,
+            }
+        };
+        if read == 0 {
+            return Ok(copied);
+        }
+        writer.write_all(&buffer[..read])?;
+        copied += read as u64;
+    }
+}
+
 pub(crate) fn pack_int_le(value: i64, width: i64, span: Span) -> Result<Vec<u8>, RuntimeError> {
     pack_int(value, width, true, span)
 }
@@ -404,9 +441,15 @@ pub(crate) fn copy_blocks(
         if count.is_some_and(|limit| blocks >= limit) {
             break;
         }
-        let read = input
-            .read(&mut buffer)
-            .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
+        let read = loop {
+            match input.read(&mut buffer) {
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                result => {
+                    break result
+                        .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
+                }
+            }
+        };
         if read == 0 {
             break;
         }
@@ -415,9 +458,6 @@ pub(crate) fn copy_blocks(
             .map_err(|error| RuntimeError::host("bytes-copy", &error).with_span(span))?;
         copied += read as i64;
         blocks += 1;
-        if read < buffer.len() {
-            break;
-        }
     }
 
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
@@ -487,11 +527,8 @@ pub(crate) fn copy_file(
         .seek(SeekFrom::Start(dest_offset as u64))
         .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
 
-    let copied = match length {
-        Some(length) => std::io::copy(&mut input.take(length as u64), &mut output),
-        None => std::io::copy(&mut input, &mut output),
-    }
-    .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
+    let copied = copy_stream(&mut input, &mut output, length.map(|length| length as u64))
+        .map_err(|error| RuntimeError::host("bytes-copy-file", &error).with_span(span))?;
 
     Ok(Value::Record(crate::runtime::value::RecordMap::from([
         (Arc::from("bytes"), Value::Int(copied as i64)),
@@ -617,6 +654,38 @@ mod tests {
     use super::*;
     use crate::source::SourceId;
     use crate::symbol::SymbolOwner;
+    use std::io::{self, Cursor};
+
+    struct ShortInterruptedReader {
+        input: Cursor<Vec<u8>>,
+        interrupted: bool,
+    }
+
+    impl Read for ShortInterruptedReader {
+        fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
+            if !self.interrupted {
+                self.interrupted = true;
+                return Err(io::Error::new(io::ErrorKind::Interrupted, "retry read"));
+            }
+            let size = buffer.len().min(3);
+            self.input.read(&mut buffer[..size])
+        }
+    }
+
+    #[derive(Default)]
+    struct ShortWriter(Vec<u8>);
+
+    impl Write for ShortWriter {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            let written = bytes.len().min(2);
+            self.0.extend_from_slice(&bytes[..written]);
+            Ok(written)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     fn test_span() -> Span {
         Span::new(SourceId::new(0), 0, 0)
@@ -641,5 +710,32 @@ mod tests {
                 "bytes-slice"
             );
         });
+    }
+
+    #[test]
+    fn stream_copy_retries_interrupted_short_reads_and_short_writes() {
+        let input = b"streamed bytes".to_vec();
+        let mut reader = ShortInterruptedReader {
+            input: Cursor::new(input.clone()),
+            interrupted: false,
+        };
+        let mut writer = ShortWriter::default();
+
+        let copied = copy_stream(&mut reader, &mut writer, None).expect("copy stream");
+
+        assert_eq!(copied, input.len() as u64);
+        assert_eq!(writer.0, input);
+    }
+
+    #[test]
+    fn stream_copy_obeys_limit_without_reading_past_it() {
+        let mut reader = Cursor::new(b"remaining input".to_vec());
+        let mut writer = Vec::new();
+
+        let copied = copy_stream(&mut reader, &mut writer, Some(4)).expect("copy limited stream");
+
+        assert_eq!(copied, 4);
+        assert_eq!(writer, b"rema");
+        assert_eq!(reader.position(), 4);
     }
 }
