@@ -23,6 +23,68 @@ test test_hash_digests_checksums_and_digest_methods { |ctx|
   )
 }
 
+test test_hash_blake2b_variable_output_and_streaming_path { |ctx|
+  let data = b"abc"
+  let data_path = test.temp_path(ctx, name: "hash-blake2b.txt")
+  fs.write(data_path, data)
+
+  let full = hash.blake2b(data)?
+  assert full.hex() == "ba80a53f981c4d0d6a2797b69f12f6e94c212f14685ac4b74b12bb6fdbffa2d17d87c5392aab792dc252d5de4533cc9518d38aa8dbf1925ab92386edd4009923"
+  assert hash.blake2b(data, output_length: 1)?.hex() == "6b"
+  assert hash.blake2b(data, output_length: 32)?.hex() == "bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319"
+  assert hash.blake2b(data_path)?.hex() == full.hex()
+
+  # A path longer than the stream buffer checks that a file digest carries
+  # state across multiple reads and can produce a non-default output length.
+  var large = "0123456789abcdef"
+  while large.byte_len() < 256 * 1024 {
+    large = large + large
+  }
+  let large_bytes = bytes.from_text(large)
+  let large_path = test.temp_path(ctx, name: "hash-blake2b-large.bin")
+  fs.write(large_path, large_bytes)
+  assert hash.blake2b(large_path, output_length: 47)?.hex() == hash.blake2b(large_bytes, output_length: 47)?.hex()
+  let large_crc = hash.cksum(large_path)?
+  assert large_crc.checksum == hash.cksum(large_bytes).checksum
+  assert large_crc.bytes == large_bytes.len()
+  assert hash.bsd_sum(large_path)?.checksum == hash.bsd_sum(large_bytes).checksum
+  assert hash.sysv_sum(large_path)?.checksum == hash.sysv_sum(large_bytes).checksum
+
+  test.error_kind(hash.blake2b(data, output_length: 0), "hash-blake2b")
+  test.error_kind(hash.blake2b(data, output_length: 65), "hash-blake2b")
+}
+
+test test_hash_cksum_bsd_and_sysv_sum_values { |ctx|
+  let data = b"abc"
+  let data_path = test.temp_path(ctx, name: "hash-sums.txt")
+  fs.write(data_path, data)
+
+  let crc = hash.cksum(data)
+  assert crc.checksum == 1219131554
+  assert crc.bytes == 3
+  let file_crc = hash.cksum(data_path)?
+  assert file_crc.checksum == crc.checksum
+  assert file_crc.bytes == crc.bytes
+
+  let bsd = hash.bsd_sum(data)
+  assert bsd.checksum == 16556
+  assert bsd.blocks == 1
+  let file_bsd = hash.bsd_sum(data_path)?
+  assert file_bsd.checksum == bsd.checksum
+  assert file_bsd.blocks == bsd.blocks
+
+  let sysv = hash.sysv_sum(data)
+  assert sysv.checksum == 294
+  assert sysv.blocks == 1
+  let file_sysv = hash.sysv_sum(data_path)?
+  assert file_sysv.checksum == sysv.checksum
+  assert file_sysv.blocks == sysv.blocks
+
+  let full_blocks = bytes.zero(1025)?
+  assert hash.bsd_sum(full_blocks).blocks == 2
+  assert hash.sysv_sum(full_blocks).blocks == 2
+}
+
 # Named-argument order is not significant: the path binds by position or
 # `path:`, and the algorithm-named checksum binds wherever it is written.
 test test_hash_verify_file_argument_order { |ctx|

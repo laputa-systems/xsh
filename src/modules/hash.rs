@@ -1,7 +1,4 @@
 #![allow(clippy::single_call_fn)]
-// The public checksum operations are awaiting registry wiring, which is
-// outside this lane's owned files.
-#![allow(dead_code)]
 
 use crate::modules::bytes::base64_encode;
 use crate::runtime::value::{DigestValue, RuntimeError};
@@ -64,6 +61,15 @@ pub(crate) fn digest_file(
     digest_reader(algorithm, &mut file, span)
 }
 
+pub(crate) fn blake2b_file(
+    path: &Path,
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let mut file = open_hash_file(path, span)?;
+    blake2b_reader(&mut file, output_length, span)
+}
+
 pub(crate) fn digest_hex(digest: &DigestValue) -> String {
     hex(&digest.bytes)
 }
@@ -123,6 +129,11 @@ pub(crate) fn cksum_reader(
     Ok(state.finish())
 }
 
+pub(crate) fn cksum_file(path: &Path, span: Span) -> Result<(u32, u64), RuntimeError> {
+    let mut file = open_hash_file(path, span)?;
+    cksum_reader(&mut file, span)
+}
+
 pub(crate) fn bsd_sum_bytes(bytes: &[u8]) -> (u16, u64) {
     let mut state = Sum::new(SumKind::Bsd);
     state.update(bytes);
@@ -138,6 +149,11 @@ pub(crate) fn bsd_sum_reader(
     Ok(state.finish())
 }
 
+pub(crate) fn bsd_sum_file(path: &Path, span: Span) -> Result<(u16, u64), RuntimeError> {
+    let mut file = open_hash_file(path, span)?;
+    bsd_sum_reader(&mut file, span)
+}
+
 pub(crate) fn sysv_sum_bytes(bytes: &[u8]) -> (u16, u64) {
     let mut state = Sum::new(SumKind::Sysv);
     state.update(bytes);
@@ -151,6 +167,11 @@ pub(crate) fn sysv_sum_reader(
     let mut state = Sum::new(SumKind::Sysv);
     read_stream(reader, span, |bytes| state.update(bytes))?;
     Ok(state.finish())
+}
+
+pub(crate) fn sysv_sum_file(path: &Path, span: Span) -> Result<(u16, u64), RuntimeError> {
+    let mut file = open_hash_file(path, span)?;
+    sysv_sum_reader(&mut file, span)
 }
 
 // GNU checksum lines prefer a double-space separator anywhere in the line to
@@ -205,6 +226,10 @@ fn digest_reader(
         HashAlgorithm::Sha512 => digest_stream::<sha2::Sha512>(reader, span)?,
     };
     Ok(digest_value(algorithm, &bytes))
+}
+
+fn open_hash_file(path: &Path, span: Span) -> Result<std::fs::File, RuntimeError> {
+    std::fs::File::open(path).map_err(|error| RuntimeError::host("hash-read", &error).with_span(span))
 }
 
 fn digest_stream<D: md5::Digest + Default>(
