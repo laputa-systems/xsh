@@ -17,6 +17,19 @@ pure portable_char(byte: Int) -> Bool {
   (byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or byte == 45 or byte == 46 or byte == 95
 }
 
+pure raw_names(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var names: List[Bytes] = []
+  var options = true
+  for index in range(argv.len()) {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; continue }
+    if options and (arg == "-p" or arg == "-P" or arg == "--portability" or arg == "--help" or arg == "--version") { continue }
+    if options and arg.starts_with("-") and arg != "-" { continue }
+    names += [raw[index]]
+  }
+  names
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: PathchkOptions = cli.applet(
     argv,
@@ -37,7 +50,29 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let posix = opts.posix or opts.portability
   let special = opts.special or opts.portability
   var failed = false
-  for name in opts.paths {
+  let raw_paths = raw_names(argv, cli.argv_bytes())
+  for index in range(opts.paths.len()) {
+    let name = opts.paths[index]
+    let raw_name = raw_paths[index]
+    let invalid_utf8 = if let Err(_) = raw_name.utf8() { true } else { false }
+    if invalid_utf8 {
+      if raw_name.len() > 4096 {
+        gnu.error(f"{gnu.quote_bytes(raw_name)}: file name too long (limit 4096 bytes)")
+        failed = true
+      } else if posix or special {
+        var at = 0
+        while at < raw_name.len() {
+          let byte = raw_name.byte_at(at) ?? 0
+          if ! portable_char(byte) and byte != 47 {
+            gnu.error(f"{gnu.quote_bytes(raw_name)}: character is not portable")
+            failed = true
+            break
+          }
+          at += 1
+        }
+      }
+      continue
+    }
     let components = name.split("/")
     if name == "" and (posix or special) {
       gnu.error("empty file name")

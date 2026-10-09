@@ -58,7 +58,8 @@ proc create_name(directory: Path, pattern: Str, suffix: Str, make_directory: Boo
       let raw_seed = source.basename()
       let seed = if raw_seed.starts_with(".") { raw_seed.byte_slice(1) } else { raw_seed }
       let candidate = randomize(pattern, find_x_start(pattern), find_x_end(pattern), seed) + suffix
-      let target = if directory.display() == "." and display_dot_slash { fp"./{candidate}" } else if directory.display() == "." { fp"{candidate}" } else { fp"{directory}/{candidate}" }
+      let target_bytes = if directory.display() == "." and display_dot_slash { bytes.from_text(f"./{candidate}") } else if directory.display() == "." { bytes.from_text(candidate) } else { bytes.concat([directory.bytes(), b"/", bytes.from_text(candidate)]) }
+      let target = Path.parse_bytes(target_bytes)?
       if dry_run { return Ok(target) }
       let created = fs.mkdir(target)
       if let Ok(_) = created {
@@ -72,7 +73,8 @@ proc create_name(directory: Path, pattern: Str, suffix: Str, make_directory: Boo
       let raw_seed = temp_root.basename()
       let seed = if raw_seed.starts_with(".") { raw_seed.byte_slice(1) } else { raw_seed }
       let candidate = randomize(pattern, find_x_start(pattern), find_x_end(pattern), seed) + suffix
-      let target = if directory.display() == "." and display_dot_slash { fp"./{candidate}" } else if directory.display() == "." { fp"{candidate}" } else { fp"{directory}/{candidate}" }
+      let target_bytes = if directory.display() == "." and display_dot_slash { bytes.from_text(f"./{candidate}") } else if directory.display() == "." { bytes.from_text(candidate) } else { bytes.concat([directory.bytes(), b"/", bytes.from_text(candidate)]) }
+      let target = Path.parse_bytes(target_bytes)?
       if dry_run { return Ok(target) }
       let copied = fs.copy_file(source, target, "auto", "auto", false, 0o600)
       if let Ok(_) = copied {
@@ -103,7 +105,61 @@ pure find_x_start(text: Str) -> Int {
   start
 }
 
+pure raw_templates(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var templates: List[Bytes] = []
+  var index = 0
+  var options = true
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and (arg == "--suffix" or arg == "-p") { index += 2; continue }
+    if options and arg == "--tmpdir" { index += 1; continue }
+    if options and (arg.starts_with("--suffix=") or arg.starts_with("--tmpdir=") or (arg.starts_with("-p") and arg.byte_len() > 2)) { index += 1; continue }
+    if options and (arg == "-d" or arg == "--directory" or arg == "-t" or arg == "-u" or arg == "--dry-run" or arg == "-q" or arg == "--quiet" or arg == "--help" or arg == "--version") { index += 1; continue }
+    if options and arg.starts_with("-") and arg != "-" { index += 1; continue }
+    templates += [raw[index]]
+    index += 1
+  }
+  templates
+}
+
+pure raw_tmpdir(argv: List[Str], raw: List[Bytes]) -> Bytes? {
+  var index = 0
+  var options = true
+  var found: Bytes? = null
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and arg == "-p" {
+      if index + 1 < argv.len() and ! argv[index + 1].starts_with("-") {
+        found = raw[index + 1]
+        index += 2
+      } else {
+        found = b""
+        index += 1
+      }
+      continue
+    }
+    if options and arg == "--tmpdir" { found = b""; index += 1; continue }
+    if options and arg.starts_with("--tmpdir=") { found = raw[index].slice(9); index += 1; continue }
+    if options and arg.starts_with("-p") and arg.byte_len() > 2 { found = raw[index].slice(2); index += 1; continue }
+    if options and arg == "--suffix" { index += 2; continue }
+    if options and (arg.starts_with("--suffix=") or arg == "-d" or arg == "--directory" or arg == "-t" or arg == "-u" or arg == "--dry-run" or arg == "-q" or arg == "--quiet" or arg == "--help" or arg == "--version") { index += 1; continue }
+    if options and arg.starts_with("-") and arg != "-" { index += 1; continue }
+    options = false
+    index += 1
+  }
+  found
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw = cli.argv_bytes()
+  let templates_raw = raw_templates(argv, raw)
+  if templates_raw.len() > 0 and (if let Err(_) = templates_raw[0].utf8() { true } else { false }) {
+    gnu.error("invalid template")
+    exit 1
+  }
+  let tmpdir_raw = raw_tmpdir(argv, raw)
   var adjusted = []
   for index in range(argv.len()) {
     let arg = argv[index]
@@ -181,7 +237,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     pattern = leaf_of(stem)
   } else if tmpdir_given {
     let temp_root = if opts.tmpdir != "" { opts.tmpdir } else { env.get_or("TMPDIR", "/tmp") ?? "/tmp" }
-    directory = if temp_root == "" { p"/tmp" } else if raw_template.find("/") != null { fp"{temp_root}/{template_dir}" } else { fp"{temp_root}" }
+    if tmpdir_raw != null and (tmpdir_raw ?? b"").len() > 0 {
+      let raw_directory = if raw_template.find("/") != null {
+        bytes.concat([tmpdir_raw ?? b"", b"/", bytes.from_text(template_dir)])
+      } else { tmpdir_raw ?? b"" }
+      directory = Path.parse_bytes(raw_directory)?
+    } else {
+      directory = if temp_root == "" { p"/tmp" } else if raw_template.find("/") != null { fp"{temp_root}/{template_dir}" } else { fp"{temp_root}" }
+    }
     pattern = leaf_of(stem)
   } else if ! has_template {
     let temp_root = env.get_or("TMPDIR", "/tmp") ?? "/tmp"
@@ -215,6 +278,18 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if ! opts.quiet { gnu.error(f"failed to create {if opts.directory {"directory"} else {"file"}} via template {gnu.quote(error_template)}: {gnu.strerror(failure)}") }
     exit 1
   } else if let Ok(result_path) = made {
-    gnu.write_text(f"{result_path.display()}\n")
+    let output = bytes.concat([result_path.bytes(), b"\n"])
+    if let Err(failure) = io.write_stdout_bytes(output) {
+      if ! opts.dry_run {
+        if let Err(_) = result_path.remove() {}
+      }
+      gnu.write_failed(failure)
+    }
+    if let Err(failure) = io.flush_stdout() {
+      if ! opts.dry_run {
+        if let Err(_) = result_path.remove() {}
+      }
+      gnu.write_failed(failure)
+    }
   }
 }

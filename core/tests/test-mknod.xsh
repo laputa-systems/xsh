@@ -4,7 +4,7 @@ proc mknod_run(ctx: TestContext, root: Path, args: List[Str]) [fs, process, erro
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/mknod.xsh"
-  let argv = [ctx.xsh_bin.display(), script.display(), "--", @args]
+  let argv = [ctx.xsh_bin.display(), script.display(), @args]
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})

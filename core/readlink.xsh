@@ -17,6 +17,19 @@ Print value of a symbolic link or canonical file name.
 
 type ReadlinkOptions = {canonicalize: Bool, existing: Bool, missing: Bool, no_newline: Bool, quiet: Bool, verbose: Bool, zero: Bool, help: Bool, version: Bool, paths: List[Str]}
 
+pure raw_names(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var names: List[Bytes] = []
+  var options = true
+  for index in range(argv.len()) {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; continue }
+    if options and (arg == "--help" or arg == "--version" or arg == "--canonicalize" or arg == "-f" or arg == "-e" or arg == "-m" or arg == "--canonicalize-existing" or arg == "--canonicalize-missing" or arg == "-n" or arg == "--no-newline" or arg == "-q" or arg == "-s" or arg == "--quiet" or arg == "--silent" or arg == "-v" or arg == "--verbose" or arg == "-z" or arg == "--zero") { continue }
+    if options and arg.starts_with("-") and arg != "-" { continue }
+    names += [raw[index]]
+  }
+  names
+}
+
 pure path_join(base: Path, parts: List[Str]) -> Path {
   var text = base.display()
   for part in parts {
@@ -124,14 +137,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   if posix_correct { verbose = true; quiet = false }
+  let raw_paths = raw_names(argv, cli.argv_bytes())
   let no_newline = opts.no_newline and opts.paths.len() == 1
   if opts.no_newline and opts.paths.len() > 1 {
     gnu.error("ignoring --no-newline with multiple arguments")
   }
-  let ending = if no_newline { "" } else if opts.zero { "\0" } else { "\n" }
+  let ending = bytes.from_text(if no_newline { "" } else if opts.zero { "\0" } else { "\n" })
   var failed = false
-  for name in opts.paths {
-    let link_path = fp"{name}"
+  for index in range(opts.paths.len()) {
+    let name = opts.paths[index]
+    let raw_name = raw_paths[index]
+    let link_path = Path.parse_bytes(raw_name)?
     var output: Path? = null
     if canonicalize {
       output = canonical(link_path, cwd, opts.canonicalize, opts.missing)
@@ -142,11 +158,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       failed = true
       if verbose and ! quiet {
         let message = if let Err(failure) = link_path.resolve() { gnu.strerror(failure) } else if canonicalize { "No such file or directory" } else { "Invalid argument" }
-        gnu.error(f"{gnu.quote_maybe(name)}: {message}")
+        gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {message}")
       }
     } else {
       let result = output ?? p"/"
-      gnu.write_text(f"{result.display()}{ending}")
+      gnu.write_bytes(bytes.concat([result.bytes(), ending]))
     }
   }
   if failed { exit 1 }
