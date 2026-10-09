@@ -97,9 +97,6 @@
     "false": [
       "test_false::test_full expects 'false: No space left on device' when help or version output is sent to /dev/full; GNU coreutils 9.12 reports 'false: write error: No space left on device', which XSH follows."
     ],
-    "fmt": [
-      "`test_fmt::test_fmt_knuth_plass_line_breaking` and `test_fmt::test_fmt_width_max_display_width` differ in paragraph line-breaking and display-width handling."
-    ],
     "getty": [
       "getty -h/--flow-control, -L/--local-line, -m/--extract-baud, -w/--wait-cr, and -t/--timeout are explicitly rejected because terminal line control, modem baud detection, CR-wait, and timed login are unavailable; these options match util-linux getty's host help, and uutils has no getty tests."
     ],

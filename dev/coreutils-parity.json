@@ -653,8 +653,8 @@
       "native_tests": "core/tests/test-fmt.xsh",
       "uutils_test_count": 39,
       "uutils_integration": {
-        "pass": 35,
-        "fail": 2,
+        "pass": 37,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -666,9 +666,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "`test_fmt::test_fmt_knuth_plass_line_breaking` and `test_fmt::test_fmt_width_max_display_width` differ in paragraph line-breaking and display-width handling."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "fold",

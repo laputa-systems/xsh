@@ -576,14 +576,11 @@
       "applet": true
     },
     "fmt": {
-      "pass": 35,
-      "fail": 2,
+      "pass": 37,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_fmt::test_fmt_knuth_plass_line_breaking",
-        "test_fmt::test_fmt_width_max_display_width"
-      ],
+      "failing": [],
       "applet": true
     },
     "fold": {
@@ -1720,8 +1717,8 @@
     }
   },
   "totals": {
-    "pass": 5176,
-    "fail": 798,
+    "pass": 5178,
+    "fail": 796,
     "skip": 0,
     "excluded": 4
   }

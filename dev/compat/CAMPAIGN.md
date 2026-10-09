@@ -42,11 +42,13 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   48/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 26/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
-  across nine applets. Its latest verified progress is **650 / 663** (cut
+  across nine applets. Its latest verified progress is **652 / 663** (cut
   78/83, paste 27/27, fold 101/101, expand 46/46, unexpand 44/44, nl 67/67,
-  fmt 35/37, pr 84/84, tr 168/174). The remaining `fmt` cases exercise
-  optimal paragraph line breaks and goal-width layout; `cut` and `tr` retain
-  diagnostic tests that require argv source spans.
+  fmt 37/37, pr 84/84, tr 168/174). `fmt` now follows uutils' Knuth–Plass
+  paragraph line breaking and display-width behavior; its width-7 and width-8
+  outputs also match GNU 9.12, while the uutils optimal-break case intentionally
+  differs from GNU 9.12. `cut` and `tr` retain diagnostic tests that require
+  argv source spans.
   The shared path API now has `Path.chunks(max_bytes)`, a byte-preserving live
   stream with a 1..1,048,576 byte bound. Native streams are consumed lazily by
   `for` loops, including early break. `fold` uses this API for files and reads
@@ -93,8 +95,8 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,176 / 5,974 passing**, 798 failing, and 4 excluded. Compared with the
-  prior merged report, four `pr` tests are fixed and there are no regressions.
+  **5,178 / 5,974 passing**, 796 failing, and 4 excluded. Compared with the
+  prior merged report, two `fmt` tests are fixed and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`
@@ -105,6 +107,7 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   The `uniq` uutils adapter now matches the pinned clap diagnostics for obsolete
   `-5q`, invalid method values and option conflicts, while direct invocation
   retains GNU wording; its slice is **38 / 38** and native tests pass **10 / 10**.
+  `fmt` passes **37 / 37** uutils tests and **4 / 4** native tests.
   GNU
   9.12's `tests/tty/tty.sh` also passes. XSH now resets inherited ignored
   `SIGCHLD` so process
