@@ -1,7 +1,7 @@
 type Ran = {status: Int, stdout: Str, stderr: Str}
 
-proc run_sum(ctx: TestContext, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
-  let root = test.temp_dir(ctx, name: "sum")?
+proc run_sum(ctx: TestContext, name: Str, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: f"sum-{name}")?
   let bin = fp"{root}/bin"
   bin.mkdir()?
   let script = fp"{bin}/sum"
@@ -16,10 +16,10 @@ proc run_sum(ctx: TestContext, args: List[Str], input = b"") [fs, process, error
 }
 
 test test_sum_bsd_and_sysv_algorithms { |ctx|
-  let bsd = run_sum(ctx, [], b"abc")?
-  assert bsd.status == 0 and bsd.stdout == "16556    1\n", bsd.stdout
-  let sysv = run_sum(ctx, ["-s"], b"abc")?
+  let bsd = run_sum(ctx, "bsd", [], b"abc")?
+  assert bsd.status == 0 and bsd.stdout == "16556     1\n", bsd.stdout
+  let sysv = run_sum(ctx, "sysv", ["-s"], b"abc")?
   assert sysv.status == 0 and sysv.stdout == "294 1\n", sysv.stdout
-  let file_result = run_sum(ctx, ["data"])?
-  assert file_result.stdout == "16556    1 data\n", file_result.stdout
+  let file_result = run_sum(ctx, "file", ["data"])?
+  assert file_result.stdout == "16556     1 data\n", file_result.stdout
 }
