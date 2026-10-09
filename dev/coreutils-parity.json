@@ -9,41 +9,19 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 74,
-    "present_in_scope": 74,
+    "present": 96,
+    "present_in_scope": 96,
     "missing_in_scope": [
-      "b2sum",
       "base32",
       "base64",
       "basenc",
-      "chroot",
-      "cksum",
       "dd",
       "expand",
       "fmt",
-      "install",
-      "md5sum",
-      "mkfifo",
-      "mknod",
-      "mktemp",
       "nl",
-      "nohup",
       "od",
-      "pathchk",
       "pr",
-      "sha1sum",
-      "sha224sum",
-      "sha256sum",
-      "sha384sum",
-      "sha512sum",
-      "shred",
-      "stdbuf",
-      "sum",
-      "sync",
-      "timeout",
-      "truncate",
-      "unexpand",
-      "unlink"
+      "unexpand"
     ]
   },
   "utilities": [
@@ -120,9 +98,7 @@
         "test_basename::test_help",
         "test_basename::test_version"
       ],
-      "known_semantic_gaps": [
-        "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "basenc",
@@ -163,9 +139,9 @@
     {
       "utility": "cksum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-cksum.xsh",
       "uutils_test_count": 132,
       "uutils_integration": {
         "pass": 3,
@@ -181,9 +157,9 @@
     {
       "utility": "b2sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-b2sum.xsh",
       "uutils_test_count": 15,
       "uutils_integration": {
         "pass": 0,
@@ -199,9 +175,9 @@
     {
       "utility": "md5sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-md5sum.xsh",
       "uutils_test_count": 40,
       "uutils_integration": {
         "pass": 0,
@@ -235,9 +211,9 @@
     {
       "utility": "sha1sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha1sum.xsh",
       "uutils_test_count": 10,
       "uutils_integration": {
         "pass": 0,
@@ -253,9 +229,9 @@
     {
       "utility": "sha224sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha224sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
         "pass": 0,
@@ -271,9 +247,9 @@
     {
       "utility": "sha256sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha256sum.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
         "pass": 0,
@@ -289,9 +265,9 @@
     {
       "utility": "sha384sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha384sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
         "pass": 0,
@@ -307,9 +283,9 @@
     {
       "utility": "sha512sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sha512sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
         "pass": 0,
@@ -744,14 +720,18 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "ACL setup fails before the applet runs on this host filesystem: test_mkdir::test_mkdir_acl and test_mkdir::test_mkdir_acl_inheritance_with_restrictive_mask get EOPNOTSUPP (`Operation not supported`) while setting the ACL.",
+        "test_mkdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `mkdir: missing operand` and its standard help hint, which the applet follows.",
+        "test_mkdir::test_version_no_path expects the `mkdir (uutils coreutils)` branding; the applet uses GNU 9.12 version branding."
+      ]
     },
     {
       "utility": "mktemp",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/mktemp.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mktemp.xsh",
       "uutils_test_count": 47,
       "uutils_integration": {
         "pass": 0,
@@ -857,9 +837,9 @@
     {
       "utility": "pathchk",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/pathchk.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pathchk.xsh",
       "uutils_test_count": 9,
       "uutils_integration": {
         "pass": 0,
@@ -870,7 +850,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_pathchk::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `pathchk: missing operand` and its standard help hint."
+      ]
     },
     {
       "utility": "pr",
@@ -960,7 +942,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "For a deleted working directory, GNU coreutils 9.12 reports `couldn't find directory entry in \u2018..\u2019 with matching i-node`; uutils' test_pwd::test_deleted_dir expects `failed to get current directory: No such file or directory`, which XSH follows."
+      ]
     },
     {
       "utility": "readlink",
@@ -978,7 +962,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_readlink::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `readlink: missing operand` and its standard help hint."
+      ]
     },
     {
       "utility": "realpath",
@@ -1014,7 +1000,10 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Recursive permission traversal differs in test_rm::test_inaccessible_dir_recursive, test_rm::test_only_first_error_recursive, test_rm::test_recursive_remove_unreadable_subdir, test_rm::test_remove_inaccessible_dir, test_rm::test_rm_directory_not_executable, and test_rm::test_rm_directory_not_writable: fs.walk reports the inaccessible top-level directory or stops before the denied descendant, so errors name the parent (or removal fails) instead of following GNU/uutils behavior for the child.",
+        "test_rm::test_rm_recursive_very_deep_hierarchy exceeds the directory walker's file-descriptor limit (`Too many open files`); the uutils test then also stack-overflows while cleaning up the deep tree."
+      ]
     },
     {
       "utility": "rmdir",
@@ -1032,7 +1021,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_rmdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `rmdir: missing operand` and its standard help hint, which the applet follows."
+      ]
     },
     {
       "utility": "seq",
@@ -1055,9 +1046,9 @@
     {
       "utility": "shred",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/shred.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-shred.xsh",
       "uutils_test_count": 31,
       "uutils_integration": {
         "pass": 1,
@@ -1068,7 +1059,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet."
+      ]
     },
     {
       "utility": "shuf",
@@ -1147,9 +1140,9 @@
     {
       "utility": "sum",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/cksum.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sum.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
         "pass": 0,
@@ -1252,7 +1245,11 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
+        "test_touch::test_touch_mtime_dst_fails passes a nonexistent local time in a DST gap; time.parse has no timezone transition rules to reject it, so touch succeeds where the test expects an error.",
+        "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
+      ]
     },
     {
       "utility": "tr",
@@ -1293,9 +1290,9 @@
     {
       "utility": "truncate",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/truncate.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-truncate.xsh",
       "uutils_test_count": 49,
       "uutils_integration": {
         "pass": 2,
@@ -1306,7 +1303,10 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_truncate::diagnostics::test_snippet_counts_the_mode_character_before_the_size expects a source caret; GNU coreutils 9.12 prints `truncate: Invalid number` without a snippet.",
+        "test_truncate::test_error_filename_only expects clap's required-arguments block; GNU coreutils 9.12 prints `truncate: you must specify either '--size' or '--reference'` and its standard help hint."
+      ]
     },
     {
       "utility": "tsort",
@@ -1401,9 +1401,9 @@
     {
       "utility": "unlink",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/unlink.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-unlink.xsh",
       "uutils_test_count": 7,
       "uutils_integration": {
         "pass": 0,
@@ -1486,7 +1486,10 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_df::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size and test_df::diagnostics::test_snippet_underlines_a_zero_block_size expect source caret spans for -B values; cli.applet reports the correct plain GNU error but does not expose the argument span needed to render the snippets.",
+        "test_df::test_type_option_with_file assumes /dev has a different filesystem type from the test fixture cwd; both are tmpfs on this host, so -t correctly processes /dev instead of producing the expected no-file-systems error."
+      ]
     },
     {
       "utility": "du",
@@ -1504,7 +1507,16 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_du::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size, test_du::diagnostics::test_snippet_points_inside_an_attached_block_size, test_du::diagnostics::test_snippet_skips_the_sign_of_a_threshold_with_an_unknown_unit, test_du::diagnostics::test_snippet_underlines_a_zero_block_size and test_du::diagnostics::test_snippet_underlines_the_sign_of_a_rejected_threshold require option-value spans from cli.applet to render source carets; the emitted GNU diagnostics are plain text.",
+        "--exclude/--exclude-from are explicitly rejected as unknown options. Remaining uutils failures: test_du::test_du_complex_exclude_patterns, test_du::test_du_exclude, test_du::test_du_exclude_2, test_du::test_du_exclude_from_nonexistent_file, test_du::test_du_exclude_from_read_error, test_du::test_du_exclude_invalid_syntax, test_du::test_du_exclude_mix, test_du::test_du_exclude_several_components and test_du::test_du_time_unaffected_by_exclude. Pattern matching, exclude-file errors and verbose exclusion messages are not implemented.",
+        "test_du::test_du_files0_from_missing_file_listed_twice is the remaining --files0-from gap: listed missing operands propagate a runtime fs.stat error with status 3 and stop processing instead of producing one GNU cannot-access diagnostic per name and status 1.",
+        "test_du::test_du_h_locale_decimal_separator and test_du::test_du_h_precision differ because human_size uses integer division and a fixed one-decimal approximation; locale decimal separators and GNU's rounding/precision rules are not implemented.",
+        "test_du::test_du_inaccessible_directory, test_du::test_du_no_exec_permission, test_du::test_du_no_permission, test_du::test_du_non_existing_files, test_du::test_du_symlink_fail and test_du::test_du_symlink_multiple_fail propagate fs.stat failures as generic runtime errors (status 3) instead of reporting per-path GNU diagnostics and continuing with status 1.",
+        "test_du::test_du_dereference_args, test_du::test_du_safe_traversal_with_symlinks and test_du::test_du_symlinks_multiple_links_in_args expose incomplete symlink-directory traversal and argument de-duplication when dereferencing.",
+        "test_du::test_du_repeated_time, test_du::test_du_repeated_time_style, test_du::test_du_time, test_du::test_du_time_atime, test_du::test_du_time_directory, test_du::test_du_time_directory_nested, test_du::test_du_time_style_empty and test_du::test_invalid_time_style require --time/--time-style plus timestamps and time-style validation; these options are explicitly rejected.",
+        "test_du::test_du_repeated_v expects uutils' repeatable -v option; GNU du has no verbose option, and this applet rejects it rather than accepting an option without behavior."
+      ]
     },
     {
       "utility": "env",
@@ -1563,9 +1575,9 @@
     {
       "utility": "nohup",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/nohup.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nohup.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
         "pass": 0,
@@ -1576,7 +1588,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_nohup::test_nohup_help_and_version checks help and version output but its version regex requires `nohup (uutils coreutils) VERSION`; XSH uses the shared `nohup (XSH core) VERSION` convention, while GNU uses `(GNU coreutils)`."
+      ]
     },
     {
       "utility": "nproc",
@@ -1623,9 +1637,9 @@
     {
       "utility": "sync",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/sync.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-sync.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
         "pass": 1,
@@ -1641,9 +1655,9 @@
     {
       "utility": "timeout",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/timeout.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-timeout.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
         "pass": 1,
@@ -1654,7 +1668,12 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_timeout::test_forward_sigint_to_child and test_timeout::test_terminate_child_on_receiving_terminate require timeout to catch a signal sent to its own process and forward it to COMMAND; signal hooks are restricted to entry scripts, so an applet module cannot install the needed handler. Request a module-callable process signal hook/forwarding API.",
+        "test_timeout::test_hex_timeout_ending_with_d and test_timeout::test_preserve_status run the staged XSH `sleep` applet; it does not terminate on the timeout's process-group signal and eventually exits 0. The native test with `/usr/bin/sleep` returns 124/143 as expected. Request corrected signal delivery/status for dispatched child processes.",
+        "test_timeout::test_invalid_multi_byte_characters and test_timeout::test_invalid_time_interval::case_2_single_quote expect literal characters; under LC_ALL=C GNU quotes invalid interval bytes with C escapes and escapes apostrophes, which the applet follows.",
+        "test_timeout::test_zero_timeout places `-s0 -k0` after DURATION. GNU stops option parsing at DURATION and tries to run `-s0` as COMMAND (status 127); the uutils test expects option permutation."
+      ]
     },
     {
       "utility": "uptime",
@@ -1753,9 +1772,9 @@
     {
       "utility": "chroot",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/chroot.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-chroot.xsh",
       "uutils_test_count": 21,
       "uutils_integration": {
         "pass": 12,
@@ -1807,9 +1826,9 @@
     {
       "utility": "install",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/install.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-install.xsh",
       "uutils_test_count": 124,
       "uutils_integration": {
         "pass": 4,
@@ -1843,9 +1862,9 @@
     {
       "utility": "mkfifo",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/mkfifo.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mkfifo.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
         "pass": 1,
@@ -1856,14 +1875,16 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_mkfifo::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mkfifo: invalid mode`."
+      ]
     },
     {
       "utility": "mknod",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/mknod.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-mknod.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
         "pass": 1,
@@ -1874,7 +1895,10 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_mknod::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mknod: invalid mode`.",
+        "test_mknod::test_mknod_invalid_arg expects clap's `unexpected argument` wording; GNU coreutils 9.12 prints `mknod: unrecognized option` and its standard help hint."
+      ]
     },
     {
       "utility": "stat",
@@ -1892,7 +1916,14 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_stat::test_correct_metadata, test_stat::test_multi_files, test_stat::test_normal_format, test_stat::test_symlinks and test_stat::test_terse_normal_format expose signed 64-bit inode/device values where GNU formats the corresponding fields as unsigned; the fs.stat record needs unsigned metadata fields or formatting helpers. test_stat::test_mount_point_width_and_alignment also needs stat's printf flag/width parsing.",
+        "test_stat::test_precision_splits_multibyte_char_in_value, test_stat::test_printf, test_stat::test_printf_atime_ctime_mtime_precision, test_stat::test_printf_bel_etc, test_stat::test_printf_octal_1, test_stat::test_printf_octal_2, test_stat::test_printf_octal_out_of_range, test_stat::test_timestamp_format, test_stat::test_timestamp_format_before_epoch, test_stat::test_timestamp_format_before_epoch_truncation and test_stat::test_timestamp_format_preserves_nanoseconds require GNU's printf flags, byte precision, C/octal/hex escapes and precision-aware timestamp directives.",
+        "test_stat::diagnostics::test_plain_message_when_stderr_is_a_pipe, test_stat::diagnostics::test_snippet_points_at_the_failing_directive, test_stat::diagnostics::test_snippet_points_inside_a_printf_format, test_stat::test_invalid_directive_after_multibyte_char and test_stat::test_printf_invalid_directive fail because invalid format directives are not validated; test_stat::test_printf_incomplete_hex also needs GNU's incomplete-escape warning. Rendering uutils carets additionally needs format argument spans from cli.applet.",
+        "test_stat::test_quoted_name_directive, test_stat::test_quoting_style_env, test_stat::test_quoting_style_invalid_env and test_stat::test_quoting_style_locale require %Qn and the full QUOTING_STYLE behavior, including invalid-value diagnostics and locale-sensitive quoting.",
+        "test_stat::test_error_message_preserves_non_utf8_filename and test_stat::test_no_such_directory_message currently receive generic fs.stat runtime errors with status 3 instead of GNU per-file diagnostics with status 1; the first also needs byte-preserving argv in the applet. test_stat::test_without_argument expects uutils/clap's required-argument block, while the applet follows GNU's missing-operand wording.",
+        "test_stat::test_stdin_pipe_fifo1, test_stat::test_stdin_pipe_fifo2 and test_stat::test_stdin_redirect require stat '-' to query the metadata of standard input; this needs an fs.fstat-stdin primitive rather than reading stdin bytes."
+      ]
     },
     {
       "utility": "stty",
@@ -1922,9 +1953,9 @@
     {
       "utility": "stdbuf",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/stdbuf.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-stdbuf.xsh",
       "uutils_test_count": 21,
       "uutils_integration": {
         "pass": 1,
@@ -1935,7 +1966,12 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_stdbuf::diagnostics::test_plain_message_when_stderr_is_a_pipe and test_stdbuf::test_stdbuf_invalid_mode_fails expect uutils's usage hint for an invalid mode; GNU prints the plain `stdbuf: invalid mode ...` diagnostic without a Try line. test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit and test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value additionally require option-value spans/carets, which cli.applet does not expose.",
+        "test_stdbuf::test_stdbuf_no_buffer_option_fails and test_stdbuf::test_stdbuf_no_command_fails_with_125 assert clap's required-argument block. GNU distinguishes `you must specify a buffering mode option` from `missing operand`; the applet follows GNU and exits 125.",
+        "test_stdbuf::test_stdbuf_non_utf8_paths needs byte-preserving argv for command arguments; applet argv is `List[Str]` and cannot represent those path bytes.",
+        "test_stdbuf::test_stdbuf_tmpdir_is_private and test_stdbuf::test_tmpdir_with_colon_is_rejected assert uutils's temporary extraction and validation of an embedded libstdbuf. This applet preloads the installed native libstdbuf from system paths, so it creates no TMPDIR library directory and TMPDIR's colon is not part of LD_PRELOAD."
+      ]
     },
     {
       "utility": "pinky",
