@@ -172,10 +172,17 @@
       "utilities": [],
       "extra_files": [
         "src/modules/hash.rs",
-        "src/modules/bytes.rs"
+        "src/modules/bytes.rs",
+        "crates/xsh-registry/src/runtime_op.rs",
+        "crates/xsh-registry/src/signature/modules.rs",
+        "crates/xsh-registry/src/signature/docs.rs",
+        "src/runtime/eval/lower.rs",
+        "src/runtime/eval/lowered_run.rs",
+        "docs/templates/SPEC.md",
+        "tests/xsh/stdlib/hash.xsh"
       ],
       "depends": [],
-      "note": "streaming byte I/O, BLAKE2b variable length, CRC for cksum, BSD/SysV sum; the byte-helper Requests from w0-gnu-lib."
+      "note": "Public API wiring for the merged streaming byte/hash primitives: BLAKE2b over Bytes and Path with configurable output length, cksum, BSD sum and SysV sum over Bytes or Path. Add registry/runtime lowering, signatures, docs and XSH stdlib tests."
     },
     "native-fs": {
       "wave": 1,

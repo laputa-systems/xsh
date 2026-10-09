@@ -180,7 +180,7 @@ the wave follows the dependency column.
 |---|---|---|---|
 | `native-fs` | Rust | `src/modules/fs.rs` and new fs submodules: nofollow metadata, ns timestamps, mknod/mkfifo, sparse seeks, `copy_file_range`/reflink, statvfs, no-clobber rename, xattrs if `cp -a` needs them | Wave 0 |
 | `native-proc-tty` | Rust | `src/modules/process.rs`, `src/modules/unix.rs`: signals, pgrp/session, nice/priority, wait-with-timeout, rlimits, termios, tty identity | Wave 0 |
-| `native-bytes-hash` | Rust | `src/modules/hash.rs`, `src/modules/bytes.rs`: streaming byte I/O, BLAKE2b variable length, CRC (`cksum`), BSD/SysV sum | Wave 0 |
+| `native-bytes-hash` | Rust | `src/modules/hash.rs`, `src/modules/bytes.rs`, registry/runtime wiring, API docs and `tests/xsh/stdlib/hash.xsh`: streaming byte I/O, BLAKE2b variable length, CRC (`cksum`), BSD/SysV sum | Wave 0 |
 | `files-a` | script | `ls` (+`dir`, `vdir`), `cp`, `mv`, `ln`, `link`, `unlink`, `install`, `rm`, `rmdir`, `mkdir`, `touch` | `native-fs` requests |
 | `files-b` | script | `chmod`, `chown`, `chgrp`, `chroot`, `stat`, `du`, `df`, `mknod`, `mkfifo`, `mktemp`, `truncate`, `shred`, `sync`, `readlink`, `realpath`, `pwd`, `dirname`, `basename`, `pathchk` | `native-fs` requests |
 | `text-a` | script | `cat`, `tac`, `head`, `tail`, `cut`, `paste`, `fold`, `expand`, `unexpand`, `nl`, `fmt`, `pr`, `tr`, `rev`, `tee` | Wave 0 |
