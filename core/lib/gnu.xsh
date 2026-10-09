@@ -7,10 +7,9 @@
 ##! 1 for most utilities, 2 for ls, cmp, diff, and grep, and 125 for env, nice,
 ##! nohup, timeout, stdbuf, and chroot.
 ##!
-##! `print`, `io.write_stdout`, and `io.write_stdout_bytes` only buffer, so a
-##! closed stdout is not observable from XSH yet; `write_text` and
-##! `write_bytes` route write failures through `write_failed` once the runtime
-##! reports them.
+##! `print` remains buffered, while `io.write_stdout` and
+##! `io.write_stdout_bytes` report native write failures immediately.
+##! `write_text` and `write_bytes` route failures through `write_failed`.
 
 const VERSION = "0.0.1"
 

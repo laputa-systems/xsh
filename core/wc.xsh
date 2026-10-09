@@ -461,7 +461,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.debug {
-    eprint f"{gnu.prog()}: hardware support disabled"
+    gnu.error("option '--debug' is not supported")
+    exit 1
   }
 
   let mode = total_choice(opts.total)

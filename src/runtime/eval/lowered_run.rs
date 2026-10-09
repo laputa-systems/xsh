@@ -3975,6 +3975,39 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Writes exact bytes to stdout and reports a host write error at the
+    /// operation that caused it. Captured and embedded evaluators keep using
+    /// their in-memory output buffer.
+    fn write_stdout_checked(&mut self, data: &[u8], span: Span) -> Result<(), RuntimeError> {
+        if !self.shared_stdio || self.capture_process_output {
+            self.stdout.extend_from_slice(data);
+            return Ok(());
+        }
+
+        // `print` may have buffered earlier output. Flush it before a direct
+        // write so the observable byte order still matches the source order.
+        self.flush_stdout_checked(span)?;
+        let mut offset = 0;
+        while offset < data.len() {
+            match rustix::io::write(rustix::stdio::stdout(), &data[offset..]) {
+                Ok(0) => {
+                    return Err(RuntimeError::host(
+                        "io-write-stdout",
+                        &std::io::Error::from(std::io::ErrorKind::WriteZero),
+                    )
+                    .with_span(span));
+                }
+                Ok(written) => offset += written,
+                Err(rustix::io::Errno::INTR) => {}
+                Err(rustix::io::Errno::AGAIN) => std::thread::sleep(Duration::from_millis(1)),
+                Err(error) => {
+                    return Err(RuntimeError::host("io-write-stdout", &error).with_span(span));
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Writes exact text to stderr without a newline. Native runs write it
     /// immediately so interactive prompts are visible before input is read;
     /// captured and embedded runs retain it in their output buffer.
@@ -6094,8 +6127,7 @@ impl Evaluator {
             }
             RuntimeOp::IoWriteStdout if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stdout", span)?;
-                self.stdout.extend_from_slice(text.as_bytes());
-                lowered_result_ok(LoweredValue::Unit)
+                lowered_unit_result(self.write_stdout_checked(text.as_bytes(), span))
             }
             RuntimeOp::IoFlushStdout if values.is_empty() => {
                 lowered_unit_result(self.flush_stdout_checked(span))
@@ -6103,8 +6135,7 @@ impl Evaluator {
             RuntimeOp::IoWriteStdoutBytes if values.len() == 1 => {
                 let value = values.pop().expect("checked value length");
                 let data = lowered_bytes_arg(&value, "io.write_stdout_bytes", span)?;
-                self.stdout.extend_from_slice(data);
-                lowered_result_ok(LoweredValue::Unit)
+                lowered_unit_result(self.write_stdout_checked(data, span))
             }
             RuntimeOp::MapEmpty if values.is_empty() => {
                 LoweredValue::Map(Arc::new(BTreeMap::new()))
