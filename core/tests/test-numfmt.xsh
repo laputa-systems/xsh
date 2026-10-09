@@ -205,6 +205,23 @@ test test_numfmt_option_errors_are_gnu_usage_errors { |ctx|
   assert numfmt_text(ctx, ["--to=iec", "--", "-8765432"])? == "-8.4M\n"
 }
 
+test test_numfmt_captured_stderr_keeps_plain_gnu_diagnostics { |ctx|
+  # numfmt_run redirects stderr to a file. TTY-only source snippets must not
+  # replace the ordinary GNU-compatible diagnostic in captured output.
+  for case in [
+    {args: ["--to=auto", "100"], message: "invalid argument 'auto' for '--to'"},
+    {args: ["--padding=0", "5"], message: "invalid padding value '0'"},
+    {args: ["--field=0", "1"], message: "range '0' was invalid: fields and positions are numbered from 1"},
+    {args: ["--format=hello"], message: "format 'hello' has no % directive"},
+    {args: ["--format=%d"], message: "invalid format '%d', directive must be %[0]['][-][N][.][N]f"},
+  ] {
+    let result = numfmt_run(ctx, case.args)?
+    assert result.status == 1, case.args.join(" ")
+    assert result.stdout == ""
+    assert result.stderr == f"numfmt: {case.message}\n", result.stderr
+  }
+}
+
 test test_numfmt_locale_decimal_separator { |ctx|
   assert numfmt_run(ctx, ["--to=iec", "1500"], "", {LC_ALL: "fr_FR.UTF-8"})?.stdout == "1,5K\n"
   assert numfmt_run(ctx, ["--format=%.3f", "1,5"], "", {LC_ALL: "fr_FR.UTF-8"})?.stdout == "1,500\n"
