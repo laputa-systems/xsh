@@ -139,7 +139,7 @@ proc command_status(command: Str) [fs, process] -> Int {
 
 proc run_command(
   command: Str,
-  argv: List[Str],
+  argv: List[Path],
   preload: Str,
   input: Str?,
   output: Str?,
@@ -308,7 +308,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 125
   }
 
-  match run_command(command, opts.command, preload, input, output, error) {
+  let raw_argv = cli.argv_bytes()
+  let command_start = raw_argv.len() - opts.command.len()
+  var command_argv: List[Path] = []
+  for index in range(opts.command.len()) {
+    command_argv += [Path.parse_bytes(raw_argv[command_start + index])?]
+  }
+
+  match run_command(command, command_argv, preload, input, output, error) {
     result => exit result
   }
 }
