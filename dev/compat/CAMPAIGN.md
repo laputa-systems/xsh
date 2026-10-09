@@ -37,17 +37,18 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   47/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 24/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
-  across nine applets. Its latest full slice on `b1954910` is **570 / 663**
-  (cut 71/83, paste 25/27, fold 94/101, expand 43/46, unexpand 44/44,
-  nl 67/67, fmt 35/37, pr 26/84, tr 165/174); the lane is working on the
-  remaining `pr`, `tr`, and `fold` failures. `bytes-enc` has implemented
-  base32, base64, basenc, od, and dd; its latest full slice is **229 / 311**
-  (base32 15/16, base64 24/25, basenc 37/38, od 54/80, dd 99/152). Native
-  tests pass. The lane is checking one newly failing base16 write-error case
-  and continuing od spacing work. `checksums` is merged over
+  across nine applets. Its latest verified progress is **580 / 663** (cut
+  71/83, paste 25/27, fold 95/101, expand 43/46, unexpand 44/44, nl 67/67,
+  fmt 35/37, pr 32/84, tr 168/174); remaining `pr` failures include two
+  `Try 'pr --help'` diagnostic mismatches. `bytes-enc` has implemented base32, base64,
+  basenc, od, and dd; its final lane slice is **232 / 311** (base32 15/16,
+  base64 24/25, basenc 38/38, od 56/80, dd 99/152) with all **23** native
+  tests passing in lane commit `d040ca02`. The base16 write-error case is resolved; remaining requests
+  include typed fd/stream APIs for dd and bounded stdin/seek APIs for od.
+  `checksums` is merged over
   the shared byte/hash APIs and its ten native tests pass. Its first slice was
-  **220 / 507**; its latest slice is **361 / 507** (b2sum 18/18, cksum
-  245/391, md5sum 38/38, sha1sum 10/10, sha224sum 8/8, sha256sum 13/13,
+  **220 / 507**; its latest slice is **365 / 507** (b2sum 18/18, cksum
+  249/391, md5sum 38/38, sha1sum 10/10, sha224sum 8/8, sha256sum 13/13,
   sha384sum 8/8, sha512sum 8/8, sum 13/13). Remaining cksum parser, verification,
   and output-format gaps are under active work. The integrator owns shared results
   and baselines; lane runs use scratch outputs.
@@ -66,8 +67,9 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   including progressive input, directory diagnostics, output errors, and
   `--debug`. The docs check passes, including all three tour project tests; its
   test-runner argument boundary was corrected during this resume.
-- Earlier verified results remain: date/dircolors **183 / 185** (two French
-  month punctuation differences documented against GNU/glibc), and GNU against
+- The current date/dircolors slice remains **183 / 185** (date 164/166,
+  dircolors 19/19); its native tests pass 16/16. A fresh rerun confirmed that
+  the two French month-abbreviation cases match GNU 9.12 and glibc. GNU against
   uutils **573 passed, 85 skipped, 58 failed, 3 harness errors** out of 719.
   The release filesystem stdlib tests pass **27**, with one reflink skip; this
   includes FIFO reads, zero-sized `/proc` files, and a `/dev/zero` guard. The
