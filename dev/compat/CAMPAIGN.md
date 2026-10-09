@@ -29,12 +29,13 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   mold 3.0.0 installed from its verified GitHub release; see `README.md` and
   `native-env.sh`.
 - The date/dircolors lane is merged as `243c5bd9` from lane commit `58d3d378`.
-  The integration head is `745761e6`; it replaces the staged shell wrapper
+  The integration head is `2e122ef3`; it replaces the staged shell wrapper
   with native `xsh` multicall dispatch, preserving argv bytes and avoiding
   shell diagnostics when a test runs in a deleted working directory. The
   release regression for raw argv and deleted-cwd dispatch passes. The
-  `fs-misc` and `fs-basic` lanes are active from that head; fs-misc is rerunning
-  its final slice and fs-basic is establishing its baseline. The locked uutils
+  `fs-misc` and `fs-basic` lanes are active from that head; fs-misc fixed the
+  deleted-cwd diagnostic and is waiting on the shared binary rebuild, while
+  fs-basic is compiling its baseline slice. The locked uutils
   and GNU source trees and XSH release binaries are prepared in the workspace.
   `dev/compat/lanes.py brief` renders the current subagent model, native paths
   and behavior references. Lanes use scratch result directories; only the
@@ -49,8 +50,8 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   (date 164/166, dircolors 19/19); the two French month abbreviation
   differences are recorded in `gaps.json` because uutils' ICU expectation
   omits punctuation returned by glibc and GNU `date`. The fs-misc lane last
-  measured 288/304 after argv-byte and fsync changes; it is rerunning after the
-  native dispatcher and a pwd deleted-directory diagnostic fix.
+  measured 288/304 after argv-byte and fsync changes; it will rerun after the
+  native dispatcher and pwd deleted-directory diagnostic fix.
 - The CLI now preserves `--` after the script path as an app argument;
   `xsh -- SCRIPT` remains the CLI's explicit option boundary. A focused release
   regression covers both text and raw argv. The uutils cases this unblocks will
