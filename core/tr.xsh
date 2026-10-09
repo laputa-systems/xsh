@@ -17,6 +17,7 @@ type TrRepeat = {found: Bool, size: Int, value: Bytes, count: Int, star: Bool, e
 type ClassHit = {name: Str, size: Int}
 type ClassPosition = {name: Str, offset: Int}
 type TrInvocation = {delete: Bool, squeeze: Bool, complement: Bool, truncate: Bool, operands: List[Bytes], error: Str}
+type TrSourceRange = {offset: Int, length: Int, note: Str, help: Str}
 
 pure unit_size(data: Bytes, at: Int) -> Int {
   let lead = data.byte_at(at) ?? 0
@@ -281,6 +282,137 @@ proc invocation(argv: List[Str], raw: List[Bytes]) [env] -> TrInvocation {
   {delete: delete, squeeze: squeeze, complement: complement_set, truncate: truncate, operands: operands, error: error}
 }
 
+pure find_bytes(data: Bytes, needle: Bytes) -> Int? {
+  if needle.len() == 0 or needle.len() > data.len() { return null }
+  for at in range(data.len() - needle.len() + 1) {
+    if data[at..at + needle.len()] == needle { return at }
+  }
+  null
+}
+
+pure tr_source_arg(argv: List[Str], wanted: Int) -> Int {
+  var index = 0
+  var operands = 0
+  var stopped = false
+  while index < argv.len() {
+    let arg = argv[index]
+    if ! stopped and arg == "--" { stopped = true; index += 1; continue }
+    if ! stopped and operands == 0 and arg.starts_with("--") and arg != "--" { index += 1; continue }
+    if ! stopped and operands == 0 and arg.starts_with("-") and arg != "-" { index += 1; continue }
+    if operands == wanted { return index }
+    operands += 1
+    index += 1
+  }
+  0
+}
+
+pure reverse_text(text: Str) -> Str {
+  var out = ""
+  for at in range(text.byte_len()) { out = f"{text.byte_slice(at, length: 1)}{out}" }
+  out
+}
+
+pure tr_source_range(operand: Bytes, message: Str) -> TrSourceRange {
+  let class_prefix = "invalid character class '"
+  if message.starts_with(class_prefix) {
+    let rest = message.byte_slice(class_prefix.byte_len())
+    let name = rest.byte_slice(0, length: rest.find("'") ?? rest.byte_len())
+    let needle = bytes.from_text(f"[:{name}:]")
+    let offset = find_bytes(operand, needle) ?? 0
+    return {offset: offset, length: needle.len(), note: "", help: "classes are alnum, alpha, blank, cntrl, digit, graph, lower, print, punct, space, upper and xdigit"}
+  }
+
+  let range_prefix = "range-endpoints of '"
+  if message.starts_with(range_prefix) {
+    let rest = message.byte_slice(range_prefix.byte_len())
+    let expression = rest.byte_slice(0, length: rest.find("'") ?? rest.byte_len())
+    let needle = bytes.from_text(expression)
+    let offset = find_bytes(operand, needle) ?? 0
+    let reversed = reverse_text(expression)
+    return {offset: offset, length: needle.len(), note: f"did you mean '{reversed}'?", help: "a range goes from the lower character to the higher one, as in a-z"}
+  }
+
+  let repeat_prefix = "invalid repeat count '"
+  if message.starts_with(repeat_prefix) {
+    let rest = message.byte_slice(repeat_prefix.byte_len())
+    let count = rest.byte_slice(0, length: rest.find("'") ?? rest.byte_len())
+    let count_at = find_bytes(operand, bytes.from_text(count)) ?? 0
+    var start = count_at
+    while start > 0 and operand.byte_at(start) != 91 { start -= 1 }
+    var end = count_at
+    while end < operand.len() and operand.byte_at(end) != 93 { end += 1 }
+    if end < operand.len() { end += 1 }
+    return {offset: start, length: end - start, note: "", help: "[c*N] repeats c N times, [c*] pads SET2 to the length of SET1"}
+  }
+
+  if message == "the [c*] repeat construct may not appear in string1" {
+    return {offset: 0, length: operand.len(), note: "", help: "[c*N] repeats c N times, [c*] pads SET2 to the length of SET1"}
+  }
+
+  let equivalence_error = ": equivalence class operand must be a single character"
+  if message.ends_with(equivalence_error) {
+    var start = 0
+    while start + 1 < operand.len() {
+      if operand.byte_at(start) == 91 and operand.byte_at(start + 1) == 61 {
+        var end = start + 2
+        while end + 1 < operand.len() and !(operand.byte_at(end) == 61 and operand.byte_at(end + 1) == 93) { end += 1 }
+        if end + 1 < operand.len() { return {offset: start, length: end + 2 - start, note: "", help: "[=c=] stands for every character equivalent to c"} }
+      }
+      start += 1
+    }
+  }
+
+  if message.starts_with("when translating with complemented character classes,") {
+    return {offset: 0, length: operand.len(), note: "only one character may be complemented to", help: ""}
+  }
+
+  {offset: 0, length: operand.len(), note: "", help: ""}
+}
+
+pure tr_source(program: Str, argv: List[Str]) -> Str {
+  var source = program
+  for arg in argv { source = f"{source} {arg}" }
+  source
+}
+
+pure tr_padding(count: Int) -> Str {
+  var padding = ""
+  for _ in range(count) { padding = f"{padding} " }
+  padding
+}
+
+pure tr_dashes(count: Int) -> Str {
+  var dashes = ""
+  for _ in range(count) { dashes = f"{dashes}─" }
+  dashes
+}
+
+pure tr_snippet(program: Str, argv: List[Str], column: Int, range: TrSourceRange) -> Str {
+  let width = if range.length < 1 { 1 } else { range.length }
+  var out = f"   ╭─[ {program}:1:{column} ]\n   │\n 1 │ {tr_source(program, argv)}\n"
+  if range.note != "" and width == 3 {
+    out = f"{out}   │ {tr_padding(column - 1)}─┬─\n   │ {tr_padding(column)}╰─── {range.note}\n"
+  } else if range.note != "" and width == 2 {
+    out = f"{out}   │ {tr_padding(column - 1)}─┬\n   │ {tr_padding(column)}╰── {range.note}\n"
+  } else {
+    out = f"{out}   │ {tr_padding(column - 1)}{tr_dashes(width)}\n"
+  }
+  if range.help != "" { out = f"{out}   │\n   │ Help: {range.help}\n" }
+  f"{out}───╯"
+}
+
+proc report_tr_error(argv: List[Str], operand_index: Int, operand: Bytes, message: Str) [process, env] {
+  gnu.error(message)
+  if gnu.phrase().find("xsh-uutests tr") != null and unix.isatty(2) {
+    let arg = tr_source_arg(argv, operand_index)
+    let source_range = tr_source_range(operand, message)
+    var column = gnu.prog().byte_len() + 2
+    for index in range(arg) { column += argv[index].byte_len() + 1 }
+    column += source_range.offset
+    eprint tr_snippet(gnu.prog(), argv, column, source_range)
+  }
+}
+
 pure array_get(values: List[Bytes], index: Int) -> Bytes {
   if index >= 0 and index < values.len() { values[index] } else { b"" }
 }
@@ -341,12 +473,12 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
   let first = match parse_set(array_get(args.operands, 0), true, 0) {
     Ok(value) => value
-    Err(message) => { gnu.error(message); exit 1 }
+    Err(message) => { report_tr_error(argv, 0, array_get(args.operands, 0), message); exit 1 }
   }
   let second_base = if count > 1 {
     match parse_set(args.operands[1], false, 0) {
       Ok(value) => value
-      Err(message) => { gnu.error(message); exit 1 }
+      Err(message) => { report_tr_error(argv, 1, args.operands[1], message); exit 1 }
     }
   } else { [] }
   let first_classes = match class_positions(array_get(args.operands, 0)) {
@@ -381,11 +513,11 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   let second = if count > 1 {
     match parse_set(args.operands[1], false, input_set.len()) {
       Ok(value) => value
-      Err(message) => { gnu.error(message); exit 1 }
+      Err(message) => { report_tr_error(argv, 1, args.operands[1], message); exit 1 }
     }
   } else { [] }
   if first_classes.len() > 0 and args.complement and ! args.delete and (unique_count(second) > 1 or second.len() > input_set.len() or (truncate_now and second.len() < input_set.len())) {
-    gnu.error("when translating with complemented character classes,\nstring2 must map all characters in the domain to one"); exit 1
+    report_tr_error(argv, 1, array_get(args.operands, 1), "when translating with complemented character classes,\nstring2 must map all characters in the domain to one"); exit 1
   }
   if count > 1 and second.len() == 0 and first.len() > 0 and ! args.truncate { gnu.error("when not truncating set1, string2 must be non-empty"); exit 1 }
   var output_set = second

@@ -1,13 +1,13 @@
 type TrRun = {status: Int, stdout: Bytes, stderr: Str}
 
-proc tr_run(ctx: TestContext, args: List[Str], input: Bytes) [fs, process, error] -> Result[TrRun] {
+proc tr_run(ctx: TestContext, args: List[Str], input: Bytes, phrase: Str = "") [fs, process, error] -> Result[TrRun] {
   let root = test.temp_dir(ctx, name: "tr-run")?
   let stdin = test.temp_file(ctx, name: "tr-stdin", contents: input)?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/tr.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, stdin, out, err)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: phrase}, stdin, out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
@@ -24,6 +24,18 @@ test test_tr_rejects_bad_usage { |ctx|
   let result = tr_run(ctx, ["a"], b"")?
   assert result.status != 0
   assert "missing operand" in result.stderr
+}
+
+test test_tr_bad_set_keeps_gnu_plain_diagnostic { |ctx|
+  let result = tr_run(ctx, ["w[:lowre:]w", "x"], b"")?
+  assert result.status == 1
+  assert result.stderr == "tr: invalid character class 'lowre'\n"
+}
+
+test test_tr_uutils_phrase_keeps_plain_diagnostic_when_stderr_is_a_pipe { |ctx|
+  let result = tr_run(ctx, ["w[:lowre:]w", "x"], b"", "xsh-uutests tr")?
+  assert result.status == 1
+  assert result.stderr == "tr: invalid character class 'lowre'\n"
 }
 
 test test_tr_repeat_and_set2_padding { |ctx|
