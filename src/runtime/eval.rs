@@ -3033,6 +3033,7 @@ pub(super) struct ModuleExportSignature {
 pub struct Evaluator {
     sources: Arc<SourceMap>,
     command_name: String,
+    script_argv_bytes: Vec<Vec<u8>>,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
     // Signatures of functions exported by dynamically loaded modules
@@ -3158,6 +3159,7 @@ impl Drop for Evaluator {
 struct LoweredSharedState {
     sources: Arc<SourceMap>,
     command_name: String,
+    script_argv_bytes: Vec<Vec<u8>>,
     exe_path: String,
     scopes: Vec<FxHashMap<Name, Binding>>,
     module_export_signatures:
@@ -3302,9 +3304,14 @@ impl Evaluator {
     ) -> Self {
         let cwd =
             cwd.unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let script_argv_bytes = argv
+            .iter()
+            .map(|argument| argument.as_bytes().to_vec())
+            .collect();
         let mut evaluator = Self {
             sources,
             command_name,
+            script_argv_bytes,
             // The invocation name is available without reading process metadata.
             exe_path: std::env::args_os()
                 .next()
@@ -3405,6 +3412,11 @@ impl Evaluator {
         self
     }
 
+    pub(crate) fn with_script_argv_bytes(mut self, argv_bytes: Vec<Vec<u8>>) -> Self {
+        self.script_argv_bytes = argv_bytes;
+        self
+    }
+
     pub(super) fn flush_shared_stdio(&mut self) {
         use std::io::Write;
         if !self.shared_stdio || self.capture_process_output {
@@ -3488,6 +3500,7 @@ impl Evaluator {
         Arc::new(LoweredSharedState {
             sources: self.sources.clone(),
             command_name: self.command_name.clone(),
+            script_argv_bytes: self.script_argv_bytes.clone(),
             exe_path: self.exe_path.clone(),
             scopes: self.scopes.clone(),
             module_export_signatures: self.module_export_signatures.clone(),
@@ -3515,6 +3528,7 @@ impl Evaluator {
         Self {
             sources: shared.sources.clone(),
             command_name: shared.command_name.clone(),
+            script_argv_bytes: shared.script_argv_bytes.clone(),
             exe_path: shared.exe_path.clone(),
             scopes: shared.scopes.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),

@@ -4429,6 +4429,12 @@ impl Evaluator {
                     span,
                 )?
             }
+            RuntimeOp::CliArgvBytes if values.is_empty() => LoweredValue::List(
+                self.script_argv_bytes
+                    .iter()
+                    .map(|argument| LoweredValue::Bytes(argument.clone().into()))
+                    .collect(),
+            ),
             RuntimeOp::CliApplet if values.len() == 2 || values.len() == 3 => {
                 let command = lowered_str_arg_owned(
                     values.get(2).cloned(),
@@ -5917,8 +5923,13 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::TimeFormat if (3..=5).contains(&values.len()) => {
-                let calendar = if values.len() == 5 {
+            RuntimeOp::TimeFormat if (3..=6).contains(&values.len()) => {
+                let locale = if values.len() == 6 {
+                    lowered_str_arg_owned(values.pop(), "locale", "time.format", span)?
+                } else {
+                    "locale".to_string()
+                };
+                let calendar = if values.len() >= 5 {
                     lowered_str_arg_owned(values.pop(), "calendar", "time.format", span)?
                 } else {
                     "locale".to_string()
@@ -5938,6 +5949,7 @@ impl Evaluator {
                     &format,
                     &timezone,
                     &calendar,
+                    &locale,
                     span,
                 ) {
                     Ok(value) => lowered_result_ok(LoweredValue::Str(value.into())),

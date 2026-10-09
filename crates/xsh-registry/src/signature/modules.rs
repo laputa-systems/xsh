@@ -456,6 +456,15 @@ fn elf_module() -> ModuleSig {
 fn cli_module() -> ModuleSig {
     module_sig(vec![
         (
+            "argv_bytes",
+            sig(
+                Vec::new(),
+                Type::List(Box::new(Type::Bytes)),
+                false,
+                RuntimeOp::CliArgvBytes,
+            ),
+        ),
+        (
             "parse",
             sig(
                 vec![
@@ -4028,6 +4037,7 @@ fn time_module() -> ModuleSig {
                     param("format", Type::Str),
                     default_param("timezone", Type::Str),
                     default_param("calendar", Type::Str),
+                    default_param("locale", Type::Str),
                 ],
                 result(Type::Str),
                 false,

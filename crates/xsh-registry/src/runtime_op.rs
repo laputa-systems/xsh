@@ -22,6 +22,7 @@ pub enum RuntimeOp {
     CliParse,
     CliApplet,
     CliParseFull,
+    CliArgvBytes,
     CliCommands,
     CliTokens,
     CliUsage,

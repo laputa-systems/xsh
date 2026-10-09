@@ -353,6 +353,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Waiting consumes the handle lifecycle and returns status data instead of treating nonzero exits as runtime errors.",
             &["process", "ownership", "status-data"],
         )),
+        ("cli", "argv_bytes") => Some((
+            "Returns the original bytes of the script arguments.",
+            "The list aligns with the text `args` list; use it to preserve non-UTF-8 path and operand bytes at OS boundaries.",
+            &["cli", "argv", "bytes"],
+        )),
         ("cli", "parse") => Some((
             "Parses script arguments into a typed option record.",
             "Inline and prepared const descriptors retain the same checked option shape; dynamic descriptors remain runtime-validated.",
@@ -1288,7 +1293,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("time", "format") => Some((
             "Formats a Unix timestamp with strftime directives.",
-            "The timezone is `local` by default and follows the host TZ setting. `UTC` and IANA timezone names are also accepted. The calendar is `locale` by default and follows LC_TIME; pass `gregorian` to force Gregorian fields. Format widths above 65,535, or output above 1 MiB, are rejected before unbounded allocation.",
+            "The timezone is `local` by default and follows the host TZ setting. `UTC` and IANA timezone names are also accepted. The calendar is `locale` by default and follows LC_TIME; pass `gregorian` to force Gregorian fields. The output locale follows the process locale by default; pass `C` to request English/C formatting. Format widths above 65,535, or output above 1 MiB, are rejected before unbounded allocation.",
             &["time", "strftime", "timestamp", "timezone"],
         )),
         ("time", "parse") => Some((

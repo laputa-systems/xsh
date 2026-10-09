@@ -72,6 +72,37 @@ fn copied_products_check_and_run_script_backed_calls_in_static_and_loaded_module
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[cfg(unix)]
+#[test]
+// A native XSH test cannot place non-UTF-8 bytes in a child process argv item.
+fn cli_argv_bytes_preserves_non_utf8_script_arguments() {
+    let script = write_temp_script(
+        "argv-bytes",
+        r#"proc main(...argv: List[Str]) [io, error] {
+  assert argv.len() == 1
+  let raw = cli.argv_bytes()
+  assert raw.len() == 1
+  assert raw[0] == b"raw\xffarg"
+  print "ok"
+}
+"#,
+    );
+    let argument = std::ffi::OsString::from_vec(b"raw\xffarg".to_vec());
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .arg(argument)
+        .output()
+        .expect("run script with non-UTF-8 argument");
+    let _ = std::fs::remove_file(script);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"ok\n");
+}
+
 #[test]
 fn integer_division_by_zero_is_a_structured_runtime_failure() {
     let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))

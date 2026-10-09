@@ -8,9 +8,9 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 ## Active resume (2026-10-09)
 
-- `campaign-utils` starts this resume at `81c751a6`; `origin/campaign-utils` was fetched
-  and matched that head. Laputa is checked out at `048592b0`; the uutils
-  reference is at the locked commit `e7c9f319`.
+- This resume started at `81c751a6`; `origin/campaign-utils` was fetched and
+  matched that head. Laputa is checked out at `048592b0`; the uutils reference
+  is at the locked commit `e7c9f319`.
 - This run is native Linux x86_64, uses mold 3.0.0 from the verified GitHub
   release, and does not use Docker. The pinned nightly is installed in the
   workspace-local tool prefix. See [`README.md`](README.md#setup) and
@@ -31,6 +31,22 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   `dev/compat/lanes.py brief` now renders the current subagent model, native
   paths and behavior references. Lanes use scratch result directories; only
   the integrator writes campaign result JSON.
+- Shared runtime progress since the setup commit: `time.format` supports an
+  explicit locale, GNU quarter and colonized timezone directives, and GNU
+  field flags and widths. `cli.argv_bytes()` preserves original script argument
+  bytes, including non-UTF-8 bytes passed through native `argv`. The release
+  regression for that byte path passes. The date lane is at 183/185 tests
+  (date 164/166, dircolors 19/19); its two remaining failures expect French
+  month abbreviations without the period returned by glibc and GNU `date`.
+  The fs-misc lane is at 271/304, with shared runtime blockers being addressed
+  before integration.
+- The release `xsh`/`xsht` build, `xsht check` (676 files), time stdlib tests,
+  registry tests, and compatibility ratchets pass. The focused release argv
+  integration test also passes. A full `cargo test --release -p xsh` currently
+  crashes in rustc/LLVM ScalarEvolution while compiling the optimized library
+  test binary; the ordinary release application build succeeds. The debug
+  integration test binary cannot run this repository's tests because they
+  require release executables.
 
 ## Historical handoff (2026-10-05, superseded by Active resume above)
 

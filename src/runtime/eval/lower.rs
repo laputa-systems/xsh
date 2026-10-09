@@ -346,6 +346,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::CliParse
             | RuntimeOp::CliApplet
             | RuntimeOp::CliParseFull
+            | RuntimeOp::CliArgvBytes
             | RuntimeOp::CliCommands
             | RuntimeOp::CliTokens
             | RuntimeOp::CliUsage

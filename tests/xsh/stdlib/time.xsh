@@ -35,6 +35,8 @@ test test_time_timestamp_api {
 
   assert time.format(0, 0, "%Y-%m-%d %H:%M:%S %N", "UTC", "gregorian")? ==
     "1970-01-01 00:00:00 000000000"
+  assert time.format(0, 0, "%a, %d %b %Y %H:%M:%S %z", "UTC", "gregorian", "C")? ==
+    "Thu, 01 Jan 1970 00:00:00 +0000"
   assert time.format(-2, 500000000, "%s", "UTC", "gregorian")? == "-2"
 
   let parsed = time.parse("@-1.5", 0, "UTC")?

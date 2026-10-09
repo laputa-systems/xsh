@@ -131,6 +131,24 @@ pub fn run_script_with_shared_stdio(options: RunOptions) -> ScriptOutput {
     finish_run_attempt(&options, attempt)
 }
 
+/// Run one script with the original bytes for each argv item available through
+/// `cli.argv_bytes()`. `RunOptions::args` remains the lossy text view used by
+/// existing scripts and parsers.
+pub fn run_script_with_shared_stdio_and_argv_bytes(
+    options: RunOptions,
+    argv_bytes: Vec<Vec<u8>>,
+) -> ScriptOutput {
+    let attempt = match try_prepare_program_with_argv_bytes(&options, Some(argv_bytes)) {
+        Ok(Ok(mut prepared)) => {
+            prepared.evaluator = prepared.evaluator.with_shared_stdio();
+            prepared.run()
+        }
+        Ok(Err(attempt)) => attempt,
+        Err(err) => return read_error_output(&options, err),
+    };
+    finish_run_attempt(&options, attempt)
+}
+
 /// Run one script like [`run_script_with_shared_stdio`] with the `linux` and
 /// `unix` modules replaced by the given test fakes. Only the native test
 /// harness calls this.
@@ -307,9 +325,16 @@ fn try_run_program(options: &RunOptions) -> Result<RunAttempt, std::io::Error> {
 fn try_prepare_program(
     options: &RunOptions,
 ) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
+    try_prepare_program_with_argv_bytes(options, None)
+}
+
+fn try_prepare_program_with_argv_bytes(
+    options: &RunOptions,
+    argv_bytes: Option<Vec<Vec<u8>>>,
+) -> Result<Result<PreparedRun, RunAttempt>, std::io::Error> {
     let bytes = fs::read(&options.script)?;
     let entry_source = entry_source_from_bytes(&options.script, bytes);
-    Ok(prepare_entry_source(options, entry_source))
+    Ok(prepare_entry_source(options, entry_source, argv_bytes))
 }
 
 fn diagnostic_attempt(
@@ -330,6 +355,7 @@ fn diagnostic_attempt(
 fn prepare_entry_source(
     options: &RunOptions,
     entry_source: EntrySource,
+    argv_bytes: Option<Vec<Vec<u8>>>,
 ) -> Result<PreparedRun, RunAttempt> {
     let source_id = entry_source.source_id;
     if !entry_source.diagnostics.is_empty() {
@@ -399,6 +425,9 @@ fn prepare_entry_source(
         script_command_name(&options.script),
     )
     .with_module_roots(module_roots.clone());
+    if let Some(argv_bytes) = argv_bytes {
+        evaluator = evaluator.with_script_argv_bytes(argv_bytes);
+    }
     let coverage_trace_dir = options
         .coverage_trace_dir
         .clone()

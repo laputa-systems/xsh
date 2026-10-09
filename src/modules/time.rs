@@ -80,6 +80,7 @@ pub(crate) fn format_timestamp(
     format: &str,
     timezone: &str,
     calendar: &str,
+    locale: &str,
     span: Span,
 ) -> Result<String, RuntimeError> {
     if !(0..1_000_000_000).contains(&nanoseconds) {
@@ -105,13 +106,14 @@ pub(crate) fn format_timestamp(
                 format,
                 timezone,
                 calendar,
+                locale,
             )
             .map_err(|error| RuntimeError::new("time-format", error).with_span(span));
         }
     };
     let timezone = resolve_timezone(timezone, "time-format", span)?;
     let zoned = timestamp.to_zoned(timezone);
-    format_strftime(&zoned, format, calendar)
+    format_strftime(&zoned, format, calendar, locale)
         .map_err(|error| RuntimeError::new("time-format", error).with_span(span))
 }
 
@@ -152,7 +154,12 @@ fn resolve_timezone(timezone: &str, kind: &str, span: Span) -> Result<TimeZone, 
 }
 
 #[cfg(target_os = "linux")]
-fn format_strftime(date: &Zoned, format: &str, calendar: &str) -> Result<String, String> {
+fn format_strftime(
+    date: &Zoned,
+    format: &str,
+    calendar: &str,
+    locale: &str,
+) -> Result<String, String> {
     let timestamp = date.timestamp();
     let offset = date.offset();
     let offset_info = date.time_zone().to_offset_info(timestamp);
@@ -170,7 +177,7 @@ fn format_strftime(date: &Zoned, format: &str, calendar: &str) -> Result<String,
     broken_down.tm_isdst = i32::from(offset_info.dst().is_dst());
     broken_down.tm_gmtoff = libc::c_long::from(offset.seconds());
     broken_down.tm_zone = zone.as_ptr();
-    apply_locale_calendar(&mut broken_down, calendar)?;
+    apply_locale_calendar(&mut broken_down, calendar, locale)?;
     let year = i64::from(broken_down.tm_year) + 1900;
     let month = broken_down.tm_mon + 1;
     let day = broken_down.tm_mday;
@@ -191,11 +198,17 @@ fn format_strftime(date: &Zoned, format: &str, calendar: &str) -> Result<String,
         year,
         month,
         day,
+        locale,
     )
 }
 
 #[cfg(not(target_os = "linux"))]
-fn format_strftime(date: &Zoned, format: &str, _calendar: &str) -> Result<String, String> {
+fn format_strftime(
+    date: &Zoned,
+    format: &str,
+    _calendar: &str,
+    _locale: &str,
+) -> Result<String, String> {
     if format.len() > MAX_FORMAT_OUTPUT_BYTES {
         return Err("strftime format exceeds 1 MiB".to_string());
     }
@@ -321,6 +334,7 @@ fn format_extended_timestamp(
     format: &str,
     timezone: &str,
     calendar: &str,
+    locale: &str,
 ) -> Result<String, String> {
     if format.len() > MAX_FORMAT_OUTPUT_BYTES {
         return Err("strftime format exceeds 1 MiB".to_string());
@@ -346,7 +360,7 @@ fn format_extended_timestamp(
         broken_down.tm_zone = c"UTC".as_ptr();
         broken_down.tm_gmtoff = 0;
     }
-    apply_locale_calendar(&mut broken_down, calendar)?;
+    apply_locale_calendar(&mut broken_down, calendar, locale)?;
     let year = i64::from(broken_down.tm_year) + 1900;
     let month = broken_down.tm_mon + 1;
     let day = broken_down.tm_mday;
@@ -358,6 +372,7 @@ fn format_extended_timestamp(
         year,
         month,
         day,
+        locale,
     )
 }
 
@@ -370,25 +385,47 @@ fn format_tm(
     year: i64,
     month: i32,
     day: i32,
+    locale: &str,
 ) -> Result<String, String> {
     if format.len() > MAX_FORMAT_OUTPUT_BYTES {
         return Err("strftime format exceeds 1 MiB".to_string());
     }
-    let (c_format, replacements) = prepare_extended_strftime(
+    let locale_name = if locale == "locale" { "" } else { locale };
+    format_tm_in_locale(
+        broken_down,
         format,
         nanoseconds,
         epoch_seconds,
         year,
         month,
         day,
-    )?;
-    let mut output = vec![0_u8; MAX_FORMAT_OUTPUT_BYTES + 1];
-    let locale = unsafe { libc::newlocale(libc::LC_TIME_MASK, c"".as_ptr(), std::ptr::null_mut()) };
-    let locale = if locale.is_null() {
-        unsafe { libc::newlocale(libc::LC_TIME_MASK, c"C".as_ptr(), std::ptr::null_mut()) }
-    } else {
-        locale
+        locale_name,
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn format_tm_in_locale(
+    broken_down: &libc::tm,
+    format: &str,
+    nanoseconds: u32,
+    epoch_seconds: i128,
+    year: i64,
+    month: i32,
+    day: i32,
+    locale_name: &str,
+) -> Result<String, String> {
+    let locale_name = std::ffi::CString::new(locale_name)
+        .map_err(|_| "time locale contains a NUL byte".to_string())?;
+    let mut locale = unsafe {
+        libc::newlocale(
+            libc::LC_TIME_MASK,
+            locale_name.as_ptr(),
+            std::ptr::null_mut(),
+        )
     };
+    if locale.is_null() && locale_name.as_bytes().is_empty() {
+        locale = unsafe { libc::newlocale(libc::LC_TIME_MASK, c"C".as_ptr(), std::ptr::null_mut()) };
+    }
     if locale.is_null() {
         return Err("could not create a time locale".to_string());
     }
@@ -397,6 +434,26 @@ fn format_tm(
         unsafe { libc::freelocale(locale) };
         return Err("could not select a time locale".to_string());
     }
+    let prepared = prepare_extended_strftime(
+        format,
+        nanoseconds,
+        epoch_seconds,
+        year,
+        month,
+        day,
+        broken_down,
+    );
+    let (c_format, replacements) = match prepared {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            unsafe {
+                libc::uselocale(previous);
+                libc::freelocale(locale);
+            }
+            return Err(error);
+        }
+    };
+    let mut output = vec![0_u8; MAX_FORMAT_OUTPUT_BYTES + 1];
     let written = unsafe {
         libc::strftime(
             output.as_mut_ptr().cast(),
@@ -428,12 +485,19 @@ fn format_tm(
 }
 
 #[cfg(target_os = "linux")]
-fn apply_locale_calendar(tm: &mut libc::tm, calendar: &str) -> Result<(), String> {
+fn apply_locale_calendar(
+    tm: &mut libc::tm,
+    calendar: &str,
+    locale: &str,
+) -> Result<(), String> {
     if calendar == "gregorian" {
         return Ok(());
     }
-    let locale = active_time_locale();
-    apply_named_locale_calendar(tm, &locale)
+    if locale == "locale" {
+        apply_named_locale_calendar(tm, &active_time_locale())
+    } else {
+        apply_named_locale_calendar(tm, locale)
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -561,6 +625,7 @@ fn format_extended_timestamp(
     _format: &str,
     _timezone: &str,
     _calendar: &str,
+    _locale: &str,
 ) -> Result<String, String> {
     Err("extended-year formatting is unavailable on this platform".to_string())
 }
@@ -573,6 +638,7 @@ fn prepare_extended_strftime(
     year: i64,
     month: i32,
     day: i32,
+    broken_down: &libc::tm,
 ) -> Result<(std::ffi::CString, Vec<(String, String)>), String> {
     use std::ffi::CString;
 
@@ -624,15 +690,17 @@ fn prepare_extended_strftime(
             cursor += 1;
             colons += 1;
         }
-        let modifier = if bytes
+        let modifier_byte = if bytes
             .get(cursor)
             .is_some_and(|byte| *byte == b'E' || *byte == b'O')
         {
+            let modifier_byte = bytes[cursor];
             cursor += 1;
-            true
+            Some(modifier_byte)
         } else {
-            false
+            None
         };
+        let modifier = modifier_byte.is_some();
         if flags == "+"
             && width.is_none()
             && colons == 0
@@ -654,19 +722,41 @@ fn prepare_extended_strftime(
             continue;
         }
         cursor += 1;
-        if colons == 0 && !modifier && matches!(specifier, b'N' | b'F' | b's') {
-            let directive = char::from(specifier).to_string();
-            let raw = if specifier == b'N' {
+        let name = if specifier == b'+' {
+            "+".to_string()
+        } else {
+            format!("{}{}", ":".repeat(colons), char::from(specifier))
+        };
+        let raw = if colons > 0 && specifier == b'z' {
+            Some(format_timezone_offset(broken_down.tm_gmtoff, colons)?)
+        } else if colons == 0 && !modifier && specifier == b'q' {
+            Some(((month - 1) / 3 + 1).to_string())
+        } else if colons == 0 && !modifier && matches!(specifier, b'N' | b'F' | b's') {
+            Some(if specifier == b'N' {
                 format!("{nanoseconds:09}")
             } else if specifier == b's' {
                 epoch_seconds.to_string()
             } else {
-                format!("{}{year:04}-{month:02}-{day:02}", if year > 9999 { "+" } else { "" })
+                format!(
+                    "{}{year:04}-{month:02}-{day:02}",
+                    if year > 9999 { "+" } else { "" }
+                )
+            })
+        } else if !flags.is_empty() || width.is_some() {
+            let directive = match modifier_byte {
+                Some(modifier) => format!("%{}{}", char::from(modifier), char::from(specifier)),
+                None => format!("%{}", char::from(specifier)),
             };
-            let replacement = apply_format_modifiers(&raw, flags, width, &directive)?;
+            Some(format_strftime_directive(broken_down, &directive)?)
+        } else {
+            None
+        };
+        let has_replacement = raw.is_some();
+        if let Some(raw) = raw {
+            let replacement = apply_format_modifiers(&raw, flags, width, &name)?;
             let mut index = replacements.len();
             let placeholder = loop {
-                let candidate = format!("XSHNANO{index}TOKEN");
+                let candidate = format!("XSHTIME{index}TOKEN");
                 if !format.contains(&candidate) {
                     break candidate;
                 }
@@ -677,6 +767,9 @@ fn prepare_extended_strftime(
         } else {
             c_format.push_str(&format[spec_start..cursor]);
         }
+        if has_replacement {
+            continue;
+        }
     }
     if c_format.len() > MAX_FORMAT_OUTPUT_BYTES {
         return Err("strftime format exceeds 1 MiB".to_string());
@@ -686,13 +779,53 @@ fn prepare_extended_strftime(
     Ok((c_format, replacements))
 }
 
+#[cfg(target_os = "linux")]
+fn format_strftime_directive(broken_down: &libc::tm, directive: &str) -> Result<String, String> {
+    let directive = std::ffi::CString::new(directive)
+        .map_err(|_| "strftime directive contains a NUL byte".to_string())?;
+    let mut output = vec![0_u8; MAX_FORMAT_OUTPUT_BYTES + 1];
+    let written = unsafe {
+        libc::strftime(
+            output.as_mut_ptr().cast(),
+            output.len(),
+            directive.as_ptr(),
+            broken_down,
+        )
+    };
+    if written > MAX_FORMAT_OUTPUT_BYTES {
+        return Err("strftime output exceeds 1 MiB".to_string());
+    }
+    String::from_utf8(output[..written].to_vec())
+        .map_err(|_| "strftime output is not valid UTF-8".to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn format_timezone_offset(gmtoff: libc::c_long, colons: usize) -> Result<String, String> {
+    let offset = i64::try_from(gmtoff)
+        .map_err(|_| "timezone offset is outside the supported range".to_string())?;
+    let sign = if offset < 0 { '-' } else { '+' };
+    let absolute = offset.unsigned_abs();
+    let hours = absolute / 3_600;
+    let minutes = absolute % 3_600 / 60;
+    let seconds = absolute % 60;
+    let formatted = match colons {
+        1 => format!("{sign}{hours:02}:{minutes:02}"),
+        2 => format!("{sign}{hours:02}:{minutes:02}:{seconds:02}"),
+        3 if seconds > 0 => format!("{sign}{hours:02}:{minutes:02}:{seconds:02}"),
+        3 if minutes > 0 => format!("{sign}{hours:02}:{minutes:02}"),
+        3 => format!("{sign}{hours:02}"),
+        _ => return Err("strftime timezone offset uses too many colons".to_string()),
+    };
+    Ok(formatted)
+}
+
 fn apply_format_modifiers(
     original: &str,
     flags: &str,
     width: Option<usize>,
     specifier: &str,
 ) -> Result<String, String> {
-    if specifier == "+" || matches!(specifier, "c" | "r" | "x" | "X" | "z" | ":z" | "::z" | ":::z") {
+    if specifier == "+" || matches!(specifier, "c" | "r" | "x" | "X") {
         return Ok(original.to_string());
     }
 
@@ -938,12 +1071,18 @@ mod tests {
     fn strftime_formats_modifiers_and_rejects_unbounded_widths() {
         let date = Timestamp::UNIX_EPOCH.to_zoned(TimeZone::UTC);
         assert_eq!(
-            format_strftime(&date, "%Y-%m-%d %H:%M:%S %N %_d %^B", "gregorian").unwrap(),
+            format_strftime(&date, "%Y-%m-%d %H:%M:%S %N %_d %^B", "gregorian", "locale")
+                .unwrap(),
             "1970-01-01 00:00:00 000000000  1 JANUARY"
         );
-        assert!(format_strftime(&date, "%+", "gregorian").unwrap().contains("1970"));
-        assert!(format_strftime(&date, "%99999999999c", "gregorian").is_err());
-        assert_eq!(format_strftime(&date, "ending %", "gregorian").unwrap(), "ending %");
+        assert!(format_strftime(&date, "%+", "gregorian", "locale")
+            .unwrap()
+            .contains("1970"));
+        assert!(format_strftime(&date, "%99999999999c", "gregorian", "locale").is_err());
+        assert_eq!(
+            format_strftime(&date, "ending %", "gregorian", "locale").unwrap(),
+            "ending %"
+        );
     }
 
     #[test]
@@ -951,10 +1090,46 @@ mod tests {
         let date = Timestamp::new(-2, 500_000_000)
             .unwrap()
             .to_zoned(TimeZone::UTC);
-        assert_eq!(format_strftime(&date, "%s", "gregorian").unwrap(), "-2");
-        assert_eq!(format_strftime(&date, "%06s", "gregorian").unwrap(), "-00002");
+        assert_eq!(format_strftime(&date, "%s", "gregorian", "locale").unwrap(), "-2");
+        assert_eq!(
+            format_strftime(&date, "%06s", "gregorian", "locale").unwrap(),
+            "-00002"
+        );
     }
 
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn strftime_formats_quarters_offsets_and_field_modifiers() {
+        let span = Span::at(SourceId::new(0), 0);
+        assert_eq!(
+            format_timestamp(
+                0,
+                0,
+                "%10Y|%-10Y|%+6Y|%q|%z|%:z|%::z|%:::z",
+                "UTC",
+                "gregorian",
+                "C",
+                span,
+            )
+            .unwrap(),
+            "0000001970|1970|+01970|1|+0000|+00:00|+00:00:00|+00"
+        );
+        assert_eq!(
+            format_timestamp(
+                0,
+                0,
+                "%_10m|%-^10B",
+                "UTC",
+                "gregorian",
+                "C",
+                span,
+            )
+            .unwrap(),
+            "         1|JANUARY"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
     #[test]
     fn strftime_formats_large_years_and_zero_padded_twelve_hour_time() {
         let span = Span::at(SourceId::new(0), 0);
@@ -965,6 +1140,7 @@ mod tests {
                 "%Y %F %r %N %s %Z",
                 "UTC",
                 "gregorian",
+                "locale",
                 span,
             )
             .unwrap(),
@@ -1014,10 +1190,26 @@ mod tests {
                 "%Y. %b %d., %A, %H:%M:%S %Z",
                 "UTC",
                 "locale",
+                "locale",
                 span,
             )
             .unwrap(),
             "2025. dec 14., vasárnap, 13:00:00 UTC"
+        );
+        let (seconds, nanoseconds) =
+            parse_timestamp("1997-01-19 08:17:48", 0, "UTC", span).unwrap();
+        assert_eq!(
+            format_timestamp(
+                seconds,
+                nanoseconds,
+                "%a, %d %b %Y %H:%M:%S %z",
+                "UTC",
+                "gregorian",
+                "C",
+                span,
+            )
+            .unwrap(),
+            "Sun, 19 Jan 1997 08:17:48 +0000"
         );
     }
 

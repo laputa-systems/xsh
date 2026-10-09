@@ -51,7 +51,8 @@ pub mod script {
     }
 
     pub use crate::runner::{
-        run_script, run_script_with_shared_stdio, run_startup, script_command_name,
+        run_script, run_script_with_shared_stdio,
+        run_script_with_shared_stdio_and_argv_bytes, run_startup, script_command_name,
     };
 
     #[cfg(feature = "native-tests")]
