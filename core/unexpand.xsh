@@ -134,7 +134,7 @@ pure unit_width(data: Bytes, at: Int) -> UnitWidth {
 
 type BlankUnit = {data: Bytes, tab: Bool, width: Int}
 
-pure unexpand_bytes(data: Bytes, config: Config, all: Bool) -> Bytes {
+pure unexpand_bytes(data: Bytes, config: Config, all: Bool, multi: Bool) -> Bytes {
   var out: List[Bytes] = []
   var at = 0
   var column = 0
@@ -181,7 +181,7 @@ pure unexpand_bytes(data: Bytes, config: Config, all: Bool) -> Bytes {
       end += size
     }
 
-    if all or leading or contains_tab {
+    if all or leading or contains_tab or (multi and units.len() > 1) {
       var item = 0
       while item < units.len() {
         let next = stop_after(config, column)
@@ -302,7 +302,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
   }
-  let all = (opts.all or opts.tabs.len() > 0) and ! opts.first_only
+  let all = opts.all and ! opts.first_only
   var failed = false
   let files = raw_files(argv, cli.argv_bytes())
 
@@ -325,7 +325,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       continue
     }
 
-    gnu.write_bytes(unexpand_bytes(data, config, all))
+    gnu.write_bytes(unexpand_bytes(data, config, all, opts.tabs.len() > 0 and ! opts.first_only))
   }
 
   if failed { exit 1 }
