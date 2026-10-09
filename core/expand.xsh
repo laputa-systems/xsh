@@ -10,8 +10,9 @@ Convert tabs in each FILE to spaces, writing to standard output.
       --help          display this help and exit
       --version       output version information and exit
 """
+const MAX_POSITION = 9223372036854775807
 
-type Config = {stops: List[Int], interval: Int, repeat: Bool}
+type Config = {stops: List[Int], interval: Int, repeat: Bool, mode: Str}
 
 pure stop_after(config: Config, column: Int) -> Int {
   for stop in config.stops {
@@ -22,6 +23,8 @@ pure stop_after(config: Config, column: Int) -> Int {
 
   let last = config.stops.get(config.stops.len() - 1) ?? 8
   let step = if config.interval > 0 { config.interval } else { last }
+  return column - column % step + step when config.mode == "/"
+
   last + (column - last) / step * step + step
 }
 
@@ -38,21 +41,33 @@ proc parse_tabs(values: List[Str]) [env] -> Result[Config, Str] {
       var digits = ""
       var marker = ""
       var bad = ""
+      var bad_started = false
+      var misplaced = ""
+      var misplaced_marker = ""
 
       for char in token {
-        if char in ["+", "/"] {
+        if misplaced_marker != "" {
+          misplaced = f"{misplaced}{char}"
+        } else if bad_started {
+          bad = f"{bad}{char}"
+        } else if char in ["+", "/"] {
           if digits != "" {
-            return Err(f"'{char}' specifier not at start of number: '{char}'")
+            misplaced_marker = char
+            misplaced = char
+          } else {
+            marker = char
           }
-
-          marker = char
         } else if char >= "0" and char <= "9" {
           digits = f"{digits}{char}"
         } else {
           bad = f"{bad}{char}"
+          bad_started = true
         }
       }
 
+      if misplaced_marker != "" {
+        return Err(f"'{misplaced_marker}' specifier not at start of number: '{misplaced}'")
+      }
       if bad != "" {
         return Err(f"tab size contains invalid character(s): '{bad}'")
       }
@@ -61,7 +76,7 @@ proc parse_tabs(values: List[Str]) [env] -> Result[Config, Str] {
       let number = digits.parse_int() ?? -1
       if number < 0 { return Err(f"tab stop is too large '{digits}'") }
       if number == 0 { return Err("tab size cannot be 0") }
-      if stops.len() > 0 and number <= (stops.get(stops.len() - 1) ?? 0) {
+      if marker == "" and stops.len() > 0 and number <= (stops.get(stops.len() - 1) ?? 0) {
         return Err("tab sizes must be ascending")
       }
       if marker != "" {
@@ -77,23 +92,23 @@ proc parse_tabs(values: List[Str]) [env] -> Result[Config, Str] {
   }
 
   if stops.len() == 0 {
-    return Ok({stops: [8], interval: 8, repeat: true})
+    let step = if interval > 0 { interval } else { 8 }
+    return Ok({stops: [step], interval: step, repeat: true, mode: mode})
   }
 
-  if marked_at == stops.len() {
+  if marked_at == stops.len() and mode == "+" {
     let last = stops.get(stops.len() - 1) ?? 0
-    let next = last + interval
-    if next <= last { return Err("tab stop is too large") }
-    stops += [next]
+    if interval > MAX_POSITION - last { return Err("tab stop is too large") }
+    stops += [last + interval]
   }
 
   if stops.len() == 1 {
     let one = stops[0]
-    return Ok({stops: stops, interval: one, repeat: true})
+    return Ok({stops: stops, interval: one, repeat: true, mode: mode})
   }
 
   let step = if mode == "/" { interval } else { (stops.get(stops.len() - 1) ?? 0) - (stops.get(stops.len() - 2) ?? 0) }
-  Ok({stops: stops, interval: step, repeat: mode == "/" or mode == "+"})
+  Ok({stops: stops, interval: step, repeat: mode == "/" or mode == "+", mode: mode})
 }
 
 pure expand_bytes(data: Bytes, config: Config, initial: Bool) -> Bytes {
@@ -110,7 +125,7 @@ pure expand_bytes(data: Bytes, config: Config, initial: Bool) -> Bytes {
         let next = stop_after(config, column)
 
         if next == column {
-          out += [b"\t"]
+          out += [b" "]
           column += 1
         } else {
           for _ in range(next - column) {
@@ -133,7 +148,7 @@ pure expand_bytes(data: Bytes, config: Config, initial: Bool) -> Bytes {
         if index + candidate <= data.len() and (data[index..index + candidate].utf8() ?? "") != "" {
           width = candidate
           let ch = data[index..index + candidate].utf8() ?? ""
-          columns = if rx"[\x{300}-\x{36f}\x{200b}-\x{200f}\x{fe00}-\x{fe0f}]".matches(ch) { 0 } else if rx"[\x{1100}-\x{115f}\x{2e80}-\x{a4cf}\xac00-\xd7a3\xf900-\xfaff\xfe10-\xfe6f\xff01-\xff60\x{1f300}-\x{1faff}\x{20000}-\x{3fffd}]".matches(ch) { 2 } else { 1 }
+          columns = if rx"[\x{300}-\x{36f}\x{200b}-\x{200f}\x{fe00}-\x{fe0f}]".matches(ch) { 0 } else if rx"[\x{1100}-\x{115f}\x{2e80}-\x{a4cf}\x{ac00}-\x{d7a3}\x{f900}-\x{faff}\x{fe10}-\x{fe6f}\x{ff01}-\x{ff60}\x{1f300}-\x{1faff}\x{20000}-\x{3fffd}]".matches(ch) { 2 } else { 1 }
         }
       }
 
@@ -154,6 +169,44 @@ pure expand_bytes(data: Bytes, config: Config, initial: Bool) -> Bytes {
   }
 
   bytes.concat(out)
+}
+
+pure raw_files(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var files: List[Bytes] = []
+  var index = 0
+  var after_separator = false
+
+  while index < argv.len() {
+    let arg = argv[index]
+
+    if ! after_separator and arg == "--" {
+      after_separator = true
+      index += 1
+      continue
+    }
+
+    if ! after_separator and (arg == "-t" or arg == "--tabs") {
+      index += 2
+      continue
+    }
+
+    if ! after_separator and arg.starts_with("-") and arg != "-" {
+      index += 1
+      continue
+    }
+
+    files += [raw[index]]
+    index += 1
+  }
+
+  files
+}
+
+proc read_raw(raw: Bytes) [fs, error, io] -> Result[Bytes, Error] {
+  return io.stdin_bytes() when raw == b"-"
+
+  let target = Path.parse_bytes(raw)?
+  target.read_bytes()
 }
 
 type ExpandOptions = {initial: Bool, tabs: List[Str], help: Bool, version: Bool, files: List[Str]}
@@ -184,26 +237,32 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.help { gnu.help(USAGE); return }
   if opts.version { gnu.version("expand"); return }
 
-  guard let config = parse_tabs(opts.tabs) else { |message|
-    gnu.error(message)
-    gnu.try_help()
-    exit 1
+  let config = match parse_tabs(opts.tabs) {
+    Ok(value) => value
+    Err(message) => {
+      gnu.error(message)
+      gnu.try_help()
+      exit 1
+    }
   }
   var failed = false
+  let files = raw_files(argv, cli.argv_bytes())
 
-  for name in if opts.files.len() == 0 { ["-"] } else { opts.files } {
-    if name != "-" {
-      if let Ok(meta) = fp"{name}".metadata() {
-        if meta.mode / 4096 % 16 == 4 {
-          gnu.error(f"{gnu.quote_maybe(name)}: Is a directory")
-          failed = true
-          continue
+  for name in if files.len() == 0 { [b"-"] } else { files } {
+    if name != b"-" {
+      if let Ok(target) = Path.parse_bytes(name) {
+        if let Ok(meta) = target.metadata() {
+          if meta.mode / 4096 % 16 == 4 {
+            gnu.error(f"{gnu.quote_bytes(name, always: false)}: Is a directory")
+            failed = true
+            continue
+          }
         }
       }
     }
 
-    guard let data = gnu.read_operand(name) else { |failure|
-      gnu.name_error(name, failure)
+    guard let data = read_raw(name) else { |failure|
+      gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
       failed = true
       continue
     }
