@@ -87,6 +87,16 @@ test test_cp_recursive_link_follow_modes { |ctx|
   let follow_result = cp_run(ctx, ["-R", "-L", source.display(), followed.display()])?
   assert follow_result.status == 0, follow_result.stderr
   assert fp"{followed}/link".read_text()? == "recursive target"
+
+  let archive_preserved = fp"{root}/archive-preserved"
+  let archive_result = cp_run(ctx, ["-aH", source.display(), archive_preserved.display()])?
+  assert archive_result.status == 0, archive_result.stderr
+  assert fp"{archive_preserved}/link".readlink()? == p"target"
+
+  let archive_followed = fp"{root}/archive-followed"
+  let archive_follow_result = cp_run(ctx, ["-aHL", source.display(), archive_followed.display()])?
+  assert archive_follow_result.status == 0, archive_follow_result.stderr
+  assert fp"{archive_followed}/link".read_text()? == "recursive target"
 }
 
 test test_cp_backup_and_update { |ctx|
