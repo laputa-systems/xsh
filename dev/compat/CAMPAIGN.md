@@ -8,67 +8,45 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 ## Active resume (2026-10-09)
 
-- This resume started at `81c751a6`; `origin/campaign-utils` was fetched and
-  matched that head. Laputa is checked out at `048592b0`; the uutils reference
-  is at the locked commit `e7c9f319`.
-- This run is native Linux x86_64, uses mold 3.0.0 from the verified GitHub
-  release, and does not use Docker. The pinned nightly is installed in the
-  workspace-local tool prefix. See [`README.md`](README.md#setup) and
-  [`native-env.sh`](native-env.sh).
-- The release `xsh` and `xsht` binaries built successfully with mold.
-  `run-gnu.sh prepare` completed for GNU 9.12; the generated config enables
-  ACL, capability, and Linux xattr support. The initial uutils baseline was
-  **2,205 / 5,974 passing**. After the date/dircolors merge, the full run was
-  **2,368 / 5,974 passing** (+163) with no regressions against the saved
-  baseline; 4 tests remain excluded. The GNU 9.12 baseline is
-  **573 passed, 85 skipped, 58 failed and 3 errors** out of 719 records; `env`,
-  `env0-from` and `printenv` are the three harness errors, and `close-stdin`
-  timed out at the 10 minute limit.
-- Native baseline behavior was measured on Linux x86_64 only. Docker is not
-  part of this setup. Rust builds use the workspace-local pinned nightly and
-  mold 3.0.0 installed from its verified GitHub release; see `README.md` and
-  `native-env.sh`.
-- The date/dircolors lane is merged as `243c5bd9` from lane commit `58d3d378`.
-  The integration head is `2e122ef3`; it replaces the staged shell wrapper
-  with native `xsh` multicall dispatch, preserving argv bytes and avoiding
-  shell diagnostics when a test runs in a deleted working directory. The
-  release regression for raw argv and deleted-cwd dispatch passes. The
-  `fs-misc` and `fs-basic` lanes are active from that head; fs-misc fixed the
-  deleted-cwd diagnostic and is waiting on the shared binary rebuild, while
-  fs-basic is compiling its baseline slice. The locked uutils
-  and GNU source trees and XSH release binaries are prepared in the workspace.
-  `dev/compat/lanes.py brief` renders the current subagent model, native paths
-  and behavior references. Lanes use scratch result directories; only the
-  integrator writes campaign result JSON.
-- Shared runtime progress since the setup commit: `time.format` supports an
-  explicit locale, GNU quarter and colonized timezone directives, and GNU
-  field flags and widths. `cli.argv_bytes()` preserves original script argument
-  bytes, including non-UTF-8 bytes passed through native `argv`. The release
-  regression for that byte path passes. The full uutils rerun fixed 141 date
-  cases, all 19 dircolors cases, and one each in dirname, expr, and split.
-  Date/dircolors are at 183/185 tests
-  (date 164/166, dircolors 19/19); the two French month abbreviation
-  differences are recorded in `gaps.json` because uutils' ICU expectation
-  omits punctuation returned by glibc and GNU `date`. The fs-misc lane's final
-  run selected 304 tests: 295 passed and 9 failed, with 2 excluded by the
-  converter. The 9 remaining failures are uutils-only diagnostic and caret
-  expectations checked against GNU 9.12 and recorded in `gaps.json`. The
-  native lane suite passes 45 tests with 1 skipped because `/bin/xsh` is not
-  installed.
-- The CLI now preserves `--` after the script path as an app argument;
-  `xsh -- SCRIPT` remains the CLI's explicit option boundary. A focused release
-  regression covers both text and raw argv. The uutils cases this unblocks will
-  be measured after the shared release binary is rebuilt.
-- The release `xsh`/`xsht` build, `xsht check` (678 files), time stdlib tests,
-  registry tests, and compatibility ratchets pass. The focused release argv
-  integration test also passes. The filesystem stdlib suite passes 22/22,
-  including directory and write-only-file `fs.fsync` behavior; that primitive
-  opens read-only first, then retries write-only when access is denied. A full
-  `cargo test --release -p xsh` currently
-  crashes in rustc/LLVM ScalarEvolution while compiling the optimized library
-  test binary; the ordinary release application build succeeds. The debug
-  integration test binary cannot run this repository's tests because they
-  require release executables.
+- Current local integration head is `e4efc7ed`; origin was last pushed at
+  `5de29706`. The source references are pinned: uutils
+  `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
+- Setup and baseline work is complete on the native Linux x86_64 host. No
+  Docker is used. `native-env.sh` selects workspace-local
+  `nightly-2026-09-15` and mold 3.0.0 from the verified x86_64 GitHub release;
+  the setup and checksum commands are in [`README.md`](README.md#setup).
+  Release builds of `xsh` and `xsht` use mold. `run-gnu.sh prepare` completed
+  with ACL, capability, and Linux xattr support enabled.
+- The first full uutils baseline was **2,205 / 5,974 passing**. After the
+  date/dircolors merge it was **2,368 / 5,974**, with no regressions against
+  that baseline and four exclusions. A later full run after the cp and mv/ln
+  merges measured **2,813 / 5,974**, but `compare.py` exposed 187 regressions.
+  The investigation traced the broad `ls` family failures to an incomplete
+  `FsStat` literal after the timestamp API extension and `/dev/zero` being
+  read as an unbounded stream. Both runtime issues are fixed at `d0ac7d7c`;
+  cp fixes are merged at `f06c924b` and mv/ln fixes at `e4efc7ed`. A full
+  regression run on this corrected head is pending. The focused
+  `ls dir vdir split` slice is **314 / 365**; it has no regressions among
+  previously passing IDs and fixes the `/dev/zero` split cases.
+- Current Wave 1 lanes: `fs-basic` is rebasing for its final slice; `perm` and
+  `stat-du-df` are active; `printf-env` has started on `e4efc7ed`. Each lane
+  uses a separate worktree and scratch results; only the integrator writes
+  shared campaign result JSON. The next full run will also compare against the
+  pre-cp/mv report at `/tmp/uutils-before-cp-mv.json`.
+- The most recent full-run timeout was
+  `wc::test_files0_progressive_stream`: `wc --files0-from=-` currently reads
+  stdin through EOF instead of processing each NUL-delimited name as it
+  arrives. It remains a Wave 2 `coreutils-finish` request. Other known gaps are
+  tracked in `gaps.json` and will be rechecked after Wave 1.
+- Earlier verified results remain: date/dircolors **183 / 185** (two French
+  month punctuation differences documented against GNU/glibc), fs-misc
+  **295 / 304** (nine GNU-verified diagnostic differences), and GNU against
+  uutils **573 passed, 85 skipped, 58 failed, 3 harness errors** out of 719.
+  The release filesystem stdlib tests now pass **27**, with one reflink skip;
+  this includes FIFO reads, zero-sized `/proc` files, and a `/dev/zero` guard.
+  The optimized `cargo test --release -p xsh` still crashes in rustc/LLVM
+  ScalarEvolution while compiling the library test binary; release app builds
+  succeed.
 
 ## Historical handoff (2026-10-05, superseded by Active resume above)
 

@@ -97,15 +97,23 @@ chown. `GNU_JOBS` (default 3) sets `make -j`.
 
 ## Status
 
-Verified in the authoring session: manifest generation against the pinned
-tree (108 utilities, 106 in scope, 41 present), the ignored-options ratchet
-(16 legacy buckets), staging and the adapter with a stand-in interpreter
-(argv including empty arguments and `--`, NUL bytes on stdin, exit status,
-alias names, `false` placeholders), and both `results.py` modes on synthetic
-reports.
+## Verified setup and current run
 
-Not yet executed, because that session's network policy blocked crates.io:
-building XSH, `run-uutils.sh` against real applets, and `run-gnu.sh`. The
-first session with crates.io access should run the baseline (see the handoff
-checklist in the `campaign-utils` commit log) and fix whatever the scripts
-get wrong.
+The campaign setup has been exercised on a native Linux x86_64 host. The
+workspace-local `nightly-2026-09-15` toolchain and mold 3.0.0 x86_64 release
+were installed and verified by SHA-256; `native-env.sh` selects both for
+builds. Docker is not used. Release `xsh`/`xsht` builds, the pinned uutils
+test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
+
+The initial uutils run recorded 2,205 / 5,974 passes; after the date/dircolors
+merge, a full run reached 2,368 / 5,974 with no regressions. A full run after
+the cp/mv integration found regressions that are documented in
+[`CAMPAIGN.md`](CAMPAIGN.md) and repaired on the current local head. A focused
+`ls dir vdir split` rerun passes 314 / 365 with no regression among previously
+passing tests. The next full run is pending the current filesystem and
+environment lane merges.
+
+`run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
+The baseline run against uutils recorded 573 passed, 85 skipped, 58 failed,
+and 3 harness errors out of 719 test records. Remaining test gaps and exact
+results are maintained in `CAMPAIGN.md`, `gaps.json`, and `results/`.
