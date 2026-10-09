@@ -27,10 +27,11 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   wiring is active in the resumed byte/hash lane before the encoding and checksum
   applets can start. Exact remaining utility failures and their causes are in
   `gaps.json`.
-- `printf-env` and `proc-a` are active in separate worktrees. `printf-env` last
-  measured **178 / 252** before its newest edits and is rerunning its gates.
-  `proc-a` is resolving failures from its first 62-case uutils slice; the last
-  confirmed native result was 16/16. The integrator owns shared results and
+- `printf-env`, `proc-a`, and `text-a2` are active in separate worktrees.
+  `printf-env` last measured **178 / 252** before its newest edits and is
+  rerunning its gates. `proc-a` is resolving failures from its first 62-case
+  uutils slice; the last confirmed native result was 16/16. `text-a2` starts
+  from **17 / 663** across nine applets. The integrator owns shared results and
   baselines; lane runs use scratch outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes

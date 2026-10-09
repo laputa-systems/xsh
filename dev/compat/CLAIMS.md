@@ -23,7 +23,7 @@ integrator writes `dev/compat/results/` and shared baseline files.
 | `date` | merged; 183/185, two documented French locale punctuation differences |
 | `trivial` | merged |
 | `text-a1` | merged |
-| `text-a2` | not yet verified as merged; resume after active lanes |
+| `text-a2` | active in `/workspace/xsh-lanes/text-a2`; 17/663 before edits across nine applets |
 | `text-b1`, `text-b2` | merged |
 | `sort` | still to run or verify |
 | `ls` | merged; focused `ls dir vdir split` result 314/365 with no regressions among earlier passes |
