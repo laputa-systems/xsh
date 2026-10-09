@@ -155,8 +155,8 @@
       "applet": false
     },
     "cat": {
-      "pass": 42,
-      "fail": 11,
+      "pass": 43,
+      "fail": 10,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -169,19 +169,20 @@
         "test_cat::test_piped_to_dev_full",
         "test_cat::test_uchild_when_no_capture_reading_from_infinite_source",
         "test_cat::test_version_help_dev_full",
-        "test_cat::test_write_fast_fallthrough_uses_flush",
-        "test_cat::test_write_fast_read_error"
+        "test_cat::test_write_fast_fallthrough_uses_flush"
       ],
       "applet": true
     },
     "chgrp": {
-      "pass": 15,
-      "fail": 16,
+      "pass": 12,
+      "fail": 19,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_chgrp::test_chgrp_exit_code_not_being_overwritten_by_last_file",
+        "test_chgrp::test_big_p",
         "test_chgrp::test_chgrp_non_utf8_paths",
+        "test_chgrp::test_error_1",
+        "test_chgrp::test_fail_silently",
         "test_chgrp::test_from_with_invalid_group",
         "test_chgrp::test_help",
         "test_chgrp::test_help_ref",
@@ -193,6 +194,7 @@
         "test_chgrp::test_preserve_root_symlink",
         "test_chgrp::test_preserve_root_symlink_cwd_root",
         "test_chgrp::test_ref_help",
+        "test_chgrp::test_reference",
         "test_chgrp::test_reference_last",
         "test_chgrp::test_reference_multi_no_equal",
         "test_chgrp::verbose_missing_file_write_error_is_reported_not_panic"
@@ -200,8 +202,8 @@
       "applet": true
     },
     "chmod": {
-      "pass": 4,
-      "fail": 59,
+      "pass": 2,
+      "fail": 61,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -229,12 +231,14 @@
         "test_chmod::test_chmod_non_existing_file_silent",
         "test_chmod::test_chmod_non_utf8_paths",
         "test_chmod::test_chmod_octal",
+        "test_chmod::test_chmod_operator_only_still_calls_syscall",
         "test_chmod::test_chmod_permissions_too_large",
         "test_chmod::test_chmod_preserve_root",
         "test_chmod::test_chmod_preserve_root_symlink_during_recursion",
         "test_chmod::test_chmod_preserve_root_with_paths_that_resolve_to_root",
         "test_chmod::test_chmod_recursive",
         "test_chmod::test_chmod_recursive_correct_exit_code",
+        "test_chmod::test_chmod_recursive_read_permission",
         "test_chmod::test_chmod_recursive_reference_does_not_follow_inner_symlink",
         "test_chmod::test_chmod_recursive_symlink_combinations",
         "test_chmod::test_chmod_recursive_symlink_during_traversal",
@@ -268,11 +272,12 @@
       "applet": true
     },
     "chown": {
-      "pass": 7,
-      "fail": 27,
+      "pass": 8,
+      "fail": 26,
       "skip": 0,
       "excluded": 0,
       "failing": [
+        "test_chown::test_big_p",
         "test_chown::test_chown_dot_separator_warning",
         "test_chown::test_chown_fail_id",
         "test_chown::test_chown_file_notexisting",
@@ -283,11 +288,9 @@
         "test_chown::test_chown_only_colon",
         "test_chown::test_chown_only_group",
         "test_chown::test_chown_only_group_id",
-        "test_chown::test_chown_only_group_id_nonexistent_group",
         "test_chown::test_chown_only_owner",
         "test_chown::test_chown_only_owner_colon",
         "test_chown::test_chown_only_user_id",
-        "test_chown::test_chown_only_user_id_nonexistent_user",
         "test_chown::test_chown_owner_group",
         "test_chown::test_chown_owner_group_id",
         "test_chown::test_chown_owner_group_mix",
@@ -304,28 +307,16 @@
       "applet": true
     },
     "chroot": {
-      "pass": 0,
-      "fail": 21,
+      "pass": 12,
+      "fail": 9,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_chroot::test_chroot",
-        "test_chroot::test_chroot_command_not_found_error",
-        "test_chroot::test_chroot_command_permission_denied_error",
-        "test_chroot::test_chroot_extra_arg",
-        "test_chroot::test_chroot_retains_uid_gid",
-        "test_chroot::test_chroot_skip_chdir",
         "test_chroot::test_chroot_skip_chdir_nonexistent",
         "test_chroot::test_chroot_skip_chdir_not_root",
-        "test_chroot::test_chroot_userspec_does_not_set_gid_with_uid",
-        "test_chroot::test_chroot_userspec_unknown_uid",
-        "test_chroot::test_default_shell",
         "test_chroot::test_enter_chroot_fails",
         "test_chroot::test_invalid_arg",
-        "test_chroot::test_invalid_user",
-        "test_chroot::test_invalid_user_spec",
         "test_chroot::test_missing_operand",
-        "test_chroot::test_multiple_group_args",
         "test_chroot::test_no_such",
         "test_chroot::test_not_a_directory",
         "test_chroot::test_preference_of_userspec",
@@ -731,8 +722,8 @@
       "applet": false
     },
     "comm": {
-      "pass": 41,
-      "fail": 6,
+      "pass": 40,
+      "fail": 7,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -740,14 +731,15 @@
         "test_comm::test_comm_anonymous_pipes",
         "test_comm::test_comm_arg_error",
         "test_comm::test_comm_write_error_dev_full",
+        "test_comm::test_locale_collation",
         "test_comm::test_read_error",
         "test_comm::unintuitive_default_behavior_1"
       ],
       "applet": true
     },
     "cp": {
-      "pass": 51,
-      "fail": 335,
+      "pass": 58,
+      "fail": 328,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -843,6 +835,7 @@
         "test_cp::test_cp_arg_backup_with_dest_a_symlink",
         "test_cp::test_cp_arg_backup_with_dest_a_symlink_to_source",
         "test_cp::test_cp_arg_backup_with_other_args",
+        "test_cp::test_cp_arg_force",
         "test_cp::test_cp_arg_interactive",
         "test_cp::test_cp_arg_interactive_update_overwrite_older",
         "test_cp::test_cp_arg_interactive_verbose",
@@ -889,7 +882,6 @@
         "test_cp::test_cp_backup_simple_allows_hardlink_under_another_name",
         "test_cp::test_cp_backup_simple_protect_source",
         "test_cp::test_cp_backup_simple_protect_source_regardless_of_spelling",
-        "test_cp::test_cp_block_device_no_permission",
         "test_cp::test_cp_cannot_create_regular_file",
         "test_cp::test_cp_cannot_create_regular_file_attributes_only",
         "test_cp::test_cp_char_device",
@@ -905,7 +897,6 @@
         "test_cp::test_cp_debug_default",
         "test_cp::test_cp_debug_default_empty_file_with_hole",
         "test_cp::test_cp_debug_default_less_than_512_bytes",
-        "test_cp::test_cp_debug_default_sparse_virtual_file",
         "test_cp::test_cp_debug_default_with_hole",
         "test_cp::test_cp_debug_default_without_hole",
         "test_cp::test_cp_debug_default_zero_sized_virtual_file",
@@ -925,7 +916,6 @@
         "test_cp::test_cp_debug_reflink_never_without_hole",
         "test_cp::test_cp_debug_sparse_always",
         "test_cp::test_cp_debug_sparse_always_reflink_auto",
-        "test_cp::test_cp_debug_sparse_always_sparse_virtual_file",
         "test_cp::test_cp_debug_sparse_auto",
         "test_cp::test_cp_debug_sparse_never",
         "test_cp::test_cp_debug_sparse_never_empty_file_with_hole",
@@ -937,7 +927,6 @@
         "test_cp::test_cp_debug_sparse_reflink",
         "test_cp::test_cp_deref",
         "test_cp::test_cp_deref_folder_to_folder",
-        "test_cp::test_cp_dest_no_permissions",
         "test_cp::test_cp_dir_vs_file",
         "test_cp::test_cp_directory_not_recursive",
         "test_cp::test_cp_duplicate_files",
@@ -976,7 +965,6 @@
         "test_cp::test_cp_no_such",
         "test_cp::test_cp_numbered_if_existing_backup_existing",
         "test_cp::test_cp_numbered_if_existing_backup_nil",
-        "test_cp::test_cp_one_file_system",
         "test_cp::test_cp_only_source_no_target",
         "test_cp::test_cp_overriding_arguments",
         "test_cp::test_cp_parents",
@@ -994,6 +982,7 @@
         "test_cp::test_cp_parents_with_permissions_copy_dir",
         "test_cp::test_cp_parents_with_permissions_copy_file",
         "test_cp::test_cp_preserve_all",
+        "test_cp::test_cp_preserve_directory_permissions_by_default",
         "test_cp::test_cp_preserve_invalid_rejected",
         "test_cp::test_cp_preserve_link_parses",
         "test_cp::test_cp_preserve_links_case_1",
@@ -1008,17 +997,12 @@
         "test_cp::test_cp_preserve_setuid_when_chown_succeeds",
         "test_cp::test_cp_preserve_timestamps",
         "test_cp::test_cp_preserve_xattr",
+        "test_cp::test_cp_preserve_xattr_readonly_source",
         "test_cp::test_cp_r_symlink",
-        "test_cp::test_cp_readonly_dest_with_existing_file",
         "test_cp::test_cp_readonly_dest_with_reflink",
-        "test_cp::test_cp_readonly_source_and_dest",
         "test_cp::test_cp_recurse_verbose_output",
         "test_cp::test_cp_recurse_verbose_output_with_symlink",
         "test_cp::test_cp_recurse_verbose_output_with_symlink_already_exists",
-        "test_cp::test_cp_recursive_block_device::case_1_recursive",
-        "test_cp::test_cp_recursive_block_device::case_2_archive",
-        "test_cp::test_cp_recursive_char_device::case_1_recursive",
-        "test_cp::test_cp_recursive_char_device::case_2_archive",
         "test_cp::test_cp_recursive_char_device_copy_contents",
         "test_cp::test_cp_recursive_char_device_no_permission::case_1_recursive",
         "test_cp::test_cp_recursive_char_device_no_permission::case_2_archive",
@@ -1061,6 +1045,7 @@
         "test_cp::test_cp_verbose_write_error_is_reported",
         "test_cp::test_cp_with_options_backup_and_rem_when_dest_is_symlink",
         "test_cp::test_cp_writable_special_file_permissions",
+        "test_cp::test_cp_xattr_failure_keeps_dest_contents",
         "test_cp::test_cp_zero_sized_virtual_file_contents",
         "test_cp::test_dir_perm_race_with_preserve_mode_and_ownership",
         "test_cp::test_dir_recursive_copy",
@@ -1187,8 +1172,8 @@
       "applet": true
     },
     "date": {
-      "pass": 25,
-      "fail": 141,
+      "pass": 23,
+      "fail": 143,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -1209,6 +1194,7 @@
         "test_date::test_date_empty_string_variations",
         "test_date::test_date_empty_tz_time",
         "test_date::test_date_error_echoes_input_verbatim",
+        "test_date::test_date_ethiopian_locale_calendar",
         "test_date::test_date_explicit_format_overrides_locale",
         "test_date::test_date_file_invalid_utf8_line",
         "test_date::test_date_file_invalid_utf8_line_continues",
@@ -1240,6 +1226,7 @@
         "test_date::test_date_input_hhmm_ampm",
         "test_date::test_date_input_trailing_tz_abbrev_rezones",
         "test_date::test_date_invalid_utf8_byte_rejected",
+        "test_date::test_date_iranian_locale_solar_hijri_calendar",
         "test_date::test_date_leap_year_arithmetic_overflow",
         "test_date::test_date_locale_c_uses_24_hour",
         "test_date::test_date_locale_en_us_vs_c_difference",
@@ -1248,6 +1235,7 @@
         "test_date::test_date_locale_fr_french",
         "test_date::test_date_locale_hour_c_locale",
         "test_date::test_date_locale_hour_en_us",
+        "test_date::test_date_locale_hu_hungarian",
         "test_date::test_date_locale_leading_zeros_en_us",
         "test_date::test_date_locale_timezone_included",
         "test_date::test_date_military_timezone_j_variations",
@@ -1278,16 +1266,16 @@
         "test_date::test_date_rfc_8601_hour",
         "test_date::test_date_rfc_8601_minute",
         "test_date::test_date_rfc_8601_second",
+        "test_date::test_date_set_echo_honors_format_and_utc",
+        "test_date::test_date_set_hyphen_prefixed_values",
         "test_date::test_date_set_invalid",
-        "test_date::test_date_set_valid",
-        "test_date::test_date_set_valid_2",
-        "test_date::test_date_set_valid_3",
-        "test_date::test_date_set_valid_4",
+        "test_date::test_date_set_permissions_error",
         "test_date::test_date_stdin_invalid_utf8_line",
         "test_date::test_date_strftime_case_flag_on_alt_ampm",
         "test_date::test_date_strftime_narrow_width_on_wide_default",
         "test_date::test_date_strftime_o_modifier",
         "test_date::test_date_string_human",
+        "test_date::test_date_thai_locale_solar_calendar",
         "test_date::test_date_tz",
         "test_date::test_date_tz_abbreviation_australian_timezones",
         "test_date::test_date_tz_abbreviation_dst_handling",
@@ -1331,14 +1319,13 @@
         "test_date::test_non_utf8_operands_are_octal_escaped",
         "test_date::test_relative_weekdays",
         "test_date::test_single_dash_as_date",
-        "test_date::test_single_dash_as_date_string",
-        "test_date::test_write_error"
+        "test_date::test_single_dash_as_date_string"
       ],
       "applet": true
     },
     "dd": {
-      "pass": 4,
-      "fail": 148,
+      "pass": 3,
+      "fail": 149,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -1417,6 +1404,7 @@
         "test_dd::test_invalid_file_arg_gnu_compatibility",
         "test_dd::test_invalid_flag_arg_gnu_compatibility",
         "test_dd::test_invalid_number_arg_gnu_compatibility",
+        "test_dd::test_iso8859_1_case_conversion",
         "test_dd::test_large_bs_does_not_fault_in_copy_buffer",
         "test_dd::test_lcase_ascii_to_ucase_ascii",
         "test_dd::test_locale_aware_case_conversion",
@@ -1905,15 +1893,14 @@
       "applet": true
     },
     "factor": {
-      "pass": 21,
-      "fail": 4,
+      "pass": 22,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_factor::factors_many_primes_of_similar_size_completely",
         "test_factor::short_circuit_write_error",
-        "test_factor::test_invalid_negative_arg_shows_tip",
-        "test_factor::test_parallel"
+        "test_factor::test_invalid_negative_arg_shows_tip"
       ],
       "applet": true
     },
@@ -2092,8 +2079,8 @@
       "applet": true
     },
     "head": {
-      "pass": 58,
-      "fail": 15,
+      "pass": 59,
+      "fail": 14,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -2106,7 +2093,6 @@
         "test_head::test_head_non_utf8_paths",
         "test_head::test_read_backwards_bytes_proc_fs_modules",
         "test_head::test_read_backwards_bytes_proc_fs_version",
-        "test_head::test_read_backwards_bytes_sys_kernel_profiling",
         "test_head::test_read_backwards_lines_proc_fs_modules",
         "test_head::test_validate_stdin_offset_bytes",
         "test_head::test_validate_stdin_offset_lines",
@@ -2132,23 +2118,21 @@
       "applet": true
     },
     "id": {
-      "pass": 13,
-      "fail": 6,
+      "pass": 15,
+      "fail": 4,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_id::test_id_multiple_users",
         "test_id::test_id_multiple_users_non_existing",
-        "test_id::test_id_name",
         "test_id::test_id_pretty_print_password_record",
-        "test_id::test_id_pretty_print_suid_binary",
         "test_id::test_id_single_user"
       ],
       "applet": true
     },
     "install": {
-      "pass": 3,
-      "fail": 118,
+      "pass": 4,
+      "fail": 117,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -2249,9 +2233,7 @@
         "test_install::test_install_preserve_timestamps",
         "test_install::test_install_proc_self_mem_as_dst",
         "test_install::test_install_replaces_special_target",
-        "test_install::test_install_root_combined",
         "test_install::test_install_same_file",
-        "test_install::test_install_set_owner_nonexistent_uid_and_gid",
         "test_install::test_install_setuid_mode_applied_without_chown",
         "test_install::test_install_several_directories",
         "test_install::test_install_suffix_without_backup_option",
@@ -2265,6 +2247,7 @@
         "test_install::test_install_target_new_file_with_owner",
         "test_install::test_install_target_without_splice_support",
         "test_install::test_install_twice_dir",
+        "test_install::test_install_unprivileged_option_u_skips_chown",
         "test_install::test_install_will_not_overwrite_just_created",
         "test_install::test_invalid_arg",
         "test_install::test_multiple_mode_arguments_override_not_error",
@@ -2391,7 +2374,6 @@
         "test_ls::test_ls_align_unquoted",
         "test_ls::test_ls_allocation_size",
         "test_ls::test_ls_block_size_override",
-        "test_ls::test_ls_capabilities",
         "test_ls::test_ls_color",
         "test_ls::test_ls_color_clear_to_eol",
         "test_ls::test_ls_color_does_not_make_quoted_names_align_as_unquoted",
@@ -2403,11 +2385,12 @@
         "test_ls::test_ls_hyperlink_symlink_target_handling",
         "test_ls::test_ls_ignore_hide",
         "test_ls::test_ls_invalid_block_size_in_env_var",
-        "test_ls::test_ls_io_errors",
         "test_ls::test_ls_long",
         "test_ls::test_ls_long_format",
+        "test_ls::test_ls_long_stat_failure_is_reported",
         "test_ls::test_ls_long_symlink_color",
         "test_ls::test_ls_long_total_size",
+        "test_ls::test_ls_order_time_breaks_ties_by_name",
         "test_ls::test_ls_perm_io_errors",
         "test_ls::test_ls_proc_self_fd_no_errors",
         "test_ls::test_ls_sort_dot_first_utf8_locale",
@@ -2472,8 +2455,8 @@
       "applet": false
     },
     "mkdir": {
-      "pass": 25,
-      "fail": 22,
+      "pass": 23,
+      "fail": 24,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -2482,6 +2465,8 @@
         "test_mkdir::diagnostics::test_snippet_points_into_the_second_clause",
         "test_mkdir::test_empty_argument",
         "test_mkdir::test_invalid_arg",
+        "test_mkdir::test_mkdir_acl",
+        "test_mkdir::test_mkdir_acl_inheritance_with_restrictive_mask",
         "test_mkdir::test_mkdir_control_characters",
         "test_mkdir::test_mkdir_explicit_mode_with_umask",
         "test_mkdir::test_mkdir_explicit_mode_zero",
@@ -2525,8 +2510,8 @@
       "applet": false
     },
     "mknod": {
-      "pass": 0,
-      "fail": 14,
+      "pass": 1,
+      "fail": 13,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -2541,7 +2526,6 @@
         "test_mknod::test_mknod_invalid_arg",
         "test_mknod::test_mknod_invalid_mode",
         "test_mknod::test_mknod_mode_comma_separated",
-        "test_mknod::test_mknod_mode_permissions",
         "test_mknod::test_mknod_overflow_major_minor",
         "test_mknod::test_mknod_version"
       ],
@@ -2615,8 +2599,8 @@
       "applet": true
     },
     "mv": {
-      "pass": 37,
-      "fail": 110,
+      "pass": 36,
+      "fail": 111,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -2629,7 +2613,6 @@
         "test_mv::inter_partition_copying::test_mv_symlink_to_hardlinked_sibling_across_partitions",
         "test_mv::inter_partition_copying::test_mv_unlinks_dest_symlink",
         "test_mv::inter_partition_copying::test_mv_unlinks_dest_symlink_error_message",
-        "test_mv::test_move_should_not_fallback_to_copy",
         "test_mv::test_mv_arg_backup_arg_first",
         "test_mv::test_mv_arg_interactive_skipped",
         "test_mv::test_mv_arg_interactive_skipped_vin",
@@ -2662,6 +2645,7 @@
         "test_mv::test_mv_backup_simple_guard_ignores_spelling",
         "test_mv::test_mv_broken_symlink_to_another_fs",
         "test_mv::test_mv_cross_device_broken_symlink_preserved",
+        "test_mv::test_mv_cross_device_dir_xattr_preserved",
         "test_mv::test_mv_cross_device_file_symlink_preserved",
         "test_mv::test_mv_cross_device_permission_denied",
         "test_mv::test_mv_cross_device_refuses_planted_symlink_dest",
@@ -2729,6 +2713,7 @@
         "test_mv::test_mv_update_with_dest_ending_with_slash",
         "test_mv::test_mv_verbose",
         "test_mv::test_mv_verbose_directory_recursive",
+        "test_mv::test_mv_xattr_enotsup_silent",
         "test_mv::test_suffix_without_backup_option"
       ],
       "applet": true
@@ -2821,8 +2806,8 @@
       "applet": false
     },
     "nohup": {
-      "pass": 1,
-      "fail": 12,
+      "pass": 0,
+      "fail": 13,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -2831,6 +2816,7 @@
         "test_nohup::test_nohup_creates_output_in_cwd",
         "test_nohup::test_nohup_existing_output_file_keeps_permissions",
         "test_nohup::test_nohup_exit_codes",
+        "test_nohup::test_nohup_fallback_to_home",
         "test_nohup::test_nohup_help_and_version",
         "test_nohup::test_nohup_multiple_args_and_flags",
         "test_nohup::test_nohup_new_output_file_is_owner_only",
@@ -3396,8 +3382,8 @@
       "applet": true
     },
     "rm": {
-      "pass": 17,
-      "fail": 58,
+      "pass": 16,
+      "fail": 59,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -3417,6 +3403,7 @@
         "test_rm::test_inaccessible_dir",
         "test_rm::test_inaccessible_dir_interactive",
         "test_rm::test_inaccessible_dir_nonempty",
+        "test_rm::test_inaccessible_dir_recursive",
         "test_rm::test_interactive",
         "test_rm::test_interactive_always",
         "test_rm::test_interactive_never",
@@ -3445,8 +3432,8 @@
         "test_rm::test_prompt_write_protected_yes",
         "test_rm::test_prompts",
         "test_rm::test_recursive_interactive",
-        "test_rm::test_recursive_remove_unreadable_subdir",
         "test_rm::test_recursive_symlink_loop",
+        "test_rm::test_remove_inaccessible_dir",
         "test_rm::test_rm_directory_not_executable",
         "test_rm::test_rm_directory_not_writable",
         "test_rm::test_rm_recursive_very_deep_hierarchy",
@@ -3699,8 +3686,8 @@
       "applet": true
     },
     "sort": {
-      "pass": 34,
-      "fail": 183,
+      "pass": 30,
+      "fail": 187,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -3835,6 +3822,10 @@
         "test_sort::test_mixed_floats_ints_chars_numeric_unique",
         "test_sort::test_month_default",
         "test_sort::test_month_default2",
+        "test_sort::test_month_sort_french_embedded_blanks",
+        "test_sort::test_month_sort_french_locale",
+        "test_sort::test_month_sort_hungarian_locale",
+        "test_sort::test_month_sort_japanese_locale",
         "test_sort::test_month_stable",
         "test_sort::test_months_dedup",
         "test_sort::test_months_whitespace",
@@ -3911,8 +3902,8 @@
       "applet": true
     },
     "stat": {
-      "pass": 2,
-      "fail": 49,
+      "pass": 4,
+      "fail": 47,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -3923,8 +3914,6 @@
         "test_stat::test_correct_metadata",
         "test_stat::test_date",
         "test_stat::test_error_message_preserves_non_utf8_filename",
-        "test_stat::test_format_created_seconds",
-        "test_stat::test_format_created_time",
         "test_stat::test_format_hyphen_leading_as_separate_arg",
         "test_stat::test_fs_default_format_block_size_label",
         "test_stat::test_fs_default_format_quotes_name",
@@ -4075,8 +4064,8 @@
       "applet": true
     },
     "tail": {
-      "pass": 96,
-      "fail": 71,
+      "pass": 98,
+      "fail": 69,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -4138,8 +4127,6 @@
         "test_tail::test_n0_with_follow",
         "test_tail::test_no_skip_after_error",
         "test_tail::test_obsolete_encoding_unix",
-        "test_tail::test_permission_denied",
-        "test_tail::test_permission_denied_multiple",
         "test_tail::test_retry8",
         "test_tail::test_retry9",
         "test_tail::test_retry_descriptor_detects_truncation",
@@ -4155,12 +4142,11 @@
       "applet": true
     },
     "tee": {
-      "pass": 23,
-      "fail": 11,
+      "pass": 25,
+      "fail": 9,
       "skip": 0,
       "excluded": 1,
       "failing": [
-        "test_tee::linux_only::test_permission_denied_clean",
         "test_tee::linux_only::test_pipe_error_default",
         "test_tee::linux_only::test_pipe_error_exit",
         "test_tee::linux_only::test_pipe_error_warn",
@@ -4168,15 +4154,14 @@
         "test_tee::linux_only::test_space_error_exit",
         "test_tee::linux_only::test_space_error_exit_nopipe",
         "test_tee::linux_only::test_tee_no_more_writeable_2",
-        "test_tee::test_readonly",
         "test_tee::test_tee_continues_after_short_read",
         "test_tee::test_tee_output_not_buffered"
       ],
       "applet": true
     },
     "test": {
-      "pass": 97,
-      "fail": 18,
+      "pass": 101,
+      "fail": 14,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -4189,10 +4174,6 @@
         "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
         "test_test::test_bracket_syntax_version",
         "test_test::test_file_is_itself",
-        "test_test::test_file_is_not_readable",
-        "test_test::test_file_is_not_writable",
-        "test_test::test_file_not_owned_by_egid",
-        "test_test::test_file_not_owned_by_euid",
         "test_test::test_hard_link_is_same_file",
         "test_test::test_invalid_utf8_integer_compare",
         "test_test::test_parenthesized_string_comparison",
@@ -4738,8 +4719,8 @@
     }
   },
   "totals": {
-    "pass": 2186,
-    "fail": 3788,
+    "pass": 2205,
+    "fail": 3769,
     "skip": 0,
     "excluded": 4
   }

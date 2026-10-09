@@ -16,9 +16,10 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   [`native-env.sh`](native-env.sh).
 - The release `xsh` and `xsht` binaries built successfully with mold.
   `run-gnu.sh prepare` completed for GNU 9.12; the generated config enables
-  ACL, capability, and Linux xattr support. No compatibility test suite has
-  been run in this resume yet, so refresh the committed baselines before
-  measuring lane changes.
+  ACL, capability, and Linux xattr support. The native uutils baseline has
+  been refreshed to **2,205 / 5,974 passing**, with 4 excluded tests. The
+  pinned GNU 9.12 baseline run is in progress; refresh that report before
+  measuring GNU differential changes.
 - Spawned lanes for this resume use GPT-6 Luna at xhigh effort only. The
   existing entries in [`CLAIMS.md`](CLAIMS.md) remain reserved until merged
   or explicitly released.
