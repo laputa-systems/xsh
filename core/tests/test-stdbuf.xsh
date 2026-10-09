@@ -12,6 +12,18 @@ proc stdbuf_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Resul
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
 
+proc stdbuf_run_paths(ctx: TestContext, args: List[Path]) [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "stdbuf-raw")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/stdbuf.xsh"
+  let argv = [ctx.xsh_bin, script].extend(args)
+  let status = process.run(
+    process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err),
+  )?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
+}
+
 test test_stdbuf_passes_command_status_and_arguments { |ctx|
   let echoed = stdbuf_run(ctx, ["-o0", "echo", "-n", "buffered"])?
   assert echoed.status == 0
@@ -19,6 +31,18 @@ test test_stdbuf_passes_command_status_and_arguments { |ctx|
   assert echoed.stderr == ""
 
   assert stdbuf_run(ctx, ["-e0", "sh", "-c", "exit 7"])?.status == 7
+}
+
+test test_stdbuf_preserves_non_utf8_command_arguments { |ctx|
+  let root = test.temp_dir(ctx, name: "stdbuf-raw-file")?
+  let name = Path.parse_bytes(bytes.concat([root.bytes(), b"/raw-\xff-name"]))?
+  name.write("raw argument passed")
+
+  let args = [Path.parse_bytes(b"-o0")?, Path.parse_bytes(b"cat")?, name]
+  let result = stdbuf_run_paths(ctx, args)?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "raw argument passed", result.stdout
+  assert result.stderr == "", result.stderr
 }
 
 test test_stdbuf_accepts_line_and_size_modes { |ctx|

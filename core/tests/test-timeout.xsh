@@ -12,6 +12,45 @@ proc timeout_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Resu
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
 
+proc timeout_signal_run(ctx: TestContext, signal: Str) [fs, process, time, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "timeout-signal")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/timeout.xsh"
+  let action = if signal == "INT" { "forwarded-int" } else { "forwarded-term" }
+  let command = f"trap 'printf {action}; exit 0' {signal}; while :; do sleep 1; done"
+  let argv = [ctx.xsh_bin.display(), script.display(), "60", "sh", "-c", command]
+  let child = spawn process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+    b"",
+    out,
+    err,
+    new_session: true,
+  )?
+
+  time.sleep(100ms)
+  process.kill(child.pid, signal)?
+  let waited = process.wait_timeout([child], time.millis(3000))?
+  if waited == null {
+    process.kill(child.pid, "KILL")?
+  }
+
+  let completed = if let result = waited {
+    result
+  } else {
+    process.wait_any([child])?
+  }
+
+  Ok({
+    status: completed.status.shell_code()?,
+    stdout: out.read_bytes()?.utf8() ?? "",
+    stderr: err.read_text()?,
+  })
+}
+
 test test_timeout_command_status_and_arguments { |ctx|
   assert timeout_run(ctx, ["5", "true"])?.status == 0
   assert timeout_run(ctx, ["5", "false"])?.status == 1
@@ -80,6 +119,16 @@ test test_timeout_verbose_signal_and_help { |ctx|
   let help = timeout_run(ctx, ["--help"])?
   assert help.status == 0
   assert help.stdout.starts_with("Usage: timeout [OPTION] DURATION COMMAND [ARG]...")
+}
+
+test test_timeout_forwards_external_interrupts { |ctx|
+  let interrupted = timeout_signal_run(ctx, "INT")?
+  assert interrupted.status == 130, interrupted.stderr
+  assert interrupted.stdout == "forwarded-int", interrupted.stdout
+
+  let terminated = timeout_signal_run(ctx, "TERM")?
+  assert terminated.status == 143, terminated.stderr
+  assert terminated.stdout == "forwarded-term", terminated.stdout
 }
 
 test test_timeout_rejects_invalid_time_and_signal { |ctx|

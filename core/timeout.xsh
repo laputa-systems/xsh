@@ -156,10 +156,70 @@ proc command_status(command: Str) [fs, process] -> Int {
   }
 }
 
+proc wait_child(child: ProcessHandle, milliseconds: Int, forever: Bool) [process, error] -> Result[Int?] {
+  var remaining = milliseconds
+
+  while forever or remaining > 0 {
+    let slice = if forever or remaining > 50 { 50 } else { remaining }
+    let waited = process.wait_timeout([child], time.millis(slice))?
+    if let completion = waited {
+      return completion.status.shell_code()?
+    }
+
+    if ! forever {
+      remaining -= slice
+    }
+  }
+
+  null
+}
+
 proc report_signal(verbose: Bool, signal: Str, command: Str) [process, env] {
   if verbose {
     gnu.error(f"sending signal {signal} to command {gnu.quote(command)}")
   }
+}
+
+proc forward_signal_to_child(signal: Str) [process, error] {
+  match process.current_pid() {
+    Ok(current_pid) => {
+      match process.group_id(current_pid) {
+        Ok(current_group) => {
+          match process.list() {
+            Ok(children) => {
+              for child in children {
+                if child.parent_pid == current_pid {
+                  match process.group_id(child.pid) {
+                    Ok(child_group) => {
+                      if child_group == current_group {
+                        let _ = process.kill(child.pid, signal)
+                      } else {
+                        let _ = process.kill_group(child_group, signal)
+                      }
+                    }
+                    Err(_) => return
+                  }
+                }
+              }
+            }
+            Err(_) => return
+          }
+        }
+        Err(_) => return
+      }
+    }
+    Err(_) => return
+  }
+}
+
+on SIGINT [process, error] {
+  forward_signal_to_child("INT")?
+  exit 130
+}
+
+on SIGTERM [process, error] {
+  forward_signal_to_child("TERM")?
+  exit 143
 }
 
 proc signal_child(pid: Int, use_group: Bool, signal: Str) [process] {
@@ -239,50 +299,52 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
     new_session: ! opts.foreground,
   )
   let child = spawn timeout_plan?
-  let initial = if timed.zero {
-    process.wait_any([child])?
-  } else {
-    let waited = process.wait_timeout([child], time.millis(timed.milliseconds))?
+  let initial = wait_child(child, timed.milliseconds, timed.zero)?
+  if let status = initial {
+    exit status
+  }
 
-    if let completion = waited {
-      exit completion.status.shell_code()?
-    }
+  report_signal(opts.verbose, timeout_signal.name, command)
+  signal_child(child.pid, ! opts.foreground, timeout_signal.name)
 
-    report_signal(opts.verbose, timeout_signal.name, command)
-    signal_child(child.pid, ! opts.foreground, timeout_signal.name)
+  if grace != null {
+    let grace_time = grace ?? {milliseconds: 0, zero: true}
 
-    if grace != null {
-      let grace_time = grace ?? {milliseconds: 0, zero: true}
-
-      if grace_time.zero {
-        report_signal(opts.verbose, "KILL", command)
-        signal_child(child.pid, ! opts.foreground, "KILL")
-        let completed = process.wait_any([child])?
+    if grace_time.zero {
+      report_signal(opts.verbose, "KILL", command)
+      signal_child(child.pid, ! opts.foreground, "KILL")
+      let completed = wait_child(child, 0, true)?
+      if let status = completed {
         exit if opts.preserve_status {
-          completed.status.shell_code()?
+          status
         } else {
           if timeout_signal.number == 0 { 137 } else { 124 }
         }
       }
+      exit 125
+    }
 
-      let after_signal = process.wait_timeout([child], time.millis(grace_time.milliseconds))?
-      if let completion = after_signal {
-        exit if opts.preserve_status { completion.status.shell_code()? } else { 124 }
-      }
+    let after_signal = wait_child(child, grace_time.milliseconds, false)?
+    if let status = after_signal {
+      exit if opts.preserve_status { status } else { 124 }
+    }
 
-      report_signal(opts.verbose, "KILL", command)
-      signal_child(child.pid, ! opts.foreground, "KILL")
-      let completed = process.wait_any([child])?
+    report_signal(opts.verbose, "KILL", command)
+    signal_child(child.pid, ! opts.foreground, "KILL")
+    let completed = wait_child(child, 0, true)?
+    if let status = completed {
       exit if opts.preserve_status {
-        completed.status.shell_code()?
+        status
       } else {
         if timeout_signal.number == 0 { 137 } else { 124 }
       }
     }
-
-    let completed = process.wait_any([child])?
-    exit if opts.preserve_status { completed.status.shell_code()? } else { 124 }
+    exit 125
   }
 
-  exit initial.status.shell_code()?
+  let completed = wait_child(child, 0, true)?
+  if let status = completed {
+    exit if opts.preserve_status { status } else { 124 }
+  }
+  exit 125
 }
