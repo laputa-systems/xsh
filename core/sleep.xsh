@@ -106,6 +106,15 @@ pure interval_seconds(text: Str) -> Float? {
 }
 
 proc main(...argv: List[Str]) [process, env, time, error, io] {
+  # Standalone sleep keeps GNU's default signal termination behavior; the
+  # interpreter's general handlers exist to clean up shell-owned resources.
+  if process.signal_action("TERM")? != "ignore" {
+    process.set_signal_action("TERM", "default")?
+  }
+  if process.signal_action("INT")? != "ignore" {
+    process.set_signal_action("INT", "default")?
+  }
+
   let opts: SleepOptions = cli.applet(
     argv,
     {

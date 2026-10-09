@@ -4039,6 +4039,15 @@ fn process_module() -> ModuleSig {
             ),
         ),
         (
+            "inherited_signal_action",
+            sig(
+                vec![param("signal", Type::Str)],
+                result(Type::Str),
+                false,
+                RuntimeOp::ProcessInheritedSignalAction,
+            ),
+        ),
+        (
             "set_signal_action",
             sig(
                 vec![param("signal", Type::Str), param("action", Type::Str)],

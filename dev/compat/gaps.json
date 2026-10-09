@@ -1,9 +1,67 @@
 {
   "comment": "Known semantic gaps per utility, each a short sentence naming the option or behavior. Lanes update their own utilities.",
   "utilities": {
+    "arch": [
+      "test_arch::test_arch_help expects uutils' 'Determine architecture name for current machine' wording; GNU coreutils 9.12 prints 'Print machine architecture', which XSH follows."
+    ],
+    "base32": [
+      "test_base32::test_wrap_no_arg expects clap's missing-value diagnostic; XSH rejects -w/--wrap without COLS using GNU's option-argument diagnostic."
+    ],
+    "base64": [
+      "test_base64::test_wrap_no_arg expects clap's missing-value diagnostic; XSH rejects -w/--wrap without COLS using GNU's option-argument diagnostic."
+    ],
+    "chgrp": [
+      "test_chgrp::test_chgrp_non_utf8_paths needs raw pathname argv support; the applet receives lossy text before it can call filesystem APIs.",
+      "test_chgrp::test_help, test_help_ref, test_ref_help, and test_missing_files assert uutils/clap help and required-argument blocks; the applet uses the shared GNU help and missing-operand diagnostics."
+    ],
+    "chmod": [
+      "The seven test_chmod::diagnostics cases require uutils source carets and pipe-specific snippets for symbolic-mode errors; cli.applet exposes plain GNU diagnostics without the source spans.",
+      "test_chmod::test_chmod_non_utf8_paths and test_chmod::test_gnu_special_filenames need raw pathname argv rather than lossy Str conversion.",
+      "Recursive symlink, dangling-target, duplicate-link, preserve-root, and keep-setgid cases expose differences in traversal and lchmod semantics; the two dangling/recursive option combinations, permission-error cases, and too-large modes also need GNU-specific handling.",
+      "test_chmod::test_chmod_colored_output and test_gnu_special_options plus test_gnu_usage_matrix cover color, special options, and parser combinations not fully implemented."
+    ],
+    "chown": [
+      "test_chown::test_chown_fail_id expects uutils identity lookup and invalid-ID diagnostics; test_chown::test_chown_no_dereference_symlink_to_dir and test_chown::test_chown_symlink_two_links_same_dir expose no-dereference and duplicate-symlink behavior gaps.",
+      "test_chown::test_chown_reference_file_with_non_utf8_path needs byte-preserving argv for the --reference pathname."
+    ],
+    "chroot": [
+      "test_chroot::test_missing_operand expects clap's required-argument block; GNU coreutils 9.12 reports a missing operand with its standard help hint, which XSH follows."
+    ],
+    "cksum": [
+      "`test_cksum::debug_flag::test_debug_flag`, `test_debug_with_algorithms`, and `test_debug_with_glibc_tunables` need native x86 SIMD feature detection and GLIBC_TUNABLES reporting."
+    ],
+    "comm": [
+      "`test_comm::test_locale_collation` needs locale-aware collation; `test_comm::check_order` and `test_comm::unintuitive_default_behavior_1` differ in which unsorted operand is reported; `test_comm::test_comm_arg_error` asserts clap wording instead of GNU extra-operand wording."
+    ],
+    "cp": [
+      "The `--parents` path now creates ancestor directories, reports GNU verbose directory copies, restores preserved ancestor modes/timestamps after copying, and rejects recursive source paths ending in `..`; all 14 `test_cp::test_cp_parents*` cases pass.",
+      "The exact non-UTF-8 operand blockers are `test_cp::test_cp_recursive_non_utf8_source`, `test_cp::test_non_utf8_dest`, `test_cp::test_non_utf8_src`, and `test_cp::test_non_utf8_target`; `xsh` rejects non-UTF-8 argv before the script can inspect `cli.argv_bytes()`.",
+      "`test_cp::test_cp_preserve_xattr`, `test_cp::test_cp_preserve_xattr_readonly_source`, and `test_cp::test_cp_xattr_failure_keeps_dest_contents` need native xattr list/get/set/remove APIs so `--preserve=xattr` can copy attributes and report partial failures.",
+      "`test_cp::test_cp_stream_to_full` and `test_cp::test_cp_zero_sized_virtual_file_contents` need a streaming path read/write API: `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` and `/proc/version` as empty, and the applet needs write errors from `/dev/full`.",
+      "`test_cp::test_cp_reflink_always_failure` needs the native clone operation to expose the underlying reflink failure for special-file sources/destinations; the current `fs.copy_file` rejects non-regular sources before attempting the clone and the script's special-file path bypasses it.",
+      "Several failures assert uutils-only clap behavior that GNU 9.12 does not provide: `test_cp::test_cp_debug_*`, `test_cp::test_progressbar_inexistent_source`, `test_cp::test_cp_arg_no_clobber*` and `test_cp::test_cp_arg_interactive_verbose_clobber` require `--debug`/`--progress`; `test_cp::test_cp_reflink_never`, `test_cp::test_cp_sparse_always_empty`, and `test_cp::test_cp_preserve_all` accept abbreviated enum values; `test_cp::test_cp_reflink_bad` checks clap's invalid-value wording; and `test_cp::test_cp_no_file` expects clap's missing-required-argument block. Keep GNU option and diagnostic behavior.",
+      "Further script behavior remains in same-file and link handling (`test_cp::same_file::*`, `test_cp::link_deref::test_cp_symlink_as_source_with_link_and_no_deref`, `test_cp::test_cp_mode_hardlink_no_dereference`, `test_cp::test_cp_no_deref_preserve_with_deref_keeps_hardlinks`, `test_cp::test_cp_preserve_links_case_*`, `test_cp::test_cp_preserve_hardlink_attributes_in_directory`, `test_cp::test_remove_destination_with_destination_being_a_hardlink_to_source`, `test_cp::test_copy_same_symlink_no_dereference_dangling`, `test_cp::test_copy_symlink_overwrite`, `test_cp::test_copy_through_dangling_symlink_no_dereference_permissions`, `test_cp::test_copy_through_just_created_symlink`, and `test_cp::test_symlink_mode_overwrite`), recursive directory/self-copy and verbose-path handling (`test_cp::test_copy_dir_preserve_permissions_inaccessible_file`, `test_cp::test_copy_directory_to_itself_disallowed`, `test_cp::test_copy_nested_directory_to_itself_disallowed`, `test_cp::test_cp_current_directory_to_itself_disallowed`, `test_cp::test_cp_circular_symbolic_links_in_directory`, `test_cp::test_cp_seen_file`, `test_cp::test_cp_recurse_verbose_output*`, and `test_cp::test_cp_verbose_preserved_link_to_dir`), and destination/error/metadata handling (`test_cp::test_cp_archive_on_nonexistent_file`, `test_cp::test_cp_arg_interactive*`, `test_cp::test_cp_arg_no_target_directory`, `test_cp::test_cp_attributes_only_dest_open_error`, `test_cp::test_cp_backup_no_clobber_conflicting_options`, `test_cp::test_cp_backup_simple_protect_source*`, `test_cp::test_cp_cannot_create_regular_file*`, `test_cp::test_cp_f_i_verbose_non_writeable_destination_*`, `test_cp::test_cp_multiple_files_with_*`, `test_cp::test_cp_no_preserve_mode`, `test_cp::test_cp_no_such`, `test_cp::test_cp_duplicate_*`, `test_cp::test_cp_recursive_char_device_no_permission::*`, `test_cp::test_cp_update_older_interactive_prompt_*`, `test_cp::test_cp_preserve_directory_permissions_by_default`, `test_cp::test_no_preserve_mode_with_later_preserve`, `test_cp::test_preserve_attrs_overriding_2`, and `test_cp::test_cp_dir_vs_file`)."
+    ],
+    "csplit": [
+      "Remaining cases are repeated-pattern expansion (`test_csplit::repeat_everything`), line-number range matching (`test_csplit::test_line_num_range_with_up_to_match3`), and immediate stdout write errors (`test_csplit::test_csplit_dev_full_stdout`)."
+    ],
+    "cut": [
+      "The five remaining `test_cut::diagnostics::test_snippet_*` cases need source spans for field-list arguments so XSH can render uutils carets and help snippets; `cli.applet` currently emits the GNU plain diagnostic."
+    ],
+    "date": [
+      "French `%b` abbreviations retain glibc/GNU punctuation (`févr.`, `janv.`, `déc.`), while uutils' ICU-based locale expectations omit the trailing dot. Known residuals: `test_date::test_locale_abbreviated_month_names` and `test_date::test_locale_names_for_several_dates_in_one_run`; keep GNU-compatible output."
+    ],
+    "dd": [
+      "`test_dd::test_atoe_and_lcase`, `test_atoe_and_ucase`, `test_atoe_conv_spec`, `test_atoibm_and_lcase`, `test_atoibm_and_ucase`, `test_atoibm_conv_spec`, `test_etoa_and_lcase`, `test_etoa_and_ucase`, `test_etoa_conv_spec`, `test_iso8859_1_case_conversion`, `test_all_valid_ascii_ebcdic_ascii_roundtrip_conv_test`, `test_conv_ascii_implies_unblock` and `test_conv_ebcdic_implies_block` need the full ASCII/EBCDIC conversion tables and block/unblock semantics.",
+      "`iflag=direct`, `oflag=direct`, `iflag=directory`, `iflag=noatime`, `iflag=nocache`, `oflag=nocreat`, FIFO partial reads, non-rewinding stdin, delayed readers, and large buffer sizing need typed fd/stream open, read, write, seek, and advice APIs; see the corresponding `test_dd::test_iflag_*`, `test_oflag_*`, `test_noatime_*`, `test_nocache_*`, `test_nocreat_*`, `test_reading_partial_blocks_from_fifo*`, `test_stdin_stdout_not_rewound_even_when_connected_to_seekable_file`, `test_sync_delayed_reader`, and `test_large_bs_does_not_fault_in_copy_buffer` IDs.",
+      "Block and final transfer statistics after partial-write failures remain wrong (`test_dd::test_block_stats_are_reported_when_a_write_fails`, `test_dd::test_stats_are_reported_when_a_write_fails`, and `test_dd::test_final_stats_*`); several diagnostics also need GNU's usage/help phrase and argument spans (`test_dd::diagnostics::*`, `test_dd::help`, `test_dd::test_invalid_file_arg_gnu_compatibility`, and `test_dd::test_invalid_flag_arg_gnu_compatibility`)."
+    ],
     "df": [
       "test_df::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size and test_df::diagnostics::test_snippet_underlines_a_zero_block_size expect source caret spans for -B values; cli.applet reports the correct plain GNU error but does not expose the argument span needed to render the snippets.",
       "test_df::test_type_option_with_file assumes /dev has a different filesystem type from the test fixture cwd; both are tmpfs on this host, so -t correctly processes /dev instead of producing the expected no-file-systems error."
+    ],
+    "dir": [
+      "test_dir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size needs the CLI argument span for a source caret; test_dir::test_version expects uutils version output instead of the shared XSH/GNU version line."
     ],
     "du": [
       "test_du::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size, test_du::diagnostics::test_snippet_points_inside_an_attached_block_size, test_du::diagnostics::test_snippet_skips_the_sign_of_a_threshold_with_an_unknown_unit, test_du::diagnostics::test_snippet_underlines_a_zero_block_size and test_du::diagnostics::test_snippet_underlines_the_sign_of_a_rejected_threshold require option-value spans from cli.applet to render source carets; the emitted GNU diagnostics are plain text.",
@@ -15,113 +73,8 @@
       "test_du::test_du_repeated_time, test_du::test_du_repeated_time_style, test_du::test_du_time, test_du::test_du_time_atime, test_du::test_du_time_directory, test_du::test_du_time_directory_nested, test_du::test_du_time_style_empty and test_du::test_invalid_time_style require --time/--time-style plus timestamps and time-style validation; these options are explicitly rejected.",
       "test_du::test_du_repeated_v expects uutils' repeatable -v option; GNU du has no verbose option, and this applet rejects it rather than accepting an option without behavior."
     ],
-    "stat": [
-      "test_stat::test_correct_metadata, test_stat::test_multi_files, test_stat::test_normal_format, test_stat::test_symlinks and test_stat::test_terse_normal_format expose signed 64-bit inode/device values where GNU formats the corresponding fields as unsigned; the fs.stat record needs unsigned metadata fields or formatting helpers. test_stat::test_mount_point_width_and_alignment also needs stat's printf flag/width parsing.",
-      "test_stat::test_precision_splits_multibyte_char_in_value, test_stat::test_printf, test_stat::test_printf_atime_ctime_mtime_precision, test_stat::test_printf_bel_etc, test_stat::test_printf_octal_1, test_stat::test_printf_octal_2, test_stat::test_printf_octal_out_of_range, test_stat::test_timestamp_format, test_stat::test_timestamp_format_before_epoch, test_stat::test_timestamp_format_before_epoch_truncation and test_stat::test_timestamp_format_preserves_nanoseconds require GNU's printf flags, byte precision, C/octal/hex escapes and precision-aware timestamp directives.",
-      "test_stat::diagnostics::test_plain_message_when_stderr_is_a_pipe, test_stat::diagnostics::test_snippet_points_at_the_failing_directive, test_stat::diagnostics::test_snippet_points_inside_a_printf_format, test_stat::test_invalid_directive_after_multibyte_char and test_stat::test_printf_invalid_directive fail because invalid format directives are not validated; test_stat::test_printf_incomplete_hex also needs GNU's incomplete-escape warning. Rendering uutils carets additionally needs format argument spans from cli.applet.",
-      "test_stat::test_quoted_name_directive, test_stat::test_quoting_style_env, test_stat::test_quoting_style_invalid_env and test_stat::test_quoting_style_locale require %Qn and the full QUOTING_STYLE behavior, including invalid-value diagnostics and locale-sensitive quoting.",
-      "test_stat::test_error_message_preserves_non_utf8_filename and test_stat::test_no_such_directory_message currently receive generic fs.stat runtime errors with status 3 instead of GNU per-file diagnostics with status 1; the first also needs byte-preserving argv in the applet. test_stat::test_without_argument expects uutils/clap's required-argument block, while the applet follows GNU's missing-operand wording.",
-      "test_stat::test_stdin_pipe_fifo1, test_stat::test_stdin_pipe_fifo2 and test_stat::test_stdin_redirect require stat '-' to query the metadata of standard input; this needs an fs.fstat-stdin primitive rather than reading stdin bytes."
-    ],
-    "sleep": [
-      "test_sleep::test_sleep_no_argument expects clap's required-argument block; GNU coreutils 9.12 emits `sleep: missing operand` and the help hint, which XSH follows.",
-      "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab, case_3_only_newline and test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs expect uutils' `$'...'` quoting. GNU coreutils 9.12 prints C escapes inside single quotes (confirmed with the pinned GNU binary); `gnu.quote_value` matches GNU, so these three failures are intentional policy differences.",
-      "test_sleep::test_invalid_duration::case_7_single_quote is excluded because uutils wraps an apostrophe argument in double quotes while GNU 9.12 escapes it within single quotes; XSH follows GNU."
-    ],
-    "nohup": [
-      "test_nohup::test_nohup_help_and_version checks help and version output but its version regex requires `nohup (uutils coreutils) VERSION`; XSH uses the shared `nohup (XSH core) VERSION` convention, while GNU uses `(GNU coreutils)`."
-    ],
-    "stdbuf": [
-      "test_stdbuf::diagnostics::test_plain_message_when_stderr_is_a_pipe and test_stdbuf::test_stdbuf_invalid_mode_fails expect uutils's usage hint for an invalid mode; GNU prints the plain `stdbuf: invalid mode ...` diagnostic without a Try line. test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit and test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value additionally require option-value spans/carets, which cli.applet does not expose.",
-      "test_stdbuf::test_stdbuf_no_buffer_option_fails and test_stdbuf::test_stdbuf_no_command_fails_with_125 assert clap's required-argument block. GNU distinguishes `you must specify a buffering mode option` from `missing operand`; the applet follows GNU and exits 125.",
-      "test_stdbuf::test_stdbuf_non_utf8_paths needs byte-preserving argv for command arguments; applet argv is `List[Str]` and cannot represent those path bytes.",
-      "test_stdbuf::test_stdbuf_tmpdir_is_private and test_stdbuf::test_tmpdir_with_colon_is_rejected assert uutils's temporary extraction and validation of an embedded libstdbuf. This applet preloads the installed native libstdbuf from system paths, so it creates no TMPDIR library directory and TMPDIR's colon is not part of LD_PRELOAD."
-    ],
-    "timeout": [
-      "test_timeout::test_forward_sigint_to_child and test_timeout::test_terminate_child_on_receiving_terminate require timeout to catch a signal sent to its own process and forward it to COMMAND; signal hooks are restricted to entry scripts, so an applet module cannot install the needed handler. Request a module-callable process signal hook/forwarding API.",
-      "test_timeout::test_hex_timeout_ending_with_d and test_timeout::test_preserve_status run the staged XSH `sleep` applet; it does not terminate on the timeout's process-group signal and eventually exits 0. The native test with `/usr/bin/sleep` returns 124/143 as expected. Request corrected signal delivery/status for dispatched child processes.",
-      "test_timeout::test_invalid_multi_byte_characters and test_timeout::test_invalid_time_interval::case_2_single_quote expect literal characters; under LC_ALL=C GNU quotes invalid interval bytes with C escapes and escapes apostrophes, which the applet follows.",
-      "test_timeout::test_zero_timeout places `-s0 -k0` after DURATION. GNU stops option parsing at DURATION and tries to run `-s0` as COMMAND (status 127); the uutils test expects option permutation."
-    ],
-    "ls": [
-      "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
-      "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
-      "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
-      "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
-      "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
-      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
-      "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
-    ],
-    "ln": [
-      "test_ln::test_ln_non_utf8_paths and test_ln::test_symlink_target_dir_non_utf8_source_name need raw pathname arguments to reach applets. `cli.argv_bytes()` preserves argv bytes, but XSH has no `Path`-from-`Bytes` constructor or byte-path overloads for `fs.link`/`fs.symlink`; request those shared APIs.",
-      "test_ln::test_hard_logical_dir_fail never runs its first `ln -s d link-to-dir` command: the test constructs a command with `.args()` but does not execute it. The later source is therefore missing, and GNU 9.12 correctly reports `failed to access 'link-to-dir'`.",
-      "test_ln::test_ln_seen_file expects uutils' `will not overwrite just-created` diagnostic without `-f`; GNU 9.12 reports the ordinary `failed to create hard link 'c/f': File exists` for the occupied destination, which XSH follows.",
-      "test_ln::test_symlink_missing_destination expects uutils' missing-destination diagnostic without the usage hint. GNU 9.12 emits `missing destination file operand after ...` followed by the `Try 'ln --help'` hint, which XSH follows.",
-      "test_ln::test_symlink_verbose expects uutils' `(backup: '...')` annotation. GNU 9.12 prints `'backup' ~ 'destination' -> 'source'`, which XSH follows.",
-      "`-d`, `-F`, and `--directory` are explicitly rejected because this Linux applet does not support directory hard links; they are never silently ignored."
-    ],
-    "stty": [
-      "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
-      "Size suffixes of GNU `integer_arg` (`1k`, `2b`) are not accepted; such arguments are `invalid integer argument`.",
-      "Fractional speeds (`9600.49`) are accepted as the uutils tests require; GNU 9.4 on the host rejects them as `invalid ispeed`.",
-      "Arguments after `--` are settings; GNU 9.4 silently ignores them.",
-      "A terminal that keeps other state than requested (a pty drops parity and sizes other than 8 bits) is reported as `unable to perform all requested operations`; GNU 9.4 reports `Invalid argument` for some of those from tcsetattr itself, which `unix.set_tty_attrs` does not raise.",
-      "`-g` prints 32 control characters like glibc, but the kernel keeps 19: a saved state that sets later ones is applied and then refused as GNU does."
-    ],
-    "more": [
-      "Commands are read a line at a time (RETURN ends each): there is no unbuffered or timed stdin read, so single-key paging, Ctrl-C handling and window-resize redraws are missing (request: an `io.stdin_read`/`unix.read_fd` primitive).",
-      "A pipe on standard input is printed in full instead of paged: the commands would have to come from /dev/tty, which has no read primitive.",
-      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv): test_more::test_more_non_utf8_paths.",
-      "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
-      "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
-    ],
-    "who": [
-      "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
-      "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
-      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
-      "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
-    ],
-    "users": [
-      "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written."
-    ],
-    "uptime": [
-      "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
-      "`-p` and `-s` are procps options (not GNU coreutils); they are implemented because the uutils tests exercise them.",
-      "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`."
-    ],
-    "pinky": [
-      "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
-      "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
-      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
-    ],
-    "od": [
-      "Floating output formats (`-f`, `-F`, `-t f*`, `-t bfloat16`) remain unsupported without typed byte-to-float decoding; failing IDs include `test_od::test_bfloat16_compact`, `test_f16`, `test_f32`, `test_f64`, `test_fb`, `test_fh`, `test_float16_compact`, `test_tf_default_is_double` and `test_tf_explicit_float_still_uses_4_bytes`.",
-      "Unsigned 64-bit decimal formatting is unavailable (`test_od::test_max_uint`); bounded stdin reads, seek-aware offsets and duplicate suppression also remain incomplete (`test_od::test_read_bytes`, `test_skip_bytes_past_end_message`, `test_skip_bytes_past_end_of_seekable_device`, `test_suppress_duplicates`, `test_od_invalid_bytes`, and the wide ASCII dump/alignment tests).",
-      "GNU diagnostic snippets need CLI argument spans (`test_od::diagnostics::*`); `test_od::test_hyphen_leading_byte_count_is_reported_as_invalid` and some multi-format row alignment still differ."
-    ],
-    "base32": [
-      "test_base32::test_wrap_no_arg expects clap's missing-value diagnostic; XSH rejects -w/--wrap without COLS using GNU's option-argument diagnostic."
-    ],
-    "base64": [
-      "test_base64::test_wrap_no_arg expects clap's missing-value diagnostic; XSH rejects -w/--wrap without COLS using GNU's option-argument diagnostic."
-    ],
-    "arch": [
-      "test_arch::test_arch_help expects uutils' 'Determine architecture name for current machine' wording; GNU coreutils 9.12 prints 'Print machine architecture', which XSH follows."
-    ],
-    "cksum": [
-      "`test_cksum::debug_flag::test_debug_flag`, `test_debug_with_algorithms`, and `test_debug_with_glibc_tunables` need native x86 SIMD feature detection and GLIBC_TUNABLES reporting."
-    ],
-    "cp": [
-      "The `--parents` path now creates ancestor directories, reports GNU verbose directory copies, restores preserved ancestor modes/timestamps after copying, and rejects recursive source paths ending in `..`; all 14 `test_cp::test_cp_parents*` cases pass.",
-      "The exact non-UTF-8 operand blockers are `test_cp::test_cp_recursive_non_utf8_source`, `test_cp::test_non_utf8_dest`, `test_cp::test_non_utf8_src`, and `test_cp::test_non_utf8_target`; `xsh` rejects non-UTF-8 argv before the script can inspect `cli.argv_bytes()`.",
-      "`test_cp::test_cp_preserve_xattr`, `test_cp::test_cp_preserve_xattr_readonly_source`, and `test_cp::test_cp_xattr_failure_keeps_dest_contents` need native xattr list/get/set/remove APIs so `--preserve=xattr` can copy attributes and report partial failures.",
-      "`test_cp::test_cp_stream_to_full` and `test_cp::test_cp_zero_sized_virtual_file_contents` need a streaming path read/write API: `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` and `/proc/version` as empty, and the applet needs write errors from `/dev/full`.",
-      "`test_cp::test_cp_reflink_always_failure` needs the native clone operation to expose the underlying reflink failure for special-file sources/destinations; the current `fs.copy_file` rejects non-regular sources before attempting the clone and the script's special-file path bypasses it.",
-      "Several failures assert uutils-only clap behavior that GNU 9.12 does not provide: `test_cp::test_cp_debug_*`, `test_cp::test_progressbar_inexistent_source`, `test_cp::test_cp_arg_no_clobber*` and `test_cp::test_cp_arg_interactive_verbose_clobber` require `--debug`/`--progress`; `test_cp::test_cp_reflink_never`, `test_cp::test_cp_sparse_always_empty`, and `test_cp::test_cp_preserve_all` accept abbreviated enum values; `test_cp::test_cp_reflink_bad` checks clap's invalid-value wording; and `test_cp::test_cp_no_file` expects clap's missing-required-argument block. Keep GNU option and diagnostic behavior.",
-      "Further script behavior remains in same-file and link handling (`test_cp::same_file::*`, `test_cp::link_deref::test_cp_symlink_as_source_with_link_and_no_deref`, `test_cp::test_cp_mode_hardlink_no_dereference`, `test_cp::test_cp_no_deref_preserve_with_deref_keeps_hardlinks`, `test_cp::test_cp_preserve_links_case_*`, `test_cp::test_cp_preserve_hardlink_attributes_in_directory`, `test_cp::test_remove_destination_with_destination_being_a_hardlink_to_source`, `test_cp::test_copy_same_symlink_no_dereference_dangling`, `test_cp::test_copy_symlink_overwrite`, `test_cp::test_copy_through_dangling_symlink_no_dereference_permissions`, `test_cp::test_copy_through_just_created_symlink`, and `test_cp::test_symlink_mode_overwrite`), recursive directory/self-copy and verbose-path handling (`test_cp::test_copy_dir_preserve_permissions_inaccessible_file`, `test_cp::test_copy_directory_to_itself_disallowed`, `test_cp::test_copy_nested_directory_to_itself_disallowed`, `test_cp::test_cp_current_directory_to_itself_disallowed`, `test_cp::test_cp_circular_symbolic_links_in_directory`, `test_cp::test_cp_seen_file`, `test_cp::test_cp_recurse_verbose_output*`, and `test_cp::test_cp_verbose_preserved_link_to_dir`), and destination/error/metadata handling (`test_cp::test_cp_archive_on_nonexistent_file`, `test_cp::test_cp_arg_interactive*`, `test_cp::test_cp_arg_no_target_directory`, `test_cp::test_cp_attributes_only_dest_open_error`, `test_cp::test_cp_backup_no_clobber_conflicting_options`, `test_cp::test_cp_backup_simple_protect_source*`, `test_cp::test_cp_cannot_create_regular_file*`, `test_cp::test_cp_f_i_verbose_non_writeable_destination_*`, `test_cp::test_cp_multiple_files_with_*`, `test_cp::test_cp_no_preserve_mode`, `test_cp::test_cp_no_such`, `test_cp::test_cp_duplicate_*`, `test_cp::test_cp_recursive_char_device_no_permission::*`, `test_cp::test_cp_update_older_interactive_prompt_*`, `test_cp::test_cp_preserve_directory_permissions_by_default`, `test_cp::test_no_preserve_mode_with_later_preserve`, `test_cp::test_preserve_attrs_overriding_2`, and `test_cp::test_cp_dir_vs_file`)."
-    ],
-    "date": [
-      "French `%b` abbreviations retain glibc/GNU punctuation (`févr.`, `janv.`, `déc.`), while uutils' ICU-based locale expectations omit the trailing dot. Known residuals: `test_date::test_locale_abbreviated_month_names` and `test_date::test_locale_names_for_several_dates_in_one_run`; keep GNU-compatible output."
+    "echo": [
+      "test_echo::full_version_argument expects `echo (uutils coreutils) VERSION`; XSH uses the shared `echo (XSH core) VERSION` version convention."
     ],
     "env": [
       "`test_env::diagnostics::test_snippet_follows_the_string_when_it_is_glued_to_the_option`, `test_snippet_points_at_the_invalid_escape`, `test_snippet_points_at_the_unterminated_quote`, `test_snippet_points_at_the_whole_variable_reference`, and `test_snippet_points_into_the_right_argument` expect uutils source carets for `-S` parse errors. GNU coreutils 9.12 reports plain diagnostics, which XSH follows; a reusable XSH diagnostic mode would need original argv/value spans and a shared terminal caret renderer from `cli.applet`.",
@@ -134,116 +87,6 @@
       "`test_env::test_emoji_env_vars` needs an environment overlay whose name is a non-identifier string (`🎯_VAR`); the XSH environment scope accepts identifier names only. `test_env::test_non_utf8_env_vars` also needs raw environment values: `env.list()` currently requires UTF-8 and errors on `hello\\x80world`. Add byte-preserving environment name/value access and allow arbitrary valid byte names/values in child environment overlays.",
       "`test_env::test_ignore_signal_pipe_broken_pipe_regression` sets SIGPIPE to ignore in `env`, then invokes XSH `seq`; the XSH dispatcher resets SIGPIPE to default when the child starts, undoing the disposition that GNU 9.12 preserves through exec. Add a child signal-inheritance policy that lets an exec'd XSH dispatcher retain the caller's ignored dispositions."
     ],
-    "chroot": [
-      "test_chroot::test_missing_operand expects clap's required-argument block; GNU coreutils 9.12 reports a missing operand with its standard help hint, which XSH follows."
-    ],
-    "dd": [
-      "`test_dd::test_atoe_and_lcase`, `test_atoe_and_ucase`, `test_atoe_conv_spec`, `test_atoibm_and_lcase`, `test_atoibm_and_ucase`, `test_atoibm_conv_spec`, `test_etoa_and_lcase`, `test_etoa_and_ucase`, `test_etoa_conv_spec`, `test_iso8859_1_case_conversion`, `test_all_valid_ascii_ebcdic_ascii_roundtrip_conv_test`, `test_conv_ascii_implies_unblock` and `test_conv_ebcdic_implies_block` need the full ASCII/EBCDIC conversion tables and block/unblock semantics.",
-      "`iflag=direct`, `oflag=direct`, `iflag=directory`, `iflag=noatime`, `iflag=nocache`, `oflag=nocreat`, FIFO partial reads, non-rewinding stdin, delayed readers, and large buffer sizing need typed fd/stream open, read, write, seek, and advice APIs; see the corresponding `test_dd::test_iflag_*`, `test_oflag_*`, `test_noatime_*`, `test_nocache_*`, `test_nocreat_*`, `test_reading_partial_blocks_from_fifo*`, `test_stdin_stdout_not_rewound_even_when_connected_to_seekable_file`, `test_sync_delayed_reader`, and `test_large_bs_does_not_fault_in_copy_buffer` IDs.",
-      "Block and final transfer statistics after partial-write failures remain wrong (`test_dd::test_block_stats_are_reported_when_a_write_fails`, `test_dd::test_stats_are_reported_when_a_write_fails`, and `test_dd::test_final_stats_*`); several diagnostics also need GNU's usage/help phrase and argument spans (`test_dd::diagnostics::*`, `test_dd::help`, `test_dd::test_invalid_file_arg_gnu_compatibility`, and `test_dd::test_invalid_flag_arg_gnu_compatibility`)."
-    ],
-    "mkfifo": [
-      "test_mkfifo::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mkfifo: invalid mode`."
-    ],
-    "mknod": [
-      "test_mknod::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mknod: invalid mode`.",
-      "test_mknod::test_mknod_invalid_arg expects clap's `unexpected argument` wording; GNU coreutils 9.12 prints `mknod: unrecognized option` and its standard help hint."
-    ],
-    "pathchk": [
-      "test_pathchk::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `pathchk: missing operand` and its standard help hint."
-    ],
-    "pwd": [
-      "For a deleted working directory, GNU coreutils 9.12 reports `couldn't find directory entry in ‘..’ with matching i-node`; uutils' test_pwd::test_deleted_dir expects `failed to get current directory: No such file or directory`, which XSH follows."
-    ],
-    "readlink": [
-      "test_readlink::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `readlink: missing operand` and its standard help hint."
-    ],
-    "shred": [
-      "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet."
-    ],
-    "truncate": [
-      "test_truncate::diagnostics::test_snippet_counts_the_mode_character_before_the_size expects a source caret; GNU coreutils 9.12 prints `truncate: Invalid number` without a snippet.",
-      "test_truncate::test_error_filename_only expects clap's required-arguments block; GNU coreutils 9.12 prints `truncate: you must specify either '--size' or '--reference'` and its standard help hint."
-    ],
-    "mkdir": [
-      "ACL setup fails before the applet runs on this host filesystem: test_mkdir::test_mkdir_acl and test_mkdir::test_mkdir_acl_inheritance_with_restrictive_mask get EOPNOTSUPP (`Operation not supported`) while setting the ACL.",
-      "test_mkdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `mkdir: missing operand` and its standard help hint, which the applet follows.",
-      "test_mkdir::test_version_no_path expects the `mkdir (uutils coreutils)` branding; the applet uses GNU 9.12 version branding."
-    ],
-    "rmdir": [
-      "test_rmdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `rmdir: missing operand` and its standard help hint, which the applet follows."
-    ],
-    "touch": [
-      "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
-      "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
-    ],
-    "getty": [
-      "getty -h/--flow-control, -L/--local-line, -m/--extract-baud, -w/--wait-cr, and -t/--timeout are explicitly rejected because terminal line control, modem baud detection, CR-wait, and timed login are unavailable; these options match util-linux getty's host help, and uutils has no getty tests."
-    ],
-    "ifdown": [
-      "ifdown -v/--verbose is explicitly rejected because verbose hook and network-operation reporting is not implemented; ifupdown is not installed on the host for a native comparison, and uutils has no ifdown tests."
-    ],
-    "ifup": [
-      "ifup -v/--verbose is explicitly rejected because verbose hook and network-operation reporting is not implemented; ifupdown is not installed on the host for a native comparison, and uutils has no ifup tests."
-    ],
-    "pstree": [
-      "pstree -c/--compact-not, -l/--long, -t/--thread-names, -T/--hide-threads, and -h/-H highlighting are explicitly rejected because subtree controls, terminal-width-aware rendering, thread display, and process highlighting are unavailable; these flags match procps-ng pstree help, and uutils has no pstree tests."
-    ],
-    "sort": [
-      "GNU-style source carets, option suggestions, localized errors, and colorized help/errors are incomplete (`test_sort::diagnostics::*`, `test_sort::test_argument_suggestion*`, `test_sort::test_clap_localization_*`, `test_sort::test_*colors*`, and `test_sort::test_help_colors_*`). Caret spans require argv metadata from `cli.applet`.",
-      "Advanced `-k` field/character ranges, inherited modifiers, dictionary/nonprinting conflicts, and legacy `+POS/-POS` syntax remain incomplete (`test_sort::test_keys_*`, `test_sort::test_key_takes_one_arg`, `test_sort::test_does_not_inherit_key_settings`, `test_sort::test_dictionary_and_nonprinting_conflicts`, and `test_sort::test_legacy_plus_minus_*`).",
-      "Specialized ordering is incomplete: general numeric (`-g`), human numeric (`-h`), and random (`-R`) ordering are unsupported; numeric and month modes still fail float/NaN/grouping, trailing-invalid-character, stable/unique, and locale cases; version ordering has empty-line and stability gaps (`test_sort::test_g_*`, `test_sort::test_check_disorder_echoes_line_verbatim`, `test_sort::test_human_*`, `test_sort::test_random_*`, `test_sort::test_mixed_floats_*`, `test_sort::test_numeric_*`, `test_sort::test_month_*`, and `test_sort::test_version_*`).",
-      "Locale collation is bytewise only, so UTF-8 and Hungarian collation cases fail (`test_sort::test_consistent_sorting_with_i18n_collate`, `test_sort::test_locale_complex_utf8_sorting`, `test_sort::test_locale_empty_env_vars_hungarian_lc_collate`, and `test_sort::test_locale_interleaved_en_us_utf8`).",
-      "External sorting spill runs, compression programs, temporary-file privacy/cleanup on SIGINT, and non-UTF-8 `--files0-from` names are incomplete (`test_sort::test_ext_sort_as64_bailout`, `test_sort::test_compress*`, `test_sort::test_tmp_files_*`, and `test_sort::test_files0_from_non_utf8_content`). `--batch-size` validation and bounded in-memory merge passes are implemented and pass their focused tests.",
-      "`test_sort::test_merge_write_error_does_not_panic` returns status 2 for a failed merge write while uutils expects status 1. `--debug` still does not render key ranges and diagnostics such as `test_sort::test_debug_key_annotations` expect annotations beyond the current no-key and whole-line cases."
-    ],
-    "cut": [
-      "The five remaining `test_cut::diagnostics::test_snippet_*` cases need source spans for field-list arguments so XSH can render uutils carets and help snippets; `cli.applet` currently emits the GNU plain diagnostic."
-    ],
-    "fmt": [
-      "`test_fmt::test_fmt_knuth_plass_line_breaking` and `test_fmt::test_fmt_width_max_display_width` differ in paragraph line-breaking and display-width handling."
-    ],
-    "fold": [
-      "`test_fold::test_bytewise_read_from_pseudo_device` needs a streaming file-read API; `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` as empty."
-    ],
-    "paste": [
-      "`test_paste::test_dev_zero_closed_pipe` and `test_paste::test_dev_zero_write_error_dev_full` need streaming reads from zero-sized pseudo-files so `/dev/zero` produces bytes until the write failure."
-    ],
-    "pr": [
-      "`test_pr::test_invalid_expand_tab_arguments`, `test_pr::test_negative_expand_tabs`, `test_pr::test_number_width_too_large`, and `test_pr::test_zero_expand_tab_width` still differ in `-e` argument validation and width-boundary diagnostics."
-    ],
-    "printf": [
-      "The six remaining failures (`test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report`, `test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option`, `test_printf::diagnostics::test_snippet_points_at_the_bad_code_point`, `test_printf::diagnostics::test_snippet_points_at_the_bad_spec`, `test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape`, and `test_printf::diagnostics::test_snippet_points_inside_a_quoted_format`) require uutils' feature-gated terminal carets and Help snippets. GNU coreutils 9.12 `src/printf.c` emits plain stderr messages for invalid conversions and escape errors, as its `tests/printf/printf-cov.pl` checks; XSH keeps those GNU diagnostics. The native printf tests cover the plain messages and preserved output prefixes."
-    ],
-    "tr": [
-      "The six remaining `test_tr::diagnostics::test_snippet_*` cases need source spans for operand sets and repeat counts to render uutils carets; `cli.applet` currently emits GNU plain diagnostics."
-    ],
-    "comm": [
-      "`test_comm::test_locale_collation` needs locale-aware collation; `test_comm::check_order` and `test_comm::unintuitive_default_behavior_1` differ in which unsorted operand is reported; `test_comm::test_comm_arg_error` asserts clap wording instead of GNU extra-operand wording."
-    ],
-    "csplit": [
-      "Remaining cases are repeated-pattern expansion (`test_csplit::repeat_everything`), line-number range matching (`test_csplit::test_line_num_range_with_up_to_match3`), and immediate stdout write errors (`test_csplit::test_csplit_dev_full_stdout`)."
-    ],
-    "join": [
-      "`test_join::test_locale_collation` needs locale-aware collation. The two `test_join::diagnostics::test_snippet_*` failures need source spans for field-list and glued short-option arguments."
-    ],
-    "ptx": [
-      "`test_ptx::test_failed_write_is_reported` needs immediate stdout error propagation; `test_ptx::test_unicode_padding_alignment` differs in display-width padding for Unicode keywords."
-    ],
-    "shuf": [
-      "Range handling at unsigned integer boundaries and empty ranges is incomplete (`test_shuf::test_range_*` and `test_shuf::test_seed_*`); the seeded output contract also differs from uutils in `test_shuf::test_shuf_*` and `test_shuf::test_seed_*` cases.",
-      "`test_shuf::test_getrandom_fail` needs injectable `getrandom` error reporting. Invalid combinations of ranges, echo/input modes, and multiple input files remain incomplete (`test_shuf::test_shuf_echo_and_input_range_not_allowed`, `test_shuf::test_shuf_input_range_and_file_not_allowed`, and `test_shuf::test_shuf_multiple_*`). `test_shuf::write_errors_are_reported` needs immediate stdout write-error propagation."
-    ],
-    "split": [
-      "Two `test_split::diagnostics::test_snippet_*` cases need source spans for size arguments; `test_split::test_split_obs_lines_within_invalid_combined_shorts` and `test_split::test_split_separator_no_value` remain option-parsing differences."
-    ],
-    "tsort": [
-      "`test_tsort::test_only_one_input_file` expects a basename-only `Try 'tsort --help'` hint from the uutils adapter; XSH reports the actual multicall command phrase `xsh-uutests tsort`. GNU-stage direct invocation uses `tsort`."
-    ],
-    "uniq": [
-      "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling.",
-      "`test_uniq::uniq_basic_dedup_cases` expects clap's invalid `--all-repeated` value diagnostic; XSH follows GNU's diagnostic for the incompatible repeated-line mode."
-    ],
     "expr": [
       "The five remaining `test_expr::diagnostics::test_snippet_*` cases need source spans for argv operands so syntax and integer errors can render exact uutils carets and help text."
     ],
@@ -254,20 +97,193 @@
     "false": [
       "test_false::test_full expects 'false: No space left on device' when help or version output is sent to /dev/full; GNU coreutils 9.12 reports 'false: write error: No space left on device', which XSH follows."
     ],
-    "numfmt": [
-      "The 22 remaining `test_numfmt::diagnostics::test_snippet_*` and `test_numfmt::field_diagnostics::test_snippet_*` cases need source spans for formats, numeric fields, and option values to render uutils caret diagnostics.",
-      "`test_numfmt::test_numfmt_negative_treated_as_option` expects clap to reject a negative numeric operand as an option; XSH follows GNU operand parsing."
+    "fmt": [
+      "`test_fmt::test_fmt_knuth_plass_line_breaking` and `test_fmt::test_fmt_width_max_display_width` differ in paragraph line-breaking and display-width handling."
     ],
-    "seq": [
-      "The three remaining `test_seq::diagnostics::test_snippet_*` cases need source spans for format arguments. `test_seq::test_sigpipe_ignored_reports_write_error` needs the process API to preserve/query an inherited ignored SIGPIPE action and report the resulting write error."
+    "fold": [
+      "`test_fold::test_bytewise_read_from_pseudo_device` needs a streaming file-read API; `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` as empty."
     ],
-    "wc": [
-      "`test_wc::test_simd_respects_glibc_tunables` requires x86 SIMD feature detection and `GLIBC_TUNABLES` reporting for `--debug`."
+    "getty": [
+      "getty -h/--flow-control, -L/--local-line, -m/--extract-baud, -w/--wait-cr, and -t/--timeout are explicitly rejected because terminal line control, modem baud detection, CR-wait, and timed login are unavailable; these options match util-linux getty's host help, and uutils has no getty tests."
+    ],
+    "groups": [
+      "test_groups::test_groups_username and test_groups::test_groups_username_multiple need named-user group lookup; the available auth API only reports the current process groups."
     ],
     "head": [
       "`test_head::diagnostics::test_snippet_points_at_the_unknown_unit`, `test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling`, and `test_head::diagnostics::test_snippet_underlines_a_size_with_no_number` need argument spans from `cli.applet` to render uutils source carets.",
       "`test_head::test_head_invalid_num` expects a literal superscript-three in an invalid-count diagnostic; under `LC_ALL=C`, GNU coreutils 9.12 escapes its UTF-8 bytes as `\\302\\263`, which the applet follows.",
       "`test_head::test_read_backwards_bytes_proc_fs_modules` and `test_head::test_read_backwards_lines_proc_fs_modules` require `/proc/modules`, which is absent on this Linux host."
+    ],
+    "id": [
+      "test_id::test_id_single_user, test_id::test_id_multiple_users, test_id::test_id_multiple_users_non_existing, and test_id::test_id_pretty_print_password_record need NSS user/group lookup and complete password records; the current applet resolves only the current identity."
+    ],
+    "ifdown": [
+      "ifdown -v/--verbose is explicitly rejected because verbose hook and network-operation reporting is not implemented; ifupdown is not installed on the host for a native comparison, and uutils has no ifdown tests."
+    ],
+    "ifup": [
+      "ifup -v/--verbose is explicitly rejected because verbose hook and network-operation reporting is not implemented; ifupdown is not installed on the host for a native comparison, and uutils has no ifup tests."
+    ],
+    "install": [
+      "test_install::diagnostics::test_snippet_points_at_the_bad_operator needs the CLI argument span for a source caret.",
+      "test_install::test_install_basic_try_reflink needs GNU `--reflink=auto` behavior; test_install::test_install_no_target_directory_failing_usage_with_target_directory expects uutils usage formatting.",
+      "test_install::test_install_non_utf8_dir and test_install::test_install_non_utf8_paths need raw pathname argv for the source and destination paths."
+    ],
+    "join": [
+      "`test_join::test_locale_collation` needs locale-aware collation. The two `test_join::diagnostics::test_snippet_*` failures need source spans for field-list and glued short-option arguments."
+    ],
+    "kill": [
+      "test_kill::test_kill_accepts_sigio_alias_for_sending, test_kill::test_kill_with_default_signal, and test_kill::test_kill_with_lower_case_signal_name_old_form cover the SIGIO alias, the default signal selection, and lowercase legacy signal parsing."
+    ],
+    "link": [
+      "test_link::test_link_one_argument and test_link::test_link_three_arguments expect uutils usage blocks for missing and extra operands; the applet follows GNU operand diagnostics."
+    ],
+    "ln": [
+      "test_ln::test_ln_non_utf8_paths and test_ln::test_symlink_target_dir_non_utf8_source_name need raw pathname arguments to reach applets. `cli.argv_bytes()` preserves argv bytes, but XSH has no `Path`-from-`Bytes` constructor or byte-path overloads for `fs.link`/`fs.symlink`; request those shared APIs.",
+      "test_ln::test_hard_logical_dir_fail never runs its first `ln -s d link-to-dir` command: the test constructs a command with `.args()` but does not execute it. The later source is therefore missing, and GNU 9.12 correctly reports `failed to access 'link-to-dir'`.",
+      "test_ln::test_ln_seen_file expects uutils' `will not overwrite just-created` diagnostic without `-f`; GNU 9.12 reports the ordinary `failed to create hard link 'c/f': File exists` for the occupied destination, which XSH follows.",
+      "test_ln::test_symlink_missing_destination expects uutils' missing-destination diagnostic without the usage hint. GNU 9.12 emits `missing destination file operand after ...` followed by the `Try 'ln --help'` hint, which XSH follows.",
+      "test_ln::test_symlink_verbose expects uutils' `(backup: '...')` annotation. GNU 9.12 prints `'backup' ~ 'destination' -> 'source'`, which XSH follows.",
+      "`-d`, `-F`, and `--directory` are explicitly rejected because this Linux applet does not support directory hard links; they are never silently ignored."
+    ],
+    "logname": [
+      "test_logname::test_normal and test_logname::test_output_format need a `getlogin()` host API; no typed login-session lookup is available, so XSH reports `no login name` when the host has no login record.",
+      "test_logname::test_help expects uutils wording instead of the shared GNU help text."
+    ],
+    "ls": [
+      "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
+      "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
+      "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database (`%Z` shows the TZ abbreviation as written).",
+      "Terminal width comes from COLUMNS or 80: there is no TIOCGWINSZ query, so a terminal's real width is not used.",
+      "Stdout write failures are invisible (`ls: write error: ...`, exit 2: test_write_error, test_dired_write_error), see the runtime flush blocker in requests.md.",
+      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
+      "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
+    ],
+    "mkdir": [
+      "ACL setup fails before the applet runs on this host filesystem: test_mkdir::test_mkdir_acl and test_mkdir::test_mkdir_acl_inheritance_with_restrictive_mask get EOPNOTSUPP (`Operation not supported`) while setting the ACL.",
+      "test_mkdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `mkdir: missing operand` and its standard help hint, which the applet follows.",
+      "test_mkdir::test_version_no_path expects the `mkdir (uutils coreutils)` branding; the applet uses GNU 9.12 version branding."
+    ],
+    "mkfifo": [
+      "test_mkfifo::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mkfifo: invalid mode`."
+    ],
+    "mknod": [
+      "test_mknod::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mknod: invalid mode`.",
+      "test_mknod::test_mknod_invalid_arg expects clap's `unexpected argument` wording; GNU coreutils 9.12 prints `mknod: unrecognized option` and its standard help hint."
+    ],
+    "more": [
+      "Commands are read a line at a time (RETURN ends each): there is no unbuffered or timed stdin read, so single-key paging, Ctrl-C handling and window-resize redraws are missing (request: an `io.stdin_read`/`unix.read_fd` primitive).",
+      "A pipe on standard input is printed in full instead of paged: the commands would have to come from /dev/tty, which has no read primitive.",
+      "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv): test_more::test_more_non_utf8_paths.",
+      "test_more::test_invalid_file_perms needs a non-root user and the lowercase `permission denied` of Rust's ErrorKind; the applet prints strerror text (`Permission denied`) and root can read the file anyway.",
+      "-u strips underline and bold overstrikes; there is no terminfo standout mode to switch to otherwise."
+    ],
+    "mv": [
+      "The `test_mv::inter_partition_copying::*` cases need cross-device move support that preserves FIFOs, hard-link groups, ownership, xattrs, and symlink state; current copy/remove fallback does not cover these invariants.",
+      "Backup cases (`test_mv_backup_*`, `test_mv_same_*_backup_simple`) expose overwrite guards and conflicting backup-option semantics; `--exchange` cases need the rename-exchange operation and GNU diagnostics.",
+      "Interactive/no-clobber/force ordering, prompt behavior on unwritable destinations, verbose output, and directory-self/operand diagnostics remain incomplete across the `test_mv_*` cases.",
+      "Cross-device permission, planted-symlink, broken-symlink, and xattr cases need exact source/destination error handling and xattr preservation."
+    ],
+    "nice": [
+      "test_nice::test_adjustment_with_no_command_should_error and test_nice::test_nice_adj_negative cover missing-command diagnostics and negative priority adjustments; the latter also depends on host permission for lowering the nice value."
+    ],
+    "nohup": [
+      "test_nohup::test_nohup_help_and_version checks help and version output but its version regex requires `nohup (uutils coreutils) VERSION`; XSH uses the shared `nohup (XSH core) VERSION` convention, while GNU uses `(GNU coreutils)`."
+    ],
+    "numfmt": [
+      "The 22 remaining `test_numfmt::diagnostics::test_snippet_*` and `test_numfmt::field_diagnostics::test_snippet_*` cases need source spans for formats, numeric fields, and option values to render uutils caret diagnostics.",
+      "`test_numfmt::test_numfmt_negative_treated_as_option` expects clap to reject a negative numeric operand as an option; XSH follows GNU operand parsing."
+    ],
+    "od": [
+      "Floating output formats (`-f`, `-F`, `-t f*`, `-t bfloat16`) remain unsupported without typed byte-to-float decoding; failing IDs include `test_od::test_bfloat16_compact`, `test_f16`, `test_f32`, `test_f64`, `test_fb`, `test_fh`, `test_float16_compact`, `test_tf_default_is_double` and `test_tf_explicit_float_still_uses_4_bytes`.",
+      "Unsigned 64-bit decimal formatting is unavailable (`test_od::test_max_uint`); bounded stdin reads, seek-aware offsets and duplicate suppression also remain incomplete (`test_od::test_read_bytes`, `test_skip_bytes_past_end_message`, `test_skip_bytes_past_end_of_seekable_device`, `test_suppress_duplicates`, `test_od_invalid_bytes`, and the wide ASCII dump/alignment tests).",
+      "GNU diagnostic snippets need CLI argument spans (`test_od::diagnostics::*`); `test_od::test_hyphen_leading_byte_count_is_reported_as_invalid` and some multi-format row alignment still differ."
+    ],
+    "paste": [
+      "`test_paste::test_dev_zero_closed_pipe` and `test_paste::test_dev_zero_write_error_dev_full` need streaming reads from zero-sized pseudo-files so `/dev/zero` produces bytes until the write failure."
+    ],
+    "pathchk": [
+      "test_pathchk::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `pathchk: missing operand` and its standard help hint."
+    ],
+    "pinky": [
+      "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+      "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
+      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
+    ],
+    "pr": [
+      "`test_pr::test_invalid_expand_tab_arguments`, `test_pr::test_negative_expand_tabs`, `test_pr::test_number_width_too_large`, and `test_pr::test_zero_expand_tab_width` still differ in `-e` argument validation and width-boundary diagnostics."
+    ],
+    "printenv": [
+      "test_printenv::test_invalid_option_exit_code expects uutils option-error status; test_printenv::test_non_utf8_env_vars and test_printenv::test_non_utf8_value need byte-preserving environment names and values."
+    ],
+    "printf": [
+      "The six remaining failures (`test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report`, `test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option`, `test_printf::diagnostics::test_snippet_points_at_the_bad_code_point`, `test_printf::diagnostics::test_snippet_points_at_the_bad_spec`, `test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape`, and `test_printf::diagnostics::test_snippet_points_inside_a_quoted_format`) require uutils' feature-gated terminal carets and Help snippets. GNU coreutils 9.12 `src/printf.c` emits plain stderr messages for invalid conversions and escape errors, as its `tests/printf/printf-cov.pl` checks; XSH keeps those GNU diagnostics. The native printf tests cover the plain messages and preserved output prefixes."
+    ],
+    "pstree": [
+      "pstree -c/--compact-not, -l/--long, -t/--thread-names, -T/--hide-threads, and -h/-H highlighting are explicitly rejected because subtree controls, terminal-width-aware rendering, thread display, and process highlighting are unavailable; these flags match procps-ng pstree help, and uutils has no pstree tests."
+    ],
+    "ptx": [
+      "`test_ptx::test_failed_write_is_reported` needs immediate stdout error propagation; `test_ptx::test_unicode_padding_alignment` differs in display-width padding for Unicode keywords."
+    ],
+    "pwd": [
+      "For a deleted working directory, GNU coreutils 9.12 reports `couldn't find directory entry in ‘..’ with matching i-node`; uutils' test_pwd::test_deleted_dir expects `failed to get current directory: No such file or directory`, which XSH follows."
+    ],
+    "readlink": [
+      "test_readlink::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `readlink: missing operand` and its standard help hint."
+    ],
+    "rmdir": [
+      "test_rmdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `rmdir: missing operand` and its standard help hint, which the applet follows."
+    ],
+    "seq": [
+      "The three remaining `test_seq::diagnostics::test_snippet_*` cases need source spans for format arguments. `test_seq::test_sigpipe_ignored_reports_write_error` needs the process API to preserve/query an inherited ignored SIGPIPE action and report the resulting write error."
+    ],
+    "shred": [
+      "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet."
+    ],
+    "shuf": [
+      "Range handling at unsigned integer boundaries and empty ranges is incomplete (`test_shuf::test_range_*` and `test_shuf::test_seed_*`); the seeded output contract also differs from uutils in `test_shuf::test_shuf_*` and `test_shuf::test_seed_*` cases.",
+      "`test_shuf::test_getrandom_fail` needs injectable `getrandom` error reporting. Invalid combinations of ranges, echo/input modes, and multiple input files remain incomplete (`test_shuf::test_shuf_echo_and_input_range_not_allowed`, `test_shuf::test_shuf_input_range_and_file_not_allowed`, and `test_shuf::test_shuf_multiple_*`). `test_shuf::write_errors_are_reported` needs immediate stdout write-error propagation."
+    ],
+    "sleep": [
+      "test_sleep::test_sleep_no_argument expects clap's required-argument block; GNU coreutils 9.12 emits `sleep: missing operand` and the help hint, which XSH follows.",
+      "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab, case_3_only_newline and test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs expect uutils' `$'...'` quoting. GNU coreutils 9.12 prints C escapes inside single quotes (confirmed with the pinned GNU binary); `gnu.quote_value` matches GNU, so these three failures are intentional policy differences.",
+      "test_sleep::test_invalid_duration::case_7_single_quote is excluded because uutils wraps an apostrophe argument in double quotes while GNU 9.12 escapes it within single quotes; XSH follows GNU."
+    ],
+    "sort": [
+      "GNU-style source carets, option suggestions, localized errors, and colorized help/errors are incomplete (`test_sort::diagnostics::*`, `test_sort::test_argument_suggestion*`, `test_sort::test_clap_localization_*`, `test_sort::test_*colors*`, and `test_sort::test_help_colors_*`). Caret spans require argv metadata from `cli.applet`.",
+      "Advanced `-k` field/character ranges, inherited modifiers, dictionary/nonprinting conflicts, and legacy `+POS/-POS` syntax remain incomplete (`test_sort::test_keys_*`, `test_sort::test_key_takes_one_arg`, `test_sort::test_does_not_inherit_key_settings`, `test_sort::test_dictionary_and_nonprinting_conflicts`, and `test_sort::test_legacy_plus_minus_*`).",
+      "Specialized ordering is incomplete: general numeric (`-g`), human numeric (`-h`), and random (`-R`) ordering are unsupported; numeric and month modes still fail float/NaN/grouping, trailing-invalid-character, stable/unique, and locale cases; version ordering has empty-line and stability gaps (`test_sort::test_g_*`, `test_sort::test_check_disorder_echoes_line_verbatim`, `test_sort::test_human_*`, `test_sort::test_random_*`, `test_sort::test_mixed_floats_*`, `test_sort::test_numeric_*`, `test_sort::test_month_*`, and `test_sort::test_version_*`).",
+      "Locale collation is bytewise only, so UTF-8 and Hungarian collation cases fail (`test_sort::test_consistent_sorting_with_i18n_collate`, `test_sort::test_locale_complex_utf8_sorting`, `test_sort::test_locale_empty_env_vars_hungarian_lc_collate`, and `test_sort::test_locale_interleaved_en_us_utf8`).",
+      "External sorting spill runs, compression programs, temporary-file privacy/cleanup on SIGINT, and non-UTF-8 `--files0-from` names are incomplete (`test_sort::test_ext_sort_as64_bailout`, `test_sort::test_compress*`, `test_sort::test_tmp_files_*`, and `test_sort::test_files0_from_non_utf8_content`). `--batch-size` validation and bounded in-memory merge passes are implemented and pass their focused tests.",
+      "`test_sort::test_merge_write_error_does_not_panic` returns status 2 for a failed merge write while uutils expects status 1. `--debug` still does not render key ranges and diagnostics such as `test_sort::test_debug_key_annotations` expect annotations beyond the current no-key and whole-line cases."
+    ],
+    "split": [
+      "Two `test_split::diagnostics::test_snippet_*` cases need source spans for size arguments; `test_split::test_split_obs_lines_within_invalid_combined_shorts` and `test_split::test_split_separator_no_value` remain option-parsing differences."
+    ],
+    "stat": [
+      "test_stat::test_correct_metadata, test_stat::test_multi_files, test_stat::test_normal_format, test_stat::test_symlinks and test_stat::test_terse_normal_format expose signed 64-bit inode/device values where GNU formats the corresponding fields as unsigned; the fs.stat record needs unsigned metadata fields or formatting helpers. test_stat::test_mount_point_width_and_alignment also needs stat's printf flag/width parsing.",
+      "test_stat::test_precision_splits_multibyte_char_in_value, test_stat::test_printf, test_stat::test_printf_atime_ctime_mtime_precision, test_stat::test_printf_bel_etc, test_stat::test_printf_octal_1, test_stat::test_printf_octal_2, test_stat::test_printf_octal_out_of_range, test_stat::test_timestamp_format, test_stat::test_timestamp_format_before_epoch, test_stat::test_timestamp_format_before_epoch_truncation and test_stat::test_timestamp_format_preserves_nanoseconds require GNU's printf flags, byte precision, C/octal/hex escapes and precision-aware timestamp directives.",
+      "test_stat::diagnostics::test_plain_message_when_stderr_is_a_pipe, test_stat::diagnostics::test_snippet_points_at_the_failing_directive, test_stat::diagnostics::test_snippet_points_inside_a_printf_format, test_stat::test_invalid_directive_after_multibyte_char and test_stat::test_printf_invalid_directive fail because invalid format directives are not validated; test_stat::test_printf_incomplete_hex also needs GNU's incomplete-escape warning. Rendering uutils carets additionally needs format argument spans from cli.applet.",
+      "test_stat::test_quoted_name_directive, test_stat::test_quoting_style_env, test_stat::test_quoting_style_invalid_env and test_stat::test_quoting_style_locale require %Qn and the full QUOTING_STYLE behavior, including invalid-value diagnostics and locale-sensitive quoting.",
+      "test_stat::test_error_message_preserves_non_utf8_filename and test_stat::test_no_such_directory_message currently receive generic fs.stat runtime errors with status 3 instead of GNU per-file diagnostics with status 1; the first also needs byte-preserving argv in the applet. test_stat::test_without_argument expects uutils/clap's required-argument block, while the applet follows GNU's missing-operand wording.",
+      "test_stat::test_stdin_pipe_fifo1, test_stat::test_stdin_pipe_fifo2 and test_stat::test_stdin_redirect require stat '-' to query the metadata of standard input; this needs an fs.fstat-stdin primitive rather than reading stdin bytes."
+    ],
+    "stdbuf": [
+      "test_stdbuf::diagnostics::test_plain_message_when_stderr_is_a_pipe and test_stdbuf::test_stdbuf_invalid_mode_fails expect uutils's usage hint for an invalid mode; GNU prints the plain `stdbuf: invalid mode ...` diagnostic without a Try line. test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit and test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value additionally require option-value spans/carets, which cli.applet does not expose.",
+      "test_stdbuf::test_stdbuf_no_buffer_option_fails and test_stdbuf::test_stdbuf_no_command_fails_with_125 assert clap's required-argument block. GNU distinguishes `you must specify a buffering mode option` from `missing operand`; the applet follows GNU and exits 125.",
+      "test_stdbuf::test_stdbuf_non_utf8_paths needs byte-preserving argv for command arguments; applet argv is `List[Str]` and cannot represent those path bytes.",
+      "test_stdbuf::test_stdbuf_tmpdir_is_private and test_stdbuf::test_tmpdir_with_colon_is_rejected assert uutils's temporary extraction and validation of an embedded libstdbuf. This applet preloads the installed native libstdbuf from system paths, so it creates no TMPDIR library directory and TMPDIR's colon is not part of LD_PRELOAD."
+    ],
+    "stty": [
+      "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
+      "Size suffixes of GNU `integer_arg` (`1k`, `2b`) are not accepted; such arguments are `invalid integer argument`.",
+      "Fractional speeds (`9600.49`) are accepted as the uutils tests require; GNU 9.4 on the host rejects them as `invalid ispeed`.",
+      "Arguments after `--` are settings; GNU 9.4 silently ignores them.",
+      "A terminal that keeps other state than requested (a pty drops parity and sizes other than 8 bits) is reported as `unable to perform all requested operations`; GNU 9.4 reports `Invalid argument` for some of those from tcsetattr itself, which `unix.set_tty_attrs` does not raise.",
+      "`-g` prints 32 control characters like glibc, but the kernel keeps 19: a saved state that sets later ones is applied and then refused as GNU does."
+    ],
+    "tac": [
+      "Regex separator matching differs from GNU reverse scanning, especially for anchors and backreferences (`test_tac::test_regex*`, `test_tac::test_regular_*_anchor`, and `test_tac::test_unescaped_middle_anchor`); regex input is currently decoded as UTF-8.",
+      "`test_tac::test_non_utf8_regex_separator`, `test_tac::test_non_utf8_separator`, and `test_tac::test_tac_non_utf8_paths` require byte-preserving argv for separator and pathname operands."
     ],
     "tail": [
       "`test_tail::diagnostics::test_snippet_points_at_the_unknown_unit` needs argument spans from `cli.applet` to render uutils source carets.",
@@ -275,12 +291,64 @@
       "Follow-mode warning and stderr write-error handling remains incomplete (`test_tail::test_args_when_settings_check_warnings_follow_*`, `test_tail::test_failed_warning_write_is_reported`, and `test_tail::test_n0_with_follow`).",
       "`test_tail::test_obsolete_encoding_unix` requires raw argv bytes so invalid UTF-8 option bytes can be reported with GNU quoting."
     ],
-    "tac": [
-      "Regex separator matching differs from GNU reverse scanning, especially for anchors and backreferences (`test_tac::test_regex*`, `test_tac::test_regular_*_anchor`, and `test_tac::test_unescaped_middle_anchor`); regex input is currently decoded as UTF-8.",
-      "`test_tac::test_non_utf8_regex_separator`, `test_tac::test_non_utf8_separator`, and `test_tac::test_tac_non_utf8_paths` require byte-preserving argv for separator and pathname operands."
+    "test": [
+      "The seven `test_test::diagnostics::*` cases expect uutils-specific advice and source carets; the shared CLI parser only emits plain GNU diagnostics.",
+      "test_test::test_bracket_syntax_version expects the `[` version identity and test_test::test_parenthesized_string_comparison needs the uutils parenthesized-comparison behavior.",
+      "test_test::test_invalid_utf8_integer_compare needs byte-preserving operand handling for invalid UTF-8 integer input."
+    ],
+    "timeout": [
+      "test_timeout::test_invalid_multi_byte_characters and test_timeout::test_invalid_time_interval::case_2_single_quote expect literal characters; under LC_ALL=C GNU quotes invalid interval bytes with C escapes and escapes apostrophes, which the applet follows.",
+      "test_timeout::test_zero_timeout places `-s0 -k0` after DURATION. GNU stops option parsing at DURATION and tries to run `-s0` as COMMAND (status 127); the uutils test expects option permutation."
+    ],
+    "touch": [
+      "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
+      "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
+    ],
+    "tr": [
+      "The six remaining `test_tr::diagnostics::test_snippet_*` cases need source spans for operand sets and repeat counts to render uutils carets; `cli.applet` currently emits GNU plain diagnostics."
+    ],
+    "truncate": [
+      "test_truncate::diagnostics::test_snippet_counts_the_mode_character_before_the_size expects a source caret; GNU coreutils 9.12 prints `truncate: Invalid number` without a snippet.",
+      "test_truncate::test_error_filename_only expects clap's required-arguments block; GNU coreutils 9.12 prints `truncate: you must specify either '--size' or '--reference'` and its standard help hint."
+    ],
+    "tsort": [
+      "`test_tsort::test_only_one_input_file` expects a basename-only `Try 'tsort --help'` hint from the uutils adapter; XSH reports the actual multicall command phrase `xsh-uutests tsort`. GNU-stage direct invocation uses `tsort`."
+    ],
+    "tty": [
+      "test_tty::test_stdout_fail and test_tty::test_write_error need the standard-output write failure to be reported with GNU `tty: write error` diagnostics and the expected status."
+    ],
+    "uniq": [
+      "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling.",
+      "`test_uniq::uniq_basic_dedup_cases` expects clap's invalid `--all-repeated` value diagnostic; XSH follows GNU's diagnostic for the incompatible repeated-line mode."
     ],
     "unlink": [
       "`test_unlink::test_unlink_multiple_files` checks for uutils' `Usage` block on a second operand. XSH emits GNU's `unlink: extra operand` diagnostic and help hint, matching GNU coreutils 9.12. Non-UTF-8 operand paths are handled through raw argv bytes."
+    ],
+    "uptime": [
+      "Time zones: TZ is read as UTC or a fixed POSIX offset; an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+      "`-p` and `-s` are procps options (not GNU coreutils); they are implemented because the uutils tests exercise them.",
+      "test_uptime::test_uptime_with_extra_argument asserts clap wording (`unexpected value 'b'`); the applet prints GNU's `extra operand 'b'`."
+    ],
+    "users": [
+      "Sessions of the default utmp file are checked for live pids (`process.kill` with signal 0) as gnulib does; an explicit FILE is listed as written."
+    ],
+    "vdir": [
+      "test_vdir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size needs the CLI argument span for a source caret; test_vdir::test_version expects uutils version output instead of the shared XSH/GNU version line."
+    ],
+    "wc": [
+      "`test_wc::test_simd_respects_glibc_tunables` requires x86 SIMD feature detection and `GLIBC_TUNABLES` reporting for `--debug`."
+    ],
+    "who": [
+      "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
+      "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
+      "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
+      "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
+    ],
+    "sync": [
+      "GNU `tests/misc/sync.sh` expects `sync FIFO`, `sync -f FIFO`, and `sync -d FIFO` to block until timeout; `fs.fsync` opens FIFO operands in a blocking native filesystem call that the evaluator cannot interrupt to process TERM."
+    ],
+    "true": [
+      "`test_true::test_full` expects uutils' `true: No space left on device`; GNU 9.12 and XSH report `true: write error: No space left on device` when `--help` or `--version` output goes to `/dev/full`."
     ]
   }
 }

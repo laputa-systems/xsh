@@ -126,7 +126,8 @@ test test_sleep_help_and_version { |ctx|
   assert applet_run(ctx, ["--version"])?.stdout.starts_with("sleep ")
 }
 
-test test_sleep_process_uses_default_bus_and_segv_actions { |ctx|
+test test_sleep_process_uses_default_signal_actions { |ctx|
+  assert sleep_signal_exit_status(ctx, "TERM")? == 128 + 15
   assert sleep_signal_exit_status(ctx, "BUS")? == 128 + 7
   assert sleep_signal_exit_status(ctx, "SEGV")? == 128 + 11
 }

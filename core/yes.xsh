@@ -74,9 +74,17 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   let line = bytes.concat([join_words(raw_words(argv, cli.argv_bytes())), b"\n"])
   let fitting = 2097152 / line.len()
   let count = if fitting < 2 { 2 } else { fitting }
-  process.set_signal_action("PIPE", "default")?
-  process.set_signal_action("TERM", "default")?
-  process.set_signal_action("INT", "default")?
+  # Rust ignores SIGPIPE for its runtime; restore the utility default only
+  # when the caller did not already ignore it.
+  if process.inherited_signal_action("PIPE")? != "ignore" {
+    process.set_signal_action("PIPE", "default")?
+  }
+  if process.signal_action("TERM")? != "ignore" {
+    process.set_signal_action("TERM", "default")?
+  }
+  if process.signal_action("INT")? != "ignore" {
+    process.set_signal_action("INT", "default")?
+  }
   let chunk = repeated(line, count)
   while true {
     if let Err(failure) = io.write_stdout_bytes(chunk) {

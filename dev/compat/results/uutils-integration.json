@@ -678,13 +678,12 @@
       "applet": true
     },
     "kill": {
-      "pass": 47,
-      "fail": 3,
+      "pass": 48,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_kill::test_kill_accepts_sigio_alias_for_sending",
-        "test_kill::test_kill_with_default_signal",
         "test_kill::test_kill_with_lower_case_signal_name_old_form"
       ],
       "applet": true
@@ -1553,15 +1552,13 @@
       "applet": true
     },
     "timeout": {
-      "pass": 24,
-      "fail": 5,
+      "pass": 26,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_timeout::test_hex_timeout_ending_with_d",
         "test_timeout::test_invalid_multi_byte_characters",
         "test_timeout::test_invalid_time_interval::case_2_single_quote",
-        "test_timeout::test_preserve_status",
         "test_timeout::test_zero_timeout"
       ],
       "applet": true
@@ -1740,8 +1737,8 @@
     }
   },
   "totals": {
-    "pass": 5161,
-    "fail": 813,
+    "pass": 5164,
+    "fail": 810,
     "skip": 0,
     "excluded": 4
   }

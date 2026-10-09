@@ -18,7 +18,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdout, Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 pub const CAPTURE_LIMIT: usize = 16 * 1024 * 1024;
@@ -26,12 +26,83 @@ const CANCELLATION_GRACE: Duration = Duration::from_millis(150);
 pub(crate) const WAIT_POLL: Duration = Duration::from_millis(10);
 static PRIMARY_SIGNAL: AtomicI32 = AtomicI32::new(0);
 static ESCALATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
+static INHERITED_IGNORED_SIGNALS: AtomicU64 = AtomicU64::new(0);
+static CHILD_IGNORED_SIGNALS: AtomicU64 = AtomicU64::new(0);
+static INHERITED_SIGNAL_ACTIONS_CAPTURED: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "linux")]
+static INITIAL_SIGPIPE_IGNORED: AtomicI32 = AtomicI32::new(-1);
+
+#[cfg(target_os = "linux")]
+extern "C" fn capture_initial_sigpipe_action() {
+    let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+    let ignored = unsafe {
+        libc::sigaction(libc::SIGPIPE, std::ptr::null(), &mut current) == 0
+            && current.sa_sigaction == libc::SIG_IGN
+    };
+    INITIAL_SIGPIPE_IGNORED.store(i32::from(ignored), Ordering::Relaxed);
+}
+
+// Rust changes SIGPIPE to SIG_IGN before `main`. Capture the disposition in
+// libc's init array so XSH can distinguish its runtime setup from a caller's
+// inherited SIGPIPE ignore.
+#[cfg(target_os = "linux")]
+#[used]
+#[unsafe(link_section = ".init_array")]
+static CAPTURE_INITIAL_SIGPIPE_ACTION: extern "C" fn() = capture_initial_sigpipe_action;
+
+const CHILD_SIGNAL_RESET_SET: &[i32] = &[
+    libc::SIGHUP,
+    libc::SIGINT,
+    libc::SIGQUIT,
+    libc::SIGPIPE,
+    libc::SIGTERM,
+    libc::SIGTSTP,
+    libc::SIGTTIN,
+    libc::SIGTTOU,
+    libc::SIGUSR1,
+    libc::SIGUSR2,
+    libc::SIGALRM,
+    libc::SIGXCPU,
+    libc::SIGXFSZ,
+];
 
 pub fn install_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> {
-    SignalHandlerGuard::install_many(&[libc::SIGINT, libc::SIGTERM])
+    capture_inherited_ignored_signals()?;
+    let inherited_ignored = INHERITED_IGNORED_SIGNALS.load(Ordering::SeqCst);
+    let mut cancellation_signals = Vec::with_capacity(2);
+    for signal in [libc::SIGINT, libc::SIGTERM] {
+        if signal_mask(signal).is_none_or(|mask| inherited_ignored & mask == 0) {
+            cancellation_signals.push(signal);
+        }
+    }
+    let mut guard = SignalHandlerGuard::install_many(&cancellation_signals)?;
+    // A parent may explicitly ignore SIGCHLD. That disposition survives exec
+    // and makes the kernel reap our children before waitpid can collect them.
+    // A shell must own the child lifecycle itself, so restore SIGCHLD's normal
+    // disposition while the XSH process is running.
+    let previous = install_signal_handler(libc::SIGCHLD, libc::SIG_DFL)?;
+    guard.previous.push((libc::SIGCHLD, previous));
+
+    // Test runners and service managers can start a process with termination
+    // signals blocked. Installing a handler does not unblock them, so XSH
+    // would otherwise be unable to service TERM or INT while interpreting.
+    let mut unblocked: libc::sigset_t = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::sigemptyset(&mut unblocked);
+        libc::sigaddset(&mut unblocked, libc::SIGINT);
+        libc::sigaddset(&mut unblocked, libc::SIGTERM);
+    }
+    let result =
+        unsafe { libc::pthread_sigmask(libc::SIG_UNBLOCK, &unblocked, std::ptr::null_mut()) };
+    if result != 0 {
+        return Err(io::Error::from_raw_os_error(result));
+    }
+
+    Ok(guard)
 }
 
 pub fn install_interactive_signal_handlers() -> io::Result<SignalHandlerGuard> {
+    capture_inherited_ignored_signals()?;
     SignalHandlerGuard::ignore_many(&[
         libc::SIGTSTP,
         libc::SIGTTIN,
@@ -104,7 +175,31 @@ pub(crate) fn signal_snapshot() -> SignalSnapshot {
 }
 
 pub(crate) fn install_hook_signal_handler(signal: i32) -> io::Result<SignalHandlerGuard> {
-    SignalHandlerGuard::install_many(&[signal])
+    let guard = SignalHandlerGuard::install_many(&[signal])?;
+    update_child_signal_action(signal, false);
+    Ok(guard)
+}
+
+pub(crate) fn update_child_signal_action(signal: i32, ignored: bool) {
+    let Some(mask) = signal_mask(signal) else {
+        return;
+    };
+    if ignored {
+        CHILD_IGNORED_SIGNALS.fetch_or(mask, Ordering::SeqCst);
+    } else {
+        CHILD_IGNORED_SIGNALS.fetch_and(!mask, Ordering::SeqCst);
+    }
+}
+
+pub(crate) fn inherited_signal_action(signal: i32) -> io::Result<&'static str> {
+    capture_inherited_ignored_signals()?;
+    let ignored = signal_mask(signal)
+        .is_some_and(|mask| INHERITED_IGNORED_SIGNALS.load(Ordering::SeqCst) & mask != 0);
+    Ok(if ignored { "ignore" } else { "default" })
+}
+
+fn signal_mask(signal: i32) -> Option<u64> {
+    (1..=64).contains(&signal).then(|| 1u64 << (signal - 1))
 }
 
 extern "C" fn handle_cancellation_signal(signal: i32) {
@@ -2037,21 +2132,52 @@ fn restore_signal_handler(signal: i32, old: &libc::sigaction) {
     }
 }
 
+fn capture_inherited_ignored_signals() -> io::Result<()> {
+    if INHERITED_SIGNAL_ACTIONS_CAPTURED.load(Ordering::SeqCst) {
+        return Ok(());
+    }
+    let mut ignored = 0u64;
+    for signal in 1..=64 {
+        let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+        if unsafe { libc::sigaction(signal, std::ptr::null(), &mut current) } != 0 {
+            if CHILD_SIGNAL_RESET_SET.contains(&signal) {
+                return Err(io::Error::last_os_error());
+            }
+            continue;
+        }
+        #[cfg(target_os = "linux")]
+        let inherited_ignored = if signal == libc::SIGPIPE {
+            match INITIAL_SIGPIPE_IGNORED.load(Ordering::Relaxed) {
+                0 => false,
+                1 => true,
+                _ => current.sa_sigaction == libc::SIG_IGN,
+            }
+        } else {
+            current.sa_sigaction == libc::SIG_IGN
+        };
+        #[cfg(not(target_os = "linux"))]
+        let inherited_ignored = current.sa_sigaction == libc::SIG_IGN;
+        if inherited_ignored && let Some(mask) = signal_mask(signal) {
+            ignored |= mask;
+        }
+    }
+    INHERITED_IGNORED_SIGNALS.store(ignored, Ordering::SeqCst);
+    CHILD_IGNORED_SIGNALS.store(ignored, Ordering::SeqCst);
+    INHERITED_SIGNAL_ACTIONS_CAPTURED.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
 fn reset_child_signal_handlers() {
+    let ignored = CHILD_IGNORED_SIGNALS.load(Ordering::SeqCst);
     unsafe {
-        libc::signal(libc::SIGHUP, libc::SIG_DFL);
-        libc::signal(libc::SIGINT, libc::SIG_DFL);
-        libc::signal(libc::SIGQUIT, libc::SIG_DFL);
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
-        libc::signal(libc::SIGTERM, libc::SIG_DFL);
-        libc::signal(libc::SIGTSTP, libc::SIG_DFL);
-        libc::signal(libc::SIGTTIN, libc::SIG_DFL);
-        libc::signal(libc::SIGTTOU, libc::SIG_DFL);
-        libc::signal(libc::SIGUSR1, libc::SIG_DFL);
-        libc::signal(libc::SIGUSR2, libc::SIG_DFL);
-        libc::signal(libc::SIGALRM, libc::SIG_DFL);
-        libc::signal(libc::SIGXCPU, libc::SIG_DFL);
-        libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
+        for signal in CHILD_SIGNAL_RESET_SET {
+            let disposition = if signal_mask(*signal).is_some_and(|mask| ignored & mask != 0) {
+                libc::SIG_IGN
+            } else {
+                libc::SIG_DFL
+            };
+            libc::signal(*signal, disposition);
+        }
     }
 }
 

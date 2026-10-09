@@ -31,16 +31,15 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   **314 / 365** with no regression among the earlier passing test IDs. The
   `legacy-buckets` lane removed all five non-uutils discard buckets. Native
   byte/hash and GNU patch classification primitives and public API wiring are
-  merged. The API surface now records **377 functions, 409 overloads, and 807
+  merged. The API surface now records **381 functions, 413 overloads, and 811
   queryable items**; SHA-224, SHA-384, SHA-3, SM3, BLAKE3 and SHAKE APIs have
   native tests and generated reference docs. Exact remaining utility
   failures and their causes are in `gaps.json`.
 - `printf-env` is merged at **225 / 252** (env 79/100, printf 146/152), with
   native tests and ratchets passing. The `sleep` lane is **49 / 53** applicable
-  tests passing (4 remain; 1 excluded); the runtime restores default SIGBUS and
-  SIGSEGV actions, and its focused slice passes both signal cases. `proc-a` is
-  merged at **106 / 125** (kill
-  47/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 24/29); all **59**
+  tests passing (4 remain; 1 excluded); the runtime preserves default TERM,
+  SIGBUS, and SIGSEGV behavior. `proc-a` is merged at **109 / 125** (kill
+  48/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 26/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
   across nine applets. Its latest verified progress is **643 / 663** (cut
@@ -86,10 +85,14 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   documented with their native API needs and GNU policy differences.
 - The latest merged uutils results combine the 2026-10-09 full run and focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-  `echo`, `test`, `tail`, `sleep`, `cp`, and `ln` refreshes on the current
-  `XSH_BIN`: **5,161 / 5,974 passing**, 813 failing, and 4 excluded. Compared
-  with the preceding integration result, 22 additional test IDs pass and none
-  regressed.
+  `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, and `ln` refreshes on the
+  current `XSH_BIN`: **5,164 / 5,974 passing**, 810 failing, and 4 excluded.
+  Compared with the preceding integration result, 3 additional test IDs pass
+  and none regressed. XSH now resets inherited ignored `SIGCHLD` so process
+  waits remain reliable, returns signal-derived default statuses, and records
+  inherited signal actions before Rust startup changes them. `yes` keeps the
+  default pipe termination for uutils and reports EPIPE when GNU `timeout`
+  inherited an ignored SIGPIPE.
   The focused
   slice is **139 / 242** (`factor` 23/25,
   `sort` 116/217). The default-sort byte-key fast path restored
@@ -127,12 +130,17 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   dircolors 19/19); its native tests pass 16/16. A fresh rerun confirmed that
   the two French month-abbreviation cases match GNU 9.12 and glibc. The pinned
   uutils GNU baseline is **573 passed, 85 skipped, 58 failed, 3 harness errors**
-  out of 719. The latest full XSH GNU run is **298 passed, 115 skipped, 280
-  failed, 26 harness errors** out of 719. The current GNU differential is
-  **292 / 281 / 6 / 57** (uutils-pass/XSH-pass,
-  uutils-pass/XSH-fail, uutils-fail/XSH-pass, both-fail); the focused basenc
-  run passes its alphabet, whitespace, partial-output, and mixed-padding vectors.
-  The focused `yes`, `tsort`, `uniq`, `cat-self`, and `cat-E` GNU tests pass.
+  out of 719. The last full XSH GNU run is **298 passed, 115 skipped, 280
+  failed, 26 harness errors** out of 719. The merged XSH GNU records are **305
+  passed, 115 skipped, 274 failed, 25 harness errors**. The current GNU
+  differential is **299 / 274 / 6 / 57** (uutils-pass/XSH-pass,
+  uutils-pass/XSH-fail, uutils-fail/XSH-pass, both-fail). GNU
+  `tests/timeout/timeout.sh` now passes; `timeout-group.sh` remains skipped
+  because its SIGALRM case is not handled by the runtime.
+  The `sync` FIFO test remains blocked because the runtime cannot service TERM
+  during a native FIFO open. The focused basenc run passes its alphabet,
+  whitespace, partial-output, and mixed-padding vectors. The focused `yes`,
+  `tsort`, `uniq`, `cat-self`, and `cat-E` GNU tests pass.
   `cat-buf` still prints an extra `2` in its buffered-write case.
   Its suite-level failure is the uutils-patched clap-style unknown-option
   expectation, which differs from GNU diagnostics and is classified in

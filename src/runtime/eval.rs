@@ -3669,6 +3669,7 @@ impl Evaluator {
         if test_cancel != TestCancelRequest::None {
             return self.deliver_test_cancel(test_cancel, span);
         }
+        let snapshot = signal_snapshot();
         if self.signal_hooks.is_empty()
             && self.process_handles.is_empty()
             && self.live_process_streams == 0
@@ -3677,10 +3678,10 @@ impl Evaluator {
             && !self.signal_state.hook_running
             && !self.signal_state.hook_started
             && !self.signal_state.shutdown_complete
+            && snapshot.primary.is_none()
         {
             return Ok(());
         }
-        let snapshot = signal_snapshot();
         let Some(primary_number) = snapshot.primary else {
             return Ok(());
         };
@@ -3690,7 +3691,7 @@ impl Evaluator {
             self.trace_signal_escalate(&primary, &escalation, span);
             self.kill_active_process_groups();
             let _ = self.cancel_net_jobs_for_signal(span);
-            self.signal_state.shutdown_status = Some(default_signal_status(&primary));
+            self.signal_state.shutdown_status = Some((128 + primary.number).clamp(0, 255) as u8);
             self.signal_state.shutdown_complete = true;
             return Ok(());
         }
@@ -3727,6 +3728,12 @@ impl Evaluator {
                 )
                 .with_span(span));
             }
+            // With no owned work to cancel and no user hook, the shell is
+            // handling the signal as its default action. Preserve the usual
+            // command status convention (128 + signal) for callers such as
+            // GNU timeout that inspect the child's status.
+            self.signal_state.shutdown_status = Some((128 + primary.number).clamp(0, 255) as u8);
+            self.signal_state.shutdown_complete = true;
             return Ok(());
         };
         if hook.ignore_pending_primary {

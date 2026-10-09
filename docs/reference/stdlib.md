@@ -219,8 +219,11 @@ Script stdin and stdout helpers.
 - `io.flush_stdout() -> Result[Unit, Error]` — Writes the buffered standard output to the host and reports the outcome.
 - `io.stdin_bytes() -> Result[Bytes, Error]` — Reads all standard input as Bytes.
 - `io.stdin_line() -> Result[Str, Error]` — Reads one line from standard input.
+- `io.stdin_read(max_bytes: Int) -> Result[Bytes?, Error]` — Reads up to a bounded number of bytes from standard input.
+- `io.stdin_seek_relative(offset: Int) -> Result[Bool, Error]` — Moves standard input by a relative byte offset when it is seekable.
 - `io.stdin_text() -> Result[Str, Error]` — Reads all standard input as UTF-8 text.
 - `io.stdin_until(delimiter: Int) -> Result[Bytes?, Error]` — Reads standard input through the next byte delimiter.
+- `io.stdout_is_broken() -> Result[Bool, Error]` — Checks whether standard output's file descriptor is closed or broken.
 - `io.write_stderr(text: Str) -> Result[Unit, Error]` — Writes exact UTF-8 text to standard error without a newline.
 - `io.write_stdout(text: Str) -> Result[Unit, Error]` — Writes UTF-8 text to standard output.
 - `io.write_stdout_bytes(data: Bytes) -> Result[Unit, Error]` — Writes raw Bytes to standard output.
@@ -365,6 +368,7 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
 - `process.current_pid() -> Result[Int, Error]` — Returns the current process ID.
 - `process.group_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
+- `process.inherited_signal_action(signal: Str) -> Result[Str, Error]` — Reports the signal action inherited when this process started.
 - `process.kill(pid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a selected signal to a process.
 - `process.kill_group(pgid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a signal to every member of a process group.
 - `process.list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.

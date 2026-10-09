@@ -1196,6 +1196,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "ignore and default survive unix.exec, which is how nohup is built; replacing INT or TERM disables the runtime's cancellation for that signal, and children started with run restore the defaults themselves.",
             &["process", "signal", "host-state"],
         )),
+        ("process", "inherited_signal_action") => Some((
+            "Reports the signal action inherited when this process started.",
+            "Reports ignore when SIG_IGN survived exec and default otherwise, even when the language runtime changes a signal during startup.",
+            &["process", "signal", "host-state"],
+        )),
         ("process", "wait_timeout") => Some((
             "Waits for one process from an owned handle set for at most a duration.",
             "A timeout returns null and consumes nothing, so the caller can signal the child and wait again; a completion behaves like wait_any.",

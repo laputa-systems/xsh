@@ -121,10 +121,14 @@ be GPT-6 Luna at xhigh.
 
 The latest merged uutils results combine the 2026-10-09 full run with focused
 `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-`echo`, `test`, `tail`, `sleep`, `cp`, and `ln` refreshes on the current
-`XSH_BIN`: 5,161 / 5,974 passing, 813 failing, and 4 excluded. Compared with
-the preceding integration result, 22 additional test IDs pass and none
-regressed. The focused `factor sort`
+`echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, and `ln` refreshes on the
+current `XSH_BIN`: 5,164 / 5,974 passing, 810 failing, and 4 excluded. Compared
+with the preceding integration result, 3 additional test IDs pass and none
+regressed. The timeout slice passes 26 / 29; XSH now clears inherited ignored
+`SIGCHLD`, returns signal-derived default statuses, and records inherited
+signal actions before Rust startup changes them. `yes` preserves an inherited
+ignored `SIGPIPE` for GNU `timeout` while keeping the default pipe termination
+for uutils. The focused `factor sort`
 result is 139 / 242 (factor 23/25, sort 116/217). The byte-key fast path
 restored `test_factor::test_parallel`, and removing unneeded unique-sort key
 work brought the buffer-size test under its 30-second limit. `--batch-size`
@@ -140,15 +144,21 @@ The merged results and remaining failures are tracked in [`CAMPAIGN.md`](CAMPAIG
 
 `run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
 The pinned uutils GNU baseline recorded 573 passed, 85 skipped, 58 failed, and
-3 harness errors out of 719 test records. The latest full XSH GNU run recorded
-298 passed, 115 skipped, 280 failed, and 26 harness errors. Remaining test gaps
-and exact results are maintained in `CAMPAIGN.md`, `gaps.json`, and `results/`.
+3 harness errors out of 719 test records. The last full XSH GNU run recorded
+298 passed, 115 skipped, 280 failed, and 26 harness errors. The merged XSH GNU
+records are 305 passed, 115 skipped, 274 failed, and 25 harness errors.
+Remaining test gaps and exact results are maintained in `CAMPAIGN.md`,
+`gaps.json`, and `results/`.
 
-The current GNU differential is 292 / 281 / 6 / 57 across the four
+The current GNU differential is 299 / 274 / 6 / 57 across the four
 uutils-pass/XSH-pass, uutils-pass/XSH-fail, uutils-fail/XSH-pass, and both-fail
-cells. Focused GNU tests for `yes`, `tsort`, `uniq`, `cat-self`, and `cat-E`
-pass. The basenc decoder vectors pass; its one failing suite record is the
-uutils-patched clap wording for an unknown option.
+cells. GNU `tests/timeout/timeout.sh` now passes. `timeout-group.sh` remains
+skipped because its SIGALRM case is not handled by the runtime. The `sync` FIFO
+test remains blocked because the runtime cannot service TERM while a native
+FIFO open is blocked. Focused GNU tests for `yes`, `tsort`, `uniq`, `cat-self`,
+and `cat-E` pass. The basenc
+decoder vectors pass; its one failing suite record is the uutils-patched
+clap wording for an unknown option.
 
 The XSH GNU stage adds `${GNU_ROOT}/src` to the test `PATH` after `gnu-bin/` so
 generated helpers such as `getlimits` resolve. `stage.py --gnu-programs` also

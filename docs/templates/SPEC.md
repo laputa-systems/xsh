@@ -2797,7 +2797,9 @@ Contracts worth knowing without consulting the reference:
   changes how the running process treats a signal and survives `unix.exec`
   (which is how `nohup` is built), while a child started with `run` restores
   the defaults itself; replacing `INT` or `TERM` disables the runtime's
-  cancellation for that signal. `process.wait_timeout(handles, limit)` is
+  cancellation for that signal. `process.inherited_signal_action(signal)`
+  reports the ignored or default disposition that survived `exec`, before
+  language-runtime startup changes. `process.wait_timeout(handles, limit)` is
   `process.wait_any` that returns `null`, consuming nothing, once `limit`
   passes with no child finished.
 - Terminal primitives in `unix` work on descriptor numbers: `isatty`,

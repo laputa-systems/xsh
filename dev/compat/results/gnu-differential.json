@@ -1,14 +1,15 @@
 {
   "suite": "gnu-differential",
   "counts": {
-    "uutils_pass_xsh_pass": 292,
-    "uutils_pass_xsh_fail": 281,
+    "uutils_pass_xsh_pass": 299,
+    "uutils_pass_xsh_fail": 274,
     "uutils_fail_xsh_pass": 6,
     "uutils_fail_xsh_fail": 57
   },
   "cells": {
     "uutils_pass_xsh_pass": [
       "basenc/base64.log",
+      "basenc/large-input.log",
       "cat/cat-E.log",
       "cat/cat-proc.log",
       "cat/cat-self.log",
@@ -47,6 +48,7 @@
       "cp/no-deref-link2.log",
       "cp/no-deref-link3.log",
       "cp/parent-perm-race.log",
+      "cp/parent-perm.log",
       "cp/perm.log",
       "cp/preserve-2.log",
       "cp/r-vs-symlink.log",
@@ -108,7 +110,9 @@
       "install/trap.log",
       "join/join-utf8.log",
       "ln/backup-1.log",
+      "ln/backup-suffix-traversal.log",
       "ln/hard-backup.log",
+      "ln/misc.log",
       "ln/slash-decorated-nonexistent-dest.log",
       "ln/target-1.log",
       "ls/a-option.log",
@@ -159,6 +163,8 @@
       "misc/option-aliases.log",
       "misc/pathchk.log",
       "misc/realpath.log",
+      "misc/sleep.log",
+      "misc/sync.log",
       "misc/tsort.log",
       "misc/uname-labeled.log",
       "misc/user.log",
@@ -272,6 +278,7 @@
       "timeout/timeout-blocked.log",
       "timeout/timeout-large-parameters.log",
       "timeout/timeout-parameters.log",
+      "timeout/timeout.log",
       "touch/dangling-symlink.log",
       "touch/dir-1.log",
       "touch/empty-file.log",
@@ -304,7 +311,6 @@
     "uutils_pass_xsh_fail": [
       "basenc/basenc.log",
       "basenc/bounded-memory.log",
-      "basenc/large-input.log",
       "cat/cat-buf.log",
       "cat/splice.log",
       "chmod/c-option.log",
@@ -344,7 +350,6 @@
       "cp/link-preserve.log",
       "cp/link-symlink.log",
       "cp/non-utf8-name.log",
-      "cp/parent-perm.log",
       "cp/preserve-link.log",
       "cp/preserve-mode.log",
       "cp/preserve-slink-time.log",
@@ -415,9 +420,7 @@
       "id/uid.log",
       "id/zero.log",
       "install/basic-1.log",
-      "ln/backup-suffix-traversal.log",
       "ln/hard-to-sym.log",
-      "ln/misc.log",
       "ln/non-utf8-src.log",
       "ln/relative.log",
       "ln/sf-1.log",
@@ -441,8 +444,6 @@
       "misc/empty-backup-suffix.log",
       "misc/just-created.log",
       "misc/kill.log",
-      "misc/sleep.log",
-      "misc/sync.log",
       "misc/time-style.log",
       "misc/usage_vs_getopt.log",
       "misc/xattr.log",
@@ -571,7 +572,6 @@
       "tee/tee.log",
       "test/test-file.log",
       "timeout/timeout-group.log",
-      "timeout/timeout.log",
       "touch/60-seconds.log",
       "touch/obsolescent.log",
       "tr/tr-case-class.log",
@@ -654,14 +654,13 @@
   },
   "utilities": {
     "basenc": {
-      "pass": 1,
-      "fail": 3,
+      "pass": 2,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "blockers": [
         "basenc/basenc.log",
-        "basenc/bounded-memory.log",
-        "basenc/large-input.log"
+        "basenc/bounded-memory.log"
       ]
     },
     "cat": {
@@ -742,8 +741,8 @@
       "blockers": []
     },
     "cp": {
-      "pass": 25,
-      "fail": 31,
+      "pass": 26,
+      "fail": 30,
       "skip": 0,
       "excluded": 0,
       "blockers": [
@@ -763,7 +762,6 @@
         "cp/link-preserve.log",
         "cp/link-symlink.log",
         "cp/non-utf8-name.log",
-        "cp/parent-perm.log",
         "cp/preserve-link.log",
         "cp/preserve-mode.log",
         "cp/preserve-slink-time.log",
@@ -977,14 +975,12 @@
       "blockers": []
     },
     "ln": {
-      "pass": 4,
-      "fail": 6,
+      "pass": 6,
+      "fail": 4,
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "ln/backup-suffix-traversal.log",
         "ln/hard-to-sym.log",
-        "ln/misc.log",
         "ln/non-utf8-src.log",
         "ln/relative.log",
         "ln/sf-1.log"
@@ -1014,8 +1010,8 @@
       ]
     },
     "misc": {
-      "pass": 17,
-      "fail": 23,
+      "pass": 19,
+      "fail": 21,
       "skip": 0,
       "excluded": 0,
       "blockers": [
@@ -1024,8 +1020,6 @@
         "misc/empty-backup-suffix.log",
         "misc/just-created.log",
         "misc/kill.log",
-        "misc/sleep.log",
-        "misc/sync.log",
         "misc/time-style.log",
         "misc/usage_vs_getopt.log",
         "misc/xattr.log"
@@ -1367,13 +1361,12 @@
       ]
     },
     "timeout": {
-      "pass": 4,
-      "fail": 2,
+      "pass": 5,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "blockers": [
-        "timeout/timeout-group.log",
-        "timeout/timeout.log"
+        "timeout/timeout-group.log"
       ]
     },
     "touch": {

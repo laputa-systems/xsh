@@ -414,6 +414,7 @@ pub enum RuntimeOp {
     ProcessRlimits,
     ProcessSetRlimit,
     ProcessSignalAction,
+    ProcessInheritedSignalAction,
     ProcessSetSignalAction,
     ProcessCommand,
     SystemHostname,

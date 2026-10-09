@@ -3,6 +3,7 @@
 //! Every failure is a host error that carries its errno.
 
 use super::{signal_info, signal_record, signal_table};
+use crate::runtime::process::{inherited_signal_action, update_child_signal_action};
 use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use rustix::process::{self as rprocess, Pid, Resource, Rlimit, getrlimit, setrlimit};
@@ -200,6 +201,7 @@ pub(crate) fn handles(op: RuntimeOp) -> bool {
             | RuntimeOp::ProcessRlimits
             | RuntimeOp::ProcessSetRlimit
             | RuntimeOp::ProcessSignalAction
+            | RuntimeOp::ProcessInheritedSignalAction
             | RuntimeOp::ProcessSetSignalAction
     )
 }
@@ -220,6 +222,7 @@ pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
         RuntimeOp::ProcessRlimits => rlimits(),
         RuntimeOp::ProcessSetRlimit => set_rlimit(args),
         RuntimeOp::ProcessSignalAction => signal_action(args),
+        RuntimeOp::ProcessInheritedSignalAction => inherited_signal_action_prim(args),
         RuntimeOp::ProcessSetSignalAction => set_signal_action(args),
         _ => unreachable!("process primitive expected"),
     }
@@ -558,6 +561,13 @@ fn signal_action(args: &Args<'_>) -> Result<Value, RuntimeError> {
     ok(Value::Str(action.into()))
 }
 
+fn inherited_signal_action_prim(args: &Args<'_>) -> Result<Value, RuntimeError> {
+    let number = signal_number_arg(args, 0)?;
+    let action = inherited_signal_action(number)
+        .map_err(|error| host_error("process-inherited-signal-action", error, args.span()))?;
+    ok(Value::Str(action.into()))
+}
+
 /// Ignores a signal or restores its default action in the running process. The
 /// disposition survives `unix.exec`, so `ignore` before `exec` is how `nohup`
 /// is built. The runtime's own handlers for `INT` and `TERM` are replaced.
@@ -583,6 +593,7 @@ fn set_signal_action(args: &Args<'_>) -> Result<Value, RuntimeError> {
         libc::sigaction(number, &action, std::ptr::null_mut())
     };
     if status == 0 {
+        update_child_signal_action(number, handler == libc::SIG_IGN);
         ok(Value::Unit)
     } else {
         Err(host_error(

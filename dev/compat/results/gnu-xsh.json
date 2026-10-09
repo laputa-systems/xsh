@@ -3,7 +3,7 @@
     "base64.log": "PASS",
     "basenc.log": "FAIL",
     "bounded-memory.log": "SKIP",
-    "large-input.log": "FAIL"
+    "large-input.log": "PASS"
   },
   "cat": {
     "cat-E.log": "PASS",
@@ -122,7 +122,7 @@
     "no-deref-link3.log": "PASS",
     "non-utf8-name.log": "ERROR",
     "parent-perm-race.log": "PASS",
-    "parent-perm.log": "ERROR",
+    "parent-perm.log": "PASS",
     "perm.log": "PASS",
     "preserve-2.log": "PASS",
     "preserve-gid.log": "SKIP",
@@ -330,10 +330,10 @@
   },
   "ln": {
     "backup-1.log": "PASS",
-    "backup-suffix-traversal.log": "FAIL",
+    "backup-suffix-traversal.log": "PASS",
     "hard-backup.log": "PASS",
     "hard-to-sym.log": "FAIL",
-    "misc.log": "FAIL",
+    "misc.log": "PASS",
     "non-utf8-src.log": "FAIL",
     "relative.log": "FAIL",
     "sf-1.log": "FAIL",
@@ -423,9 +423,9 @@
     "realpath.log": "PASS",
     "responsive.log": "FAIL",
     "selinux.log": "SKIP",
-    "sleep.log": "FAIL",
+    "sleep.log": "PASS",
     "stdbuf.log": "FAIL",
-    "sync.log": "FAIL",
+    "sync.log": "PASS",
     "time-style.log": "FAIL",
     "traversal-missing.log": "SKIP",
     "tsort.log": "PASS",
@@ -792,7 +792,7 @@
     "timeout-group.log": "SKIP",
     "timeout-large-parameters.log": "PASS",
     "timeout-parameters.log": "PASS",
-    "timeout.log": "FAIL"
+    "timeout.log": "PASS"
   },
   "touch": {
     "60-seconds.log": "FAIL",

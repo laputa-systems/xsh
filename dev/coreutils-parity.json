@@ -109,8 +109,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 3,
+        "pass": 2,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -223,7 +223,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_nice::test_adjustment_with_no_command_should_error and test_nice::test_nice_adj_negative cover missing-command diagnostics and negative priority adjustments; the latter also depends on host permission for lowering the nice value."
+      ]
     },
     {
       "utility": "sha1sum",
@@ -354,8 +356,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 25,
-        "fail": 31,
+        "pass": 26,
+        "fail": 30,
         "skip": 0,
         "excluded": 0
       },
@@ -489,7 +491,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_dir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size needs the CLI argument span for a source caret; test_dir::test_version expects uutils version output instead of the shared XSH/GNU version line."
+      ]
     },
     {
       "utility": "dircolors",
@@ -543,7 +547,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_echo::full_version_argument expects `echo (uutils coreutils) VERSION`; XSH uses the shared `echo (XSH core) VERSION` version convention."
+      ]
     },
     {
       "utility": "expand",
@@ -775,7 +781,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_link::test_link_one_argument and test_link::test_link_three_arguments expect uutils usage blocks for missing and extra operands; the applet follows GNU operand diagnostics."
+      ]
     },
     {
       "utility": "ln",
@@ -791,8 +799,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 6,
+        "pass": 6,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -909,7 +917,12 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The `test_mv::inter_partition_copying::*` cases need cross-device move support that preserves FIFOs, hard-link groups, ownership, xattrs, and symlink state; current copy/remove fallback does not cover these invariants.",
+        "Backup cases (`test_mv_backup_*`, `test_mv_same_*_backup_simple`) expose overwrite guards and conflicting backup-option semantics; `--exchange` cases need the rename-exchange operation and GNU diagnostics.",
+        "Interactive/no-clobber/force ordering, prompt behavior on unwritable destinations, verbose output, and directory-self/operand diagnostics remain incomplete across the `test_mv_*` cases.",
+        "Cross-device permission, planted-symlink, broken-symlink, and xattr cases need exact source/destination error handling and xattr preservation."
+      ]
     },
     {
       "utility": "nl",
@@ -1073,7 +1086,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_printenv::test_invalid_option_exit_code expects uutils option-error status; test_printenv::test_non_utf8_env_vars and test_printenv::test_non_utf8_value need byte-preserving environment names and values."
+      ]
     },
     {
       "utility": "printf",
@@ -1514,7 +1529,11 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The seven `test_test::diagnostics::*` cases expect uutils-specific advice and source carets; the shared CLI parser only emits plain GNU diagnostics.",
+        "test_test::test_bracket_syntax_version expects the `[` version identity and test_test::test_parenthesized_string_comparison needs the uutils parenthesized-comparison behavior.",
+        "test_test::test_invalid_utf8_integer_compare needs byte-preserving operand handling for invalid UTF-8 integer input."
+      ]
     },
     {
       "utility": "touch",
@@ -1583,7 +1602,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_true::test_full` expects uutils' `true: No space left on device`; GNU 9.12 and XSH report `true: write error: No space left on device` when `--help` or `--version` output goes to `/dev/full`."
+      ]
     },
     {
       "utility": "truncate",
@@ -1652,7 +1673,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_tty::test_stdout_fail and test_tty::test_write_error need the standard-output write failure to be reported with GNU `tty: write error` diagnostics and the expected status."
+      ]
     },
     {
       "utility": "uname",
@@ -1757,7 +1780,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_vdir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size needs the CLI argument span for a source caret; test_vdir::test_version expects uutils version output instead of the shared XSH/GNU version line."
+      ]
     },
     {
       "utility": "wc",
@@ -1919,15 +1944,17 @@
       "native_tests": "core/tests/test-kill.xsh",
       "uutils_test_count": 58,
       "uutils_integration": {
-        "pass": 47,
-        "fail": 3,
+        "pass": 48,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_kill::test_kill_accepts_sigio_alias_for_sending, test_kill::test_kill_with_default_signal, and test_kill::test_kill_with_lower_case_signal_name_old_form cover the SIGIO alias, the default signal selection, and lowercase legacy signal parsing."
+      ]
     },
     {
       "utility": "nohup",
@@ -2012,7 +2039,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "GNU `tests/misc/sync.sh` expects `sync FIFO`, `sync -f FIFO`, and `sync -d FIFO` to block until timeout; `fs.fsync` opens FIFO operands in a blocking native filesystem call that the evaluator cannot interrupt to process TERM."
+      ]
     },
     {
       "utility": "timeout",
@@ -2022,22 +2051,20 @@
       "native_tests": "core/tests/test-timeout.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 24,
-        "fail": 5,
+        "pass": 26,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 4,
-        "fail": 2,
+        "pass": 5,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "test_timeout::test_forward_sigint_to_child and test_timeout::test_terminate_child_on_receiving_terminate require timeout to catch a signal sent to its own process and forward it to COMMAND; signal hooks are restricted to entry scripts, so an applet module cannot install the needed handler. Request a module-callable process signal hook/forwarding API.",
-        "test_timeout::test_hex_timeout_ending_with_d and test_timeout::test_preserve_status run the staged XSH `sleep` applet; it does not terminate on the timeout's process-group signal and eventually exits 0. The native test with `/usr/bin/sleep` returns 124/143 as expected. Request corrected signal delivery/status for dispatched child processes.",
         "test_timeout::test_invalid_multi_byte_characters and test_timeout::test_invalid_time_interval::case_2_single_quote expect literal characters; under LC_ALL=C GNU quotes invalid interval bytes with C escapes and escapes apostrophes, which the applet follows.",
         "test_timeout::test_zero_timeout places `-s0 -k0` after DURATION. GNU stops option parsing at DURATION and tries to run `-s0` as COMMAND (status 127); the uutils test expects option permutation."
       ]
@@ -2098,7 +2125,10 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_chgrp::test_chgrp_non_utf8_paths needs raw pathname argv support; the applet receives lossy text before it can call filesystem APIs.",
+        "test_chgrp::test_help, test_help_ref, test_ref_help, and test_missing_files assert uutils/clap help and required-argument blocks; the applet uses the shared GNU help and missing-operand diagnostics."
+      ]
     },
     {
       "utility": "chmod",
@@ -2121,7 +2151,12 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The seven test_chmod::diagnostics cases require uutils source carets and pipe-specific snippets for symbolic-mode errors; cli.applet exposes plain GNU diagnostics without the source spans.",
+        "test_chmod::test_chmod_non_utf8_paths and test_chmod::test_gnu_special_filenames need raw pathname argv rather than lossy Str conversion.",
+        "Recursive symlink, dangling-target, duplicate-link, preserve-root, and keep-setgid cases expose differences in traversal and lchmod semantics; the two dangling/recursive option combinations, permission-error cases, and too-large modes also need GNU-specific handling.",
+        "test_chmod::test_chmod_colored_output and test_gnu_special_options plus test_gnu_usage_matrix cover color, special options, and parser combinations not fully implemented."
+      ]
     },
     {
       "utility": "chown",
@@ -2144,7 +2179,10 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_chown::test_chown_fail_id expects uutils identity lookup and invalid-ID diagnostics; test_chown::test_chown_no_dereference_symlink_to_dir and test_chown::test_chown_symlink_two_links_same_dir expose no-dereference and duplicate-symlink behavior gaps.",
+        "test_chown::test_chown_reference_file_with_non_utf8_path needs byte-preserving argv for the --reference pathname."
+      ]
     },
     {
       "utility": "chroot",
@@ -2192,7 +2230,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_groups::test_groups_username and test_groups::test_groups_username_multiple need named-user group lookup; the available auth API only reports the current process groups."
+      ]
     },
     {
       "utility": "id",
@@ -2215,7 +2255,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_id::test_id_single_user, test_id::test_id_multiple_users, test_id::test_id_multiple_users_non_existing, and test_id::test_id_pretty_print_password_record need NSS user/group lookup and complete password records; the current applet resolves only the current identity."
+      ]
     },
     {
       "utility": "install",
@@ -2238,7 +2280,11 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_install::diagnostics::test_snippet_points_at_the_bad_operator needs the CLI argument span for a source caret.",
+        "test_install::test_install_basic_try_reflink needs GNU `--reflink=auto` behavior; test_install::test_install_no_target_directory_failing_usage_with_target_directory expects uutils usage formatting.",
+        "test_install::test_install_non_utf8_dir and test_install::test_install_non_utf8_paths need raw pathname argv for the source and destination paths."
+      ]
     },
     {
       "utility": "logname",
@@ -2256,7 +2302,10 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_logname::test_normal and test_logname::test_output_format need a `getlogin()` host API; no typed login-session lookup is available, so XSH reports `no login name` when the host has no login record.",
+        "test_logname::test_help expects uutils wording instead of the shared GNU help text."
+      ]
     },
     {
       "utility": "mkfifo",

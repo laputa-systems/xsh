@@ -37,6 +37,179 @@ print ${{status.ok}} ${{env_status.ok}} ${{false_status.exited_with(1)}}
     );
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn xsh_can_wait_for_children_when_parent_ignored_sigchld() {
+    let script = write_temp_script("parent-ignores-sigchld", "run /bin/true ?\n");
+    let output = Command::new("/bin/sh")
+        .args(["-c", "trap '' CHLD; exec \"$1\" \"$2\"", "sh"])
+        .arg(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .output()
+        .expect("run xsh with SIGCHLD ignored by its parent");
+    let _ = std::fs::remove_file(script);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn xsh_unblocks_termination_signals_inherited_as_blocked() {
+    use std::os::unix::process::{CommandExt, ExitStatusExt};
+
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
+    command
+        .args(["core/sleep.xsh", "30"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    unsafe {
+        command.pre_exec(|| {
+            let mut blocked: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut blocked);
+            libc::sigaddset(&mut blocked, libc::SIGTERM);
+            let result = libc::pthread_sigmask(libc::SIG_BLOCK, &blocked, std::ptr::null_mut());
+            if result != 0 {
+                return Err(std::io::Error::from_raw_os_error(result));
+            }
+            Ok(())
+        });
+    }
+
+    let mut child = command.spawn().expect("run xsh with SIGTERM blocked");
+    std::thread::sleep(Duration::from_millis(100));
+    let result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    assert_eq!(result, 0, "send TERM to XSH");
+
+    let status = wait_child_status(&mut child, Duration::from_secs(3));
+    assert_eq!(status.signal(), Some(libc::SIGTERM));
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn sleep_preserves_an_inherited_ignored_termination_signal() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "trap '' TERM; exec \"$1\" \"$2\" 0.5", "sh"])
+        .arg(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg("core/sleep.xsh")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("run sleep with inherited ignored SIGTERM");
+    std::thread::sleep(Duration::from_millis(100));
+    let result = unsafe { libc::kill(child.id() as libc::pid_t, libc::SIGTERM) };
+    assert_eq!(result, 0, "send TERM to sleep");
+
+    let status = wait_child_status(&mut child, Duration::from_secs(3));
+    assert_eq!(status.code(), Some(0));
+    assert_eq!(status.signal(), None);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn xsh_preserves_explicitly_ignored_signals_for_spawned_children() {
+    let output = run_temp_script(
+        "child-preserves-explicit-signal-ignore",
+        "\
+process.set_signal_action(\"TERM\", \"ignore\")?
+let command = process.command_argv(\"sh\", [\"sh\", \"-c\", \"kill -TERM $$; exit 0\"])
+let status = process.run(command)?
+print ${status.ok}
+",
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "true\n");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn xsh_reports_the_inherited_sigpipe_action() {
+    use std::os::unix::process::CommandExt;
+
+    let script = write_temp_script(
+        "inherited-sigpipe-action",
+        "print process.inherited_signal_action(\"PIPE\")?\n",
+    );
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
+    command.arg(&script);
+    unsafe {
+        command.pre_exec(|| {
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+            Ok(())
+        });
+    }
+
+    let output = command.output().expect("run XSH with SIGPIPE ignored");
+    let _ = std::fs::remove_file(script);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "ignore\n");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn xsh_reports_the_default_sigpipe_action() {
+    let output = run_temp_script(
+        "default-inherited-sigpipe-action",
+        "print process.inherited_signal_action(\"PIPE\")?\n",
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "default\n");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn yes_reports_broken_pipe_when_sigpipe_is_inherited_ignored() {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+
+    let mut command = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));
+    command
+        .arg("core/yes.xsh")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    unsafe {
+        command.pre_exec(|| {
+            libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+            Ok(())
+        });
+    }
+
+    let mut child = command.spawn().expect("run yes with SIGPIPE ignored");
+    drop(child.stdout.take());
+
+    let status = wait_child_status(&mut child, Duration::from_secs(3));
+    let mut stderr = String::new();
+    child
+        .stderr
+        .take()
+        .expect("capture yes stderr")
+        .read_to_string(&mut stderr)
+        .expect("read yes stderr");
+
+    assert_eq!(status.code(), Some(1));
+    assert_eq!(stderr, "yes: standard output: Broken pipe\n");
+}
+
 #[test]
 fn spawn_and_command_plan_cpumax_use_fake_cgroup_scope() {
     let root = temp_path("spawn-cpumax-cgroup");
