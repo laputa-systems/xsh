@@ -273,7 +273,11 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
       report_signal(opts.verbose, "KILL", command)
       signal_child(child.pid, ! opts.foreground, "KILL")
       let completed = process.wait_any([child])?
-      exit if timeout_signal.number == 0 { 137 } else { 124 }
+      exit if opts.preserve_status {
+        completed.status.shell_code()?
+      } else {
+        if timeout_signal.number == 0 { 137 } else { 124 }
+      }
     }
 
     let completed = process.wait_any([child])?

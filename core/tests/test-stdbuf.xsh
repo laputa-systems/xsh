@@ -24,6 +24,8 @@ test test_stdbuf_passes_command_status_and_arguments { |ctx|
 test test_stdbuf_accepts_line_and_size_modes { |ctx|
   assert stdbuf_run(ctx, ["--output=L", "true"])?.status == 0
   assert stdbuf_run(ctx, ["-o1K", "true"])?.status == 0
+  assert stdbuf_run(ctx, ["-o1KB", "true"])?.status == 0
+  assert stdbuf_run(ctx, ["-e1KiB", "true"])?.status == 0
   assert stdbuf_run(ctx, ["-i", "1024", "-e0", "true"])?.status == 0
 }
 
@@ -68,18 +70,27 @@ test test_stdbuf_rejects_bad_modes_and_stdin_line_buffering { |ctx|
   assert unknown.status == 125
   assert unknown.stderr == "stdbuf: invalid mode '6pq'\n", unknown.stderr
 
+  let oversized = stdbuf_run(ctx, ["-o1Z", "true"])?
+  assert oversized.status == 125
+  assert oversized.stderr == "stdbuf: invalid mode '1Z': Value too large for defined data type\n", oversized.stderr
+
+  let oversized_decimal = stdbuf_run(ctx, ["-o1ZB", "true"])?
+  assert oversized_decimal.status == 125
+  assert oversized_decimal.stderr == "stdbuf: invalid mode '1ZB': Value too large for defined data type\n", oversized_decimal.stderr
+
   let line_stdin = stdbuf_run(ctx, ["-iL", "true"])?
   assert line_stdin.status == 125
-  assert line_stdin.stderr == "stdbuf: line buffering stdin is meaningless\n", line_stdin.stderr
+  assert line_stdin.stderr == "stdbuf: line buffering stdin is meaningless\nTry 'stdbuf --help' for more information.\n", line_stdin.stderr
 }
 
 test test_stdbuf_requires_mode_and_command { |ctx|
   let no_mode = stdbuf_run(ctx, ["true"])?
   assert no_mode.status == 125
-  assert no_mode.stderr == "stdbuf: missing operand\nTry 'stdbuf --help' for more information.\n", no_mode.stderr
+  assert no_mode.stderr == "stdbuf: you must specify a buffering mode option\nTry 'stdbuf --help' for more information.\n", no_mode.stderr
 
   let no_command = stdbuf_run(ctx, ["-o0"])?
   assert no_command.status == 125
+  assert no_command.stderr == "stdbuf: missing operand\nTry 'stdbuf --help' for more information.\n", no_command.stderr
 }
 
 test test_stdbuf_missing_command_is_127 { |ctx|

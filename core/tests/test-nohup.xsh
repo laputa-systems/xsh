@@ -64,5 +64,31 @@ test test_nohup_help_and_version { |ctx|
 
   let version = nohup_run(ctx, ["--version"])?
   assert version.status == 0
-  assert version.stdout.starts_with("nohup ")
+  assert version.stdout == "nohup (XSH core) 0.0.1\n", version.stdout
+}
+
+test test_nohup_terminal_stdin_becomes_unreadable { |ctx|
+  let pty = unix.open_pty()?
+  defer unix.close_fd(pty.master)
+  defer unix.close_fd(pty.replica)
+
+  let root = test.temp_dir(ctx, name: "nohup-tty")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/nohup.xsh"
+  let argv = [ctx.xsh_bin.display(), script.display(), "cat"]
+  let status = process.run(
+    process.command_argv(
+      ctx.xsh_bin,
+      argv,
+      root,
+      {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+      fp"{pty.name}",
+      out,
+      err,
+    ),
+  )?
+
+  assert status.exit_code()? == 1
+  assert "Bad file descriptor" in err.read_text()?
 }

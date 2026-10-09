@@ -29,6 +29,12 @@ test test_timeout_zero_disables_the_deadline { |ctx|
   assert parsed.stderr == ""
 }
 
+test test_timeout_options_stop_at_the_duration { |ctx|
+  let result = timeout_run(ctx, ["-v", "0", "-s0", "-k0", "sleep", ".1"])?
+  assert result.status == 127
+  assert result.stderr == "timeout: failed to run command '-s0': No such file or directory\n", result.stderr
+}
+
 test test_timeout_accepts_hexadecimal_duration { |ctx|
   let result = timeout_run(ctx, ["0x0.1d", "/usr/bin/sleep", "1"])?
   assert result.status == 124
@@ -55,6 +61,15 @@ test test_timeout_kill_after_and_preserve_status { |ctx|
     ["--preserve-status", ".05", "sh", "-c", "trap 'exit 42' TERM; sleep 5"],
   )?
   assert preserved.status == 42, preserved.stderr
+
+  let signalled = timeout_run(ctx, ["--preserve-status", ".05", "/usr/bin/sleep", "5"])?
+  assert signalled.status == 143, signalled.stderr
+
+  let force_killed = timeout_run(
+    ctx,
+    ["--preserve-status", "-k", ".05", ".05", "sh", "-c", "trap '' TERM; sleep 5"],
+  )?
+  assert force_killed.status == 137, force_killed.stderr
 }
 
 test test_timeout_verbose_signal_and_help { |ctx|

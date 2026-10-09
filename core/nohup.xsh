@@ -126,9 +126,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     stderr = if stdout_terminal { stdout } else { /dev/stdout }
   }
 
+  var execution_target = command
+  var execution_argv = opts.command
+
+  if stdin_terminal {
+    execution_target = "/bin/sh"
+    execution_argv = [
+      "/bin/sh",
+      "-c",
+      "exec 0>&1; exec \"$@\"",
+      "nohup",
+    ].extend(opts.command)
+  }
+
   let plan = process.command_argv(
-    command,
-    opts.command,
+    execution_target,
+    execution_argv,
     cwd: fs.cwd()?,
     stdin: stdin,
     stdout: stdout ?? /dev/stdout,

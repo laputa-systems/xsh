@@ -75,7 +75,11 @@ pure parse_mode(text: Str) -> BufferMode {
     } else if base == "E" {
       multiplier = if decimal { 1000000000000000000 } else { 1152921504606846976 }
     } else {
-      let message = if unit == "R" or unit == "Y" { "Value too large for defined data type" } else { "" }
+      let message = if base == "R" or base == "Q" or base == "Y" or base == "Z" {
+        "Value too large for defined data type"
+      } else {
+        ""
+      }
       return {value: "", message: message}
     }
   }
@@ -217,7 +221,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.input == null and opts.output == null and opts.error == null {
-    gnu.missing_operand(125)
+    if opts.command.len() == 0 {
+      gnu.missing_operand(125)
+    }
+
+    gnu.usage_error("you must specify a buffering mode option", 125)
   }
 
   if opts.command.len() == 0 {
@@ -241,8 +249,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     if parsed.value == "L" {
-      gnu.error("line buffering stdin is meaningless")
-      exit 125
+      gnu.usage_error("line buffering stdin is meaningless", 125)
     }
 
     input = parsed.value
