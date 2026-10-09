@@ -24,8 +24,7 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   `perm` **106 / 149**; `stat-du-df` **166 / 237**; and `ls dir vdir split`
   **314 / 365** with no regression among the earlier passing test IDs. The
   `legacy-buckets` lane removed all five non-uutils discard buckets. Native
-  byte/hash primitives, their public API wiring, and GNU patch classification
-  primitives, their public API wiring, and GNU patch classification are
+  byte/hash and GNU patch classification primitives and public API wiring are
   merged. The API surface now records **369 functions, 393 overloads, and 799
   queryable items**; SHA-224 and SHA-384 APIs are implemented and their tests,
   generated docs, and docs project checks pass. Exact remaining utility
@@ -42,8 +41,6 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   `checksums` uses the shared byte/hash APIs and has native tests for all nine
   mapped commands; its canonical uutils slice is running. The integrator owns
   shared results and baselines; lane runs use scratch outputs.
-  The integrator owns shared results and baselines; lane runs use scratch
-  outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes
   are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;
