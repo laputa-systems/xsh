@@ -96,6 +96,20 @@ test test_stat_names_fifo_socket_and_hard_link_identity { |ctx|
   assert fs.stat(fp"{root}/socket")?.kind == "socket"
 }
 
+test test_read_bytes_streams_a_fifo_until_writer_closes { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-read-fifo")?
+  let fifo = fp"{root}/fifo"
+  fs.mkfifo(fifo, 0o600)
+
+  let writer = spawn process.command_argv(
+    "sh",
+    ["sh", "-c", "printf payload > \"$1\"", "sh", fifo],
+  )?
+  assert fifo.read_bytes()? == b"payload"
+  let finished = process.wait_any([writer])?
+  assert finished.status.exited_with(0)
+}
+
 test test_set_times_sets_nanosecond_values_and_omits_the_rest { |ctx|
   let root = test.temp_dir(ctx, name: "fs-set-times")?
   let file = fp"{root}/file"
@@ -116,6 +130,15 @@ test test_set_times_sets_nanosecond_values_and_omits_the_rest { |ctx|
 
   fs.set_times(file, mtime_ns: -1500000000)
   assert fs.stat(file)?.mtime_ns == -1500000000
+
+  fs.set_times(file, mtime_seconds: -62167219200, mtime_nanoseconds: 123456789)
+  let year_zero = fs.stat(file)?
+  assert year_zero.mtime_seconds == -62167219200
+  assert year_zero.mtime_nanoseconds == 123456789
+
+  let invalid_nanos = fs.set_times(file, mtime_seconds: 0, mtime_nanoseconds: 1000000000)
+  assert invalid_nanos is Err(_)
+  test.error_kind(invalid_nanos, "fs-set-times")
 }
 
 test test_set_times_now_uses_the_kernel_clock { |ctx|
@@ -135,6 +158,31 @@ test test_set_times_now_uses_the_kernel_clock { |ctx|
   let both = fs.set_times(file, atime_ns: 1, atime_now: true)
   assert both is Err(_)
   test.error_kind(both, "fs-set-times")
+}
+
+test test_set_times_fd_updates_a_caller_owned_descriptor { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-set-times-fd")?
+  let output = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = test.temp_file(
+    ctx,
+    name: "set-times-fd.xsh",
+    contents: b"fs.set_times_fd(1, mtime_seconds: -62167219200, mtime_nanoseconds: 123456789)?\n",
+  )?
+  let plan = process.command_argv(
+    ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display()],
+    root,
+    {},
+    b"",
+    output,
+    stderr,
+  )
+  let status = process.run(plan)?
+  assert status.exited_with(0), stderr.read_text()?
+  let timestamp = fs.stat(output)?
+  assert timestamp.mtime_seconds == -62167219200
+  assert timestamp.mtime_nanoseconds == 123456789
 }
 
 test test_set_times_nofollow_changes_the_link_not_its_target { |ctx|

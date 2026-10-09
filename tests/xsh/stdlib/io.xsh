@@ -11,11 +11,24 @@ test test_io_stdin_text_line_bytes_and_stdout { |ctx|
 world
 """
 
-  let line_script = test.temp_file(ctx, name: "io-line.xsh", contents: b"let line = io.stdin_line()?\nprint ${line}\n")?
+  let line_script = test.temp_file(
+    ctx,
+    name: "io-line.xsh",
+    contents: b"let first = io.stdin_line()?\nlet second = io.stdin_line()?\nprint ${first}\nprint ${second}\n",
+  )?
   let line_input = test.temp_file(ctx, name: "line.in", contents: b"first\r\nsecond\n")?
 
   assert run.text "xsh" $line_script < ${line_input}? == """first
+second
 """
+
+  let mixed_script = test.temp_file(
+    ctx,
+    name: "io-line-bytes.xsh",
+    contents: b"let first = io.stdin_line()?\nprint ${first}\nio.write_stdout_bytes(io.stdin_bytes()?)?\n",
+  )?
+  let mixed_input = test.temp_file(ctx, name: "line-bytes.in", contents: b"first\nrest")?
+  assert run.bytes "xsh" $mixed_script < ${mixed_input}? == b"first\nrest"
 
   let bytes_script = test.temp_file(
     ctx,

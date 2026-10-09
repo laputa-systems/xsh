@@ -70,7 +70,8 @@ mod prims;
 pub(crate) use prims::chmod as chmod_path;
 pub(crate) use prims::{
     CopyFile, Policy, SetTimes, copy_file as copy_file_with, data_ranges, dev_major, dev_minor,
-    link, makedev, mknod, rename_noreplace, set_owner, set_times, stat, statvfs_record, umask,
+    link, makedev, mknod, rename_noreplace, set_owner, set_times, set_times_fd, stat,
+    statvfs_record, umask,
 };
 
 #[derive(Default)]

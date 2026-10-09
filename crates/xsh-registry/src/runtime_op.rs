@@ -200,6 +200,7 @@ pub enum RuntimeOp {
     FsStat,
     FsSetOwner,
     FsSetTimes,
+    FsSetTimesFd,
     FsMknod,
     FsMakedev,
     FsDevMajor,

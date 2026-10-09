@@ -9,6 +9,7 @@ use crate::source::Span;
 use rustix::fs::{self as rfs, AtFlags, CWD, Mode, StatVfsMountFlags, Timespec, Timestamps};
 use rustix::fs::{UTIME_NOW, UTIME_OMIT};
 use std::fs::File;
+use std::os::fd::{BorrowedFd, RawFd};
 use std::os::unix::fs::{FileExt, FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -74,6 +75,10 @@ fn stat_unnamed(path: PathBuf, follow: bool, span: Span) -> Result<Value, Runtim
         (key("dev"), Value::Int(metadata.dev() as i64)),
         (key("ino"), Value::Int(metadata.ino() as i64)),
         (key("rdev"), Value::Int(metadata.rdev() as i64)),
+        (key("atime_seconds"), Value::Int(metadata.atime())),
+        (key("atime_nanoseconds"), Value::Int(metadata.atime_nsec())),
+        (key("mtime_seconds"), Value::Int(metadata.mtime())),
+        (key("mtime_nanoseconds"), Value::Int(metadata.mtime_nsec())),
         (key("atime_ns"), time_ns(metadata.atime(), metadata.atime_nsec())),
         (key("mtime_ns"), time_ns(metadata.mtime(), metadata.mtime_nsec())),
         (key("ctime_ns"), time_ns(metadata.ctime(), metadata.ctime_nsec())),
@@ -151,27 +156,56 @@ fn chmod_nofollow(path: &std::path::Path, mode: Mode) -> rustix::io::Result<()> 
 
 fn timespec(
     ns: Option<i64>,
+    seconds: Option<i64>,
+    nanoseconds: Option<i64>,
     now: bool,
     field: &str,
+    operation: &str,
     span: Span,
 ) -> Result<Timespec, RuntimeError> {
-    match (ns, now) {
-        (Some(_), true) => Err(RuntimeError::new(
-            "fs-set-times",
-            format!("{field}_ns and {field}_now are mutually exclusive"),
+    let has_pair = seconds.is_some() || nanoseconds.is_some();
+    if ns.is_some() && has_pair {
+        return Err(RuntimeError::new(
+            operation,
+            format!("{field}_ns cannot be combined with {field}_seconds or {field}_nanoseconds"),
         )
-        .with_span(span)),
-        (None, true) => Ok(Timespec {
+        .with_span(span));
+    }
+    if now && (ns.is_some() || has_pair) {
+        return Err(RuntimeError::new(
+            operation,
+            format!("{field} timestamp values are mutually exclusive with {field}_now"),
+        )
+        .with_span(span));
+    }
+    if let Some(ns) = ns {
+        return Ok(Timespec {
+            tv_sec: ns.div_euclid(NANOS) as _,
+            tv_nsec: ns.rem_euclid(NANOS) as _,
+        });
+    }
+    if has_pair {
+        let nanoseconds = nanoseconds.unwrap_or(0);
+        if !(0..NANOS).contains(&nanoseconds) {
+            return Err(RuntimeError::new(
+                operation,
+                format!("{field}_nanoseconds must be between 0 and 999999999"),
+            )
+            .with_span(span));
+        }
+        return Ok(Timespec {
+            tv_sec: seconds.unwrap_or(0) as _,
+            tv_nsec: nanoseconds as _,
+        });
+    }
+    match now {
+        true => Ok(Timespec {
             tv_sec: 0,
             tv_nsec: UTIME_NOW as _,
         }),
-        (None, false) => Ok(Timespec {
+        false => Ok(Timespec {
             tv_sec: 0,
             tv_nsec: UTIME_OMIT as _,
-        }),
-        (Some(ns), false) => Ok(Timespec {
-            tv_sec: ns.div_euclid(NANOS) as _,
-            tv_nsec: ns.rem_euclid(NANOS) as _,
         }),
     }
 }
@@ -181,13 +215,33 @@ pub(crate) struct SetTimes {
     pub(crate) mtime_ns: Option<i64>,
     pub(crate) atime_now: bool,
     pub(crate) mtime_now: bool,
+    pub(crate) atime_seconds: Option<i64>,
+    pub(crate) atime_nanoseconds: Option<i64>,
+    pub(crate) mtime_seconds: Option<i64>,
+    pub(crate) mtime_nanoseconds: Option<i64>,
     pub(crate) follow_symlinks: bool,
 }
 
 pub(crate) fn set_times(path: PathBuf, times: SetTimes, span: Span) -> Result<(), RuntimeError> {
     let timestamps = Timestamps {
-        last_access: timespec(times.atime_ns, times.atime_now, "atime", span)?,
-        last_modification: timespec(times.mtime_ns, times.mtime_now, "mtime", span)?,
+        last_access: timespec(
+            times.atime_ns,
+            times.atime_seconds,
+            times.atime_nanoseconds,
+            times.atime_now,
+            "atime",
+            "fs-set-times",
+            span,
+        )?,
+        last_modification: timespec(
+            times.mtime_ns,
+            times.mtime_seconds,
+            times.mtime_nanoseconds,
+            times.mtime_now,
+            "mtime",
+            "fs-set-times",
+            span,
+        )?,
     };
     let flags = if times.follow_symlinks {
         AtFlags::empty()
@@ -200,6 +254,38 @@ pub(crate) fn set_times(path: PathBuf, times: SetTimes, span: Span) -> Result<()
         rfs::utimensat(CWD, &path, &timestamps, flags)
             .map_err(|error| RuntimeError::host("fs-set-times", &error).with_span(span)),
     )
+}
+
+pub(crate) fn set_times_fd(fd: i64, times: SetTimes, span: Span) -> Result<(), RuntimeError> {
+    let fd = RawFd::try_from(fd).map_err(|_| {
+        RuntimeError::new("fs-set-times-fd", "file descriptor is outside the host range")
+            .with_span(span)
+    })?;
+    let timestamps = Timestamps {
+        last_access: timespec(
+            times.atime_ns,
+            times.atime_seconds,
+            times.atime_nanoseconds,
+            times.atime_now,
+            "atime",
+            "fs-set-times-fd",
+            span,
+        )?,
+        last_modification: timespec(
+            times.mtime_ns,
+            times.mtime_seconds,
+            times.mtime_nanoseconds,
+            times.mtime_now,
+            "mtime",
+            "fs-set-times-fd",
+            span,
+        )?,
+    };
+    // SAFETY: borrow the caller-owned descriptor only for the synchronous
+    // futimens syscall; this function does not close it.
+    let fd = unsafe { BorrowedFd::borrow_raw(fd) };
+    rfs::futimens(fd, &timestamps)
+        .map_err(|error| RuntimeError::host("fs-set-times-fd", &error).with_span(span))
 }
 
 pub(crate) fn mknod(

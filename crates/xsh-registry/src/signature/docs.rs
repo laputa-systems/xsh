@@ -743,7 +743,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "stat") => Some((
             "Reads complete metadata for a path without following a final symlink unless asked.",
-            "The record is a point-in-time snapshot with nanosecond times, link count, device and inode identity, and the full file kind; fs.metadata keeps the narrower FsEntry shape.",
+            "The record is a point-in-time snapshot with timestamp seconds and nanoseconds (plus saturated nanosecond totals), link count, device and inode identity, and the full file kind; fs.metadata keeps the narrower FsEntry shape.",
             &["filesystem", "metadata", "inspection"],
         )),
         ("fs", "set_owner") => Some((
@@ -753,8 +753,13 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "set_times") => Some((
             "Sets access and modification times with nanosecond precision.",
-            "Each time is set to an explicit nanosecond value, set to the kernel's current time, or left unchanged; symlinks are not followed unless asked.",
+            "Each time is set with an explicit nanosecond value or seconds and nanoseconds, set to the kernel's current time, or left unchanged; symlinks are not followed unless asked.",
             &["filesystem", "timestamps", "metadata"],
+        )),
+        ("fs", "set_times_fd") => Some((
+            "Sets access and modification times on an open file descriptor.",
+            "Each time is set with an explicit nanosecond value or seconds and nanoseconds, set to the kernel's current time, or left unchanged. The descriptor stays open and is not owned by this call.",
+            &["filesystem", "timestamps", "metadata", "fd"],
         )),
         ("fs", "mknod") => Some((
             "Creates a file, FIFO, socket, or device node with an explicit mode.",
@@ -863,17 +868,17 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("io", "stdin_bytes") => Some((
             "Reads all standard input as Bytes.",
-            "The operation preserves arbitrary bytes and consumes the evaluator's stdin source.",
+            "The operation preserves arbitrary bytes and consumes the remaining standard input from its shared stream position.",
             &["io", "stdin", "bytes"],
         )),
         ("io", "stdin_text") => Some((
             "Reads all standard input as UTF-8 text.",
-            "Invalid UTF-8 is an error rather than replacement text.",
+            "Invalid UTF-8 is an error rather than replacement text; the call consumes the remaining bytes from the shared standard-input stream.",
             &["io", "stdin", "utf8"],
         )),
         ("io", "stdin_line") => Some((
             "Reads one line from standard input.",
-            "Line termination is consumed according to the stream boundary and end-of-input remains distinguishable.",
+            "A trailing line feed and its preceding carriage return are removed. Calls retain unread bytes and share the stream position with stdin_bytes and stdin_text; an empty line and end-of-input both return an empty string.",
             &["io", "stdin", "lines"],
         )),
         ("io", "write_stderr") => Some((
@@ -1625,7 +1630,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Path", "read_bytes") => Some((
             "Reads a file as Bytes.",
-            "The operation preserves arbitrary file bytes and does not perform UTF-8 validation.",
+            "The operation preserves arbitrary bytes and does not perform UTF-8 validation. Empty-length files and special files are read until EOF, so FIFOs can be streamed.",
             &["path", "filesystem", "bytes"],
         )),
         ("Path", "read_lines") => Some((

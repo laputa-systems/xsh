@@ -44,7 +44,7 @@ use std::collections::BTreeMap;
 use std::ffi::CStr;
 use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{BufRead, ErrorKind, Read, Write};
 use std::ops::ControlFlow;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -803,15 +803,19 @@ fn read_host_path_bytes(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeErr
 fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, RuntimeError> {
     let mut file = std::fs::File::open(path)
         .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
-    let len = file
+    let metadata = file
         .metadata()
-        .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?
+        .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+    if metadata.len() == 0 || !metadata.file_type().is_file() {
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+        return Ok(bytes.into());
+    }
+    let len = metadata
         .len()
         .try_into()
         .map_err(|_| RuntimeError::new("fs-read", "file is too large").with_span(span))?;
-    if len == 0 {
-        return Ok(Arc::from([]));
-    }
 
     let mut bytes = Arc::<[u8]>::new_uninit_slice(len);
     let uninit = Arc::get_mut(&mut bytes).expect("new Arc has no aliases");
@@ -5489,13 +5493,17 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsSetTimes if (1..=6).contains(&values.len()) => {
+            RuntimeOp::FsSetTimes if (1..=10).contains(&values.len()) => {
                 let operation = "fs.set_times";
                 let times = fs_module::SetTimes {
                     atime_ns: lowered_optional_int_arg(values.get(1), operation, span)?,
                     mtime_ns: lowered_optional_int_arg(values.get(2), operation, span)?,
                     atime_now: lowered_bool_arg_or(values.get(3).cloned(), false, operation, span)?,
                     mtime_now: lowered_bool_arg_or(values.get(4).cloned(), false, operation, span)?,
+                    atime_seconds: lowered_optional_int_arg(values.get(6), operation, span)?,
+                    atime_nanoseconds: lowered_optional_int_arg(values.get(7), operation, span)?,
+                    mtime_seconds: lowered_optional_int_arg(values.get(8), operation, span)?,
+                    mtime_nanoseconds: lowered_optional_int_arg(values.get(9), operation, span)?,
                     follow_symlinks: lowered_bool_arg_or(
                         values.get(5).cloned(),
                         false,
@@ -5505,6 +5513,22 @@ impl Evaluator {
                 };
                 let path = lowered_path_arg(values.remove(0), operation, span)?;
                 lowered_unit_result(fs_module::set_times(self.host_path(&path), times, span))
+            }
+            RuntimeOp::FsSetTimesFd if (1..=9).contains(&values.len()) => {
+                let operation = "fs.set_times_fd";
+                let times = fs_module::SetTimes {
+                    atime_ns: lowered_optional_int_arg(values.get(1), operation, span)?,
+                    mtime_ns: lowered_optional_int_arg(values.get(2), operation, span)?,
+                    atime_now: lowered_bool_arg_or(values.get(3).cloned(), false, operation, span)?,
+                    mtime_now: lowered_bool_arg_or(values.get(4).cloned(), false, operation, span)?,
+                    atime_seconds: lowered_optional_int_arg(values.get(5), operation, span)?,
+                    atime_nanoseconds: lowered_optional_int_arg(values.get(6), operation, span)?,
+                    mtime_seconds: lowered_optional_int_arg(values.get(7), operation, span)?,
+                    mtime_nanoseconds: lowered_optional_int_arg(values.get(8), operation, span)?,
+                    follow_symlinks: false,
+                };
+                let fd = lowered_int_arg(Some(values.remove(0)), operation, span)?;
+                lowered_unit_result(fs_module::set_times_fd(fd, times, span))
             }
             RuntimeOp::FsMknod if (3..=5).contains(&values.len()) => {
                 let operation = "fs.mknod";
@@ -5891,10 +5915,7 @@ impl Evaluator {
             }
             RuntimeOp::IoStdinLine if values.is_empty() => {
                 let mut line = String::new();
-                match std::io::BufRead::read_line(
-                    &mut std::io::BufReader::new(std::io::stdin().lock()),
-                    &mut line,
-                ) {
+                match std::io::stdin().lock().read_line(&mut line) {
                     Ok(_) => {
                         if line.ends_with('\n') {
                             line.pop();

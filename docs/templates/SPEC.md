@@ -2067,6 +2067,11 @@ always contributes to that one argument (`-j${jobs}`, `"--out=$dir"`).
 
 ### 10.3 Output
 
+`io.stdin_line()`, `io.stdin_text()`, and `io.stdin_bytes()` read one shared
+standard-input stream and keep its position across calls. A line read removes
+its trailing line feed and a preceding carriage return. An empty line and
+end-of-input both return an empty string from `io.stdin_line()`.
+
 `print` writes its arguments separated by single spaces plus a newline to
 stdout, and `eprint` does the same on stderr. They accept displayable scalars
 (`Str`, `Int`, `UInt`, `Float`, `Duration`, `Bool`, `Path`) and need no effect.
@@ -2725,15 +2730,19 @@ Contracts worth knowing without consulting the reference:
   it reads the whole file, fails as `read_text` fails (including on bytes that
   are not UTF-8), and returns a `List[Str]` without line terminators. It is
   eager, so every failure happens at the call; `Path.lines()` is the lazy
-  stream for a file read once, line by line. `read_lines` returns what
+  stream for a file read once, line by line. `read_bytes` reads empty-length
+  and special files through EOF, including a FIFO after its writer closes.
+  `read_lines` returns what
   `write_lines` wrote when no element contains `\n` or ends with `\r`.
 - File-utility primitives in `fs` report the kernel's view and never emulate
   it. `fs.stat` returns every `lstat` field (`follow_symlinks: true` gives
   `stat`): full file kind (`fifo`, `socket`, `block`, `char`), `nlink`, `dev`,
-  `ino`, `rdev`, and nanosecond `atime_ns`/`mtime_ns`/`ctime_ns`; two paths are
+  `ino`, `rdev`, `atime_seconds`/`atime_nanoseconds`,
+  `mtime_seconds`/`mtime_nanoseconds`, and nanosecond `atime_ns`/`mtime_ns`/`ctime_ns`; two paths are
   one file when `dev` and `ino` match. `fs.set_owner`, `fs.set_times` (explicit
-  nanoseconds, kernel "now", or unchanged per field), `fs.chmod` and `fs.link`
-  take `follow_symlinks`. Linux cannot change a symlink's mode, so the
+  nanoseconds or seconds and nanoseconds, kernel "now", or unchanged per field),
+  `fs.set_times_fd` (the same timestamp choices on a caller-owned descriptor), `fs.chmod` and
+  `fs.link` take `follow_symlinks`. Linux cannot change a symlink's mode, so the
   no-follow `fs.chmod` on a symlink fails with `EOPNOTSUPP`. `fs.mknod`
   creates FIFOs, sockets, and device nodes under the umask (`fs.umask()`).
   `fs.copy_file` creates the destination with the source's permission bits
