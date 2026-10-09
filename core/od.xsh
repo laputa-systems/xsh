@@ -5,6 +5,7 @@ const USAGE = """Usage: od [OPTION]... [FILE]...
 Write an unambiguous representation of FILE to standard output.
 
   -A RADIX           output offsets in radix d, o, x, or n
+      --traditional   accept the traditional FILE OFFSET LABEL syntax
   -j BYTES           skip BYTES input bytes
   -N BYTES           limit output to BYTES input bytes
   -t TYPE            select output format
@@ -17,13 +18,14 @@ Write an unambiguous representation of FILE to standard output.
 
 type Options = {
   address: Str, skip: Str, read: Str, formats: List[Str], width: Str, endian: Str,
-  duplicates: Bool, strings: Str, help: Bool, version: Bool,
+  duplicates: Bool, strings: Str, traditional: Bool, help: Bool, version: Bool,
   short_a: Bool, short_b: Bool, short_c: Bool, short_d: Bool, short_o: Bool, short_s: Bool,
   short_x: Bool, short_X: Bool, short_f: Bool, short_i: Bool, short_l: Bool,
   upper_dec: Bool, upper_float: Bool, upper_hex: Bool, upper_int: Bool, upper_long: Bool, upper_oct: Bool,
   files: List[Str]
 }
 type Format = {base: Str, size: Int, mode: Str, ascii: Bool}
+type OffsetParts = {digits: Str, radix: Int, multiplier: Int}
 
 pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
   for index in range(argv.len()) { if argv[index] == name { return raw[index] } }
@@ -42,7 +44,7 @@ pure parse_radix(text: Str, radix: Int, alphabet: Str) -> Int? {
   for index in range(text.byte_len()) {
     let digit = alphabet.find(text.byte_slice(index, 1).lower())
     if digit == null or (digit ?? 0) >= radix { return null }
-    if value > 9223372036854775807 / radix { return null }
+    if value > (9223372036854775807 - (digit ?? 0)) / radix { return null }
     value = value * radix + (digit ?? 0)
   }
   value
@@ -51,6 +53,22 @@ pure parse_radix(text: Str, radix: Int, alphabet: Str) -> Int? {
 pure pad_left(text: Str, width: Int) -> Str {
   if text.byte_len() >= width { return text }
   tui.left_pad(text, width)
+}
+
+pure pad_right(text: Str, width: Int) -> Str {
+  if text.byte_len() >= width { return text }
+  tui.right_pad(text, width)
+}
+
+pure display_width(format: Format) -> Int {
+  if format.base == "x" { return format.size * 2 + (if format.ascii { 1 } else { 0 }) }
+  if format.mode == "char" or format.mode == "ascii" { return 3 }
+  if format.base == "o" { return if format.size == 4 { 11 } else if format.size == 8 { 22 } else { format.size * 3 } }
+  if format.mode == "signed" { return if format.size == 4 { 11 } else if format.size == 8 { 20 } else { format.size * 3 } }
+  if format.size == 4 { return 10 }
+  if format.size == 8 { return 20 }
+  if format.size == 2 { return 5 }
+  3
 }
 
 pure pad_zero(text: Str, width: Int) -> Str {
@@ -80,6 +98,26 @@ pure offset_text(value: Int, radix: Str) -> Str {
   pad_zero(radix_text(value, radix), if radix == "x" { 6 } else { 7 })
 }
 
+pure formatted_address(value: Int, radix: Str, label: Int?) -> Str {
+  if label == null { return offset_text(value, radix) }
+  let shown_label = f"({offset_text(label ?? 0, "o")})"
+  if radix == "n" { shown_label } else { f"{offset_text(value, radix)} {shown_label}" }
+}
+
+pure uses_modern_option(argv: List[Str]) -> Bool {
+  for arg in argv {
+    if arg == "--" { return false }
+    if arg in ["-A", "-j", "-N", "-t", "-v", "-w", "-S", "--address-radix", "--skip-bytes", "--read-bytes", "--format", "--output-duplicates", "--width", "--strings"] { return true }
+    if arg.starts_with("--address-radix=") or arg.starts_with("--skip-bytes=") or arg.starts_with("--read-bytes=") or arg.starts_with("--format=") or arg.starts_with("--width=") or arg.starts_with("--strings=") { return true }
+    if arg.starts_with("-") and ! arg.starts_with("--") and arg != "-" {
+      for index in range(1, arg.byte_len()) {
+        if arg.byte_slice(index, 1) in ["A", "j", "N", "t", "v", "w", "S"] { return true }
+      }
+    }
+  }
+  false
+}
+
 pure digit_char(value: Int, alphabet: Str) -> Str { alphabet.byte_slice(value, 1) }
 
 pure unsigned_value(data: Bytes, start: Int, size: Int, little: Bool) -> Int {
@@ -104,7 +142,7 @@ pure hex_word(data: Bytes, start: Int, size: Int, little: Bool) -> Str {
 
 pure numeric_word(data: Bytes, start: Int, format: Format, little: Bool) -> Str {
   let unsigned = unsigned_value(data, start, format.size, little)
-  if format.base == "x" { return hex_word(data, start, format.size, little) }
+  if format.base == "x" { return pad_left(hex_word(data, start, format.size, little), format.size * 2 + (if format.ascii { 1 } else { 0 })) }
   let width = if format.base == "o" { if format.size == 4 { 11 } else if format.size == 8 { 22 } else { format.size * 3 } } else if format.mode == "signed" { if format.size == 4 { 11 } else if format.size == 8 { 20 } else { format.size * 3 } } else if format.size == 4 { 10 } else if format.size == 8 { 20 } else if format.size == 2 { 5 } else { 3 }
   if format.base == "o" { return pad_zero(radix_text(unsigned, "o"), width) }
   if format.mode == "signed" and format.size < 8 {
@@ -118,13 +156,24 @@ pure numeric_word(data: Bytes, start: Int, format: Format, little: Bool) -> Str 
 pure char_word(data: Bytes, start: Int, ascii: Bool) -> Str {
   let byte = data.byte_at(start) ?? 0
   let names = ["nul", "soh", "stx", "etx", "eot", "enq", "ack", "bel", "bs", "ht", "nl", "vt", "ff", "cr", "so", "si", "dle", "dc1", "dc2", "dc3", "dc4", "nak", "syn", "etb", "can", "em", "sub", "esc", "fs", "gs", "rs", "us"]
-  if byte < 32 { return pad_left(if ascii { names[byte] } else { f"\\{names[byte]}" }, 3) }
-  if byte == 127 { return if ascii { "del" } else { "\\del" } }
+  if byte < 32 {
+    let shown = if ascii { names[byte] } else if byte == 0 { "\\0" } else if byte == 7 { "\\a" } else if byte == 8 { "\\b" } else if byte == 9 { "\\t" } else if byte == 10 { "\\n" } else if byte == 11 { "\\v" } else if byte == 12 { "\\f" } else if byte == 13 { "\\r" } else { pad_zero(radix_text(byte, "o"), 3) }
+    return pad_left(shown, 3)
+  }
+  if ascii {
+    let low_byte = byte % 128
+    if low_byte == 32 { return pad_left("sp", 3) }
+    if low_byte == 127 { return "del" }
+    if low_byte < 32 { return names[low_byte] }
+    let text = bytes.from_ints([low_byte]) ?? b""
+    return pad_left(text.utf8() ?? "", 3)
+  }
+  if byte == 127 { return "177" }
   if byte >= 32 and byte <= 126 { return pad_left(data[start..start + 1].utf8() ?? "", 3) }
-  pad_left(f"\\{radix_text(byte, "o")}", 3)
+  pad_left(pad_zero(radix_text(byte, "o"), 3), 3)
 }
 
-pure strings_output(data: Bytes, start_offset: Int, minimum: Int, show_final: Bool, address: Str) -> Str {
+pure strings_output(data: Bytes, start_offset: Int, minimum: Int, show_final: Bool, address: Str, label: Int?) -> Str {
   var out = ""
   var current = ""
   var current_start = 0
@@ -135,14 +184,16 @@ pure strings_output(data: Bytes, start_offset: Int, minimum: Int, show_final: Bo
       current = f"{current}{data[index..index + 1].utf8() ?? ""}"
     } else {
       if current.byte_len() >= minimum {
-        let head = if address == "n" { "" } else { f"{offset_text(start_offset + current_start, address)} " }
+        let shown = formatted_address(start_offset + current_start, address, if label == null { null } else { (label ?? 0) + current_start })
+        let head = if shown == "" { "" } else { f"{shown} " }
         out = f"{out}{head}{current}\n"
       }
       current = ""
     }
   }
   if show_final and current.byte_len() >= minimum {
-    let head = if address == "n" { "" } else { f"{offset_text(start_offset + current_start, address)} " }
+    let shown = formatted_address(start_offset + current_start, address, if label == null { null } else { (label ?? 0) + current_start })
+    let head = if shown == "" { "" } else { f"{shown} " }
     out = f"{out}{head}{current}\n"
   }
   out
@@ -160,6 +211,59 @@ proc read_file(name: Str, raw_name: Bytes) [fs, process, env, error, io] -> Byte
       Err(failure) => { gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}"); exit 1; b"" },
     }
   }
+}
+
+pure offset_parts(text: Str) -> OffsetParts? {
+  var value = text
+  if value.starts_with("+") { value = value.byte_slice(1) }
+  var multiplier = 1
+  if value.ends_with("b") or value.ends_with("B") { multiplier = 512; value = value.byte_slice(0, value.byte_len() - 1) }
+  var radix = 8
+  if value.ends_with(".") { radix = 10; value = value.byte_slice(0, value.byte_len() - 1) }
+  if value.starts_with("0x") or value.starts_with("0X") { radix = 16; value = value.byte_slice(2) }
+  if value == "" { return null }
+  {digits: value, radix: radix, multiplier: multiplier}
+}
+
+pure offset_digits_valid(text: Str, radix: Int) -> Bool {
+  if text == "" { return false }
+  let alphabet = "0123456789abcdef"
+  for index in range(text.byte_len()) {
+    let digit = alphabet.find(text.byte_slice(index, 1).lower())
+    if digit == null or (digit ?? 0) >= radix { return false }
+  }
+  true
+}
+
+pure parse_traditional_offset(text: Str) -> Int? {
+  let parts = offset_parts(text)
+  if parts == null { return null }
+  let actual = parts ?? {digits: "", radix: 8, multiplier: 1}
+  let value = parse_radix(actual.digits, actual.radix, "0123456789abcdef")
+  if value == null or (value ?? 0) > 9223372036854775807 / actual.multiplier { return null }
+  (value ?? 0) * actual.multiplier
+}
+
+pure traditional_offset_overflows(text: Str) -> Bool {
+  let parts = offset_parts(text)
+  if parts == null { return false }
+  let actual = parts ?? {digits: "", radix: 8, multiplier: 1}
+  return false when ! offset_digits_valid(actual.digits, actual.radix)
+  let value = parse_radix(actual.digits, actual.radix, "0123456789abcdef")
+  value == null or (value ?? 0) > 9223372036854775807 / actual.multiplier
+}
+
+pure traditional_offset_candidate(text: Str) -> Bool {
+  let parts = offset_parts(text)
+  parts != null and offset_digits_valid((parts ?? {digits: "", radix: 8, multiplier: 1}).digits, (parts ?? {digits: "", radix: 8, multiplier: 1}).radix)
+}
+
+proc check_traditional_offset(text: Str) [process, env] -> Int {
+  if traditional_offset_overflows(text) {
+    gnu.error(f"{text}: Numerical result out of range")
+    exit 1
+  }
+  parse_traditional_offset(text) ?? 0
 }
 
 pure parse_type(text: Str) -> Format? {
@@ -226,6 +330,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       endian: {form: "--endian TYPE", default: "little"},
       duplicates: {form: "-v --output-duplicates", default: false},
       strings: {form: "-S --strings[=BYTES]", default: "", optional_default: "3", optional_value: true},
+      traditional: {form: "--traditional", default: false},
       short_a: {form: "-a", default: false}, short_b: {form: "-b", default: false}, short_c: {form: "-c", default: false},
       short_d: {form: "-d", default: false}, short_o: {form: "-o", default: false},
       short_s: {form: "-s", default: false}, short_x: {form: "-x", default: false},
@@ -251,22 +356,65 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let width = parse_nonnegative(opts.width)
   if skip == null or (opts.read != "" and limit == null) { gnu.usage_error("invalid byte count") }
   if width == null or (width ?? 0) < 1 { gnu.error(f"invalid -w argument {gnu.quote_value(opts.width)}"); exit 1 }
+  var files = opts.files
+  var traditional_skip: Int? = null
+  var pseudo_start: Int? = null
+  let traditional = opts.traditional
+  let modern = uses_modern_option(argv)
+  if traditional or ! modern {
+    if files.len() == 1 {
+      let candidate = files[0]
+      if (traditional or candidate.starts_with("+")) and traditional_offset_candidate(candidate) {
+        traditional_skip = check_traditional_offset(candidate)
+        files = []
+      }
+    } else if files.len() == 2 {
+      let first = files[0]
+      let second = files[1]
+      let should_parse = traditional or second.starts_with("+") or (second.byte_len() > 0 and second.byte_slice(0, 1) in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"])
+      if should_parse and traditional_offset_candidate(second) {
+        let first_is_offset = traditional and traditional_offset_candidate(first)
+        if first_is_offset {
+          traditional_skip = check_traditional_offset(first)
+          pseudo_start = check_traditional_offset(second)
+          files = []
+        } else {
+          traditional_skip = check_traditional_offset(second)
+          files = [first]
+        }
+      }
+    } else if traditional and files.len() == 3 {
+      let second = files[1]
+      let third = files[2]
+      if traditional_offset_candidate(second) and traditional_offset_candidate(third) {
+        traditional_skip = check_traditional_offset(second)
+        pseudo_start = check_traditional_offset(third)
+        files = [files[0]]
+      }
+    }
+    if traditional and files.len() > 1 {
+      gnu.error(f"extra operand {gnu.quote(files[1])}")
+      gnu.error("compatibility mode supports at most one file")
+      exit 1
+    }
+  }
   var data: Bytes = b""
   let raw_args = cli.argv_bytes()
-  if opts.files.len() == 0 { data = read_file("-", b"-") } else {
-    for name in opts.files {
+  if files.len() == 0 { data = read_file("-", b"-") } else {
+    for name in files {
       let item = read_file(name, raw_for(argv, raw_args, name))
       data = bytes.concat([data, item])
     }
   }
-  let start = skip ?? 0
+  let start = traditional_skip ?? skip ?? 0
   let available = if start < data.len() { data.len() - start } else { 0 }
   let amount = if limit == null or (limit ?? 0) > available { available } else { limit ?? 0 }
   data = data.slice(start, length: amount)
 
   if opts.strings != "" {
     let minimum = if opts.strings == "" { 3 } else { parse_nonnegative(opts.strings) ?? 3 }
-    gnu.write_text(strings_output(data, start, if minimum == 0 { 1 } else { minimum }, opts.read != "", address))
+    let result = strings_output(data, start, if minimum == 0 { 1 } else { minimum }, opts.read != "", address, pseudo_start)
+    gnu.write_text(result)
     return
   }
 
@@ -310,7 +458,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var star = false
   while offset < data.len() {
     let amount = if data.len() - offset < line_width { data.len() - offset } else { line_width }
-    let head = if address == "n" { "" } else { f"{offset_text(offset + start, address)} " }
+    let shown_address = formatted_address(offset + start, address, if pseudo_start == null { null } else { (pseudo_start ?? 0) + offset })
+    let head = if shown_address == "" { " " } else { f"{shown_address} " }
     var format_lines: List[Str] = []
     for format in parsed_formats {
       var values: List[Str] = []
@@ -326,13 +475,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           let byte = data.byte_at(offset + index) ?? 0
           shown = f"{shown}{if byte >= 32 and byte <= 126 { data[offset + index..offset + index + 1].utf8() ?? "" } else { "." }}"
         }
-        values += [f">{shown}<"]
+        let columns = line_width / format.size
+        let field_area = columns * display_width(format) + columns - 1
+        format_lines += [f"{pad_right(values.join(" "), field_area)}  >{shown}<"]
+      } else {
+        format_lines += [values.join(" ")]
       }
-      format_lines += [values.join(" ")]
     }
     var body = ""
+    let format_indent = if pseudo_start != null { pad_right("", if address == "n" { 10 } else { 18 }) } else if address == "n" { " " } else if address == "x" { "       " } else { "        " }
     for index in range(format_lines.len()) {
-      body = if index == 0 { format_lines[index] } else { f"{body}\n        {format_lines[index]}" }
+      body = if index == 0 { format_lines[index] } else { f"{body}\n{format_indent}{format_lines[index]}" }
     }
     let repeated = amount == line_width and previous == body
     if opts.duplicates or ! repeated {
@@ -345,8 +498,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     offset += line_width
   }
-  if address != "n" { out = f"{out}{offset_text(start + data.len(), address)}\n" }
-  if data.len() == 0 and address == "n" { out = "" }
+  let final_address = formatted_address(start + data.len(), address, if pseudo_start == null { null } else { (pseudo_start ?? 0) + data.len() })
+  if final_address != "" { out = f"{out}{final_address}\n" }
+  if data.len() == 0 and address == "n" and pseudo_start == null { out = "" }
   gnu.write_text(out)
   if let Err(failure) = io.flush_stdout() { gnu.error(gnu.strerror(failure)); exit 1 }
 }
