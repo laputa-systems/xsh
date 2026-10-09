@@ -218,6 +218,22 @@ test test_test_boolean_operators_and_parentheses { |ctx|
   )
 }
 
+test test_test_parenthesized_comparison_can_use_right_parenthesis_as_operand { |ctx|
+  let expressions = [
+    ["(", "foo", "!=", "bar", ")"],
+    ["(", "contained\nnewline", "=", "contained\nnewline", ")"],
+    ["(", "(", "=", "(", ")"],
+    ["(", "(", "!=", ")", ")"],
+    ["(", "!", "=", "!", ")"],
+    ["(", "=", "=", "=", ")"],
+  ]
+
+  for expression in expressions {
+    assert status_of(ctx, expression)? == 0, expression.join(" ")
+    assert status_of(ctx, ["!"].extend(expression))? == 1, expression.join(" ")
+  }
+}
+
 test test_test_boolean_operators_do_not_short_circuit { |ctx|
   let result = applet_run(ctx, ["", "-a", "1", "-eq", "bad"])?
   assert result.status == 2

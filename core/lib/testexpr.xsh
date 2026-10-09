@@ -478,6 +478,13 @@ proc term(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval]
       count += 1
     }
 
+    # A right parenthesis can be the right operand of a three-word string
+    # comparison. In `( ( != ) )`, the first `)` is the operand and the next
+    # one closes the group.
+    if count == 2 and is_binop(argv[at + 1]) and at + 3 < argv.len() and argv[at + 3] == ")" {
+      count += 1
+    }
+
     let inner = posixtest(argv, at, count)?
 
     if inner.pos >= argv.len() {
