@@ -69,6 +69,23 @@
     "truncate": [
       "test_truncate::diagnostics::test_snippet_counts_the_mode_character_before_the_size expects a source caret; GNU coreutils 9.12 prints `truncate: Invalid number` without a snippet.",
       "test_truncate::test_error_filename_only expects clap's required-arguments block; GNU coreutils 9.12 prints `truncate: you must specify either '--size' or '--reference'` and its standard help hint."
+    ],
+    "mkdir": [
+      "ACL setup fails before the applet runs on this host filesystem: test_mkdir::test_mkdir_acl and test_mkdir::test_mkdir_acl_inheritance_with_restrictive_mask get EOPNOTSUPP (`Operation not supported`) while setting the ACL.",
+      "test_mkdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `mkdir: missing operand` and its standard help hint, which the applet follows.",
+      "test_mkdir::test_version_no_path expects the `mkdir (uutils coreutils)` branding; the applet uses GNU 9.12 version branding."
+    ],
+    "rm": [
+      "Recursive permission traversal differs in test_rm::test_inaccessible_dir_recursive, test_rm::test_only_first_error_recursive, test_rm::test_recursive_remove_unreadable_subdir, test_rm::test_remove_inaccessible_dir, test_rm::test_rm_directory_not_executable, and test_rm::test_rm_directory_not_writable: fs.walk reports the inaccessible top-level directory or stops before the denied descendant, so errors name the parent (or removal fails) instead of following GNU/uutils behavior for the child.",
+      "test_rm::test_rm_recursive_very_deep_hierarchy exceeds the directory walker's file-descriptor limit (`Too many open files`); the uutils test then also stack-overflows while cleaning up the deep tree."
+    ],
+    "rmdir": [
+      "test_rmdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `rmdir: missing operand` and its standard help hint, which the applet follows."
+    ],
+    "touch": [
+      "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
+      "test_touch::test_touch_mtime_dst_fails passes a nonexistent local time in a DST gap; time.parse has no timezone transition rules to reject it, so touch succeeds where the test expects an error.",
+      "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
     ]
   }
 }
