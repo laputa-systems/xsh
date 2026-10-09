@@ -84,10 +84,11 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,166 / 5,974 passing**, 808 failing, and 4 excluded. Compared with the
+  **5,167 / 5,974 passing**, 807 failing, and 4 excluded. Compared with the
   prior merged report, it has no regressions. The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-  `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, and `tty` fixes.
+  `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`
+  fixes.
   GNU
   9.12's `tests/tty/tty.sh` also passes. XSH now resets inherited ignored
   `SIGCHLD` so process
@@ -105,6 +106,14 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   `yes` passes **10 / 10** with continuous output, raw argv bytes, and SIGPIPE.
   `tty` passes **11 / 11**. The remaining `who` failures expect uutils' clap
   extra-operand wording or omit GNU's `write error:` prefix.
+  The latest full run confirms `shred` at **29 / 31**, up one pass with no
+  regressions.
+  `shred` uses `fs.stat` size instead of reading the target just to discover
+  its length; this follows GNU 9.12 for zero-sized `/proc/self/mem`. It also
+  truncates before removal, reports each shortened name in verbose mode, and
+  treats `-` as stdout. GNU 9.12 `tests/shred/shred-remove.sh` passes. The six
+  native shred tests pass. Its two remaining uutils tests require diagnostic
+  carets; stdout descriptor metadata remains a documented API gap.
   Full and focused results are merged in
   `results/uutils-integration.json`.
 - `tail -f` classifies named FIFOs before reading and waits for `--pid` without
@@ -137,7 +146,7 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   out of 719. The last full XSH GNU run is **298 passed, 115 skipped, 280
   failed, 26 harness errors** out of 719. After the focused tty refresh, the
   merged XSH GNU records are **306 passed, 115 skipped, 273 failed, 25 harness
-  errors**. The current GNU differential is **300 / 273 / 6 / 57** (uutils-pass/XSH-pass,
+  errors**. The current GNU differential is **300 / 273 / 7 / 56** (uutils-pass/XSH-pass,
   uutils-pass/XSH-fail, uutils-fail/XSH-pass, both-fail). GNU
   `tests/timeout/timeout.sh` now passes; `timeout-group.sh` remains skipped
   because its SIGALRM case is not handled by the runtime.

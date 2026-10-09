@@ -1184,14 +1184,13 @@
       "applet": true
     },
     "shred": {
-      "pass": 28,
-      "fail": 3,
+      "pass": 29,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit",
-        "test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number",
-        "test_shred::test_couldnt_rename"
+        "test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number"
       ],
       "applet": true
     },
@@ -1734,8 +1733,8 @@
     }
   },
   "totals": {
-    "pass": 5166,
-    "fail": 808,
+    "pass": 5167,
+    "fail": 807,
     "skip": 0,
     "excluded": 4
   }

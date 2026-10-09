@@ -1289,21 +1289,22 @@
       "native_tests": "core/tests/test-shred.xsh",
       "uutils_test_count": 31,
       "uutils_integration": {
-        "pass": 28,
-        "fail": 3,
+        "pass": 29,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 4,
+        "pass": 2,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet."
+        "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet.",
+        "For a `-` operand, there is no stdout descriptor metadata API to inspect file type, current size, or append mode. XSH assumes the default size is zero; GNU coreutils 9.12 uses `fstat`/`lseek` and rejects non-seekable stdout."
       ]
     },
     {

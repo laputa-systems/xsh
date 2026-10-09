@@ -237,7 +237,8 @@
       "The three remaining `test_seq::diagnostics::test_snippet_*` cases need source spans for format arguments. `test_seq::test_sigpipe_ignored_reports_write_error` needs the process API to preserve/query an inherited ignored SIGPIPE action and report the resulting write error."
     ],
     "shred": [
-      "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet."
+      "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet.",
+      "For a `-` operand, there is no stdout descriptor metadata API to inspect file type, current size, or append mode. XSH assumes the default size is zero; GNU coreutils 9.12 uses `fstat`/`lseek` and rejects non-seekable stdout."
     ],
     "shuf": [
       "Range handling at unsigned integer boundaries and empty ranges is incomplete (`test_shuf::test_range_*` and `test_shuf::test_seed_*`); the seeded output contract also differs from uutils in `test_shuf::test_shuf_*` and `test_shuf::test_seed_*` cases.",

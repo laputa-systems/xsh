@@ -3,8 +3,8 @@
   "counts": {
     "uutils_pass_xsh_pass": 300,
     "uutils_pass_xsh_fail": 273,
-    "uutils_fail_xsh_pass": 6,
-    "uutils_fail_xsh_fail": 57
+    "uutils_fail_xsh_pass": 7,
+    "uutils_fail_xsh_fail": 56
   },
   "cells": {
     "uutils_pass_xsh_pass": [
@@ -588,6 +588,7 @@
       "cat/cat-distinct-err.log",
       "comm/comm.log",
       "factor/factor.log",
+      "shred/shred-remove.log",
       "tail/follow-name.log",
       "tail/pid-pipe.log",
       "uniq/uniq.log"
@@ -638,7 +639,6 @@
       "runcon/runcon-compute.log",
       "runcon/runcon-no-reorder.log",
       "shred/fifo.log",
-      "shred/shred-remove.log",
       "sort/sort-merge.log",
       "sort/sort.log",
       "tail/debug.log",
@@ -1234,8 +1234,8 @@
       ]
     },
     "shred": {
-      "pass": 1,
-      "fail": 4,
+      "pass": 2,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "blockers": [

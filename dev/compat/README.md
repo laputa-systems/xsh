@@ -119,9 +119,11 @@ test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
 Keep this scope to native Linux x86_64. Use one integrator; any subagent must
 be GPT-6 Luna at xhigh.
 
-The latest results include a fresh full uutils run on the current `XSH_BIN`:
-5,166 / 5,974 passing, 808 failing, and 4 excluded. It has no regressions
-against the prior merged report. The run includes the focused `factor sort
+The latest full uutils run after the `shred` changes recorded 5,167 / 5,974
+passing, 807 failing, and 4 excluded, with no regressions against its prior
+merged report. `shred` is 29 / 31, one more pass. Six native shred tests and
+GNU 9.12's `tests/shred/shred-remove.sh` pass; the two remaining uutils cases
+request diagnostic carets. The full run includes the focused `factor sort
 unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`, `echo`, `test`,
 `tail`, `sleep`, `timeout`, `cp`, `ln`, and `tty` fixes. The timeout slice
 passes 26 / 29; XSH now clears inherited ignored
@@ -153,7 +155,7 @@ and 25 harness errors.
 Remaining test gaps and exact results are maintained in `CAMPAIGN.md`,
 `gaps.json`, and `results/`.
 
-The current GNU differential is 300 / 273 / 6 / 57 across the four
+The current GNU differential is 300 / 273 / 7 / 56 across the four
 uutils-pass/XSH-pass, uutils-pass/XSH-fail, uutils-fail/XSH-pass, and both-fail
 cells. GNU `tests/timeout/timeout.sh` now passes. `timeout-group.sh` remains
 skipped because its SIGALRM case is not handled by the runtime. The `sync` FIFO

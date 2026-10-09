@@ -19,16 +19,16 @@ suite.
 
 ## Current evidence
 
-The current head has a fresh full uutils run from 2026-10-09 with **5,166 /
-5,974 passing**, 808 failing, and 4 excluded. Comparison with the preceding
-merged report found no regressions. Rerun the full suite after the next
-integration batch.
+The latest full uutils run from 2026-10-09 recorded **5,167 / 5,974 passing**,
+807 failing, and 4 excluded. Comparison with the preceding merged report found
+no regressions. `shred` is 29/31, one additional pass; its six native tests and
+GNU 9.12's `tests/shred/shred-remove.sh` pass.
 The current focused `tty` slice is 11/11; GNU 9.12's `tests/tty/tty.sh`
 passes. The remaining `who` failures expect uutils' extra-operand and
 write-error wording. Exact residuals are in `gaps.json` and
 `results/uutils-integration.json`.
 
-The GNU differential is 300 / 273 / 6 / 57 across uutils-pass/XSH-pass,
+The GNU differential is 300 / 273 / 7 / 56 across uutils-pass/XSH-pass,
 uutils-pass/XSH-fail, uutils-fail/XSH-pass, and both-fail. The focused GNU tty
 run moved the merged XSH records to 306 passed, 115 skipped, 273 failed, and
 25 harness errors.

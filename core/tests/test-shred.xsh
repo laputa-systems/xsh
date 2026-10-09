@@ -47,9 +47,28 @@ test test_shred_wipe_rename_uses_shortening_names { |ctx|
   fp"{root}/000".write("")
   let result = shred_run(ctx, root, ["-vu", "test"])?
   assert result.status == 0, result.stderr
-  assert "test: renamed to 0000" in result.stderr
-  assert "test: renamed to 001" in result.stderr
-  assert "test: renamed to 00" in result.stderr
-  assert "test: removed" in result.stderr
+  assert "shred: test: removing\nshred: test: renamed to 0000\nshred: 0000: renamed to 001\nshred: 001: renamed to 00\nshred: 00: renamed to 0\nshred: test: removed\n" in result.stderr, result.stderr
   assert ! fp"{root}/test".exists()?
+}
+
+test test_shred_zero_sized_proc_file_reaches_removal { |ctx|
+  let target = /proc/self/mem
+  if ! target.exists()? { return }
+  let root = test.temp_dir(ctx, name: "shred-proc")?
+  let result = shred_run(ctx, root, ["-u", target.display()])?
+  assert result.status == 1, result.stderr
+  assert "Couldn't rename to" in result.stderr, result.stderr
+  assert "cannot read" not in result.stderr, result.stderr
+}
+
+test test_shred_dash_targets_stdout { |ctx|
+  let root = test.temp_dir(ctx, name: "shred-stdout")?
+  let result = shred_run(ctx, root, ["-u", "-"])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "", result.stdout
+  assert result.stderr == "", result.stderr
+  assert fp"{root}/out".exists()?
+  let sized = shred_run(ctx, root, ["-n0", "-s4", "-z", "-"])?
+  assert sized.status == 0, sized.stderr
+  assert sized.stdout.byte_len() == 4, f"{sized.stdout.byte_len()}"
 }

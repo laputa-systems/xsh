@@ -657,7 +657,7 @@
     "fifo.log": "FAIL",
     "shred-exact.log": "PASS",
     "shred-passes.log": "FAIL",
-    "shred-remove.log": "FAIL",
+    "shred-remove.log": "PASS",
     "shred-size.log": "FAIL"
   },
   "shuf": {

@@ -16,10 +16,64 @@ Overwrite the specified FILEs to make their contents harder to recover.
       --version           output version information and exit
 """
 
-type ShredOptions = {force: Bool, iterations: Str, size: Str, random_source: Str, remove: Str, unlink: Bool, verbose: Bool, exact: Bool, zero: Bool, help: Bool, version: Bool, files: List[Str]}
+type ShredOptions = {
+  force: Bool,
+  iterations: Str,
+  size: Str,
+  random_source: Str,
+  remove: Str,
+  unlink: Bool,
+  verbose: Bool,
+  exact: Bool,
+  zero: Bool,
+  help: Bool,
+  version: Bool,
+  files: List[Str],
+}
 
-const PATTERNS = ["000000", "ffffff", "555555", "aaaaaa", "249249", "492492", "6db6db", "924924", "b6db6d", "db6db6", "111111", "222222", "333333", "444444", "666666", "777777", "888888", "999999", "bbbbbb", "cccccc", "dddddd", "eeeeee"]
-const TEST_ORDER = ["ffffff", "924924", "888888", "db6db6", "777777", "492492", "bbbbbb", "555555", "aaaaaa", "6db6db", "249249", "999999", "111111", "000000", "b6db6d", "eeeeee", "333333"]
+const PATTERNS = [
+  "000000",
+  "ffffff",
+  "555555",
+  "aaaaaa",
+  "249249",
+  "492492",
+  "6db6db",
+  "924924",
+  "b6db6d",
+  "db6db6",
+  "111111",
+  "222222",
+  "333333",
+  "444444",
+  "666666",
+  "777777",
+  "888888",
+  "999999",
+  "bbbbbb",
+  "cccccc",
+  "dddddd",
+  "eeeeee",
+]
+const TEST_ORDER = [
+  "ffffff",
+  "924924",
+  "888888",
+  "db6db6",
+  "777777",
+  "492492",
+  "bbbbbb",
+  "555555",
+  "aaaaaa",
+  "6db6db",
+  "249249",
+  "999999",
+  "111111",
+  "000000",
+  "b6db6d",
+  "eeeeee",
+  "333333",
+]
 
 pure parse_uint(text: Str) -> Int? {
   return null when text == ""
@@ -30,12 +84,21 @@ pure parse_uint(text: Str) -> Int? {
   var at = 0
   while at < raw.byte_len() {
     let c = raw.byte_slice(at, length: 1)
-    let digit = if c >= "0" and c <= "9" { (c.byte_at(0) ?? 48) - 48 } else if hex and c >= "a" and c <= "f" { (c.byte_at(0) ?? 97) - 87 } else if hex and c >= "A" and c <= "F" { (c.byte_at(0) ?? 65) - 55 } else { -1 }
+    let digit = if c >= "0" and c <= "9" {
+      (c.byte_at(0) ?? 48) - 48
+    } else if hex and c >= "a" and c <= "f" {
+      (c.byte_at(0) ?? 97) - 87
+    } else if hex and c >= "A" and c <= "F" {
+      (c.byte_at(0) ?? 65) - 55
+    } else {
+      -1
+    }
     return null when digit < 0 or digit >= (if hex { 16 } else { 10 })
     return null when value > (9223372036854775807 - digit) / (if hex { 16 } else { 10 })
     value = value * (if hex { 16 } else { 10 }) + digit
     at += 1
   }
+
   value
 }
 
@@ -49,6 +112,7 @@ pure increment_name_at(text: Str, position: Int) -> Str? {
   if next < nameset.byte_len() {
     return f"{text.byte_slice(0, length: position)}{nameset.byte_slice(next, length: 1)}{text.byte_slice(position + 1)}"
   }
+
   let prefix = increment_name_at(text, position - 1)
   return null when prefix == null
   var zeros = ""
@@ -66,14 +130,114 @@ pure raw_files(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
   var options = true
   while index < argv.len() {
     let arg = argv[index]
-    if options and arg == "--" { options = false; index += 1; continue }
-    if options and (arg == "-n" or arg == "--iterations" or arg == "-s" or arg == "--size" or arg == "--random-source") { index += 2; continue }
-    if options and (arg.starts_with("--iterations=") or arg.starts_with("--size=") or arg.starts_with("--random-source=") or arg.starts_with("--remove=") or (arg.starts_with("-n") and arg.byte_len() > 2) or (arg.starts_with("-s") and arg.byte_len() > 2)) { index += 1; continue }
-    if options and arg.starts_with("-") and arg != "-" { index += 1; continue }
+    if options and arg == "--" {
+      options = false
+      index += 1
+      continue
+    }
+
+    if options and (arg == "-n" or arg == "--iterations" or arg == "-s" or arg == "--size" or arg == "--random-source") {
+      index += 2
+      continue
+    }
+
+    if options and (arg.starts_with("--iterations=") or arg.starts_with("--size=") or arg.starts_with(
+      "--random-source=",
+    ) or arg.starts_with("--remove=") or (arg.starts_with("-n") and arg.byte_len() > 2) or (arg.starts_with("-s") and arg.byte_len() > 2)) {
+      index += 1
+      continue
+    }
+
+    if options and arg.starts_with("-") and arg != "-" {
+      index += 1
+      continue
+    }
+
     files += [raw[index]]
     index += 1
   }
+
   files
+}
+
+proc shred_stdout(
+  size: Int,
+  output_size: Int,
+  sequence: List[Str],
+  source_path: Path?,
+  source_is_file: Bool,
+  random_source_name: Str,
+  zero: Bool,
+  verbose: Bool,
+) [fs, error, io] -> Result[Bool] {
+  return Ok(true) when size == 0
+  var random_offset = 0
+  var pass_index = 0
+  for pass in sequence {
+    pass_index += 1
+    if verbose { gnu.error(f"-: pass {pass_index}/{sequence.len()} ({pass})...") }
+    var random_bytes = b""
+    if pass == "random" {
+      let source = source_path ?? /dev/urandom
+      let offset = if source_path != null and source_is_file { random_offset } else { 0 }
+      let found = bytes.read_at(source, offset, output_size)
+      if let Err(failure) = found {
+        let message = if source_path != null and source_is_file and gnu.strerror(failure) == "failed to fill whole buffer" {
+          "unexpected end of file"
+        } else {
+          gnu.strerror(failure)
+        }
+        let source_name = if source_path == null { "/dev/urandom" } else { random_source_name }
+        gnu.error(f"{gnu.quote(source_name)}: {message}")
+        return Ok(false)
+      } else if let Ok(data) = found {
+        random_bytes = data
+        if data.len() < output_size {
+          gnu.error(f"{gnu.quote(random_source_name)}: unexpected end of file")
+          return Ok(false)
+        }
+
+        if source_path != null and source_is_file { random_offset += output_size }
+      }
+    }
+
+    var output: List[Int] = []
+    for at in range(output_size) {
+      let byte = if pass == "000000" {
+        0
+      } else if pass == "random" {
+        random_bytes.byte_at(at) ?? 0
+      } else {
+        pattern_byte(pass, at)
+      }
+      output += [byte]
+    }
+
+    if let Err(failure) = io.write_stdout_bytes(bytes.from_ints(output)?) {
+      gnu.error(f"cannot write '-': {gnu.strerror(failure)}")
+      return Ok(false)
+    }
+  }
+
+  if zero {
+    var zeros: List[Int] = []
+    for _ in range(output_size) { zeros += [0] }
+    if let Err(failure) = io.write_stdout_bytes(bytes.from_ints(zeros)?) {
+      gnu.error(f"cannot write '-': {gnu.strerror(failure)}")
+      return Ok(false)
+    }
+  }
+
+  Ok(true)
+}
+
+pure directory_prefix(text: Str) -> Str {
+  var end = 0
+  for at in range(text.byte_len()) {
+    if text.byte_slice(at, length: 1) == "/" { end = at + 1 }
+  }
+
+  text.byte_slice(0, length: end)
 }
 
 pure pattern_byte(name: Str, index: Int) -> Int {
@@ -107,6 +271,7 @@ pure pass_sequence(count: Int, seeded: Bool) -> List[Str] {
     var ordered = ["random", @TEST_ORDER[0..9], "random", @TEST_ORDER[9..], "random"]
     return ordered
   }
+
   let patterns = count - 3
   var out = ["random"]
   for index in range(patterns) { out += [PATTERNS[index % PATTERNS.len()]] }
@@ -116,11 +281,14 @@ pure pass_sequence(count: Int, seeded: Bool) -> List[Str] {
   out
 }
 
-proc remove_file(file_path: Path, name: Str, how: Str, verbose: Bool) [fs, process, env, io, error] -> Result[Bool] {
+proc remove_file(file_path: Path, name: Str, how: Str, verbose: Bool) [fs, process, env, error, io] -> Result[Bool] {
   if how == "" { return Ok(true) }
-  if verbose { gnu.error(f"{gnu.quote(name)}: removing") }
+  if verbose { gnu.error(f"{gnu.quote_maybe(name)}: removing") }
   if how == "unlink" {
-    if let Err(failure) = file_path.remove() { gnu.error(f"cannot remove {gnu.quote(name)}: {gnu.strerror(failure)}"); return Ok(false) }
+    if let Err(failure) = file_path.remove() {
+      gnu.error(f"cannot remove {gnu.quote(name)}: {gnu.strerror(failure)}")
+      return Ok(false)
+    }
   } else {
     let parent = file_path.parent()
     var current = file_path
@@ -128,6 +296,9 @@ proc remove_file(file_path: Path, name: Str, how: Str, verbose: Bool) [fs, proce
     var first_failure: Str? = null
     var first_target = ""
     let original_name_length = file_path.basename().byte_len()
+    let prefix = directory_prefix(name)
+    var first = true
+    var current_display = name
     for index in range(original_name_length) {
       let length = original_name_length - index
       var candidate = ""
@@ -137,18 +308,30 @@ proc remove_file(file_path: Path, name: Str, how: Str, verbose: Bool) [fs, proce
         let move_result = fs.rename_noreplace(current, next)
         if let Ok(_) = move_result {
           renamed = true
-          if verbose { gnu.error(f"{gnu.quote_maybe(name)}: renamed to {candidate}") }
-          current = next
-          if how == "wipesync" {
-            if let Err(failure) = fs.sync() { gnu.error(f"cannot synchronize {gnu.quote_maybe(name)}: {gnu.strerror(failure)}"); return Ok(false) }
+          if verbose {
+            let shown = if first { gnu.quote_maybe(name) } else { current_display }
+            gnu.error(f"{shown}: renamed to {candidate}")
           }
+
+          current = next
+          current_display = f"{prefix}{candidate}"
+          first = false
+          if how == "wipesync" {
+            if let Err(failure) = fs.sync() {
+              gnu.error(f"cannot synchronize {gnu.quote_maybe(name)}: {gnu.strerror(failure)}")
+              return Ok(false)
+            }
+          }
+
           break
         }
+
         if let Err(failure) = move_result {
           if first_failure == null {
             first_failure = gnu.strerror(failure)
             first_target = next.display()
           }
+
           if gnu.errno(failure) == 17 {
             let incremented = increment_name(candidate)
             if incremented != null {
@@ -157,16 +340,23 @@ proc remove_file(file_path: Path, name: Str, how: Str, verbose: Bool) [fs, proce
             }
           }
         }
+
         break
       }
     }
-    if !renamed and first_failure != null {
+
+    if ! renamed and first_failure != null {
       let reason = first_failure ?? ""
       gnu.error(f"{gnu.quote_maybe(name)}: Couldn't rename to {gnu.quote_value(first_target)}: {reason}")
       return Ok(false)
     }
-    if let Err(failure) = current.remove() { gnu.error(f"cannot remove {gnu.quote(name)}: {gnu.strerror(failure)}"); return Ok(false) }
+
+    if let Err(failure) = current.remove() {
+      gnu.error(f"cannot remove {gnu.quote(name)}: {gnu.strerror(failure)}")
+      return Ok(false)
+    }
   }
+
   if verbose { gnu.error(f"{gnu.quote_maybe(name)}: removed") }
   Ok(true)
 }
@@ -192,19 +382,44 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       files: {form: "...FILE"},
     },
   )?
-  if opts.help { gnu.help(USAGE); return }
-  if opts.version { gnu.version("shred"); return }
+  if opts.help {
+    gnu.help(USAGE)
+    return
+  }
+
+  if opts.version {
+    gnu.version("shred")
+    return
+  }
+
   if opts.files.len() == 0 { gnu.missing_operand() }
   let count = parse_uint(opts.iterations)
-  if count == null or (count ?? 0) > 1000 { gnu.usage_error(f"invalid number of passes {gnu.quote_value(opts.iterations)}") }
+  if count == null or (count ?? 0) > 1000 {
+    gnu.usage_error(f"invalid number of passes {gnu.quote_value(opts.iterations)}")
+  }
+
   var how = opts.remove
   if opts.unlink { how = "wipesync" }
   if how != "" {
-    if "unlink".starts_with(how) { how = "unlink" } else if how == "wip" { gnu.usage_error(f"ambiguous remove method {gnu.quote_value(how)}") } else if "wipe".starts_with(how) { how = "wipe" } else if "wipesync".starts_with(how) { how = "wipesync" } else { gnu.usage_error(f"invalid remove method {gnu.quote_value(how)}") }
+    if "unlink".starts_with(how) {
+      how = "unlink"
+    } else if how == "wip" {
+      gnu.usage_error(f"ambiguous remove method {gnu.quote_value(how)}")
+    } else if "wipe".starts_with(how) {
+      how = "wipe"
+    } else if "wipesync".starts_with(how) {
+      how = "wipesync"
+    } else {
+      gnu.usage_error(f"invalid remove method {gnu.quote_value(how)}")
+    }
   }
+
   var requested: Int? = null
   if opts.size != "" { requested = parse_uint(opts.size) }
-  if opts.size != "" and requested == null { gnu.error(f"invalid file size: {gnu.quote_value(opts.size)}"); exit 1 }
+  if opts.size != "" and requested == null {
+    gnu.error(f"invalid file size: {gnu.quote_value(opts.size)}")
+    exit 1
+  }
 
   var source_path: Path? = null
   var source_is_file = false
@@ -221,16 +436,51 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       if let Ok(seed) = bytes.read_at(source, 0, 1024) {
         seeded = seed.len() == 1024
         for at in range(seed.len()) {
-          if seed.byte_at(at) != 85 { seeded = false; break }
+          if seed.byte_at(at) != 85 {
+            seeded = false
+            break
+          }
         }
       }
     }
   }
+
   let sequence = pass_sequence(count ?? 3, seeded)
   let raw_paths = raw_files(argv, cli.argv_bytes())
   var failed = false
   for index in range(opts.files.len()) {
     let name = opts.files[index]
+    if name == "-" {
+      # Without a descriptor-stat API, the default redirected output size is
+      # zero. An explicit --size remains available for a stream target.
+      let bytes_to_write = requested ?? 0
+      if bytes_to_write > 16777216 {
+        gnu.error("file size is too large to shred in this XSH build")
+        failed = true
+        continue
+      }
+
+      let output_size = if opts.exact or requested != null {
+        bytes_to_write
+      } else {
+        (bytes_to_write + 4095) / 4096 * 4096
+      }
+      if ! shred_stdout(
+        bytes_to_write,
+        output_size,
+        sequence,
+        source_path,
+        source_is_file,
+        opts.random_source,
+        opts.zero,
+        opts.verbose,
+      )? {
+        failed = true
+      }
+
+      continue
+    }
+
     let target = Path.parse_bytes(raw_paths[index])?
     let metadata = fs.stat(target, true)
     if let Err(failure) = metadata {
@@ -238,6 +488,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       failed = true
       continue
     }
+
     let meta = if let Ok(value) = metadata { value } else { fs.stat(target, true)? }
     if name.ends_with("/") {
       let reason = if meta.kind == "dir" { "Is a directory" } else { "Not a directory" }
@@ -245,47 +496,62 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       failed = true
       continue
     }
+
     if meta.kind != "file" {
       gnu.error(f"{gnu.quote(name)}: not a regular file")
       failed = true
       continue
     }
+
     if meta.mode / 0o200 % 2 == 0 {
       if ! opts.force {
-        if how != "" { gnu.error(f"{gnu.quote(name)}: cannot rename to permit removal") } else { gnu.error(f"cannot open {gnu.quote(name)} for writing: Permission denied") }
+        if how != "" {
+          gnu.error(f"{gnu.quote(name)}: cannot rename to permit removal")
+        } else {
+          gnu.error(f"cannot open {gnu.quote(name)} for writing: Permission denied")
+        }
+
         failed = true
         continue
       }
+
       if let Err(failure) = target.chmod(meta.mode % 0o10000 + 0o200) {
         gnu.error(f"cannot open {gnu.quote(name)} for writing: {gnu.strerror(failure)}")
         failed = true
         continue
       }
     }
-    let original_result = target.read_bytes()
-    if let Err(failure) = original_result {
-      gnu.error(f"cannot read {gnu.quote(name)}: {gnu.strerror(failure)}")
+
+    let bytes_to_write = requested ?? meta.size
+    if bytes_to_write > 16777216 {
+      gnu.error("file size is too large to shred in this XSH build")
       failed = true
       continue
     }
-    let original = if let Ok(data) = original_result { data } else { b"" }
-    let bytes_to_write = requested ?? original.len()
-    if bytes_to_write > 16777216 { gnu.error("file size is too large to shred in this XSH build"); failed = true; continue }
-    let output_size = if opts.exact or requested != null { bytes_to_write } else { (bytes_to_write + 4095) / 4096 * 4096 }
+
+    let output_size = if opts.exact or requested != null {
+      bytes_to_write
+    } else {
+      (bytes_to_write + 4095) / 4096 * 4096
+    }
     var random_offset = 0
     var failed_file = false
     var pass_index = 0
-    let active_sequence: List[Str] = if original.len() == 0 { [] } else { sequence }
+    let active_sequence: List[Str] = if bytes_to_write == 0 { [] } else { sequence }
     for pass in active_sequence {
       pass_index += 1
       if opts.verbose { gnu.error(f"{gnu.quote_maybe(name)}: pass {pass_index}/{active_sequence.len()} ({pass})...") }
       var random_bytes = b""
       if pass == "random" {
-        let source = source_path ?? p"/dev/urandom"
+        let source = source_path ?? /dev/urandom
         let offset = if source_path != null and source_is_file { random_offset } else { 0 }
         let found = bytes.read_at(source, offset, output_size)
         if let Err(failure) = found {
-          let message = if source_path != null and source_is_file and gnu.strerror(failure) == "failed to fill whole buffer" { "unexpected end of file" } else { gnu.strerror(failure) }
+          let message = if source_path != null and source_is_file and gnu.strerror(failure) == "failed to fill whole buffer" {
+            "unexpected end of file"
+          } else {
+            gnu.strerror(failure)
+          }
           let source_name = if source_path == null { "/dev/urandom" } else { opts.random_source }
           gnu.error(f"{gnu.quote(source_name)}: {message}")
           failed_file = true
@@ -297,25 +563,33 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
             failed_file = true
             break
           }
+
           if source_path != null and source_is_file { random_offset += output_size }
         }
       }
+
       var output: List[Int] = []
       var at = 0
       while at < output_size {
-        let byte = if pass == "000000" { 0 } else if pass == "random" {
+        let byte = if pass == "000000" {
+          0
+        } else if pass == "random" {
           random_bytes.byte_at(at) ?? 0
-        } else { pattern_byte(pass, at) }
+        } else {
+          pattern_byte(pass, at)
+        }
         output += [byte]
         at += 1
       }
+
       if let Err(failure) = target.write(bytes.from_ints(output)?) {
         gnu.error(f"cannot write {gnu.quote(name)}: {gnu.strerror(failure)}")
         failed_file = true
         break
       }
     }
-    if opts.zero and original.len() > 0 and ! failed_file {
+
+    if opts.zero and bytes_to_write > 0 and ! failed_file {
       var zeros: List[Int] = []
       for _ in range(output_size) { zeros += [0] }
       if let Err(failure) = target.write(bytes.from_ints(zeros)?) {
@@ -323,10 +597,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         failed_file = true
       }
     }
+
+    if ! failed_file and how != "" {
+      if let Err(failure) = target.truncate(0) {
+        gnu.error(f"{gnu.quote(name)}: error truncating: {gnu.strerror(failure)}")
+        failed_file = true
+      }
+    }
+
     if ! failed_file and how != "" {
       if ! remove_file(target, name, how, opts.verbose)? { failed_file = true }
     }
+
     if failed_file { failed = true }
   }
+
   if failed { exit 1 }
 }
