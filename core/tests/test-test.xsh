@@ -265,6 +265,17 @@ test test_test_syntax_errors_exit_with_status_two { |ctx|
   }
 }
 
+test test_test_uutils_adapter_keeps_piped_diagnostics_plain { |ctx|
+  let result = applet_run(
+    ctx,
+    ["7", "-eq", "zap"],
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: "/tmp/stage/xsh-uutests test"},
+  )?
+
+  assert result.status == 2
+  assert result.stderr == "test: invalid integer 'zap'\n", result.stderr
+}
+
 test test_test_file_type_and_size_operators { |ctx|
   let root = fixtures(ctx)?
   let regular = f"{root}/regular"
