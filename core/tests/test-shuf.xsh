@@ -1,11 +1,11 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/shuf.xsh by its real path inside `root`, capturing both streams.
-proc shuf_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, process, error] -> Result[Ran] {
+proc shuf_run(ctx: TestContext, root: Path, args: List[Str], input = b"", phrase = "") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/shuf.xsh".display()].extend(args)
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: phrase, LC_ALL: "C"}, input, out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
@@ -21,6 +21,17 @@ proc shuf_run_paths(ctx: TestContext, root: Path, args: List[Path], input = b"")
 
 pure sorted_lines(data: Bytes) -> List[Str] {
   [line for line in (data.utf8() ?? "").lines() |> sort-by .]
+}
+
+pure decimal_le(left: Str, right: Str) -> Bool {
+  if left.byte_len() < right.byte_len() { return true }
+  if left.byte_len() > right.byte_len() { return false }
+
+  left <= right
+}
+
+pure decimal_in_range(value: Str, low: Str, high: Str) -> Bool {
+  decimal_le(low, value) and decimal_le(value, high)
 }
 
 test test_shuf_permutes_head_counts_and_repeats { |ctx|
@@ -61,6 +72,42 @@ test test_shuf_random_source_matches_gnu { |ctx|
   assert exhausted.stderr == "shuf: end of random source\n", exhausted.stderr
 }
 
+test test_shuf_wide_ranges_with_small_head_count { |ctx|
+  let root = test.temp_dir(ctx, name: "shuf-wide")?
+  let max = "18446744073709551615"
+  let max_minus_one = "18446744073709551614"
+  fp"{root}/wide-random".write(b"\x01\x23\x45\x67\x89\xab\xcd\xef")
+
+  for args in [["-n1", "-i1-18446744073709551615"], ["-rn1", "-i1-18446744073709551615"]] {
+    let result = shuf_run(ctx, root, args)?
+    assert result.status == 0, result.stderr
+    let value = (result.stdout.utf8() ?? "").trim()
+    assert decimal_in_range(value, "1", max), value
+  }
+
+  for args in [["-n1", "-i0-18446744073709551614"], ["-rn1", "-i0-18446744073709551614"]] {
+    let result = shuf_run(ctx, root, args)?
+    assert result.status == 0, result.stderr
+    let value = (result.stdout.utf8() ?? "").trim()
+    assert decimal_in_range(value, "0", max_minus_one), value
+  }
+
+  let permutation = shuf_run(ctx, root, ["-n10", "-i1-18446744073709551615"])?
+  assert permutation.status == 0, permutation.stderr
+  let values = (permutation.stdout.utf8() ?? "").lines()
+  assert values.len() == 10, f"{values.len()} values"
+  for index in range(values.len()) {
+    assert values[index] not in values[..index], values[index]
+    assert decimal_in_range(values[index], "1", max), values[index]
+  }
+
+  let one_to_max = shuf_run(ctx, root, ["--random-source=wide-random", "-n1", "-i1-18446744073709551615"])?
+  assert one_to_max.stdout == b"81985529216486896\n", one_to_max.stdout.utf8() ?? ""
+
+  let zero_to_max_minus_one = shuf_run(ctx, root, ["--random-source=wide-random", "-n1", "-i0-18446744073709551614"])?
+  assert zero_to_max_minus_one.stdout == b"81985529216486895\n", zero_to_max_minus_one.stdout.utf8() ?? ""
+}
+
 test test_shuf_output_file_and_errors { |ctx|
   let root = test.temp_dir(ctx, name: "shuf")?
   fp"{root}/out".write("keep me\n")
@@ -94,6 +141,29 @@ test test_shuf_output_file_and_errors { |ctx|
   let seed = shuf_run(ctx, root, ["--random-seed=x"])?
   assert seed.status == 1
   assert seed.stderr.starts_with("shuf: option '--random-seed' is not supported"), seed.stderr
+}
+
+test test_shuf_uutils_adapter_diagnostics_keep_gnu_direct_wording { |ctx|
+  let root = test.temp_dir(ctx, name: "shuf")?
+  let phrase = "/tmp/stage/xsh-uutests shuf"
+
+  let gnu = shuf_run(ctx, root, ["-n", "a"])?
+  assert gnu.stderr == "shuf: invalid line count: 'a'\n", gnu.stderr
+
+  let adapter_count = shuf_run(ctx, root, ["-n", "a"], phrase: phrase)?
+  assert adapter_count.stderr == "shuf: invalid value 'a' for '--head-count <COUNT>': invalid digit found in string\n", adapter_count.stderr
+
+  let adapter_range = shuf_run(ctx, root, ["-i", "0"], phrase: phrase)?
+  assert adapter_range.stderr == "shuf: invalid value '0' for '--input-range <LO-HI>': missing '-'\n", adapter_range.stderr
+
+  let adapter_conflict = shuf_run(ctx, root, ["-e", "0", "-i", "0-2"], phrase: phrase)?
+  assert adapter_conflict.stderr.find("cannot be used with") != null, adapter_conflict.stderr
+
+  let adapter_extra = shuf_run(ctx, root, ["file_a", "file_b"], phrase: phrase)?
+  assert adapter_extra.stderr.find("unexpected argument 'file_b' found") != null, adapter_extra.stderr
+
+  let full_u64_range = shuf_run(ctx, root, ["-n1", "-i0-18446744073709551615"])?
+  assert full_u64_range.stderr == "shuf: invalid input range: '0-18446744073709551615'\n", full_u64_range.stderr
 }
 
 test test_shuf_preserves_non_utf8_arguments_and_paths { |ctx|
