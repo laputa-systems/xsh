@@ -61,6 +61,14 @@ test test_kill_signal_in_every_spelling { |ctx|
   }
 }
 
+test test_kill_accepts_sigio_alias_for_sending { |ctx|
+  for spelling in [["--signal=SIGIO"], ["-SIGIO"]] {
+    let result = kill_run(ctx, spelling.extend(["999999999"]))?
+    assert result.status == 1
+    assert result.stderr == "kill: '999999999': No such process\n", result.stderr
+  }
+}
+
 test test_kill_realtime_signals_by_offset { |ctx|
   let table = process.signals()
   let last = table[table.len() - 1]
