@@ -376,6 +376,9 @@ proc copy_node(source: Path, dest: Path, opts: CpOptions, follow: Bool, derefere
       }
     } else {
       dest.mkdir()?
+      if has_attribute(opts, "mode") or has_attribute(opts, "ownership") {
+        fs.chmod(dest, 0o700)?
+      }
     }
 
     let children = fs.children(source, stat: true, ordered: true)?
@@ -474,7 +477,16 @@ proc copy_node(source: Path, dest: Path, opts: CpOptions, follow: Bool, derefere
       }
     }
   } else {
-    if opts.copy_contents or ! opts.recursive {
+    if opts.attributes_only {
+      if ! path_exists(dest) {
+        let creation_mode = if has_attribute(opts, "mode") {
+          meta.mode.bit_and(0o7777)
+        } else {
+          meta.mode.bit_and(0o777).clear_bits(fs.umask()?)
+        }
+        fs.mknod(dest, meta.kind, creation_mode, major: fs.dev_major(meta.rdev), minor: fs.dev_minor(meta.rdev))?
+      }
+    } else if opts.copy_contents or ! opts.recursive {
       dest.write(source.read_bytes()?)?
     } else if ! path_exists(dest) or opts.remove_destination {
       if path_exists(dest) { fs.remove(dest)? }

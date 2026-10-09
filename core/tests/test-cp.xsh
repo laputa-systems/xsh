@@ -137,6 +137,17 @@ test test_cp_copy_contents_reads_special_files { |ctx|
   assert destination.read_bytes()? == b""
 }
 
+test test_cp_attributes_only_preserves_special_file_type { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-attributes-fifo")?
+  let source = fp"{root}/source"
+  let destination = fp"{root}/destination"
+  fs.mkfifo(source, 0o600)?
+
+  let result = cp_run(ctx, ["--attributes-only", source.display(), destination.display()])?
+  assert result.status == 0, result.stderr
+  assert fs.stat(destination)?.kind == "fifo"
+}
+
 test test_cp_help_and_missing_operand { |ctx|
   let help = cp_run(ctx, ["--help"])?
   assert help.status == 0
