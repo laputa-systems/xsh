@@ -9,17 +9,12 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 96,
-    "present_in_scope": 96,
+    "present": 101,
+    "present_in_scope": 101,
     "missing_in_scope": [
-      "base32",
-      "base64",
-      "basenc",
-      "dd",
       "expand",
       "fmt",
       "nl",
-      "od",
       "pr",
       "unexpand"
     ]
@@ -46,9 +41,9 @@
     {
       "utility": "base32",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/base32.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-base32.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
         "pass": 0,
@@ -64,9 +59,9 @@
     {
       "utility": "base64",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/base64.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-base64.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
         "pass": 0,
@@ -103,9 +98,9 @@
     {
       "utility": "basenc",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/basenc.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-basenc.xsh",
       "uutils_test_count": 38,
       "uutils_integration": {
         "pass": 0,
@@ -393,9 +388,9 @@
     {
       "utility": "dd",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/dd.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dd.xsh",
       "uutils_test_count": 155,
       "uutils_integration": {
         "pass": 3,
@@ -801,9 +796,9 @@
     {
       "utility": "od",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/od.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-od.xsh",
       "uutils_test_count": 80,
       "uutils_integration": {
         "pass": 5,
