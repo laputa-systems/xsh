@@ -10,6 +10,15 @@ proc head_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, p
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc head_run_paths(ctx: TestContext, root: Path, args: List[Path]) [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/head.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 test test_head_lines_bytes_and_obsolete_counts { |ctx|
   let root = test.temp_dir(ctx, name: "head")?
   let twenty = bytes.concat([bytes.from_text(f"{n}\n") for n in range(1, 21)])
@@ -71,6 +80,19 @@ test test_head_keeps_non_utf8_bytes_and_crlf { |ctx|
   assert head_run(ctx, root, ["-n", "2"], input)?.stdout == b"\xfc\x80\xaf\r\nb\xff\r\n"
   assert head_run(ctx, root, ["-c", "6"], input)?.stdout == b"\xfc\x80\xaf\r\nb"
   assert head_run(ctx, root, ["-n", "-1"], input)?.stdout == b"\xfc\x80\xaf\r\nb\xff\r\n"
+}
+
+test test_head_reads_a_non_utf8_path { |ctx|
+  let root = test.temp_dir(ctx, name: "head-raw")?
+  let file_path = Path.parse_bytes(bytes.concat([root.bytes(), b"/input-\xff"]))?
+  file_path.write(b"raw path contents")?
+
+  let result = head_run_paths(ctx, root, [file_path])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"raw path contents"
+
+  assert head_run_paths(ctx, root, [Path.parse_bytes(b"-n1")?, file_path])?.stdout == b"raw path contents"
+  assert head_run_paths(ctx, root, [p"-n", p"1", file_path])?.stdout == b"raw path contents"
 }
 
 test test_head_headers_quote_names_and_follow_the_open_result { |ctx|

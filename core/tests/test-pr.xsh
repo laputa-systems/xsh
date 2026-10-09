@@ -27,3 +27,10 @@ test test_pr_expand_tabs { |ctx|
   assert pr_run(ctx, ["-t", "-e2"], b"a\tb\n")?.stdout == b"a b\n"
   assert pr_run(ctx, ["-t", "-ea2"], b"abc\tdef\n")?.stdout == b"  bc    def\n"
 }
+
+test test_pr_rejects_tab_expansion_overflow { |ctx|
+  let result = pr_run(ctx, ["-t", "-e1073741824"], b"\t\t")?
+
+  assert result.status == 1
+  assert result.stderr == "pr: integer overflow\n", result.stderr
+}

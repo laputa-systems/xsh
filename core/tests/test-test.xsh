@@ -344,10 +344,26 @@ test test_test_modification_time_comparisons { |ctx|
   )
 }
 
-test test_test_same_file_comparison_is_explicitly_unsupported { |ctx|
-  let result = applet_run(ctx, ["a", "-ef", "b"])?
-  assert result.status == 2
-  assert result.stderr.starts_with("test: -ef is not supported:"), result.stderr
+test test_test_same_file_comparison_follows_symlinks { |ctx|
+  let root = fixtures(ctx)?
+  let regular = f"{root}/regular"
+  let hardlink = f"{root}/hardlink"
+  let distinct = f"{root}/distinct"
+  fs.link(fp"{regular}", fp"{hardlink}")?
+  fp"{distinct}".write("data")
+
+  expect(
+    ctx,
+    [
+      ["0", regular, "-ef", regular],
+      ["0", regular, "-ef", f"{root}/link"],
+      ["0", regular, "-ef", hardlink],
+      ["1", regular, "-ef", distinct],
+      ["1", regular, "-ef", f"{root}/missing"],
+      ["1", regular, "-ef", f"{root}/dangling"],
+    ],
+  )
+
   assert applet_run(ctx, ["-ef"])?.status == 0, "-ef alone is a plain string"
 }
 

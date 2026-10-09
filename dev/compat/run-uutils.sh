@@ -6,8 +6,9 @@
 # With no utilities, runs every in-scope utility. Writes the raw JUnit report
 # and dev/compat/results/uutils-integration.json.
 #
-# Environment: UUTILS_ROOT (required), XSH_BIN (interpreter for the stage; default
-# target/release/xsh of this checkout), XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
+# Environment: UUTILS_ROOT (required), XSH_BIN (interpreter for the stage;
+# defaults to CARGO_TARGET_DIR/release/xsh or target/release/xsh),
+# XSH_COMPAT_STAGE, COMPAT_RESULTS_DIR,
 # UUTESTS_THREADS (default 3), UUTILS_SUITE_LOCK.
 #
 # Build notes:
@@ -63,11 +64,12 @@ fi
 [ -e "$uutils/docs/tldr.zip" ] || : >"$uutils/docs/tldr.zip"
 
 stage=${XSH_COMPAT_STAGE:-$repo/target/compat-stage}
+xsh_bin=${XSH_BIN:-${CARGO_TARGET_DIR:-$repo/target}/release/xsh}
 # Lanes point COMPAT_RESULTS_DIR at scratch space: results/ is integrator-owned.
 results=${COMPAT_RESULTS_DIR:-$repo/dev/compat/results}
 mkdir -p "$results"
 
-python3 "$repo/dev/compat/stage.py" --stage "$stage"
+python3 "$repo/dev/compat/stage.py" --stage "$stage" --xsh "$xsh_bin"
 
 target=${UUTILS_TARGET_DIR:-$uutils/target}
 (cd "$uutils" && CARGO_TARGET_DIR=$target cargo nextest --version >/dev/null 2>&1 9>&-) || {

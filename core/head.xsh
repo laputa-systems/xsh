@@ -40,6 +40,43 @@ type HeadOptions = {
 # A parsed NUM: `elide` is the leading `-` (all but the last NUM units).
 type Count = {value: Int, elide: Bool}
 
+pure raw_file_arguments(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var files: List[Bytes] = []
+  var options = true
+  var skip_value = false
+
+  for index in range(argv.len()) {
+    let argument = argv[index]
+
+    if skip_value {
+      skip_value = false
+      continue
+    }
+
+    if options and argument == "--" {
+      options = false
+      continue
+    }
+
+    if options and argument in ["-n", "--lines", "-c", "--bytes"] {
+      skip_value = true
+      continue
+    }
+
+    if options and (argument.starts_with("--lines=") or argument.starts_with("--bytes=")) {
+      continue
+    }
+
+    if options and (argument == "--presume-input-pipe" or (argument != "-" and argument.starts_with("-"))) {
+      continue
+    }
+
+    files += [raw[index]]
+  }
+
+  files
+}
+
 # Rewrite the obsolete first argument `-NUM[bkm][cqvz]...` into the options it
 # stands for.
 pure modernize(argv: List[Str]) -> List[Str] {
@@ -84,6 +121,7 @@ proc write_output(data: Bytes) [process, env, io] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw_files = raw_file_arguments(argv, cli.argv_bytes())
   let opts: HeadOptions = cli.applet(
     modernize(tio.without_presume_pipe(argv)),
     {
@@ -119,14 +157,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let total = if spec.elide and spec.value == 0 { tio.MAX_COUNT } else { spec.value }
   let wants = elide or total > 0
   let operands = if opts.files.len() == 0 { ["-"] } else { opts.files }
+  let raw_operands = if opts.files.len() == 0 { [b"-"] } else { raw_files }
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var first = true
   var failed = false
 
-  for name in operands {
+  for index in range(operands.len()) {
+    let name = operands[index]
     let label = if name == "-" { "standard input" } else { name }
 
-    guard let source = tio.open_source(name) else { |failure|
+    guard let source = tio.open_source_path(name, Path.parse_bytes(raw_operands[index])?) else { |failure|
       gnu.cannot_open(name, failure)
       failed = true
       continue

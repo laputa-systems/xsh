@@ -29,6 +29,9 @@ Use `xsh -- SCRIPT ARGS...` when SCRIPT begins with `-`.
 pub fn main() -> ExitCode {
     let process_args: Vec<OsString> = std::env::args_os().collect();
     #[cfg(unix)]
+    reset_fatal_signal_handlers();
+
+    #[cfg(unix)]
     if let Some(status) = dispatch_uutils(&process_args) {
         return status;
     }
@@ -65,6 +68,14 @@ pub fn main() -> ExitCode {
             eprintln!("xsh: {message}");
             ExitCode::from(2)
         }
+    }
+}
+
+#[cfg(unix)]
+fn reset_fatal_signal_handlers() {
+    unsafe {
+        libc::signal(libc::SIGBUS, libc::SIG_DFL);
+        libc::signal(libc::SIGSEGV, libc::SIG_DFL);
     }
 }
 

@@ -28,6 +28,7 @@ uutils=$(cd "${UUTILS_ROOT:?set UUTILS_ROOT}" && pwd)
 gnu=${GNU_ROOT:-$(dirname "$uutils")/gnu-coreutils}
 results=$repo/dev/compat/results
 stage=${XSH_COMPAT_STAGE:-$repo/target/compat-stage}
+xsh_bin=${XSH_BIN:-${CARGO_TARGET_DIR:-$repo/target}/release/xsh}
 mode=${1:-all}
 shift || true
 mkdir -p "$results"
@@ -35,7 +36,7 @@ mkdir -p "$results"
 want=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["uutils"]["commit"])' "$repo/dev/compat/upstream.lock.json")
 [ "$(git -C "$uutils" rev-parse HEAD)" = "$want" ] || { echo "UUTILS_ROOT is not at locked commit $want" >&2; exit 2; }
 
-uu_build=${CARGO_TARGET_DIR:-$uutils/target}/release
+uu_build=${UUTILS_TARGET_DIR:-$uutils/target}/release
 
 # GNU configure refuses to run as root, and many GNU tests change behavior (or
 # skip) when they do. Preparation bypasses the root check for configure only.
@@ -205,7 +206,7 @@ EOF
 
 run_xsh() {
 	(cd "$gnu" && ./build-aux/gen-lists-of-programs.sh --list-progs) >"$stage.gnu-programs"
-	python3 "$repo/dev/compat/stage.py" --stage "$stage" --gnu-programs "$stage.gnu-programs"
+	python3 "$repo/dev/compat/stage.py" --stage "$stage" --xsh "$xsh_bin" --gnu-programs "$stage.gnu-programs"
 	point_path_at "$stage/gnu-bin"
 	run_suite "$results/gnu-xsh.json" "$@"
 	point_path_at "$uu_build"

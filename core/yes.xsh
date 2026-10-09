@@ -9,27 +9,45 @@ Repeatedly output a line with all specified STRING(s), or 'y'.
       --version  output version information and exit
 """
 
-# The runtime buffers stdout until the script ends and reports no write
-# failures, so an endless loop would only grow memory. The output is bounded to
-# this many bytes of whole lines (at least 16 lines for very long operands);
-# real `yes` runs until its reader closes the pipe.
-const OUTPUT_LIMIT = 33554432
-
 type YesOptions = {help: Bool, version: Bool, words: List[Str]}
 
+pure raw_words(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var words: List[Bytes] = []
+  var options = true
+  for index in range(argv.len()) {
+    if options and argv[index] == "--" {
+      options = false
+    } else if options and argv[index] in ["--help", "--version"] {
+    } else {
+      words += [raw[index]]
+    }
+  }
+  words
+}
+
+pure join_words(words: List[Bytes]) -> Bytes {
+  if words.len() == 0 { return b"y" }
+  var parts: List[Bytes] = []
+  for index in range(words.len()) {
+    if index > 0 { parts += [b" "] }
+    parts += [words[index]]
+  }
+  bytes.concat(parts)
+}
+
 # LINE repeated COUNT times, built by doubling.
-pure repeated(line: Str, count: Int) -> Str {
+pure repeated(line: Bytes, count: Int) -> Bytes {
   var out = line
   var copies = 1
 
   while copies * 2 <= count {
-    out += out
+    out = bytes.concat([out, out])
     copies *= 2
   }
 
   return out when copies == count
 
-  out + out.byte_slice(0, length: (count - copies) * line.byte_len())
+  bytes.concat([out, line[0..(count - copies) * line.len()]])
 }
 
 proc main(...argv: List[Str]) [process, env, error, io] {
@@ -53,9 +71,17 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  let line = (if opts.words.len() == 0 { "y" } else { opts.words.join(" ") }) + "\n"
-  let fitting = OUTPUT_LIMIT / line.byte_len()
-  let count = if fitting < 16 { 16 } else { fitting }
-
-  gnu.write_text(repeated(line, count))
+  let line = bytes.concat([join_words(raw_words(argv, cli.argv_bytes())), b"\n"])
+  let fitting = 2097152 / line.len()
+  let count = if fitting < 2 { 2 } else { fitting }
+  process.set_signal_action("PIPE", "default")?
+  process.set_signal_action("TERM", "default")?
+  process.set_signal_action("INT", "default")?
+  let chunk = repeated(line, count)
+  while true {
+    if let Err(failure) = io.write_stdout_bytes(chunk) {
+      gnu.error(f"standard output: {gnu.strerror(failure)}")
+      exit 1
+    }
+  }
 }

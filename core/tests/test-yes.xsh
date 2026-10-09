@@ -7,34 +7,25 @@ proc applet_run(
   args: List[Str],
   vars: Record = {LC_ALL: "C"},
   stdin = b"",
+  sink: Path? = null,
 ) [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: "yes")?
-  let out = fp"{root}/stdout"
+  let out = sink ?? fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/yes.xsh"
   let argv = [ctx.xsh_bin.display(), script.display()].extend(args)
   let plan = process.command_argv(ctx.xsh_bin, argv, root, vars, stdin, out, err)
   let status = process.run(plan)?
-  let raw = out.read_bytes()?
+  let raw = if sink == null { out.read_bytes()? } else { b"" }
 
   Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
 }
 
-test test_yes_repeats_a_bounded_number_of_lines { |ctx|
-  let plain = applet_run(ctx, [])?
-  assert plain.status == 0
-  assert plain.stdout.starts_with("y\ny\ny\n")
-  assert plain.bytes.len() == 33554432, "output is bounded to 32 MiB of whole lines"
-
-  let words = applet_run(ctx, ["a", "bar", "c"])?
-  assert words.stdout.starts_with("a bar c\na bar c\n")
-  assert words.bytes.len() % 8 == 0
-}
-
-test test_yes_odd_length_lines_repeat_whole { |ctx|
-  let result = applet_run(ctx, ["abcdef"])?
-  assert result.stdout.starts_with("abcdef\nabcdef\n")
-  assert result.bytes.len() % 7 == 0
+test test_yes_streams_and_reports_write_errors { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("/dev/full is not available") }
+  let result = applet_run(ctx, [], sink: p"/dev/full")?
+  assert result.status == 1
+  assert result.stderr == "yes: standard output: No space left on device\n", result.stderr
 }
 
 test test_yes_help_version_and_invalid_options { |ctx|

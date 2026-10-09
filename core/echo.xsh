@@ -124,6 +124,7 @@ proc expand(text: Str) [error] -> Result[Expanded] {
 # GNU echo's own option scan: leading arguments made only of n, e, and E after
 # one dash are options; the first other argument and everything after it is text.
 proc main(...argv: List[Str]) [process, env, error, io] {
+  let raw_argv = cli.argv_bytes()
   var posix = false
 
   if let Ok(_) = env.get("POSIXLY_CORRECT") {
@@ -174,7 +175,13 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   let words = argv[first..argv.len()]
 
   if ! (escapes or posix) {
-    gnu.write_text(words.join(" ") + (if newline { "\n" } else { "" }))
+    var parts: List[Bytes] = []
+    for index in range(first, raw_argv.len()) {
+      if index > first { parts += [b" "] }
+      parts += [raw_argv[index]]
+    }
+    if newline { parts += [b"\n"] }
+    gnu.write_bytes(bytes.concat(parts))
     return
   }
 

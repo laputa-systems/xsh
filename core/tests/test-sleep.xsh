@@ -20,6 +20,35 @@ proc applet_run(
   Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
 }
 
+proc sleep_signal_exit_status(ctx: TestContext, signal: Str) [fs, process, time, error] -> Result[Int] {
+  let root = test.temp_dir(ctx, name: "sleep-signal")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/sleep.xsh"
+  let argv = [ctx.xsh_bin.display(), script.display(), "100"]
+  let child = spawn process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+    b"",
+    stdout,
+    stderr,
+    new_session: true,
+  )?
+
+  time.sleep(100ms)
+  process.kill(child.pid, signal)?
+
+  if let completed = process.wait_timeout([child], time.millis(2000))? {
+    return completed.status.shell_code()?
+  }
+
+  let _ = process.kill(child.pid, "KILL")
+  let _ = process.wait_any([child])?
+  -1
+}
+
 test test_sleep_waits_for_the_sum_of_its_intervals { |ctx|
   let script = fp"{ctx.core_dir}/sleep.xsh"
   let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, script, "0.1s", "0.05"])
@@ -81,4 +110,9 @@ test test_sleep_help_and_version { |ctx|
   assert help.status == 0
   assert help.stdout.starts_with("Usage: sleep NUMBER[SUFFIX]...\n")
   assert applet_run(ctx, ["--version"])?.stdout.starts_with("sleep ")
+}
+
+test test_sleep_process_uses_default_bus_and_segv_actions { |ctx|
+  assert sleep_signal_exit_status(ctx, "BUS")? == 128 + 7
+  assert sleep_signal_exit_status(ctx, "SEGV")? == 128 + 11
 }

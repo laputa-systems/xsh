@@ -25,8 +25,10 @@ source dev/compat/native-env.sh
 ```
 
 `native-env.sh` defaults tool storage to `../.tools`, requires mold 3.0.0,
-and adds `-C link-arg=-fuse-ld=mold` to `RUSTFLAGS`. The release build and
-Cargo installs therefore use mold. Builds target the native host triple
+sets `CARGO_TARGET_DIR` to `../targets/native-bytes-hash`, and points `XSH_BIN`
+at that directory's release dispatcher. Both compatibility runners stage this
+same binary. It also adds `-C link-arg=-fuse-ld=mold` to `RUSTFLAGS`, so the
+release build and Cargo installs use mold. Builds target the native host triple
 `x86_64-unknown-linux-gnu`; the session host has GCC but no musl cross
 compiler. The scope and evidence for this campaign are native Linux x86_64
 only; do not route these commands through Docker. GNU
@@ -50,8 +52,8 @@ git clone https://github.com/laputa-systems/laputa ../laputa
 git -C ../laputa checkout master
 export UUTILS_ROOT=$PWD/../ref/uutils-coreutils
 source dev/compat/native-env.sh
-CARGO_TARGET_DIR=/workspace/targets/native-bytes-hash CARGO_BUILD_JOBS=1 \
-  CARGO_PROFILE_RELEASE_LTO=false cargo build --release --locked \
+CARGO_BUILD_JOBS=1 CARGO_PROFILE_RELEASE_LTO=false \
+  cargo build --release --locked \
   -p xsh --bin xsh -p xsht --bin xsht
 cargo install cargo-nextest --locked          # for run-uutils.sh
 ```
@@ -118,23 +120,32 @@ Keep this scope to native Linux x86_64. Use one integrator; any subagent must
 be GPT-6 Luna at xhigh.
 
 The latest merged uutils results combine the 2026-10-09 full run with focused
-`factor sort unlink`, `cat head tail tac rm tee touch`, and `basenc` refreshes:
-5,124 / 5,974 passing, 850 failing, and 4 excluded. Compared with the checked-in
-baseline, 2,756 test IDs now pass and none regressed. The focused `factor sort`
+`factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
+`echo`, `test`, and `tail` refreshes on the current `XSH_BIN`: 5,137 / 5,974
+passing, 837 failing, and 4 excluded. Compared with the checked-in result, 13
+additional test IDs pass and none regressed. The focused `factor sort`
 result is 139 / 242 (factor 23/25, sort 116/217). The byte-key fast path
 restored `test_factor::test_parallel`, and removing unneeded unique-sort key
 work brought the buffer-size test under its 30-second limit. `--batch-size`
 validation and bounded merge tests pass. The large-factor case still times out.
-The `cat head tail tac rm tee touch` slice is 432 / 499, up 157 passing IDs
-with no regressions. The `unlink` slice is 6 / 7; raw non-UTF-8 operand paths
-now work, while its extra-operand wording follows GNU. `basenc` remains 38 / 38.
+The `cat head tail tac rm tee touch` slice is 435 / 499, two more passes than
+the checked-in result with no regressions. The `unlink` slice is 6 / 7; raw non-UTF-8 operand paths
+now work, while its extra-operand wording follows GNU. `basenc` remains 38 / 38;
+`yes` passes 10 / 10 with continuous output and raw argument bytes.
 The merged results and remaining failures are tracked in [`CAMPAIGN.md`](CAMPAIGN.md),
 `gaps.json`, and `results/`.
 
 `run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
-The baseline run against uutils recorded 573 passed, 85 skipped, 58 failed,
-and 3 harness errors out of 719 test records. Remaining test gaps and exact
-results are maintained in `CAMPAIGN.md`, `gaps.json`, and `results/`.
+The pinned uutils GNU baseline recorded 573 passed, 85 skipped, 58 failed, and
+3 harness errors out of 719 test records. The latest full XSH GNU run recorded
+298 passed, 115 skipped, 280 failed, and 26 harness errors. Remaining test gaps
+and exact results are maintained in `CAMPAIGN.md`, `gaps.json`, and `results/`.
+
+The current GNU differential is 292 / 281 / 6 / 57 across the four
+uutils-pass/XSH-pass, uutils-pass/XSH-fail, uutils-fail/XSH-pass, and both-fail
+cells. Focused GNU tests for `yes`, `tsort`, `uniq`, `cat-self`, and `cat-E`
+pass. The basenc decoder vectors pass; its one failing suite record is the
+uutils-patched clap wording for an unknown option.
 
 The XSH GNU stage adds `${GNU_ROOT}/src` to the test `PATH` after `gnu-bin/` so
 generated helpers such as `getlimits` resolve. `stage.py --gnu-programs` also

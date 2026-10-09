@@ -132,8 +132,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 3,
+        "pass": 4,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -155,8 +155,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 11,
-        "fail": 10,
+        "pass": 12,
+        "fail": 9,
         "skip": 0,
         "excluded": 0
       },
@@ -355,7 +355,7 @@
       },
       "gnu_differential": {
         "pass": 25,
-        "fail": 32,
+        "fail": 31,
         "skip": 0,
         "excluded": 0
       },
@@ -377,8 +377,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 4,
+        "pass": 2,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -527,8 +527,8 @@
       "native_tests": "core/tests/test-echo.xsh",
       "uutils_test_count": 65,
       "uutils_integration": {
-        "pass": 63,
-        "fail": 2,
+        "pass": 64,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -574,8 +574,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 1,
+        "pass": 2,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -670,8 +670,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 3,
+        "pass": 6,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -689,14 +689,14 @@
       "native_tests": "core/tests/test-head.xsh",
       "uutils_test_count": 73,
       "uutils_integration": {
-        "pass": 66,
-        "fail": 7,
+        "pass": 67,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 3,
-        "fail": 4,
+        "pass": 5,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -705,7 +705,6 @@
       "known_semantic_gaps": [
         "`test_head::diagnostics::test_snippet_points_at_the_unknown_unit`, `test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling`, and `test_head::diagnostics::test_snippet_underlines_a_size_with_no_number` need argument spans from `cli.applet` to render uutils source carets.",
         "`test_head::test_head_invalid_num` expects a literal superscript-three in an invalid-count diagnostic; under `LC_ALL=C`, GNU coreutils 9.12 escapes its UTF-8 bytes as `\\302\\263`, which the applet follows.",
-        "`test_head::test_head_non_utf8_paths` requires byte-preserving argv for pathname operands; applet arguments are `List[Str]`.",
         "`test_head::test_read_backwards_bytes_proc_fs_modules` and `test_head::test_read_backwards_lines_proc_fs_modules` require `/proc/modules`, which is absent on this Linux host."
       ]
     },
@@ -888,8 +887,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 7,
-        "fail": 34,
+        "pass": 8,
+        "fail": 33,
         "skip": 0,
         "excluded": 0
       },
@@ -911,8 +910,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 2,
+        "pass": 2,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1075,8 +1074,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 6,
+        "pass": 2,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1123,8 +1122,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 3,
+        "pass": 1,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1191,8 +1190,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 25,
-        "fail": 18,
+        "pass": 29,
+        "fail": 14,
         "skip": 0,
         "excluded": 0
       },
@@ -1239,8 +1238,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 5,
+        "pass": 4,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1365,8 +1364,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 7,
-        "fail": 8,
+        "pass": 9,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -1428,14 +1427,14 @@
       "native_tests": "core/tests/test-tail.xsh",
       "uutils_test_count": 170,
       "uutils_integration": {
-        "pass": 120,
-        "fail": 47,
+        "pass": 121,
+        "fail": 46,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 8,
-        "fail": 28,
+        "pass": 9,
+        "fail": 27,
         "skip": 0,
         "excluded": 0
       },
@@ -1481,14 +1480,14 @@
       "native_tests": "core/tests/test-test.xsh",
       "uutils_test_count": 126,
       "uutils_integration": {
-        "pass": 102,
-        "fail": 13,
+        "pass": 105,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 2,
+        "pass": 3,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1510,8 +1509,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 11,
-        "fail": 3,
+        "pass": 12,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1579,8 +1578,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 7,
-        "fail": 2,
+        "pass": 9,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1666,8 +1665,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 0,
-        "fail": 3,
+        "pass": 1,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1753,8 +1752,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 6,
+        "pass": 4,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -1772,8 +1771,8 @@
       "native_tests": "core/tests/test-yes.xsh",
       "uutils_test_count": 10,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 7,
+        "pass": 10,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1933,8 +1932,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 1,
-        "fail": 2,
+        "pass": 3,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1998,8 +1997,8 @@
         "excluded": 0
       },
       "gnu_differential": {
-        "pass": 2,
-        "fail": 4,
+        "pass": 4,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },

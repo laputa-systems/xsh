@@ -231,7 +231,6 @@
     "head": [
       "`test_head::diagnostics::test_snippet_points_at_the_unknown_unit`, `test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling`, and `test_head::diagnostics::test_snippet_underlines_a_size_with_no_number` need argument spans from `cli.applet` to render uutils source carets.",
       "`test_head::test_head_invalid_num` expects a literal superscript-three in an invalid-count diagnostic; under `LC_ALL=C`, GNU coreutils 9.12 escapes its UTF-8 bytes as `\\302\\263`, which the applet follows.",
-      "`test_head::test_head_non_utf8_paths` requires byte-preserving argv for pathname operands; applet arguments are `List[Str]`.",
       "`test_head::test_read_backwards_bytes_proc_fs_modules` and `test_head::test_read_backwards_lines_proc_fs_modules` require `/proc/modules`, which is absent on this Linux host."
     ],
     "tail": [

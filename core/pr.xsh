@@ -257,6 +257,34 @@ pure expand_tabs(value: Bytes, opts: PrOptions) -> Bytes {
   bytes.concat(out)
 }
 
+# GNU pr uses signed 32-bit columns and rejects a tab expansion before it
+# allocates an output line that could exceed that limit.
+pure expansion_overflow(data: Bytes, opts: PrOptions) -> Bool {
+  return false when ! opts.expand
+
+  let tab_width = if opts.expand_char < 0 {
+    opts.expand_width
+  } else if opts.expand_char == 9 {
+    8
+  } else if opts.expand_width > 8 {
+    opts.expand_width
+  } else {
+    8
+  }
+  var expanded = 0
+  let limit = 2147483647
+
+  for at in range(data.len()) {
+    let byte = data.byte_at(at) ?? 0
+    if byte == 9 or (opts.expand_char >= 0 and byte == opts.expand_char) {
+      return true when expanded > limit - tab_width
+      expanded += tab_width
+    }
+  }
+
+  false
+}
+
 pure number_line(line: Bytes, index: Int, opts: PrOptions) -> Bytes {
   return line when ! opts.number
   var digits_value = index
@@ -398,6 +426,10 @@ proc print_merged(names: List[Bytes], opts: PrOptions) [fs, process, env, error,
       inputs += [[]]
       continue
     }
+    if expansion_overflow(data, opts) {
+      gnu.error("integer overflow")
+      exit 1
+    }
     let lines = split_lines(data)
     if lines.len() > longest { longest = lines.len() }
     inputs += [lines]
@@ -464,6 +496,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
       failed = true
       continue
+    }
+    if expansion_overflow(data, opts) {
+      gnu.error("integer overflow")
+      exit 1
     }
     for source_page in split_formfeeds(data) {
       let lines = split_lines(source_page.data)

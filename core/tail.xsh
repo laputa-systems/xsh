@@ -243,7 +243,7 @@ proc prepare(source: tio.Source, spec: Spec, zero: Bool) [fs, error, io] -> Resu
   Ok({data: data, start: data_start(data, spec, zero)})
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let args = modernize(tio.without_presume_pipe(argv))
 
   if args.len() > 0 and rx"^-[0-9]".matches(args[0]) {
@@ -340,6 +340,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var first = true
   var failed = false
   var growing: List[Str] = []
+  var fifo_count = 0
 
   for name in operands {
     let label = if name == "-" { "standard input" } else { name }
@@ -348,6 +349,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       gnu.cannot_open(name, failure)
       failed = true
       growing += if retrying and following { [name] } else { [] }
+      continue
+    }
+
+    # Opening a FIFO for reading can wait for a writer before `--pid` gets
+    # checked. Do not open the FIFO for reading here; monitor --pid below.
+    if following and source.kind == 1 {
+      if headers {
+        let separator = if first { "" } else { "\n" }
+        gnu.write_text(f"{separator}==> {gnu.quote_maybe(label)} <==\n")
+        first = false
+      }
+
+      growing += [name]
+      fifo_count += 1
       continue
     }
 
@@ -401,6 +416,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if following and growing.len() > 0 {
+    if fifo_count == growing.len() {
+      var waiting = true
+      while waiting {
+        if pid > 0 {
+          let running = [entry for entry in process.list()? if entry.pid == pid]
+          waiting = running.len() > 0
+        }
+
+        if waiting { time.sleep(time.millis(100)) }
+      }
+
+      return
+    }
+
     let running = [entry for entry in process.list()? if entry.pid == pid]
     let alive = pid > 0 and running.len() > 0
 

@@ -307,7 +307,12 @@ pure is_switch(word: Str) -> Bool {
 
 proc file_compare(op: Str, left: Str, right: Str) [fs, process, env, error] -> Result[Bool] {
   if op == "-ef" {
-    syntax_error("-ef is not supported: file identity (device and inode) is not exposed by fs.metadata")
+    if let Ok(left_entry) = fs.stat(fp"{left}", follow_symlinks: true) {
+      if let Ok(right_entry) = fs.stat(fp"{right}", follow_symlinks: true) {
+        return Ok(left_entry.dev == right_entry.dev and left_entry.ino == right_entry.ino)
+      }
+    }
+
     return Ok(false)
   }
 

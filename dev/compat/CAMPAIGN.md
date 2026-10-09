@@ -17,8 +17,10 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   uses `nightly-2026-09-15`, the native `x86_64-unknown-linux-gnu` target, and mold
   3.0.0 from the x86_64 GitHub release (archive SHA-256
   `6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189`).
-  `native-env.sh` selects mold for release builds. Bootstrap commands,
-  checksum, host prerequisites, and GNU dependency notes are in
+  `native-env.sh` selects mold, defaults `CARGO_TARGET_DIR` to
+  `../targets/native-bytes-hash`, and points `XSH_BIN` at that release build.
+  Both test runners stage this same binary. Bootstrap commands, checksum, host
+  prerequisites, and GNU dependency notes are in
   [`README.md`](README.md#setup). GNU 9.12 is prepared with ACL, capability,
   and Linux xattr support. On this host, the `xsh` thin-LTO link stalled after
   mold exited; setting `CARGO_PROFILE_RELEASE_LTO=false` produced the optimized
@@ -75,16 +77,32 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   operand test expects uutils' usage block; the applet follows GNU's
   extra-operand diagnostic.
 - The latest merged uutils results combine the 2026-10-09 full run and focused
-  `factor sort unlink`, `cat head tail tac rm tee touch`, and `basenc` refreshes:
-  **5,124 / 5,974 passing**, 850 failing, and 4 excluded. Against the checked-in
-  baseline, 2,756 test IDs now pass with no passing IDs regressed. The focused
+  `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
+  `echo`, `test`, and `tail` refreshes on the current `XSH_BIN`: **5,137 / 5,974
+  passing**, 837 failing, and 4 excluded. Compared with the checked-in result,
+  13 additional test IDs pass and none regressed. The focused
   slice is **139 / 242** (`factor` 23/25,
   `sort` 116/217). The default-sort byte-key fast path restored
-  `test_factor::test_parallel`. The focused `cat head tail tac rm tee touch` slice is **432 / 499**
-  passing, up 157 passing IDs with no regressions; `rm` is 75/75 and `tee` is
-  34/34. `basenc` passes all **38 / 38** uutils tests after the decoder changes.
+  `test_factor::test_parallel`. The focused `cat head tail tac rm tee touch`
+  slice is **435 / 499**, two more passes than the checked-in result with no
+  regressions; `rm` is 75/75 and `tee` is
+  34/34. `basenc` passes all **38 / 38** uutils tests after the decoder changes;
+  `yes` passes **10 / 10** with continuous output, raw argv bytes, and SIGPIPE.
   Full and focused results are merged in
   `results/uutils-integration.json`.
+- `tail -f` classifies named FIFOs before reading and waits for `--pid` without
+  opening them, so a FIFO cannot block before PID handling. Native tail tests
+  pass **13 / 13** and the refreshed uutils tail slice is **121 / 167**.
+  GNU 9.12 `tests/tail/pid-pipe.sh` passes. `test -ef` now compares followed
+  `fs.stat` device/inode pairs; native
+  tests cover same paths, hard links, symlinks, distinct files, and missing
+  targets. `head` now passes original argv bytes to filesystem path operations;
+  the native non-UTF-8 pathname regression passes. `echo` preserves argument
+  bytes when escapes are disabled. `basenc --base58` now builds leading-zero
+  output in linear time; a 20 MiB zero input yields the expected 21,247,462
+  wrapped bytes. `pr` rejects tab expansion beyond GNU's
+  signed 32-bit column limit before allocating the expanded output; its native
+  overflow case and a 1 MiB tab input both return `pr: integer overflow`.
 - Native `io.write_stdout` and `io.write_stdout_bytes` now write immediately
   on the host path and report write errors. Focused release-binary checks
   confirmed `/dev/full` returns an error and a closed pipe exits with status
@@ -97,16 +115,18 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   test-runner argument boundary was corrected during this resume.
 - The current date/dircolors slice remains **183 / 185** (date 164/166,
   dircolors 19/19); its native tests pass 16/16. A fresh rerun confirmed that
-  the two French month-abbreviation cases match GNU 9.12 and glibc. GNU against
-  uutils **573 passed, 85 skipped, 58 failed, 3 harness errors** out of 719. The
-  current GNU differential is **259 / 314 / 4 / 60** (uutils-pass/XSH-pass,
+  the two French month-abbreviation cases match GNU 9.12 and glibc. The pinned
+  uutils GNU baseline is **573 passed, 85 skipped, 58 failed, 3 harness errors**
+  out of 719. The latest full XSH GNU run is **298 passed, 115 skipped, 280
+  failed, 26 harness errors** out of 719. The current GNU differential is
+  **292 / 281 / 6 / 57** (uutils-pass/XSH-pass,
   uutils-pass/XSH-fail, uutils-fail/XSH-pass, both-fail); the focused basenc
   run passes its alphabet, whitespace, partial-output, and mixed-padding vectors.
+  The focused `yes`, `tsort`, `uniq`, `cat-self`, and `cat-E` GNU tests pass.
+  `cat-buf` still prints an extra `2` in its buffered-write case.
   Its suite-level failure is the uutils-patched clap-style unknown-option
   expectation, which differs from GNU diagnostics and is classified in
   `gnu-patches.json`.
-  The latest native suite run passed **2,903**, failed **47**, and skipped **22**;
-  the remaining host/tool-dependent cases are listed in the run output.
   The release filesystem stdlib tests pass **27**, with one reflink skip; this
   includes FIFO reads, zero-sized `/proc` files, and a `/dev/zero` guard. The
   optimized `cargo test --release -p xsh` still crashes in rustc/LLVM
@@ -171,10 +191,10 @@ worktrees. Current model and host setup are stated in Active resume above.
    regenerate docs, run the native suite and the full uutils run, compare with
    `compare.py`, commit results and `parity.py` output.
 2. Investigate the `uniq` regression above.
-3. Work through [`requests.md`](requests.md): the remaining exclusion candidates
-   (verify each against GNU 9.12 source after `run-gnu.sh prepare`; the GNU source was
-   never fetched this session, so none of the `ls`, `tty-misc` or text-lane candidates
-   is verified), the `gaps.json` entries, and the `fs.stat` wiring for `test -ef`.
+3. Work through [`requests.md`](requests.md): verify each remaining exclusion
+   candidate against the prepared GNU 9.12 source, then address the remaining
+   `gaps.json` entries. `test -ef` is wired to `fs.stat` device/inode metadata
+   and covered by native tests.
 4. Continue Wave 1 in `lanes.json` start order for whatever `CLAIMS.md` leaves free.
    `python3 dev/compat/lanes.py brief LANE` renders a brief with live counts. The
    rest of `proc-a` (`nohup timeout stdbuf`) now has its primitives: `process.wait_timeout`,
@@ -934,7 +954,10 @@ lanes that consume them.
 - **Current execution scope:** native Linux x86_64 only, with no Docker.
   Source `dev/compat/native-env.sh` after installing the pinned toolchain and
   mold. It checks the host architecture, requires mold 3.0.0, and sets
-  `RUSTFLAGS` so Cargo links with mold. The release product build is
+  `RUSTFLAGS` so Cargo links with mold. It also defaults `CARGO_TARGET_DIR` to
+  `../targets/native-bytes-hash` and `XSH_BIN` to that build's release
+  dispatcher; both suite runners pass that exact binary to the staging tool.
+  The release product build is
   `cargo build --release --locked -p xsh --bin xsh -p xsht --bin xsht`.
   See [`README.md`](README.md#setup) for the verified mold release SHA-256 and
   local tool layout. `run-gnu.sh prepare` uses a temporary compatibility copy

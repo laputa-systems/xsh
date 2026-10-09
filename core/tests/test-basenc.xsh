@@ -26,6 +26,13 @@ test test_basenc_base16_base58_and_base32hex { |ctx|
   assert bad_tail.stdout == b"abcde"
 }
 
+test test_basenc_base58_large_zero_prefix { |ctx|
+  let zeros = bytes.from_ints([0 for _ in range(4096)])?
+  let result = invoke(ctx, ["--base58", "--wrap=0"], zeros)?
+
+  assert result.stdout == bytes.concat([b"1" for _ in range(4096)])
+}
+
 test test_basenc_base2_and_decode { |ctx|
   let bits = invoke(ctx, ["--base2lsbf"], b"lsbf")?
   assert bits.stdout == b"00110110110011100100011001100110\n"

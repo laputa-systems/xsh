@@ -20,9 +20,29 @@ proc applet_run(
   Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
 }
 
+proc applet_run_paths(ctx: TestContext, args: List[Path]) [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "echo-raw")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/echo.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  let raw = out.read_bytes()?
+
+  Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
+}
+
 test test_echo_joins_arguments_with_spaces { |ctx|
   assert applet_run(ctx, ["a", "b  c"])?.stdout == "a b  c\n"
   assert applet_run(ctx, [])?.stdout == "\n"
+}
+
+test test_echo_preserves_non_utf8_argument_bytes { |ctx|
+  let invalid = Path.parse_bytes(b"argument-\xfc")?
+  let result = applet_run_paths(ctx, [p"-n", invalid])?
+
+  assert result.status == 0, result.stderr
+  assert result.bytes == b"argument-\xfc"
 }
 
 test test_echo_n_suppresses_the_newline_and_options_stop_at_text { |ctx|

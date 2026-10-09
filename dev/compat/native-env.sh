@@ -13,10 +13,12 @@ XSH_REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 XSH_COMMON_DIR=$(cd "$XSH_REPO_ROOT" && git rev-parse --path-format=absolute --git-common-dir)
 XSH_WORKSPACE_ROOT=$(dirname "$(dirname "$XSH_COMMON_DIR")")
 XSH_TOOLS_ROOT=${XSH_TOOLS_ROOT:-$XSH_WORKSPACE_ROOT/.tools}
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$XSH_WORKSPACE_ROOT/targets/native-bytes-hash}
+export XSH_BIN=${XSH_BIN:-$CARGO_TARGET_DIR/release/xsh}
 export XSH_TOOLS_ROOT
 export CARGO_HOME=${CARGO_HOME:-$XSH_TOOLS_ROOT/cargo}
 export RUSTUP_HOME=${RUSTUP_HOME:-$XSH_TOOLS_ROOT/rustup}
-export PATH="$XSH_REPO_ROOT/target/release:$CARGO_HOME/bin:$XSH_TOOLS_ROOT/gnu-env/usr/bin:$PATH:$XSH_TOOLS_ROOT/gnu-env/bin:$XSH_TOOLS_ROOT/bin"
+export PATH="$(dirname "$XSH_BIN"):$XSH_REPO_ROOT/target/release:$CARGO_HOME/bin:$XSH_TOOLS_ROOT/gnu-env/usr/bin:$PATH:$XSH_TOOLS_ROOT/gnu-env/bin:$XSH_TOOLS_ROOT/bin"
 
 if ! command -v mold >/dev/null 2>&1 || ! mold --version | grep -q '3\.0\.0'; then
   printf 'Install mold 3.0.0 under %s/bin before building.\n' "$CARGO_HOME" >&2

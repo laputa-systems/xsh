@@ -22,7 +22,6 @@ see `check_exclusions.py`.
 
 **New native APIs wanted**
 
-- `fs.stat` following symlinks with dev/ino/nanosecond times (native-fs now provides `fs.stat(path, follow_symlinks=...)`; wire `test -ef`, currently failing explicitly): test `test_file_is_itself`, `test_hard_link_is_same_file`, `test_same_device_inode`.
 - `user.groups(name)` (getgrouplist): id `test_id_single_user`, `test_id_multiple_users`, `test_id_multiple_users_non_existing`; groups `test_groups_username`, `test_groups_username_multiple`.
 - `user.login_name()` (getlogin) for logname; `system.hostid()` for hostid (reads `/etc/hostid` or returns 0 today); ordered `getgroups` in `unix.id`; online CPU count for `nproc --all` (uses `cpu.count()` today); u64 integers (nproc clamp is a special case).
 

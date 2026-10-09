@@ -505,13 +505,12 @@
       "applet": true
     },
     "echo": {
-      "pass": 63,
-      "fail": 2,
+      "pass": 64,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_echo::full_version_argument",
-        "test_echo::non_utf_8"
+        "test_echo::full_version_argument"
       ],
       "applet": true
     },
@@ -621,8 +620,8 @@
       "applet": true
     },
     "head": {
-      "pass": 66,
-      "fail": 7,
+      "pass": 67,
+      "fail": 6,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -630,7 +629,6 @@
         "test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling",
         "test_head::diagnostics::test_snippet_underlines_a_size_with_no_number",
         "test_head::test_head_invalid_num",
-        "test_head::test_head_non_utf8_paths",
         "test_head::test_read_backwards_bytes_proc_fs_modules",
         "test_head::test_read_backwards_lines_proc_fs_modules"
       ],
@@ -1497,8 +1495,8 @@
       "applet": true
     },
     "tail": {
-      "pass": 120,
-      "fail": 47,
+      "pass": 121,
+      "fail": 46,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -1513,7 +1511,6 @@
         "test_tail::test_descriptor_no_retry_skips_late_file",
         "test_tail::test_dir_follow_retry",
         "test_tail::test_failed_warning_write_is_reported",
-        "test_tail::test_fifo_with_pid",
         "test_tail::test_follow_dangling_symlink",
         "test_tail::test_follow_descriptor_vs_rename1",
         "test_tail::test_follow_descriptor_vs_rename2",
@@ -1561,8 +1558,8 @@
       "applet": true
     },
     "test": {
-      "pass": 102,
-      "fail": 13,
+      "pass": 105,
+      "fail": 10,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -1574,11 +1571,8 @@
         "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
         "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
         "test_test::test_bracket_syntax_version",
-        "test_test::test_file_is_itself",
-        "test_test::test_hard_link_is_same_file",
         "test_test::test_invalid_utf8_integer_compare",
-        "test_test::test_parenthesized_string_comparison",
-        "test_test::test_same_device_inode"
+        "test_test::test_parenthesized_string_comparison"
       ],
       "applet": true
     },
@@ -1761,25 +1755,17 @@
       "applet": true
     },
     "yes": {
-      "pass": 3,
-      "fail": 7,
+      "pass": 10,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_yes::test_args",
-        "test_yes::test_long_input",
-        "test_yes::test_long_line_exceeds_pipe_capacity",
-        "test_yes::test_long_odd_output",
-        "test_yes::test_long_output",
-        "test_yes::test_non_utf8",
-        "test_yes::test_simple"
-      ],
+      "failing": [],
       "applet": true
     }
   },
   "totals": {
-    "pass": 5124,
-    "fail": 850,
+    "pass": 5137,
+    "fail": 837,
     "skip": 0,
     "excluded": 4
   }

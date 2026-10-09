@@ -8,10 +8,10 @@
   "cat": {
     "cat-E.log": "PASS",
     "cat-buf.log": "FAIL",
-    "cat-distinct-err.log": "ERROR",
+    "cat-distinct-err.log": "PASS",
     "cat-proc.log": "PASS",
     "cat-self.log": "PASS",
-    "splice.log": "ERROR"
+    "splice.log": "FAIL"
   },
   "chcon": {
     "chcon-fail.log": "PASS",
@@ -33,7 +33,7 @@
     "equals.log": "FAIL",
     "ignore-symlink.log": "PASS",
     "inaccessible.log": "PASS",
-    "no-x.log": "ERROR",
+    "no-x.log": "FAIL",
     "octal.log": "PASS",
     "only-op.log": "PASS",
     "partial-fail.log": "PASS",
@@ -55,13 +55,13 @@
     "chroot-fail.log": "FAIL"
   },
   "cksum": {
-    "b2sum.log": "ERROR",
+    "b2sum.log": "PASS",
     "cksum-a.log": "PASS",
     "cksum-base64-untagged.log": "PASS",
     "cksum-base64.log": "FAIL",
     "cksum-c.log": "ERROR",
     "cksum-raw.log": "PASS",
-    "cksum-sha3.log": "ERROR",
+    "cksum-sha3.log": "FAIL",
     "cksum.log": "FAIL",
     "md5sum-bsd.log": "FAIL",
     "md5sum-newline.log": "FAIL",
@@ -95,7 +95,7 @@
     "cp-deref.log": "PASS",
     "cp-i.log": "FAIL",
     "cp-mv-backup.log": "PASS",
-    "cp-mv-enotsup-xattr.log": "ERROR",
+    "cp-mv-enotsup-xattr.log": "SKIP",
     "cp-parents.log": "FAIL",
     "cross-dev-symlink.log": "SKIP",
     "debug.log": "FAIL",
@@ -105,7 +105,7 @@
     "dir-vs-file.log": "PASS",
     "existing-perm-dir.log": "PASS",
     "existing-perm-race.log": "SKIP",
-    "fail-perm.log": "ERROR",
+    "fail-perm.log": "FAIL",
     "file-perm-race.log": "FAIL",
     "into-self.log": "FAIL",
     "keep-directory-symlink.log": "PASS",
@@ -140,7 +140,7 @@
     "sparse-2.log": "SKIP",
     "sparse-extents-2.log": "SKIP",
     "sparse-extents.log": "SKIP",
-    "sparse-perf.log": "ERROR",
+    "sparse-perf.log": "SKIP",
     "sparse-to-pipe.log": "FAIL",
     "sparse.log": "ERROR",
     "special-bits.log": "SKIP",
@@ -153,12 +153,12 @@
     "csplit-1000.log": "PASS",
     "csplit-heap.log": "SKIP",
     "csplit-io-err.log": "ERROR",
-    "csplit-suppress-matched.log": "FAIL",
+    "csplit-suppress-matched.log": "PASS",
     "csplit.log": "FAIL"
   },
   "cut": {
     "bounded-memory.log": "SKIP",
-    "cut-huge-range.log": "ERROR",
+    "cut-huge-range.log": "SKIP",
     "cut.log": "FAIL",
     "mb-non-utf8.log": "SKIP"
   },
@@ -181,9 +181,9 @@
     "bytes.log": "FAIL",
     "conv-case.log": "FAIL",
     "direct.log": "SKIP",
-    "fail-ftruncate-fstat.log": "ERROR",
+    "fail-ftruncate-fstat.log": "SKIP",
     "misc.log": "FAIL",
-    "no-allocate.log": "ERROR",
+    "no-allocate.log": "SKIP",
     "nocache.log": "ERROR",
     "nocache_eof.log": "SKIP",
     "nocache_fail.log": "SKIP",
@@ -191,7 +191,7 @@
     "partial-write.log": "FAIL",
     "reblock.log": "FAIL",
     "skip-seek-past-dev.log": "SKIP",
-    "skip-seek-past-file.log": "ERROR",
+    "skip-seek-past-file.log": "FAIL",
     "skip-seek.log": "FAIL",
     "skip-seek2.log": "FAIL",
     "sparse.log": "FAIL",
@@ -231,16 +231,16 @@
     "files0-from-dir.log": "PASS",
     "files0-from.log": "FAIL",
     "hard-link.log": "FAIL",
-    "inacc-dest.log": "ERROR",
+    "inacc-dest.log": "FAIL",
     "inacc-dir.log": "FAIL",
     "inaccessible-cwd.log": "PASS",
     "inodes.log": "FAIL",
     "long-from-unreadable.log": "FAIL",
-    "long-sloop.log": "ERROR",
+    "long-sloop.log": "FAIL",
     "max-depth.log": "FAIL",
     "move-dir-while-traversing.log": "PASS",
     "no-deref.log": "FAIL",
-    "no-x.log": "ERROR",
+    "no-x.log": "FAIL",
     "one-file-system.log": "FAIL",
     "restore-wd.log": "PASS",
     "slash.log": "FAIL",
@@ -263,7 +263,7 @@
     "mb.log": "PASS"
   },
   "expr": {
-    "expr-multibyte.log": "FAIL",
+    "expr-multibyte.log": "PASS",
     "expr.log": "PASS"
   },
   "factor": {
@@ -278,11 +278,11 @@
     "width.log": "FAIL"
   },
   "fold": {
-    "fold-characters.log": "ERROR",
+    "fold-characters.log": "PASS",
     "fold-nbsp.log": "PASS",
     "fold-spaces.log": "PASS",
-    "fold-zero-width.log": "ERROR",
-    "fold.log": "FAIL",
+    "fold-zero-width.log": "PASS",
+    "fold.log": "PASS",
     "multiple-files.log": "PASS"
   },
   "groups": {
@@ -291,11 +291,11 @@
     "groups-version.log": "PASS"
   },
   "head": {
-    "head-c.log": "ERROR",
+    "head-c.log": "FAIL",
     "head-elide-tail.log": "PASS",
-    "head-n0.log": "ERROR",
+    "head-n0.log": "PASS",
     "head-pos.log": "PASS",
-    "head-write-error.log": "ERROR",
+    "head-write-error.log": "PASS",
     "head.log": "FAIL",
     "quote-headers.log": "PASS"
   },
@@ -393,14 +393,14 @@
     "symlink-quote.log": "PASS",
     "symlink-slash.log": "PASS",
     "time-style-diag.log": "FAIL",
-    "w-option.log": "ERROR",
+    "w-option.log": "FAIL",
     "x-option.log": "PASS",
     "zero-option.log": "PASS"
   },
   "misc": {
     "arch.log": "PASS",
     "basename.log": "PASS",
-    "close-stdin.log": "ERROR",
+    "close-stdin.log": "FAIL",
     "close-stdout.log": "PASS",
     "coreutils.log": "FAIL",
     "dircolors.log": "FAIL",
@@ -410,22 +410,22 @@
     "false-status.log": "PASS",
     "getopt_vs_usage.log": "FAIL",
     "invalid-opt.log": "FAIL",
-    "io-errors.log": "ERROR",
+    "io-errors.log": "FAIL",
     "just-created.log": "FAIL",
-    "kill.log": "ERROR",
+    "kill.log": "FAIL",
     "mknod.log": "PASS",
     "no-fork.log": "PASS",
-    "nohup.log": "ERROR",
+    "nohup.log": "PASS",
     "option-aliases.log": "PASS",
     "pathchk.log": "PASS",
     "printenv.log": "ERROR",
-    "read-errors.log": "ERROR",
+    "read-errors.log": "FAIL",
     "realpath.log": "PASS",
     "responsive.log": "FAIL",
     "selinux.log": "SKIP",
-    "sleep.log": "ERROR",
-    "stdbuf.log": "ERROR",
-    "sync.log": "ERROR",
+    "sleep.log": "FAIL",
+    "stdbuf.log": "FAIL",
+    "sync.log": "FAIL",
     "time-style.log": "FAIL",
     "traversal-missing.log": "SKIP",
     "tsort.log": "PASS",
@@ -436,10 +436,10 @@
     "usage_vs_refs.log": "FAIL",
     "user.log": "PASS",
     "warning-errors.log": "FAIL",
-    "write-errors.log": "ERROR",
+    "write-errors.log": "SKIP",
     "xattr.log": "SKIP",
     "xstrtol.log": "PASS",
-    "yes.log": "ERROR"
+    "yes.log": "PASS"
   },
   "mkdir": {
     "p-1.log": "PASS",
@@ -474,7 +474,7 @@
     "childproof.log": "FAIL",
     "diag.log": "FAIL",
     "dir-file.log": "PASS",
-    "dir2dir.log": "ERROR",
+    "dir2dir.log": "FAIL",
     "dup-source.log": "FAIL",
     "force.log": "FAIL",
     "hard-2.log": "FAIL",
@@ -494,19 +494,19 @@
     "into-self.log": "FAIL",
     "leak-fd.log": "FAIL",
     "meta-to-xpart.log": "SKIP",
-    "mv-exchange.log": "ERROR",
+    "mv-exchange.log": "FAIL",
     "mv-n.log": "FAIL",
     "mv-special-1.log": "FAIL",
     "mv-special-2.log": "SKIP",
     "no-copy.log": "FAIL",
     "no-target-dir.log": "PASS",
-    "part-fail.log": "ERROR",
+    "part-fail.log": "FAIL",
     "part-hardlink-symlink.log": "FAIL",
     "part-hardlink.log": "FAIL",
     "part-rename.log": "FAIL",
     "part-symlink.log": "FAIL",
     "partition-perm.log": "ERROR",
-    "perm-1.log": "ERROR",
+    "perm-1.log": "PASS",
     "sticky-to-xpart.log": "SKIP",
     "symlink-onto-hardlink-to-self.log": "FAIL",
     "symlink-onto-hardlink.log": "FAIL",
@@ -516,17 +516,17 @@
   },
   "nice": {
     "nice-fail.log": "PASS",
-    "nice.log": "ERROR"
+    "nice.log": "FAIL"
   },
   "nl": {
     "multibyte.log": "PASS",
-    "multiple-files.log": "ERROR",
-    "nl.log": "ERROR"
+    "multiple-files.log": "PASS",
+    "nl.log": "FAIL"
   },
   "nproc": {
     "nproc-avail.log": "PASS",
-    "nproc-override.log": "ERROR",
-    "nproc-positive.log": "ERROR",
+    "nproc-override.log": "PASS",
+    "nproc-positive.log": "PASS",
     "nproc-quota-systemd.log": "SKIP",
     "nproc-quota.log": "SKIP"
   },
@@ -550,17 +550,17 @@
   },
   "pr": {
     "bounded-memory.log": "SKIP",
-    "options.log": "ERROR",
+    "options.log": "FAIL",
     "pr-tests.log": "FAIL"
   },
   "printf": {
     "printf-cov.log": "FAIL",
     "printf-hex.log": "PASS",
-    "printf-indexed.log": "ERROR",
+    "printf-indexed.log": "PASS",
     "printf-mb.log": "FAIL",
     "printf-quote.log": "FAIL",
     "printf-surprise.log": "SKIP",
-    "printf.log": "ERROR"
+    "printf.log": "FAIL"
   },
   "ptx": {
     "ptx-overrun.log": "PASS",
@@ -568,7 +568,7 @@
     "word-regex-loop.log": "PASS"
   },
   "pwd": {
-    "argument.log": "ERROR",
+    "argument.log": "PASS",
     "pwd-long.log": "FAIL",
     "pwd-option.log": "FAIL"
   },
@@ -585,7 +585,7 @@
   "rm": {
     "cycle.log": "PASS",
     "d-1.log": "PASS",
-    "d-2.log": "ERROR",
+    "d-2.log": "PASS",
     "d-3.log": "PASS",
     "dangling-symlink.log": "PASS",
     "dash-hint.log": "FAIL",
@@ -600,13 +600,13 @@
     "ext3-perf.log": "SKIP",
     "f-1.log": "PASS",
     "fail-2eperm.log": "SKIP",
-    "fail-eacces.log": "ERROR",
+    "fail-eacces.log": "PASS",
     "hash.log": "PASS",
     "i-1.log": "PASS",
     "i-never.log": "PASS",
     "i-no-r.log": "PASS",
     "ignorable.log": "FAIL",
-    "inaccessible.log": "ERROR",
+    "inaccessible.log": "FAIL",
     "interactive-always.log": "PASS",
     "interactive-once.log": "FAIL",
     "ir-1.log": "FAIL",
@@ -623,15 +623,15 @@
     "read-only.log": "SKIP",
     "readdir-bug.log": "PASS",
     "rm-readdir-fail.log": "SKIP",
-    "rm1.log": "ERROR",
-    "rm2.log": "ERROR",
+    "rm1.log": "PASS",
+    "rm2.log": "FAIL",
     "rm3.log": "FAIL",
     "rm4.log": "PASS",
     "rm5.log": "FAIL",
     "sunos-1.log": "FAIL",
-    "unread2.log": "ERROR",
+    "unread2.log": "FAIL",
     "unread3.log": "PASS",
-    "unreadable.log": "FAIL",
+    "unreadable.log": "PASS",
     "v-slash.log": "PASS"
   },
   "rmdir": {
@@ -649,12 +649,12 @@
     "seq-extra-number.log": "PASS",
     "seq-io-errors.log": "FAIL",
     "seq-locale.log": "PASS",
-    "seq-long-double.log": "ERROR",
-    "seq-precision.log": "ERROR",
+    "seq-long-double.log": "PASS",
+    "seq-precision.log": "PASS",
     "seq.log": "FAIL"
   },
   "shred": {
-    "fifo.log": "ERROR",
+    "fifo.log": "FAIL",
     "shred-exact.log": "PASS",
     "shred-passes.log": "FAIL",
     "shred-remove.log": "FAIL",
@@ -662,7 +662,7 @@
   },
   "shuf": {
     "shuf-reservoir.log": "SKIP",
-    "shuf.log": "ERROR"
+    "shuf.log": "FAIL"
   },
   "sort": {
     "sort-NaN-infloop.log": "FAIL",
@@ -674,11 +674,11 @@
     "sort-continue.log": "PASS",
     "sort-debug-keys.log": "FAIL",
     "sort-debug-warn.log": "FAIL",
-    "sort-discrim.log": "ERROR",
+    "sort-discrim.log": "FAIL",
     "sort-exit-early.log": "PASS",
-    "sort-field-limit.log": "ERROR",
+    "sort-field-limit.log": "FAIL",
     "sort-files0-from.log": "FAIL",
-    "sort-float.log": "ERROR",
+    "sort-float.log": "FAIL",
     "sort-h-thousands-sep.log": "FAIL",
     "sort-locale.log": "SKIP",
     "sort-merge-fdlimit.log": "PASS",
@@ -696,7 +696,7 @@
   "split": {
     "additional-suffix.log": "PASS",
     "b-chunk.log": "FAIL",
-    "fail.log": "ERROR",
+    "fail.log": "PASS",
     "filter.log": "ERROR",
     "guard-input.log": "FAIL",
     "l-chunk-root.log": "SKIP",
@@ -707,7 +707,7 @@
     "numeric.log": "PASS",
     "r-chunk.log": "PASS",
     "record-sep.log": "PASS",
-    "split-io-err.log": "ERROR",
+    "split-io-err.log": "PASS",
     "suffix-auto-length.log": "PASS",
     "suffix-length.log": "PASS"
   },
@@ -758,8 +758,8 @@
     "inotify-rotate-resources.log": "ERROR",
     "inotify-rotate.log": "FAIL",
     "overlay-headers.log": "SKIP",
-    "pid-pipe.log": "FAIL",
-    "pid.log": "ERROR",
+    "pid-pipe.log": "PASS",
+    "pid.log": "FAIL",
     "pipe-f.log": "SKIP",
     "pipe-f2.log": "FAIL",
     "proc-ksyms.log": "PASS",
@@ -784,14 +784,14 @@
     "test-N.log": "PASS",
     "test-diag.log": "PASS",
     "test-file.log": "FAIL",
-    "test.log": "FAIL"
+    "test.log": "PASS"
   },
   "timeout": {
     "init-parent.log": "PASS",
     "timeout-blocked.log": "PASS",
     "timeout-group.log": "SKIP",
-    "timeout-large-parameters.log": "ERROR",
-    "timeout-parameters.log": "ERROR",
+    "timeout-large-parameters.log": "PASS",
+    "timeout-parameters.log": "PASS",
     "timeout.log": "FAIL"
   },
   "touch": {
@@ -804,7 +804,7 @@
     "no-create-missing.log": "PASS",
     "no-dereference.log": "PASS",
     "no-rights.log": "PASS",
-    "not-owner.log": "ERROR",
+    "not-owner.log": "PASS",
     "now-owned-by-other.log": "SKIP",
     "obsolescent.log": "FAIL",
     "read-only.log": "PASS",
@@ -816,13 +816,13 @@
     "tr.log": "FAIL"
   },
   "truncate": {
-    "multiple-files.log": "ERROR",
+    "multiple-files.log": "PASS",
     "truncate-dangling-symlink.log": "PASS",
     "truncate-dir-fail.log": "PASS",
     "truncate-fail-diag.log": "PASS",
     "truncate-fifo.log": "PASS",
     "truncate-no-create-missing.log": "PASS",
-    "truncate-overflow.log": "ERROR",
+    "truncate-overflow.log": "PASS",
     "truncate-owned-by-other.log": "SKIP",
     "truncate-parameters.log": "PASS",
     "truncate-relative.log": "PASS"
@@ -832,7 +832,7 @@
   },
   "unexpand": {
     "bounded-memory.log": "SKIP",
-    "mb.log": "ERROR",
+    "mb.log": "PASS",
     "unexpand.log": "FAIL"
   },
   "uniq": {
@@ -843,13 +843,13 @@
   },
   "wc": {
     "wc-cpu.log": "FAIL",
-    "wc-files0-from.log": "FAIL",
+    "wc-files0-from.log": "PASS",
     "wc-files0.log": "PASS",
     "wc-nbsp.log": "FAIL",
     "wc-parallel.log": "PASS",
     "wc-proc.log": "FAIL",
     "wc-sjis.log": "SKIP",
-    "wc-total.log": "ERROR",
+    "wc-total.log": "PASS",
     "wc.log": "FAIL"
   }
 }

@@ -237,6 +237,20 @@ proc base2_decode(text: Str, lsb: Bool) [error] -> Decoded {
   {data: bytes.from_ints(values)?, valid: true}
 }
 
+pure repeat_text(value: Str, count: Int) -> Str {
+  var result = ""
+  var chunk = value
+  var remaining = count
+
+  while remaining > 0 {
+    if remaining % 2 == 1 { result += chunk }
+    remaining = remaining / 2
+    if remaining > 0 { chunk += chunk }
+  }
+
+  result
+}
+
 pure base58_encode(data: Bytes) -> Str {
   var zeroes = 0
   while zeroes < data.len() and data.byte_at(zeroes) == 0 { zeroes += 1 }
@@ -250,8 +264,7 @@ pure base58_encode(data: Bytes) -> Str {
     }
     while carry > 0 { digits += [carry % 58]; carry = carry / 58 }
   }
-  var out = ""
-  for _ in range(zeroes) { out = f"{out}1" }
+  var out = repeat_text("1", zeroes)
   for index in range(digits.len()) { out = f"{out}{digit(digits[digits.len() - index - 1], BASE58)}" }
   out
 }

@@ -66,7 +66,7 @@ test test_tail_obsolete_forms_name_the_first_argument { |ctx|
 
   let digits = tail_run(ctx, root, ["-5cz"])?
   assert digits.status == 1
-  assert digits.stderr == "tail: option used in invalid context -- 5\nTry 'tail --help' for more information.\n", digits.stderr
+  assert digits.stderr == "tail: option used in invalid context -- 5\n", digits.stderr
 
   let plus = tail_run(ctx, root, ["+cl"])?
   assert plus.stderr == "tail: cannot open '+cl' for reading: No such file or directory\n", plus.stderr
@@ -155,11 +155,38 @@ test test_tail_follow_of_a_live_file_is_rejected_unless_the_pid_is_gone { |ctx|
   assert done.stdout == b"1\n2\n"
 }
 
+test test_tail_follow_of_fifo_does_not_block_on_open { |ctx|
+  let root = test.temp_dir(ctx, name: "tail")?
+  fs.mkfifo(fp"{root}/fifo", 0o600)?
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "-f", "--pid=2147483647", "fifo"]
+  let child = spawn process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"},
+    b"",
+    fp"{root}/.out",
+    fp"{root}/.err",
+    new_session: true,
+  )?
+  let waited = process.wait_timeout([child], time.millis(2000))?
+  if waited == null {
+    let _ = process.kill_group(child.pid, "KILL")
+    let _ = process.wait_any([child])?
+    assert false, "tail blocked while opening a FIFO"
+  }
+
+  let completed = waited ?? process.wait_any([child])?
+  assert completed.status.shell_code()? == 0
+  assert fp"{root}/.out".read_bytes()? == b""
+  assert fp"{root}/.err".read_text()? == ""
+}
+
 test test_tail_validates_follow_options { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
 
   assert tail_run(ctx, root, ["--pid=-1", "-f"])?.stderr == "tail: invalid PID: '-1'\n"
-  assert tail_run(ctx, root, ["-s", "1.0s", "-"])?.stderr == "tail: invalid number of seconds: '1.0s'\n"
+  assert tail_run(ctx, root, ["-s", "1.0s", "-"])?.stderr == "tail: invalid number of seconds: '1.0s'\nTry 'tail --help' for more information.\n"
   assert tail_run(ctx, root, ["--max-unchanged-stats=x", "-"])?.stderr == "tail: invalid maximum number of unchanged stats between opens: 'x'\n"
   assert tail_run(ctx, root, ["-s.1", "-"], b"a\n")?.stdout == b"a\n"
 
