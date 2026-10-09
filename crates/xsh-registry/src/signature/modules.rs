@@ -593,6 +593,28 @@ fn io_module() -> ModuleSig {
             ),
         ),
         (
+            "stdin_read",
+            sig(
+                vec![param("max_bytes", Type::Int)],
+                result(Type::Optional(Box::new(Type::Bytes))),
+                false,
+                RuntimeOp::IoStdinRead,
+            ),
+        ),
+        (
+            "stdin_seek_relative",
+            sig(
+                vec![param("offset", Type::Int)],
+                result(Type::Bool),
+                false,
+                RuntimeOp::IoStdinSeekRelative,
+            ),
+        ),
+        (
+            "stdout_is_broken",
+            sig(Vec::new(), result(Type::Bool), false, RuntimeOp::IoStdoutIsBroken),
+        ),
+        (
             "write_stderr",
             sig(
                 vec![param("text", Type::Str)],

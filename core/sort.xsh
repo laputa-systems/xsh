@@ -56,6 +56,7 @@ type SortOptions = {
   parallel: Int?,
   sort_mode: Str?,
   buffer_size: Str?,
+  batch_size: Str?,
   temp_dir: Str?,
   files0_from: Str?,
   help: Bool,
@@ -65,7 +66,7 @@ type SortOptions = {
 
 type KeyPart = {field: Int, character: Int, flags: Str}
 type KeyDef = {start: KeyPart, finish: KeyPart, has_finish: Bool}
-type SortLine = {raw: Bytes, primary: Str, ordering: Str}
+type SortLine = {raw: Bytes, primary: Bytes, ordering: Bytes}
 type Bounds = {start: Int, end: Int}
 type NumericMagnitude = {negative: Bool, magnitude: Str}
 type SelectedKey = {value: Bytes, flags: Str}
@@ -131,6 +132,17 @@ pure parse_buffer_size(value: Str) -> SizeResult {
   }
   if amount > 9223372036854775807 / factor { return {bytes: null, error: "large"} }
   {bytes: amount * factor, error: ""}
+}
+
+pure parse_batch_size(value: Str) -> SizeResult {
+  return {bytes: null, error: "invalid"} when value == ""
+  for index in range(value.byte_len()) {
+    if ! is_digit(value.byte_at(index) ?? 0) { return {bytes: null, error: "invalid"} }
+  }
+  let count = value.parse_int() ?? -1
+  return {bytes: null, error: "large"} when count < 0
+  return {bytes: null, error: "small"} when count < 2
+  {bytes: count, error: ""}
 }
 
 pure hex_bytes(value: Bytes) -> Str {
@@ -420,7 +432,8 @@ pure merge_groups(groups: List[List[SortLine]], reverse: Bool) -> List[SortLine]
       } else {
         let candidate = groups[group_index][position]
         let current = groups[selected_group][positions[selected_group]]
-        if (reverse and candidate.ordering > current.ordering) or (! reverse and candidate.ordering < current.ordering) {
+        let order = byte_order(candidate.ordering, current.ordering)
+        if (reverse and order > 0) or (! reverse and order < 0) {
           selected_group = group_index
         }
       }
@@ -431,13 +444,32 @@ pure merge_groups(groups: List[List[SortLine]], reverse: Bool) -> List[SortLine]
   merged
 }
 
+pure merge_batches(groups: List[List[SortLine]], reverse: Bool, batch_size: Int) -> List[SortLine] {
+  var active = groups
+  while active.len() > 1 {
+    var next: List[List[SortLine]] = []
+    var start = 0
+    while start < active.len() {
+      let end = if start + batch_size < active.len() { start + batch_size } else { active.len() }
+      var batch: List[List[SortLine]] = []
+      for index in range(start, end) { batch += [active[index]] }
+      next += [merge_groups(batch, reverse)]
+      start = end
+    }
+    active = next
+  }
+  if active.len() == 0 { [] } else { active[0] }
+}
+
 pure separator_bytes(zero: Bool) -> Bytes { if zero { b"\0" } else { b"\n" } }
 
-pure debug_line(line: Bytes, blank: Bool) -> Bytes {
+pure debug_line(line: Bytes, blank: Bool, tie: Bool) -> Bytes {
   var marks = ""
+  var whole_line_marks = ""
   var leading = blank
   for index in range(line.len()) {
     let byte = line.byte_at(index) ?? 0
+    whole_line_marks = f"{whole_line_marks}{if byte == 9 { ">" } else { "_" }}"
     if leading and is_blank(byte) {
       marks = f"{marks} "
     } else {
@@ -445,7 +477,9 @@ pure debug_line(line: Bytes, blank: Bool) -> Bytes {
       marks = f"{marks}{if byte == 9 { ">" } else { "_" }}"
     }
   }
-  bytes.concat([line, b"\n", bytes.from_text(f"{marks}\n")])
+  var output = bytes.concat([line, b"\n", bytes.from_text(f"{marks}\n")])
+  if tie { output = bytes.concat([output, bytes.from_text(f"{whole_line_marks}\n")]) }
+  output
 }
 
 proc read_input(name: Str) [fs, error, io] -> Result[Bytes, Error] {
@@ -466,7 +500,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
           "-R": "random ordering is not implemented",
           "--random-source": "random ordering is not implemented",
           "--compress-program": "external sorting is not implemented",
-          "--batch-size": "external merging is not implemented",
         },
       },
       reverse: {form: "-r --reverse", default: false},
@@ -491,6 +524,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       parallel: {form: "--parallel NUM_THREADS", kind: "Int"},
       sort_mode: {form: "--sort MODE"},
       buffer_size: {form: "-S --buffer-size SIZE"},
+      batch_size: {form: "--batch-size SIZE"},
       temp_dir: {form: "-T --temporary-directory DIR"},
       files0_from: {form: "--files0-from FILE"},
       help: {form: "--help", default: false, stop: true},
@@ -526,6 +560,33 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 2
     }
     buffer_limit = parsed.bytes
+  }
+
+  var batch_limit: Int? = null
+  if opts.batch_size != null {
+    let size_text = opts.batch_size ?? ""
+    let parsed = parse_batch_size(size_text)
+    if parsed.error == "invalid" {
+      gnu.error(f"invalid --batch-size argument {gnu.quote_value(size_text)}")
+      exit 2
+    }
+    if parsed.error == "small" {
+      gnu.error(f"invalid --batch-size argument {gnu.quote_value(size_text)}")
+      eprint "sort: minimum --batch-size argument is '2'"
+      exit 2
+    }
+    let nofile = process.rlimit("nofile")?
+    let max_batch = if nofile.soft == null { 9223372036854775807 } else {
+      let soft = nofile.soft ?? 0
+      if soft > 3 { soft - 3 } else { 0 }
+    }
+    let count = parsed.bytes ?? 0
+    if parsed.error == "large" or count > max_batch {
+      gnu.error(f"--batch-size argument {gnu.quote_value(size_text)} too large")
+      eprint f"sort: maximum --batch-size argument with current rlimit is {max_batch}"
+      exit 2
+    }
+    batch_limit = parsed.bytes
   }
 
   var numeric = opts.numeric
@@ -643,6 +704,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let line_separator = if opts.zero { 0 } else { 10 }
+  let bytewise_default = opts.key.len() == 0 and ! numeric and ! month and ! version_sort and ! opts.fold_case and ! opts.dictionary and ! opts.nonprinting and ! opts.blank
   var record_groups: List[List[SortLine]] = []
   var input_size = 0
   for name in paths {
@@ -670,9 +732,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
     var file_records: List[SortLine] = []
     for line in split_records(data, line_separator) {
-      let primary = primary_key(line, opts.key, separator, numeric, month, version_sort, opts.fold_case, opts.dictionary, opts.nonprinting, opts.blank)
-      let tie = if opts.stable { "" } else { hex_bytes(line) }
-      file_records += [{raw: line, primary: primary, ordering: f"{primary}{tie}"}]
+      let primary_text = if bytewise_default { "" } else {
+        primary_key(line, opts.key, separator, numeric, month, version_sort, opts.fold_case, opts.dictionary, opts.nonprinting, opts.blank)
+      }
+      # In default byte order, the raw line already is both the ordering and
+      # unique key. Keep it as bytes instead of allocating an escaped hex copy.
+      let primary = if bytewise_default { line } else { bytes.from_text(primary_text) }
+      let tie = if bytewise_default or opts.stable or opts.unique { "" } else { hex_bytes(line) }
+      let ordering = if bytewise_default { line } else { bytes.from_text(f"{primary_text}{tie}") }
+      file_records += [{raw: line, primary: primary, ordering: ordering}]
     }
     record_groups += [file_records]
   }
@@ -684,7 +752,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       for index in range(1, records.len()) {
         let previous = records[index - 1]
         let current = records[index]
-        let out_of_order = if opts.reverse { previous.ordering < current.ordering } else { previous.ordering > current.ordering }
+        let order = byte_order(previous.ordering, current.ordering)
+        let out_of_order = if opts.reverse { order < 0 } else { order > 0 }
         let duplicate = opts.unique and previous.primary == current.primary
         if out_of_order or duplicate { failure_index = index; break }
       }
@@ -702,9 +771,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var records: List[SortLine] = []
   if opts.merge {
-    # Sorting each already-ordered stream with a stable merge is equivalent to
-    # GNU sort -m and keeps equal lines in input-file order.
-    records = merge_groups(record_groups, opts.reverse)
+    # Merge in bounded fan-in passes. This honors --batch-size and preserves
+    # equal-line order across the original input streams.
+    let fan_in = batch_limit ?? (if record_groups.len() > 1 { record_groups.len() } else { 2 })
+    records = merge_batches(record_groups, opts.reverse, fan_in)
   } else {
     for file_set in record_groups { records += file_set }
   }
@@ -714,7 +784,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var output: List[Bytes] = []
   for item in selected {
     if opts.debug {
-      output += [debug_line(item.raw, opts.blank)]
+      output += [debug_line(item.raw, opts.blank, ! bytewise_default and ! opts.stable and ! opts.unique)]
     } else {
       output += [item.raw, ending]
     }

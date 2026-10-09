@@ -39,12 +39,12 @@ use crate::trace::{
 };
 use directories::{ProjectDirs, UserDirs};
 use rustc_hash::FxHashMap;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
 use std::ffi::OsString;
 use std::fmt::Write as _;
-use std::io::{BufRead, ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::ops::ControlFlow;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -56,6 +56,79 @@ use tempfile::TempDir;
 use xsh_root::Root;
 
 pub(in crate::runtime::eval) mod indexed_run;
+
+static STDIN_BUFFER: std::sync::Mutex<VecDeque<u8>> = std::sync::Mutex::new(VecDeque::new());
+
+fn read_stdin_fd(data: &mut [u8]) -> std::io::Result<usize> {
+    loop {
+        let read = unsafe {
+            libc::read(
+                0,
+                data.as_mut_ptr().cast::<libc::c_void>(),
+                data.len(),
+            )
+        };
+        if read >= 0 {
+            return Ok(read as usize);
+        }
+
+        let error = std::io::Error::last_os_error();
+        if error.kind() != ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+fn read_stdin_up_to(max_bytes: usize) -> std::io::Result<Option<Vec<u8>>> {
+    let mut buffered = STDIN_BUFFER.lock().unwrap_or_else(|error| error.into_inner());
+    if buffered.is_empty() {
+        let mut data = vec![0; max_bytes];
+        let read = read_stdin_fd(&mut data)?;
+        if read == 0 {
+            return Ok(None);
+        }
+        data.truncate(read);
+        return Ok(Some(data));
+    }
+
+    let read = max_bytes.min(buffered.len());
+    Ok(Some(buffered.drain(..read).collect()))
+}
+
+fn read_stdin_record(delimiter: u8) -> std::io::Result<Option<(Vec<u8>, bool)>> {
+    let mut buffered = STDIN_BUFFER.lock().unwrap_or_else(|error| error.into_inner());
+    loop {
+        if let Some(end) = buffered.iter().position(|byte| *byte == delimiter) {
+            let record = buffered.drain(..end).collect();
+            buffered.pop_front();
+            return Ok(Some((record, true)));
+        }
+
+        let mut data = [0; 8192];
+        let read = read_stdin_fd(&mut data)?;
+        if read == 0 {
+            return if buffered.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some((buffered.drain(..).collect(), false)))
+            };
+        }
+        buffered.extend(&data[..read]);
+    }
+}
+
+fn read_stdin_all() -> std::io::Result<Vec<u8>> {
+    let mut buffered = STDIN_BUFFER.lock().unwrap_or_else(|error| error.into_inner());
+    let mut data: Vec<u8> = buffered.drain(..).collect();
+    let mut chunk = [0; 65_536];
+    loop {
+        let read = read_stdin_fd(&mut chunk)?;
+        if read == 0 {
+            return Ok(data);
+        }
+        data.extend_from_slice(&chunk[..read]);
+    }
+}
 
 #[cfg(feature = "native-tests")]
 use super::display_value;
@@ -806,6 +879,16 @@ fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, Ru
     let metadata = file
         .metadata()
         .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+    // Opening a directory succeeds on Unix, but reading it fails with
+    // EISDIR. Keep that host error so byte-reading applets such as cat/head
+    // retain their normal directory diagnostics.
+    if metadata.is_dir() {
+        return Err(RuntimeError::host(
+            "fs-read",
+            &std::io::Error::from_raw_os_error(libc::EISDIR),
+        )
+        .with_span(span));
+    }
     // Pseudo-files such as /proc/self/status are regular files whose reported
     // size is zero, and FIFOs have no useful size. Read both through EOF. Other
     // special files may be unbounded streams (notably /dev/zero), so keep the
@@ -6138,35 +6221,36 @@ impl Evaluator {
                 lowered_unit_result(fs_module::write_path(host_path, text.as_bytes(), span))
             }
             RuntimeOp::IoStdinBytes if values.is_empty() => {
-                let mut data = Vec::new();
-                match std::io::stdin().read_to_end(&mut data) {
-                    Ok(_) => lowered_result_ok(LoweredValue::Bytes(data.into())),
+                match read_stdin_all() {
+                    Ok(data) => lowered_result_ok(LoweredValue::Bytes(data.into())),
                     Err(error) => lowered_result_err_value(
                         RuntimeError::host("io.stdin_bytes", &error).with_span(span),
                     ),
                 }
             }
             RuntimeOp::IoStdinText if values.is_empty() => {
-                let mut data = String::new();
-                match std::io::stdin().read_to_string(&mut data) {
-                    Ok(_) => lowered_result_ok(LoweredValue::Str(data.into())),
+                let text = read_stdin_all().and_then(|data| {
+                    String::from_utf8(data)
+                        .map_err(|error| std::io::Error::new(ErrorKind::InvalidData, error))
+                });
+                match text {
+                    Ok(text) => lowered_result_ok(LoweredValue::Str(text.into())),
                     Err(error) => lowered_result_err_value(
                         RuntimeError::host("io.stdin_text", &error).with_span(span),
                     ),
                 }
             }
             RuntimeOp::IoStdinLine if values.is_empty() => {
-                let mut line = String::new();
-                match std::io::stdin().lock().read_line(&mut line) {
-                    Ok(_) => {
-                        if line.ends_with('\n') {
-                            line.pop();
-                            if line.ends_with('\r') {
-                                line.pop();
-                            }
-                        }
-                        lowered_result_ok(LoweredValue::Str(line.into()))
+                let line = read_stdin_record(b'\n').and_then(|line| {
+                    let (mut line, terminated) = line.unwrap_or_default();
+                    if terminated && line.last() == Some(&b'\r') {
+                        line.pop();
                     }
+                    String::from_utf8(line)
+                        .map_err(|error| std::io::Error::new(ErrorKind::InvalidData, error))
+                });
+                match line {
+                    Ok(line) => lowered_result_ok(LoweredValue::Str(line.into())),
                     Err(error) => lowered_result_err_value(
                         RuntimeError::host("io.stdin_line", &error).with_span(span),
                     ),
@@ -6183,21 +6267,90 @@ impl Evaluator {
                         .with_span(span),
                     )));
                 };
-                let mut record = Vec::new();
-                match std::io::stdin()
-                    .lock()
-                    .read_until(delimiter, &mut record)
-                {
-                    Ok(0) => lowered_result_ok(LoweredValue::Null),
-                    Ok(_) => {
-                        if record.last() == Some(&delimiter) {
-                            record.pop();
-                        }
+                match read_stdin_record(delimiter) {
+                    Ok(None) => lowered_result_ok(LoweredValue::Null),
+                    Ok(Some((record, _))) => {
                         lowered_result_ok(LoweredValue::Bytes(record.into()))
                     }
                     Err(error) => lowered_result_err_value(
                         RuntimeError::host("io.stdin_until", &error).with_span(span),
                     ),
+                }
+            }
+            RuntimeOp::IoStdinRead if values.len() == 1 => {
+                let max_bytes = lowered_int_arg(values.pop(), "io.stdin_read", span)?;
+                let Ok(max_bytes) = usize::try_from(max_bytes) else {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(
+                        RuntimeError::new(
+                            "io-stdin-read-size",
+                            "max_bytes must be between 1 and 1048576",
+                        )
+                        .with_span(span),
+                    )));
+                };
+                if max_bytes == 0 || max_bytes > 1_048_576 {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(
+                        RuntimeError::new(
+                            "io-stdin-read-size",
+                            "max_bytes must be between 1 and 1048576",
+                        )
+                        .with_span(span),
+                    )));
+                }
+                match read_stdin_up_to(max_bytes) {
+                    Ok(None) => lowered_result_ok(LoweredValue::Null),
+                    Ok(Some(data)) => lowered_result_ok(LoweredValue::Bytes(data.into())),
+                    Err(error) => lowered_result_err_value(
+                        RuntimeError::host("io.stdin_read", &error).with_span(span),
+                    ),
+                }
+            }
+            RuntimeOp::IoStdinSeekRelative if values.len() == 1 => {
+                let relative = lowered_int_arg(values.pop(), "io.stdin_seek_relative", span)?;
+                let mut buffered = STDIN_BUFFER.lock().unwrap_or_else(|error| error.into_inner());
+                let Some(offset) = relative.checked_sub(buffered.len() as i64) else {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(
+                        RuntimeError::new(
+                            "io-stdin-seek-offset",
+                            "relative offset is outside the supported range",
+                        )
+                        .with_span(span),
+                    )));
+                };
+                let result = unsafe { libc::lseek(0, offset as libc::off_t, libc::SEEK_CUR) };
+                if result >= 0 {
+                    buffered.clear();
+                    lowered_result_ok(LoweredValue::Bool(true))
+                } else {
+                    let error = std::io::Error::last_os_error();
+                    if error.raw_os_error() == Some(libc::ESPIPE) {
+                        lowered_result_ok(LoweredValue::Bool(false))
+                    } else {
+                        lowered_result_err_value(
+                            RuntimeError::host("io.stdin_seek_relative", &error).with_span(span),
+                        )
+                    }
+                }
+            }
+            RuntimeOp::IoStdoutIsBroken if values.is_empty() => {
+                let stdout = std::io::stdout();
+                let stdout_lock = stdout.lock();
+                let mut descriptor = libc::pollfd {
+                    fd: stdout_lock.as_raw_fd(),
+                    events: libc::POLLOUT,
+                    revents: 0,
+                };
+                let ready = unsafe { libc::poll(&mut descriptor, 1, 0) };
+                if ready < 0 {
+                    lowered_result_err_value(
+                        RuntimeError::host("io.stdout_is_broken", &std::io::Error::last_os_error())
+                            .with_span(span),
+                    )
+                } else {
+                    let broken = ready > 0
+                        && descriptor.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)
+                            != 0;
+                    lowered_result_ok(LoweredValue::Bool(broken))
                 }
             }
             RuntimeOp::IoWriteStderr if values.len() == 1 => {

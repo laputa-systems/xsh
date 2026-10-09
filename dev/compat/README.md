@@ -49,9 +49,17 @@ git -C ../ref/uutils-coreutils checkout "$(python3 -c 'import json;print(json.lo
 git clone https://github.com/laputa-systems/laputa ../laputa
 git -C ../laputa checkout master
 export UUTILS_ROOT=$PWD/../ref/uutils-coreutils
-cargo build --release --locked -p xsh --bin xsh -p xsht --bin xsht
+source dev/compat/native-env.sh
+CARGO_TARGET_DIR=/workspace/targets/native-bytes-hash CARGO_BUILD_JOBS=1 \
+  CARGO_PROFILE_RELEASE_LTO=false cargo build --release --locked \
+  -p xsh --bin xsh -p xsht --bin xsht
 cargo install cargo-nextest --locked          # for run-uutils.sh
 ```
+
+Keep mold enabled for this optimized release build. On the campaign host,
+thin-LTO stalled while linking the `xsh` dispatcher after mold exited; setting
+`CARGO_PROFILE_RELEASE_LTO=false` completed the build. The `CARGO_TARGET_DIR`
+and single build job keep this build isolated from other compatibility runs.
 
 GNU runs also need a C toolchain, autotools, perl and the packages uutils'
 `build-gnu.sh` uses: `quilt gperf texinfo autopoint gawk help2man rsync`. In a
@@ -106,14 +114,20 @@ workspace-local `nightly-2026-09-15` toolchain and mold 3.0.0 x86_64 release
 were installed and verified by SHA-256; `native-env.sh` selects both for
 builds. Docker is not used. Release `xsh`/`xsht` builds, the pinned uutils
 test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
+Keep this scope to native Linux x86_64. Use one integrator; any subagent must
+be GPT-6 Luna at xhigh.
 
-The initial uutils run recorded 2,205 / 5,974 passes; after the date/dircolors
-merge, a full run reached 2,368 / 5,974 with no regressions. The most recent
-full run, after cp/mv integration, recorded 2,813 / 5,974 and exposed
-regressions. Follow-up fixes and additional utility slices are recorded in
-[`CAMPAIGN.md`](CAMPAIGN.md); a fresh full run is still required after the
-active lanes merge. A focused `ls dir vdir split` rerun passes 314 / 365 with
-no regression among previously passing tests.
+The latest merged uutils results combine the 2026-10-09 full run with a focused
+`factor sort unlink` refresh: 5,123 / 5,974 passing, 851 failing, and 4 excluded.
+Compared with the checked-in baseline, 2,755 test IDs now pass and none
+regressed. The focused `factor sort` result is 139 / 242 (factor 23/25, sort
+116/217). The byte-key fast path restored `test_factor::test_parallel`, and
+removing unneeded unique-sort key work brought the buffer-size test under its
+30-second limit. `--batch-size` validation and bounded merge tests pass. The
+large-factor case still times out. The `cat head tail tac rm tee touch` slice is 432 / 499, up 157
+passing IDs with no regressions. The `unlink` slice is 6 / 7; raw non-UTF-8
+operand paths now work, while its extra-operand wording follows GNU. The merged results and remaining failures are
+tracked in [`CAMPAIGN.md`](CAMPAIGN.md), `gaps.json`, and `results/`.
 
 `run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
 The baseline run against uutils recorded 573 passed, 85 skipped, 58 failed,

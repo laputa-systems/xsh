@@ -4538,7 +4538,7 @@ impl Evaluator {
                                         return Err(RuntimeError::new(
                                     "stream-sort-key",
                                     format!(
-                                        "sort-by keys must be Int, Str, Bool, Path, or Records of supported keys; found {}",
+                                        "sort-by keys must be Int, Str, Bytes, Bool, Path, or Records of supported keys; found {}",
                                         key.type_name()
                                     ),
                                 )
@@ -10068,6 +10068,24 @@ print $marker.name
         crate::runtime::eval::run_eval(
             direct_indexed_function_executes_without_decoding_its_body_inner,
         );
+    }
+
+    #[test]
+    fn byte_strings_are_stable_sort_items_and_projected_keys() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"
+let items = [b"\xff", b"a", b"\0"] |> sort
+print ${items[0] == b"\0"}
+print ${items[1] == b"a"}
+print ${items[2] == b"\xff"}
+let rows = [{key: b"\xff", value: 2}, {key: b"\0", value: 1}] |> sort-by .key
+print $rows[0].value
+"#;
+            let output = run_program(source);
+            assert_eq!(output.0, 0);
+            assert_eq!(output.1, b"true\ntrue\ntrue\n1\n");
+            assert!(output.2.is_empty());
+        });
     }
 
     fn direct_indexed_function_executes_without_decoding_its_body_inner() {

@@ -59,8 +59,9 @@ pure modernize(argv: List[Str]) -> List[Str] {
 }
 
 proc parse_count(text: Str, what: Str) [process, env] -> Count {
-  let elide = text.starts_with("-")
-  let digits = if elide or text.starts_with("+") { text.byte_slice(1) } else { text }
+  let normalized = if text.starts_with("=") { text.byte_slice(1) } else { text }
+  let elide = normalized.starts_with("-")
+  let digits = if elide or normalized.starts_with("+") { normalized.byte_slice(1) } else { normalized }
   let value = tio.parse_count(digits)
 
   if value == null {
@@ -69,6 +70,17 @@ proc parse_count(text: Str, what: Str) [process, env] -> Count {
   }
 
   {value: value, elide: elide}
+}
+
+proc write_output(data: Bytes) [process, env, io] {
+  if let Err(failure) = io.write_stdout_bytes(data) {
+    if gnu.errno(failure) == 32 {
+      exit 141
+    }
+
+    gnu.error(f"error writing 'standard output': {gnu.strerror(failure)}")
+    exit 1
+  }
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
@@ -126,7 +138,16 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var shown = false
 
     loop {
-      let step = if wants { tio.read_chunk(source, offset) } else { Ok(b"") }
+      let count = if source.mode == "stdin" and ! elide {
+        if by_bytes {
+          if left < tio.CHUNK { left } else { tio.CHUNK }
+        } else {
+          1
+        }
+      } else {
+        tio.CHUNK
+      }
+      let step = if wants { tio.read_chunk(source, offset, count) } else { Ok(b"") }
 
       guard let chunk = step else { |failure|
         if offset == 0 and ! tio.is_directory(failure) {
@@ -160,7 +181,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         let data = bytes.concat([held, chunk])
 
         if data.len() > total {
-          gnu.write_bytes(data[..data.len() - total])
+          write_output(data[..data.len() - total])
           held = data[data.len() - total..]
         } else {
           held = data
@@ -172,26 +193,31 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
         if lines > total {
           let cut = ends[lines - total - 1]
-          gnu.write_bytes(data[..cut])
+          write_output(data[..cut])
           held = data[cut..]
         } else {
           held = data
         }
       } else if by_bytes {
-        gnu.write_bytes(chunk[..left])
+        let take = if left < chunk.len() { left } else { chunk.len() }
+        write_output(chunk[..take])
         left -= chunk.len()
         break when left <= 0
       } else {
         let ends = tio.line_ends(chunk, opts.zero)
 
         if left <= ends.len() {
-          gnu.write_bytes(chunk[..ends[left - 1]])
+          write_output(chunk[..ends[left - 1]])
           break
         }
 
-        gnu.write_bytes(chunk)
+        write_output(chunk)
         left -= ends.len()
       }
+    }
+
+    if source.mode == "stdin" and elide and held.len() > 0 {
+      let _ = io.stdin_seek_relative(-held.len())?
     }
   }
 

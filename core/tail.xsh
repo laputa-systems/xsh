@@ -71,7 +71,7 @@ pure modernize(argv: List[Str]) -> List[Str] {
 
   let parts = rx"^([+-])([0-9]*)([bcl]?)(f?)$".captures(argv[0])
 
-  return argv when parts.len() == 0 or (parts[2] == "" and (parts[1] == "-" or parts[3] == ""))
+  return argv when parts.len() == 0 or (parts[2] == "" and (parts[3] == "" or (parts[1] == "-" and parts[3] == "c")))
 
   let sign = if parts[1] == "+" { "+" } else { "" }
   let digits = if parts[2] == "" { "10" } else { parts[2] }
@@ -83,18 +83,30 @@ pure modernize(argv: List[Str]) -> List[Str] {
 }
 
 proc parse_spec(text: Str, by_bytes: Bool) [process, env] -> Spec {
-  let from_start = text.starts_with("+")
-  let digits = if from_start or text.starts_with("-") { text[1..] } else { text }
+  let normalized = text.trim()
+  let from_start = normalized.starts_with("+")
+  let digits = if from_start or normalized.starts_with("-") { normalized[1..] } else { normalized }
   let value = tio.parse_count(digits)
 
   if value == null {
     gnu.error(
-      f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote_value(if from_start { text } else { digits })}",
+      f"invalid number of {if by_bytes { "bytes" } else { "lines" }}: {gnu.quote_value(if from_start { normalized } else { digits })}",
     )
     exit 1
   }
 
   {value: value, from_start: from_start, bytes: by_bytes}
+}
+
+proc write_output(data: Bytes) [process, env, io] {
+  if let Err(failure) = io.write_stdout_bytes(data) {
+    if gnu.errno(failure) == 32 {
+      exit 141
+    }
+
+    gnu.error(gnu.strerror(failure))
+    exit 1
+  }
 }
 
 # GNU `argmatch` for an option argument: an exact name wins, otherwise a unique
@@ -235,7 +247,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let args = modernize(tio.without_presume_pipe(argv))
 
   if args.len() > 0 and rx"^-[0-9]".matches(args[0]) {
-    gnu.usage_error(f"option used in invalid context -- {args[0][1..2]}")
+    gnu.error(f"option used in invalid context -- {args[0][1..2]}")
+    exit 1
   }
 
   let opts: TailOptions = cli.applet(
@@ -249,7 +262,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       retry: {form: "--retry", default: false},
       max_unchanged: {form: "--max-unchanged-stats N", default: ""},
       pid: {form: "--pid PID", default: ""},
-      sleep: {form: "-s --sleep-interval N", default: ""},
+      sleep: {form: "-s --sleep-interval N", default: "1.0"},
       quiet: {form: "-q --quiet --silent", default: false, conflicts: ["verbose"]},
       verbose: {form: "-v --verbose", default: false, conflicts: ["quiet"]},
       zero: {form: "-z --zero-terminated", default: false},
@@ -289,9 +302,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 1
   }
 
-  if opts.sleep != "" and ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(opts.sleep) {
-    gnu.error(f"invalid number of seconds: {gnu.quote_value(opts.sleep)}")
-    exit 1
+  if ! rx"^([0-9]+\.?[0-9]*|\.[0-9]+)([eE][-+]?[0-9]+)?$".matches(opts.sleep) {
+    gnu.usage_error(f"invalid number of seconds: '{opts.sleep}'")
   }
 
   var pid = 0
@@ -308,11 +320,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if retrying and ! following {
-    gnu.error("warning: --retry ignored; --retry is useful only when following")
+    io.write_stderr(f"{gnu.prog()}: warning: --retry ignored; --retry is useful only when following\n")?
   }
 
   if opts.pid != "" and ! following {
-    gnu.error("warning: PID ignored; --pid=PID is useful only when following")
+    io.write_stderr(f"{gnu.prog()}: warning: PID ignored; --pid=PID is useful only when following\n")?
   }
 
   let operands = if opts.files.len() == 0 { ["-"] } else { opts.files }
@@ -376,11 +388,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
         break when chunk.len() == 0
 
-        gnu.write_bytes(chunk)
+        write_output(chunk)
         offset += chunk.len()
       }
     } else {
-      gnu.write_bytes(plan.data[plan.start..])
+      write_output(plan.data[plan.start..])
     }
 
     if following and (source.kind == 8 or (name == "-" and tio.standard_file(0) != "")) {

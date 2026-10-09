@@ -916,6 +916,21 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The delimiter must be between 0 and 255 and is removed from the returned Bytes. A final unterminated record is returned once; null means EOF with no bytes remaining. Calls retain unread bytes and share the stream position with stdin_line, stdin_text, and stdin_bytes.",
             &["io", "stdin", "bytes", "streaming"],
         )),
+        ("io", "stdin_read") => Some((
+            "Reads up to a bounded number of bytes from standard input.",
+            "The byte limit must be between 1 and 1,048,576. A short read returns immediately without reading ahead; null means EOF. Calls share the stream position with stdin_until, stdin_line, stdin_text, and stdin_bytes.",
+            &["io", "stdin", "bytes", "streaming"],
+        )),
+        ("io", "stdin_seek_relative") => Some((
+            "Moves standard input by a relative byte offset when it is seekable.",
+            "The offset is relative to the logical stream position and accounts for unread buffered bytes. Returns false when standard input cannot seek.",
+            &["io", "stdin", "seek"],
+        )),
+        ("io", "stdout_is_broken") => Some((
+            "Checks whether standard output's file descriptor is closed or broken.",
+            "The check is nonblocking and reports poll error, hangup, or invalid descriptor events. A writable pipe or file returns false.",
+            &["io", "stdout", "pipe"],
+        )),
         ("io", "write_stderr") => Some((
             "Writes exact UTF-8 text to standard error without a newline.",
             "A native run writes immediately so an interactive prompt is visible before input is read; captured runs retain the text in their stderr output. Host write failures return their errno.",

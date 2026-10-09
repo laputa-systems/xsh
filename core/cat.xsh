@@ -137,7 +137,14 @@ pure render(data: Bytes, final: Bool, style: Style, state: State) -> Rendered {
     let lone_cr = if after == 13 and ! crlf { 1 } else { 0 }
 
     if ! newline and ! final {
-      pending = data[position..]
+      if ! style.number and ! style.nonblank and ! style.squeeze {
+        let end = if after == 13 { end } else { data.len() }
+        pieces += [convert(data[position..end], style)]
+        pending = if after == 13 { b"\r" } else { b"" }
+      } else {
+        pending = data[position..]
+      }
+
       break
     }
 
@@ -224,7 +231,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     var offset = 0
 
     loop {
-      guard let chunk = tio.read_chunk(source, offset) else { |failure|
+      let chunk_size = if plain { tio.CHUNK } else { 1024 }
+
+      guard let chunk = tio.read_chunk(source, offset, chunk_size) else { |failure|
         gnu.name_error(name, failure)
         failed = true
         break

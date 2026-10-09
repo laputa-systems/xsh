@@ -11,6 +11,15 @@ proc unlink_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Resul
   Ok({status: status, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
 }
 
+proc unlink_run_paths(ctx: TestContext, root: Path, args: List[Path]) [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/unlink.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?.exit_code()?
+  Ok({status: status, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
+}
+
 test test_unlink_removes_files_and_symlinks { |ctx|
   let root = test.temp_dir(ctx, name: "unlink-paths")?
   let file = fp"{root}/file"
@@ -27,6 +36,15 @@ test test_unlink_removes_files_and_symlinks { |ctx|
   assert result.status == 0
   assert ! link.exists()?
   assert target.read_text()? == "target"
+}
+
+test test_unlink_preserves_non_utf8_path_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "unlink-raw")?
+  let raw_path = Path.parse_bytes(bytes.concat([root.bytes(), b"/file-\xff"]))?
+  raw_path.write("contents")?
+  let result = unlink_run_paths(ctx, root, [raw_path])?
+  assert result.status == 0, result.stderr
+  assert ! raw_path.exists()?
 }
 
 test test_unlink_rejects_directories_and_missing_operands { |ctx|

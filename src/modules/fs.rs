@@ -1658,6 +1658,9 @@ fn remove_path_with_policy_unnamed(
     span: Span,
 ) -> Result<(), RuntimeError> {
     let result = match std::fs::symlink_metadata(&path) {
+        #[cfg(target_os = "linux")]
+        Ok(metadata) if metadata.is_dir() && recursive => remove_dir_all_iterative(&path),
+        #[cfg(not(target_os = "linux"))]
         Ok(metadata) if metadata.is_dir() && recursive => std::fs::remove_dir_all(&path),
         Ok(metadata) if metadata.is_dir() => std::fs::remove_dir(&path),
         Ok(_) => std::fs::remove_file(&path),
@@ -1665,6 +1668,88 @@ fn remove_path_with_policy_unnamed(
         Err(error) => Err(error),
     };
     result.map_err(|error| RuntimeError::host("fs-remove", &error).with_span(span))
+}
+
+#[cfg(target_os = "linux")]
+fn remove_dir_all_iterative(path: &Path) -> std::io::Result<()> {
+    let Some(root_name) = path.file_name() else {
+        return std::fs::remove_dir_all(path);
+    };
+    if path.components().any(|component| {
+        matches!(
+            component,
+            Component::CurDir | Component::ParentDir
+        )
+    }) {
+        return std::fs::remove_dir_all(path);
+    }
+
+    let root_name = CString::new(root_name.as_bytes())
+        .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?;
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let parent_flags = rfs::OFlags::RDONLY | rfs::OFlags::DIRECTORY | rfs::OFlags::CLOEXEC;
+    let flags = parent_flags | rfs::OFlags::NOFOLLOW;
+    let root_parent = rfs::open(parent, parent_flags, rfs::Mode::empty())?;
+    let mut current = rfs::openat(&root_parent, root_name.as_c_str(), flags, rfs::Mode::empty())?;
+    let parent_name = CString::new("..").expect("static path has no NUL bytes");
+    let mut frames = vec![(None::<CString>, remove_dir_entries(&current)?)];
+
+    loop {
+        let child = frames.last_mut().expect("root frame is present").1.pop();
+        if let Some(child) = child {
+            let metadata = rfs::statat(&current, child.as_c_str(), AtFlags::SYMLINK_NOFOLLOW)?;
+            if rfs::FileType::from_raw_mode(metadata.st_mode) == rfs::FileType::Directory {
+                let child_fd = rfs::openat(&current, child.as_c_str(), flags, rfs::Mode::empty())?;
+                let entries = remove_dir_entries(&child_fd)?;
+                frames.push((Some(child), entries));
+                current = child_fd;
+            } else {
+                rfs::unlinkat(&current, child.as_c_str(), AtFlags::empty())?;
+            }
+            continue;
+        }
+
+        let (name, _) = frames.pop().expect("root frame is present");
+        match name {
+            Some(name) => {
+                let parent_fd = rfs::openat(
+                    &current,
+                    parent_name.as_c_str(),
+                    rfs::OFlags::RDONLY | rfs::OFlags::DIRECTORY | rfs::OFlags::CLOEXEC,
+                    rfs::Mode::empty(),
+                )?;
+                drop(current);
+                rfs::unlinkat(&parent_fd, name.as_c_str(), AtFlags::REMOVEDIR)?;
+                current = parent_fd;
+            }
+            None => {
+                drop(current);
+                rfs::unlinkat(&root_parent, root_name.as_c_str(), AtFlags::REMOVEDIR)?;
+                return Ok(());
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn remove_dir_entries<Fd: rustix::fd::AsFd>(fd: Fd) -> std::io::Result<Vec<CString>> {
+    let mut dir = rfs::Dir::read_from(fd)?;
+    let mut names = Vec::new();
+    while let Some(entry) = dir.read() {
+        let entry = entry?;
+        let name = entry.file_name();
+        if name.to_bytes() == b"." || name.to_bytes() == b".." {
+            continue;
+        }
+        names.push(
+            CString::new(name.to_bytes())
+                .map_err(|_| std::io::Error::from(std::io::ErrorKind::InvalidInput))?,
+        );
+    }
+    Ok(names)
 }
 
 pub(crate) fn mkdir_path(

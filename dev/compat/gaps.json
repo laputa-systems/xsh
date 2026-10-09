@@ -131,16 +131,11 @@
       "test_mkdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `mkdir: missing operand` and its standard help hint, which the applet follows.",
       "test_mkdir::test_version_no_path expects the `mkdir (uutils coreutils)` branding; the applet uses GNU 9.12 version branding."
     ],
-    "rm": [
-      "Recursive permission traversal differs in test_rm::test_inaccessible_dir_recursive, test_rm::test_only_first_error_recursive, test_rm::test_recursive_remove_unreadable_subdir, test_rm::test_remove_inaccessible_dir, test_rm::test_rm_directory_not_executable, and test_rm::test_rm_directory_not_writable: fs.walk reports the inaccessible top-level directory or stops before the denied descendant, so errors name the parent (or removal fails) instead of following GNU/uutils behavior for the child.",
-      "test_rm::test_rm_recursive_very_deep_hierarchy exceeds the directory walker's file-descriptor limit (`Too many open files`); the uutils test then also stack-overflows while cleaning up the deep tree."
-    ],
     "rmdir": [
       "test_rmdir::test_no_arg expects clap's required-arguments wording; GNU 9.12 prints `rmdir: missing operand` and its standard help hint, which the applet follows."
     ],
     "touch": [
       "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
-      "test_touch::test_touch_mtime_dst_fails passes a nonexistent local time in a DST gap; time.parse has no timezone transition rules to reject it, so touch succeeds where the test expects an error.",
       "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
     ],
     "getty": [
@@ -154,6 +149,96 @@
     ],
     "pstree": [
       "pstree -c/--compact-not, -l/--long, -t/--thread-names, -T/--hide-threads, and -h/-H highlighting are explicitly rejected because subtree controls, terminal-width-aware rendering, thread display, and process highlighting are unavailable; these flags match procps-ng pstree help, and uutils has no pstree tests."
+    ],
+    "sort": [
+      "GNU-style source carets, option suggestions, localized errors, and colorized help/errors are incomplete (`test_sort::diagnostics::*`, `test_sort::test_argument_suggestion*`, `test_sort::test_clap_localization_*`, `test_sort::test_*colors*`, and `test_sort::test_help_colors_*`). Caret spans require argv metadata from `cli.applet`.",
+      "Advanced `-k` field/character ranges, inherited modifiers, dictionary/nonprinting conflicts, and legacy `+POS/-POS` syntax remain incomplete (`test_sort::test_keys_*`, `test_sort::test_key_takes_one_arg`, `test_sort::test_does_not_inherit_key_settings`, `test_sort::test_dictionary_and_nonprinting_conflicts`, and `test_sort::test_legacy_plus_minus_*`).",
+      "Specialized ordering is incomplete: general numeric (`-g`), human numeric (`-h`), and random (`-R`) ordering are unsupported; numeric and month modes still fail float/NaN/grouping, trailing-invalid-character, stable/unique, and locale cases; version ordering has empty-line and stability gaps (`test_sort::test_g_*`, `test_sort::test_check_disorder_echoes_line_verbatim`, `test_sort::test_human_*`, `test_sort::test_random_*`, `test_sort::test_mixed_floats_*`, `test_sort::test_numeric_*`, `test_sort::test_month_*`, and `test_sort::test_version_*`).",
+      "Locale collation is bytewise only, so UTF-8 and Hungarian collation cases fail (`test_sort::test_consistent_sorting_with_i18n_collate`, `test_sort::test_locale_complex_utf8_sorting`, `test_sort::test_locale_empty_env_vars_hungarian_lc_collate`, and `test_sort::test_locale_interleaved_en_us_utf8`).",
+      "External sorting spill runs, compression programs, temporary-file privacy/cleanup on SIGINT, and non-UTF-8 `--files0-from` names are incomplete (`test_sort::test_ext_sort_as64_bailout`, `test_sort::test_compress*`, `test_sort::test_tmp_files_*`, and `test_sort::test_files0_from_non_utf8_content`). `--batch-size` validation and bounded in-memory merge passes are implemented and pass their focused tests.",
+      "`test_sort::test_merge_write_error_does_not_panic` returns status 2 for a failed merge write while uutils expects status 1. `--debug` still does not render key ranges and diagnostics such as `test_sort::test_debug_key_annotations` expect annotations beyond the current no-key and whole-line cases."
+    ],
+    "cut": [
+      "The five remaining `test_cut::diagnostics::test_snippet_*` cases need source spans for field-list arguments so XSH can render uutils carets and help snippets; `cli.applet` currently emits the GNU plain diagnostic."
+    ],
+    "fmt": [
+      "`test_fmt::test_fmt_knuth_plass_line_breaking` and `test_fmt::test_fmt_width_max_display_width` differ in paragraph line-breaking and display-width handling."
+    ],
+    "fold": [
+      "`test_fold::test_bytewise_read_from_pseudo_device` needs a streaming file-read API; `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` as empty."
+    ],
+    "paste": [
+      "`test_paste::test_dev_zero_closed_pipe` and `test_paste::test_dev_zero_write_error_dev_full` need streaming reads from zero-sized pseudo-files so `/dev/zero` produces bytes until the write failure."
+    ],
+    "pr": [
+      "`test_pr::test_invalid_expand_tab_arguments`, `test_pr::test_negative_expand_tabs`, `test_pr::test_number_width_too_large`, and `test_pr::test_zero_expand_tab_width` still differ in `-e` argument validation and width-boundary diagnostics."
+    ],
+    "tr": [
+      "The six remaining `test_tr::diagnostics::test_snippet_*` cases need source spans for operand sets and repeat counts to render uutils carets; `cli.applet` currently emits GNU plain diagnostics."
+    ],
+    "comm": [
+      "`test_comm::test_locale_collation` needs locale-aware collation; `test_comm::check_order` and `test_comm::unintuitive_default_behavior_1` differ in which unsorted operand is reported; `test_comm::test_comm_arg_error` asserts clap wording instead of GNU extra-operand wording."
+    ],
+    "csplit": [
+      "Remaining cases are repeated-pattern expansion (`test_csplit::repeat_everything`), line-number range matching (`test_csplit::test_line_num_range_with_up_to_match3`), and immediate stdout write errors (`test_csplit::test_csplit_dev_full_stdout`)."
+    ],
+    "join": [
+      "`test_join::test_locale_collation` needs locale-aware collation. The two `test_join::diagnostics::test_snippet_*` failures need source spans for field-list and glued short-option arguments."
+    ],
+    "ptx": [
+      "`test_ptx::test_failed_write_is_reported` needs immediate stdout error propagation; `test_ptx::test_unicode_padding_alignment` differs in display-width padding for Unicode keywords."
+    ],
+    "shuf": [
+      "Range handling at unsigned integer boundaries and empty ranges is incomplete (`test_shuf::test_range_*` and `test_shuf::test_seed_*`); the seeded output contract also differs from uutils in `test_shuf::test_shuf_*` and `test_shuf::test_seed_*` cases.",
+      "`test_shuf::test_getrandom_fail` needs injectable `getrandom` error reporting. Invalid combinations of ranges, echo/input modes, and multiple input files remain incomplete (`test_shuf::test_shuf_echo_and_input_range_not_allowed`, `test_shuf::test_shuf_input_range_and_file_not_allowed`, and `test_shuf::test_shuf_multiple_*`). `test_shuf::write_errors_are_reported` needs immediate stdout write-error propagation."
+    ],
+    "split": [
+      "Two `test_split::diagnostics::test_snippet_*` cases need source spans for size arguments; `test_split::test_split_obs_lines_within_invalid_combined_shorts` and `test_split::test_split_separator_no_value` remain option-parsing differences."
+    ],
+    "tsort": [
+      "`test_tsort::test_only_one_input_file` expects the applet to reject a second operand."
+    ],
+    "uniq": [
+      "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling; `test_uniq::uniq_basic_dedup_cases` expects the basename-only `Try 'uniq --help'` hint instead of the staged adapter path."
+    ],
+    "expr": [
+      "The five remaining `test_expr::diagnostics::test_snippet_*` cases need source spans for argv operands so syntax and integer errors can render exact uutils carets and help text."
+    ],
+    "factor": [
+      "test_factor::factors_many_primes_of_similar_size_completely exceeds uutils' 30-second command timeout while factoring a product of similarly sized 301-bit primes; the big-integer Pollard-rho path needs faster modular arithmetic.",
+      "test_factor::test_invalid_negative_arg_shows_tip expects clap's `unexpected argument '-1' found` wording; XSH follows GNU option parsing and reports an invalid option."
+    ],
+    "numfmt": [
+      "The 22 remaining `test_numfmt::diagnostics::test_snippet_*` and `test_numfmt::field_diagnostics::test_snippet_*` cases need source spans for formats, numeric fields, and option values to render uutils caret diagnostics.",
+      "`test_numfmt::test_numfmt_negative_treated_as_option` expects clap to reject a negative numeric operand as an option; XSH follows GNU operand parsing."
+    ],
+    "seq": [
+      "The three remaining `test_seq::diagnostics::test_snippet_*` cases need source spans for format arguments. `test_seq::test_sigpipe_ignored_reports_write_error` needs the process API to preserve/query an inherited ignored SIGPIPE action and report the resulting write error."
+    ],
+    "wc": [
+      "`test_wc::test_simd_respects_glibc_tunables` requires x86 SIMD feature detection and `GLIBC_TUNABLES` reporting for `--debug`."
+    ],
+    "cat": [
+      "`test_cat::test_cat_non_utf8_paths` requires byte-preserving argv; `cli.applet` exposes applet arguments as `List[Str]`, which cannot represent non-UTF-8 pathname bytes."
+    ],
+    "head": [
+      "`test_head::diagnostics::test_snippet_points_at_the_unknown_unit`, `test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling`, and `test_head::diagnostics::test_snippet_underlines_a_size_with_no_number` need argument spans from `cli.applet` to render uutils source carets.",
+      "`test_head::test_head_invalid_num` expects a literal superscript-three in an invalid-count diagnostic; under `LC_ALL=C`, GNU coreutils 9.12 escapes its UTF-8 bytes as `\\302\\263`, which the applet follows.",
+      "`test_head::test_head_non_utf8_paths` requires byte-preserving argv for pathname operands; applet arguments are `List[Str]`.",
+      "`test_head::test_read_backwards_bytes_proc_fs_modules` and `test_head::test_read_backwards_lines_proc_fs_modules` require `/proc/modules`, which is absent on this Linux host."
+    ],
+    "tail": [
+      "`test_tail::diagnostics::test_snippet_points_at_the_unknown_unit` needs argument spans from `cli.applet` to render uutils source carets.",
+      "Live follow and retry behavior is incomplete (`test_tail::test_follow_*`, `test_tail::test_retry*`, `test_tail::test_fifo_with_pid`, and `test_tail::test_following_with_pid`): the applet cannot watch growing files, detect rename/truncation, reopen names, honor PID termination, or stream output while following.",
+      "Follow-mode warning and stderr write-error handling remains incomplete (`test_tail::test_args_when_settings_check_warnings_follow_*`, `test_tail::test_failed_warning_write_is_reported`, and `test_tail::test_n0_with_follow`).",
+      "`test_tail::test_obsolete_encoding_unix` requires raw argv bytes so invalid UTF-8 option bytes can be reported with GNU quoting."
+    ],
+    "tac": [
+      "Regex separator matching differs from GNU reverse scanning, especially for anchors and backreferences (`test_tac::test_regex*`, `test_tac::test_regular_*_anchor`, and `test_tac::test_unescaped_middle_anchor`); regex input is currently decoded as UTF-8.",
+      "`test_tac::test_non_utf8_regex_separator`, `test_tac::test_non_utf8_separator`, and `test_tac::test_tac_non_utf8_paths` require byte-preserving argv for separator and pathname operands."
+    ],
+    "unlink": [
+      "`test_unlink::test_unlink_multiple_files` checks for uutils' `Usage` block on a second operand. XSH emits GNU's `unlink: extra operand` diagnostic and help hint, matching GNU coreutils 9.12. Non-UTF-8 operand paths are handled through raw argv bytes."
     ]
   }
 }

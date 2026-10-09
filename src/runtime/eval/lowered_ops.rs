@@ -817,6 +817,8 @@ pub(super) fn lowered_sort_key_orderable(value: &LoweredValue) -> bool {
         | LoweredValue::Bool(_)
         | LoweredValue::Str(_)
         | LoweredValue::StrView(_)
+        | LoweredValue::Bytes(_)
+        | LoweredValue::BytesView(_)
         | LoweredValue::Path(_) => true,
         LoweredValue::Record(fields) => fields.values().all(lowered_sort_key_orderable),
         LoweredValue::RecordVec(fields) => fields
@@ -828,6 +830,9 @@ pub(super) fn lowered_sort_key_orderable(value: &LoweredValue) -> bool {
 
 pub(super) fn compare_lowered_sort_keys(left: &LoweredValue, right: &LoweredValue) -> Ordering {
     if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
+        return left.cmp(right);
+    }
+    if let (Some(left), Some(right)) = (lowered_bytes_value(left), lowered_bytes_value(right)) {
         return left.cmp(right);
     }
     match (left, right) {

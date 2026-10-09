@@ -190,6 +190,9 @@ proc touch_timestamp(raw: Str, now: Moment, legacy_posix: Bool) [time, error] ->
   match time.parse(date, now.seconds, "local") {
     Err(failure) => Err(failure)
     Ok(moment) => {
+      let rendered = time.format(moment.seconds, moment.nanoseconds, "%Y-%m-%d %H:%M:%S", "local", "gregorian", "C")?
+      return Err(TouchError.InvalidTimestamp("invalid timestamp")) when rendered != date
+
       if leap_second {
         return Err(TouchError.InvalidTimestamp("invalid timestamp")) when moment.seconds == 9223372036854775807
         Ok({seconds: moment.seconds + 1, nanoseconds: moment.nanoseconds})

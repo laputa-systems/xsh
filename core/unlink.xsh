@@ -10,7 +10,15 @@ Call the unlink function to remove the specified FILE.
 
 type UnlinkOptions = {help: Bool, version: Bool, operands: List[Str]}
 
+pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
+  for index in range(argv.len()) {
+    if argv[index] == name { return raw[index] }
+  }
+  bytes.from_text(name)
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw_args = cli.argv_bytes()
   let opts: UnlinkOptions = cli.applet(
     argv,
     {
@@ -40,15 +48,17 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let name = opts.operands[0]
-  let target = fp"{name}"
+  let raw_name = raw_for(argv, raw_args, name)
+  let target = Path.parse_bytes(raw_name)?
+  let quoted = gnu.quote_bytes(raw_name)
 
   match fs.stat(target) {
     Err(failure) => {
-      gnu.error(f"cannot unlink {gnu.quote(name)}: {gnu.strerror(failure)}")
+      gnu.error(f"cannot unlink {quoted}: {gnu.strerror(failure)}")
       exit 1
     }
     Ok(meta) if meta.kind == "dir" => {
-      gnu.error(f"cannot unlink {gnu.quote(name)}: Is a directory")
+      gnu.error(f"cannot unlink {quoted}: Is a directory")
       exit 1
     }
     Ok(_) => {}
@@ -57,7 +67,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   match target.remove() {
     Ok(_) => return
     Err(failure) => {
-      gnu.error(f"cannot unlink {gnu.quote(name)}: {gnu.strerror(failure)}")
+      gnu.error(f"cannot unlink {quoted}: {gnu.strerror(failure)}")
       exit 1
     }
   }

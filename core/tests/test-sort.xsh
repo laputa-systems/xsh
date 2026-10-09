@@ -65,6 +65,26 @@ test test_sort_merge_reads_files_before_output { |ctx|
   assert fp"{root}/same".read_bytes()? == b"apple\nkiwi\n"
 }
 
+test test_sort_batch_size_and_debug_tie_annotations { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-batches")?
+  fp"{root}/first".write(b"a\nz\n")?
+  fp"{root}/second".write(b"b\nx\n")?
+  fp"{root}/third".write(b"c\ny\n")?
+  let merged = sort_run_at(ctx, root, ["-m", "--batch-size=2", "first", "second", "third"])?
+  assert merged.status == 0
+  assert merged.stdout == b"a\nb\nc\nx\ny\nz\n"
+
+  let invalid = sort_run(ctx, ["--batch-size=1"], b"")?
+  assert invalid.status == 2
+  assert "minimum --batch-size argument is '2'" in invalid.stderr
+
+  let folded = sort_run(ctx, ["-f", "--debug"], b"A\na\n_\n")?
+  assert folded.stdout == b"A\n_\n_\na\n_\n_\n_\n_\n_\n"
+
+  let blank = sort_run(ctx, ["-b", "--debug"], b"  a\nb\n")?
+  assert blank.stdout == b"  a\n  _\n___\nb\n_\n_\n"
+}
+
 test test_sort_files0_from_and_input_preflight { |ctx|
   let root = test.temp_dir(ctx, name: "sort-files0")?
   fp"{root}/words".write(b"mango\nkiwi")?

@@ -10,6 +10,30 @@ proc tee_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, pr
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+# Runs tee with stdout connected to a pipe whose reader exits without consuming
+# data. A large stdin makes the broken pipe deterministic before tee finishes.
+proc tee_broken_pipe_run(ctx: TestContext, root: Path, args: List[Str]) [fs, process, error] -> Result[Ran] {
+  const pipeline = """head -c 1000000 /dev/zero | {
+  xsh=$1; shift
+  applet=$1; shift
+  status_file=$1; shift
+  "$xsh" "$applet" "$@"
+  rc=$?
+  printf '%s\\n' "$rc" > "$status_file"
+} | head -c 0 >/dev/null"""
+  let out = fp"{root}/.pipe-out"
+  let err = fp"{root}/.pipe-err"
+  let status_file = fp"{root}/.pipe-status"
+  let argv = [
+    "sh", "-c", pipeline, "sh", ctx.xsh_bin.display(),
+    fp"{ctx.core_dir}/tee.xsh".display(), status_file.display(),
+  ].extend(args)
+  let plan = process.command_argv("sh", argv, root, {LC_ALL: "C"}, b"", out, err)
+  let _ = process.run(plan)?
+  let status = status_file.read_text()?.trim().parse_int() ?? -1
+  Ok({status: status, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 test test_tee_copies_stdin_to_stdout_and_every_file { |ctx|
   let root = test.temp_dir(ctx, name: "tee")?
   let result = tee_run(ctx, root, ["one", "two", "-"], b"hello\0\xff\n")?
@@ -64,6 +88,45 @@ test test_tee_write_errors_follow_the_output_error_mode { |ctx|
   assert fp"{root}/kept".read_bytes()? == b"data"
 }
 
+test test_tee_broken_pipe_modes { |ctx|
+  let root = test.temp_dir(ctx, name: "tee-pipe")?
+  let all = bytes.zero(1000000)?
+
+  let default = tee_broken_pipe_run(ctx, root, ["default"])?
+  assert default.status == 141
+  assert default.stderr == ""
+  let default_file = fp"{root}/default"
+  assert default_file.exists()?
+  let default_data = default_file.read_bytes()?
+  assert default_data.len() < all.len()
+  assert all.starts_with(default_data)
+
+  for options in [["-p"], ["--output-error=warn-nopipe"], ["--output-error=exit-nopipe"]] {
+    let file = f"continue-{options[0]}"
+    let result = tee_broken_pipe_run(ctx, root, options.extend([file]))?
+    assert result.status == 0, options[0]
+    assert result.stderr == "", options[0]
+    assert fp"{root}/{file}".read_bytes()? == all, options[0]
+  }
+
+  let warned = tee_broken_pipe_run(ctx, root, ["--output-error=warn", "warned"])?
+  assert warned.status == 1
+  assert warned.stderr == "tee: 'standard output': Broken pipe\n", warned.stderr
+  assert fp"{root}/warned".read_bytes()? == all
+
+  let exited = tee_broken_pipe_run(ctx, root, ["--output-error=exit", "exited"])?
+  assert exited.status == 1
+  assert exited.stderr == "tee: 'standard output': Broken pipe\n", exited.stderr
+  let exited_data = fp"{root}/exited".read_bytes()?
+  assert exited_data.len() < all.len()
+  assert all.starts_with(exited_data)
+
+  let full = tee_broken_pipe_run(ctx, root, ["-p", "kept", "/dev/full"])?
+  assert full.status == 1
+  assert full.stderr == "tee: /dev/full: No space left on device\n", full.stderr
+  assert fp"{root}/kept".read_bytes()? == all
+}
+
 test test_tee_output_error_values_use_argmatch { |ctx|
   let root = test.temp_dir(ctx, name: "tee")?
 
@@ -109,6 +172,9 @@ test test_tee_getopt_diagnostics_and_help { |ctx|
   assert bad.status == 1
   assert bad.stderr == "tee: unrecognized option '--definitely-invalid'\nTry 'tee --help' for more information.\n", bad.stderr
 
-  assert "Usage: tee [OPTION]... [FILE]..." in tee_run(ctx, root, ["--help"])?.stdout.utf8()?
+  let help = tee_run(ctx, root, ["--help"])?.stdout
+  let short_help = tee_run(ctx, root, ["-h"])?.stdout
+  assert help == short_help
+  assert "Usage: tee [OPTION]... [FILE]..." in help.utf8()?
   assert tee_run(ctx, root, ["--version"])?.stdout.starts_with(b"tee")
 }

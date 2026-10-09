@@ -9,15 +9,9 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 101,
-    "present_in_scope": 101,
-    "missing_in_scope": [
-      "expand",
-      "fmt",
-      "nl",
-      "pr",
-      "unexpand"
-    ]
+    "present": 106,
+    "present_in_scope": 106,
+    "missing_in_scope": []
   },
   "utilities": [
     {
@@ -46,8 +40,8 @@
       "native_tests": "core/tests/test-base32.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 16,
+        "pass": 15,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -66,8 +60,8 @@
       "native_tests": "core/tests/test-base64.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 25,
+        "pass": 24,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -86,8 +80,8 @@
       "native_tests": "core/tests/test-basename.xsh",
       "uutils_test_count": 29,
       "uutils_integration": {
-        "pass": 26,
-        "fail": 1,
+        "pass": 27,
+        "fail": 0,
         "skip": 0,
         "excluded": 2
       },
@@ -107,8 +101,8 @@
       "native_tests": "core/tests/test-basenc.xsh",
       "uutils_test_count": 38,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 38,
+        "pass": 38,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -125,15 +119,17 @@
       "native_tests": "core/tests/test-cat.xsh",
       "uutils_test_count": 54,
       "uutils_integration": {
-        "pass": 43,
-        "fail": 10,
+        "pass": 52,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_cat::test_cat_non_utf8_paths` requires byte-preserving argv; `cli.applet` exposes applet arguments as `List[Str]`, which cannot represent non-UTF-8 pathname bytes."
+      ]
     },
     {
       "utility": "cksum",
@@ -143,8 +139,8 @@
       "native_tests": "core/tests/test-cksum.xsh",
       "uutils_test_count": 132,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 388,
+        "pass": 388,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -152,7 +148,6 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "The 137 non-debug residual IDs require hash support absent from the typed API: SHA3 (45), Blake3 (29), SHAKE (28), and SM3 (35). This includes cksum computation and tagged/untagged check parsing for SHA3-*, BLAKE3-*, SHAKE*, and SM3; 26 SM3 check/base64 fixtures fail during setup and nine test direct SM3 algorithm cases.",
         "`test_cksum::debug_flag::test_debug_flag`, `test_debug_with_algorithms`, and `test_debug_with_glibc_tunables` need native x86 SIMD feature detection and GLIBC_TUNABLES reporting."
       ]
     },
@@ -164,8 +159,8 @@
       "native_tests": "core/tests/test-b2sum.xsh",
       "uutils_test_count": 15,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 18,
+        "pass": 18,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -182,8 +177,8 @@
       "native_tests": "core/tests/test-md5sum.xsh",
       "uutils_test_count": 40,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 38,
+        "pass": 38,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -218,8 +213,8 @@
       "native_tests": "core/tests/test-sha1sum.xsh",
       "uutils_test_count": 10,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 10,
+        "pass": 10,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -236,8 +231,8 @@
       "native_tests": "core/tests/test-sha224sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 8,
+        "pass": 8,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -254,8 +249,8 @@
       "native_tests": "core/tests/test-sha256sum.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 13,
+        "pass": 13,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -272,8 +267,8 @@
       "native_tests": "core/tests/test-sha384sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 8,
+        "pass": 8,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -290,8 +285,8 @@
       "native_tests": "core/tests/test-sha512sum.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 8,
+        "pass": 8,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -308,15 +303,17 @@
       "native_tests": "core/tests/test-comm.xsh",
       "uutils_test_count": 48,
       "uutils_integration": {
-        "pass": 40,
-        "fail": 7,
+        "pass": 43,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_comm::test_locale_collation` needs locale-aware collation; `test_comm::check_order` and `test_comm::unintuitive_default_behavior_1` differ in which unsorted operand is reported; `test_comm::test_comm_arg_error` asserts clap wording instead of GNU extra-operand wording."
+      ]
     },
     {
       "utility": "cp",
@@ -326,8 +323,8 @@
       "native_tests": "core/tests/test-cp.xsh",
       "uutils_test_count": 398,
       "uutils_integration": {
-        "pass": 58,
-        "fail": 328,
+        "pass": 238,
+        "fail": 148,
         "skip": 0,
         "excluded": 0
       },
@@ -344,15 +341,17 @@
       "native_tests": "core/tests/test-csplit.xsh",
       "uutils_test_count": 105,
       "uutils_integration": {
-        "pass": 100,
-        "fail": 5,
+        "pass": 102,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Remaining cases are repeated-pattern expansion (`test_csplit::repeat_everything`), line-number range matching (`test_csplit::test_line_num_range_with_up_to_match3`), and immediate stdout write errors (`test_csplit::test_csplit_dev_full_stdout`)."
+      ]
     },
     {
       "utility": "cut",
@@ -362,15 +361,17 @@
       "native_tests": "core/tests/test-cut.xsh",
       "uutils_test_count": 83,
       "uutils_integration": {
-        "pass": 9,
-        "fail": 74,
+        "pass": 78,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The five remaining `test_cut::diagnostics::test_snippet_*` cases need source spans for field-list arguments so XSH can render uutils carets and help snippets; `cli.applet` currently emits the GNU plain diagnostic."
+      ]
     },
     {
       "utility": "date",
@@ -400,8 +401,8 @@
       "native_tests": "core/tests/test-dd.xsh",
       "uutils_test_count": 155,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 149,
+        "pass": 99,
+        "fail": 53,
         "skip": 0,
         "excluded": 0
       },
@@ -422,8 +423,8 @@
       "native_tests": "core/tests/test-dir.xsh",
       "uutils_test_count": 12,
       "uutils_integration": {
-        "pass": 9,
-        "fail": 3,
+        "pass": 10,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -458,8 +459,8 @@
       "native_tests": "core/tests/test-dirname.xsh",
       "uutils_test_count": 23,
       "uutils_integration": {
-        "pass": 7,
-        "fail": 14,
+        "pass": 21,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -476,8 +477,8 @@
       "native_tests": "core/tests/test-echo.xsh",
       "uutils_test_count": 65,
       "uutils_integration": {
-        "pass": 59,
-        "fail": 6,
+        "pass": 63,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -489,13 +490,13 @@
     {
       "utility": "expand",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/expand.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-expand.xsh",
       "uutils_test_count": 46,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 46,
+        "pass": 46,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -512,15 +513,17 @@
       "native_tests": "core/tests/test-expr.xsh",
       "uutils_test_count": 172,
       "uutils_integration": {
-        "pass": 160,
-        "fail": 12,
+        "pass": 167,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The five remaining `test_expr::diagnostics::test_snippet_*` cases need source spans for argv operands so syntax and integer errors can render exact uutils carets and help text."
+      ]
     },
     {
       "utility": "factor",
@@ -530,15 +533,18 @@
       "native_tests": "core/tests/test-factor.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 22,
-        "fail": 3,
+        "pass": 23,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_factor::factors_many_primes_of_similar_size_completely exceeds uutils' 30-second command timeout while factoring a product of similarly sized 301-bit primes; the big-integer Pollard-rho path needs faster modular arithmetic.",
+        "test_factor::test_invalid_negative_arg_shows_tip expects clap's `unexpected argument '-1' found` wording; XSH follows GNU option parsing and reports an invalid option."
+      ]
     },
     {
       "utility": "false",
@@ -561,20 +567,22 @@
     {
       "utility": "fmt",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/fmt.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-fmt.xsh",
       "uutils_test_count": 39,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 37,
+        "pass": 35,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_fmt::test_fmt_knuth_plass_line_breaking` and `test_fmt::test_fmt_width_max_display_width` differ in paragraph line-breaking and display-width handling."
+      ]
     },
     {
       "utility": "fold",
@@ -584,15 +592,17 @@
       "native_tests": "core/tests/test-fold.xsh",
       "uutils_test_count": 101,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 98,
+        "pass": 100,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_fold::test_bytewise_read_from_pseudo_device` needs a streaming file-read API; `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` as empty."
+      ]
     },
     {
       "utility": "head",
@@ -602,15 +612,20 @@
       "native_tests": "core/tests/test-head.xsh",
       "uutils_test_count": 73,
       "uutils_integration": {
-        "pass": 59,
-        "fail": 14,
+        "pass": 66,
+        "fail": 7,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_head::diagnostics::test_snippet_points_at_the_unknown_unit`, `test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling`, and `test_head::diagnostics::test_snippet_underlines_a_size_with_no_number` need argument spans from `cli.applet` to render uutils source carets.",
+        "`test_head::test_head_invalid_num` expects a literal superscript-three in an invalid-count diagnostic; under `LC_ALL=C`, GNU coreutils 9.12 escapes its UTF-8 bytes as `\\302\\263`, which the applet follows.",
+        "`test_head::test_head_non_utf8_paths` requires byte-preserving argv for pathname operands; applet arguments are `List[Str]`.",
+        "`test_head::test_read_backwards_bytes_proc_fs_modules` and `test_head::test_read_backwards_lines_proc_fs_modules` require `/proc/modules`, which is absent on this Linux host."
+      ]
     },
     {
       "utility": "hostid",
@@ -638,15 +653,17 @@
       "native_tests": "core/tests/test-join.xsh",
       "uutils_test_count": 46,
       "uutils_integration": {
-        "pass": 40,
-        "fail": 6,
+        "pass": 43,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_join::test_locale_collation` needs locale-aware collation. The two `test_join::diagnostics::test_snippet_*` failures need source spans for field-list and glued short-option arguments."
+      ]
     },
     {
       "utility": "link",
@@ -656,8 +673,8 @@
       "native_tests": "core/tests/test-link.xsh",
       "uutils_test_count": 8,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 5,
+        "pass": 6,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -674,8 +691,8 @@
       "native_tests": "core/tests/test-ln.xsh",
       "uutils_test_count": 60,
       "uutils_integration": {
-        "pass": 19,
-        "fail": 41,
+        "pass": 44,
+        "fail": 16,
         "skip": 0,
         "excluded": 0
       },
@@ -692,8 +709,8 @@
       "native_tests": "core/tests/test-ls.xsh",
       "uutils_test_count": 219,
       "uutils_integration": {
-        "pass": 168,
-        "fail": 39,
+        "pass": 172,
+        "fail": 35,
         "skip": 0,
         "excluded": 0
       },
@@ -718,8 +735,8 @@
       "native_tests": "core/tests/test-mkdir.xsh",
       "uutils_test_count": 50,
       "uutils_integration": {
-        "pass": 23,
-        "fail": 24,
+        "pass": 43,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -740,8 +757,8 @@
       "native_tests": "core/tests/test-mktemp.xsh",
       "uutils_test_count": 47,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 47,
+        "pass": 47,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -758,8 +775,8 @@
       "native_tests": "core/tests/test-mv.xsh",
       "uutils_test_count": 141,
       "uutils_integration": {
-        "pass": 36,
-        "fail": 111,
+        "pass": 83,
+        "fail": 64,
         "skip": 0,
         "excluded": 0
       },
@@ -771,13 +788,13 @@
     {
       "utility": "nl",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/nl.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-nl.xsh",
       "uutils_test_count": 67,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 67,
+        "pass": 67,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -794,15 +811,18 @@
       "native_tests": "core/tests/test-numfmt.xsh",
       "uutils_test_count": 194,
       "uutils_integration": {
-        "pass": 160,
-        "fail": 34,
+        "pass": 171,
+        "fail": 23,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The 22 remaining `test_numfmt::diagnostics::test_snippet_*` and `test_numfmt::field_diagnostics::test_snippet_*` cases need source spans for formats, numeric fields, and option values to render uutils caret diagnostics.",
+        "`test_numfmt::test_numfmt_negative_treated_as_option` expects clap to reject a negative numeric operand as an option; XSH follows GNU operand parsing."
+      ]
     },
     {
       "utility": "od",
@@ -812,8 +832,8 @@
       "native_tests": "core/tests/test-od.xsh",
       "uutils_test_count": 80,
       "uutils_integration": {
-        "pass": 5,
-        "fail": 75,
+        "pass": 56,
+        "fail": 24,
         "skip": 0,
         "excluded": 0
       },
@@ -834,15 +854,17 @@
       "native_tests": "core/tests/test-paste.xsh",
       "uutils_test_count": 27,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 26,
+        "pass": 25,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_paste::test_dev_zero_closed_pipe` and `test_paste::test_dev_zero_write_error_dev_full` need streaming reads from zero-sized pseudo-files so `/dev/zero` produces bytes until the write failure."
+      ]
     },
     {
       "utility": "pathchk",
@@ -852,8 +874,8 @@
       "native_tests": "core/tests/test-pathchk.xsh",
       "uutils_test_count": 9,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 9,
+        "pass": 8,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -867,20 +889,22 @@
     {
       "utility": "pr",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/pr.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-pr.xsh",
       "uutils_test_count": 84,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 84,
+        "pass": 80,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_pr::test_invalid_expand_tab_arguments`, `test_pr::test_negative_expand_tabs`, `test_pr::test_number_width_too_large`, and `test_pr::test_zero_expand_tab_width` still differ in `-e` argument validation and width-boundary diagnostics."
+      ]
     },
     {
       "utility": "printenv",
@@ -908,8 +932,8 @@
       "native_tests": "core/tests/test-printf.xsh",
       "uutils_test_count": 153,
       "uutils_integration": {
-        "pass": 7,
-        "fail": 145,
+        "pass": 146,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -934,7 +958,9 @@
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_ptx::test_failed_write_is_reported` needs immediate stdout error propagation; `test_ptx::test_unicode_padding_alignment` differs in display-width padding for Unicode keywords."
+      ]
     },
     {
       "utility": "pwd",
@@ -944,8 +970,8 @@
       "native_tests": "core/tests/test-pwd.xsh",
       "uutils_test_count": 14,
       "uutils_integration": {
-        "pass": 2,
-        "fail": 12,
+        "pass": 14,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -964,8 +990,8 @@
       "native_tests": "core/tests/test-readlink.xsh",
       "uutils_test_count": 27,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 24,
+        "pass": 26,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -984,8 +1010,8 @@
       "native_tests": "core/tests/test-realpath.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 8,
-        "fail": 25,
+        "pass": 33,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1002,18 +1028,15 @@
       "native_tests": "core/tests/test-rm.xsh",
       "uutils_test_count": 80,
       "uutils_integration": {
-        "pass": 16,
-        "fail": 59,
+        "pass": 75,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "Recursive permission traversal differs in test_rm::test_inaccessible_dir_recursive, test_rm::test_only_first_error_recursive, test_rm::test_recursive_remove_unreadable_subdir, test_rm::test_remove_inaccessible_dir, test_rm::test_rm_directory_not_executable, and test_rm::test_rm_directory_not_writable: fs.walk reports the inaccessible top-level directory or stops before the denied descendant, so errors name the parent (or removal fails) instead of following GNU/uutils behavior for the child.",
-        "test_rm::test_rm_recursive_very_deep_hierarchy exceeds the directory walker's file-descriptor limit (`Too many open files`); the uutils test then also stack-overflows while cleaning up the deep tree."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "rmdir",
@@ -1023,8 +1046,8 @@
       "native_tests": "core/tests/test-rmdir.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
-        "pass": 2,
-        "fail": 15,
+        "pass": 16,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1043,15 +1066,17 @@
       "native_tests": "core/tests/test-seq.xsh",
       "uutils_test_count": 79,
       "uutils_integration": {
-        "pass": 71,
-        "fail": 15,
+        "pass": 82,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The three remaining `test_seq::diagnostics::test_snippet_*` cases need source spans for format arguments. `test_seq::test_sigpipe_ignored_reports_write_error` needs the process API to preserve/query an inherited ignored SIGPIPE action and report the resulting write error."
+      ]
     },
     {
       "utility": "shred",
@@ -1061,8 +1086,8 @@
       "native_tests": "core/tests/test-shred.xsh",
       "uutils_test_count": 31,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 30,
+        "pass": 28,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1081,15 +1106,18 @@
       "native_tests": "core/tests/test-shuf.xsh",
       "uutils_test_count": 78,
       "uutils_integration": {
-        "pass": 50,
-        "fail": 27,
+        "pass": 53,
+        "fail": 24,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Range handling at unsigned integer boundaries and empty ranges is incomplete (`test_shuf::test_range_*` and `test_shuf::test_seed_*`); the seeded output contract also differs from uutils in `test_shuf::test_shuf_*` and `test_shuf::test_seed_*` cases.",
+        "`test_shuf::test_getrandom_fail` needs injectable `getrandom` error reporting. Invalid combinations of ranges, echo/input modes, and multiple input files remain incomplete (`test_shuf::test_shuf_echo_and_input_range_not_allowed`, `test_shuf::test_shuf_input_range_and_file_not_allowed`, and `test_shuf::test_shuf_multiple_*`). `test_shuf::write_errors_are_reported` needs immediate stdout write-error propagation."
+      ]
     },
     {
       "utility": "sleep",
@@ -1099,8 +1127,8 @@
       "native_tests": "core/tests/test-sleep.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 41,
-        "fail": 12,
+        "pass": 47,
+        "fail": 6,
         "skip": 0,
         "excluded": 1
       },
@@ -1119,15 +1147,22 @@
       "native_tests": "core/tests/test-sort.xsh",
       "uutils_test_count": 217,
       "uutils_integration": {
-        "pass": 30,
-        "fail": 187,
+        "pass": 116,
+        "fail": 101,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "GNU-style source carets, option suggestions, localized errors, and colorized help/errors are incomplete (`test_sort::diagnostics::*`, `test_sort::test_argument_suggestion*`, `test_sort::test_clap_localization_*`, `test_sort::test_*colors*`, and `test_sort::test_help_colors_*`). Caret spans require argv metadata from `cli.applet`.",
+        "Advanced `-k` field/character ranges, inherited modifiers, dictionary/nonprinting conflicts, and legacy `+POS/-POS` syntax remain incomplete (`test_sort::test_keys_*`, `test_sort::test_key_takes_one_arg`, `test_sort::test_does_not_inherit_key_settings`, `test_sort::test_dictionary_and_nonprinting_conflicts`, and `test_sort::test_legacy_plus_minus_*`).",
+        "Specialized ordering is incomplete: general numeric (`-g`), human numeric (`-h`), and random (`-R`) ordering are unsupported; numeric and month modes still fail float/NaN/grouping, trailing-invalid-character, stable/unique, and locale cases; version ordering has empty-line and stability gaps (`test_sort::test_g_*`, `test_sort::test_check_disorder_echoes_line_verbatim`, `test_sort::test_human_*`, `test_sort::test_random_*`, `test_sort::test_mixed_floats_*`, `test_sort::test_numeric_*`, `test_sort::test_month_*`, and `test_sort::test_version_*`).",
+        "Locale collation is bytewise only, so UTF-8 and Hungarian collation cases fail (`test_sort::test_consistent_sorting_with_i18n_collate`, `test_sort::test_locale_complex_utf8_sorting`, `test_sort::test_locale_empty_env_vars_hungarian_lc_collate`, and `test_sort::test_locale_interleaved_en_us_utf8`).",
+        "External sorting spill runs, compression programs, temporary-file privacy/cleanup on SIGINT, and non-UTF-8 `--files0-from` names are incomplete (`test_sort::test_ext_sort_as64_bailout`, `test_sort::test_compress*`, `test_sort::test_tmp_files_*`, and `test_sort::test_files0_from_non_utf8_content`). `--batch-size` validation and bounded in-memory merge passes are implemented and pass their focused tests.",
+        "`test_sort::test_merge_write_error_does_not_panic` returns status 2 for a failed merge write while uutils expects status 1. `--debug` still does not render key ranges and diagnostics such as `test_sort::test_debug_key_annotations` expect annotations beyond the current no-key and whole-line cases."
+      ]
     },
     {
       "utility": "split",
@@ -1137,15 +1172,17 @@
       "native_tests": "core/tests/test-split.xsh",
       "uutils_test_count": 135,
       "uutils_integration": {
-        "pass": 124,
-        "fail": 10,
+        "pass": 130,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Two `test_split::diagnostics::test_snippet_*` cases need source spans for size arguments; `test_split::test_split_obs_lines_within_invalid_combined_shorts` and `test_split::test_split_separator_no_value` remain option-parsing differences."
+      ]
     },
     {
       "utility": "sum",
@@ -1155,8 +1192,8 @@
       "native_tests": "core/tests/test-sum.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 13,
+        "pass": 13,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1173,15 +1210,18 @@
       "native_tests": "core/tests/test-tac.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 21,
-        "fail": 12,
+        "pass": 23,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "Regex separator matching differs from GNU reverse scanning, especially for anchors and backreferences (`test_tac::test_regex*`, `test_tac::test_regular_*_anchor`, and `test_tac::test_unescaped_middle_anchor`); regex input is currently decoded as UTF-8.",
+        "`test_tac::test_non_utf8_regex_separator`, `test_tac::test_non_utf8_separator`, and `test_tac::test_tac_non_utf8_paths` require byte-preserving argv for separator and pathname operands."
+      ]
     },
     {
       "utility": "tail",
@@ -1191,15 +1231,20 @@
       "native_tests": "core/tests/test-tail.xsh",
       "uutils_test_count": 170,
       "uutils_integration": {
-        "pass": 98,
-        "fail": 69,
+        "pass": 120,
+        "fail": 47,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_tail::diagnostics::test_snippet_points_at_the_unknown_unit` needs argument spans from `cli.applet` to render uutils source carets.",
+        "Live follow and retry behavior is incomplete (`test_tail::test_follow_*`, `test_tail::test_retry*`, `test_tail::test_fifo_with_pid`, and `test_tail::test_following_with_pid`): the applet cannot watch growing files, detect rename/truncation, reopen names, honor PID termination, or stream output while following.",
+        "Follow-mode warning and stderr write-error handling remains incomplete (`test_tail::test_args_when_settings_check_warnings_follow_*`, `test_tail::test_failed_warning_write_is_reported`, and `test_tail::test_n0_with_follow`).",
+        "`test_tail::test_obsolete_encoding_unix` requires raw argv bytes so invalid UTF-8 option bytes can be reported with GNU quoting."
+      ]
     },
     {
       "utility": "tee",
@@ -1209,8 +1254,8 @@
       "native_tests": "core/tests/test-tee.xsh",
       "uutils_test_count": 35,
       "uutils_integration": {
-        "pass": 25,
-        "fail": 9,
+        "pass": 34,
+        "fail": 0,
         "skip": 0,
         "excluded": 1
       },
@@ -1229,8 +1274,8 @@
       "native_tests": "core/tests/test-test.xsh",
       "uutils_test_count": 126,
       "uutils_integration": {
-        "pass": 101,
-        "fail": 14,
+        "pass": 102,
+        "fail": 13,
         "skip": 0,
         "excluded": 0
       },
@@ -1247,8 +1292,8 @@
       "native_tests": "core/tests/test-touch.xsh",
       "uutils_test_count": 66,
       "uutils_integration": {
-        "pass": 13,
-        "fail": 51,
+        "pass": 62,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1257,7 +1302,6 @@
       "excluded_tests": [],
       "known_semantic_gaps": [
         "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
-        "test_touch::test_touch_mtime_dst_fails passes a nonexistent local time in a DST gap; time.parse has no timezone transition rules to reject it, so touch succeeds where the test expects an error.",
         "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
       ]
     },
@@ -1269,15 +1313,17 @@
       "native_tests": "core/tests/test-tr.xsh",
       "uutils_test_count": 174,
       "uutils_integration": {
-        "pass": 4,
-        "fail": 170,
+        "pass": 168,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The six remaining `test_tr::diagnostics::test_snippet_*` cases need source spans for operand sets and repeat counts to render uutils carets; `cli.applet` currently emits GNU plain diagnostics."
+      ]
     },
     {
       "utility": "true",
@@ -1305,8 +1351,8 @@
       "native_tests": "core/tests/test-truncate.xsh",
       "uutils_test_count": 49,
       "uutils_integration": {
-        "pass": 2,
-        "fail": 47,
+        "pass": 47,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1326,15 +1372,17 @@
       "native_tests": "core/tests/test-tsort.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 20,
-        "fail": 5,
+        "pass": 24,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_tsort::test_only_one_input_file` expects the applet to reject a second operand."
+      ]
     },
     {
       "utility": "tty",
@@ -1375,13 +1423,13 @@
     {
       "utility": "unexpand",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/unexpand.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-unexpand.xsh",
       "uutils_test_count": 44,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 44,
+        "pass": 44,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1398,15 +1446,17 @@
       "native_tests": "core/tests/test-uniq.xsh",
       "uutils_test_count": 38,
       "uutils_integration": {
-        "pass": 34,
-        "fail": 4,
+        "pass": 36,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling; `test_uniq::uniq_basic_dedup_cases` expects the basename-only `Try 'uniq --help'` hint instead of the staged adapter path."
+      ]
     },
     {
       "utility": "unlink",
@@ -1416,15 +1466,17 @@
       "native_tests": "core/tests/test-unlink.xsh",
       "uutils_test_count": 7,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 7,
+        "pass": 6,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_unlink::test_unlink_multiple_files` checks for uutils' `Usage` block on a second operand. XSH emits GNU's `unlink: extra operand` diagnostic and help hint, matching GNU coreutils 9.12. Non-UTF-8 operand paths are handled through raw argv bytes."
+      ]
     },
     {
       "utility": "vdir",
@@ -1452,15 +1504,17 @@
       "native_tests": "core/tests/test-wc.xsh",
       "uutils_test_count": 60,
       "uutils_integration": {
-        "pass": 56,
-        "fail": 3,
+        "pass": 58,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_wc::test_simd_respects_glibc_tunables` requires x86 SIMD feature detection and `GLIBC_TUNABLES` reporting for `--debug`."
+      ]
     },
     {
       "utility": "yes",
@@ -1470,8 +1524,8 @@
       "native_tests": "core/tests/test-yes.xsh",
       "uutils_test_count": 10,
       "uutils_integration": {
-        "pass": 2,
-        "fail": 8,
+        "pass": 3,
+        "fail": 7,
         "skip": 0,
         "excluded": 0
       },
@@ -1488,8 +1542,8 @@
       "native_tests": "core/tests/test-df.xsh",
       "uutils_test_count": 66,
       "uutils_integration": {
-        "pass": 9,
-        "fail": 56,
+        "pass": 62,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -1509,8 +1563,8 @@
       "native_tests": "core/tests/test-du.xsh",
       "uutils_test_count": 121,
       "uutils_integration": {
-        "pass": 15,
-        "fail": 106,
+        "pass": 86,
+        "fail": 35,
         "skip": 0,
         "excluded": 0
       },
@@ -1536,8 +1590,8 @@
       "native_tests": "core/tests/test-env.xsh",
       "uutils_test_count": 102,
       "uutils_integration": {
-        "pass": 34,
-        "fail": 66,
+        "pass": 79,
+        "fail": 21,
         "skip": 0,
         "excluded": 0
       },
@@ -1590,8 +1644,8 @@
       "native_tests": "core/tests/test-nohup.xsh",
       "uutils_test_count": 13,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 13,
+        "pass": 12,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1652,8 +1706,8 @@
       "native_tests": "core/tests/test-sync.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 15,
+        "pass": 16,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1670,8 +1724,8 @@
       "native_tests": "core/tests/test-timeout.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 28,
+        "pass": 24,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1733,8 +1787,8 @@
       "native_tests": "core/tests/test-chgrp.xsh",
       "uutils_test_count": 32,
       "uutils_integration": {
-        "pass": 12,
-        "fail": 19,
+        "pass": 26,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1751,8 +1805,8 @@
       "native_tests": "core/tests/test-chmod.xsh",
       "uutils_test_count": 63,
       "uutils_integration": {
-        "pass": 2,
-        "fail": 61,
+        "pass": 32,
+        "fail": 31,
         "skip": 0,
         "excluded": 0
       },
@@ -1769,8 +1823,8 @@
       "native_tests": "core/tests/test-chown.xsh",
       "uutils_test_count": 34,
       "uutils_integration": {
-        "pass": 8,
-        "fail": 26,
+        "pass": 30,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -1787,8 +1841,8 @@
       "native_tests": "core/tests/test-chroot.xsh",
       "uutils_test_count": 21,
       "uutils_integration": {
-        "pass": 12,
-        "fail": 9,
+        "pass": 20,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1841,8 +1895,8 @@
       "native_tests": "core/tests/test-install.xsh",
       "uutils_test_count": 124,
       "uutils_integration": {
-        "pass": 4,
-        "fail": 117,
+        "pass": 116,
+        "fail": 5,
         "skip": 0,
         "excluded": 0
       },
@@ -1877,8 +1931,8 @@
       "native_tests": "core/tests/test-mkfifo.xsh",
       "uutils_test_count": 16,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 13,
+        "pass": 13,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -1897,8 +1951,8 @@
       "native_tests": "core/tests/test-mknod.xsh",
       "uutils_test_count": 17,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 13,
+        "pass": 12,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
@@ -1918,8 +1972,8 @@
       "native_tests": "core/tests/test-stat.xsh",
       "uutils_test_count": 52,
       "uutils_integration": {
-        "pass": 4,
-        "fail": 47,
+        "pass": 18,
+        "fail": 33,
         "skip": 0,
         "excluded": 0
       },
@@ -1968,8 +2022,8 @@
       "native_tests": "core/tests/test-stdbuf.xsh",
       "uutils_test_count": 21,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 19,
+        "pass": 12,
+        "fail": 8,
         "skip": 0,
         "excluded": 0
       },

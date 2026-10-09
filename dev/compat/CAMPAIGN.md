@@ -1,19 +1,17 @@
 # XSH Core Compatibility Campaign
 
-Status: Wave 1 in progress on branch `campaign-utils`; this resume uses one
-integrator and GPT-6 Luna at xhigh for every subagent. Scope widened on
-2026-10-04 from coreutils parity to the full systems-core surface below. Lane strategy and the
-integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
+Status: Wave 1 in progress on branch `campaign-utils`. Use one integrator;
+any subagent must be GPT-6 Luna at xhigh. The current integration uses one
+agent. Scope widened on 2026-10-04 from coreutils parity to the full
+systems-core surface below. Lane strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 [`README.md`](README.md).
 
 ## Active resume (2026-10-09)
 
-- Local `campaign-utils` now includes `fs-misc`, `perm`, native byte/hash, GNU
+- Local `campaign-utils` is based at `70e13400` and includes `fs-misc`, `perm`, native byte/hash, GNU
   patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, `proc-a`,
-  `checksums`, and `bytes-enc` (last code merge `9324b239`; the parity manifest
-  records 101 of 106 in-scope utilities present). The local
-  `origin/campaign-utils` ref is still at `5de29706`; push after the campaign
-  evidence is refreshed. Pinned references are uutils
+  `checksums`, and `bytes-enc`; the parity manifest records 106 of 106 in-scope
+  utilities present. Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
 - Setup is complete on native Linux x86_64. Docker is not used. The workspace
   uses `nightly-2026-09-15`, the native `x86_64-unknown-linux-gnu` target, and mold
@@ -59,16 +57,30 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   GLIBC_TUNABLES reporting. A complete nine-utility checksum slice rerun is
   pending. The integrator owns shared results
   and baselines; lane runs use scratch outputs.
-- `sort` improved from **30 / 217** to **100 / 217** with merge/check modes,
-  key and numeric ordering, byte records, output files, and explicit rejection
-  of unimplemented flags. `text-b1` improved from **464 / 522** to **479 / 522**;
+- `sort` improved from **30 / 217** to **116 / 217** with merge/check modes,
+  key and numeric ordering, byte-record fast paths, output files, and validated
+  bounded fan-in merge passes for `--batch-size`. The 1.2 MiB unique-sort
+  buffer test now passes in 22.6 seconds after removing unnecessary hex-key
+  generation for unique records. `factor` is **23 / 25**: output
+  buffering and the byte-sort fast path make `test_factor::test_parallel` pass
+  again. The similarly sized 301-bit factor case still exceeds its timeout, and
+  the negative-operand test expects uutils wording instead of GNU option
+  parsing. `text-b1` improved from **464 / 522** to **479 / 522**;
   `text-b2` improved from **474 / 536** to **499 / 536**. Their remaining
   failures need integration into `gaps.json` after the lane merges.
-- The last full uutils run after cp/mv integration measured **2,813 / 5,974**
-  and exposed 187 regressions. The shared `FsStat` and special-file read fixes
-  are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;
-  `fs-basic` at `aa8a0183`. A corrected full run is pending the active lanes and
-  current integration changes.
+- `unlink` is now **6 / 7**; it resolves non-UTF-8 operand bytes from
+  `cli.argv_bytes()` and removes those paths correctly. The remaining multiple-
+  operand test expects uutils' usage block; the applet follows GNU's
+  extra-operand diagnostic.
+- The latest merged uutils results combine the full run and a focused `factor
+  sort unlink` refresh on 2026-10-09: **5,123 / 5,974 passing**, 851 failing, and 4
+  excluded. Against the checked-in baseline, 2,755 test IDs now pass with no
+  passing IDs regressed. The focused slice is **139 / 242** (`factor` 23/25,
+  `sort` 116/217). The default-sort byte-key fast path restored
+  `test_factor::test_parallel`. The focused `cat head tail tac rm tee touch` slice is **432 / 499**
+  passing, up 157 passing IDs with no regressions; `rm` is 75/75 and `tee` is
+  34/34. Full and focused results are merged in
+  `results/uutils-integration.json`.
 - Native `io.write_stdout` and `io.write_stdout_bytes` now write immediately
   on the host path and report write errors. Focused release-binary checks
   confirmed `/dev/full` returns an error and a closed pipe exits with status

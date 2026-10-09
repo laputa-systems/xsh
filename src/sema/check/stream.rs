@@ -228,14 +228,14 @@ impl Checker {
                 }
                 if matches!(
                     item_ty,
-                    Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown
+                    Type::Int | Type::Str | Type::Bool | Type::Bytes | Type::Path | Type::Unknown
                 ) || is_sortable_record_key_type(&item_ty)
                 {
                     Type::Stream(Box::new(item_ty))
                 } else {
                     self.error(
                         stage_span,
-                        "sort items must be Int, Str, Bool, Path, or a record of supported items",
+                        "sort items must be Int, Str, Bytes, Bool, Path, or a record of supported items",
                         DiagnosticCode::CheckStreamSort,
                     );
                     Type::Stream(Box::new(item_ty))
@@ -249,7 +249,7 @@ impl Checker {
                 } else if !is_sortable_key_type(&key_ty) {
                     self.error(
                         stage_span,
-                        "sort-by keys must be Int, Str, Bool, Path, or a record of supported keys",
+                        "sort-by keys must be Int, Str, Bytes, Bool, Path, or a record of supported keys",
                         DiagnosticCode::CheckStreamSort,
                     );
                 }
@@ -996,7 +996,7 @@ fn result_ok_or_self(ty: &Type) -> Type {
 /// `Any` key is a dynamic boundary, rejected before this check.
 fn is_sortable_key_type(ty: &Type) -> bool {
     match ty {
-        Type::Int | Type::Str | Type::Bool | Type::Path | Type::Unknown => true,
+        Type::Int | Type::Str | Type::Bytes | Type::Bool | Type::Path | Type::Unknown => true,
         Type::Record(fields) => fields.values().all(is_sortable_key_type),
         _ => false,
     }

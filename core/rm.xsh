@@ -36,6 +36,8 @@ type RmOptions = {
 
 type RmStat = {dev: Int, kind: Str, mode: Int, size: Int}
 type RmTreeResult = {failed: Bool, write_failure: Error?}
+type RmWalkFailure = {path: Path, failure: Error}
+type RmWalk = {paths: List[Path], failures: List[RmWalkFailure]}
 
 pure contains_dot_component(name: Str) -> Bool {
   var last = ""
@@ -182,6 +184,73 @@ proc relative_name(root: Path, root_name: Str, entry_path: Path) [fs] -> Str {
   f"{root_name}/{relative.display()}"
 }
 
+proc block_path_and_parents(blocked: List[Path], root: Path, entry_path: Path) [fs] -> List[Path] {
+  var result = blocked
+  var parent = entry_path
+  while parent != "" and parent != "." {
+    result += [parent]
+    if parent == root or parent == "/" { break }
+    parent = parent.parent()
+  }
+  result
+}
+
+# `fs.walk` stops with one traversal error and loses its already-yielded
+# entries when callers sort it. Walk one directory at a time so an unreadable
+# descendant is reported by its own name while accessible siblings are still
+# removed.
+proc collect_tree(root: Path, root_device: Int, one_file_system: Bool) [fs, error] -> RmWalk {
+  let absolute_root = match root.resolve() {
+    Ok(resolved_root) => resolved_root
+    Err(_) => root.normalize()
+  }
+  var pending: List[Path] = [absolute_root]
+  var paths: List[Path] = [absolute_root]
+  var failures: List[RmWalkFailure] = []
+
+  while pending.len() > 0 {
+    let last = pending.len() - 1
+    let directory = pending[last]
+    pending = pending[..last]
+
+    let directory_stat = match fs.stat(directory, follow_symlinks: false) {
+      Ok(stat) => stat
+      Err(failure) => {
+        failures += [{path: directory, failure: failure}]
+        continue
+      }
+    }
+    if one_file_system and directory_stat.dev != root_device { continue }
+
+    let result = try {
+      for entry in fs.children(directory, stat: false, ordered: false)? {
+        let child = entry.path
+        paths += [child]
+        if entry.kind == "dir" {
+          match fs.stat(child, follow_symlinks: false) {
+            Ok(child_stat) => {
+              if ! one_file_system or child_stat.dev == root_device {
+                pending += [child]
+              }
+            }
+            Err(failure) => {
+              failures += [{path: child, failure: failure}]
+            }
+          }
+        }
+      }
+    }
+    match result {
+      Ok(_) => {}
+      Err(failure) => {
+        failures += [{path: directory, failure: failure}]
+      }
+    }
+  }
+
+  {paths: paths, failures: failures}
+}
+
 proc invalid_dash_file_hint(argv: List[Str]) [fs, process, env, io, error] {
   var options = true
   let posixly_correct = (env.get_or("POSIXLY_CORRECT", "") ?? "") != ""
@@ -209,29 +278,51 @@ proc invalid_dash_file_hint(argv: List[Str]) [fs, process, env, io, error] {
 }
 
 proc remove_tree(root: Path, root_name: Str, root_device: Int, one_file_system: Bool, verbose: Bool, progress: Bool, interactive: Str, assumed_tty: Bool) [fs, process, env, io, error] -> Result[RmTreeResult] {
-  var failed = false
   var write_failure: Error? = null
+  let absolute_root = match root.resolve() {
+    Ok(resolved_root) => resolved_root
+    Err(_) => root.normalize()
+  }
+  let walk = collect_tree(root, root_device, one_file_system)
+  var path_too_deep = false
+  for item in walk.failures {
+    if gnu.errno(item.failure) == 36 or gnu.errno(item.failure) == 24 {
+      path_too_deep = true
+      break
+    }
+  }
+  if path_too_deep and ! one_file_system and ! verbose and ! progress and interactive == "never" {
+    match root.remove() {
+      Ok(_) => return Ok({failed: false, write_failure: null})
+      Err(failure) => {
+        gnu.cannot("remove", root_name, failure)
+        return Ok({failed: true, write_failure: null})
+      }
+    }
+  }
   var blocked: List[Path] = []
-  let entries = fs.walk(root, gitignore: false, stat: true, hidden: true)? |> sort-by(desc: true) .path
+  var failed = false
+  let entries = walk.paths |> sort-by(desc: true) .
 
   for entry in entries {
-    let entry_path = entry.path
+    let entry_path = entry
     var skip = false
     for parent in blocked {
       if entry_path == parent { skip = true; break }
     }
     if skip { continue }
 
+    var traversal_failure: Error? = null
+    for item in walk.failures {
+      if item.path == entry_path { traversal_failure = item.failure; break }
+    }
+
     let stat = match fs.stat(entry_path, follow_symlinks: false) {
       Ok(metadata) => metadata
       Err(failure) => {
-        gnu.cannot("remove", relative_name(root, root_name, entry_path), failure)
+        gnu.cannot("remove", relative_name(root, root_name, entry_path), traversal_failure ?? failure)
         failed = true
-        var parent = entry_path.parent()
-        while parent != "" and parent != "." and parent != "/" {
-          blocked += [parent]
-          parent = parent.parent()
-        }
+        blocked = block_path_and_parents(blocked, absolute_root, entry_path)
         continue
       }
     }
@@ -248,18 +339,16 @@ proc remove_tree(root: Path, root_name: Str, root_device: Int, one_file_system: 
       Ok(_) => {
         if verbose and write_failure == null {
           let noun = if stat.kind == "dir" { "removed directory" } else { "removed" }
-          gnu.write_text(f"{noun} {gnu.quote(shown)}\n")
-          if let Err(failure) = io.flush_stdout() { write_failure = failure }
+          if let Err(failure) = io.write_stdout(f"{noun} {gnu.quote(shown)}\n") {
+            write_failure = failure
+          }
         }
       }
       Err(failure) => {
-        gnu.cannot("remove", shown, failure)
+        let report = if stat.kind == "dir" { traversal_failure ?? failure } else { failure }
+        gnu.cannot("remove", shown, report)
         failed = true
-        var parent = entry_path.parent()
-        while parent != "" and parent != "." and parent != "/" {
-          blocked += [parent]
-          parent = parent.parent()
-        }
+        blocked = block_path_and_parents(blocked, absolute_root, entry_path)
       }
     }
   }
@@ -397,16 +486,9 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
         continue
       }
       if opts.progress { gnu.error(f"removing {gnu.quote_bytes(raw_item)}") }
-      if ! verbose and ! one_file_system and prompt_mode == "never" {
-        match target.remove() {
-          Ok(_) => {}
-          Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(raw_item)}: {gnu.strerror(failure)}"); had_error = true }
-        }
-      } else {
-        let result = remove_tree(target, shown_target, stat.dev, one_file_system, verbose and write_failure == null, opts.progress, prompt_mode, assumed_tty)?
-        had_error = had_error or result.failed
-        if write_failure == null { write_failure = result.write_failure }
-      }
+      let result = remove_tree(target, shown_target, stat.dev, one_file_system, verbose and write_failure == null, opts.progress, prompt_mode, assumed_tty)?
+      had_error = had_error or result.failed
+      if write_failure == null { write_failure = result.write_failure }
       continue
     }
 
@@ -425,8 +507,9 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
       Ok(_) => {
         if verbose and write_failure == null {
           let noun = if stat.kind == "dir" { "removed directory" } else { "removed" }
-          gnu.write_text(f"{noun} {gnu.quote_bytes(raw_item)}\n")
-          if let Err(failure) = io.flush_stdout() { write_failure = failure }
+          if let Err(failure) = io.write_stdout(f"{noun} {gnu.quote_bytes(raw_item)}\n") {
+            write_failure = failure
+          }
         }
       }
       Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(raw_item)}: {gnu.strerror(failure)}"); had_error = true }

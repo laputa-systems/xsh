@@ -3,9 +3,8 @@
 ##! A `Source` is one input operand (`-` is standard input). Callers read it
 ##! with `read_chunk` until an empty chunk and report a failure by its errno:
 ##! `is_directory` marks the read error GNU words differently from an open
-##! failure. Regular files are read in bounded chunks; standard input and
-##! non-seekable files are read whole, because the runtime has no incremental
-##! stdin or pipe read.
+##! failure. Regular files and standard input are read in bounded chunks;
+##! non-seekable named files are still read whole.
 
 use gnu
 
@@ -53,7 +52,13 @@ export proc open_source(name: Str) [fs, error] -> Result[Source, Error] {
 ## The bytes of `source` from `offset`, at most `count` for chunked sources
 ## and everything for the others. An empty result is the end of the input.
 export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, io] -> Result[Bytes, Error] {
-  return if offset == 0 { io.stdin_bytes() } else { Ok(b"") } when source.mode == "stdin"
+  if source.mode == "stdin" {
+    guard let data = io.stdin_read(count)? else {
+      return Ok(b"")
+    }
+
+    return Ok(data)
+  }
 
   if source.mode == "whole" {
     return if offset == 0 { source.path.read_bytes() } else { Ok(b"") }

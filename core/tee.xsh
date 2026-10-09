@@ -24,6 +24,7 @@ writing to non pipe outputs.
 """
 
 const MODES = ["warn", "warn-nopipe", "exit", "exit-nopipe"]
+const OUTPUT_CHUNK = 65536
 
 type TeeOptions = {
   append: Bool,
@@ -56,10 +57,10 @@ proc resolve_mode(text: Str) [process, env] -> Str {
 
 # Write `data` to one output. An existing regular file is extended in place
 # for `--append`; anything else (new file, device, FIFO) is opened and written.
-proc write_output(name: Str, data: Bytes, append: Bool) [fs, error] {
+proc write_output(name: Str, data: Bytes, append: Bool, first: Bool) [fs, error] {
   let target = fp"{name}"
 
-  if append {
+  if append or ! first {
     if let Ok(resolved) = target.resolve() {
       let entry = resolved.metadata()?
 
@@ -104,7 +105,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         ],
       },
       help: {
-        form: "--help",
+        form: "-h --help",
         default: false,
         stop: true,
       },
@@ -137,25 +138,89 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     resolve_mode(opts.output_error)
   }
 
-  guard let data = io.stdin_bytes() else { |failure|
-    gnu.error(f"read error: {gnu.strerror(failure)}")
-    exit 1
+  var failed = false
+  var failed_outputs: List[Str] = []
+  var stdout_broken = false
+  var read_any = false
+
+  if mode.ends_with("nopipe") and opts.files.len() == 0 and io.stdout_is_broken()? {
+    return
   }
 
-  gnu.write_bytes(data)
-  var failed = false
+  loop {
+    guard let data = io.stdin_read(OUTPUT_CHUNK) else { |failure|
+      gnu.error(f"read error: {gnu.strerror(failure)}")
+      exit 1
+    }
+    break when data == null
+    let chunk = data ?? b""
+    let first = ! read_any
+    read_any = true
 
-  for name in opts.files {
-    if let Err(failure) = write_output(name, data, opts.append) {
-      let ignored = gnu.errno(failure) == 32 and mode.ends_with("nopipe")
+    for name in opts.files {
+      if name not in failed_outputs {
+        if let Err(failure) = write_output(name, chunk, opts.append, first) {
+          let broken_pipe = gnu.errno(failure) == 32
 
-      if ! ignored {
-        gnu.name_error(name, failure)
-        failed = true
+          if broken_pipe and mode == "" {
+            exit 141
+          }
+
+          let ignored = broken_pipe and mode.ends_with("nopipe")
+
+          if ! ignored {
+            gnu.name_error(name, failure)
+            failed = true
+          }
+
+          failed_outputs += [name]
+
+          if mode.starts_with("exit") and ! ignored {
+            exit 1
+          }
+        }
       }
+    }
 
-      if mode.starts_with("exit") and ! ignored {
-        exit 1
+    if ! stdout_broken {
+      if let Err(failure) = io.write_stdout_bytes(chunk) {
+        let broken_pipe = gnu.errno(failure) == 32
+
+        if broken_pipe and mode == "" {
+          exit 141
+        }
+
+        let ignored = broken_pipe and mode.ends_with("nopipe")
+
+        if ! ignored {
+          gnu.error(f"'standard output': {gnu.strerror(failure)}")
+          failed = true
+        }
+
+        stdout_broken = true
+
+        if mode.starts_with("exit") and ! ignored {
+          exit 1
+        }
+      }
+    }
+
+    if stdout_broken and opts.files.len() == 0 { break }
+  }
+
+  if ! read_any {
+    for name in opts.files {
+      if let Err(failure) = write_output(name, b"", opts.append, true) {
+        let ignored = gnu.errno(failure) == 32 and mode.ends_with("nopipe")
+
+        if ! ignored {
+          gnu.name_error(name, failure)
+          failed = true
+        }
+
+        if mode.starts_with("exit") and ! ignored {
+          exit 1
+        }
       }
     }
   }

@@ -99,6 +99,17 @@ pure reverse_records(data: Bytes, cuts: Cuts, before: Bool) -> Bytes {
   bytes.concat(pieces)
 }
 
+proc write_output(data: Bytes) [process, env, io] {
+  if let Err(failure) = io.write_stdout_bytes(data) {
+    if gnu.errno(failure) == 32 {
+      exit 141
+    }
+
+    gnu.error(f"failed to write to stdout: {gnu.strerror(failure)}")
+    exit 1
+  }
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: TacOptions = cli.applet(
     argv,
@@ -123,12 +134,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  if opts.separator == "" {
-    gnu.error("separator cannot be empty")
-    exit 1
-  }
-
-  let separator = bytes.from_text(opts.separator)
+  let separator = if opts.separator == "" { b"\0" } else { bytes.from_text(opts.separator) }
   var failed = false
 
   for name in if opts.files.len() == 0 { ["-"] } else { opts.files } {
@@ -173,7 +179,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       literal_cuts(data, separator)
     }
 
-    gnu.write_bytes(reverse_records(data, cuts, opts.before))
+    write_output(reverse_records(data, cuts, opts.before))
   }
 
   if failed {

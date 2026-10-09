@@ -1104,23 +1104,27 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     }
   }
 
-  var out = ""
+  var out: List[Str] = []
   var failed = false
 
   for raw in tokens {
     let result = outcome_for(raw, opts.exponents, small)
 
     if result.error != "" {
-      gnu.write_text(out)
-      out = ""
+      if out.len() > 0 {
+        gnu.write_text(out.join("\n") + "\n")
+        out = []
+      }
       gnu.error(result.error)
       failed = true
     } else {
-      out += result.line + "\n"
+      out += [result.line]
     }
   }
 
-  gnu.write_text(out)
+  if out.len() > 0 {
+    gnu.write_text(out.join("\n") + "\n")
+  }
 
   if failed {
     exit 1

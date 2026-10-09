@@ -519,13 +519,13 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
         ),
         "sort" => (
             "Sorts all stream items.",
-            "Sorting materializes the input and therefore requires a finite source and a defined item ordering. Supported items are Int, Str, Bool, Path, and Records whose fields are themselves supported items; records compare field by field in sorted field-name order. The sort is stable, so equal items keep their source order.",
+            "Sorting materializes the input and therefore requires a finite source and a defined item ordering. Supported items are Int, Str, Bytes, Bool, Path, and Records whose fields are themselves supported items; byte strings compare lexicographically, and records compare field by field in sorted field-name order. The sort is stable, so equal items keep their source order.",
             &["stream", "sorting", "materialization", "stable"],
             "sort(desc: Bool = false) -> Stream[T]",
         ),
         "sort-by" => (
             "Sorts stream items by a projected key.",
-            "The key projection controls ordering and the stage materializes the input before emitting results. Supported key types are Int, Str, Bool, Path, and Records whose fields are themselves supported keys; records compare field by field in sorted field-name order. The default order is ascending and desc: true reverses it. The sort is stable, so items with equal keys keep their source order and the two-pass idiom (sort by the secondary key first, then by the primary key) produces a reliable compound ordering. Other key types are rejected at check time and fail with a runtime diagnostic that names the stage and key type. Configuration uses ordinary named arguments before the projection block: `|> sort-by(desc: true) { |e| e.size }`.",
+            "The key projection controls ordering and the stage materializes the input before emitting results. Supported key types are Int, Str, Bytes, Bool, Path, and Records whose fields are themselves supported keys; byte strings compare lexicographically, and records compare field by field in sorted field-name order. The default order is ascending and desc: true reverses it. The sort is stable, so items with equal keys keep their source order and the two-pass idiom (sort by the secondary key first, then by the primary key) produces a reliable compound ordering. Other key types are rejected at check time and fail with a runtime diagnostic that names the stage and key type. Configuration uses ordinary named arguments before the projection block: `|> sort-by(desc: true) { |e| e.size }`.",
             &["stream", "sorting", "projection", "stable"],
             "sort-by(desc: Bool = false, block) -> Stream[T]",
         ),
