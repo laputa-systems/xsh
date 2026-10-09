@@ -35,6 +35,7 @@ type LnOptions = {
   no_target_directory: Bool,
   no_dereference: Bool,
   verbose: Bool,
+  backup_short: Bool,
   target: Str,
   backup: Str,
   suffix: Str,
@@ -62,9 +63,13 @@ pure path_parts(raw: Str, cwd: Str) -> List[Str] {
   parts
 }
 
-pure relative_name(source: Str, destination: Path, cwd: Str) -> Str {
-  let source_parts = path_parts(source, cwd)
-  let parent_parts = path_parts(destination.parent().display(), cwd)
+proc relative_name(source: Str, destination: Path, cwd: Str) [fs] -> Str {
+  let source_path = fp"{source}"
+  let resolved_source = if let Ok(resolved) = source_path.resolve() { resolved.display() } else { source }
+  let destination_parent = destination.parent()
+  let resolved_parent = if let Ok(resolved) = destination_parent.resolve() { resolved.display() } else { destination_parent.display() }
+  let source_parts = path_parts(resolved_source, cwd)
+  let parent_parts = path_parts(resolved_parent, cwd)
   var common = 0
 
   while common < source_parts.len() and common < parent_parts.len() and source_parts[common] == parent_parts[common] {
@@ -72,10 +77,10 @@ pure relative_name(source: Str, destination: Path, cwd: Str) -> Str {
   }
 
   var parts = []
-  for _ in range(parent_parts.len() - common) {
+  repeat parent_parts.len() - common times {
     parts += [".."]
   }
-  parts = parts.extend(source_parts |> drop(common))
+  parts += source_parts |> drop(common)
 
   if parts.len() == 0 { "." } else { parts.join("/") }
 }
@@ -91,9 +96,7 @@ proc numbered_backup(name: Str, suffix: Str) [fs] -> Path {
   var number = 1
   while number < 10000 {
     let candidate = fp"{name}.~{number}~"
-    if ! occupied(candidate) {
-      return candidate
-    }
+    return candidate unless occupied(candidate)
     number += 1
   }
 
@@ -101,9 +104,7 @@ proc numbered_backup(name: Str, suffix: Str) [fs] -> Path {
 }
 
 proc backup_name(name: Str, mode: Str, suffix: Str) [fs] -> Path {
-  if mode == "numbered" or mode == "t" {
-    return numbered_backup(name, suffix)
-  }
+  return numbered_backup(name, suffix) when mode == "numbered" or mode == "t"
 
   let existing_numbered = occupied(fp"{name}.~1~")
 
@@ -114,15 +115,15 @@ proc backup_name(name: Str, mode: Str, suffix: Str) [fs] -> Path {
   fp"{name}{suffix}"
 }
 
-proc same_inode(left: Path, right: Path) [fs] -> Bool {
-  match fs.stat(left) {
-    Ok(a) => {
-      match fs.stat(right) {
-        Ok(b) => a.dev == b.dev and a.ino == b.ino
-        Err(_) => false
-      }
+proc same_inode(source: Path, destination: Path, logical: Bool) [fs] -> Bool {
+  if let Ok(a) = fs.stat(source, follow_symlinks: logical) {
+    if let Ok(b) = fs.stat(destination, follow_symlinks: false) {
+      a.dev == b.dev and a.ino == b.ino
+    } else {
+      false
     }
-    Err(_) => false
+  } else {
+    false
   }
 }
 
@@ -158,9 +159,17 @@ proc prompt_replace(name: Str) [process, io] -> Bool {
   first == 121 or first == 89
 }
 
-proc report_link_error(source: Str, dest: Str, symbolic: Bool, message: Str) [process, env] -> Unit {
+proc report_link_error(source: Str, dest: Str, symbolic: Bool, message: Str, number = 0) [process, env] -> Unit {
   let operation = if symbolic {
-    f"failed to create symbolic link {gnu.quote(dest)} -> {gnu.quote(source)}"
+    if source == "" {
+      f"failed to create symbolic link {gnu.quote(dest)} -> {gnu.quote(source)}"
+    } else {
+      f"failed to create symbolic link {gnu.quote(dest)}"
+    }
+  } else if number == 31 {
+    f"failed to create hard link to {gnu.quote(source)}"
+  } else if number in [17, 28, 30, 122] {
+    f"failed to create hard link {gnu.quote(dest)}"
   } else {
     f"failed to create hard link {gnu.quote(dest)} => {gnu.quote(source)}"
   }
@@ -171,13 +180,18 @@ proc link_one(source_text: Str, dest: Path, options: LnOptions, backup_mode: Str
   let source = fp"{source_text}"
   let dest_text = dest.display()
 
+  var source_is_directory = false
   if ! options.symbolic {
     match fs.stat(source, follow_symlinks: options.logical) {
-      Ok(_) => {}
+      Ok(meta) => source_is_directory = meta.kind == "dir"
       Err(failure) => {
         gnu.error(f"failed to access {gnu.quote(source_text)}: {gnu.strerror(failure)}")
         return false
       }
+    }
+    if source_is_directory {
+      gnu.error(f"{gnu.quote(source_text)}: hard link not allowed for directory")
+      return false
     }
   }
 
@@ -185,19 +199,30 @@ proc link_one(source_text: Str, dest: Path, options: LnOptions, backup_mode: Str
   let backup = if exists and backup_mode != "none" { backup_name(dest_text, backup_mode, suffix) } else { dest }
   let has_backup = exists and backup_mode != "none"
 
+  if options.symbolic and options.force and ! has_backup and same_path(source_text, dest_text) {
+    gnu.error(f"{gnu.quote(source_text)} and {gnu.quote(dest_text)} are the same file")
+    return false
+  }
+
   if exists and ! has_backup and options.interactive and ! prompt_replace(dest_text) {
     return false
   }
 
   if exists and ! has_backup and ! (options.force or options.interactive) {
-    report_link_error(source_text, dest_text, options.symbolic, "File exists")
+    report_link_error(source_text, dest_text, options.symbolic, "File exists", 17)
     return false
   }
 
-  if ! options.symbolic and same_inode(source, dest) {
-    if options.force and ! has_backup and ! same_path(source_text, dest_text) { return true }
-    gnu.error(f"{gnu.quote(source_text)} and {gnu.quote(dest_text)} are the same file")
-    return false
+  if ! options.symbolic and same_inode(source, dest, options.logical) {
+    if same_path(source_text, dest_text) {
+      gnu.error(f"{gnu.quote(source_text)} and {gnu.quote(dest_text)} are the same file")
+      return false
+    }
+    if ! has_backup {
+      return true when options.force
+      gnu.error(f"{gnu.quote(source_text)} and {gnu.quote(dest_text)} are the same file")
+      return false
+    }
   }
 
   var moved_backup = false
@@ -223,6 +248,7 @@ proc link_one(source_text: Str, dest: Path, options: LnOptions, backup_mode: Str
     var temp: Path? = null
     var link_failed = false
     var link_message = ""
+    var link_error_number = 0
 
     while index < 100 and temp == null and ! link_failed {
       let candidate = fp"{dest_text}.xsh-tmp-{index}"
@@ -238,19 +264,20 @@ proc link_one(source_text: Str, dest: Path, options: LnOptions, backup_mode: Str
         Err(failure) => {
           link_failed = true
           link_message = gnu.strerror(failure)
+          link_error_number = gnu.errno(failure)
         }
       }
     }
 
     if link_failed {
       if moved_backup { let _ = fs.rename(backup, dest, overwrite: true) }
-      report_link_error(link_source, dest_text, options.symbolic, link_message)
+      report_link_error(link_source, dest_text, options.symbolic, link_message, link_error_number)
       return false
     }
 
     if temp == null {
       if moved_backup { let _ = fs.rename(backup, dest, overwrite: true) }
-      report_link_error(link_source, dest_text, options.symbolic, "File exists")
+      report_link_error(link_source, dest_text, options.symbolic, "File exists", 17)
       return false
     }
 
@@ -258,7 +285,7 @@ proc link_one(source_text: Str, dest: Path, options: LnOptions, backup_mode: Str
     if let Err(failure) = fs.rename(temp_path, dest, overwrite: true) {
       let _ = temp_path.remove(missing_ok: true)
       if moved_backup { let _ = fs.rename(backup, dest, overwrite: true) }
-      report_link_error(link_source, dest_text, options.symbolic, gnu.strerror(failure))
+      report_link_error(link_source, dest_text, options.symbolic, gnu.strerror(failure), gnu.errno(failure))
       return false
     }
   } else {
@@ -269,13 +296,17 @@ proc link_one(source_text: Str, dest: Path, options: LnOptions, backup_mode: Str
     }
     if let Err(failure) = result {
       if moved_backup { let _ = fs.rename(backup, dest, overwrite: true) }
-      report_link_error(link_source, dest_text, options.symbolic, gnu.strerror(failure))
+      report_link_error(link_source, dest_text, options.symbolic, gnu.strerror(failure), gnu.errno(failure))
       return false
     }
   }
 
   if options.verbose {
-    gnu.write_text(f"{gnu.quote(dest_text)} {if options.symbolic { "->" } else { "=>" }} {gnu.quote(link_source)}\n")
+    if has_backup {
+      gnu.write_text(f"{gnu.quote(backup.display())} ~ {gnu.quote(dest_text)} {if options.symbolic { "->" } else { "=>" }} {gnu.quote(link_source)}\n")
+    } else {
+      gnu.write_text(f"{gnu.quote(dest_text)} {if options.symbolic { "->" } else { "=>" }} {gnu.quote(link_source)}\n")
+    }
   }
 
   true
@@ -285,7 +316,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: LnOptions = cli.applet(
     argv,
     {
-      gnu: {status: 1, unsupported: {"-d": "directory hard links are not supported"}},
+      gnu: {status: 1, unsupported: {
+        "-d": "directory hard links are not supported",
+        "-F": "directory hard links are not supported",
+        "--directory": "directory hard links are not supported",
+      }},
       force: {form: "-f --force", default: false, conflicts: "interactive"},
       interactive: {form: "-i --interactive", default: false, conflicts: "force"},
       no_dereference: {form: "-n --no-dereference", default: false},
@@ -296,7 +331,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       target: {form: "-t --target-directory DIR", default: ""},
       no_target_directory: {form: "-T --no-target-directory", default: false},
       verbose: {form: "-v --verbose", default: false},
-      backup: {form: "-b --backup[=CONTROL]", default: "", optional_default: "simple"},
+      backup: {form: "--backup[=CONTROL]", default: "", optional_default: "simple"},
+      backup_short: {form: "-b", default: false},
       suffix: {form: "-S --suffix SUFFIX", default: ""},
       help: {form: "--help", default: false, stop: true},
       version: {form: "--version", default: false, stop: true},
@@ -313,15 +349,27 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
   if opts.relative and ! opts.symbolic {
-    gnu.usage_error("--relative is only meaningful with --symbolic")
+    gnu.usage_error("cannot do --relative without --symbolic")
   }
 
   var backup_mode = opts.backup
-  if backup_mode == "" {
-    backup_mode = env.get_or("VERSION_CONTROL", "none") ?? "none"
+  var backup_requested = opts.backup != "" or opts.backup_short or opts.suffix != ""
+  var explicit_backup_mode = false
+  var parsing_options = true
+  for arg in argv {
+    if arg == "--" { parsing_options = false }
+    if parsing_options and (arg == "-b" or arg == "--backup" or (arg.starts_with("-") and ! arg.starts_with("--") and arg.find("b") != null)) {
+      backup_requested = true
+    }
+    if parsing_options and arg.starts_with("--backup=") { explicit_backup_mode = true }
   }
-  if backup_mode == "" {
-    backup_mode = "simple"
+  if explicit_backup_mode { backup_requested = true }
+  if backup_requested and ! explicit_backup_mode {
+    if let Ok(value) = env.get("VERSION_CONTROL") { backup_mode = value } else { backup_mode = "existing" }
+  } else if ! backup_requested {
+    backup_mode = "none"
+  } else if backup_mode == "" {
+    backup_mode = "existing"
   }
   if backup_mode == "never" { backup_mode = "simple" }
   if backup_mode == "t" { backup_mode = "numbered" }
@@ -333,9 +381,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let suffix_env = env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~"
-  let suffix = if opts.suffix != "" { opts.suffix } else { suffix_env }
+  var suffix = if opts.suffix != "" { opts.suffix } else { suffix_env }
+  if suffix == "" or suffix.find("/") != null { suffix = "~" }
   let operands = opts.operands
-  if operands.len() == 0 { gnu.missing_operand() }
+  if operands.len() == 0 { gnu.usage_error("missing file operand") }
   if opts.target != "" and opts.no_target_directory {
     gnu.usage_error("cannot combine --target-directory and --no-target-directory")
   }
@@ -349,9 +398,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       directory = p"."
     } else {
       let last = fp"{operands[operands.len() - 1]}"
-      let is_dir = match fs.stat(last, follow_symlinks: ! (opts.symbolic and opts.no_dereference)) {
-        Ok(meta) => meta.kind == "dir"
-        Err(_) => false
+      let is_dir = if let Ok(meta) = fs.stat(last, follow_symlinks: ! opts.no_dereference) {
+        meta.kind == "dir"
+      } else {
+        false
       }
       if is_dir {
         directory = last
@@ -361,8 +411,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if directory != null {
-    let target_directory = directory ?? p"."
-    match fs.stat(target_directory) {
+    let target_directory = directory
+    match fs.stat(target_directory, follow_symlinks: true) {
       Ok(meta) if meta.kind == "dir" => {}
       Ok(_) => {
         gnu.error(f"target {gnu.quote(target_directory.display())} is not a directory")
@@ -374,7 +424,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       }
     }
   } else if operands.len() == 1 {
-    gnu.missing_operand_after(operands[0])
+    gnu.usage_error(f"missing destination file operand after {gnu.quote(operands[0])}")
   } else if operands.len() > 2 {
     gnu.extra_operand(operands[1])
   }
@@ -383,10 +433,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   var failed = false
 
   if directory != null {
-    let target_directory = directory ?? p"."
+    let target_directory = directory
+    var linked_destinations: List[Str] = []
     for source in sources {
       let target = fp"{target_directory}/{fp"{source}".basename()}"
-      if ! link_one(source, target, opts, backup_mode, actual_suffix) { failed = true }
+      let target_text = target.display()
+      if target_text in linked_destinations {
+        gnu.error(f"failed to create {if opts.symbolic { "symbolic link" } else { "hard link" }} {gnu.quote(target_text)}: File exists")
+        failed = true
+      } else if link_one(source, target, opts, backup_mode, actual_suffix) {
+        linked_destinations += [target_text]
+      } else {
+        failed = true
+      }
     }
   } else {
     let source = operands[0]
