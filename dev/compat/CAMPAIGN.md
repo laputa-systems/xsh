@@ -23,8 +23,10 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   `perm` **106 / 149**; `stat-du-df` **166 / 237**; and `ls dir vdir split`
   **314 / 365** with no regression among the earlier passing test IDs. The
   `legacy-buckets` lane removed all five non-uutils discard buckets. Native
-  byte/hash primitives and GNU patch classification are merged. Exact remaining
-  utility failures and their causes are in `gaps.json`.
+  byte/hash primitives and GNU patch classification are merged; public API
+  wiring is active in the resumed byte/hash lane before the encoding and checksum
+  applets can start. Exact remaining utility failures and their causes are in
+  `gaps.json`.
 - `printf-env` and `proc-a` are active in separate worktrees. `printf-env` last
   measured **178 / 252** before its newest edits and is rerunning its gates.
   `proc-a` is resolving failures from its first 62-case uutils slice; the last
