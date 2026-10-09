@@ -1340,7 +1340,9 @@ pure ls_color_parse(text: Str) -> Colors {
 }
 
 const ZERO_STAT: FsStat = {
+  atime_nanoseconds: 0,
   atime_ns: 0,
+  atime_seconds: 0,
   birth_ns: null,
   blksize: 0,
   blocks_512: 0,
@@ -1350,7 +1352,9 @@ const ZERO_STAT: FsStat = {
   ino: 0,
   kind: "",
   mode: 0,
+  mtime_nanoseconds: 0,
   mtime_ns: 0,
+  mtime_seconds: 0,
   nlink: 0,
   rdev: 0,
   size: 0,

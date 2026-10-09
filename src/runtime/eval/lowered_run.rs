@@ -48,7 +48,7 @@ use std::io::{BufRead, ErrorKind, Read, Write};
 use std::ops::ControlFlow;
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -806,7 +806,20 @@ fn read_host_path_bytes_unnamed(path: &Path, span: Span) -> Result<Arc<[u8]>, Ru
     let metadata = file
         .metadata()
         .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
-    if metadata.len() == 0 || !metadata.file_type().is_file() {
+    // Pseudo-files such as /proc/self/status are regular files whose reported
+    // size is zero, and FIFOs have no useful size. Read both through EOF. Other
+    // special files may be unbounded streams (notably /dev/zero), so keep the
+    // prior empty result for them instead of consuming memory indefinitely.
+    if metadata.file_type().is_fifo() {
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)
+            .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;
+        return Ok(bytes.into());
+    }
+    if !metadata.file_type().is_file() {
+        return Ok(Arc::from([]));
+    }
+    if metadata.len() == 0 {
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
             .map_err(|error| RuntimeError::host("fs-read", &error).with_span(span))?;

@@ -110,6 +110,15 @@ test test_read_bytes_streams_a_fifo_until_writer_closes { |ctx|
   assert finished.status.exited_with(0)
 }
 
+test test_read_bytes_handles_zero_sized_proc_files_without_streaming_devices {
+  let proc_status = fp"/proc/self/status".read_bytes()?
+  assert proc_status.len() > 0
+
+  # Character devices can be unbounded streams. A zero metadata size must not
+  # make Path.read_bytes consume /dev/zero until the process runs out of memory.
+  assert fp"/dev/zero".read_bytes()? == b""
+}
+
 test test_set_times_sets_nanosecond_values_and_omits_the_rest { |ctx|
   let root = test.temp_dir(ctx, name: "fs-set-times")?
   let file = fp"{root}/file"
