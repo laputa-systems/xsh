@@ -5943,6 +5943,34 @@ impl Evaluator {
                     ),
                 }
             }
+            RuntimeOp::IoStdinUntil if values.len() == 1 => {
+                let delimiter = lowered_int_arg(values.pop(), "io.stdin_until", span)?;
+                let Ok(delimiter) = u8::try_from(delimiter) else {
+                    return Ok(ControlFlow::Continue(lowered_result_err_value(
+                        RuntimeError::new(
+                            "io-stdin-delimiter",
+                            "delimiter must be an integer between 0 and 255",
+                        )
+                        .with_span(span),
+                    )));
+                };
+                let mut record = Vec::new();
+                match std::io::stdin()
+                    .lock()
+                    .read_until(delimiter, &mut record)
+                {
+                    Ok(0) => lowered_result_ok(LoweredValue::Null),
+                    Ok(_) => {
+                        if record.last() == Some(&delimiter) {
+                            record.pop();
+                        }
+                        lowered_result_ok(LoweredValue::Bytes(record.into()))
+                    }
+                    Err(error) => lowered_result_err_value(
+                        RuntimeError::host("io.stdin_until", &error).with_span(span),
+                    ),
+                }
+            }
             RuntimeOp::IoWriteStderr if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stderr", span)?;
                 lowered_unit_result(self.write_stderr_checked(&text, span))

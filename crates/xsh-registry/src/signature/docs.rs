@@ -881,6 +881,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "A trailing line feed and its preceding carriage return are removed. Calls retain unread bytes and share the stream position with stdin_bytes and stdin_text; an empty line and end-of-input both return an empty string.",
             &["io", "stdin", "lines"],
         )),
+        ("io", "stdin_until") => Some((
+            "Reads standard input through the next byte delimiter.",
+            "The delimiter must be between 0 and 255 and is removed from the returned Bytes. A final unterminated record is returned once; null means EOF with no bytes remaining. Calls retain unread bytes and share the stream position with stdin_line, stdin_text, and stdin_bytes.",
+            &["io", "stdin", "bytes", "streaming"],
+        )),
         ("io", "write_stderr") => Some((
             "Writes exact UTF-8 text to standard error without a newline.",
             "A native run writes immediately so an interactive prompt is visible before input is read; captured runs retain the text in their stderr output. Host write failures return their errno.",

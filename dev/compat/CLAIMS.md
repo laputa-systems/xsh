@@ -1,34 +1,54 @@
 # Lane claims (campaign-utils)
 
-This run has one integrator. Every lane agent uses GPT-6 Luna at xhigh effort.
-The campaign runs on native Linux x86_64, with no Docker, the workspace-pinned
-`nightly-2026-09-15`, and mold 3.0.0 from its verified GitHub release. See
-[`README.md`](README.md#setup) and [`native-env.sh`](native-env.sh).
+One integrator owns the integration branch, shared results, baselines, and merges.
+Lanes use GPT-6 Luna at xhigh, each in a separate worktree, and edit only their
+owned paths. The campaign is running on native Linux x86_64 with the pinned
+`nightly-2026-09-15` toolchain and verified mold 3.0.0 from the x86_64 GitHub
+release. Docker is out of scope. Setup commands, the mold checksum, host
+prerequisites, and GNU support files are documented in
+[`README.md`](README.md#setup).
 
-The local integration head is `aa8a0183`; origin is still at `5de29706` while
-the regression repairs are being validated. A full uutils run after cp/mv-ln
-integration completed at 2,813/5,974 but exposed 187 regressions. The shared
-`fs.stat`/`Path.read_bytes` issues and the cp/mv-ln utility regressions are
-fixed locally; a new full run is pending. Lane result files and shared
-baselines remain integrator-owned. Before starting or resuming a lane, check
-this table, fetch `origin/campaign-utils`, and render its brief with
-`lanes.py brief`.
+The local `campaign-utils` branch contains the merged `legacy-buckets` and
+`stat-du-df` lanes in addition to the earlier work. `origin/campaign-utils` is
+still at `5de29706`; the local results and campaign notes are being refreshed
+before push. The last full uutils run was 2,813/5,974 and exposed 187
+regressions. A corrected full run is pending the current utility lanes and
+integrator fixes. Lane result files use scratch directories; only the
+integrator writes `dev/compat/results/` and shared baseline files.
 
-| Lane | State |
+| Lane | State and evidence |
 |---|---|
-| text-b1, text-b2 | merged in an earlier campaign run |
-| ls, native-proc-tty, tty-misc | merged in an earlier campaign run |
-| proc-a (`kill`, `nice`) | merged; `nohup`, `timeout`, `stdbuf` remain free |
-| date | merged as `243c5bd9`; 183/185, two documented locale-data differences |
-| fs-misc | merged into `1d7eff31`; 295/304, nine GNU-verified diagnostic gaps |
-| cp | merged locally; regression fix at `f06c924b`, focused slice 238/386 |
-| mv-ln | merged locally; same-file and prompt fixes at `e4efc7ed`, focused mv/ln slice 126/207 |
-| fs-basic | merged at `aa8a0183`; 188/203, rm `/dev/full` reporting fixed; remaining gaps are being added |
-| perm | active in `/workspace/xsh-lanes/perm` |
-| stat-du-df | active in `/workspace/xsh-lanes/stat-du-df` |
-| printf-env | active in `/workspace/xsh-lanes/printf-env`; based on `e4efc7ed` |
+| `native-fs`, `native-proc-tty` | merged; typed filesystem, process, and tty primitives |
+| `native-bytes-hash` | merged; byte streaming, variable-length BLAKE2b, POSIX cksum CRC, BSD/SysV sums; registry/runtime APIs still need wiring |
+| `date` | merged; 183/185, two documented French locale punctuation differences |
+| `trivial` | merged |
+| `text-a1` | merged |
+| `text-a2` | not yet verified as merged; resume after active lanes |
+| `text-b1`, `text-b2` | merged |
+| `sort` | still to run or verify |
+| `ls` | merged; focused `ls dir vdir split` result 314/365 with no regressions among earlier passes |
+| `cp` | merged; focused slice 238/386 after regression fixes |
+| `mv-ln` | merged; focused mv/ln slice 126/207 after regression fixes |
+| `fs-basic` | merged; 188/203 |
+| `fs-misc` | merged; 295/304, remaining failures in `gaps.json` |
+| `perm` | merged; 106/149, remaining failures in `gaps.json` |
+| `stat-du-df` | merged; 166/237, remaining failures in `gaps.json` |
+| `legacy-buckets` | merged; removed all five non-uutils discard buckets; owned native tests 22/22 |
+| `printf-env` | active in `/workspace/xsh-lanes/printf-env`; 178/252 before current edits, rerun pending |
+| `proc-a` | active in `/workspace/xsh-lanes/proc-a`; native fixes and a clean uutils rerun pending |
+| `native-bytes-hash` applet consumers | blocked on registry/runtime API wiring, then `bytes-enc` and `checksums` |
+| `gnu-patch-classify` | merged; all 15 active patch files and 37 build-script rewrite groups classified |
+| `sed`, `awk` | not started; long-running Wave 1 parser/runtime work |
+| `sysreport-extract` | merged; keep collector and capture/replay gates green |
 
-All other Wave 1 lanes are free unless they are already listed as merged in
-[`LANES.md`](LANES.md). A lane already merged on `campaign-utils` is done; the
-integrator records its final counts and removes its worktree after the merge
-gate passes.
+The root integrator has also implemented `io.stdin_until` and a streaming
+`wc --files0-from=-` path. The focused wc suite passes 59/59. The generated docs
+and tour project check passes, including 3/3 project tests. These local changes
+are not yet committed with the refreshed campaign status.
+
+Before starting or resuming any lane, render its current brief with
+`python3 dev/compat/lanes.py brief LANE`. Rebase only after the integrator
+requests it; lanes never push or merge. The integrator runs the full uutils
+suite after each integration batch and compares results against the prior
+committed report. Keep the test denominator pinned and add only exact, justified
+exclusions.

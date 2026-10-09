@@ -584,6 +584,15 @@ fn io_module() -> ModuleSig {
             sig(Vec::new(), result(Type::Str), false, RuntimeOp::IoStdinLine),
         ),
         (
+            "stdin_until",
+            sig(
+                vec![param("delimiter", Type::Int)],
+                result(Type::Optional(Box::new(Type::Bytes))),
+                false,
+                RuntimeOp::IoStdinUntil,
+            ),
+        ),
+        (
             "write_stderr",
             sig(
                 vec![param("text", Type::Str)],

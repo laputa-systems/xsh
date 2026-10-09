@@ -8,36 +8,38 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 ## Active resume (2026-10-09)
 
-- Current local integration branch includes the `fs-misc`, `perm`, and native
-  byte/hash lane merges; origin was last pushed at `5de29706`. The source
-  references are pinned: uutils
+- Local `campaign-utils` now includes the `fs-misc`, `perm`, native byte/hash,
+  GNU patch classification, `legacy-buckets`, and `stat-du-df` merges. The
+  local `origin/campaign-utils` ref is still at `5de29706`; push after the
+  campaign evidence is refreshed. Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
-- Setup is complete on native Linux x86_64 with no Docker. The workspace uses
-  `nightly-2026-09-15`, its x86_64 musl target, and mold 3.0.0 from the verified
-  x86_64 GitHub release; setup and checksum commands are in
-  [`README.md`](README.md#setup). `run-gnu.sh prepare` completed with ACL,
-  capability, and Linux xattr support enabled.
-- The first full uutils baseline was **2,205 / 5,974 passing**. After the
-  date/dircolors merge it was **2,368 / 5,974**, with no regressions against
-  that baseline and four exclusions. A later full run after the cp and mv/ln
-  merges measured **2,813 / 5,974**, but `compare.py` exposed 187 regressions.
-  The shared `FsStat` and special-file read regressions are fixed at
-  `d0ac7d7c`; cp fixes are merged at `f06c924b`, mv/ln fixes at `e4efc7ed`, and
-  `fs-basic` at `aa8a0183` with **188 / 203** passing. `fs-misc` is **295 / 304**
-  with nine GNU-verified diagnostic gaps. `perm` is **106 / 149**. Native
-  bytes/hash primitives are merged; checksum and encoding applets remain to be
-  implemented. A corrected full regression run is pending. The focused
-  `ls dir vdir split` slice is **314 / 365** with no regressions among earlier
-  passing tests.
-- `printf-env` and `stat-du-df` remain active in separate worktrees. The
-  `legacy-buckets` and `gnu-patch-classify` lanes are also underway. The
-  integrator owns shared results and baselines; lane runs use scratch outputs.
-  The next full run will compare against `/tmp/uutils-before-cp-mv.json`.
-- The last full-run timeout was
-  `wc::test_files0_progressive_stream`: `wc --files0-from=-` read stdin through
-  EOF instead of processing each NUL-delimited name as it arrived. A shared
-  `io.stdin_until` primitive and streaming `wc` path are now implemented and
-  under focused validation. Other known gaps are tracked in `gaps.json`.
+- Setup is complete on native Linux x86_64. Docker is not used. The workspace
+  uses `nightly-2026-09-15`, the `x86_64-unknown-linux-musl` target, and mold
+  3.0.0 from the SHA-256-verified x86_64 GitHub release. Bootstrap commands,
+  checksum, host prerequisites, and GNU dependency notes are in
+  [`README.md`](README.md#setup). GNU 9.12 is prepared with ACL, capability,
+  and Linux xattr support.
+- Merged utility slices: `fs-basic` **188 / 203**; `fs-misc` **295 / 304**;
+  `perm` **106 / 149**; `stat-du-df` **166 / 237**; and `ls dir vdir split`
+  **314 / 365** with no regression among the earlier passing test IDs. The
+  `legacy-buckets` lane removed all five non-uutils discard buckets. Native
+  byte/hash primitives and GNU patch classification are merged. Exact remaining
+  utility failures and their causes are in `gaps.json`.
+- `printf-env` and `proc-a` are active in separate worktrees. `printf-env` last
+  measured **178 / 252** before its newest edits and is rerunning its gates.
+  `proc-a` is resolving failures from its first 62-case uutils slice; the last
+  confirmed native result was 16/16. The integrator owns shared results and
+  baselines; lane runs use scratch outputs.
+- The last full uutils run after cp/mv integration measured **2,813 / 5,974**
+  and exposed 187 regressions. The shared `FsStat` and special-file read fixes
+  are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;
+  `fs-basic` at `aa8a0183`. A corrected full run is pending the active lanes and
+  current integration changes.
+- `wc --files0-from=-` now reads NUL-delimited filenames incrementally through
+  the new `io.stdin_until` primitive. The focused wc slice passes **59 / 59**,
+  including progressive input, directory diagnostics, output errors, and
+  `--debug`. The docs check passes, including all three tour project tests; its
+  test-runner argument boundary was corrected during this resume.
 - Earlier verified results remain: date/dircolors **183 / 185** (two French
   month punctuation differences documented against GNU/glibc), and GNU against
   uutils **573 passed, 85 skipped, 58 failed, 3 harness errors** out of 719.

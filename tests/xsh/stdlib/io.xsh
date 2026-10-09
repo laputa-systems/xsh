@@ -40,6 +40,16 @@ second
   assert run.bytes "xsh" $bytes_script < ${bytes_input}? == b"\0abc\xff"
 }
 
+test test_io_stdin_until_reads_delimited_and_final_records { |ctx|
+  let script = test.temp_file(
+    ctx,
+    name: "io-until.xsh",
+    contents: b"let first = io.stdin_until(0)?\nlet empty = io.stdin_until(0)?\nlet final = io.stdin_until(0)?\nlet eof = io.stdin_until(0)?\nassert first == b\"first\"\nassert empty == b\"\"\nassert final == b\"last\"\nassert eof == null\nio.write_stdout_bytes(first ?? b\"\")?\n",
+  )?
+  let input = test.temp_file(ctx, name: "until.in", contents: b"first\0\0last")?
+  assert run.bytes "xsh" $script < ${input}? == b"first"
+}
+
 test test_io_write_stderr_preserves_exact_text { |ctx|
   let output = test.run_script(ctx, "io.write_stderr(\"prompt: \")?\n")?
   assert output.success, output.stderr

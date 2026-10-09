@@ -244,6 +244,7 @@ pub enum RuntimeOp {
     IoStdinBytes,
     IoStdinText,
     IoStdinLine,
+    IoStdinUntil,
     IoWriteStderr,
     IoWriteStdout,
     IoWriteStdoutBytes,

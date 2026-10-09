@@ -484,6 +484,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::IoStdinBytes
             | RuntimeOp::IoStdinText
             | RuntimeOp::IoStdinLine
+            | RuntimeOp::IoStdinUntil
             | RuntimeOp::IoWriteStderr
             | RuntimeOp::IoWriteStdout
             | RuntimeOp::IoWriteStdoutBytes

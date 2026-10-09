@@ -2503,6 +2503,11 @@ standard-input stream and keep its position across calls. A line read removes
 its trailing line feed and a preceding carriage return. An empty line and
 end-of-input both return an empty string from `io.stdin_line()`.
 
+`io.stdin_until(delimiter)` reads a byte record through the next delimiter
+(0–255) and removes that delimiter. It returns a final unterminated record
+once; `null` means end-of-input with no bytes left. It shares unread bytes and
+the stream position with the other standard-input functions.
+
 `print` writes its arguments separated by single spaces plus a newline to
 stdout, and `eprint` does the same on stderr. They accept displayable scalars
 (`Str`, `Int`, `UInt`, `Float`, `Duration`, `Bool`, `Path`) and need no effect.

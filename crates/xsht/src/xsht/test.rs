@@ -1014,12 +1014,9 @@ fn native_test_host(
             command
         }
     };
-    // Fixture arguments are already script data. Protect a leading `--`
-    // from the host CLI's optional compatibility separator.
-    if faked
-        || request.kind != NativeTestRunKind::Xsh
-        || request.tool_args.last().is_none_or(|arg| arg != "--")
-    {
+    // `xsh SCRIPT [ARGS...]` treats every word after SCRIPT as script data.
+    // Only the test-fake and trace entrypoints need a separator after SCRIPT.
+    if faked || request.kind != NativeTestRunKind::Xsh {
         command.arg("--");
     }
     command.args(&request.script_args);

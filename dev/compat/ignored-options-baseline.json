@@ -1,14 +1,4 @@
 {
   "buckets": {
-    "chgrp.xsh:ignored": "-c -f -v --apply",
-    "chmod.xsh:ignored": "-c -f -v",
-    "chown.xsh:ignored": "-c -f -v --apply",
-    "df.xsh:ignored": "-k -P --portability",
-    "du.xsh:ignored": "-k",
-    "getty.xsh:ignored": "-h -L -m -w",
-    "ifdown.xsh:ignored": "-v --verbose",
-    "ifup.xsh:ignored": "-v --verbose",
-    "pstree.xsh:ignored": "-c --compact-not -l --long -t --thread-names -T --hide-threads",
-    "which.xsh:ignored": "-a"
   }
 }

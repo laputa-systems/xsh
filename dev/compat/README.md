@@ -17,6 +17,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
   env CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" sh -s -- -y --no-modify-path --default-toolchain none
 "$CARGO_HOME/bin/rustup" toolchain install nightly-2026-09-15 --profile minimal \
   --component rust-src --component llvm-tools
+"$CARGO_HOME/bin/rustup" target add x86_64-unknown-linux-musl \
+  --toolchain nightly-2026-09-15
 curl -fL https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
   -o "$XSH_TOOLS_ROOT/mold-3.0.0-x86_64-linux.tar.gz"
 (cd "$XSH_TOOLS_ROOT" && echo '6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189  mold-3.0.0-x86_64-linux.tar.gz' | sha256sum -c -)

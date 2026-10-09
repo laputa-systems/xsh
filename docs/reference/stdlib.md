@@ -206,6 +206,7 @@ Script stdin and stdout helpers.
 - `io.stdin_bytes() -> Result[Bytes, Error]` — Reads all standard input as Bytes.
 - `io.stdin_line() -> Result[Str, Error]` — Reads one line from standard input.
 - `io.stdin_text() -> Result[Str, Error]` — Reads all standard input as UTF-8 text.
+- `io.stdin_until(delimiter: Int) -> Result[Bytes?, Error]` — Reads standard input through the next byte delimiter.
 - `io.write_stderr(text: Str) -> Result[Unit, Error]` — Writes exact UTF-8 text to standard error without a newline.
 - `io.write_stdout(text: Str) -> Result[Unit, Error]` — Writes UTF-8 text to standard output.
 - `io.write_stdout_bytes(data: Bytes) -> Result[Unit, Error]` — Writes raw Bytes to standard output.

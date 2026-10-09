@@ -33,6 +33,7 @@ type WcOptions = {
   max_line_length: Bool,
   words: Bool,
   files0_from: Str?,
+  debug: Bool,
   total: Str,
   help: Bool,
   version: Bool,
@@ -295,8 +296,11 @@ proc read_file(file: Path) [fs, error] -> Result[Bytes, Error] {
 
   return Ok(data) when data.len() > 0
 
-  if let Ok(text) = file.read_text() {
-    return Ok(bytes.from_text(text))
+  match file.read_text() {
+    Ok(text) => return Ok(bytes.from_text(text))
+    Err(failure) => {
+      return Err(failure) when gnu.errno(failure) == 21
+    }
   }
 
   var pieces: List[Bytes] = []
@@ -308,17 +312,137 @@ proc read_file(file: Path) [fs, error] -> Result[Bytes, Error] {
   Ok(bytes.concat(pieces))
 }
 
+proc stream_diagnostic(message: Str) [process, env, error, io] {
+  io.write_stderr(f"{gnu.prog()}: {message}\n")?
+}
+
+proc stream_print_result(text: Str, title: Str) [process, env, error, io] {
+  let written = match io.write_stdout(text) {
+    Ok(_) => io.flush_stdout()
+    Err(failure) => Err(failure)
+  }
+
+  if let Err(failure) = written {
+    if gnu.errno(failure) == 32 {
+      exit 141
+    }
+
+    stream_diagnostic(f"failed to print result for {title}")?
+    exit 1
+  }
+}
+
+# Process a NUL-delimited name as soon as it arrives when the list itself is
+# a stream. A regular file is still loaded ahead of time so its output columns
+# can reflect the sizes of all operands.
+proc stream_files0(shown: Shown, mode: Str) [fs, process, env, error, io] {
+  let posix = posix_mode()
+  let only_bytes = shown.bytes and ! shown.lines and ! shown.words and ! shown.chars and ! shown.longest
+  var total = {lines: 0, words: 0, chars: 0, bytes: 0, longest: 0}
+  var seen = 0
+  var failed = false
+  var done = false
+
+  while ! done {
+    match io.stdin_until(0) {
+      Err(failure) => {
+        stream_diagnostic(f"-: read error: {gnu.strerror(failure)}")?
+        exit 1
+      }
+      Ok(record) => {
+        if record == null {
+          done = true
+          continue
+        }
+
+        seen += 1
+        let name_bytes = record ?? b""
+
+        if name_bytes.len() == 0 {
+          stream_diagnostic(f"-:{seen}: invalid zero-length file name")?
+          failed = true
+          continue
+        }
+
+        guard let name = name_bytes.utf8() else {
+          stream_diagnostic("file names that are not valid UTF-8 are not supported")?
+          exit 1
+        }
+
+        if name == "-" {
+          stream_diagnostic("when reading file names from standard input, no file name of '-' allowed")?
+          failed = true
+          continue
+        }
+
+        let file_path = fp"{name}"
+        var data = b""
+        var read_error: Str? = null
+        var counted: Counts? = null
+
+        if only_bytes {
+          if let Ok(entry) = file_path.metadata() {
+            if entry.kind == "file" and entry.size > MEBIBYTE {
+              counted = {lines: 0, words: 0, chars: 0, bytes: entry.size, longest: 0}
+            }
+          }
+        }
+
+        if counted == null {
+          match read_file(file_path) {
+            Ok(read) => data = read
+            Err(failure) => {
+              if gnu.errno(failure) == 21 {
+                read_error = gnu.strerror(failure)
+              } else {
+                stream_diagnostic(f"{gnu.quote_maybe(name)}: {gnu.strerror(failure)}")?
+                failed = true
+                continue
+              }
+            }
+          }
+        }
+
+        let counts = counted ?? count_data(data, shown, posix)
+        total = add_counts(total, counts)
+
+        if mode != "only" {
+          let title = if name.find("\n") != null { gnu.quote_bytes(name_bytes, always: false) } else { name }
+          stream_print_result(line_for(counts, shown, 1, title), title)?
+        }
+
+        if let failure = read_error {
+          stream_diagnostic(f"{gnu.quote_maybe(name)}: {failure}")?
+          failed = true
+        }
+      }
+    }
+  }
+
+  let show_total = mode == "always" or mode == "only" or (mode == "auto" and seen > 1)
+
+  if show_total {
+    io.write_stdout(line_for(total, shown, 1, if mode == "only" { "" } else { "total" }))?
+    io.flush_stdout()?
+  }
+
+  if failed {
+    exit 1
+  }
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: WcOptions = cli.applet(
     argv,
     {
-      gnu: {status: 1, unsupported: {"--debug": "SIMD diagnostics are not available"}},
+      gnu: {status: 1},
       bytes: {form: "-c --bytes", default: false},
       chars: {form: "-m --chars", default: false},
       lines: {form: "-l --lines", default: false},
       max_line_length: {form: "-L --max-line-length", default: false},
       words: {form: "-w --words", default: false},
       files0_from: {form: "--files0-from FILE"},
+      debug: {form: "--debug", default: false},
       total: {form: "--total WHEN", default: "auto"},
       help: {form: "--help", default: false, stop: true},
       version: {form: "--version", default: false, stop: true},
@@ -334,6 +458,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if opts.version {
     gnu.version("wc")
     return
+  }
+
+  if opts.debug {
+    eprint f"{gnu.prog()}: hardware support disabled"
   }
 
   let mode = total_choice(opts.total)
@@ -353,6 +481,14 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     bytes: opts.bytes or ! any,
     longest: opts.max_line_length,
   }
+
+  if let list = opts.files0_from {
+    if list == "-" and opts.files.len() == 0 and tio.standard_file(0) == "" {
+      stream_files0(shown, total_choice(opts.total))?
+      return
+    }
+  }
+
   var failed = false
   var inputs: List[Input] = []
   var implicit = false
@@ -380,6 +516,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       streamed_list = tio.standard_file(0) == ""
     } else {
+      if let Ok(entry) = fp"{list}".metadata() {
+        if entry.kind == "dir" {
+          gnu.error(f"{gnu.quote_maybe(list)}: read error: Is a directory")
+          exit 1
+        }
+      }
+
       match fp"{list}".read_bytes() {
         Ok(read) => data = read
         Err(failure) => {
