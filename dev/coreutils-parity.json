@@ -1087,8 +1087,8 @@
       "native_tests": "core/tests/test-printf.xsh",
       "uutils_test_count": 153,
       "uutils_integration": {
-        "pass": 146,
-        "fail": 6,
+        "pass": 152,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1100,9 +1100,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "The six remaining failures (`test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report`, `test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option`, `test_printf::diagnostics::test_snippet_points_at_the_bad_code_point`, `test_printf::diagnostics::test_snippet_points_at_the_bad_spec`, `test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape`, and `test_printf::diagnostics::test_snippet_points_inside_a_quoted_format`) require uutils' feature-gated terminal carets and Help snippets. GNU coreutils 9.12 `src/printf.c` emits plain stderr messages for invalid conversions and escape errors, as its `tests/printf/printf-cov.pl` checks; XSH keeps those GNU diagnostics. The native printf tests cover the plain messages and preserved output prefixes."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "ptx",

@@ -2,8 +2,7 @@
 
 Status: Wave 2 residual coreutils work is in progress on branch `campaign-utils`.
 Use one integrator; any subagent must be GPT-6 Luna at xhigh. The `cut`, `tr`,
-`test`, `shuf`, and `numfmt` lanes are merged; `printf` remains queued. Scope
-widened on 2026-10-04 from coreutils parity to the full systems-core surface.
+`test`, `shuf`, `numfmt`, and `printf` lanes are merged. Scope widened on 2026-10-04 from coreutils parity to the full systems-core surface.
 Lane strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
 usage is in [`README.md`](README.md).
 
@@ -42,7 +41,7 @@ usage is in [`README.md`](README.md).
   queryable items**; SHA-224, SHA-384, SHA-3, SM3, BLAKE3 and SHAKE APIs have
   native tests and generated reference docs. Exact remaining utility
   failures and their causes are in `gaps.json`.
-- `printf-env` is merged at **225 / 252** (env 79/100, printf 146/152), with
+- `printf-env` is merged at **231 / 252** (env 79/100, printf 152/152), with
   native tests and ratchets passing. The `sleep` lane is **49 / 53** applicable
   tests passing (4 remain; 1 excluded); the runtime preserves default TERM,
   SIGBUS, and SIGSEGV behavior. `proc-a` is merged at **109 / 125** (kill
@@ -104,8 +103,8 @@ usage is in [`README.md`](README.md).
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,236 / 5,974 passing**, 738 failing, and 4 excluded. Compared with the
-  preceding shuf report, numfmt fixed 22 cases and there are no regressions.
+  **5,242 / 5,974 passing**, 732 failing, and 4 excluded. Compared with the
+  preceding numfmt report, printf fixed 6 cases and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`

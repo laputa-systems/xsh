@@ -1020,18 +1020,11 @@
       "applet": true
     },
     "printf": {
-      "pass": 146,
-      "fail": 6,
+      "pass": 152,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report",
-        "test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option",
-        "test_printf::diagnostics::test_snippet_points_at_the_bad_code_point",
-        "test_printf::diagnostics::test_snippet_points_at_the_bad_spec",
-        "test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape",
-        "test_printf::diagnostics::test_snippet_points_inside_a_quoted_format"
-      ],
+      "failing": [],
       "applet": true
     },
     "ptx": {
@@ -1657,8 +1650,8 @@
     }
   },
   "totals": {
-    "pass": 5236,
-    "fail": 738,
+    "pass": 5242,
+    "fail": 732,
     "skip": 0,
     "excluded": 4
   }

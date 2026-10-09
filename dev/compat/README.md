@@ -119,13 +119,12 @@ test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
 Keep this scope to native Linux x86_64. Use one integrator; any subagent must
 be GPT-6 Luna at xhigh.
 
-The latest full uutils run after the `cut`, `tr`, `test`, `shuf`, and `numfmt`
-fixes recorded 5,236 / 5,974 passing, 738 failing, and 4 excluded, with no
+The latest full uutils run after the `cut`, `tr`, `test`, `shuf`, `numfmt`, and `printf`
+fixes recorded 5,242 / 5,974 passing, 732 failing, and 4 excluded, with no
 regressions against its prior merged report. `cut` passes 83 / 83, `tr` 174 / 174,
-`test` 113 / 115, `shuf` 70 / 77, `numfmt` 193 / 194, `paste` 27 / 27,
-`uniq` 38 / 38,
-`pr` 84 / 84, `fmt` 37 / 37, and `fold` 101 / 101, including their
-`/dev/zero` tests;
+`test` 113 / 115, `shuf` 70 / 77, `numfmt` 193 / 194, `printf` 152 / 152,
+`paste` 27 / 27, `uniq` 38 / 38, `pr` 84 / 84, `fmt` 37 / 37, and
+`fold` 101 / 101, including their `/dev/zero` tests;
 the full run includes the previous `shred` changes at 29 / 31. Six native shred tests and
 GNU 9.12's `tests/shred/shred-remove.sh` pass; the two remaining uutils cases
 request diagnostic carets. The full run includes the focused `factor sort
