@@ -25,3 +25,22 @@ test test_tr_rejects_bad_usage { |ctx|
   assert result.status != 0
   assert "missing operand" in result.stderr
 }
+
+test test_tr_repeat_and_set2_padding { |ctx|
+  assert tr_run(ctx, ["[a*3]bc", "x[y*]z"], b"abc")?.stdout == b"yyz"
+  assert tr_run(ctx, ["a", "[b*]"], b"aabbc")?.stdout == b"bbbbc"
+  assert tr_run(ctx, ["abc", "[b*0]"], b"abcd")?.stdout == b"bbbd"
+  assert tr_run(ctx, ["-d", "[=a=]"], b"a=b")?.stdout == b"=b"
+  assert tr_run(ctx, ["-d", "\\501"], b"(1Ł)")?.stdout == b"\xC5\x81)"
+}
+
+test test_tr_range_and_class_diagnostics { |ctx|
+  let backwards = tr_run(ctx, ["-d", "\\046-\\048"], b"")?
+  assert backwards.status != 0
+  assert backwards.stderr == "tr: range-endpoints of '&-\\004' are in reverse collating sequence order\n"
+
+  let class_mismatch = tr_run(ctx,
+    ["-c", "[a*18446744073709551615]b[:upper:]", "[x*18446744073709551615][:upper:]"], b"")?
+  assert class_mismatch.status != 0
+  assert "must be matched by" in class_mismatch.stderr
+}
