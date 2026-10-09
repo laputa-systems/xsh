@@ -1176,35 +1176,18 @@
       "applet": true
     },
     "shuf": {
-      "pass": 53,
-      "fail": 24,
+      "pass": 70,
+      "fail": 7,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_shuf::test_getrandom_fail",
-        "test_shuf::test_range_empty_minus_one",
         "test_shuf::test_range_permute_no_overflow_0_max",
-        "test_shuf::test_range_permute_no_overflow_0_max_minus_1",
-        "test_shuf::test_range_permute_no_overflow_1_max",
-        "test_shuf::test_range_repeat_empty_minus_one",
-        "test_shuf::test_range_repeat_no_overflow_0_max_minus_1",
-        "test_shuf::test_range_repeat_no_overflow_1_max",
         "test_shuf::test_seed_args_no_repeat",
         "test_shuf::test_seed_args_repeat",
         "test_shuf::test_seed_long_range_no_repeat",
         "test_shuf::test_seed_range_no_repeat",
-        "test_shuf::test_seed_range_repeat",
-        "test_shuf::test_shuf_echo_and_input_range_not_allowed",
-        "test_shuf::test_shuf_input_range_and_file_not_allowed",
-        "test_shuf::test_shuf_invalid_input_line_count",
-        "test_shuf::test_shuf_invalid_input_range_one",
-        "test_shuf::test_shuf_invalid_input_range_three",
-        "test_shuf::test_shuf_invalid_input_range_two",
-        "test_shuf::test_shuf_multiple_input_ranges",
-        "test_shuf::test_shuf_multiple_outputs",
-        "test_shuf::test_shuf_three_input_files",
-        "test_shuf::test_shuf_two_input_files",
-        "test_shuf::write_errors_are_reported"
+        "test_shuf::test_seed_range_repeat"
       ],
       "applet": true
     },
@@ -1696,8 +1679,8 @@
     }
   },
   "totals": {
-    "pass": 5197,
-    "fail": 777,
+    "pass": 5214,
+    "fail": 760,
     "skip": 0,
     "excluded": 4
   }

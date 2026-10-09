@@ -226,8 +226,9 @@
       "For a `-` operand, there is no stdout descriptor metadata API to inspect file type, current size, or append mode. XSH assumes the default size is zero; GNU coreutils 9.12 uses `fstat`/`lseek` and rejects non-seekable stdout."
     ],
     "shuf": [
-      "Range handling at unsigned integer boundaries and empty ranges is incomplete (`test_shuf::test_range_*` and `test_shuf::test_seed_*`); the seeded output contract also differs from uutils in `test_shuf::test_shuf_*` and `test_shuf::test_seed_*` cases.",
-      "`test_shuf::test_getrandom_fail` needs injectable `getrandom` error reporting. Invalid combinations of ranges, echo/input modes, and multiple input files remain incomplete (`test_shuf::test_shuf_echo_and_input_range_not_allowed`, `test_shuf::test_shuf_input_range_and_file_not_allowed`, and `test_shuf::test_shuf_multiple_*`). `test_shuf::write_errors_are_reported` needs immediate stdout write-error propagation."
+      "The five `test_shuf::test_seed_*` cases assert uutils' `--random-seed` output sequence; GNU coreutils 9.12 uses a different random contract.",
+      "`test_shuf::test_range_permute_no_overflow_0_max` expects the inclusive range 0..=u64::MAX to be accepted; GNU 9.12 rejects it because the range size overflows.",
+      "`test_shuf::test_getrandom_fail` injects EAGAIN into the random source; the runtime panics before the applet can report the error as uutils expects."
     ],
     "sleep": [
       "test_sleep::test_sleep_no_argument expects clap's required-argument block; GNU coreutils 9.12 emits `sleep: missing operand` and the help hint, which XSH follows.",

@@ -1,10 +1,10 @@
 # XSH Core Compatibility Campaign
 
 Status: Wave 2 residual coreutils work is in progress on branch `campaign-utils`.
-Use one integrator; any subagent must be GPT-6 Luna at xhigh. `cut` and `tr` are
-merged; `test` is merged and three queued lanes cover `shuf`, `numfmt`, and
-`printf`. Scope widened on 2026-10-04 from coreutils parity to the full
-systems-core surface below. Lane strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
+Use one integrator; any subagent must be GPT-6 Luna at xhigh. The `cut`, `tr`,
+`test`, and `shuf` lanes are merged; `numfmt` and `printf` remain queued. Scope
+widened on 2026-10-04 from coreutils parity to the full systems-core surface.
+Lane strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
 usage is in [`README.md`](README.md).
 
 ## Active resume (2026-10-09)
@@ -90,9 +90,9 @@ usage is in [`README.md`](README.md).
   buffering and the byte-sort fast path make `test_factor::test_parallel` pass
   again. The similarly sized 301-bit factor case still exceeds its timeout, and
   the negative-operand test expects uutils wording instead of GNU option
-  parsing. `text-b1` improved from **464 / 522** to **481 / 522**;
-  `text-b2` improved from **474 / 536** to **499 / 536**. Their remaining
-  failures need integration into `gaps.json` after the lane merges.
+  parsing. `text-b1` moved from **464 / 522** to **498 / 522** with `shuf` at
+  **70 / 77**; its seven residual cases are recorded in `gaps.json`. `text-b2`
+  remains **499 / 536** pending the queued `numfmt` merge.
 - `unlink` is now **6 / 7**; it resolves non-UTF-8 operand bytes from
   `cli.argv_bytes()` and removes those paths correctly. The remaining multiple-
   operand test expects uutils' usage block; the applet follows GNU's
@@ -103,8 +103,8 @@ usage is in [`README.md`](README.md).
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,197 / 5,974 passing**, 777 failing, and 4 excluded. Compared with the
-  preceding cut/tr report, test fixed 8 cases and there are no regressions.
+  **5,214 / 5,974 passing**, 760 failing, and 4 excluded. Compared with the
+  preceding test report, shuf fixed 17 cases and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`
