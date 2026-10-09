@@ -194,7 +194,7 @@ proc move_one(source_name: Str, destination: Path, opts: MvOptions, overwrite: S
       return true
     }
     if overwrite == "interactive" and ! prompt_overwrite(dest_name) {
-      return true
+      return false
     }
     if source_state.kind == "dir" and target_state.kind != "dir" {
       gnu.error(f"cannot overwrite non-directory {gnu.quote(dest_name)} with directory {gnu.quote(source_name)}")

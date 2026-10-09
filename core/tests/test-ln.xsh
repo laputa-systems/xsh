@@ -71,6 +71,24 @@ test test_ln_no_clobber_and_same_file { |ctx|
   assert "are the same file" in same.stderr
 }
 
+test test_ln_force_same_inode_is_noop { |ctx|
+  let root = test.temp_dir(ctx, name: "ln-force-same-inode")?
+  let source = fp"{root}/source"
+  let destination = fp"{root}/destination"
+  source.write("same inode")
+  fs.link(source, destination)?
+
+  let result = ln_run(ctx, ["-f", source.display(), destination.display()])?
+  assert result.status == 0
+  assert result.stderr == ""
+  assert fs.stat(source)?.ino == fs.stat(destination)?.ino
+  assert ! fp"{destination}.xsh-tmp-0".exists()?
+
+  let same_path = ln_run(ctx, ["-f", source.display(), f"{root}/./source"])?
+  assert same_path.status == 1
+  assert "are the same file" in same_path.stderr
+}
+
 test test_ln_usage_diagnostics { |ctx|
   let missing = ln_run(ctx, [])?
   assert missing.status == 1
