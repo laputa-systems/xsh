@@ -89,3 +89,9 @@ see `check_exclusions.py`.
 ## From `proc-a` (partial merge: `kill` and `nice` only; kill+nice slice 58/63)
 
 - `nohup`, `timeout` and `stdbuf` were not started: the lane was killed by a worker restart. `core/kill.xsh` and `core/nice.xsh` merged with 20 and 13 native tests. Remaining kill/nice failures (5 of 63) were not triaged.
+
+## From `bytes-enc` (merged; final slice 193/311 -> 232/311)
+
+- `dd` needs typed descriptor and stream operations for partial reads/writes, seek position, file advice, direct I/O, no-atime, no-create, and directory modes. This would also unblock its FIFO/progressive-read cases; the lane has no text-parsing workaround.
+- `od` needs bounded/incremental stdin reads, seek-aware offsets and byte-to-float decoding. `-N`, stdin offsets, `/proc` streams, floating formats, and some wide ASCII rows remain incomplete.
+- Remaining applet gaps are recorded under `base32`, `base64`, `dd`, and `od` in `gaps.json`. In particular, base32/base64 still accept `-w/--wrap` without the required width; dd's EBCDIC conversion tables, statistics and diagnostics need follow-up; od's uint64 decimal formatting and diagnostic spans need support.

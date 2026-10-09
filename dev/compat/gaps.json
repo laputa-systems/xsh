@@ -81,8 +81,24 @@
       "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
       "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
     ],
+    "od": [
+      "Floating output formats (`-f`, `-F`, `-t f*`, `-t bfloat16`) remain unsupported without typed byte-to-float decoding; failing IDs include `test_od::test_bfloat16_compact`, `test_f16`, `test_f32`, `test_f64`, `test_fb`, `test_fh`, `test_float16_compact`, `test_tf_default_is_double` and `test_tf_explicit_float_still_uses_4_bytes`.",
+      "Unsigned 64-bit decimal formatting is unavailable (`test_od::test_max_uint`); bounded stdin reads, seek-aware offsets and duplicate suppression also remain incomplete (`test_od::test_read_bytes`, `test_skip_bytes_past_end_message`, `test_skip_bytes_past_end_of_seekable_device`, `test_suppress_duplicates`, `test_od_invalid_bytes`, and the wide ASCII dump/alignment tests).",
+      "GNU diagnostic snippets need CLI argument spans (`test_od::diagnostics::*`); `test_od::test_hyphen_leading_byte_count_is_reported_as_invalid` and some multi-format row alignment still differ."
+    ],
+    "base32": [
+      "test_base32::test_wrap_no_arg still passes -w/--wrap without COLS and uses the default width; GNU rejects the missing operand."
+    ],
+    "base64": [
+      "test_base64::test_wrap_no_arg still passes -w/--wrap without COLS and uses the default width; GNU rejects the missing operand."
+    ],
     "date": [
       "French `%b` abbreviations retain glibc/GNU punctuation (`févr.`, `janv.`, `déc.`), while uutils' ICU-based locale expectations omit the trailing dot. Known residuals: `test_date::test_locale_abbreviated_month_names` and `test_date::test_locale_names_for_several_dates_in_one_run`; keep GNU-compatible output."
+    ],
+    "dd": [
+      "`test_dd::test_atoe_and_lcase`, `test_atoe_and_ucase`, `test_atoe_conv_spec`, `test_atoibm_and_lcase`, `test_atoibm_and_ucase`, `test_atoibm_conv_spec`, `test_etoa_and_lcase`, `test_etoa_and_ucase`, `test_etoa_conv_spec`, `test_iso8859_1_case_conversion`, `test_all_valid_ascii_ebcdic_ascii_roundtrip_conv_test`, `test_conv_ascii_implies_unblock` and `test_conv_ebcdic_implies_block` need the full ASCII/EBCDIC conversion tables and block/unblock semantics.",
+      "`iflag=direct`, `oflag=direct`, `iflag=directory`, `iflag=noatime`, `iflag=nocache`, `oflag=nocreat`, FIFO partial reads, non-rewinding stdin, delayed readers, and large buffer sizing need typed fd/stream open, read, write, seek, and advice APIs; see the corresponding `test_dd::test_iflag_*`, `test_oflag_*`, `test_noatime_*`, `test_nocache_*`, `test_nocreat_*`, `test_reading_partial_blocks_from_fifo*`, `test_stdin_stdout_not_rewound_even_when_connected_to_seekable_file`, `test_sync_delayed_reader`, and `test_large_bs_does_not_fault_in_copy_buffer` IDs.",
+      "Block and final transfer statistics after partial-write failures remain wrong (`test_dd::test_block_stats_are_reported_when_a_write_fails`, `test_dd::test_stats_are_reported_when_a_write_fails`, and `test_dd::test_final_stats_*`); several diagnostics also need GNU's usage/help phrase and argument spans (`test_dd::diagnostics::*`, `test_dd::help`, `test_dd::test_invalid_file_arg_gnu_compatibility`, and `test_dd::test_invalid_flag_arg_gnu_compatibility`)."
     ],
     "mkfifo": [
       "test_mkfifo::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mkfifo: invalid mode`."

@@ -10,7 +10,7 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 - Local `campaign-utils` now includes `fs-misc`, `perm`, native byte/hash, GNU
   patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, `proc-a`,
-  `checksums`, and `bytes-enc` (last code merge `b1954910`; the parity manifest
+  `checksums`, and `bytes-enc` (last code merge `9c28d760`; the parity manifest
   records 101 of 106 in-scope utilities present). The local
   `origin/campaign-utils` ref is still at `5de29706`; push after the campaign
   evidence is refreshed. Pinned references are uutils
@@ -37,13 +37,13 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   47/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 24/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
-  across nine applets. Its latest verified progress is **580 / 663** (cut
+  across nine applets. Its latest verified progress is **599 / 663** (cut
   71/83, paste 25/27, fold 95/101, expand 43/46, unexpand 44/44, nl 67/67,
-  fmt 35/37, pr 32/84, tr 168/174); remaining `pr` failures include two
-  `Try 'pr --help'` diagnostic mismatches. `bytes-enc` has implemented base32, base64,
-  basenc, od, and dd; its final lane slice is **232 / 311** (base32 15/16,
-  base64 24/25, basenc 38/38, od 56/80, dd 99/152) with all **23** native
-  tests passing in lane commit `d040ca02`. The base16 write-error case is resolved; remaining requests
+  fmt 35/37, pr 51/84, tr 168/174); remaining `pr` failures cluster around
+  columns, dates, merge behavior, formfeed input, and help diagnostics. `bytes-enc` has implemented base32, base64,
+  basenc, od, and dd; it is merged at **232 / 311** (base32 15/16, base64
+  24/25, basenc 38/38, od 56/80, dd 99/152) with all **22** native tests
+  passing. The base16 write-error case is resolved; remaining requests
   include typed fd/stream APIs for dd and bounded stdin/seek APIs for od.
   `checksums` is merged over
   the shared byte/hash APIs and its ten native tests pass. Its first slice was
