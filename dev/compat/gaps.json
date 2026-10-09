@@ -52,6 +52,14 @@
       "Non-UTF-8 operands cannot be passed (xsh rejects non-UTF-8 argv); non-UTF-8 entry names are quoted from their raw bytes but sorted and matched by their lossy text.",
       "Directories are read eagerly: `ls -l /proc/self/fd` stats the descriptor that read the directory after it is closed (test_ls_proc_self_fd_no_errors, a regression from the old applet's accidental pass). Needs a lazy `fs.children` that keeps the directory open while entries are stat'ed. Terminal width: `unix.window_size` now exists, so ls can query it."
     ],
+    "ln": [
+      "test_ln::test_ln_non_utf8_paths and test_ln::test_symlink_target_dir_non_utf8_source_name need raw pathname arguments to reach applets. `cli.argv_bytes()` preserves argv bytes, but XSH has no `Path`-from-`Bytes` constructor or byte-path overloads for `fs.link`/`fs.symlink`; request those shared APIs.",
+      "test_ln::test_hard_logical_dir_fail never runs its first `ln -s d link-to-dir` command: the test constructs a command with `.args()` but does not execute it. The later source is therefore missing, and GNU 9.12 correctly reports `failed to access 'link-to-dir'`.",
+      "test_ln::test_ln_seen_file expects uutils' `will not overwrite just-created` diagnostic without `-f`; GNU 9.12 reports the ordinary `failed to create hard link 'c/f': File exists` for the occupied destination, which XSH follows.",
+      "test_ln::test_symlink_missing_destination expects uutils' missing-destination diagnostic without the usage hint. GNU 9.12 emits `missing destination file operand after ...` followed by the `Try 'ln --help'` hint, which XSH follows.",
+      "test_ln::test_symlink_verbose expects uutils' `(backup: '...')` annotation. GNU 9.12 prints `'backup' ~ 'destination' -> 'source'`, which XSH follows.",
+      "`-d`, `-F`, and `--directory` are explicitly rejected because this Linux applet does not support directory hard links; they are never silently ignored."
+    ],
     "stty": [
       "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
       "Size suffixes of GNU `integer_arg` (`1k`, `2b`) are not accepted; such arguments are `invalid integer argument`.",
