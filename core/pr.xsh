@@ -27,8 +27,9 @@ type PrOptions = {
   number_width: Int, number_separator: Bytes, start_number: Int, omit_header: Bool,
   page_length: Int, page_width: Int, columns: Int, margin: Int,
   page_length_option: Str, page_width_option: Str,
-  column_separator: Bytes, header: Str, date_format: Str,
-  first_page: Int, last_page: Int, files: List[Bytes], help: Bool, version: Bool,
+  column_separator: Bytes, header: Str, date_format: Str, date_format_given: Bool,
+  first_page: Int, last_page: Int, invalid_page_range: Str?, suppress_errors: Bool,
+  files: List[Bytes], help: Bool, version: Bool,
 }
 
 type PrInputPage = {data: Bytes, feed_after: Bool}
@@ -64,6 +65,7 @@ pure first_digit(value: Str) -> Int? {
 }
 
 pure number_spec(value: Str) -> Bool {
+  if value == "-" { return false }
   let digit = first_digit(value)
   if digit == null { return value.byte_len() == 1 }
   if digit == 0 { return rx"^[0-9]+$".matches(value) }
@@ -82,8 +84,9 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
     number_width: 5, number_separator: b"\t", start_number: 1, omit_header: false,
     page_length: 66, page_width: 72, columns: 1, margin: 0,
     page_length_option: "--length", page_width_option: "--width",
-    column_separator: b"\t", header: "", date_format: "%Y-%m-%d %H:%M",
-    first_page: 1, last_page: 2147483647, files: [], help: false, version: false,
+    column_separator: b"\t", header: "", date_format: "%Y-%m-%d %H:%M", date_format_given: false,
+    first_page: 1, last_page: 2147483647, invalid_page_range: null, suppress_errors: false,
+    files: [], help: false, version: false,
   }
   var stopped = false
   var i = 0
@@ -97,7 +100,7 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
       let colon = spec.find(":")
       let first = number(if colon == null { spec } else { spec[..colon ?? 0] }, -1)
       let last = if colon == null { 2147483647 } else { number(spec[(colon ?? 0) + 1..], -1) }
-      if first <= 0 or last < first { gnu.error(f"invalid page range '{spec}'"); exit 1 }
+      if first <= 0 or last < first { result.invalid_page_range = f"invalid page range '{spec}'" }
       result.first_page = first
       result.last_page = last
       i += 1
@@ -116,11 +119,11 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
         }
       } else if name == "--columns" or name == "--page-length" or name == "--page-width" or name == "--width" or name == "--length" or name == "--indent" or name == "--header" or name == "--date-format" or name == "--pages" or name == "--first-line-number" {
         let value = if inline != null { inline ?? "" } else if i + 1 < argv.len() { i += 1; argv[i] } else { "" }
-      if name == "--columns" { result.columns = checked_number(value, "invalid number of columns", false) } else if name == "--page-length" or name == "--length" { result.page_length = checked_number(value, "'-l PAGE_LENGTH' invalid number of lines", false); result.page_length_option = name } else if name == "--page-width" or name == "--width" { result.page_width = checked_number(value, "'-w PAGE_WIDTH' invalid number of characters", false); result.page_width_option = name } else if name == "--indent" { result.margin = checked_number(value, "'-o MARGIN' invalid line offset", false) } else if name == "--header" { result.header = value } else if name == "--date-format" { result.date_format = value } else if name == "--first-line-number" { result.start_number = checked_number(value, "'-N NUMBER' invalid starting line number", false) } else if name == "--pages" {
+      if name == "--columns" { result.columns = checked_number(value, "invalid number of columns", false) } else if name == "--page-length" or name == "--length" { result.page_length = checked_number(value, "'-l PAGE_LENGTH' invalid number of lines", false); result.page_length_option = name } else if name == "--page-width" or name == "--width" { result.page_width = checked_number(value, "'-w PAGE_WIDTH' invalid number of characters", false); result.page_width_option = name } else if name == "--indent" { result.margin = checked_number(value, "'-o MARGIN' invalid line offset", false) } else if name == "--header" { result.header = value } else if name == "--date-format" { result.date_format = value; result.date_format_given = true } else if name == "--first-line-number" { result.start_number = checked_number(value, "'-N NUMBER' invalid starting line number", false) } else if name == "--pages" {
           let colon = value.find(":")
           let first = number(if colon == null { value } else { value[..colon ?? 0] }, -1)
           let last = if colon == null { 2147483647 } else { number(value[(colon ?? 0) + 1..], -1) }
-          if first <= 0 or last < first { gnu.error(f"invalid --pages argument '{value}'"); exit 1 }
+          if first <= 0 or last < first { result.invalid_page_range = f"invalid --pages argument '{value}'" }
           result.first_page = first
           result.last_page = last
         }
@@ -134,7 +137,7 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
       while at < arg.byte_len() {
         let flag = arg.byte_slice(at, length: 1)
         let rest = arg.byte_slice(at + 1)
-        if flag == "a" { result.across = true; at += 1 } else if flag == "b" or flag == "c" { at += 1 } else if flag == "d" { result.double = true; at += 1 } else if flag == "f" { result.formfeed = true; at += 1 } else if flag == "J" { result.join = true; at += 1 } else if flag == "m" { result.merge = true; at += 1 } else if flag == "r" { at += 1 } else if flag == "t" { result.no_header = true; result.no_pagination = true; at += 1 } else if flag == "T" { result.no_header = true; result.no_pagination = true; at += 1 } else if flag == "n" {
+        if flag == "a" { result.across = true; at += 1 } else if flag == "b" or flag == "c" { at += 1 } else if flag == "d" { result.double = true; at += 1 } else if flag == "f" { result.formfeed = true; at += 1 } else if flag == "J" { result.join = true; at += 1 } else if flag == "m" { result.merge = true; at += 1 } else if flag == "r" { result.suppress_errors = true; at += 1 } else if flag == "t" { result.no_header = true; result.no_pagination = true; at += 1 } else if flag == "T" { result.no_header = true; result.no_pagination = true; at += 1 } else if flag == "n" {
           result.number = true
           var value = rest
           if value == "" and i + 1 < argv.len() and number_spec(argv[i + 1]) { i += 1; value = argv[i] }
@@ -183,7 +186,7 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
         } else if flag == "i" { result.expand = true; at = arg.byte_len() } else if flag == "l" or flag == "o" or flag == "w" or flag == "W" or flag == "h" or flag == "D" {
           var value = rest
           if value == "" and i + 1 < argv.len() { i += 1; value = argv[i] }
-          if flag == "l" { result.page_length = checked_number(value, "'-l PAGE_LENGTH' invalid number of lines", false); result.page_length_option = "--length" } else if flag == "o" { result.margin = checked_number(value, "'-o MARGIN' invalid line offset", false) } else if flag == "w" or flag == "W" { result.page_width = checked_number(value, f"'-{flag} PAGE_WIDTH' invalid number of characters", false); result.page_width_option = if flag == "W" { "--page-width" } else { "--width" } } else if flag == "h" { result.header = value } else if flag == "D" { result.date_format = value }
+          if flag == "l" { result.page_length = checked_number(value, "'-l PAGE_LENGTH' invalid number of lines", false); result.page_length_option = "--length" } else if flag == "o" { result.margin = checked_number(value, "'-o MARGIN' invalid line offset", false) } else if flag == "w" or flag == "W" { result.page_width = checked_number(value, f"'-{flag} PAGE_WIDTH' invalid number of characters", false); result.page_width_option = if flag == "W" { "--page-width" } else { "--width" } } else if flag == "h" { result.header = value } else if flag == "D" { result.date_format = value; result.date_format_given = true }
           at = arg.byte_len()
         } else { gnu.usage_error(f"invalid option -- '{flag}'") }
       }
@@ -256,9 +259,16 @@ pure expand_tabs(value: Bytes, opts: PrOptions) -> Bytes {
 
 pure number_line(line: Bytes, index: Int, opts: PrOptions) -> Bytes {
   return line when ! opts.number
-  let digits = f"{index}"
+  var digits_value = index
+  var wrapped = false
+  if opts.number_width > 0 and opts.number_width <= 9 {
+    var limit = 1
+    for _ in range(opts.number_width) { limit *= 10 }
+    if digits_value >= limit { digits_value %= limit; wrapped = true }
+  }
+  let digits = f"{digits_value}"
   let fill = if opts.number_width > digits.byte_len() { opts.number_width - digits.byte_len() } else { 0 }
-  bytes.concat([repeat_byte(b" ", fill), bytes.from_text(digits), opts.number_separator, line])
+  bytes.concat([repeat_byte(if wrapped { b"0" } else { b" " }, fill), bytes.from_text(digits), opts.number_separator, line])
 }
 
 pure column_page(lines: List[Bytes], opts: PrOptions, col_width: Int, first_line: Int) -> Bytes {
@@ -274,9 +284,20 @@ pure column_page(lines: List[Bytes], opts: PrOptions, col_width: Int, first_line
     for col in range(last + 1) {
       let index = if opts.across { row * opts.columns + col } else { col * per_column + row }
       if col > 0 { out += [opts.column_separator] }
-      let raw = if index < lines.len() { number_line(lines[index], first_line + index, opts) } else { b"" }
+      let raw = if index < lines.len() { if opts.merge { lines[index] } else { number_line(lines[index], first_line + index, opts) } } else { b"" }
       let cell = expand_tabs(raw, opts)
-      out += [pad_right(cell, col_width)]
+      let cell_width = if opts.merge and opts.number and col == 0 {
+        let overhead = opts.number_width + opts.number_separator.len() + 1
+        if col_width > overhead { col_width - overhead } else { 1 }
+      } else { col_width }
+      let clipped = if cell.len() > cell_width { cell[..cell_width] } else { cell }
+      var tab_adjust = 0
+      if opts.merge and ! (opts.number and col == 0) {
+        for at in range(clipped.len()) { if clipped.byte_at(at) == 9 { tab_adjust += 7 } }
+      }
+      let occupied = clipped.len() + tab_adjust
+      let padding = if cell_width > occupied { cell_width - occupied } else { 0 }
+      out += [repeat_byte(b" ", opts.margin), clipped, repeat_byte(b" ", padding)]
     }
     out += [b"\n"]
     if opts.double { out += [b"\n"] }
@@ -293,8 +314,12 @@ pure simple_page(lines: List[Bytes], start: Int, opts: PrOptions) -> Bytes {
   bytes.concat(out)
 }
 
-proc title_date(name: Bytes, opts: PrOptions) [fs, error, time] -> Result[Str] {
-  let format = if opts.date_format.starts_with("+") { opts.date_format[1..] } else { opts.date_format }
+proc title_date(name: Bytes, opts: PrOptions) [fs, error, time, env] -> Result[Str] {
+  let all = env.get_or("LC_ALL", "") ?? ""
+  let time_locale = env.get_or("LC_TIME", "") ?? ""
+  let posix = (env.get_or("POSIXLY_CORRECT", "") ?? "") != "" and (all == "POSIX" or time_locale == "POSIX")
+  let raw_format = if ! opts.date_format_given and posix { "%b %e %H:%M %Y" } else { opts.date_format }
+  let format = if raw_format.starts_with("+") { raw_format[1..] } else { raw_format }
   if name != b"-" {
     if let Ok(meta) = fs.stat(Path.parse_bytes(name)?, follow_symlinks: true) {
       return time.format(meta.mtime_ns / 1000000000, meta.mtime_ns % 1000000000,
@@ -308,6 +333,7 @@ proc title_date(name: Bytes, opts: PrOptions) [fs, error, time] -> Result[Str] {
 pure header_line(date: Str, title: Str, page: Int, width: Int) -> Bytes {
   let page_text = f"Page {page}"
   let room = width - date.byte_len() - title.byte_len() - page_text.byte_len()
+  if title == "" { return bytes.from_text(date + repeat_str(" ", if room > 0 { room } else { 1 }) + page_text) }
   let before = if room > 1 { room / 2 } else { 1 }
   let after = if room > 1 { room - before } else { 1 }
   bytes.from_text(date + repeat_str(" ", before) + title + repeat_str(" ", after) + page_text)
@@ -321,17 +347,28 @@ pure repeat_str(value: Str, count: Int) -> Str {
 
 proc render_page(lines: List[Bytes], name: Bytes, page: Int, first_line: Int, opts: PrOptions) [fs, error, time, env] -> Result[Bytes] {
   let width = if opts.page_width <= opts.margin { 72 } else { opts.page_width - opts.margin }
-  let title = if opts.header != "" { opts.header } else if name == b"-" { "" } else { name.utf8() ?? "" }
+  let header_width = if opts.page_width > 0 and opts.page_width < 10000 { opts.page_width } else { 72 }
+  let title = if opts.header != "" { opts.header } else if opts.merge or name == b"-" { "" } else { name.utf8() ?? "" }
   var out: List[Bytes] = []
   if ! opts.no_header {
     let date = title_date(name, opts)?
-    out += [b"\n\n", header_line(date, title, page, if width > 0 and width < 10000 { width } else { 72 }), b"\n\n\n"]
+    out += [b"\n\n", header_line(date, title, page, header_width), b"\n\n\n"]
   }
   if opts.formfeed and opts.no_pagination and lines.len() == 0 and ! opts.no_header { out += [b"\n"] }
   let gap = opts.column_separator.len() * (opts.columns - 1)
-  let col_width = if width > gap and opts.columns > 0 { (width - gap) / opts.columns } else { 1 }
+  let default_col_width = if width > gap and opts.columns > 0 { (width - gap) / opts.columns } else { 1 }
+  var col_width = default_col_width
+  if opts.number and opts.columns > 1 and ! opts.merge {
+    var max_cell_width = 0
+    for at in range(lines.len()) {
+      let size = number_line(lines[at], first_line + at, opts).len()
+      if size > max_cell_width { max_cell_width = size }
+    }
+    let tabbed_width = (max_cell_width + 7) / 8 * 8
+    if tabbed_width > 0 and tabbed_width < col_width { col_width = tabbed_width }
+  }
   let content = if opts.columns > 1 { column_page(lines, opts, col_width, first_line) } else { simple_page(lines, first_line, opts) }
-  out += [repeat_byte(b" ", opts.margin), content]
+  if opts.columns > 1 { out += [content] } else { out += [repeat_byte(b" ", opts.margin), content] }
   if ! opts.no_pagination {
     let row_count = if opts.columns > 1 { (lines.len() + opts.columns - 1) / opts.columns } else { lines.len() }
     let used = row_count * (if opts.double { 2 } else { 1 })
@@ -348,10 +385,70 @@ proc read_data(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
   Path.parse_bytes(name)?.read_bytes()
 }
 
+proc print_merged(names: List[Bytes], opts: PrOptions) [fs, process, env, error, io, time] -> Result[Bool] {
+  if opts.across { gnu.error("cannot specify both printing across and printing in parallel"); exit 1 }
+  if opts.columns > 1 { gnu.error("cannot specify number of columns when printing in parallel"); exit 1 }
+  var inputs: List[List[Bytes]] = []
+  var longest = 0
+  var failed = false
+  for name in names {
+    guard let data = read_data(name) else { |failure|
+      gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+      failed = true
+      inputs += [[]]
+      continue
+    }
+    let lines = split_lines(data)
+    if lines.len() > longest { longest = lines.len() }
+    inputs += [lines]
+  }
+  let column_count = if opts.join { 1 } else { names.len() }
+  var render_opts = opts
+  render_opts.columns = column_count
+  render_opts.across = true
+  render_opts.number = opts.number and ! opts.join
+  let slots = opts.page_length - (if opts.no_header { 0 } else { 10 })
+  let rows_per_page = if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
+  let pages = if longest == 0 { 0 } else { (longest + rows_per_page - 1) / rows_per_page }
+  if pages > 0 and opts.first_page > pages { gnu.error(f"starting page number {opts.first_page} exceeds page count {pages}") }
+  var page_number = 0
+  var page_start = 0
+  while page_start < longest {
+    page_number += 1
+    let page_end = if page_start + rows_per_page < longest { page_start + rows_per_page } else { longest }
+    if page_number >= opts.first_page and page_number <= opts.last_page {
+      var page_lines: List[Bytes] = []
+      for row in range(page_start, page_end) {
+        var row_cells: List[Bytes] = []
+        for col in range(inputs.len()) {
+          let source = inputs[col]
+          let line = if row < source.len() { source[row] } else { b"" }
+          row_cells += [if opts.number and col == 0 { number_line(line, opts.start_number + row, opts) } else { line }]
+        }
+        if opts.join { page_lines += [bytes.concat(row_cells)] } else { page_lines += row_cells }
+      }
+      if ! opts.no_pagination {
+        for _ in range(page_end - page_start, rows_per_page) {
+          if opts.join { page_lines += [b""] } else {
+            for _ in range(names.len()) { page_lines += [b""] }
+          }
+        }
+      }
+      gnu.write_bytes(render_page(page_lines, if names.len() > 0 { names[0] } else { b"-" }, page_number, page_start, render_opts)?)
+    }
+    page_start = page_end
+  }
+  Ok(failed)
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   var opts = parse_args(argv, cli.argv_bytes())
   if opts.help { gnu.help(USAGE); return }
   if opts.version { gnu.version("pr"); return }
+  if opts.invalid_page_range != null {
+    if ! opts.suppress_errors { gnu.error(opts.invalid_page_range ?? "invalid page range") }
+    exit 1
+  }
   if opts.page_length > 0 and opts.page_length <= 10 { opts.no_header = true; opts.no_pagination = true }
   if opts.columns <= 0 { gnu.error(f"invalid --columns argument '{opts.columns}'"); exit 1 }
   if opts.page_length == 0 { gnu.error(f"invalid {opts.page_length_option} argument '0'"); exit 1 }
@@ -359,6 +456,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   if opts.margin < 0 { gnu.error(f"'-o MARGIN' invalid line offset: '{opts.margin}'"); exit 1 }
   if opts.page_width < 0 or opts.page_length < 0 { gnu.error("invalid line or page width"); exit 1 }
   let names = if opts.files.len() == 0 { [b"-"] } else { opts.files }
+  if opts.merge { if print_merged(names, opts)? { exit 1 }; return }
   var failed = false
   var page_number = 0
   for name in names {
@@ -369,11 +467,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
     for source_page in split_formfeeds(data) {
       let lines = split_lines(source_page.data)
-      let per_page = if opts.no_pagination { if lines.len() > 0 { lines.len() } else { 1 } } else {
-        let slots = opts.page_length - (if opts.no_header { 0 } else { 10 })
-        let rows = if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
-        if opts.columns > 1 { rows * opts.columns } else { rows }
-      }
+      let slots = opts.page_length - (if opts.no_header { 0 } else { 10 })
+      let rows = if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
+      let per_page = if opts.columns > 1 { rows * opts.columns } else { rows }
       let pages = if lines.len() == 0 { if source_page.feed_after { 1 } else { 0 } } else { (lines.len() + per_page - 1) / per_page }
       if pages > 0 and opts.first_page > pages { gnu.error(f"starting page number {opts.first_page} exceeds page count {pages}") }
       for p in range(pages) {
