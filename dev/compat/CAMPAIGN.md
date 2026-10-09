@@ -23,16 +23,19 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   `perm` **106 / 149**; `stat-du-df` **166 / 237**; and `ls dir vdir split`
   **314 / 365** with no regression among the earlier passing test IDs. The
   `legacy-buckets` lane removed all five non-uutils discard buckets. Native
-  byte/hash primitives and GNU patch classification are merged; public API
-  wiring is active in the resumed byte/hash lane before the encoding and checksum
-  applets can start. Exact remaining utility failures and their causes are in
-  `gaps.json`.
-- `printf-env`, `proc-a`, and `text-a2` are active in separate worktrees.
-  `printf-env` last measured **178 / 252** before its newest edits and is
-  rerunning its gates. `proc-a` is resolving failures from its first 62-case
-  uutils slice; the last confirmed native result was 16/16. `text-a2` starts
-  from **17 / 663** across nine applets. The integrator owns shared results and
-  baselines; lane runs use scratch outputs.
+  byte/hash primitives, their public API wiring, and GNU patch classification
+  are merged. The refreshed API surface records **367 functions, 389 overloads,
+  and 797 queryable items**; generated docs and the docs project checks pass.
+  Exact remaining utility failures and their causes are in `gaps.json`.
+- `printf-env` measured **225 / 252** (env 79/100, printf 146/152) after its
+  latest fixes, with native tests and ratchets green; its branch is being
+  rebased for integration. `proc-a` is committed at **45 / 62** (nohup 12/13,
+  stdbuf 11/20, timeout 22/29), with 23 native tests passing, and is ready for
+  integration. `text-a2` started from **17 / 663** across nine applets and is
+  working on expand/unexpand. `bytes-enc` and `checksums` have started from
+  **8 / 311** and **3 / 507**, respectively, on the merged byte/hash APIs.
+  The integrator owns shared results and baselines; lane runs use scratch
+  outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes
   are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;

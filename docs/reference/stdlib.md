@@ -178,8 +178,11 @@ Unix group lookup records.
 
 ### `hash`
 
-Digest calculation and checksum verification.
+Digest and checksum calculation and verification.
 
+- `hash.blake2b(data: Bytes, output_length: Int = default) -> Result[Digest, Error] (+1 overloads)` — Calculates a variable-length BLAKE2b digest from bytes or a file path.
+- `hash.bsd_sum(data: Bytes) -> {blocks: Int, checksum: Int} (+1 overloads)` — Calculates a POSIX or traditional checksum from bytes or a file path.
+- `hash.cksum(data: Bytes) -> {bytes: Int, checksum: Int} (+1 overloads)` — Calculates a POSIX or traditional checksum from bytes or a file path.
 - `hash.crc32(data: Bytes) -> Int` — Calculates a CRC checksum for bytes.
 - `hash.crc32c(data: Bytes) -> Int` — Calculates a CRC checksum for bytes.
 - `hash.md5(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
@@ -187,6 +190,7 @@ Digest calculation and checksum verification.
 - `hash.sha1(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha256(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha512(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
+- `hash.sysv_sum(data: Bytes) -> {blocks: Int, checksum: Int} (+1 overloads)` — Calculates a POSIX or traditional checksum from bytes or a file path.
 - `hash.verify_file(path: Path, sha256: Str = default) -> Result[Unit, Error]` — Verifies a file against a named digest.
 
 ### `ini`
