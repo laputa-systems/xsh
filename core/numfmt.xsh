@@ -96,6 +96,9 @@ type NumfmtOptions = {
   numbers: List[Str],
 }
 
+type ArgSpan = {index: Int, start: Int, length: Int}
+type Snippet = {start: Int, length: Int, label: Str, help: Str}
+
 # Magnitudes are little-endian base 10^9 limbs without high zero limbs; zero
 # is the empty list.
 const BASE = 1000000000
@@ -1430,6 +1433,345 @@ proc argument_error(value: Str, option: Str, names: List[Str]) [process, env] ->
   exit 1
 }
 
+pure shell_word(value: Str) -> Str {
+  return value when rx"^[A-Za-z0-9_.,+%@:/=-]+$".matches(value) and ! value.starts_with("#") and ! value.starts_with("~")
+
+  "'" + value.replace("'", "'\\''") + "'"
+}
+
+pure invocation_source(argv: List[Str]) -> Str {
+  var words = ["numfmt"]
+  for item in argv { words += [shell_word(item)] }
+  words.join(" ")
+}
+
+pure option_span(argv: List[Str], wanted: Str) -> ArgSpan? {
+  var at = 0
+  var options = true
+
+  while at < argv.len() {
+    let item = argv[at]
+
+    if options and item == "--" {
+      options = false
+      at += 1
+    } else if options and item.starts_with("--") {
+      let equal_at = item.find("=")
+      let name = if equal_at == null { item.byte_slice(2) } else { item.byte_slice(2, length: (equal_at ?? 0) - 2) }
+
+      if long_name_matches(name, wanted) {
+        if equal_at != null {
+          let start = (equal_at ?? 0) + 1
+          return {index: at, start: start, length: item.byte_len() - start}
+        }
+
+        if option_takes_value(name) and at + 1 < argv.len() {
+          return {index: at + 1, start: 0, length: argv[at + 1].byte_len()}
+        }
+
+        return null
+      }
+
+      at += if option_takes_value(name) and equal_at == null { 2 } else { 1 }
+    } else if options and item.starts_with("-") and item != "-" {
+      var pos = 1
+      var consumed = false
+
+      while pos < item.byte_len() {
+        if item.byte_slice(pos, length: 1) == "d" {
+          if pos + 1 < item.byte_len() {
+            at += 1
+          } else {
+            at += 2
+          }
+          consumed = true
+          break
+        }
+        pos += 1
+      }
+
+      if ! consumed { at += 1 }
+    } else {
+      at += 1
+    }
+  }
+
+  null
+}
+
+pure operand_indices(argv: List[Str]) -> List[Int] {
+  var indices: List[Int] = []
+  var at = 0
+  var options = true
+
+  while at < argv.len() {
+    let item = argv[at]
+
+    if options and item == "--" {
+      options = false
+      at += 1
+    } else if options and item.starts_with("--") {
+      let equal_at = item.find("=")
+      let name = if equal_at == null { item.byte_slice(2) } else { item.byte_slice(2, length: (equal_at ?? 0) - 2) }
+      at += if option_takes_value(name) and equal_at == null { 2 } else { 1 }
+    } else if options and item.starts_with("-") and item != "-" {
+      var pos = 1
+      var consumes_next = false
+      var has_delimiter = false
+
+      while pos < item.byte_len() {
+        if item.byte_slice(pos, length: 1) == "d" {
+          has_delimiter = true
+          consumes_next = pos == item.byte_len() - 1
+          break
+        }
+        pos += 1
+      }
+
+      at += if has_delimiter and consumes_next { 2 } else { 1 }
+    } else {
+      indices += [at]
+      at += 1
+    }
+  }
+
+  indices
+}
+
+pure repeated(text: Str, count: Int) -> Str {
+  var out = ""
+  for _ in range(count) { out += text }
+  out
+}
+
+pure rendered_column(argv: List[Str], span: ArgSpan) -> Int {
+  var column = "numfmt".byte_len()
+
+  for index in range(argv.len()) {
+    column += 1
+
+    if index == span.index {
+      let word = shell_word(argv[index])
+      let quote_prefix = if word.starts_with("'") { 1 } else { 0 }
+      return column + quote_prefix + span.start + 1
+    }
+
+    column += shell_word(argv[index]).byte_len()
+  }
+
+  column + 1
+}
+
+pure rendered_start(argv: List[Str], span: ArgSpan) -> Int {
+  var offset = "numfmt".byte_len()
+
+  for index in range(argv.len()) {
+    offset += 1
+
+    if index == span.index {
+      return offset + (if shell_word(argv[index]).starts_with("'") { 1 } else { 0 }) + span.start
+    }
+
+    offset += shell_word(argv[index]).byte_len()
+  }
+
+  offset
+}
+
+proc snippet_error(argv: List[Str], message: Str, span: ArgSpan, details: Snippet, status: Int) [process, env, io, error] {
+  return when ! unix.isatty(2)
+
+  gnu.error(message)
+
+  let source = invocation_source(argv)
+  let effective_span = {index: span.index, start: span.start + details.start, length: details.length}
+  let column = rendered_column(argv, effective_span)
+  let start = rendered_start(argv, effective_span)
+  let length = if details.length > 0 { details.length } else { span.length }
+  let prefix = repeated(" ", start)
+  let marker = if details.label != "" and length > 1 {
+    let center = length / 2
+    repeated("─", center) + "┬" + repeated("─", length - center - 1)
+  } else if details.label != "" {
+    "┬"
+  } else {
+    repeated("─", length)
+  }
+
+  eprint f"   ╭─[ numfmt:1:{column} ]"
+  eprint "   │"
+  eprint f" 1 │ {source}"
+  eprint f"   │ {prefix}{marker}"
+
+  if details.label != "" {
+    let branch = if length > 1 { length / 2 } else { 0 }
+    let tail = if length > 1 { length - branch + 1 } else { 2 }
+    let label_prefix = repeated(" ", start + branch)
+    let label_tail = repeated("─", tail)
+    eprint f"   │ {label_prefix}╰{label_tail} {details.label}"
+  }
+
+  if details.help != "" {
+    eprint "   │"
+  }
+
+  if details.help != "" {
+    eprint f"   │ Help: {details.help}"
+  }
+
+  eprint "───╯"
+  exit status
+}
+
+pure active_percent(text: Str) -> Int? {
+  var at = 0
+  while at < text.byte_len() {
+    if text.byte_slice(at, length: 1) == "%" {
+      if at + 1 < text.byte_len() and text.byte_slice(at + 1, length: 1) == "%" {
+        at += 2
+      } else {
+        return at
+      }
+    } else {
+      at += 1
+    }
+  }
+  null
+}
+
+pure format_snippet(text: Str, message: Str) -> Snippet {
+  let total = text.byte_len()
+  let percent = active_percent(text)
+  let help = "a format is [PREFIX]%[0]['][-][WIDTH][.PRECISION]f[SUFFIX], as in \"%'-10.2f\""
+
+  if message.find("has no % directive") != null {
+    return {start: 0, length: total, label: "", help: help}
+  }
+
+  if message.find("has too many % directives") != null {
+    var last = 0
+    for at in range(total) {
+      if text.byte_slice(at, length: 1) == "%" { last = at }
+    }
+    return {start: last, length: 1, label: "a literal % must be written %%", help: help}
+  }
+
+  if message.find("invalid precision in format") != null {
+    let dot = text.find(".") ?? 0
+    var start = dot + 1
+    while start < total and ! is_digit(text.byte_slice(start, length: 1)) { start += 1 }
+    var end = start
+    while end < total and is_digit(text.byte_slice(end, length: 1)) { end += 1 }
+    return {start: start, length: end - start, label: "this number is too large", help: help}
+  }
+
+  if let start = percent {
+    var at = start + 1
+
+    while at < total and text.byte_slice(at, length: 1) in [" ", "'", "0", "-"] { at += 1 }
+    while at < total and is_digit(text.byte_slice(at, length: 1)) { at += 1 }
+
+    if at < total and text.byte_slice(at, length: 1) == "." {
+      at += 1
+      while at < total and is_digit(text.byte_slice(at, length: 1)) { at += 1 }
+    }
+
+    if at >= total {
+      return {start: start, length: total - start, label: "", help: help}
+    }
+
+    return {start: at, length: 1, label: "f is the only conversion numfmt has; %d, %e, %g and the other C conversions are not accepted", help: help}
+  }
+
+  {start: 0, length: total, label: "", help: help}
+}
+
+proc terminal_option_snippets(argv: List[Str], opts: NumfmtOptions) [process, env, io, error] {
+  let from = choose(opts.from, ["auto", "si", "iec", "iec-i", "none"])
+  if from == "" or from == "?" {
+    if let span = option_span(argv, "from") {
+      snippet_error(argv, f"invalid argument '{opts.from}' for '--from'", span, {start: 0, length: span.length, label: "", help: "--from and --to take none, si, iec or iec-i, and --from also takes auto"}, 1)
+      return
+    }
+  }
+
+  let to = choose(opts.to, ["si", "iec", "iec-i", "none"])
+  if to == "" or to == "?" {
+    if let span = option_span(argv, "to") {
+      let label = if opts.to == "auto" { "auto guesses the unit of the input, so only --from takes it" } else { "" }
+      snippet_error(argv, f"invalid argument '{opts.to}' for '--to'", span, {start: 0, length: span.length, label: label, help: "--from and --to take none, si, iec or iec-i, and --from also takes auto"}, 1)
+      return
+    }
+  }
+
+  if parse_unit_size(opts.from_unit) == null {
+    if let span = option_span(argv, "from-unit") {
+      let value = if span.index < argv.len() { argv[span.index].byte_slice(span.start, length: span.length) } else { opts.from_unit }
+      let zero = rx"^0+$".matches(value)
+      snippet_error(argv, f"invalid unit size: {gnu.quote(opts.from_unit)}", span, {start: 0, length: span.length, label: if zero { "a unit size must be at least 1" } else { "" }, help: "a unit size is a number, a K, M, G, T, P or E multiplier, or both, as in 512, K or 2Ki"}, 1)
+      return
+    }
+  }
+
+  if parse_unit_size(opts.to_unit) == null {
+    if let span = option_span(argv, "to-unit") {
+      let value = if span.index < argv.len() { argv[span.index].byte_slice(span.start, length: span.length) } else { opts.to_unit }
+      let zero = rx"^0+$".matches(value)
+      snippet_error(argv, f"invalid unit size: {gnu.quote(opts.to_unit)}", span, {start: 0, length: span.length, label: if zero { "a unit size must be at least 1" } else { "" }, help: "a unit size is a number, a K, M, G, T, P or E multiplier, or both, as in 512, K or 2Ki"}, 1)
+      return
+    }
+  }
+
+  if let given = opts.padding {
+    let value = given.parse_int() ?? 0
+    if ! rx"^-?[0-9]+$".matches(given) or value == 0 {
+      if let span = option_span(argv, "padding") {
+        snippet_error(argv, f"invalid padding value {gnu.quote(given)}", span, {start: 0, length: span.length, label: if value == 0 and rx"^0+$".matches(given) { "a padding is a width in characters, so 0 asks for nothing" } else { "" }, help: "--padding takes a non-zero whole number; a negative one left-aligns, as in --padding=-10"}, 1)
+        return
+      }
+    }
+  }
+
+  if opts.header != "" {
+    let value = opts.header.parse_int() ?? 0
+    if ! rx"^[0-9]+$".matches(opts.header) or value == 0 {
+      if let span = option_span(argv, "header") {
+        snippet_error(argv, f"invalid header value {gnu.quote(opts.header)}", span, {start: 0, length: span.length, label: "", help: "--header takes the number of leading lines to pass through unchanged, at least 1"}, 1)
+        return
+      }
+    }
+  }
+
+  let field_items = opts.field.replace(" ", ",").split(",")
+  if ! ("-" in field_items) {
+    for item in field_items {
+      let range = parse_range(item)
+      if range.err != "" {
+        if let span = option_span(argv, "field") {
+          let value = if span.index < argv.len() { argv[span.index].byte_slice(span.start, length: span.length) } else { opts.field }
+          let offset = value.find(item) ?? 0
+          let field_start = span.start + offset
+          let field_span = {index: span.index, start: field_start, length: item.byte_len()}
+          let reversed = range.err == "high end of range less than low end"
+          let details = {start: 0, length: item.byte_len(), label: if reversed { "this range ends before it starts" } else { "fields are numbered from 1" }, help: "FIELDS accepts comma-separated field numbers and ranges, such as 1,3-5 or -2"}
+          snippet_error(argv, f"range {gnu.quote(item)} was invalid: {range.err}", field_span, details, 1)
+          return
+        }
+      }
+    }
+  }
+
+  if let text = opts.format {
+    let parsed = parse_format(text)
+    if parsed.err != "" {
+      if let span = option_span(argv, "format") {
+        snippet_error(argv, parsed.err, span, format_snippet(text, parsed.err), 1)
+        return
+      }
+    }
+  }
+}
+
 proc option_error(message: Str) [process, env] -> Unit {
   gnu.error(message)
   exit 1
@@ -1751,6 +2093,32 @@ proc format_delimited_bytes(line: Bytes, delimiter: Bytes, settings: Settings) [
   {text: bytes.concat(out), err: ""}
 }
 
+pure input_snippet(value: Str, message: Str) -> Snippet {
+  if message.starts_with("invalid suffix in input '") {
+    return {start: value.byte_len() - 1, length: 1, label: "", help: "the suffixes are K, M, G, T, P, E, Z, Y, R and Q, with an optional i under --from=auto or iec-i"}
+  }
+
+  if message.starts_with("invalid suffix in input:") {
+    var at = 0
+    if value.starts_with("+") or value.starts_with("-") { at = 1 }
+    var dot = false
+    while at < value.byte_len() {
+      let char = value.byte_slice(at, length: 1)
+      if is_digit(char) {
+        at += 1
+      } else if char == "." and ! dot {
+        dot = true
+        at += 1
+      } else {
+        break
+      }
+    }
+    return {start: at, length: value.byte_len() - at, label: "", help: "without --from a number must be plain; --from=auto reads a K, M or Gi suffix"}
+  }
+
+  {start: 0, length: value.byte_len(), label: "", help: ""}
+}
+
 proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: NumfmtOptions = cli.applet(
     normalize_delimiter_option(argv),
@@ -1787,6 +2155,8 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     gnu.version("numfmt")
     return
   }
+
+  terminal_option_snippets(argv, opts)
 
   let raw_argv = cli.argv_bytes()
   let delimiter_bytes = raw_delimiter(argv, raw_argv, bytes.from_text(opts.delimiter ?? ""))
@@ -1911,6 +2281,15 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       out += result.text + eol
     } else if settings.invalid == "abort" {
       gnu.write_text(out + result.text)
+      if ! from_stdin and opts.field == "1" {
+        let operand_positions = operand_indices(argv)
+        if index < operand_positions.len() {
+          let operand_index = operand_positions[index]
+          let operand = argv[operand_index]
+          let details = input_snippet(operand, result.err)
+          snippet_error(argv, result.err, {index: operand_index, start: 0, length: details.length}, details, 2)
+        }
+      }
       gnu.error(result.err)
       exit 2
     } else {
