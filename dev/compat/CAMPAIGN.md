@@ -10,9 +10,9 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 - Local `campaign-utils` now includes the `fs-misc`, `perm`, native byte/hash,
   GNU patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, and
-  `proc-a` merges (integrator head `0d5ad97b`). The local `origin/campaign-utils`
-  ref is still at `5de29706`; push after the campaign evidence is refreshed.
-  Pinned references are uutils
+  `proc-a`, and `checksums` merges (integrator head `7033e8fd`). The local
+  `origin/campaign-utils` ref is still at `5de29706`; push after the campaign
+  evidence is refreshed. Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
 - Setup is complete on native Linux x86_64. Docker is not used. The workspace
   uses `nightly-2026-09-15`, the `x86_64-unknown-linux-musl` target, and mold
@@ -38,9 +38,10 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   remain in progress. `bytes-enc` has implemented base32, base64, basenc, od,
   and dd; native tests pass and its uutils slice is at **301+ / 311** with a
   slow FIFO timeout and remaining behavior gaps under investigation.
-  `checksums` uses the shared byte/hash APIs and has native tests for all nine
-  mapped commands; its canonical uutils slice is running. The integrator owns
-  shared results and baselines; lane runs use scratch outputs.
+  `checksums` is merged over the shared byte/hash APIs; its ten native tests
+  pass, and the canonical uutils slice is rerunning after the applet entered
+  the shared tree. The integrator owns shared results and baselines; lane runs
+  use scratch outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes
   are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;
