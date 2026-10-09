@@ -20,6 +20,9 @@ test test_df { |ctx|
   assert f" {stats.blocks_1k} " in output
   let fake_used = root.du()?
   assert ! (f"{resolved} {fake_used} {fake_used} 0 100% {resolved}" in output)
+  let portable = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -kP $root ?
+  assert portable.starts_with("Filesystem 1024-blocks Used Available Capacity Mounted on\n")
+  assert f" {stats.blocks_1k} " in portable
 }
 
 test test_df_matches_alpine_kp { |ctx|

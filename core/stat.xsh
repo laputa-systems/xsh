@@ -1,12 +1,93 @@
 #!/bin/xsh
-error AppletError = Usage(message: Str) : Usage
+use lib.gnu
 
-pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/{applet_name}.xsh {summary}"
+type StatMeta = {
+  kind: Str,
+  mode: Int,
+  size: Int,
+  blocks_512: Int,
+  blksize: Int,
+  uid: Int,
+  gid: Int,
+  nlink: Int,
+  dev: Int,
+  ino: Int,
+  rdev: Int,
+  atime_seconds: Int,
+  atime_nanoseconds: Int,
+  mtime_seconds: Int,
+  mtime_nanoseconds: Int,
+  ctime_ns: Int,
+  birth_ns: Int?,
 }
 
-pure usage_error(applet_name: Str, summary: Str) -> Error {
-  AppletError.Usage(usage(applet_name, summary))
+type StatFs = {
+  block_size: Int,
+  fragment_size: Int,
+  blocks: Int,
+  blocks_free: Int,
+  blocks_available: Int,
+  files: Int,
+  files_free: Int,
+  fsid: Int,
+  name_max: Int,
+  type_magic: Int?,
+}
+
+type StatOptions = {
+  dereference: Bool,
+  filesystem: Bool,
+  format: Str?,
+  printf: Str?,
+  terse: Bool,
+  help: Bool,
+  version: Bool,
+  paths: List[Str],
+}
+
+pure has_bit(mode: Int, bit: Int) -> Bool {
+  mode / bit % 2 == 1
+}
+
+pure octal(value: Int) -> Str {
+  return "0" when value == 0
+
+  var number = value
+  var result = ""
+  while number > 0 {
+    result = f"{number % 8}{result}"
+    number = number / 8
+  }
+  result
+}
+
+pure hexadecimal(value: Int) -> Str {
+  const digits = "0123456789abcdef"
+  return "0" when value == 0
+
+  var number = value
+  var result = ""
+  while number > 0 {
+    result = f"{digits.byte_slice(number % 16, length: 1)}{result}"
+    number = number / 16
+  }
+  result
+}
+
+pure trim_hex_zeroes(text: Str) -> Str {
+  var start = 0
+  while start < text.byte_len() and text.byte_slice(start, length: 1) == "0" { start += 1 }
+  return "0" when start == text.byte_len()
+  text.byte_slice(start)
+}
+
+pure filesystem_id(value: Int) -> Str {
+  return "0" when value == 0
+  let raw = hexadecimal(value)
+  var padded = raw
+  while padded.byte_len() < 16 { padded = f"0{padded}" }
+  if padded.byte_len() > 16 { padded = padded.byte_slice(padded.byte_len() - 16) }
+  f"{trim_hex_zeroes(padded.byte_slice(8, length: 8))}{padded.byte_slice(0, length: 8)}"
 }
 
 pure file_type_name(kind: Str) -> Str {
@@ -14,97 +95,221 @@ pure file_type_name(kind: Str) -> Str {
     "dir" => "directory"
     "file" => "regular file"
     "symlink" => "symbolic link"
-    else => kind
+    "fifo" => "fifo"
+    "socket" => "socket"
+    "block" => "block special file"
+    "char" => "character special file"
+    else => "unknown"
   }
-}
-
-pure has_bit(mode: Int, bit: Int) -> Bool {
-  mode / bit % 2 == 1
-}
-
-pure mode_octal(mode: Int) -> Str {
-  let bits = mode % 512
-  let user_bits = bits / 64
-  let group_bits = bits / 8 % 8
-  let other_bits = bits % 8
-  f"{user_bits}{group_bits}{other_bits}"
-}
-
-pure mode_triplet(mode: Int, read_bit: Int, write_bit: Int, exec_bit: Int) -> Str {
-  let r = if has_bit(mode, read_bit) { "r" } else { "-" }
-  let w = if has_bit(mode, write_bit) { "w" } else { "-" }
-  let x = if has_bit(mode, exec_bit) { "x" } else { "-" }
-  f"{r}{w}{x}"
 }
 
 pure mode_string(kind: Str, mode: Int) -> Str {
-  let file_type = if kind == "dir" { "d" } else if kind == "symlink" { "l" } else { "-" }
-
-  f"{file_type}{mode_triplet(mode, 0o400, 0o200, 0o100)}{mode_triplet(mode, 0o40, 0o20, 0o10)}{mode_triplet(mode, 0o4, 0o2, 0o1)}"
+  let file_type = match kind {
+    "dir" => "d"
+    "symlink" => "l"
+    "fifo" => "p"
+    "socket" => "s"
+    "block" => "b"
+    "char" => "c"
+    else => "-"
+  }
+  let ur = if has_bit(mode, 0o400) { "r" } else { "-" }
+  let uw = if has_bit(mode, 0o200) { "w" } else { "-" }
+  let ux = if has_bit(mode, 0o4000) { if has_bit(mode, 0o100) { "s" } else { "S" } } else { if has_bit(mode, 0o100) { "x" } else { "-" } }
+  let gr = if has_bit(mode, 0o40) { "r" } else { "-" }
+  let gw = if has_bit(mode, 0o20) { "w" } else { "-" }
+  let gx = if has_bit(mode, 0o2000) { if has_bit(mode, 0o10) { "s" } else { "S" } } else { if has_bit(mode, 0o10) { "x" } else { "-" } }
+  let other_r = if has_bit(mode, 0o4) { "r" } else { "-" }
+  let ow = if has_bit(mode, 0o2) { "w" } else { "-" }
+  let ox = if has_bit(mode, 0o1000) { if has_bit(mode, 0o1) { "t" } else { "T" } } else { if has_bit(mode, 0o1) { "x" } else { "-" } }
+  f"{file_type}{ur}{uw}{ux}{gr}{gw}{gx}{other_r}{ow}{ox}"
 }
 
-proc render_format(fmt: Str, target: Path, meta: FsEntry) [fs, error] -> Str {
+proc time_string(seconds: Int, nanoseconds: Int) [time, error] -> Result[Str] {
+  time.format(seconds, nanoseconds, "%F %T.%N %z", "local", "gregorian", "locale")
+}
+
+proc file_directive(specifier: Str, target: Path, meta: StatMeta) [fs, error, time, env] -> Result[Str] {
   var owner = f"{meta.uid}"
   var owner_group = f"{meta.gid}"
+  if let Ok(found_user) = user.by_uid(meta.uid) { owner = found_user.name }
+  if let Ok(found_group) = group.by_gid(meta.gid) { owner_group = found_group.name }
 
-  if let Ok(found_user) = user.by_uid(meta.uid) {
-    owner = found_user.name
-  }
-
-  if let Ok(found_group) = group.by_gid(meta.gid) {
-    owner_group = found_group.name
-  }
-
-  var out = fmt
-  out = out.replace("%s", f"{meta.size}")
-  out = out.replace("%b", f"{meta.blocks_512}")
-  out = out.replace("%B", "512")
-  out = out.replace("%a", mode_octal(meta.mode))
-  out = out.replace("%A", mode_string(meta.kind, meta.mode))
-  out = out.replace("%u", f"{meta.uid}")
-  out = out.replace("%g", f"{meta.gid}")
-  out = out.replace("%U", owner)
-  out = out.replace("%G", owner_group)
-  out = out.replace("%X", f"{meta.accessed}")
-  out = out.replace("%Y", f"{meta.modified}")
-  out = out.replace("%F", file_type_name(meta.kind))
-  out = out.replace("%n", target.display())
-  out = out.replace("%N", f"'{target}'")
-  out
+  Ok(match specifier {
+    "%a" => octal(meta.mode % 4096)
+    "%A" => mode_string(meta.kind, meta.mode)
+    "%b" => f"{meta.blocks_512}"
+    "%B" => "512"
+    "%d" => f"{meta.dev}"
+    "%D" => hexadecimal(meta.dev)
+    "%f" => hexadecimal(meta.mode)
+    "%F" => file_type_name(meta.kind)
+    "%g" => f"{meta.gid}"
+    "%G" => owner_group
+    "%h" => f"{meta.nlink}"
+    "%i" => f"{meta.ino}"
+    "%m" => {
+      let mount = fs.mount_for(target.resolve()?)?
+      mount.mounted_on.display()
+    }
+    "%n" => target.display()
+    "%N" => {
+      let name = gnu.quote_maybe(target.display())
+      if meta.kind == "symlink" {
+        let link = target.readlink()?
+        f"{gnu.quote_maybe(target.display())} -> {gnu.quote_maybe(link.display())}"
+      } else {
+        gnu.quote_maybe(target.display())
+      }
+    }
+    "%o" => f"{meta.blksize}"
+    "%r" => f"{meta.rdev}"
+    "%s" => f"{meta.size}"
+    "%t" => hexadecimal(fs.dev_major(meta.rdev))
+    "%T" => hexadecimal(fs.dev_minor(meta.rdev))
+    "%u" => f"{meta.uid}"
+    "%U" => owner
+    "%w" => {
+      if let birth = meta.birth_ns {
+        time_string(birth / 1000000000, birth % 1000000000)?
+      } else {
+        "-"
+      }
+    }
+    "%W" => f"{(meta.birth_ns ?? 0) / 1000000000}"
+    "%x" => time_string(meta.atime_seconds, meta.atime_nanoseconds)?
+    "%X" => f"{meta.atime_seconds}"
+    "%y" => time_string(meta.mtime_seconds, meta.mtime_nanoseconds)?
+    "%Y" => f"{meta.mtime_seconds}"
+    "%z" => {
+      let seconds = meta.ctime_ns / 1000000000
+      let nanoseconds = meta.ctime_ns % 1000000000
+      time_string(seconds, nanoseconds)?
+    }
+    "%Z" => f"{meta.ctime_ns / 1000000000}"
+    "%%" => "%"
+    else => ""
+  })
 }
 
-type StatOptions = {format: Str, paths: List[Str]}
+proc render_format(format: Str, target: Path, meta: StatMeta) [fs, error, time, env] -> Result[Str] {
+  var output = format
+  output = output.replace("%%", "\u{0}XSH_PERCENT\u{0}")
+  for specifier in ["%a", "%A", "%b", "%B", "%d", "%D", "%f", "%F", "%g", "%G", "%h", "%i", "%m", "%n", "%N", "%o", "%r", "%s", "%t", "%T", "%u", "%U", "%w", "%W", "%x", "%X", "%y", "%Y", "%z", "%Z"] {
+    output = output.replace(specifier, file_directive(specifier, target, meta)?)
+  }
+  Ok(output.replace("\u{0}XSH_PERCENT\u{0}", "%"))
+}
 
-proc main(...argv: List[Str]) [fs, error] {
+proc terse_format(target: Path, meta: StatMeta) [fs, error, time, env] -> Result[Str] {
+  render_format("%n %s %b %B %f %u %g %D %i %h %d %r %t %T %X %Y %Z %W", target, meta)?
+}
+
+proc filesystem_format(format: Str, target: Path, info: StatFs, mount: FsMount) [env] -> Str {
+  format.replace("%%", "\u{0}XSH_PERCENT\u{0}")
+    .replace("%b", f"{info.blocks}")
+    .replace("%f", f"{info.blocks_free}")
+    .replace("%a", f"{info.blocks_available}")
+    .replace("%c", f"{info.files}")
+    .replace("%d", f"{info.files_free}")
+    .replace("%i", filesystem_id(info.fsid))
+    .replace("%l", f"{info.name_max}")
+    .replace("%n", gnu.quote_maybe(target.display()))
+    .replace("%s", f"{info.block_size}")
+    .replace("%S", f"{info.fragment_size}")
+    .replace("%t", f"{hexadecimal(info.type_magic ?? 0)}")
+    .replace("%T", mount.fstype)
+    .replace("\u{0}XSH_PERCENT\u{0}", "%")
+}
+
+proc default_format(target: Path, meta: StatMeta) [fs, error, time, env] -> Result[Str] {
+  let name = gnu.quote_maybe(target.display())
+  let access = time_string(meta.atime_seconds, meta.atime_nanoseconds)?
+  let modify = time_string(meta.mtime_seconds, meta.mtime_nanoseconds)?
+  let change = time_string(meta.ctime_ns / 1000000000, meta.ctime_ns % 1000000000)?
+  let birth = if let value = meta.birth_ns { time_string(value / 1000000000, value % 1000000000)? } else { "-" }
+  let owner = file_directive("%U", target, meta)?
+  let owner_group = file_directive("%G", target, meta)?
+  Ok(f"  File: {name}\n  Size: {meta.size}\tBlocks: {meta.blocks_512}\tIO Block: {meta.blksize} {file_type_name(meta.kind)}\nDevice: {hexadecimal(meta.dev)}h/{meta.dev}d\tInode: {meta.ino}\tLinks: {meta.nlink}\nAccess: ({octal(meta.mode % 4096)}/{mode_string(meta.kind, meta.mode)})\tUid: ({meta.uid}/{owner})\tGid: ({meta.gid}/{owner_group})\nAccess: {access}\nModify: {modify}\nChange: {change}\n Birth: {birth}")
+}
+
+proc main(...argv: List[Str]) [fs, error, io, time, env] {
   let opts: StatOptions = cli.applet(
     argv,
     {
-      format: {
-        form: "-c --format FORMAT",
-        default: "",
-      },
-      paths: {
-        form: "...PATH",
-      },
+      gnu: {status: 1},
+      dereference: {form: "-L --dereference", default: false},
+      filesystem: {form: "-f --file-system", default: false},
+      format: {form: "-c --format FORMAT"},
+      printf: {form: "--printf FORMAT"},
+      terse: {form: "-t --terse", default: false},
+      help: {form: "--help", default: false, stop: true},
+      version: {form: "--version", default: false, stop: true},
+      paths: {form: "...PATH"},
     },
   )?
-  let {format: fmt, paths, ..} = opts
 
-  return Err(usage_error("stat", "[-c FORMAT] PATH...")) when paths.len() == 0
+  if opts.help {
+    gnu.help("""Usage: stat [OPTION]... FILE...
+Display file or file system status.
 
-  for item in paths {
+  -L, --dereference   follow links
+  -f, --file-system   display file system status instead of file status
+  -c, --format=FORMAT use the specified format instead of the default
+      --printf=FORMAT like --format, but interpret backslash escapes
+  -t, --terse         print the information in terse form
+      --help          display this help and exit
+      --version       output version information and exit""")
+    return
+  }
+
+  if opts.version {
+    gnu.version("stat")
+    return
+  }
+
+  if opts.paths.len() == 0 {
+    gnu.missing_operand()
+  }
+
+  if opts.format != null and opts.printf != null {
+    gnu.error("cannot specify both --format and --printf")
+    exit 1
+  }
+
+  for item in opts.paths {
     let target = fp"{item}"
-    let meta = target.metadata()?
+    if opts.filesystem {
+      if item == "-" {
+        gnu.error("using '-' to denote standard input does not work in file system mode")
+        exit 1
+      }
+      let statfs: StatFs = fs.statvfs(target)?
+      let mount = fs.mount_for(target.resolve()?)?
+      if opts.terse {
+        print filesystem_format("%n %i %l %t %s %S %b %f %a %c %d", target, statfs, mount)
+      } else if opts.format != null or opts.printf != null {
+        let format = opts.format ?? opts.printf ?? ""
+        let rendered = filesystem_format(format, target, statfs, mount)
+        if opts.printf != null { gnu.write_bytes(bytes.from_text(rendered)) } else { print $rendered }
+      } else {
+        print f"  File: {gnu.quote_maybe(target.display())}"
+        print f"    ID: {hexadecimal(statfs.fsid)} Namelen: {statfs.name_max} Type: {mount.fstype} Block size: {statfs.block_size} Fundamental block size: {statfs.fragment_size}"
+        print f"  Blocks: Total: {statfs.blocks} Free: {statfs.blocks_free} Available: {statfs.blocks_available}"
+        print f"  Inodes: Total: {statfs.files} Free: {statfs.files_free}"
+      }
+      continue
+    }
 
-    if fmt != "" {
-      print render_format(fmt, target, meta)
+    let meta: StatMeta = fs.stat(target, follow_symlinks: opts.dereference)?
+    if opts.terse {
+      print terse_format(target, meta)?
+    } else if opts.format != null or opts.printf != null {
+      let format = opts.format ?? opts.printf ?? ""
+      let rendered = render_format(format, target, meta)?
+      if opts.printf != null { gnu.write_bytes(bytes.from_text(rendered)) } else { print $rendered }
     } else {
-      print f"kind {meta.kind}"
-      print f"size {meta.size}"
-      print f"mode {meta.mode}"
-      print f"uid {meta.uid}"
-      print f"gid {meta.gid}"
-      print f"path {meta.path}"
+      print default_format(target, meta)?
     }
   }
 }
