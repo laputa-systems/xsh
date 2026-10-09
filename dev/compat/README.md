@@ -108,12 +108,12 @@ builds. Docker is not used. Release `xsh`/`xsht` builds, the pinned uutils
 test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
 
 The initial uutils run recorded 2,205 / 5,974 passes; after the date/dircolors
-merge, a full run reached 2,368 / 5,974 with no regressions. A full run after
-the cp/mv integration found regressions that are documented in
-[`CAMPAIGN.md`](CAMPAIGN.md) and repaired on the current local head. A focused
-`ls dir vdir split` rerun passes 314 / 365 with no regression among previously
-passing tests. The next full run is pending the active `perm`, `stat-du-df`,
-and `printf-env` lane merges.
+merge, a full run reached 2,368 / 5,974 with no regressions. The most recent
+full run, after cp/mv integration, recorded 2,813 / 5,974 and exposed
+regressions. Follow-up fixes and additional utility slices are recorded in
+[`CAMPAIGN.md`](CAMPAIGN.md); a fresh full run is still required after the
+active lanes merge. A focused `ls dir vdir split` rerun passes 314 / 365 with
+no regression among previously passing tests.
 
 `run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
 The baseline run against uutils recorded 573 passed, 85 skipped, 58 failed,
