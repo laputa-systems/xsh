@@ -38,6 +38,18 @@ pure utf8_size(data: Bytes, at: Int) -> Int {
   if size > 1 and at + size <= data.len() and (data[at..at + size].utf8() ?? "") != "" { size } else { 1 }
 }
 
+proc delimiter_unit_size(raw: Bytes, at: Int) [env] -> Int {
+  let locale = env.get_or("LC_ALL", "") ?? ""
+  let category = if locale == "" { env.get_or("LC_CTYPE", "") ?? "" } else { locale }
+  let language = if category == "" { env.get_or("LANG", "") ?? "" } else { category }
+  if "gb18030" in language.lower() {
+    let lead = raw.byte_at(at) ?? 0
+    let trail = raw.byte_at(at + 1) ?? 0
+    if lead >= 129 and lead <= 254 and trail >= 64 and trail <= 254 and trail != 127 { return 2 }
+  }
+  utf8_size(raw, at)
+}
+
 proc delimiters(raw: Bytes) [env] -> Result[List[Bytes], Str] {
   var out: List[Bytes] = []
   var at = 0
@@ -45,22 +57,23 @@ proc delimiters(raw: Bytes) [env] -> Result[List[Bytes], Str] {
     let byte = raw.byte_at(at) ?? 0
     if byte == 92 {
       if at + 1 >= raw.len() {
-        return Err(f"delimiter list ends with an unescaped backslash: {gnu.quote_bytes(raw)}")
+        return Err(f"delimiter list ends with an unescaped backslash: {raw.utf8() ?? "?"}")
       }
       let escaped = raw.byte_at(at + 1) ?? 0
       let value = if escaped == 98 { 8 } else if escaped == 102 { 12 } else if escaped == 110 { 10 } else if escaped == 114 { 13 } else if escaped == 116 { 9 } else if escaped == 118 { 11 } else { -1 }
       if escaped == 48 {
+        out += [b""]
         at += 2
       } else if value >= 0 {
         out += [bytes.from_ints([value]) ?? b""]
         at += 2
       } else {
-        let size = utf8_size(raw, at + 1)
+        let size = delimiter_unit_size(raw, at + 1)
         out += [raw[at + 1..at + 1 + size]]
         at += 1 + size
       }
     } else {
-      let size = utf8_size(raw, at)
+      let size = delimiter_unit_size(raw, at)
       out += [raw[at..at + size]]
       at += size
     }
@@ -128,10 +141,11 @@ pure parallel_output(columns: List[List[Bytes]], delims: List[Bytes], mark: Byte
   bytes.concat(out)
 }
 
-pure serial_output(columns: List[List[Bytes]], delims: List[Bytes], mark: Bytes) -> Bytes {
+pure serial_output(columns: List[List[Bytes]], empty_files: List[Bool], delims: List[Bytes], mark: Bytes) -> Bytes {
   var out: List[Bytes] = []
-  for column in columns {
-    if column.len() > 0 {
+  for index in range(columns.len()) {
+    let column = columns[index]
+    if column.len() > 0 or empty_files[index] {
       for row in range(column.len()) {
         if row > 0 { out += [output_delimiter(delims, row - 1)] }
         out += [column[row]]
@@ -164,23 +178,53 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if raw.has_delimiter {
     match delimiters(raw.delimiter) {
       Ok(parsed) => { delims = parsed }
-      Err(message) => { gnu.error(message); gnu.try_help(); exit 1 }
+      Err(message) => { gnu.error(message); exit 1 }
     }
   }
   let names = if raw.files.len() == 0 { [b"-"] } else { raw.files }
   let sep = if opts.zero { 0 } else { 10 }
   let mark = bytes.from_ints([sep])?
+  var wants_stdin = false
+  for name in names { wants_stdin = wants_stdin or name == b"-" }
+  var stdin_data = b""
+  if wants_stdin {
+    match io.stdin_bytes() {
+      Ok(data) => { stdin_data = data }
+      Err(failure) => { gnu.error(f"read error: {gnu.strerror(failure)}"); exit 1 }
+    }
+  }
   var columns: List[List[Bytes]] = []
+  var empty_files: List[Bool] = []
+  var stdin_occurrences = 0
+  for name in names { if name == b"-" { stdin_occurrences += 1 } }
+  var stdin_position = 0
+  let stdin_records = split_records(stdin_data, sep)
   var failed = false
   for name in names {
-    guard let input = read_input(name) else { |failure|
-      gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
-      failed = true
-      continue
+    if name == b"-" {
+      var records: List[Bytes] = []
+      if opts.serial {
+        if stdin_position == 0 { records = stdin_records }
+        empty_files += [stdin_position > 0]
+      } else {
+        for index in range(stdin_records.len()) {
+          if index % stdin_occurrences == stdin_position { records += [stdin_records[index]] }
+        }
+        empty_files += [false]
+      }
+      columns += [records]
+      stdin_position += 1
+    } else {
+      guard let input = read_input(name) else { |failure|
+        gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+        failed = true
+        continue
+      }
+      columns += [split_records(input, sep)]
+      empty_files += [false]
     }
-    columns += [split_records(input, sep)]
   }
-  let output = if opts.serial { serial_output(columns, delims, mark) } else { parallel_output(columns, delims, mark) }
+  let output = if opts.serial { serial_output(columns, empty_files, delims, mark) } else { parallel_output(columns, delims, mark) }
   gnu.write_bytes(output)
   if failed { exit 1 }
 }

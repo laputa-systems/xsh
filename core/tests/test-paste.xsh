@@ -38,3 +38,12 @@ test test_paste_delimiter_escape_and_serial_reset { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/paste.xsh" -d ":|" -s $first $second ?
   assert output == "a:b\nc:d|e\n"
 }
+
+test test_paste_repeated_stdin_operands_share_the_stream { |ctx|
+  let script = fp"{ctx.core_dir}/paste.xsh"
+  let parallel = run.text sh -c f"printf 'a\\nb\\nc\\nd\\n' | {ctx.xsh_bin} {script} - -" ?
+  assert parallel == f"a\tb\nc\td\n"
+
+  let serial = run.text sh -c f"printf 'a\\nb\\n' | {ctx.xsh_bin} {script} -s - - -" ?
+  assert serial == f"a\tb\n\n\n"
+}
