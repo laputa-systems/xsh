@@ -121,9 +121,9 @@ be GPT-6 Luna at xhigh.
 
 The latest merged uutils results combine the 2026-10-09 full run with focused
 `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-`echo`, `test`, and `tail` refreshes on the current `XSH_BIN`: 5,137 / 5,974
-passing, 837 failing, and 4 excluded. Compared with the checked-in result, 13
-additional test IDs pass and none regressed. The focused `factor sort`
+`echo`, `test`, `tail`, and `sleep` refreshes on the current `XSH_BIN`: 5,139 /
+5,974 passing, 835 failing, and 4 excluded. Compared with the preceding
+integration result, 2 additional test IDs pass and none regressed. The focused `factor sort`
 result is 139 / 242 (factor 23/25, sort 116/217). The byte-key fast path
 restored `test_factor::test_parallel`, and removing unneeded unique-sort key
 work brought the buffer-size test under its 30-second limit. `--batch-size`

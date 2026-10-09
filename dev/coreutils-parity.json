@@ -1081,7 +1081,9 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The six remaining failures (`test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report`, `test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option`, `test_printf::diagnostics::test_snippet_points_at_the_bad_code_point`, `test_printf::diagnostics::test_snippet_points_at_the_bad_spec`, `test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape`, and `test_printf::diagnostics::test_snippet_points_inside_a_quoted_format`) require uutils' feature-gated terminal carets and Help snippets. GNU coreutils 9.12 `src/printf.c` emits plain stderr messages for invalid conversions and escape errors, as its `tests/printf/printf-cov.pl` checks; XSH keeps those GNU diagnostics. The native printf tests cover the plain messages and preserved output prefixes."
+      ]
     },
     {
       "utility": "ptx",
@@ -1308,8 +1310,8 @@
       "native_tests": "core/tests/test-sleep.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 47,
-        "fail": 6,
+        "pass": 49,
+        "fail": 4,
         "skip": 0,
         "excluded": 1
       },
@@ -1318,7 +1320,11 @@
       "excluded_tests": [
         "test_sleep::test_invalid_duration::case_7_single_quote"
       ],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_sleep::test_sleep_no_argument expects clap's required-argument block; GNU coreutils 9.12 emits `sleep: missing operand` and the help hint, which XSH follows.",
+        "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab, case_3_only_newline and test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs expect uutils' `$'...'` quoting. GNU coreutils 9.12 prints C escapes inside single quotes (confirmed with the pinned GNU binary); `gnu.quote_value` matches GNU, so these three failures are intentional policy differences.",
+        "test_sleep::test_invalid_duration::case_7_single_quote is excluded because uutils wraps an apostrophe argument in double quotes while GNU 9.12 escapes it within single quotes; XSH follows GNU."
+      ]
     },
     {
       "utility": "sort",
@@ -1860,7 +1866,17 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "`test_env::diagnostics::test_snippet_follows_the_string_when_it_is_glued_to_the_option`, `test_snippet_points_at_the_invalid_escape`, `test_snippet_points_at_the_unterminated_quote`, `test_snippet_points_at_the_whole_variable_reference`, and `test_snippet_points_into_the_right_argument` expect uutils source carets for `-S` parse errors. GNU coreutils 9.12 reports plain diagnostics, which XSH follows; a reusable XSH diagnostic mode would need original argv/value spans and a shared terminal caret renderer from `cli.applet`.",
+        "`test_env::test_debug_1`, `test_debug_2`, `test_debug1_part_of_string_arg`, and `test_debug2_part_of_string_arg` hard-code a command path ending in `coreutils`; the XSH compatibility stage passes its `xsh-uutests` dispatcher path. XSH prints the executable and argv with the same quoting and indexing as GNU 9.12, so retain the actual staged path.",
+        "`test_env::test_env_version` expects `env (uutils coreutils) 0.13.0`; XSH keeps its product version (`env (XSH core) 0.0.1`), and GNU 9.12 identifies itself as GNU coreutils.",
+        "`test_env::test_env_french` expects uutils/clap's French `unexpected argument` wording for `--verbo`; GNU 9.12 follows its getopt diagnostic path. Keep GNU option parsing and diagnostics.",
+        "`test_env::test_env_overwrite_arg0`, `test_env::test_env_arg_argv0_overwrite`, and `test_env::test_env_arg_argv0_overwrite_mixed_with_string_args` need a child argv[0] override. `process.command_argv` currently drops argv[0] while lowering and `CommandPlan` has no separate argv0 field; add an explicit argv0 field to the shared command plan and carry it through `unix.exec`.",
+        "`test_env::test_env_block_signal_flag` and `test_env::test_env_block_realtime_signal` need child signal-mask support, including realtime signal names. The process API exposes signal dispositions but no `sigprocmask` operation or command-plan signal mask; add a typed signal-mask API inherited by `unix.exec` and child plans.",
+        "`test_env::test_flags_after_command` and `test_env::test_env_split_quoted_with_backslash_space` use `-i` with a command. `env` explicitly rejects `-i`/`-u` for commands because command plans only inherit the current environment and apply additions; add an inherit/clear mode and unset-name list to `process.command_argv`/`unix.exec` so XSH can construct the requested child environment.",
+        "`test_env::test_emoji_env_vars` needs an environment overlay whose name is a non-identifier string (`\ud83c\udfaf_VAR`); the XSH environment scope accepts identifier names only. `test_env::test_non_utf8_env_vars` also needs raw environment values: `env.list()` currently requires UTF-8 and errors on `hello\\x80world`. Add byte-preserving environment name/value access and allow arbitrary valid byte names/values in child environment overlays.",
+        "`test_env::test_ignore_signal_pipe_broken_pipe_regression` sets SIGPIPE to ignore in `env`, then invokes XSH `seq`; the XSH dispatcher resets SIGPIPE to default when the child starts, undoing the disposition that GNU 9.12 preserves through exec. Add a child signal-inheritance policy that lets an exec'd XSH dispatcher retain the caller's ignored dispositions."
+      ]
     },
     {
       "utility": "hostname",

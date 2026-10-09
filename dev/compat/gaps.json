@@ -26,7 +26,6 @@
     "sleep": [
       "test_sleep::test_sleep_no_argument expects clap's required-argument block; GNU coreutils 9.12 emits `sleep: missing operand` and the help hint, which XSH follows.",
       "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab, case_3_only_newline and test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs expect uutils' `$'...'` quoting. GNU coreutils 9.12 prints C escapes inside single quotes (confirmed with the pinned GNU binary); `gnu.quote_value` matches GNU, so these three failures are intentional policy differences.",
-      "test_sleep::test_sleep_stops_after_sigbus and test_sleep::test_sleep_stops_after_sigsegv time out because the XSH dispatcher remains alive when those signals arrive during `time.sleep`; Rust installs fatal-signal handlers before the applet runs. Request `src/entrypoints/xsh.rs` restore SIGBUS/SIGSEGV to `SIG_DFL` for command dispatch or provide an equivalent runtime path that exits with the original signal.",
       "test_sleep::test_invalid_duration::case_7_single_quote is excluded because uutils wraps an apostrophe argument in double quotes while GNU 9.12 escapes it within single quotes; XSH follows GNU."
     ],
     "nohup": [

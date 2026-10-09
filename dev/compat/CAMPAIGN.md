@@ -36,7 +36,10 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   native tests and generated reference docs. Exact remaining utility
   failures and their causes are in `gaps.json`.
 - `printf-env` is merged at **225 / 252** (env 79/100, printf 146/152), with
-  native tests and ratchets passing. `proc-a` is merged at **106 / 125** (kill
+  native tests and ratchets passing. The `sleep` lane is **49 / 53** applicable
+  tests passing (4 remain; 1 excluded); the runtime restores default SIGBUS and
+  SIGSEGV actions, and its focused slice passes both signal cases. `proc-a` is
+  merged at **106 / 125** (kill
   47/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 24/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
@@ -78,9 +81,10 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   extra-operand diagnostic.
 - The latest merged uutils results combine the 2026-10-09 full run and focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-  `echo`, `test`, and `tail` refreshes on the current `XSH_BIN`: **5,137 / 5,974
-  passing**, 837 failing, and 4 excluded. Compared with the checked-in result,
-  13 additional test IDs pass and none regressed. The focused
+  `echo`, `test`, `tail`, and `sleep` refreshes on the current `XSH_BIN`:
+  **5,139 / 5,974 passing**, 835 failing, and 4 excluded. Compared with the
+  preceding integration result, 2 additional test IDs pass and none regressed.
+  The focused
   slice is **139 / 242** (`factor` 23/25,
   `sort` 116/217). The default-sort byte-key fast path restored
   `test_factor::test_parallel`. The focused `cat head tail tac rm tee touch`

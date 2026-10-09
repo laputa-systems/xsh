@@ -1252,14 +1252,12 @@
       "applet": true
     },
     "sleep": {
-      "pass": 47,
-      "fail": 6,
+      "pass": 49,
+      "fail": 4,
       "skip": 0,
       "excluded": 1,
       "failing": [
         "test_sleep::test_sleep_no_argument",
-        "test_sleep::test_sleep_stops_after_sigbus",
-        "test_sleep::test_sleep_stops_after_sigsegv",
         "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab",
         "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_3_only_newline",
         "test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs"
@@ -1764,8 +1762,8 @@
     }
   },
   "totals": {
-    "pass": 5137,
-    "fail": 837,
+    "pass": 5139,
+    "fail": 835,
     "skip": 0,
     "excluded": 4
   }
