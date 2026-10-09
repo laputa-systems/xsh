@@ -3,10 +3,11 @@
 
 Gate 3 exclusions are exact uutils test IDs (`test_<util>::function`), never
 whole modules, each with a utility, a category from the closed list below and a
-non-empty reason. With UUTILS_ROOT set, every ID must also name a test that
-exists in the pinned tree, so a stale exclusion cannot linger after upstream
-renames or removes a test. Excluded tests still count in the totals as
-`excluded`; the denominator never shrinks.
+non-empty reason. Parameterized case IDs are validated against their parent
+test function. With UUTILS_ROOT set, every ID must name a test that exists in
+the pinned tree, so a stale exclusion cannot linger after upstream renames or
+removes a test. Excluded tests still count in the totals as `excluded`; the
+denominator never shrinks.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ def main() -> int:
             path = Path(root) / "tests" / "by-util" / f"test_{util}.rs"
             if util not in sources:
                 sources[util] = path.read_text(errors="replace") if path.exists() else ""
-            function = match.group(2).split("::")[-1]
+            function = match.group(2).split("::", 1)[0]
             if not re.search(rf"\bfn {re.escape(function)}\b", sources[util]):
                 errors.append(f"{test_id}: no such test in the pinned uutils tree")
     if errors:

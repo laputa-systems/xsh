@@ -77,7 +77,8 @@ def counts(utils: list[str]) -> tuple[int, int, list[str]]:
     return passed, total, lines
 
 
-def brief(name: str, sha: str, root: str, targets: str, shared: str) -> str:
+def brief(name: str, sha: str, root: str, targets: str, shared: str,
+          uutils_root: str) -> str:
     lane = load()[name]
     files = owned_files(name, lane)
     passed, total, per = counts(lane["utilities"])
@@ -92,7 +93,7 @@ def brief(name: str, sha: str, root: str, targets: str, shared: str) -> str:
         if lane["utilities"]
         else lane["note"]
     )
-    return f"""Lane: {name}   Wave: {lane['wave']}   Agent: xsh-lane (Sonnet, high effort)
+    return f"""Lane: {name}   Wave: {lane['wave']}   Agent: GPT-6 Luna (xhigh; campaign policy)
 Worktree: {root}-lanes/{name} on branch lane/{name} (from campaign-utils @ {sha})
 Read first: AGENTS.md, docs/user-tour.md, dev/compat/CAMPAIGN.md, dev/compat/LANES.md,
             core/README.md, core/lib/gnu.xsh, the cli GNU-mode section of docs/SPEC.md,
@@ -105,20 +106,18 @@ Goal: {goal};
 Notes: {lane['note'] or '-'}
 Use: core/lib/gnu.xsh diagnostics and the cli GNU mode (`gnu` record: prog, status, permute,
      unsupported; numeric and stop option fields); the pinned uutils source at
-     /home/user/ref/uutils-coreutils/src/uu/<util> and tests/by-util/test_<util>.rs are the behavior spec
+     {uutils_root}/src/uu/<util> and tests/by-util/test_<util>.rs are the behavior spec
      (read-only reference: never copy wholesale, never a dependency). GNU wording wins over clap wording.
 Verify: {shared}/xsht test core/tests/test-<util>.xsh for each owned utility;
         your uutils slice, any time (it serializes on a lock):
-          UUTILS_ROOT=/home/user/ref/uutils-coreutils XSH_BIN={shared}/xsh \\
+          UUTILS_ROOT={uutils_root} XSH_BIN={shared}/xsh \\
           COMPAT_RESULTS_DIR=<scratch dir outside the repo> dev/compat/run-uutils.sh <utils>
         then read <scratch>/uutils-integration.json (per-utility pass/fail and failing test IDs);
         failure output is in <scratch>/uutils-integration.junit.xml. Never commit anything under
         dev/compat/results/ or target/. Also: python3 dev/compat/check_ignored_options.py,
         check_kernel_reads.py and check_exclusions.py.
 Budget: stop and report at twice the size the integrator states.
-Commit on lane/{name} when green (never push, merge, or rebase others), ending the message with:
-Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
-Claude-Session: https://claude.ai/code/session_01C9ecaKzQVr1bnTZYQmHHwN
+Commit on lane/{name} when green (never push, merge, or rebase others).
 Report (<200 words): behavior changed, before/after counts, tests run, decisions, Requests:, blockers.
 """
 
@@ -135,11 +134,12 @@ def main() -> int:
     if len(sys.argv) >= 3 and sys.argv[1] == "brief":
         import os
         sha = os.popen("git rev-parse --short HEAD").read().strip()
-        root = os.environ.get("LANES_ROOT", "/home/user/xsh")
-        targets = os.environ.get("LANES_TARGETS", "/home/user/targets")
-        shared = os.environ.get("XSH_SHARED_BIN", "/home/user/xsh/target/release")
+        root = os.environ.get("LANES_ROOT", str(REPO))
+        targets = os.environ.get("LANES_TARGETS", str(REPO.parent / "targets"))
+        shared = os.environ.get("XSH_SHARED_BIN", str(REPO / "target" / "release"))
+        uutils_root = os.environ.get("UUTILS_ROOT", str(REPO.parent / "ref" / "uutils-coreutils"))
         for name in sys.argv[2:]:
-            print(brief(name, sha, root, targets, shared))
+            print(brief(name, sha, root, targets, shared, uutils_root))
         return 0
     print(__doc__, file=sys.stderr)
     return 2

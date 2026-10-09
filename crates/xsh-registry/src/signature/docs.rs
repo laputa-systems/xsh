@@ -1276,6 +1276,26 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The value is a host clock observation and is not a monotonic duration source.",
             &["time", "clock", "host-state"],
         )),
+        ("time", "wall_now") => Some((
+            "Reads the current wall-clock time with nanosecond precision.",
+            "The returned seconds and nanoseconds use normalized Unix timestamp fields; nanoseconds is in the range 0 through 999,999,999.",
+            &["time", "clock", "timestamp", "host-state"],
+        )),
+        ("time", "clock_resolution") => Some((
+            "Reads the realtime clock resolution from the host.",
+            "The returned seconds and nanoseconds describe `CLOCK_REALTIME` resolution and use normalized fields.",
+            &["time", "clock", "resolution", "host-state"],
+        )),
+        ("time", "format") => Some((
+            "Formats a Unix timestamp with strftime directives.",
+            "The timezone is `local` by default and follows the host TZ setting. `UTC` and IANA timezone names are also accepted. The calendar is `locale` by default and follows LC_TIME; pass `gregorian` to force Gregorian fields. Format widths above 65,535, or output above 1 MiB, are rejected before unbounded allocation.",
+            &["time", "strftime", "timestamp", "timezone"],
+        )),
+        ("time", "parse") => Some((
+            "Parses an absolute or relative date against a reference timestamp.",
+            "The timezone is `local` by default and follows the host TZ setting. `UTC` and IANA timezone names are also accepted. Results use normalized Unix seconds and nanoseconds.",
+            &["time", "date", "timestamp", "timezone"],
+        )),
         ("time", "sleep") => Some((
             "Suspends the current XSH operation for a duration.",
             "Sleep is interruptible host work and consumes the declared time effect.",

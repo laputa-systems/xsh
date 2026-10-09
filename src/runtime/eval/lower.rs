@@ -553,6 +553,10 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::SystemExecutionUnits
             | RuntimeOp::SystemOsRelease
             | RuntimeOp::TimeNow
+            | RuntimeOp::TimeWallNow
+            | RuntimeOp::TimeClockResolution
+            | RuntimeOp::TimeFormat
+            | RuntimeOp::TimeParse
             | RuntimeOp::TimeSleep
             | RuntimeOp::TimeMillis
             | RuntimeOp::TimeSeconds

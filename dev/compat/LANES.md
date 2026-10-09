@@ -3,9 +3,8 @@
 How the campaign in [`CAMPAIGN.md`](CAMPAIGN.md) is parallelized without
 turning into a merge-conflict campaign. One **integrator** (the main session)
 owns the integration branch, the shared files and every merge. **Lanes** are
-`xsh-lane` subagents (`.claude/agents/xsh-lane.md`), each in its own git
-worktree with an exclusive file set. Mechanical inventories and test-list
-work go to `xsh-routine` (`.claude/agents/xsh-routine.md`).
+subagents, each in its own git worktree with an exclusive file set. For the
+current campaign run, every subagent must use GPT-6 Luna at xhigh effort.
 
 ## Principles
 
@@ -74,13 +73,15 @@ several GB of target directory and most of the RAM while linking.
 
 - **Script-only lanes** (most `core/*.xsh` work) do not compile. They share
   one release `xsh`/`xsht` built from the integration branch at
-  `$XSH_SHARED_BIN` (default `/home/claude/xsh/target/release`) and run
+  `$XSH_SHARED_BIN` (default `/workspace/xsh/target/release`) and run
   `XSH_BIN=$XSH_SHARED_BIN/xsh`. The integrator rebuilds it after merging any
   runtime change and tells running lanes.
 - **Native lanes** (Rust under `src/`) each use their own
-  `CARGO_TARGET_DIR=/home/claude/targets/<lane>` and serialize compilation
+  `CARGO_TARGET_DIR=/workspace/targets/<lane>` and serialize compilation
   through one lock so two links never run at once:
-  `flock /home/claude/targets/cargo.lock cargo build --release -p xsh --bin xsh`.
+  `flock /workspace/targets/cargo.lock cargo build --release -p xsh --bin xsh`.
+  Source `dev/compat/native-env.sh` before builds so the pinned toolchain and
+  mold 3.0.0 from the GitHub release are used.
 - **Suite runs.** Full uutils and GNU runs are integrator-only, one at a time.
   Lanes run their own utilities' slice with `dev/compat/run-uutils.sh UTIL...`
   whenever they like: invocations serialize on `UUTILS_SUITE_LOCK`, and a lane
@@ -99,8 +100,8 @@ head.
 Create a lane (integrator):
 
 ```sh
-git -C /home/claude/xsh fetch origin
-git -C /home/claude/xsh worktree add -b lane/<lane> /home/claude/xsh-lanes/<lane> campaign-utils
+git -C /workspace/xsh fetch origin campaign-utils
+git -C /workspace/xsh worktree add -b lane/<lane> /workspace/xsh-lanes/<lane> campaign-utils
 ```
 
 Spawn the `xsh-lane` agent with the brief below, naming the worktree as its
@@ -109,14 +110,14 @@ green (the brief authorizes commits; it still never pushes or merges).
 
 Merge queue (integrator, one lane at a time, FIFO):
 
-1. `git -C /home/claude/xsh-lanes/<lane> rebase campaign-utils`; on conflict
+1. `git -C /workspace/xsh-lanes/<lane> rebase campaign-utils`; on conflict
    in a lane-owned file, send it back to the lane; on conflict in an
    integrator-owned file, the lane touched something it should not have.
 2. Fast gates in the lane worktree: `python3 dev/compat/check_ignored_options.py`,
    `target/release/xsht check` on changed files, the lane's `core/tests`
    files, and the Rust tests its item names.
 3. Lane slice: `dev/compat/run-uutils.sh <its utilities>`.
-4. `git -C /home/claude/xsh merge --no-ff lane/<lane>`.
+4. `git -C /workspace/xsh merge --no-ff lane/<lane>`.
 5. Rebuild the release binaries on the integration branch, then run the full
    uutils suite and compare with the committed
    `results/uutils-integration.json` using `python3 dev/compat/compare.py
@@ -128,10 +129,10 @@ Merge queue (integrator, one lane at a time, FIFO):
 7. Clean up immediately:
 
    ```sh
-   git -C /home/claude/xsh worktree remove /home/claude/xsh-lanes/<lane>
-   git -C /home/claude/xsh branch -d lane/<lane>
-   git -C /home/claude/xsh worktree prune
-   rm -rf /home/claude/targets/<lane>
+   git -C /workspace/xsh worktree remove /workspace/xsh-lanes/<lane>
+   git -C /workspace/xsh branch -d lane/<lane>
+   git -C /workspace/xsh worktree prune
+   rm -rf /workspace/targets/<lane>
    ```
 
 8. Start the next queued lane from the new head, and tell running lanes to
@@ -272,13 +273,13 @@ CI lane.
 ## Lane brief template
 
 ```text
-Lane: <lane>   Wave: <n>   Agent: xsh-lane
-Worktree: /home/claude/xsh-lanes/<lane> on branch lane/<lane> (from campaign-utils @ <sha>)
+Lane: <lane>   Wave: <n>   Agent: GPT-6 Luna (xhigh)
+Worktree: /workspace/xsh-lanes/<lane> on branch lane/<lane> (from campaign-utils @ <sha>)
 Read first: AGENTS.md, docs/user-tour.md, dev/compat/CAMPAIGN.md, dev/compat/LANES.md,
             the applets and tests you own.
 You own exactly: <files>. Do not edit anything else; put needs under "Requests:".
-Shared binaries: XSH_BIN=<path>/xsh (script lane)  |  CARGO_TARGET_DIR=/home/claude/targets/<lane>,
-                 compile only via `flock /home/claude/targets/cargo.lock cargo ...` (native lane)
+Shared binaries: XSH_BIN=/workspace/xsh/target/release/xsh (script lane)  |  CARGO_TARGET_DIR=/workspace/targets/<lane>,
+                 compile only via `flock /workspace/targets/cargo.lock cargo ...` (native lane)
 Goal: <utilities> pass their applicable uutils tests (current: <pass>/<total>);
       remove discard buckets in owned applets; implement or explicitly reject every option.
 Use: core/lib/gnu.xsh diagnostics and the cli GNU mode; the pinned uutils source at

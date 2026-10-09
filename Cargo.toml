@@ -77,6 +77,8 @@ tar = { version = "0.4.46", default-features = false }
 bzip2 = "0.6.1"
 crossbeam-channel = "0.5"
 libc = "0.2"
+jiff = "0.2.18"
+parse_datetime = "0.16.0"
 data-encoding = "2"
 directories = "6.0.0"
 bstr = { version = "1", default-features = false, features = ["std", "unicode"] }

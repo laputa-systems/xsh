@@ -1,13 +1,14 @@
 # XSH Core Compatibility Campaign
 
-Status: Wave 1 in progress on branch `campaign-utils` (two integrators, see the
-handoff and `CLAIMS.md`); scope widened on 2026-10-04 from coreutils parity to the full systems-core surface below. Lane strategy and the
+Status: Wave 1 in progress on branch `campaign-utils`; this resume uses one
+integrator and GPT-6 Luna at xhigh for every subagent. Scope widened on
+2026-10-04 from coreutils parity to the full systems-core surface below. Lane strategy and the
 integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 [`README.md`](README.md).
 
 ## Active resume (2026-10-09)
 
-- `campaign-utils` starts at `95e35002`; `origin/campaign-utils` was fetched
+- `campaign-utils` starts this resume at `81c751a6`; `origin/campaign-utils` was fetched
   and matched that head. Laputa is checked out at `048592b0`; the uutils
   reference is at the locked commit `e7c9f319`.
 - This run is native Linux x86_64, uses mold 3.0.0 from the verified GitHub
@@ -16,15 +17,22 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   [`native-env.sh`](native-env.sh).
 - The release `xsh` and `xsht` binaries built successfully with mold.
   `run-gnu.sh prepare` completed for GNU 9.12; the generated config enables
-  ACL, capability, and Linux xattr support. The native uutils baseline has
-  been refreshed to **2,205 / 5,974 passing**, with 4 excluded tests. The
-  pinned GNU 9.12 baseline run is in progress; refresh that report before
-  measuring GNU differential changes.
-- Spawned lanes for this resume use GPT-6 Luna at xhigh effort only. The
-  existing entries in [`CLAIMS.md`](CLAIMS.md) remain reserved until merged
-  or explicitly released.
+  ACL, capability, and Linux xattr support. The native uutils baseline is
+  **2,205 / 5,974 passing**, with 4 excluded tests. The GNU 9.12 baseline is
+  **573 passed, 85 skipped, 58 failed and 3 errors** out of 719 records; `env`,
+  `env0-from` and `printenv` are the three harness errors, and `close-stdin`
+  timed out at the 10 minute limit.
+- Native baseline behavior was measured on Linux x86_64 only. Docker is not
+  part of this setup. Rust builds use the workspace-local pinned nightly and
+  mold 3.0.0 installed from its verified GitHub release; see `README.md` and
+  `native-env.sh`.
+- The `date` and `fs-misc` lanes are active from `81c751a6`. The locked uutils
+  and GNU source trees and XSH release binaries are prepared in the workspace.
+  `dev/compat/lanes.py brief` now renders the current subagent model, native
+  paths and behavior references. Lanes use scratch result directories; only
+  the integrator writes campaign result JSON.
 
-## Handoff (2026-10-05, second session wound down)
+## Historical handoff (2026-10-05, superseded by Active resume above)
 
 Read this first, then `CLAIMS.md`. Verified against the repository when written;
 anything not stated as verified is marked.
@@ -70,14 +78,10 @@ anything not stated as verified is marked.
 
 ### Two integrators share this branch
 
-Another Claude session (`01Tqp2`) integrates into `campaign-utils` in parallel. Before
-starting a lane: `git fetch origin campaign-utils`, read [`CLAIMS.md`](CLAIMS.md), claim
-the lane there, and push the claim first. This session built `ls` and `native-proc-tty`
-twice by not doing that. `CLAIMS.md` lists `cp`, `text-a2`, `sort`, `fs-basic`,
-`printf-env`, `native-bytes-hash`, `bytes-enc`, `checksums`, `perm`, `stat-du-df`
-as the other session's; everything else is free, including `mv-ln`, `fs-misc`,
-`legacy-buckets`, `date`, `sed`, `awk`, `gnu-patch-classify`, `nohup`, `timeout`,
-`stdbuf`. Results JSON conflicts: take either side and rerun the suite.
+At the time, a second integrator was working in parallel and had the claims
+listed in `CLAIMS.md`. That parallel workflow has ended; treat those old
+reservations as historical until verified against current branches and
+worktrees. Current model and host setup are stated in Active resume above.
 
 ### Next steps, in order
 
@@ -101,11 +105,8 @@ as the other session's; everything else is free, including `mv-ln`, `fs-misc`,
 
 ### How lanes ran this session (lessons)
 
-- Lane agents are Sonnet at high effort, started in their own worktrees under
-  `/home/user/xsh-lanes` with a brief from `lanes.py brief` plus an operating-rules
-  note. A lane's Bash commands can block on a permission prompt that nobody is
-  watching (the `cp` lane did, on a command containing `rm -rf *`); tell lanes to avoid
-  destructive-looking shell and use the editing tools.
+- Historical lanes ran from a different host layout. Current worktrees are
+  under `/workspace/xsh-lanes`; use the generated brief and current model policy.
 - A worker restart (container restart) ends every lane and background suite at once and
   loses uncommitted lane work; lane branches are never pushed. Tell lanes to commit
   after every utility, and consider pushing finished lane branches.
@@ -129,9 +130,8 @@ as the other session's; everything else is free, including `mv-ln`, `fs-misc`,
 
 ### Standing constraints
 
-- Lane agents are Sonnet 5.5 at high effort only, never Opus (agent definition
-  pinned; every spawn passes `model: sonnet`). The `sonnet` alias was not confirmed to
-  resolve to 5.5 specifically.
+- Current campaign subagents must use GPT-6 Luna at xhigh effort, as specified
+  above.
 - The owner's non-negotiables: no accepted option silently ignored; the denominator
   never shrinks; no compatibility command parses another's text output; uutils is an
   oracle and reference, never a dependency.

@@ -3996,6 +3996,61 @@ fn time_module() -> ModuleSig {
     module_sig(vec![
         ("now", sig(Vec::new(), Type::Int, false, RuntimeOp::TimeNow)),
         (
+            "wall_now",
+            sig(
+                Vec::new(),
+                Type::Record(btree_map(vec![
+                    ("seconds", Type::Int),
+                    ("nanoseconds", Type::Int),
+                ])),
+                false,
+                RuntimeOp::TimeWallNow,
+            ),
+        ),
+        (
+            "clock_resolution",
+            sig(
+                Vec::new(),
+                result(Type::Record(btree_map(vec![
+                    ("seconds", Type::Int),
+                    ("nanoseconds", Type::Int),
+                ]))),
+                false,
+                RuntimeOp::TimeClockResolution,
+            ),
+        ),
+        (
+            "format",
+            sig(
+                vec![
+                    param("seconds", Type::Int),
+                    param("nanoseconds", Type::Int),
+                    param("format", Type::Str),
+                    default_param("timezone", Type::Str),
+                    default_param("calendar", Type::Str),
+                ],
+                result(Type::Str),
+                false,
+                RuntimeOp::TimeFormat,
+            ),
+        ),
+        (
+            "parse",
+            sig(
+                vec![
+                    param("text", Type::Str),
+                    param("reference_seconds", Type::Int),
+                    default_param("timezone", Type::Str),
+                ],
+                result(Type::Record(btree_map(vec![
+                    ("seconds", Type::Int),
+                    ("nanoseconds", Type::Int),
+                ]))),
+                false,
+                RuntimeOp::TimeParse,
+            ),
+        ),
+        (
             "sleep",
             sig(
                 vec![param("duration", Type::Duration)],

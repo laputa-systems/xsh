@@ -12,7 +12,7 @@ use crate::modules::{
     group as group_module, hash as hash_module, ini as ini_module, json as json_module,
     linux as linux_module, mime as mime_module, net as net_module, patch as patch_module,
     process as process_module, regex as regex_module, shlex, system, tui, unix as unix_module,
-    user as user_module,
+    time as time_module, user as user_module,
 };
 use crate::runtime::process::{
     CancellationPolicy, ChildWaitOutcome, FileRedirectionMode, ManagedStdio, ProcessEnd,
@@ -5892,6 +5892,78 @@ impl Evaluator {
             }
             RuntimeOp::TimeNow if values.is_empty() => {
                 LoweredValue::Int(crate::modules::time::now_epoch_ms())
+            }
+            RuntimeOp::TimeWallNow if values.is_empty() => {
+                let (seconds, nanoseconds) = time_module::wall_now();
+                LoweredValue::Record(Arc::new(BTreeMap::from([
+                    (Arc::from("seconds"), LoweredValue::Int(seconds)),
+                    (
+                        Arc::from("nanoseconds"),
+                        LoweredValue::Int(nanoseconds),
+                    ),
+                ])))
+            }
+            RuntimeOp::TimeClockResolution if values.is_empty() => {
+                match time_module::clock_resolution(span) {
+                    Ok((seconds, nanoseconds)) => lowered_result_ok(LoweredValue::Record(
+                        Arc::new(BTreeMap::from([
+                            (Arc::from("seconds"), LoweredValue::Int(seconds)),
+                            (
+                                Arc::from("nanoseconds"),
+                                LoweredValue::Int(nanoseconds),
+                            ),
+                        ])),
+                    )),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::TimeFormat if (3..=5).contains(&values.len()) => {
+                let calendar = if values.len() == 5 {
+                    lowered_str_arg_owned(values.pop(), "calendar", "time.format", span)?
+                } else {
+                    "locale".to_string()
+                };
+                let timezone = if values.len() >= 4 {
+                    lowered_str_arg_owned(values.pop(), "timezone", "time.format", span)?
+                } else {
+                    "local".to_string()
+                };
+                let format =
+                    lowered_str_arg_owned(values.pop(), "format", "time.format", span)?;
+                let nanoseconds = lowered_int_arg(values.pop(), "time.format", span)?;
+                let seconds = lowered_int_arg(values.pop(), "time.format", span)?;
+                match time_module::format_timestamp(
+                    seconds,
+                    nanoseconds,
+                    &format,
+                    &timezone,
+                    &calendar,
+                    span,
+                ) {
+                    Ok(value) => lowered_result_ok(LoweredValue::Str(value.into())),
+                    Err(error) => lowered_result_err_value(error),
+                }
+            }
+            RuntimeOp::TimeParse if (2..=3).contains(&values.len()) => {
+                let timezone = if values.len() == 3 {
+                    lowered_str_arg_owned(values.pop(), "timezone", "time.parse", span)?
+                } else {
+                    "local".to_string()
+                };
+                let reference_seconds = lowered_int_arg(values.pop(), "time.parse", span)?;
+                let text = lowered_str_arg_owned(values.pop(), "text", "time.parse", span)?;
+                match time_module::parse_timestamp(&text, reference_seconds, &timezone, span) {
+                    Ok((seconds, nanoseconds)) => {
+                        lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+                            (Arc::from("seconds"), LoweredValue::Int(seconds)),
+                            (
+                                Arc::from("nanoseconds"),
+                                LoweredValue::Int(nanoseconds),
+                            ),
+                        ]))))
+                    }
+                    Err(error) => lowered_result_err_value(error),
+                }
             }
             RuntimeOp::TimeSleep if values.len() == 1 => {
                 let duration = lowered_duration_arg(values.pop(), "time.sleep", span)?;
