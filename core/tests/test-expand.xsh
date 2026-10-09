@@ -14,3 +14,9 @@ test test_expand_initial_only_and_multifile { |ctx|
 
   assert output == "        a\tb\n        x\n"
 }
+
+test test_expand_last_repeating_tab_stop { |ctx|
+  let input = test.temp_file(ctx, name: "repeat-tabs.txt", contents: b"\ta\tb\tc")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/expand.xsh" --tabs=1,/5 $input ?
+  assert output == " a   b    c"
+}

@@ -102,7 +102,7 @@ proc parse_tabs(values: List[Str]) [env] -> Result[Config, Str] {
     stops += [last + interval]
   }
 
-  if stops.len() == 1 {
+  if stops.len() == 1 and mode == "" {
     let one = stops[0]
     return Ok({stops: stops, interval: one, repeat: true, mode: mode})
   }
