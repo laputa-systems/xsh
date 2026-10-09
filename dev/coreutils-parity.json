@@ -1943,7 +1943,7 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "test_kill::test_kill_accepts_sigio_alias_for_sending, test_kill::test_kill_with_default_signal, and test_kill::test_kill_with_lower_case_signal_name_old_form cover the SIGIO alias, the default signal selection, and lowercase legacy signal parsing."
+        "`test_kill::test_kill_accepts_sigio_alias_for_sending` expects uutils' `sending signal` prefix for a nonexistent PID; GNU 9.12 and XSH report `No such process`, while accepting SIGIO. `test_kill::test_kill_with_lower_case_signal_name_old_form` expects uutils' `unexpected argument`; GNU 9.12 and XSH report `invalid option -- 'k'`."
       ]
     },
     {

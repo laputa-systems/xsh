@@ -129,7 +129,7 @@
       "`test_join::test_locale_collation` needs locale-aware collation. The two `test_join::diagnostics::test_snippet_*` failures need source spans for field-list and glued short-option arguments."
     ],
     "kill": [
-      "test_kill::test_kill_accepts_sigio_alias_for_sending, test_kill::test_kill_with_default_signal, and test_kill::test_kill_with_lower_case_signal_name_old_form cover the SIGIO alias, the default signal selection, and lowercase legacy signal parsing."
+      "`test_kill::test_kill_accepts_sigio_alias_for_sending` expects uutils' `sending signal` prefix for a nonexistent PID; GNU 9.12 and XSH report `No such process`, while accepting SIGIO. `test_kill::test_kill_with_lower_case_signal_name_old_form` expects uutils' `unexpected argument`; GNU 9.12 and XSH report `invalid option -- 'k'`."
     ],
     "link": [
       "test_link::test_link_one_argument and test_link::test_link_three_arguments expect uutils usage blocks for missing and extra operands; the applet follows GNU operand diagnostics."
