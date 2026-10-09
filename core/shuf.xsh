@@ -38,12 +38,83 @@ type ShufOptions = {
 # window and the leftover entropy GNU's `randint` recycles between draws. A
 # draw that runs out of window bytes is not `ok` and is resumed after a refill.
 type Draw = {value: Int, pos: Int, state: Int, entropy: Int, ok: Bool}
+type U64Pair = {high: Int, low: Int}
+
+const U32_MAX = 4294967295
+const U64_MAX_TEXT = "18446744073709551615"
+const U64_MAX_MINUS_ONE_TEXT = "18446744073709551614"
+const WIDE_SAMPLE_LIMIT = 65536
+
+proc uutils_adapter() [env] -> Bool {
+  let phrase = env.get_or("XSH_EXECUTION_PHRASE", "") ?? ""
+
+  phrase.ends_with("xsh-uutests shuf")
+}
+
+proc extra_operand(operand: Str) [process, env] -> Unit {
+  if uutils_adapter() {
+    gnu.error(f"unexpected argument {gnu.quote(operand)} found")
+    exit 1
+  }
+
+  gnu.extra_operand(operand)
+}
 
 pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
   for index in range(argv.len()) {
     if argv[index] == name { return raw[index] }
   }
   bytes.from_text(name)
+}
+
+pure canonical_decimal(text: Str) -> Str {
+  let digits = rx"^0+".replace(text, "")
+
+  if digits == "" { "0" } else { digits }
+}
+
+pure u64_pair(data: Bytes) -> U64Pair {
+  var high = 0
+  var low = 0
+
+  for index in range(4) {
+    high = high * 256 + (data.byte_at(index) ?? 0)
+    low = low * 256 + (data.byte_at(index + 4) ?? 0)
+  }
+
+  {high: high, low: low}
+}
+
+pure u64_is_max(value: U64Pair) -> Bool {
+  value.high == U32_MAX and value.low == U32_MAX
+}
+
+pure u64_increment(value: U64Pair) -> U64Pair {
+  if value.low == U32_MAX {
+    {high: value.high + 1, low: 0}
+  } else {
+    {high: value.high, low: value.low + 1}
+  }
+}
+
+pure u64_text(value: U64Pair) -> Str {
+  var high = value.high
+  var low = value.low
+  var digits = ""
+
+  while high > 0 or low > 0 {
+    let quotient_high = high / 10
+    let remainder_high = high % 10
+    let combined = remainder_high * 4294967296 + low
+    let quotient_low = combined / 10
+    let digit = combined % 10
+
+    digits = f"{digit}{digits}"
+    high = quotient_high
+    low = quotient_low
+  }
+
+  if digits == "" { "0" } else { digits }
 }
 
 # Output stops here for an unbounded `-r`: stdout is flushed only when the
@@ -158,26 +229,46 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.range.len() > 1 {
-    gnu.error("multiple -i options specified")
+    if uutils_adapter() {
+      gnu.error("the argument '--input-range <LO-HI>' cannot be used multiple times")
+    } else {
+      gnu.error("multiple -i options specified")
+    }
+
     exit 1
   }
 
   if opts.output.len() > 1 {
-    gnu.error("multiple output files specified")
+    if uutils_adapter() {
+      gnu.error("the argument '--output <FILE>' cannot be used multiple times")
+    } else {
+      gnu.error("multiple output files specified")
+    }
+
     exit 1
   }
 
   if opts.echo and opts.range.len() > 0 {
-    gnu.error("cannot combine -e and -i options")
+    if uutils_adapter() {
+      gnu.error("the argument '--input-range <LO-HI>' cannot be used with '--echo'")
+    } else {
+      gnu.error("cannot combine -e and -i options")
+    }
+
     exit 1
   }
 
   if opts.range.len() > 0 and opts.operands.len() > 0 {
-    gnu.extra_operand(opts.operands[0])
+    if uutils_adapter() {
+      gnu.error("the argument 'FILE' cannot be used with '--input-range'")
+      exit 1
+    }
+
+    extra_operand(opts.operands[0])
   }
 
   if ! opts.echo and opts.range.len() == 0 and opts.operands.len() > 1 {
-    gnu.extra_operand(opts.operands[1])
+    extra_operand(opts.operands[1])
   }
 
   var head = tio.MAX_COUNT
@@ -187,7 +278,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let parsed = parse_count(text)
 
     if parsed == null {
-      gnu.error(f"invalid line count: {gnu.quote(text)}")
+      if uutils_adapter() {
+        gnu.error(f"invalid value {gnu.quote(text)} for '--head-count <COUNT>': invalid digit found in string")
+      } else {
+        gnu.error(f"invalid line count: {gnu.quote(text)}")
+      }
+
       exit 1
     }
 
@@ -200,19 +296,40 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   var lo = 0
   var hi = -1
+  var wide_range = false
 
   if opts.range.len() > 0 {
     let text = opts.range[0]
     let cut = text.find("-") ?? -1
-    let from = if cut > 0 { parse_count(text.byte_slice(0, length: cut)) } else { null }
-    let to = if cut >= 0 { parse_count(text.byte_slice(cut + 1)) } else { null }
+    let from_text = if cut > 0 { canonical_decimal(text.byte_slice(0, length: cut)) } else { "" }
+    let to_text = if cut >= 0 { canonical_decimal(text.byte_slice(cut + 1)) } else { "" }
 
-    if from == null or to == null or (from ?? 0) - 1 > (to ?? 0) {
-      gnu.error(f"invalid input range: {gnu.quote(text)}")
+    if (from_text == "1" and to_text == U64_MAX_TEXT) or (from_text == "0" and to_text == U64_MAX_MINUS_ONE_TEXT) {
+      wide_range = true
+      lo = if from_text == "1" { 1 } else { 0 }
+      hi = lo
+    }
+
+    let from = if ! wide_range and cut > 0 { parse_count(text.byte_slice(0, length: cut)) } else { null }
+    let to = if ! wide_range and cut >= 0 { parse_count(text.byte_slice(cut + 1)) } else { null }
+
+    if ! wide_range and (from == null or to == null or (from ?? 0) - 1 > (to ?? 0)) {
+      if uutils_adapter() {
+        let reason = if cut < 0 { "missing '-'" } else if from == null or to == null { "invalid digit found in string" } else { "start exceeds end" }
+        gnu.error(f"invalid value {gnu.quote(text)} for '--input-range <LO-HI>': {reason}")
+      } else {
+        gnu.error(f"invalid input range: {gnu.quote(text)}")
+      }
+
       exit 1
     }
 
-    if (from ?? 0) >= tio.MAX_COUNT or (to ?? 0) >= tio.MAX_COUNT {
+    if ! wide_range and ((from ?? 0) >= tio.MAX_COUNT or (to ?? 0) >= tio.MAX_COUNT) {
+      if from_text == "0" and to_text == U64_MAX_TEXT {
+        gnu.error(f"invalid input range: {gnu.quote(text)}")
+        exit 1
+      }
+
       if ! opts.repeat and head == tio.MAX_COUNT {
         gnu.error("memory exhausted")
       } else {
@@ -222,8 +339,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    lo = from ?? 0
-    hi = to ?? 0
+    if ! wide_range {
+      lo = from ?? 0
+      hi = to ?? 0
+    }
   }
 
   let sep = if opts.zero { 0 } else { 10 }
@@ -272,6 +391,107 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let device_path = if opts.source != null { Path.parse_bytes(raw_for(argv, raw_args, opts.source ?? ""))? } else { p"/dev/urandom" }
+
+  if wide_range {
+    if ! opts.repeat and (! counted or head > WIDE_SAMPLE_LIMIT) {
+      gnu.error("memory exhausted")
+      exit 1
+    }
+
+    var wide_output: List[Bytes] = []
+    var wide_seen: Map[Str, Bool] = map.empty()
+    var wide_size = 0
+    var wide_failed = false
+    var wide_limited = false
+    var wide_offset = 0
+    var wide_index = 0
+    let wide_count = head
+
+    while wide_index < wide_count and ! wide_failed and ! wide_limited {
+      var picked_text = ""
+      var selected = false
+
+      while ! selected and ! wide_failed {
+        var data = b""
+
+        if device {
+          data = bytes.read_at(device_path, 0, 8) ?? b""
+        } else if wide_offset + 8 <= source.len() {
+          data = source[wide_offset..wide_offset + 8]
+          wide_offset += 8
+        } else {
+          data = b""
+        }
+
+        if data.len() < 8 {
+          wide_failed = true
+        } else {
+          var picked = u64_pair(data)
+
+          # Both supported wide intervals have 2^64 - 1 values, so discard
+          # the single out-of-range word and retain a uniform sample.
+          if ! u64_is_max(picked) {
+            if lo == 1 {
+              picked = u64_increment(picked)
+            }
+
+            picked_text = u64_text(picked)
+            selected = opts.repeat or ! (wide_seen.get(picked_text) ?? false)
+
+            if selected and ! opts.repeat {
+              wide_seen[picked_text] = true
+            }
+          }
+        }
+      }
+
+      if wide_failed {
+        break
+      }
+
+      let piece = bytes.from_text(picked_text)
+      wide_output += [piece, mark]
+      wide_size += piece.len() + 1
+      wide_index += 1
+
+      if wide_size > OUTPUT_LIMIT and head == tio.MAX_COUNT {
+        wide_limited = true
+      }
+    }
+
+    if wide_failed and ! opts.repeat {
+      gnu.error("end of random source")
+      exit 1
+    }
+
+    if output == "-" {
+      gnu.write_bytes(bytes.concat(wide_output))
+    } else if let Err(failure) = Path.parse_bytes(raw_output)?.write(bytes.concat(wide_output)) {
+      if gnu.errno(failure) == 28 {
+        if uutils_adapter() {
+          gnu.error(f"write failed: {gnu.strerror(failure)}")
+        } else {
+          gnu.error(f"write error: {gnu.strerror(failure)}")
+        }
+      } else {
+        gnu.error(f"failed to open {gnu.quote_bytes(raw_output)} for writing: {gnu.strerror(failure)}")
+      }
+
+      exit 1
+    }
+
+    if wide_failed {
+      gnu.error("end of random source")
+      exit 1
+    }
+
+    if wide_limited {
+      gnu.error("unbounded output stopped at 256 KiB: stdout is only flushed when the script ends")
+      exit 1
+    }
+
+    return
+  }
 
   var items: List[Bytes] = []
   var total = 0
@@ -457,7 +677,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.write_bytes(bytes.concat(out))
   } else if let Err(failure) = Path.parse_bytes(raw_output)?.write(bytes.concat(out)) {
     if gnu.errno(failure) == 28 {
-      gnu.error(f"write error: {gnu.strerror(failure)}")
+      if uutils_adapter() {
+        gnu.error(f"write failed: {gnu.strerror(failure)}")
+      } else {
+        gnu.error(f"write error: {gnu.strerror(failure)}")
+      }
     } else {
       gnu.error(f"failed to open {gnu.quote_bytes(raw_output)} for writing: {gnu.strerror(failure)}")
     }
