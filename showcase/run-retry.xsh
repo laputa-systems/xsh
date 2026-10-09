@@ -3,8 +3,8 @@
 # Run a command with retries and short backoff for transient failures.
 # Exhausted attempts report an error to the caller.
 # Attempts have no implicit deadline; SIGINT/SIGTERM stop retries and cancel the child group.
-# Usage: xsh showcase/run-retry.xsh -- COMMAND [ARGS...]
-# Example: xsh showcase/run-retry.xsh -- curl -fsS https://example.com
+# Usage: xsh showcase/run-retry.xsh COMMAND [ARGS...]
+# Example: xsh showcase/run-retry.xsh curl -fsS https://example.com
 error RetryRunError = CommandFailed(message: Str)
 
 on SIGINT [error] {
@@ -39,8 +39,8 @@ proc run_attempt(argv: List[Str], try_num: Int, max_tries: Int) [process, error]
 
 proc main(...cmd: List[Str]) [process, time, error] {
   if cmd.len() == 0 {
-    print "usage: xsh showcase/run-retry.xsh -- COMMAND [ARGS...]"
-    print "       xsh showcase/run-retry.xsh -- \"COMMAND STRING\"  (parsed as argv)"
+    print "usage: xsh showcase/run-retry.xsh COMMAND [ARGS...]"
+    print "       xsh showcase/run-retry.xsh \"COMMAND STRING\"  (parsed as argv)"
     return
   }
 

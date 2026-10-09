@@ -1,7 +1,7 @@
 #!/usr/bin/env -S xsh --
 # Tokei-shaped source counter for a deliberately small language set.
-# Usage: xsh showcase/tokei.xsh -- [ROOT]
-# Example: xsh showcase/tokei.xsh -- /Users/josh/d/tokei
+# Usage: xsh showcase/tokei.xsh [ROOT]
+# Example: xsh showcase/tokei.xsh /Users/josh/d/tokei
 #
 # Implementation notes
 # -------------------------------------------------------

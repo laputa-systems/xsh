@@ -78,7 +78,7 @@ Three kinds of evidence stay distinguishable: deterministic rooted fixtures,
 paired capture/replay of raw sources, and live differential comparison.
 External reference utilities run only in the harness, never in the report. Run
 the harness as `cargo dev system-report-check [OPTIONS]`, or with a chosen binary
-as `XSH dev/main.xsh -- system-report-check [OPTIONS]`; `cargo dev help` lists
+as `XSH dev/main.xsh system-report-check [OPTIONS]`; `cargo dev help` lists
 every option. Live and replay checks run in the
 `Dockerfile.test` image, which installs the reference tools, using absolute
 paths for `--xsh-bin`, `--xsht-bin`, `--cargo-bin`, and `--script`.

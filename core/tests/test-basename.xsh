@@ -127,7 +127,7 @@ test test_basename_runs_as_executable_shebang_script { |ctx|
 
   let script = fp"{ctx.core_dir}/basename.xsh"
   script.chmod(0o755)
-  let output = run.text $script -- /tmp/demo.txt ?
+  let output = run.text $script /tmp/demo.txt ?
 
   assert output == """demo.txt
 """

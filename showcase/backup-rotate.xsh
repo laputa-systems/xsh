@@ -2,8 +2,8 @@
 # Backup Rotate
 # Keep the newest direct backup files by name and delete or preview older files.
 # Active deletion is best effort; run it against a directory that is not changing.
-# Usage: xsh showcase/backup-rotate.xsh -- --dir DIR --keep N [--dry-run=false]
-# Example: xsh showcase/backup-rotate.xsh -- --dir backups --keep 7
+# Usage: xsh showcase/backup-rotate.xsh --dir DIR --keep N [--dry-run=false]
+# Example: xsh showcase/backup-rotate.xsh --dir backups --keep 7
 type Opts = {dir: Path, keep: Int, pattern: Str, dry_run: Bool, verbose: Bool}
 
 proc main(...argv: List[Str]) [fs, error] {

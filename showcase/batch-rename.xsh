@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Batch Rename
 # Preview or apply bulk file renames with normalization, prefixes, suffixes, and numbering.
-# Usage: xsh showcase/batch-rename.xsh -- --root DIR [--normalize] [--dry-run=false]
-# Example: xsh showcase/batch-rename.xsh -- --root photos --normalize --number
+# Usage: xsh showcase/batch-rename.xsh --root DIR [--normalize] [--dry-run=false]
+# Example: xsh showcase/batch-rename.xsh --root photos --normalize --number
 type Opts = {root: Path, ext: Str, normalize: Bool, prefix: Str, suffix: Str, number: Bool, dry_run: Bool}
 
 proc main(...argv: List[Str]) [fs, error] {

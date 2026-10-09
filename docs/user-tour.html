@@ -431,7 +431,7 @@ tr:last-child td { border-bottom: 0; }
 <figure class="console"><figcaption><span class="lang">output</span></figcaption><pre><code>hello from xsh</code></pre></figure>
 <p>Two binaries do the work. <code>xsh</code> runs scripts; <code>xsht</code> is the toolchain:</p>
 <figure class="code code-bash"><figcaption><span class="lang">shell</span></figcaption><pre><code><span class="hl-function">xsh</span> hello.xsh                 <span class="hl-comment"># run it</span>
-<span class="hl-function">xsh</span> deploy.xsh -- web-2 <span class="hl-property">-f</span>    <span class="hl-comment"># arguments after `--` go to the script</span>
+<span class="hl-function">xsh</span> deploy.xsh web-2 <span class="hl-property">-f</span>    <span class="hl-comment"># arguments after the script path go to the script</span>
 <span class="hl-function">chmod</span> +x hello.xsh <span class="hl-operator">&amp;&amp;</span> <span class="hl-function">./hello.xsh</span>
 <span class="hl-function">xsht</span> check hello.xsh          <span class="hl-comment"># parse, resolve, and type-check without running</span></code></pre></figure>
 <p><code>xsh</code> checks the whole program before executing anything. A type error on the last line means the first line never runs, so a half-applied change caused by a typo three screens down cannot happen. Check failures exit with status 2; runtime failures exit with status 3.</p>
@@ -1343,8 +1343,8 @@ true</code></pre></figure>
 <figure class="code code-xsh"><figcaption><span class="lang">xsh</span></figcaption><pre><code><span class="hl-comment">#!/usr/bin/env -S xsh --</span>
 <span class="hl-comment"># preflight: verify a host is ready to take traffic.</span>
 <span class="hl-comment">#</span>
-<span class="hl-comment">#   xsh preflight.xsh -- /etc/preflight.json</span>
-<span class="hl-comment">#   xsh preflight.xsh -- /etc/preflight.json --emit-json</span>
+<span class="hl-comment">#   xsh preflight.xsh /etc/preflight.json</span>
+<span class="hl-comment">#   xsh preflight.xsh /etc/preflight.json --emit-json</span>
 <span class="hl-comment">#</span>
 <span class="hl-comment"># {"services": [{"name": "api", "port": 8080, "health": "http://127.0.0.1:8080/healthz"}],</span>
 <span class="hl-comment">#  "disk_threshold": 90, "required_files": ["/etc/app/app.conf"]}</span>
@@ -1438,7 +1438,7 @@ ok   disk /var                        38% used
 ok   file /etc/app/app.conf           present
 2 check(s) failed</code></pre></figure>
 <p>A config with a wrong type stops before any probe runs, and the <code>ctx</code> block says which file was being loaded:</p>
-<figure class="code code-text"><figcaption><span class="lang">text</span></figcaption><pre><code>$ xsh preflight.xsh -- bad.json
+<figure class="code code-text"><figcaption><span class="lang">text</span></figcaption><pre><code>$ xsh preflight.xsh bad.json
 err: schema: schema check failed at disk_threshold: expected Int, found Str (ctx: loading bad.json)
 executable: /usr/local/bin/xsh
 ...</code></pre></figure>

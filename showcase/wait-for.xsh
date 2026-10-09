@@ -3,8 +3,8 @@
 # Poll an HTTP endpoint until it returns an acceptable status or times out.
 # --timeout bounds requests and sleeps together.
 # A timeout exits unsuccessfully so callers can stop dependent work.
-# Usage: xsh showcase/wait-for.xsh -- URL [--timeout N] [--interval N] [--status CODE]
-# Example: xsh showcase/wait-for.xsh -- http://localhost:8080/health --status 200
+# Usage: xsh showcase/wait-for.xsh URL [--timeout N] [--interval N] [--status CODE]
+# Example: xsh showcase/wait-for.xsh http://localhost:8080/health --status 200
 type Opts = {url: Str, timeout: Int, interval: Int, status: Int}
 
 proc main(...argv: List[Str]) [net, time, error] {

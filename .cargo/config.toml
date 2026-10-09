@@ -1,5 +1,5 @@
 [alias]
-dev = "run --quiet -p xsh --bin xsh -- dev/main.xsh --"
+dev = "run --quiet -p xsh --bin xsh -- dev/main.xsh"
 
 # No musl linker is pinned here. On a musl Linux host the host triple is a musl
 # target, so a linker set for it also links proc-macros and build scripts, and

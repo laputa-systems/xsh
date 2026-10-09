@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Secret Scan
 # Scan source-like files for common secret patterns.
-# Usage: xsh showcase/secret-scan.xsh -- [--root DIR] [--ext EXT]
-# Example: xsh showcase/secret-scan.xsh -- --root .
+# Usage: xsh showcase/secret-scan.xsh [--root DIR] [--ext EXT]
+# Example: xsh showcase/secret-scan.xsh --root .
 type Finding = {file: Str, line: Int, kind: Str, text: Str}
 
 type Opts = {root: Path, ext: List[Str], verbose: Bool}

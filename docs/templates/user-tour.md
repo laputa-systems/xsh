@@ -111,7 +111,7 @@ Two binaries do the work. `xsh` runs scripts; `xsht` is the toolchain:
 
 ```bash
 xsh hello.xsh                 # run it
-xsh deploy.xsh -- web-2 -f    # arguments after `--` go to the script
+xsh deploy.xsh web-2 -f    # arguments after the script path go to the script
 chmod +x hello.xsh && ./hello.xsh
 xsht check hello.xsh          # parse, resolve, and type-check without running
 ```
@@ -893,7 +893,7 @@ A config with a wrong type stops before any probe runs, and the `ctx` block
 says which file was being loaded:
 
 ```text
-$ xsh preflight.xsh -- bad.json
+$ xsh preflight.xsh bad.json
 err: schema: schema check failed at disk_threshold: expected Int, found Str (ctx: loading bad.json)
 executable: /usr/local/bin/xsh
 ...

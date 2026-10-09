@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Perf Collapse
 # Collapse perf script callchains into folded stacks for flamegraph rendering.
-# Usage: xsh showcase/perf-collapse.xsh -- PERF_SCRIPT [--top N]
-# Example: xsh showcase/perf-collapse.xsh -- perf.script > out.folded
+# Usage: xsh showcase/perf-collapse.xsh PERF_SCRIPT [--top N]
+# Example: xsh showcase/perf-collapse.xsh perf.script > out.folded
 error ScriptError = Failed(kind: Str, message: Str)
 
 # Collapse `perf script` callchains into folded stacks for flamegraph rendering.
@@ -10,14 +10,14 @@ error ScriptError = Failed(kind: Str, message: Str)
 # Usage:
 #   perf record -F 999 -g -- target/debug/xsh examples/streams.xsh
 #   perf script > out.perf
-#   xsh showcase/perf-collapse.xsh -- out.perf > out.folded
-#   xsh showcase/flamegraph.xsh -- out.folded > out.svg
+#   xsh showcase/perf-collapse.xsh out.perf > out.folded
+#   xsh showcase/flamegraph.xsh out.folded > out.svg
 #
 # With no argument, collapses a built-in sample.
 type Options = {input: Path, comm: Str, include: Str, exclude: Str, top: Int, leaf_first: Bool}
 
 pure usage() -> Str {
-  "usage: xsh showcase/perf-collapse.xsh -- PERF_SCRIPT [--comm NAME] [--include REGEX] [--exclude REGEX] [--top N] [--leaf-first]"
+  "usage: xsh showcase/perf-collapse.xsh PERF_SCRIPT [--comm NAME] [--include REGEX] [--exclude REGEX] [--top N] [--leaf-first]"
 }
 
 pure clean_symbol(raw: Str) -> Str {

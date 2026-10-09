@@ -114,7 +114,7 @@ Two binaries do the work. `xsh` runs scripts; `xsht` is the toolchain:
 
 ```bash
 xsh hello.xsh                 # run it
-xsh deploy.xsh -- web-2 -f    # arguments after `--` go to the script
+xsh deploy.xsh web-2 -f    # arguments after the script path go to the script
 chmod +x hello.xsh && ./hello.xsh
 xsht check hello.xsh          # parse, resolve, and type-check without running
 ```
@@ -1553,8 +1553,8 @@ report. It exits 1 if anything failed, so it can gate a deploy.
 #!/usr/bin/env -S xsh --
 # preflight: verify a host is ready to take traffic.
 #
-#   xsh preflight.xsh -- /etc/preflight.json
-#   xsh preflight.xsh -- /etc/preflight.json --emit-json
+#   xsh preflight.xsh /etc/preflight.json
+#   xsh preflight.xsh /etc/preflight.json --emit-json
 #
 # {"services": [{"name": "api", "port": 8080, "health": "http://127.0.0.1:8080/healthz"}],
 #  "disk_threshold": 90, "required_files": ["/etc/app/app.conf"]}
@@ -1656,7 +1656,7 @@ A config with a wrong type stops before any probe runs, and the `ctx` block
 says which file was being loaded:
 
 ```text
-$ xsh preflight.xsh -- bad.json
+$ xsh preflight.xsh bad.json
 err: schema: schema check failed at disk_threshold: expected Int, found Str (ctx: loading bad.json)
 executable: /usr/local/bin/xsh
 ...

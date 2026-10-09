@@ -340,7 +340,7 @@ fn core_pstree_prints_spawned_parent_before_child() {
     let mut output = None;
     for _ in 0..40 {
         let candidate = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
-            .args(["core/pstree.xsh", "--", "-p", &parent_pid_arg])
+            .args(["core/pstree.xsh", "-p", &parent_pid_arg])
             .output()
             .expect("run core pstree");
         if candidate.status.success()

@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # preflight: verify a host is ready to take traffic.
 #
-#   xsh preflight.xsh -- /etc/preflight.json
-#   xsh preflight.xsh -- /etc/preflight.json --emit-json
+#   xsh preflight.xsh /etc/preflight.json
+#   xsh preflight.xsh /etc/preflight.json --emit-json
 #
 # {"services": [{"name": "api", "port": 8080, "health": "http://127.0.0.1:8080/healthz"}],
 #  "disk_threshold": 90, "required_files": ["/etc/app/app.conf"]}

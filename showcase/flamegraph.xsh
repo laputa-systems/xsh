@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Flamegraph
 # Render folded stack samples into an SVG flamegraph without external tooling.
-# Usage: xsh showcase/flamegraph.xsh -- [FOLDED_STACKS] > flamegraph.svg
-# Example: xsh showcase/flamegraph.xsh -- out.folded > flamegraph.svg
+# Usage: xsh showcase/flamegraph.xsh [FOLDED_STACKS] > flamegraph.svg
+# Example: xsh showcase/flamegraph.xsh out.folded > flamegraph.svg
 # Render a flamegraph SVG from folded-stack input.
 #
 # Input format (one line per sample):

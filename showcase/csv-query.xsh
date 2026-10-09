@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # CSV Query
 # Query simple CSV files with filtering, sorting, grouping, limiting, and counts.
-# Usage: xsh showcase/csv-query.xsh -- FILE [--filter COL=VAL] [--sort COL] [--group COL]
-# Example: xsh showcase/csv-query.xsh -- data.csv --filter team=core --count
+# Usage: xsh showcase/csv-query.xsh FILE [--filter COL=VAL] [--sort COL] [--group COL]
+# Example: xsh showcase/csv-query.xsh data.csv --filter team=core --count
 # Basic CSV querying: filter, sort, group, limit.
 # Assumes simple CSV with no embedded commas in quoted fields.
 type Opts = {file: Path, filter: Str, sort: Str, group: Str, limit: Int, count: Bool}

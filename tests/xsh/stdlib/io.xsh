@@ -26,3 +26,9 @@ world
   let bytes_input = test.temp_file(ctx, name: "bytes.in", contents: b"\0abc\xff")?
   assert run.bytes "xsh" $bytes_script < ${bytes_input}? == b"\0abc\xff"
 }
+
+test test_io_write_stderr_preserves_exact_text { |ctx|
+  let output = test.run_script(ctx, "io.write_stderr(\"prompt: \")?\n")?
+  assert output.success, output.stderr
+  assert output.stderr == "prompt: "
+}

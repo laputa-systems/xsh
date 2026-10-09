@@ -2,8 +2,8 @@
 # Release Pack
 # Stage files, write a manifest with hashes, and create a release tarball.
 # Publish only to an absent output directory with an existing parent, after the archive is complete.
-# Usage: xsh showcase/release-pack.xsh -- INPUT OUTPUT [--dry-run=false]
-# Example: xsh showcase/release-pack.xsh -- dist target/release-pack --dry-run=false
+# Usage: xsh showcase/release-pack.xsh INPUT OUTPUT [--dry-run=false]
+# Example: xsh showcase/release-pack.xsh dist target/release-pack --dry-run=false
 type ManifestEntry = {path: Str, size: Int, sha256: Str}
 
 type Opts = {input: Path, output: Path, dry_run: Bool}

@@ -20,9 +20,9 @@ fn xsh_passes_script_args_without_separator() {
 }
 
 #[test]
-fn xsh_keeps_separator_compatibility_for_script_args() {
+fn xsh_passes_double_dash_after_script_to_script_args() {
     let path = temp_script(
-        "xsh-argv-with-separator",
+        "xsh-argv-double-dash",
         "for arg in args {\n  print ${arg}\n}\n",
     );
     let output = Command::new(release_bin!("xsh"))
@@ -31,7 +31,7 @@ fn xsh_keeps_separator_compatibility_for_script_args() {
         .expect("run xsh script");
 
     assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), "-f\nneedle\n");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "--\n-f\nneedle\n");
 }
 
 #[test]

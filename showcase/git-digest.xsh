@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Git Digest
 # Summarize commits, authors, and changed files ahead of a base branch.
-# Usage: xsh showcase/git-digest.xsh -- [--base BRANCH] [--limit N]
-# Example: xsh showcase/git-digest.xsh -- --base main --limit 20
+# Usage: xsh showcase/git-digest.xsh [--base BRANCH] [--limit N]
+# Example: xsh showcase/git-digest.xsh --base main --limit 20
 type FileStats = {path: Str, added: Int, removed: Int, total: Int}
 
 type Opts = {base: Str, limit: Int}

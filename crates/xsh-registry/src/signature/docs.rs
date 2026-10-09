@@ -876,6 +876,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Line termination is consumed according to the stream boundary and end-of-input remains distinguishable.",
             &["io", "stdin", "lines"],
         )),
+        ("io", "write_stderr") => Some((
+            "Writes exact UTF-8 text to standard error without a newline.",
+            "A native run writes immediately so an interactive prompt is visible before input is read; captured runs retain the text in their stderr output. Host write failures return their errno.",
+            &["io", "stderr", "utf8"],
+        )),
         ("io", "write_stdout") => Some((
             "Writes UTF-8 text to standard output.",
             "Output is explicit I/O and the value is not implicitly converted through shell word rules.",

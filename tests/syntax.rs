@@ -3342,9 +3342,9 @@ proc main(input: Path, candidate: Path, tarball: Path, name: Str, suffix: Str) {
   let maybe_name: Result[Str] = Ok(name)
   print (basename_value(name, suffix))
   print (maybe_name?)
-  run.text (xsh_bin()) date.xsh -- (input.display()) ?
-  run.text (xsh_bin()) tar.xsh -- -cf (tarball.display()) -C (input.display()) . ?
-  let output = run.text (xsh_bin()) backup.xsh -- --dir (input.display()) --keep 2 --dry-run=false ?
+  run.text (xsh_bin()) date.xsh (input.display()) ?
+  run.text (xsh_bin()) tar.xsh -cf (tarball.display()) -C (input.display()) . ?
+  let output = run.text (xsh_bin()) backup.xsh --dir (input.display()) --keep 2 --dry-run=false ?
   let _ = run.capture --text \"readelf\" -d (candidate.display())?
 }
 ";
@@ -3361,9 +3361,9 @@ proc main(input: Path, candidate: Path, tarball: Path, name: Str, suffix: Str) {
   let maybe_name: Result[Str] = Ok(name)
   print basename_value(name, suffix)
   print (maybe_name?)
-  run.text xsh_bin() date.xsh -- input.display() ?
-  run.text xsh_bin() tar.xsh -- -cf tarball.display() -C input.display() . ?
-  let output = run.text xsh_bin() backup.xsh -- --dir input.display() --keep 2 --dry-run=false ?
+  run.text xsh_bin() date.xsh input.display() ?
+  run.text xsh_bin() tar.xsh -cf tarball.display() -C input.display() . ?
+  let output = run.text xsh_bin() backup.xsh --dir input.display() --keep 2 --dry-run=false ?
   let _ = run.capture --text \"readelf\" -d candidate.display() ?
 }
 ";

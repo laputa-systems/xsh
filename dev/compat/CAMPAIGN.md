@@ -102,7 +102,7 @@ anything not stated as verified is marked.
   showcase tests, the two pattern-lint tests, `tempdir` removal-on-exit); rerun
   `target/release/xsht test` to refresh it. `make docs` was last run before the
   `tty-misc`, `proc-a` and text lanes landed: run
-  `target/release/xsh dev/main.xsh -- docs` (not `make docs`, whose `cargo dev` alias
+  `target/release/xsh dev/main.xsh docs` (not `make docs`, whose `cargo dev` alias
   builds a debug `xsh` that overflows its stack on Linux), then `make docs-check`
   equivalents, and commit. Not verified after this session's last merges.
 - **The lanes are all merged or released.** No lane worktree, lane branch or lane

@@ -1,13 +1,13 @@
 #!/usr/bin/env -S xsh --
 # Dot Env Run
 # Load key/value pairs from a .env file and run a command with that environment.
-# Usage: xsh showcase/dot-env-run.xsh -- ENVFILE COMMAND [ARGS...]
-# Example: xsh showcase/dot-env-run.xsh -- .env printenv DATABASE_URL
+# Usage: xsh showcase/dot-env-run.xsh ENVFILE COMMAND [ARGS...]
+# Example: xsh showcase/dot-env-run.xsh .env printenv DATABASE_URL
 type KV = {key: Str, val: Str}
 
 proc main(...argv: List[Str]) [fs, process, error] {
   if argv.len() == 0 {
-    print "usage: xsh showcase/dot-env-run.xsh -- ENVFILE COMMAND [ARGS...]"
+    print "usage: xsh showcase/dot-env-run.xsh ENVFILE COMMAND [ARGS...]"
     return
   }
 

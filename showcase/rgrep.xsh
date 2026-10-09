@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Recursive Grep
 # Search files by regex with extension filters and capped results.
-# Usage: xsh showcase/rgrep.xsh -- --pattern REGEX [--root DIR] [--ext EXT]
-# Example: xsh showcase/rgrep.xsh -- --pattern TODO --root src --ext rs
+# Usage: xsh showcase/rgrep.xsh --pattern REGEX [--root DIR] [--ext EXT]
+# Example: xsh showcase/rgrep.xsh --pattern TODO --root src --ext rs
 type SearchHit = {rel: Str, line: Int, text: Str}
 
 type FileSearch = {rel: Str, hits: List[SearchHit]}

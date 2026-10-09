@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Music Convert
 # Plan or run ffmpeg audio conversion to AAC, preserving relative paths.
-# Usage: xsh showcase/music-convert.xsh -- --root DIR --out DIR [--dry-run=false]
-# Example: xsh showcase/music-convert.xsh -- --root Music --out Converted
+# Usage: xsh showcase/music-convert.xsh --root DIR --out DIR [--dry-run=false]
+# Example: xsh showcase/music-convert.xsh --root Music --out Converted
 pure nearest_aac_kbps(kbps: Int) -> Int {
   # Map kbps to nearest aac_at tier using midpoint thresholds
   guard kbps > 20 else {

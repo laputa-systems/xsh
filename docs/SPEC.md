@@ -2509,7 +2509,11 @@ keep program order even when stdout is a pipe or file.
 
 Script stdout and stderr are byte streams. Text APIs write UTF-8.
 `io.write_stdout(text)` writes without a newline, and
+`io.write_stderr(text)` writes exact text to stderr without a newline;
 `io.write_stdout_bytes(data)` writes bytes exactly, with no UTF-8 requirement.
+In a native `xsh` run, `io.write_stderr` writes immediately so an interactive
+prompt appears before the script reads input. Captured runs retain it in their
+stderr output.
 
 ### 10.4 `cd`, `env`, and `tempdir` scopes
 
@@ -3372,7 +3376,7 @@ with `template:LINE:COLUMN:`, 1-based, with the column counted in characters.
 
 | Command | Purpose |
 |---|---|
-| `xsh SCRIPT [--] ARGS...`, `xsh -- SCRIPT ARGS...` | run a script (the second form suits shebang lines) |
+| `xsh SCRIPT ARGS...`, `xsh -- SCRIPT ARGS...` | run a script (the second form suits script paths beginning with `-`) |
 | `xshi` | interactive shell (`docs/SPEC-INTERACTIVE.md`) |
 | `xsht check [--summary] [--annotate[=CLASSES]] [PATH...]` | parse, type-check, and validate scripts |
 | `xsht fmt [--check] [FILE...]` | format |

@@ -3128,7 +3128,7 @@ test test_system_report_command_replays_saved_json_offline { |ctx|
   let report_path = test.temp_path(ctx, name: "system-report-v1.json")
   report_path.write(json.encode(json_report_fixture())?)
 
-  let projected = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+  let projected = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from $report_path \
     --section cpu --json ?
   let decoded = json.decode(projected)?
   assert decoded.schema_version == 1
@@ -3136,36 +3136,36 @@ test test_system_report_command_replays_saved_json_offline { |ctx|
   assert decoded.cpu.status.state == "complete"
   assert decoded.memory.status.state == "not_requested"
   assert "workstation-name" not in projected
-  let json_full = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+  let json_full = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from $report_path \
     --section cpu --json --full ?
   assert json_full == projected
 
-  let sensitive = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+  let sensitive = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from $report_path \
     --sensitive --json ?
   assert "workstation-name" in sensitive
-  let default_json = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+  let default_json = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from $report_path \
     --json ?
   assert "/private/host/snapshot" not in default_json
   assert "mount-secret" not in default_json
   assert "private-sensor-label" not in default_json
 
-  let overview = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path ?
+  let overview = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from $report_path ?
   assert "XSH system report v1" in overview
   assert "2 identical policy group on CPUs 0,1" in overview
   assert "1 identical policy group on CPUs 2" in overview
   assert "3 identical policy group" not in overview
 
-  let version = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --version ?
+  let version = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --version ?
   assert version == """system-report schema v1
 """
 
-  let help = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --help ?
+  let help = run.text ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --help ?
   assert "--from FILE" in help
   assert "--section NAME" in help
 }
 
 test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
-  let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- \
+  let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" \
     --section hardware ?
   assert outcome.status.exited_with(3)
   assert outcome.stdout == ""
@@ -3177,14 +3177,14 @@ test test_system_report_command_usage_retains_invalid_section_cause { |ctx|
 test test_system_report_command_rejects_malformed_replay { |ctx|
   let report_path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
   let stderr = test.temp_path(ctx, name: "system-report-invalid.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path \
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from $report_path \
     2> $stderr
   assert ! status.exited_with(0)
   assert "invalid replay report" in stderr.read_text()?
 
   let invalid_utf8 = test.temp_file(ctx, name: "system-report-invalid-utf8.json", contents: b"\xff")?
   let utf8_stderr = test.temp_path(ctx, name: "system-report-invalid-utf8.stderr")
-  let utf8_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from \
+  let utf8_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from \
     $invalid_utf8 2> $utf8_stderr
   assert ! utf8_status.exited_with(0)
   assert "not valid UTF-8" in utf8_stderr.read_text()?
@@ -3194,13 +3194,13 @@ test test_system_report_command_rejects_malformed_replay { |ctx|
     json.encode({...json_report_fixture().require(report_model.SystemReportJson)?, schema_version: 99})?,
   )
   let unsupported_stderr = test.temp_path(ctx, name: "system-report-unsupported-schema.stderr")
-  let unsupported_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --from \
+  let unsupported_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --from \
     $unsupported_path 2> $unsupported_stderr
   assert ! unsupported_status.exited_with(0)
   assert "unsupported schema version" in unsupported_stderr.read_text()?
 
   let section_stderr = test.temp_path(ctx, name: "system-report-invalid-section.stderr")
-  let section_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" -- --section \
+  let section_status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/core/system-report.xsh" --section \
     hardware 2> $section_stderr
   assert ! section_status.exited_with(0)
   assert section_stderr.read_text()?.trim() != ""

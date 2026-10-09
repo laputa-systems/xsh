@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Bench
 # Measure command runtime over repeated runs and report simple latency percentiles.
-# Usage: xsh showcase/bench.xsh -- [--runs N] [--warmup N] COMMAND [ARGS...]
-# Example: xsh showcase/bench.xsh -- --runs 5 grep needle file.txt
+# Usage: xsh showcase/bench.xsh [--runs N] [--warmup N] COMMAND [ARGS...]
+# Example: xsh showcase/bench.xsh --runs 5 grep needle file.txt
 type Opts = {runs: Int, warmup: Int, argv: List[Str]}
 
 proc main(...cmd: List[Str]) [time, error] {

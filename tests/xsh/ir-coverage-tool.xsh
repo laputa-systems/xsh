@@ -90,7 +90,7 @@ let values = [1, 2] |> batch(count: 1)
   let command = process.command {
     stdout = stdout_path
     stderr = stderr_path
-    run $xsh $tool -- --root $root --json $report_path
+    run $xsh $tool --root $root --json $report_path
   }
   let status = process.run(command)?
   let succeeded = status.exited_with(0)
@@ -115,7 +115,7 @@ let values = [1, 2] |> batch(count: 1)
   let invalid = process.command {
     stdout = stdout_path
     stderr = stderr_path
-    run $xsh $tool -- --root fp"{root}/absent"
+    run $xsh $tool --root fp"{root}/absent"
   }
   assert ! process.run(invalid)?.exited_with(0)
   assert stderr_path.read_text()? != ""

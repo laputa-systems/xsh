@@ -1,7 +1,7 @@
 #!/usr/bin/env -S xsh --
 # jq — a JSON query mini-language, interpreted on top of XSH.
-# Usage: xsh showcase/jq.xsh -- [OPTIONS] FILTER [FILES...]
-# Example: echo '{"a":[1,2,3]}' | xsh showcase/jq.xsh -- '.a | map(.+1)'
+# Usage: xsh showcase/jq.xsh [OPTIONS] FILTER [FILES...]
+# Example: echo '{"a":[1,2,3]}' | xsh showcase/jq.xsh '.a | map(.+1)'
 #
 # Why this file looks the way it does
 # -----------------------------------

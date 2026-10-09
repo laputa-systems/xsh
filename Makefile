@@ -4,7 +4,7 @@
 # run a chosen prebuilt binary; an invalid override then fails visibly.
 
 XSH_DEV ?=
-DEV = $(if $(strip $(XSH_DEV)),$(XSH_DEV) dev/main.xsh --,cargo dev)
+DEV = $(if $(strip $(XSH_DEV)),$(XSH_DEV) dev/main.xsh,cargo dev)
 
 export TARGET
 export DIST_PROFILE
@@ -22,7 +22,7 @@ FUZZ_DURATION ?= 120
 
 # Soundness fuzzing over fresh seeds; failures are grouped by the tested binary.
 fuzz:
-	cargo run --release -p xsh --bin xsh -- dev/fuzz.xsh -- $(FUZZ_DURATION)
+	cargo run --release -p xsh --bin xsh -- dev/fuzz.xsh $(FUZZ_DURATION)
 
 check:
 	$(DEV) check lint

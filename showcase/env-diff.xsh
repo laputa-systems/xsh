@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Env Diff
 # Compare two env-style files and report added, removed, and changed variables.
-# Usage: xsh showcase/env-diff.xsh -- --a FILE --b FILE
-# Example: xsh showcase/env-diff.xsh -- --a dev.env --b prod.env
+# Usage: xsh showcase/env-diff.xsh --a FILE --b FILE
+# Example: xsh showcase/env-diff.xsh --a dev.env --b prod.env
 type Opts = {a: Path, b: Path}
 
 # Parse key=value pairs from a .env file into a Map, ignoring comments and blanks.

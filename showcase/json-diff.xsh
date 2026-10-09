@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # JSON Diff
 # Compare two JSON objects and report added, removed, changed, and unchanged keys.
-# Usage: xsh showcase/json-diff.xsh -- OLD.json NEW.json
-# Example: xsh showcase/json-diff.xsh -- before.json after.json
+# Usage: xsh showcase/json-diff.xsh OLD.json NEW.json
+# Example: xsh showcase/json-diff.xsh before.json after.json
 type Opts = {a: Path, b: Path}
 
 proc main(...argv: List[Str]) [fs, error] {

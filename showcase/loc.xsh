@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Lines Of Code
 # Count files and lines by extension using a streaming, per-extension accumulator.
-# Usage: xsh showcase/loc.xsh -- [ROOT] [EXT...]
-# Example: xsh showcase/loc.xsh -- src rs xsh
+# Usage: xsh showcase/loc.xsh [ROOT] [EXT...]
+# Example: xsh showcase/loc.xsh src rs xsh
 proc main(root = p".", ...exts: List[Str]) [fs, error] {
   let ext_set = set.from(exts)
 

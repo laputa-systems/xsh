@@ -1,5 +1,5 @@
 # Run one mode per process so peak RSS belongs to a single consumption path.
-# Usage: xsh bench/stream-producer-memory.xsh -- MODE COUNT
+# Usage: xsh bench/stream-producer-memory.xsh MODE COUNT
 stream numbers(size: Int) [] -> Stream[Int] {
   var n = 0
   while n < size {

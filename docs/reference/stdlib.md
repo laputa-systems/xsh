@@ -49,6 +49,7 @@ Byte inspection, encoding, decoding, copying, and hashing helpers.
 Script command-line parsing into typed option records.
 
 - `cli.applet(argv: List[Str], schema: Record, command: Str = default) -> Result[Record, Error]` — Parses BusyBox-style applet arguments and compact option forms.
+- `cli.argv_bytes() -> List[Bytes]` — Returns the original bytes of the script arguments.
 - `cli.commands(argv: List[Str], commands: Record) -> Result[Record, Error] (+1 overloads)` — Dispatches a typed subcommand schema.
 - `cli.parse(argv: List[Str], schema: Record, command: Str = default) -> Result[Record, Error]` — Parses script arguments into a typed option record.
 - `cli.parse_full(argv: List[Str], schema: Record, env: Record = default, command: Str = default) -> Result[{sources: Record, values: Record, warnings: List[Str]}, Error]` — Parses the complete script argument schema including help and usage policy.
@@ -204,6 +205,7 @@ Script stdin and stdout helpers.
 - `io.stdin_bytes() -> Result[Bytes, Error]` — Reads all standard input as Bytes.
 - `io.stdin_line() -> Result[Str, Error]` — Reads one line from standard input.
 - `io.stdin_text() -> Result[Str, Error]` — Reads all standard input as UTF-8 text.
+- `io.write_stderr(text: Str) -> Result[Unit, Error]` — Writes exact UTF-8 text to standard error without a newline.
 - `io.write_stdout(text: Str) -> Result[Unit, Error]` — Writes UTF-8 text to standard output.
 - `io.write_stdout_bytes(data: Bytes) -> Result[Unit, Error]` — Writes raw Bytes to standard output.
 
@@ -440,12 +442,16 @@ Native XSH test assertions, temp resources, and host-effect mocks.
 
 Clock, sleep, command measurement, and duration display.
 
+- `time.clock_resolution() -> Result[{nanoseconds: Int, seconds: Int}, Error]` — Reads the realtime clock resolution from the host.
 - `time.duration_compact(seconds: Int) -> Str` — Formats a duration using compact fixed-width units.
+- `time.format(seconds: Int, nanoseconds: Int, format: Str, timezone: Str = default, calendar: Str = default, locale: Str = default) -> Result[Str, Error]` — Formats a Unix timestamp with strftime directives.
 - `time.measure(command: Command, quiet: Bool = default) -> Result[{duration_ms: Int, status: Status, system_ns: Int, user_ns: Int, wall_ns: Int}, Error]` — Measures a command or block and returns structured timing data.
 - `time.millis(ms: Int) -> Duration` — Converts an Int count of milliseconds or seconds into Duration.
 - `time.now() -> Int` — Reads the current wall-clock time.
+- `time.parse(text: Str, reference_seconds: Int, timezone: Str = default) -> Result[{nanoseconds: Int, seconds: Int}, Error]` — Parses an absolute or relative date against a reference timestamp.
 - `time.seconds(seconds: Int) -> Duration` — Converts an Int count of milliseconds or seconds into Duration.
 - `time.sleep(duration: Duration) -> Result[Unit, Error]` — Suspends the current XSH operation for a duration.
+- `time.wall_now() -> {nanoseconds: Int, seconds: Int}` — Reads the current wall-clock time with nanosecond precision.
 
 ### `tui`
 

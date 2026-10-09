@@ -2,8 +2,8 @@
 # Bump Version
 # Bump a Cargo package version by major, minor, or patch component.
 # Edit only the version field in [package] and publish the file atomically.
-# Usage: xsh showcase/bump-version.xsh -- COMPONENT [--manifest PATH] [--dry-run=false]
-# Example: xsh showcase/bump-version.xsh -- patch --manifest Cargo.toml
+# Usage: xsh showcase/bump-version.xsh COMPONENT [--manifest PATH] [--dry-run=false]
+# Example: xsh showcase/bump-version.xsh patch --manifest Cargo.toml
 type Opts = {component: Str, manifest: Path, dry_run: Bool}
 
 proc main(...argv: List[Str]) [fs, error] {

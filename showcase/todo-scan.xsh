@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Todo Scan
 # Collect TODO, FIXME, HACK, XXX, and NOTE comments across a tree.
-# Usage: xsh showcase/todo-scan.xsh -- [--root DIR] [--tag TAG]
-# Example: xsh showcase/todo-scan.xsh -- --root src --tag FIXME
+# Usage: xsh showcase/todo-scan.xsh [--root DIR] [--tag TAG]
+# Example: xsh showcase/todo-scan.xsh --root src --tag FIXME
 type Hit = {file: Str, line: Int, tag: Str, text: Str}
 
 type Opts = {root: Path, ext: List[Str], tag: Str, verbose: Bool}

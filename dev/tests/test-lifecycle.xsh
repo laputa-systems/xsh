@@ -323,7 +323,7 @@ test test_make_facade_only_delegates_to_the_development_entrypoint {
   let facade = p"Makefile".read_text()?
 
   for command in [
-    "$(XSH_DEV) dev/main.xsh --",
+    "$(XSH_DEV) dev/main.xsh",
     "cargo dev",
     "$(DEV) check lint",
     "$(DEV) docs",
@@ -382,7 +382,7 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary { |ctx
     run make --no-print-directory -n build "XSH_DEV=/missing/xsh"
   }
   assert process.run(override)?.exited_with(0)
-  assert output.read_text()? == """/missing/xsh dev/main.xsh -- build
+  assert output.read_text()? == """/missing/xsh dev/main.xsh build
 """
 }
 

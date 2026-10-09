@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Hosts Ping
 # Probe hosts with ping and summarize latency and packet-loss results.
-# Usage: xsh showcase/hosts-ping.xsh -- [--count N] HOST [HOST...]
-# Example: xsh showcase/hosts-ping.xsh -- --count 2 1.1.1.1 example.com
+# Usage: xsh showcase/hosts-ping.xsh [--count N] HOST [HOST...]
+# Example: xsh showcase/hosts-ping.xsh --count 2 1.1.1.1 example.com
 type PingResult = {host: Str, avg: Str, ok: Bool}
 
 type Opts = {count: Int, hosts: List[Str]}

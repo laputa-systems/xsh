@@ -3,8 +3,8 @@
 # List, extract, compress, or decompress archives using XSH archive APIs.
 # Mutating operations publish to an absent path with an existing parent after success.
 # SIGINT and SIGTERM clean staging after the current blocking archive call returns.
-# Usage: xsh showcase/archive-unpack.xsh -- ARCHIVE [--out DIR] [--dry-run=false]
-# Example: xsh showcase/archive-unpack.xsh -- backup.tar.gz --out /tmp/out --dry-run=false
+# Usage: xsh showcase/archive-unpack.xsh ARCHIVE [--out DIR] [--dry-run=false]
+# Example: xsh showcase/archive-unpack.xsh backup.tar.gz --out /tmp/out --dry-run=false
 type Opts = {archive: List[Str], out: Path, list: Bool, compress: Str, decompress: Str, dry_run: Bool}
 
 type StagedOutput = {published: Path, pending: Path}

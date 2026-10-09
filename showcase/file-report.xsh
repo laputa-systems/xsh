@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # File Report
 # Report files of one extension with sizes and sha256 hashes.
-# Usage: xsh showcase/file-report.xsh -- [--root DIR] [--ext EXT]
-# Example: xsh showcase/file-report.xsh -- --root scripts --ext xsh
+# Usage: xsh showcase/file-report.xsh [--root DIR] [--ext EXT]
+# Example: xsh showcase/file-report.xsh --root scripts --ext xsh
 type FileEntry = {path: Str, size: Int, sha256: Str}
 
 type Opts = {root: Path, ext: Str, verbose: Bool}

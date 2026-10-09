@@ -1,5 +1,5 @@
 # Keep the same user-call workload for the plain runner and xsht trace modes.
-# Usage: xsh bench/trace-call-overhead.xsh -- COUNT
+# Usage: xsh bench/trace-call-overhead.xsh COUNT
 proc increment(value: Int) [] -> Int {
   return value + 1
 }

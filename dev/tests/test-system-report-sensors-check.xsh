@@ -118,7 +118,7 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
   let xsh_path = fp"{root_path}/xsh"
   let output = test.temp_path(ctx, name: "system-report-sensors-json.stdout")
   let stderr = test.temp_path(ctx, name: "system-report-sensors-json.stderr")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check \
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir.parent()}/dev/main.xsh" system-report-check \
     --compare-sensors-json --sensors-bin $sensors_path --xsh-bin $xsh_path --script $xsh_path > $output 2> $stderr
   let exited_successfully = status.exited_with(0)
   let diagnostic = stderr.read_text()?

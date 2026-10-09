@@ -375,7 +375,7 @@ docker run --rm --privileged --platform linux/arm64 \
   -v "$CANDIDATE:/bench/candidate/xsh:ro" \
   -w /work/bench/stdlib-port -e XSH_LINUX_REAL=1 xsh-test \
   sh -c 'mount -t tmpfs -o mode=0755 tmpfs /sys/class && mkdir /sys/class/rfkill && cp -R /work/bench/stdlib-port/fixtures/rfkill/. /sys/class/rfkill/ && exec "$@"' \
-  sh /bench/candidate/xsh /work/bench/stdlib-port/linux-runner.xsh -- \
+  sh /bench/candidate/xsh /work/bench/stdlib-port/linux-runner.xsh \
   /bench/reference/xsh /bench/candidate/xsh 0 linux_rfkill_list 30 0
 ```
 

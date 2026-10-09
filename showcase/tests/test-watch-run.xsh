@@ -1,7 +1,7 @@
 test test_watch_run_once { |ctx|
   let root = test.temp_dir(ctx, name: "watch")?
   fp"{root}/input.txt".write("hello")
-  let output = run.text "xsh" "showcase/watch-run.xsh" -- --root $root --once true ?
+  let output = run.text "xsh" "showcase/watch-run.xsh" --root $root --once true ?
   assert "watching " in output
   assert "[run 1]" in output
 }
@@ -9,7 +9,7 @@ test test_watch_run_once { |ctx|
 test test_watch_run_once_reports_child_failure { |ctx|
   let root = test.temp_dir(ctx, name: "watch-failure")?
   let output = test.temp_path(ctx, name: "watch-failure-output")
-  let status = run.status "xsh" "showcase/watch-run.xsh" -- --root $root --once false > $output
+  let status = run.status "xsh" "showcase/watch-run.xsh" --root $root --once false > $output
   assert status.exited_with(1), "one-shot watch must report child failure"
   assert "exit 1" in output.read_text()?
 }

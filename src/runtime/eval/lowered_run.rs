@@ -3942,6 +3942,36 @@ impl Evaluator {
         Ok(())
     }
 
+    /// Writes exact text to stderr without a newline. Native runs write it
+    /// immediately so interactive prompts are visible before input is read;
+    /// captured and embedded runs retain it in their output buffer.
+    fn write_stderr_checked(&mut self, text: &str, span: Span) -> Result<(), RuntimeError> {
+        if !self.shared_stdio || self.capture_process_output {
+            self.stderr.extend_from_slice(text.as_bytes());
+            return Ok(());
+        }
+        let bytes = text.as_bytes();
+        let mut offset = 0;
+        while offset < bytes.len() {
+            match rustix::io::write(rustix::stdio::stderr(), &bytes[offset..]) {
+                Ok(0) => {
+                    return Err(RuntimeError::host(
+                        "io-write-stderr",
+                        &std::io::Error::from(std::io::ErrorKind::WriteZero),
+                    )
+                    .with_span(span));
+                }
+                Ok(written) => offset += written,
+                Err(rustix::io::Errno::INTR) => {}
+                Err(rustix::io::Errno::AGAIN) => std::thread::sleep(Duration::from_millis(1)),
+                Err(error) => {
+                    return Err(RuntimeError::host("io-write-stderr", &error).with_span(span));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn lowered_stream_list_result(
         &mut self,
         result: Result<StreamValue, RuntimeError>,
@@ -5878,6 +5908,10 @@ impl Evaluator {
                         RuntimeError::host("io.stdin_line", &error).with_span(span),
                     ),
                 }
+            }
+            RuntimeOp::IoWriteStderr if values.len() == 1 => {
+                let text = lowered_str_arg_owned(values.pop(), "", "io.write_stderr", span)?;
+                lowered_unit_result(self.write_stderr_checked(&text, span))
             }
             RuntimeOp::IoWriteStdout if values.len() == 1 => {
                 let text = lowered_str_arg_owned(values.pop(), "", "io.write_stdout", span)?;

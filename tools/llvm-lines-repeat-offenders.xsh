@@ -8,14 +8,14 @@
 # Typical use after an existing measurement:
 #
 #   cargo llvm-lines --release --no-default-features --features tools --lib > /tmp/xsh-llvm-lines.txt
-#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --limit 40 --examples 1
-#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum               # owned reclaimable total
-#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all         # + dependencies
-#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh -- /tmp/xsh-llvm-lines.txt --sum --all --filter slice::sort
+#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh /tmp/xsh-llvm-lines.txt --limit 40 --examples 1
+#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh /tmp/xsh-llvm-lines.txt --sum               # owned reclaimable total
+#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh /tmp/xsh-llvm-lines.txt --sum --all         # + dependencies
+#   target/release/xsh tools/llvm-lines-repeat-offenders.xsh /tmp/xsh-llvm-lines.txt --sum --all --filter slice::sort
 #
 # Standalone measurement mode:
 #
-#   target/debug/xsh tools/llvm-lines-repeat-offenders.xsh -- --generate --all --limit 40
+#   target/debug/xsh tools/llvm-lines-repeat-offenders.xsh --generate --all --limit 40
 #
 # By default, only functions owned by the xsh crate are shown. Pass --all to include
 # std/dependency items, which is often useful when looking for call sites that pull

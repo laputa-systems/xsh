@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/{applet_name}.xsh -- {summary}"
+  f"Usage: {applet_name} {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {

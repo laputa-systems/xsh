@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Bytes Inspect
 # Inspect a file as bytes: hashes, encodings, text/binary hints, chunks, and comparisons.
-# Usage: xsh showcase/bytes-inspect.xsh -- FILE [--compare FILE] [--chunk-size N]
-# Example: xsh showcase/bytes-inspect.xsh -- artifact.bin --compare old.bin
+# Usage: xsh showcase/bytes-inspect.xsh FILE [--compare FILE] [--chunk-size N]
+# Example: xsh showcase/bytes-inspect.xsh artifact.bin --compare old.bin
 type Opts = {file: List[Str], compare: Str, chunk_size: Int}
 
 proc main(...argv: List[Str]) [fs, error] {

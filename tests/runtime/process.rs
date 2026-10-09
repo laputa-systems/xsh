@@ -612,7 +612,7 @@ if count == 0 or listener_count == 0 or pid_listener_count == 0 {{
     );
 
     let example = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
-        .args(["showcase/px.xsh", "--", "-p", &port.to_string()])
+        .args(["showcase/px.xsh", "-p", &port.to_string()])
         .output()
         .expect("run px showcase");
     assert!(

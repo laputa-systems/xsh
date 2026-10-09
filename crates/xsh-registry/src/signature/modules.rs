@@ -584,6 +584,15 @@ fn io_module() -> ModuleSig {
             sig(Vec::new(), result(Type::Str), false, RuntimeOp::IoStdinLine),
         ),
         (
+            "write_stderr",
+            sig(
+                vec![param("text", Type::Str)],
+                result(Type::Unit),
+                false,
+                RuntimeOp::IoWriteStderr,
+            ),
+        ),
+        (
             "write_stdout",
             sig(
                 vec![param("text", Type::Str)],

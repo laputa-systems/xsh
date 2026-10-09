@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Dedup
 # Find duplicate files by sha256 and optionally delete redundant copies.
-# Usage: xsh showcase/dedup.xsh -- --root DIR [--dry-run=false]
-# Example: xsh showcase/dedup.xsh -- --root downloads
+# Usage: xsh showcase/dedup.xsh --root DIR [--dry-run=false]
+# Example: xsh showcase/dedup.xsh --root downloads
 type FileInfo = {sha: Str, rel: Str, size: Int}
 
 type Opts = {root: Path, dry_run: Bool, verbose: Bool}

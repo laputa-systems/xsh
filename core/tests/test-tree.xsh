@@ -6,7 +6,7 @@ test test_tree_renders_sorted_branches_and_symlinks { |ctx|
   fp"{root}/z.txt".write("z")
   fp"{root}/.hidden".write("dot")
   fs.symlink(fp"{root}/a.txt", fp"{root}/link-a")
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- $root ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" $root ?
   let lines = output.lines().collect()
   assert lines[0] == root.display()
   assert lines[1] == "|-- a.txt"
@@ -16,12 +16,12 @@ test test_tree_renders_sorted_branches_and_symlinks { |ctx|
   assert lines[5] == "`-- z.txt"
   assert "1 directory, 4 files" in output
   assert ! (".hidden" in output)
-  let all = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- -a $root ?
+  let all = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -a $root ?
   assert ".hidden" in all
-  let dirs = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- -d $root ?
+  let dirs = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -d $root ?
   assert "dir" in dirs
   assert ! ("a.txt" in dirs)
-  let shallow = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- -L 1 $root ?
+  let shallow = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -L 1 $root ?
   assert ! ("file.txt" in shallow)
 }
 
@@ -30,7 +30,7 @@ test test_tree_supports_multiple_roots_and_rejects_flags { |ctx|
   let right = test.temp_dir(ctx, name: "tree-right")?
   fp"{left}/a".write("a")
   fp"{right}/b".write("b")
-  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- $left $right ?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" $left $right ?
 
   assert f"""{left}
 `-- a
@@ -42,7 +42,7 @@ test test_tree_supports_multiple_roots_and_rejects_flags { |ctx|
 """ in output
 
   let err = test.temp_path(ctx, name: "tree.err")
-  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -- -z $left 2> $err
+  let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/tree.xsh" -z $left 2> $err
   assert ! status.exited_with(0)
   assert "unknown argument" in err.read_text()?
 }

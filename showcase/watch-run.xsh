@@ -3,8 +3,8 @@
 # Watch files for timestamp changes and rerun a command.
 # In --once mode, report the child command's failure to the caller.
 # Commands have no implicit deadline; SIGINT/SIGTERM cancel their process group.
-# Usage: xsh showcase/watch-run.xsh -- [--root DIR] [--ext EXT] COMMAND [ARGS...]
-# Example: xsh showcase/watch-run.xsh -- --root src --ext rs cargo test
+# Usage: xsh showcase/watch-run.xsh [--root DIR] [--ext EXT] COMMAND [ARGS...]
+# Example: xsh showcase/watch-run.xsh --root src --ext rs cargo test
 type Opts = {root: Path, ext: List[Str], interval: Int, once: Bool, cmd: List[Str]}
 
 on SIGINT [error] {

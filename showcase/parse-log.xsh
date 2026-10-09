@@ -1,8 +1,8 @@
 #!/usr/bin/env -S xsh --
 # Parse Log
 # Parse structured log lines into typed records, count levels, and redact IP addresses.
-# Usage: xsh showcase/parse-log.xsh -- [LOGFILE]
-# Example: xsh showcase/parse-log.xsh -- app.log
+# Usage: xsh showcase/parse-log.xsh [LOGFILE]
+# Example: xsh showcase/parse-log.xsh app.log
 type LogEntry = {timestamp: Str, level: Str, module: Str, message: Str}
 
 type Match = {start: Int, end: Int, text: Str}

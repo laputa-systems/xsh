@@ -1,5 +1,5 @@
 test test_git_digest_usage {
-  let output = run.text "xsh" "showcase/git-digest.xsh" -- --help ?
+  let output = run.text "xsh" "showcase/git-digest.xsh" --help ?
   assert "usage:" in output
 }
 

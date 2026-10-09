@@ -74,7 +74,7 @@ see `check_exclusions.py`.
 
 ## From `native-proc-tty` (merged)
 
-- Done by the integrator: `make docs` (run as `target/release/xsh dev/main.xsh -- docs`; the `cargo dev` alias builds a debug `xsh` that overflows its stack on Linux).
+- Done by the integrator: `make docs` (run as `target/release/xsh dev/main.xsh docs`; the `cargo dev` alias builds a debug `xsh` that overflows its stack on Linux).
 - `unix.exec` ignores plan redirections: `nohup` should use `process.run` with an ignored HUP and a `stdout` path.
 - No primitive for `kill -1` (signal every process) and no core-dump flag on `Status`.
 - Stdout stays buffered until exit or `io.flush_stdout()`; infinite writers such as `yes` must flush periodically. `process.set_signal_action("PIPE", "default")` gives SIGPIPE.

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S xsh --
 # Hyperfine-shaped command-line benchmarking tool.
-# Usage: xsh showcase/hyperfine.xsh -- [OPTIONS] COMMAND [COMMAND ...]
+# Usage: xsh showcase/hyperfine.xsh [OPTIONS] COMMAND [COMMAND ...]
 #   --warmup N           runs to execute (and discard) before timing (default 0)
 #   --runs N             timed runs per command (default 10)
 #   --shell S            wrap each command in `S -c "<command>"` (for pipes/globs);
@@ -9,7 +9,7 @@
 #                        (use when benchmarking xsh scripts, to isolate their work)
 #   --ignore-failure     don't warn when a command exits non-zero
 #   --export-json F      write hyperfine-shaped JSON results to F
-# Example: xsh showcase/hyperfine.xsh -- --warmup 2 --runs 10 'sleep 0.1' 'sleep 0.05'
+# Example: xsh showcase/hyperfine.xsh --warmup 2 --runs 10 'sleep 0.1' 'sleep 0.05'
 #
 # A port to diversify XSH's proving grounds onto the *effectful* axis: subprocess
 # spawning, wall-clock + CPU timing, warmups, float statistics, and serialization.
