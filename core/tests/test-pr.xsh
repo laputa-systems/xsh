@@ -21,3 +21,9 @@ test test_pr_column_order_spacing_and_page_width { |ctx|
   assert pr_run(ctx, ["-t", "-2", "-w", "20"], b"a\nb\nc\n")?.stdout == b"a        \tc        \nb        \n"
   assert pr_run(ctx, ["-t", "-a", "-2", "-w", "20"], b"a\nb\nc\n")?.stdout == b"a        \tb        \nc        \n"
 }
+
+test test_pr_expand_tabs { |ctx|
+  assert pr_run(ctx, ["-t", "-e"], b"a\tb\n")?.stdout == b"a       b\n"
+  assert pr_run(ctx, ["-t", "-e2"], b"a\tb\n")?.stdout == b"a b\n"
+  assert pr_run(ctx, ["-t", "-ea2"], b"abc\tdef\n")?.stdout == b"  bc    def\n"
+}

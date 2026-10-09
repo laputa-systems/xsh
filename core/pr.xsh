@@ -22,16 +22,35 @@ Paginate or columnate FILE(s) for printing.
 """
 
 type PrOptions = {
-  across: Bool, double: Bool, expand: Bool, formfeed: Bool, join: Bool,
+  across: Bool, double: Bool, expand: Bool, expand_char: Int, expand_width: Int, formfeed: Bool, join: Bool,
   merge: Bool, no_header: Bool, no_pagination: Bool, number: Bool,
   number_width: Int, number_separator: Bytes, start_number: Int, omit_header: Bool,
   page_length: Int, page_width: Int, columns: Int, margin: Int,
+  page_length_option: Str, page_width_option: Str,
   column_separator: Bytes, header: Str, date_format: Str,
   first_page: Int, last_page: Int, files: List[Bytes], help: Bool, version: Bool,
 }
 
 pure number(value: Str, fallback: Int) -> Int {
   match value.parse_int() { Ok(parsed) => parsed, Err(_) => fallback }
+}
+
+proc checked_number(value: Str, context: Str, with_help: Bool) [process, env] -> Int {
+  let parsed = match value.parse_int() {
+    Ok(parsed) => parsed
+    Err(_) => {
+      let suffix = if rx"^-?[0-9]+$".matches(value) { ": Value too large for defined data type" } else { "" }
+      gnu.error(f"{context}: '{value}'{suffix}")
+      if with_help { gnu.try_help() }
+      exit 1
+    }
+  }
+  if parsed > 2147483647 or parsed < -2147483648 {
+    gnu.error(f"{context}: '{value}': Value too large for defined data type")
+    if with_help { gnu.try_help() }
+    exit 1
+  }
+  parsed
 }
 
 pure first_digit(value: Str) -> Int? {
@@ -48,10 +67,11 @@ pure parse_option_value(arg: Str, name: Str) -> Str? {
 
 proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
   var result: PrOptions = {
-    across: false, double: false, expand: false, formfeed: false, join: false,
+    across: false, double: false, expand: false, expand_char: -1, expand_width: 8, formfeed: false, join: false,
     merge: false, no_header: false, no_pagination: false, number: false,
     number_width: 5, number_separator: b"\t", start_number: 1, omit_header: false,
     page_length: 66, page_width: 72, columns: 1, margin: 0,
+    page_length_option: "--length", page_width_option: "--width",
     column_separator: b"\t", header: "", date_format: "%Y-%m-%d %H:%M",
     first_page: 1, last_page: 2147483647, files: [], help: false, version: false,
   }
@@ -65,8 +85,11 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
     if ! stopped and arg.starts_with("+") and arg.byte_len() > 1 {
       let spec = arg[1..]
       let colon = spec.find(":")
-      result.first_page = number(if colon == null { spec } else { spec[..colon ?? 0] }, 1)
-      if colon != null { result.last_page = number(spec[(colon ?? 0) + 1..], 2147483647) }
+      let first = number(if colon == null { spec } else { spec[..colon ?? 0] }, -1)
+      let last = if colon == null { 2147483647 } else { number(spec[(colon ?? 0) + 1..], -1) }
+      if first <= 0 or last < first { gnu.error(f"invalid page range '{spec}'"); exit 1 }
+      result.first_page = first
+      result.last_page = last
       i += 1
       continue
     }
@@ -74,19 +97,29 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
       let equals = arg.find("=")
       let name = if equals == null { arg } else { arg[..equals ?? 0] }
       let inline = parse_option_value(arg, name)
-      if name == "--across" { result.across = true } else if name == "--double-space" { result.double = true } else if name == "--form-feed" { result.formfeed = true } else if name == "--join-lines" { result.join = true } else if name == "--merge" { result.merge = true } else if name == "--omit-header" { result.no_header = true } else if name == "--omit-pagination" { result.no_pagination = true; result.no_header = true } else if name == "--number-lines" { result.number = true; if inline != null { result.number_width = number(inline ?? "5", 5) } } else if name == "--columns" or name == "--page-length" or name == "--page-width" or name == "--width" or name == "--length" or name == "--indent" or name == "--header" or name == "--date-format" or name == "--pages" or name == "--first-line-number" {
+      if name == "--across" { result.across = true } else if name == "--double-space" { result.double = true } else if name == "--form-feed" { result.formfeed = true } else if name == "--join-lines" { result.join = true } else if name == "--merge" { result.merge = true } else if name == "--omit-header" { result.no_header = true } else if name == "--omit-pagination" { result.no_pagination = true; result.no_header = true } else if name == "--number-lines" {
+        result.number = true
+        if inline != null {
+          let value = inline ?? ""
+          if value == "" { gnu.usage_error("'-n' extra characters or invalid number in the argument") }
+          result.number_width = checked_number(value, "'-n' extra characters or invalid number in the argument", true)
+        }
+      } else if name == "--columns" or name == "--page-length" or name == "--page-width" or name == "--width" or name == "--length" or name == "--indent" or name == "--header" or name == "--date-format" or name == "--pages" or name == "--first-line-number" {
         let value = if inline != null { inline ?? "" } else if i + 1 < argv.len() { i += 1; argv[i] } else { "" }
-        if name == "--columns" { result.columns = number(value, -1) } else if name == "--page-length" or name == "--length" { result.page_length = number(value, -1) } else if name == "--page-width" or name == "--width" { result.page_width = number(value, -1) } else if name == "--indent" { result.margin = number(value, -1) } else if name == "--header" { result.header = value } else if name == "--date-format" { result.date_format = value } else if name == "--first-line-number" { result.start_number = number(value, -1) } else if name == "--pages" {
+      if name == "--columns" { result.columns = checked_number(value, "invalid number of columns", false) } else if name == "--page-length" or name == "--length" { result.page_length = checked_number(value, "'-l PAGE_LENGTH' invalid number of lines", false); result.page_length_option = name } else if name == "--page-width" or name == "--width" { result.page_width = checked_number(value, "'-w PAGE_WIDTH' invalid number of characters", false); result.page_width_option = name } else if name == "--indent" { result.margin = checked_number(value, "'-o MARGIN' invalid line offset", false) } else if name == "--header" { result.header = value } else if name == "--date-format" { result.date_format = value } else if name == "--first-line-number" { result.start_number = checked_number(value, "'-N NUMBER' invalid starting line number", false) } else if name == "--pages" {
           let colon = value.find(":")
-          result.first_page = number(if colon == null { value } else { value[..colon ?? 0] }, 1)
-          if colon != null { result.last_page = number(value[(colon ?? 0) + 1..], 2147483647) }
+          let first = number(if colon == null { value } else { value[..colon ?? 0] }, -1)
+          let last = if colon == null { 2147483647 } else { number(value[(colon ?? 0) + 1..], -1) }
+          if first <= 0 or last < first { gnu.error(f"invalid --pages argument '{value}'"); exit 1 }
+          result.first_page = first
+          result.last_page = last
         }
       } else { gnu.usage_error(f"unrecognized option {gnu.quote_value(arg)}") }
       i += 1
       continue
     }
     if ! stopped and arg.starts_with("-") and arg != "-" {
-      if rx"^-[0-9]+$".matches(arg) { result.columns = number(arg[1..], -1); i += 1; continue }
+      if rx"^-[0-9]+$".matches(arg) { result.columns = checked_number(arg[1..], "invalid number of columns", false); i += 1; continue }
       var at = 1
       while at < arg.byte_len() {
         let flag = arg.byte_slice(at, length: 1)
@@ -97,21 +130,50 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
           if value == "" and i + 1 < argv.len() and rx"^[0-9]+$".matches(argv[i + 1]) { i += 1; value = argv[i] }
           if value != "" {
             let digit = first_digit(value)
-            if digit == 0 { result.number_width = number(value, 5) } else if digit != null { result.number_separator = bytes.from_text(value[..digit ?? 0]); result.number_width = number(value[digit ?? 0..], 5) } else { result.number_separator = bytes.from_text(value) }
+            if digit == 0 { result.number_width = checked_number(value, "'-n' extra characters or invalid number in the argument", true) } else if digit != null {
+              result.number_separator = bytes.from_text(value[..digit ?? 0])
+              if result.number_separator.len() > 1 { gnu.usage_error(f"'-n' extra characters or invalid number in the argument: ‘{value[..digit ?? 0]}’") }
+              result.number_width = checked_number(value[digit ?? 0..], "'-n' extra characters or invalid number in the argument", true)
+            } else {
+              result.number_separator = bytes.from_text(value)
+              if result.number_separator.len() > 1 { gnu.usage_error(f"'-n' extra characters or invalid number in the argument: ‘{value}’") }
+            }
             at = arg.byte_len()
           } else { at += 1 }
         } else if flag == "N" {
           var value = rest
           if value == "" and i + 1 < argv.len() { i += 1; value = argv[i] }
-          result.start_number = number(value, -1)
+          result.start_number = checked_number(value, "'-N NUMBER' invalid starting line number", false)
           at = arg.byte_len()
         } else if flag == "s" or flag == "S" {
           result.column_separator = if rest == "" { if flag == "s" { b"\t" } else { b" " } } else { bytes.from_text(rest) }
           at = arg.byte_len()
-        } else if flag == "e" or flag == "i" { result.expand = true; at = arg.byte_len() } else if flag == "l" or flag == "o" or flag == "w" or flag == "W" or flag == "h" or flag == "D" {
+        } else if flag == "e" {
+          result.expand = true
+          if rest == "" { at += 1 } else {
+            if rest.starts_with("=") { gnu.usage_error(f"'-e' extra characters or invalid number in the argument: ‘{rest[1..]}’") }
+            let digit = first_digit(rest)
+            let char = if digit == 0 { "" } else if digit != null { rest[..digit ?? 0] } else { rest[..1] }
+            let width = if digit == 0 { rest } else if digit != null { rest[digit ?? 0..] } else { "" }
+            if char.byte_len() > 1 or (digit == null and rest.byte_len() > 1) {
+              let extra = if digit == null { rest[1..] } else { rest[..digit ?? 0][1..] }
+              gnu.usage_error(f"'-e' extra characters or invalid number in the argument: ‘{extra}’")
+            }
+            if char != "" { result.expand_char = char.byte_at(0) ?? -1 }
+            if width != "" {
+              let parsed = number(width, -1)
+              if ! rx"^[0-9]+$".matches(width) or parsed <= 0 or parsed > 2147483647 {
+                let invalid = if rx"^[0-9]+$".matches(width) and parsed > 2147483647 { f"{width}" } else { width }
+                gnu.usage_error(f"'-e' extra characters or invalid number in the argument: ‘{invalid}’")
+              }
+              result.expand_width = parsed
+            }
+            at = arg.byte_len()
+          }
+        } else if flag == "i" { result.expand = true; at = arg.byte_len() } else if flag == "l" or flag == "o" or flag == "w" or flag == "W" or flag == "h" or flag == "D" {
           var value = rest
           if value == "" and i + 1 < argv.len() { i += 1; value = argv[i] }
-          if flag == "l" { result.page_length = number(value, -1) } else if flag == "o" { result.margin = number(value, -1) } else if flag == "w" or flag == "W" { result.page_width = number(value, -1) } else if flag == "h" { result.header = value } else if flag == "D" { result.date_format = value }
+          if flag == "l" { result.page_length = checked_number(value, "'-l PAGE_LENGTH' invalid number of lines", false); result.page_length_option = "--length" } else if flag == "o" { result.margin = checked_number(value, "'-o MARGIN' invalid line offset", false) } else if flag == "w" or flag == "W" { result.page_width = checked_number(value, f"'-{flag} PAGE_WIDTH' invalid number of characters", false); result.page_width_option = if flag == "W" { "--page-width" } else { "--width" } } else if flag == "h" { result.header = value } else if flag == "D" { result.date_format = value }
           at = arg.byte_len()
         } else { gnu.usage_error(f"invalid option -- '{flag}'") }
       }
@@ -147,10 +209,28 @@ pure pad_right(value: Bytes, width: Int) -> Bytes {
   bytes.concat([value, repeat_byte(b" ", if width > value.len() { width - value.len() } else { 0 })])
 }
 
+pure expand_tabs(value: Bytes, opts: PrOptions) -> Bytes {
+  var out: List[Bytes] = []
+  var column = 0
+  for at in range(value.len()) {
+    let byte = value.byte_at(at) ?? 0
+    if opts.expand and (byte == 9 or byte == opts.expand_char) {
+      let width = if byte == 9 and opts.expand_char >= 0 { 8 } else { opts.expand_width }
+      let spaces = width - column % width
+      out += [repeat_byte(b" ", spaces)]
+      column += spaces
+    } else {
+      out += [value[at..at + 1]]
+      column += if byte == 8 { if column > 0 { -1 } else { 0 } } else if byte == 13 { -column } else { 1 }
+    }
+  }
+  bytes.concat(out)
+}
+
 pure number_line(line: Bytes, index: Int, opts: PrOptions) -> Bytes {
   return line when ! opts.number
   let digits = f"{index}"
-  let fill = if opts.number_width > digits.byte_len() and opts.number_width < 10000 { opts.number_width - digits.byte_len() } else { 0 }
+  let fill = if opts.number_width > digits.byte_len() { opts.number_width - digits.byte_len() } else { 0 }
   bytes.concat([repeat_byte(b" ", fill), bytes.from_text(digits), opts.number_separator, line])
 }
 
@@ -167,7 +247,8 @@ pure column_page(lines: List[Bytes], opts: PrOptions, col_width: Int) -> Bytes {
     for col in range(last + 1) {
       let index = if opts.across { row * opts.columns + col } else { col * per_column + row }
       if col > 0 { out += [opts.column_separator] }
-      let cell = if index < lines.len() { number_line(lines[index], opts.start_number + index, opts) } else { b"" }
+      let raw = if index < lines.len() { number_line(lines[index], opts.start_number + index, opts) } else { b"" }
+      let cell = expand_tabs(raw, opts)
       out += [pad_right(cell, col_width)]
     }
     out += [b"\n"]
@@ -179,7 +260,7 @@ pure column_page(lines: List[Bytes], opts: PrOptions, col_width: Int) -> Bytes {
 pure simple_page(lines: List[Bytes], start: Int, opts: PrOptions) -> Bytes {
   var out: List[Bytes] = []
   for at in range(lines.len()) {
-    out += [number_line(lines[at], start + at, opts), b"\n"]
+    out += [expand_tabs(number_line(lines[at], start + at, opts), opts), b"\n"]
     if opts.double { out += [b"\n"] }
   }
   bytes.concat(out)
@@ -231,8 +312,8 @@ proc render_page(lines: List[Bytes], name: Bytes, page: Int, first_line: Int, op
     let overhead = if opts.no_header { 0 } else { 10 }
     let blanks = opts.page_length - overhead - used
     if blanks > 0 { out += [repeat_byte(b"\n", if blanks < 10000 { blanks } else { 0 })] }
-    if opts.formfeed { out += [b"\x0c"] }
   }
+  if opts.formfeed { out += [b"\x0c"] }
   Ok(bytes.concat(out))
 }
 
@@ -246,8 +327,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   if opts.help { gnu.help(USAGE); return }
   if opts.version { gnu.version("pr"); return }
   if opts.page_length > 0 and opts.page_length <= 10 { opts.no_header = true; opts.no_pagination = true }
-  if opts.columns <= 0 { gnu.error("invalid number of columns"); exit 1 }
-  if opts.page_width < 0 or opts.page_length < 0 or opts.margin < 0 { gnu.error("invalid line or page width"); exit 1 }
+  if opts.columns <= 0 { gnu.error(f"invalid --columns argument '{opts.columns}'"); exit 1 }
+  if opts.page_length == 0 { gnu.error(f"invalid {opts.page_length_option} argument '0'"); exit 1 }
+  if opts.page_width == 0 { gnu.error(f"invalid {opts.page_width_option} argument '0'"); exit 1 }
+  if opts.margin < 0 { gnu.error(f"'-o MARGIN' invalid line offset: '{opts.margin}'"); exit 1 }
+  if opts.page_width < 0 or opts.page_length < 0 { gnu.error("invalid line or page width"); exit 1 }
   let names = if opts.files.len() == 0 { [b"-"] } else { opts.files }
   var failed = false
   var page_number = 0
@@ -263,6 +347,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
     }
     let pages = if lines.len() == 0 { 0 } else { (lines.len() + per_page - 1) / per_page }
+    if pages > 0 and opts.first_page > pages { gnu.error(f"starting page number {opts.first_page} exceeds page count {pages}") }
     for p in range(pages) {
       page_number += 1
       if page_number < opts.first_page or page_number > opts.last_page { continue }
