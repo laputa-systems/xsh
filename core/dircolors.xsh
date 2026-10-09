@@ -393,7 +393,15 @@ proc choose_format(args: List[Str], display: Bool) [env] -> Str? {
   if name == "csh" or name == "tcsh" { "csh" } else { "shell" }
 }
 
+pure argument_bytes(args: List[Str], raw_args: List[Bytes], value: Str) -> Bytes {
+  for index in range(args.len()) {
+    if args[index] == value { return raw_args[index] }
+  }
+  bytes.from_text(value)
+}
+
 proc main(...argv: List[Str]) [process, fs, io, env, error] {
+  let raw_argv = cli.argv_bytes()
   let options = cli.applet(
     argv,
     {
@@ -435,14 +443,15 @@ proc main(...argv: List[Str]) [process, fs, io, env, error] {
     let input = if source_name == "-" {
       match io.stdin_text() { Ok(text) => text, Err(_) => { gnu.error("error reading '-'"); exit 1 } }
     } else {
-      let file = fp"{source_name}"
+      let raw_path = argument_bytes(argv, raw_argv, source_name)
+      let file = Path.parse_bytes(raw_path)?
       match file.metadata() {
-        Ok(meta) if meta.kind == "dir" => { gnu.error(f"expected file, got directory {gnu.quote(source_name)}"); exit 1 },
+        Ok(meta) if meta.kind == "dir" => { gnu.error(f"expected file, got directory {gnu.quote_bytes(raw_path)}"); exit 1 },
         _ => {},
       }
       match file.read_text() {
         Ok(text) => text,
-        Err(failure) => { gnu.cannot_open(source_name, failure); exit 1 },
+        Err(failure) => { gnu.error(f"cannot open {gnu.quote_bytes(raw_path, always: false)} for reading: {gnu.strerror(failure)}"); exit 1 },
       }
     }
     let term = env.get_or("TERM", "none") ?? "none"

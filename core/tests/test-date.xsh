@@ -44,6 +44,8 @@ test test_date_epoch_iso_and_modifiers { |ctx|
   assert rfc.status == 0 and rfc.stdout == "1970-01-01 00:00:00.000000000+00:00\n", rfc.stdout
   let email = date_run(ctx, ["-u", "-d", "@0", "-R"])?
   assert email.status == 0 and email.stdout == "Thu, 01 Jan 1970 00:00:00 +0000\n", email.stdout
+  let email_locale = date_run(ctx, ["-u", "-d", "@0", "-R"], {LC_ALL: "fr_FR.UTF-8", TZ: "UTC0"})?
+  assert email_locale.status == 0 and email_locale.stdout == email.stdout, email_locale.stdout
 }
 
 test test_date_file_reference_and_error_options { |ctx|
@@ -101,9 +103,9 @@ test test_date_requires_plus_for_explicit_date_formats { |ctx|
 test test_date_rejects_unbounded_format_width { |ctx|
   let output = date_run(ctx, ["+%99999999999c"])?
   assert output.status == 1 and output.stdout == ""
-  assert "format modifier width exceeds" in output.stderr, output.stderr
+  assert "format modifier width '" in output.stderr and "specifier '%c'" in output.stderr, output.stderr
   let width = date_run(ctx, ["+%65536Y"])?
-  assert width.status == 1 and width.stdout == "" and "format modifier width exceeds" in width.stderr, width.stderr
+  assert width.status == 1 and width.stdout == "" and "format modifier width '65536'" in width.stderr and "specifier '%Y'" in width.stderr, width.stderr
 }
 
 test test_date_rejects_resolution_with_other_sources { |ctx|
