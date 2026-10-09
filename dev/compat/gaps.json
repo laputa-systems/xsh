@@ -181,8 +181,7 @@
       "test_nohup::test_nohup_help_and_version checks help and version output but its version regex requires `nohup (uutils coreutils) VERSION`; XSH uses the shared `nohup (XSH core) VERSION` convention, while GNU uses `(GNU coreutils)`."
     ],
     "numfmt": [
-      "The 22 remaining `test_numfmt::diagnostics::test_snippet_*` and `test_numfmt::field_diagnostics::test_snippet_*` cases need source spans for formats, numeric fields, and option values to render uutils caret diagnostics.",
-      "`test_numfmt::test_numfmt_negative_treated_as_option` expects clap to reject a negative numeric operand as an option; XSH follows GNU operand parsing."
+      "`test_numfmt::test_numfmt_negative_treated_as_option` expects `-8765432` to be accepted as a value; GNU coreutils 9.12 parses it as an option and rejects it."
     ],
     "od": [
       "Floating output formats (`-f`, `-F`, `-t f*`, `-t bfloat16`) remain unsupported without typed byte-to-float decoding; failing IDs include `test_od::test_bfloat16_compact`, `test_f16`, `test_f32`, `test_f64`, `test_fb`, `test_fh`, `test_float16_compact`, `test_tf_default_is_double` and `test_tf_explicit_float_still_uses_4_bytes`.",

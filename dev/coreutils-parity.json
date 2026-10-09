@@ -949,8 +949,8 @@
       "native_tests": "core/tests/test-numfmt.xsh",
       "uutils_test_count": 194,
       "uutils_integration": {
-        "pass": 171,
-        "fail": 23,
+        "pass": 193,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -963,8 +963,7 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "The 22 remaining `test_numfmt::diagnostics::test_snippet_*` and `test_numfmt::field_diagnostics::test_snippet_*` cases need source spans for formats, numeric fields, and option values to render uutils caret diagnostics.",
-        "`test_numfmt::test_numfmt_negative_treated_as_option` expects clap to reject a negative numeric operand as an option; XSH follows GNU operand parsing."
+        "`test_numfmt::test_numfmt_negative_treated_as_option` expects `-8765432` to be accepted as a value; GNU coreutils 9.12 parses it as an option and rejects it."
       ]
     },
     {

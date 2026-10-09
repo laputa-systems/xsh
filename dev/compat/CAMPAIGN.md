@@ -2,7 +2,7 @@
 
 Status: Wave 2 residual coreutils work is in progress on branch `campaign-utils`.
 Use one integrator; any subagent must be GPT-6 Luna at xhigh. The `cut`, `tr`,
-`test`, and `shuf` lanes are merged; `numfmt` and `printf` remain queued. Scope
+`test`, `shuf`, and `numfmt` lanes are merged; `printf` remains queued. Scope
 widened on 2026-10-04 from coreutils parity to the full systems-core surface.
 Lane strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
 usage is in [`README.md`](README.md).
@@ -91,8 +91,9 @@ usage is in [`README.md`](README.md).
   again. The similarly sized 301-bit factor case still exceeds its timeout, and
   the negative-operand test expects uutils wording instead of GNU option
   parsing. `text-b1` moved from **464 / 522** to **498 / 522** with `shuf` at
-  **70 / 77**; its seven residual cases are recorded in `gaps.json`. `text-b2`
-  remains **499 / 536** pending the queued `numfmt` merge.
+  **70 / 77**; its seven residual cases are recorded in `gaps.json`. The
+  `numfmt` lane brings `text-b2` to **521 / 536** (numfmt 193/194); its one
+  remaining negative-number case follows GNU 9.12 option parsing.
 - `unlink` is now **6 / 7**; it resolves non-UTF-8 operand bytes from
   `cli.argv_bytes()` and removes those paths correctly. The remaining multiple-
   operand test expects uutils' usage block; the applet follows GNU's
@@ -103,8 +104,8 @@ usage is in [`README.md`](README.md).
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,214 / 5,974 passing**, 760 failing, and 4 excluded. Compared with the
-  preceding test report, shuf fixed 17 cases and there are no regressions.
+  **5,236 / 5,974 passing**, 738 failing, and 4 excluded. Compared with the
+  preceding shuf report, numfmt fixed 22 cases and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`

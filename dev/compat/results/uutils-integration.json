@@ -931,33 +931,11 @@
       "applet": true
     },
     "numfmt": {
-      "pass": 171,
-      "fail": 23,
+      "pass": 193,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_numfmt::diagnostics::test_snippet_blames_the_suffix_not_the_zero_in_a_unit_size",
-        "test_numfmt::diagnostics::test_snippet_ignores_an_option_value_with_the_number_text",
-        "test_numfmt::diagnostics::test_snippet_ignores_another_option_with_the_same_value",
-        "test_numfmt::diagnostics::test_snippet_leaves_the_suffix_out_of_the_bad_conversion",
-        "test_numfmt::diagnostics::test_snippet_marks_a_format_without_a_directive",
-        "test_numfmt::diagnostics::test_snippet_marks_a_whitespace_only_number",
-        "test_numfmt::diagnostics::test_snippet_marks_an_input_that_is_not_a_number",
-        "test_numfmt::diagnostics::test_snippet_names_no_conversion_when_the_format_has_none",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_bad_directive",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_i_a_unit_does_not_take",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_stray_percent",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_suffix_of_a_bad_number",
-        "test_numfmt::diagnostics::test_snippet_says_a_unit_size_cannot_be_zero",
-        "test_numfmt::diagnostics::test_snippet_says_auto_belongs_to_from",
-        "test_numfmt::diagnostics::test_snippet_says_nothing_about_suffixes_without_a_number",
-        "test_numfmt::diagnostics::test_snippet_says_why_a_zero_padding_is_refused",
-        "test_numfmt::diagnostics::test_snippet_underlines_a_header_count",
-        "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit",
-        "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit_size",
-        "test_numfmt::diagnostics::test_snippet_underlines_the_oversized_precision",
-        "test_numfmt::field_diagnostics::test_snippet_points_at_the_inverted_field_range",
-        "test_numfmt::field_diagnostics::test_snippet_points_at_the_zero_field",
         "test_numfmt::test_numfmt_negative_treated_as_option"
       ],
       "applet": true
@@ -1679,8 +1657,8 @@
     }
   },
   "totals": {
-    "pass": 5214,
-    "fail": 760,
+    "pass": 5236,
+    "fail": 738,
     "skip": 0,
     "excluded": 4
   }
