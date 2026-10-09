@@ -69,6 +69,10 @@ test test_nohup_help_and_version { |ctx|
 
 test test_nohup_terminal_stdin_becomes_unreadable { |ctx|
   let pty = unix.open_pty()?
+  # Ignore the hangup caused by closing the PTY master until test cleanup finishes.
+  let previous_hup = process.signal_action("HUP")?
+  process.set_signal_action("HUP", "ignore")?
+  defer process.set_signal_action("HUP", previous_hup)?
   defer unix.close_fd(pty.master)
   defer unix.close_fd(pty.replica)
 
