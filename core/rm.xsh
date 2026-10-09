@@ -35,6 +35,7 @@ type RmOptions = {
 }
 
 type RmStat = {dev: Int, kind: Str, mode: Int, size: Int}
+type RmTreeResult = {failed: Bool, write_failure: Error?}
 
 pure contains_dot_component(name: Str) -> Bool {
   var last = ""
@@ -207,8 +208,9 @@ proc invalid_dash_file_hint(argv: List[Str]) [fs, process, env, io, error] {
   }
 }
 
-proc remove_tree(root: Path, root_name: Str, root_device: Int, one_file_system: Bool, verbose: Bool, progress: Bool, interactive: Str, assumed_tty: Bool) [fs, process, env, io, error] -> Result[Bool] {
+proc remove_tree(root: Path, root_name: Str, root_device: Int, one_file_system: Bool, verbose: Bool, progress: Bool, interactive: Str, assumed_tty: Bool) [fs, process, env, io, error] -> Result[RmTreeResult] {
   var failed = false
+  var write_failure: Error? = null
   var blocked: List[Path] = []
   let entries = fs.walk(root, gitignore: false, stat: true, hidden: true)? |> sort-by(desc: true) .path
 
@@ -244,10 +246,10 @@ proc remove_tree(root: Path, root_name: Str, root_device: Int, one_file_system: 
     let removed = if stat.kind == "dir" { entry_path.remove_dir() } else { entry_path.remove() }
     match removed {
       Ok(_) => {
-        if verbose {
+        if verbose and write_failure == null {
           let noun = if stat.kind == "dir" { "removed directory" } else { "removed" }
           gnu.write_text(f"{noun} {gnu.quote(shown)}\n")
-          io.flush_stdout()?
+          if let Err(failure) = io.flush_stdout() { write_failure = failure }
         }
       }
       Err(failure) => {
@@ -262,7 +264,7 @@ proc remove_tree(root: Path, root_name: Str, root_device: Int, one_file_system: 
     }
   }
 
-  Ok(failed)
+  Ok({failed: failed, write_failure: write_failure})
 }
 
 proc main(...argv: List[Str]) [fs, process, env, io, error] {
@@ -350,6 +352,7 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
 
   let raw_targets = raw_rm_targets(argv, cli.argv_bytes(), posixly_correct)
   var had_error = false
+  var write_failure: Error? = null
   for index in range(opts.targets.len()) {
     let item = opts.targets[index]
     let raw_item = raw_targets[index]
@@ -400,8 +403,9 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
           Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(raw_item)}: {gnu.strerror(failure)}"); had_error = true }
         }
       } else {
-        let result = remove_tree(target, shown_target, stat.dev, one_file_system, verbose, opts.progress, prompt_mode, assumed_tty)?
-        had_error = had_error or result
+        let result = remove_tree(target, shown_target, stat.dev, one_file_system, verbose and write_failure == null, opts.progress, prompt_mode, assumed_tty)?
+        had_error = had_error or result.failed
+        if write_failure == null { write_failure = result.write_failure }
       }
       continue
     }
@@ -419,15 +423,16 @@ proc main(...argv: List[Str]) [fs, process, env, io, error] {
     let removed = if stat.kind == "dir" { target.remove_dir() } else { target.remove() }
     match removed {
       Ok(_) => {
-        if verbose {
+        if verbose and write_failure == null {
           let noun = if stat.kind == "dir" { "removed directory" } else { "removed" }
           gnu.write_text(f"{noun} {gnu.quote_bytes(raw_item)}\n")
-          io.flush_stdout()?
+          if let Err(failure) = io.flush_stdout() { write_failure = failure }
         }
       }
       Err(failure) => { gnu.error(f"cannot remove {gnu.quote_bytes(raw_item)}: {gnu.strerror(failure)}"); had_error = true }
     }
   }
 
+  if let failure = write_failure { gnu.write_failed(failure) }
   exit 1 when had_error
 }
