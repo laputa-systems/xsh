@@ -10,6 +10,15 @@ proc csplit_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs,
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc csplit_run_paths(ctx: TestContext, root: Path, args: List[Path], input = b"") [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/csplit.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 # Lines FROM up to but not including TO, one number per line.
 pure numbers(from: Int, to: Int) -> Bytes {
   bytes.concat([bytes.from_text(f"{n}\n") for n in range(from, to)])
@@ -195,4 +204,26 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
   let spare = csplit_run(ctx, root, ["--suppress-matched", "n", "21"])?
   assert spare.status == 0, "a line number one past the end is not out of range when the matched line is suppressed"
   assert spare.stdout == b"51\n0\n"
+}
+
+test test_csplit_directory_input_reports_empty_piece { |ctx|
+  let root = test.temp_dir(ctx, name: "csplit")?
+  fp"{root}/dir".mkdir()
+
+  let result = csplit_run(ctx, root, ["dir", "1"])?
+  assert result.status == 1
+  assert result.stdout == b"0\n"
+  assert result.stderr == "csplit: read error: Is a directory\n", result.stderr
+}
+
+test test_csplit_reads_non_utf8_input_path { |ctx|
+  let root = test.temp_dir(ctx, name: "csplit-raw")?
+  let input = Path.parse_bytes(bytes.concat([root.bytes(), b"/input-\xff"]))?
+  input.write("one\ntwo\n")
+
+  let result = csplit_run_paths(ctx, root, [Path.parse_bytes(input.bytes())?, Path.parse_bytes(b"2")?])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"4\n4\n"
+  assert piece(root, "xx00")? == b"one\n"
+  assert piece(root, "xx01")? == b"two\n"
 }

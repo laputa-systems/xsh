@@ -76,6 +76,13 @@ type Input = {name: Str, texts: List[Bytes], fields: List[List[Bytes]], keys: Li
 # unpairable line has been seen (the default check starts then).
 type Flags = {warned: List[Bool], unpairable: Bool}
 
+pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
+  for index in range(argv.len()) {
+    if argv[index] == name { return raw[index] }
+  }
+  bytes.from_text(name)
+}
+
 pure is_blank(value: Int) -> Bool {
   value == 32 or value == 9 or value == 10
 }
@@ -181,12 +188,26 @@ pure fold(text: Bytes) -> Bytes {
   text.lower()
 }
 
-proc read_input(name: Str) [fs, process, env, error, io] -> Bytes {
-  guard let data = gnu.read_operand(name) else { |failure|
-    gnu.name_error(name, failure)
-    exit 1
+proc read_input(name: Str, raw_name: Bytes) [fs, process, env, error, io] -> Bytes {
+  if name == "-" {
+    guard let data = gnu.read_operand(name) else { |failure|
+      gnu.name_error(name, failure)
+      exit 1
+    }
+    return data
   }
 
+  let target = Path.parse_bytes(raw_name)?
+  if let Ok(found) = fs.stat(target, follow_symlinks: true) {
+    if found.kind == "dir" {
+      gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: Is a directory")
+      exit 1
+    }
+  }
+  guard let data = target.read_bytes() else { |failure|
+    gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}")
+    exit 1
+  }
   data
 }
 
@@ -387,6 +408,7 @@ pure modernize(argv: List[Str]) -> List[Str] {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw_args = cli.argv_bytes()
   let opts: JoinOptions = cli.applet(
     modernize(argv),
     {
@@ -486,17 +508,26 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   if opts.tab != null {
     let tab = opts.tab ?? ""
+    let tab_bytes = raw_for(argv, raw_args, tab)
 
     if tab == "" {
       mode = "line"
     } else if tab == "\\0" {
       mode = "sep"
       sep = b"\0"
-    } else if tab.count_chars() == 1 {
+    } else if tab_bytes.len() == 1 {
       mode = "sep"
-      sep = bytes.from_text(tab)
+      sep = tab_bytes
+    } else if let Ok(valid_tab) = tab_bytes.utf8() {
+      if valid_tab.count_chars() == 1 {
+        mode = "sep"
+        sep = tab_bytes
+      } else {
+        gnu.error(f"multi-character tab {gnu.quote(tab)}")
+        exit 1
+      }
     } else {
-      gnu.error(f"multi-character tab {gnu.quote(tab)}")
+      gnu.error("non-UTF-8 multi-byte tab")
       exit 1
     }
   }
@@ -535,7 +566,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   for side in [0, 1] {
     let name = opts.files[side]
-    let texts = split_records(read_input(name), eol_value)
+    let raw_name = raw_for(argv, raw_args, name)
+    let texts = split_records(read_input(name, raw_name), eol_value)
     let fields = [split_fields(text, layout) for text in texts]
     let keys = [
       field_value(row, layout.keys[side], b"") for row in fields

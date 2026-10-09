@@ -69,9 +69,16 @@ type Chunks = {kind: Str, k: Int, n: Int}
 
 # How output names are built: radix and width of the suffix, its first value,
 # and whether the width grows when the names run out.
-type Naming = {prefix: Str, radix: Int, width: Int, start: Int, widen: Bool, extra: Str}
+type Naming = {prefix: Bytes, radix: Int, width: Int, start: Int, widen: Bool, extra: Bytes}
 
 type Rewritten = {argv: List[Str], obsolete: Str, blksize: Str}
+
+pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
+  for index in range(argv.len()) {
+    if argv[index] == name { return raw[index] }
+  }
+  bytes.from_text(name)
+}
 
 const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 
@@ -432,6 +439,7 @@ pure round_robin(data: Bytes, ends: List[Int], count: Int, k: Int, elide: Bool) 
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw_args = cli.argv_bytes()
   let rewritten = modernize(argv)
   let opts: SplitOptions = cli.applet(
     rewritten.argv,
@@ -675,12 +683,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let naming: Naming = {
-    prefix: opts.files.get(1) ?? "x",
+    prefix: if opts.files.len() > 1 { raw_for(argv, raw_args, opts.files[1]) } else { b"x" },
     radix: radix,
     width: width,
     start: start,
     widen: widen,
-    extra: opts.additional,
+    extra: if opts.additional != "" { raw_for(argv, raw_args, opts.additional) } else { b"" },
   }
 
   if ! widen and fixed_name(start, radix, width) == "" {
@@ -689,22 +697,30 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let input_name = opts.files.get(0) ?? "-"
-
-  guard let data = gnu.read_operand(input_name) else { |failure|
-    if gnu.errno(failure) == 21 {
-      gnu.error_reading(input_name, failure)
-    } else {
-      gnu.cannot_open(input_name, failure)
+  let raw_input = if opts.files.len() > 0 { raw_for(argv, raw_args, input_name) } else { b"-" }
+  let data = if input_name == "-" {
+    guard let found = gnu.read_operand(input_name) else { |failure|
+      if gnu.errno(failure) == 21 { gnu.error_reading(input_name, failure) } else { gnu.cannot_open(input_name, failure) }
+      exit 1
     }
-
-    exit 1
+    found
+  } else {
+    guard let found = Path.parse_bytes(raw_input)?.read_bytes() else { |failure|
+      if gnu.errno(failure) == 21 {
+        gnu.error_reading(input_name, failure)
+      } else {
+        gnu.error(f"cannot open {gnu.quote_bytes(raw_input)} for reading: {gnu.strerror(failure)}")
+      }
+      exit 1
+    }
+    found
   }
 
   var input_ino = -1
   var input_dev = -1
 
   if input_name != "-" {
-    if let Ok(found) = fs.stat(fp"{input_name}", follow_symlinks: true) {
+    if let Ok(found) = fs.stat(Path.parse_bytes(raw_input)?, follow_symlinks: true) {
       input_ino = found.ino
       input_dev = found.dev
 
@@ -773,19 +789,21 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       exit 1
     }
 
-    let name = f"{naming.prefix}{tail}{naming.extra}"
+    let raw_name = bytes.concat([naming.prefix, bytes.from_text(tail), naming.extra])
+    let name = raw_name.utf8() ?? ""
+    let target = Path.parse_bytes(raw_name)?
 
     if input_ino >= 0 {
-      if let Ok(found) = fs.stat(fp"{name}", follow_symlinks: true) {
+      if let Ok(found) = fs.stat(target, follow_symlinks: true) {
         if found.ino == input_ino and found.dev == input_dev {
-          gnu.error(f"{gnu.quote(name)} would overwrite input; aborting")
+          gnu.error(f"{gnu.quote_bytes(raw_name)} would overwrite input; aborting")
           exit 1
         }
       }
     }
 
     if opts.verbose {
-      gnu.write_text(f"creating file {gnu.quote(name)}\n")
+      gnu.write_text(f"creating file {gnu.quote_bytes(raw_name)}\n")
     }
 
     if opts.filter != null {
@@ -797,11 +815,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         gnu.error(f"with filter '{command}': failed")
         exit 1
       }
-    } else if let Err(failure) = fp"{name}".write(piece) {
+    } else if let Err(failure) = target.write(piece) {
       if gnu.errno(failure) == 28 {
-        gnu.name_error(name, failure)
+        gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}")
       } else {
-        gnu.error(f"{gnu.quote(name)}: {gnu.strerror(failure)}")
+        gnu.error(f"{gnu.quote_bytes(raw_name)}: {gnu.strerror(failure)}")
       }
 
       exit 1

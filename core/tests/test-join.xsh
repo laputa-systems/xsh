@@ -10,6 +10,15 @@ proc join_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, p
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+proc join_run_paths(ctx: TestContext, root: Path, args: List[Path], input = b"") [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin, fp"{ctx.core_dir}/join.xsh"].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 proc join_fixtures(root: Path) [fs, error] -> Result[Unit] {
   fp"{root}/f1".write("1\n2\n3\n5\n8\n")
   fp"{root}/f2".write("1 a\n2 b\n3 c\n4 d\n5 e\n6 f\n7 g\n8 h\n9 i\n")
@@ -109,4 +118,21 @@ test test_join_headers_and_errors { |ctx|
 
   let missing = join_run(ctx, root, ["nosuch", "h2"])?
   assert missing.stderr == "join: nosuch: No such file or directory\n", missing.stderr
+}
+
+test test_join_preserves_non_utf8_separator_and_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "join-raw")?
+  let one = Path.parse_bytes(bytes.concat([root.bytes(), b"/one-\xff"]))?
+  let two = fp"{root}/two"
+  one.write(b"a\xa7b\n")
+  two.write(b"a\xa7b\n")
+
+  let result = join_run_paths(ctx, root, [
+    Path.parse_bytes(b"-t")?,
+    Path.parse_bytes(b"\xa7")?,
+    Path.parse_bytes(one.bytes())?,
+    Path.parse_bytes(two.bytes())?,
+  ])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == b"a\xa7b\xa7b\n"
 }

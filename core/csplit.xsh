@@ -59,6 +59,13 @@ const DISAPPEARED = "input disappeared"
 
 type Walk = {cur: Int, held: Int, pieces: List[Piece], failure: Str}
 
+pure raw_for(argv: List[Str], raw: List[Bytes], name: Str) -> Bytes {
+  for index in range(argv.len()) {
+    if argv[index] == name { return raw[index] }
+  }
+  bytes.from_text(name)
+}
+
 pure line_value(text: Str) -> Int {
   if text.byte_len() > 18 { 9223372036854775807 } else { text.parse_int() ?? 0 }
 }
@@ -303,6 +310,7 @@ pure flags_has(spec: Format, flag: Str) -> Bool {
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
+  let raw_args = cli.argv_bytes()
   let opts: CsplitOptions = cli.applet(
     argv,
     {
@@ -351,19 +359,27 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let spec = parse_format(opts.suffix_format ?? f"%0{width}d")
   let input_name = opts.operands[0]
-
-  guard let data = gnu.read_operand(input_name) else { |failure|
-    if gnu.errno(failure) == 21 {
-      if ! opts.quiet {
-        gnu.write_text("0\n")
-      }
-
-      gnu.error("read error: Is a directory")
-    } else {
+  let raw_name = raw_for(argv, raw_args, input_name)
+  let data = if input_name == "-" {
+    guard let found = gnu.read_operand(input_name) else { |failure|
       gnu.cannot_open(input_name, failure)
+      exit 1
     }
-
-    exit 1
+    found
+  } else {
+    let target = Path.parse_bytes(raw_name)?
+    if let Ok(found) = fs.stat(target, follow_symlinks: true) {
+      if found.kind == "dir" {
+        if ! opts.quiet { gnu.write_text("0\n") }
+        gnu.error("read error: Is a directory")
+        exit 1
+      }
+    }
+    guard let found = target.read_bytes() else { |failure|
+      gnu.error(f"cannot open {gnu.quote_bytes(raw_name)} for reading: {gnu.strerror(failure)}")
+      exit 1
+    }
+    found
   }
 
   let patterns = parse_patterns(opts.operands[1..])
