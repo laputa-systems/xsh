@@ -1513,21 +1513,13 @@
       "applet": true
     },
     "test": {
-      "pass": 105,
-      "fail": 10,
+      "pass": 113,
+      "fail": 2,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_test::diagnostics::test_bracket_form_reports_under_its_own_name",
-        "test_test::diagnostics::test_dash_t_advises_about_descriptors_not_comparisons",
-        "test_test::diagnostics::test_extra_argument_points_past_the_expression",
-        "test_test::diagnostics::test_extra_operand_suggests_quoting_the_variable",
-        "test_test::diagnostics::test_integer_comparison_keeps_its_own_advice",
-        "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
-        "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
         "test_test::test_bracket_syntax_version",
-        "test_test::test_invalid_utf8_integer_compare",
-        "test_test::test_parenthesized_string_comparison"
+        "test_test::test_invalid_utf8_integer_compare"
       ],
       "applet": true
     },
@@ -1704,8 +1696,8 @@
     }
   },
   "totals": {
-    "pass": 5189,
-    "fail": 785,
+    "pass": 5197,
+    "fail": 777,
     "skip": 0,
     "excluded": 4
   }

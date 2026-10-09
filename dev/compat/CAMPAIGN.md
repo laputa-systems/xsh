@@ -2,10 +2,9 @@
 
 Status: Wave 2 residual coreutils work is in progress on branch `campaign-utils`.
 Use one integrator; any subagent must be GPT-6 Luna at xhigh. `cut` and `tr` are
-merged; four queued lanes cover `test`, `shuf`, `numfmt`, and `printf`. Scope
-widened on 2026-10-04 from coreutils parity to the full systems-core surface
-below. Lane
-strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
+merged; `test` is merged and three queued lanes cover `shuf`, `numfmt`, and
+`printf`. Scope widened on 2026-10-04 from coreutils parity to the full
+systems-core surface below. Lane strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
 usage is in [`README.md`](README.md).
 
 ## Active resume (2026-10-09)
@@ -49,7 +48,10 @@ usage is in [`README.md`](README.md).
   SIGBUS, and SIGSEGV behavior. `proc-a` is merged at **109 / 125** (kill
   48/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 26/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
-  group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
+  group and preserve raw argv in `stdbuf`. The `test` lane is now **113 / 115**
+  with all **15 / 15** native tests passing; bracket version branding and invalid
+  UTF-8 integer quoting remain as GNU-compatible differences in `gaps.json`.
+  `text-a2` started from **17 / 663**
   across nine applets and now passes **663 / 663** (cut 83/83, paste 27/27,
   fold 101/101, expand 46/46, unexpand 44/44, nl 67/67, fmt 37/37, pr 84/84,
   tr 174/174). `fmt` now follows uutils' Knuth–Plass paragraph line breaking
@@ -101,8 +103,8 @@ usage is in [`README.md`](README.md).
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,189 / 5,974 passing**, 785 failing, and 4 excluded. Compared with the
-  prior merged report, cut/tr fixed 11 tests and there are no regressions.
+  **5,197 / 5,974 passing**, 777 failing, and 4 excluded. Compared with the
+  preceding cut/tr report, test fixed 8 cases and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`

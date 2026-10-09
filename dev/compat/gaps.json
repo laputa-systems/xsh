@@ -278,9 +278,8 @@
       "`test_tail::test_obsolete_encoding_unix` requires raw argv bytes so invalid UTF-8 option bytes can be reported with GNU quoting."
     ],
     "test": [
-      "The seven `test_test::diagnostics::*` cases expect uutils-specific advice and source carets; the shared CLI parser only emits plain GNU diagnostics.",
-      "test_test::test_bracket_syntax_version expects the `[` version identity and test_test::test_parenthesized_string_comparison needs the uutils parenthesized-comparison behavior.",
-      "test_test::test_invalid_utf8_integer_compare needs byte-preserving operand handling for invalid UTF-8 integer input."
+      "test_test::test_bracket_syntax_version expects uutils' version identity for `[`, while XSH follows GNU coreutils 9.12's branding.",
+      "test_test::test_invalid_utf8_integer_compare expects uutils' `$'...\\x80...'` invalid-byte quoting; XSH follows GNU 9.12's octal byte quoting under LC_ALL=C."
     ],
     "timeout": [
       "test_timeout::test_invalid_multi_byte_characters and test_timeout::test_invalid_time_interval::case_2_single_quote expect literal characters; under LC_ALL=C GNU quotes invalid interval bytes with C escapes and escapes apostrophes, which the applet follows.",
