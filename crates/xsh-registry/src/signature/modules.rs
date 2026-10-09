@@ -2005,6 +2005,78 @@ fn hash_module() -> ModuleSig {
             ),
         ),
         (
+            "blake3",
+            sig(
+                vec![
+                    param("data", Type::Bytes),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                true,
+                RuntimeOp::HashBlake3,
+            ),
+        ),
+        (
+            "blake3",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashBlake3,
+            ),
+        ),
+        (
+            "shake128",
+            sig(
+                vec![
+                    param("data", Type::Bytes),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                true,
+                RuntimeOp::HashShake128,
+            ),
+        ),
+        (
+            "shake128",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashShake128,
+            ),
+        ),
+        (
+            "shake256",
+            sig(
+                vec![
+                    param("data", Type::Bytes),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                true,
+                RuntimeOp::HashShake256,
+            ),
+        ),
+        (
+            "shake256",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashShake256,
+            ),
+        ),
+        (
             "md5",
             sig(
                 vec![param("data", Type::Bytes)],
@@ -2110,6 +2182,96 @@ fn hash_module() -> ModuleSig {
                 result(Type::Digest),
                 false,
                 RuntimeOp::HashSha512,
+            ),
+        ),
+        (
+            "sha3_224",
+            sig(
+                vec![param("data", Type::Bytes)],
+                Type::Digest,
+                true,
+                RuntimeOp::HashSha3_224,
+            ),
+        ),
+        (
+            "sha3_224",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashSha3_224,
+            ),
+        ),
+        (
+            "sha3_256",
+            sig(
+                vec![param("data", Type::Bytes)],
+                Type::Digest,
+                true,
+                RuntimeOp::HashSha3_256,
+            ),
+        ),
+        (
+            "sha3_256",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashSha3_256,
+            ),
+        ),
+        (
+            "sha3_384",
+            sig(
+                vec![param("data", Type::Bytes)],
+                Type::Digest,
+                true,
+                RuntimeOp::HashSha3_384,
+            ),
+        ),
+        (
+            "sha3_384",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashSha3_384,
+            ),
+        ),
+        (
+            "sha3_512",
+            sig(
+                vec![param("data", Type::Bytes)],
+                Type::Digest,
+                true,
+                RuntimeOp::HashSha3_512,
+            ),
+        ),
+        (
+            "sha3_512",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashSha3_512,
+            ),
+        ),
+        (
+            "sm3",
+            sig(
+                vec![param("data", Type::Bytes)],
+                Type::Digest,
+                true,
+                RuntimeOp::HashSm3,
+            ),
+        ),
+        (
+            "sm3",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashSm3,
             ),
         ),
         (

@@ -3196,7 +3196,7 @@ complete, generated index is `docs/reference/stdlib.md`, and
 | `json`, `ini` | data formats |
 | `text`, `bytes` | stream adapters and byte-level helpers; text operations are `Str` methods |
 | `regex` | runtime regex compilation; `Regex` methods match, find, capture, and replace |
-| `hash` | MD5, SHA-1, SHA-224, SHA-256, SHA-384, SHA-512, and BLAKE2b digests; POSIX `cksum`; BSD and SysV sums over bytes and files |
+| `hash` | MD5, SHA-1, SHA-2, SHA-3, SM3, BLAKE2b, BLAKE3, and SHAKE digests; POSIX `cksum`; BSD and SysV sums over bytes and files |
 | `archive` | tar, cpio, and zip listing, extraction, creation, and compression |
 | `diff`, `patch` | unified diffs and confined patch application |
 | `net`, `dns` | HTTP(S) requests, downloads, uploads, batches, pooled clients, `NetJob`; DNS lookups |

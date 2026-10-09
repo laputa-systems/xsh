@@ -27,6 +27,39 @@ test test_hash_digests_checksums_and_digest_methods { |ctx|
   )
 }
 
+test test_hash_sha3_sm3_blake3_and_shake_vectors { |ctx|
+  let data_path = test.temp_path(ctx, name: "hash-modern-data.txt")
+  fs.write(data_path, "abc")
+
+  assert hash.sha3_224(b"abc").hex() == "e642824c3f8cf24ad09234ee7d3c766fc9a3a5168d0c94ad73b46fdf"
+  assert hash.sha3_256(b"abc").hex() == "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532"
+  let sha3_384 = "ec01498288516fc926459f58e2c6ad8d"
+    + "f9b473cb0fc08c2596da7cf0e49be4b298d88cea927ac7f539f1edf228376d25"
+  assert hash.sha3_384(b"abc").hex() == sha3_384
+  let sha3_512 = "b751850b1a57168a5693cd924b6b096e"
+    + "08f621827444f70d884f5d0240d2712e10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0"
+  assert hash.sha3_512(b"abc").hex() == sha3_512
+  assert hash.sm3(b"abc").hex() == "66c7f0f462eeedd9d1f2d46bdc10e4e2"
+    + "4167c4875cf2f7a2297da02b8f4ba8e0"
+
+  assert hash.blake3(b"abc")?.hex() == "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+  assert hash.blake3(b"abc", output_length: 8)?.hex() == "6437b3ac38465133"
+  assert hash.shake128(b"abc")?.hex() == "5881092dd818bf5cf8a3ddb793fbcba74097d5c526a6d35f97b83351940f2cc8"
+  assert hash.shake128(b"abc", output_length: 4)?.hex() == "5881092d"
+  assert hash.shake256(b"abc")?.hex() == "483366601360a8771c6863080cc4114d8db44530f8f1e1ee4f94ea37e78b5739"
+
+  assert hash.sha3_256(data_path)?.hex() == hash.sha3_256(b"abc").hex()
+  assert hash.sm3(data_path)?.hex() == hash.sm3(b"abc").hex()
+  assert hash.blake3(data_path)?.hex() == hash.blake3(b"abc")?.hex()
+  assert hash.shake128(data_path)?.hex() == hash.shake128(b"abc")?.hex()
+  assert hash.shake256(data_path)?.hex() == hash.shake256(b"abc")?.hex()
+  hash.verify_file(data_path, sha3_256: hash.sha3_256(b"abc").hex())
+  hash.verify_file(data_path, sm3: hash.sm3(b"abc").hex())
+  hash.verify_file(data_path, blake3: hash.blake3(b"abc")?.hex())
+  test.error_kind(hash.blake3(b"abc", output_length: 0), "hash-output-length")
+  test.error_kind(hash.shake128(b"abc", output_length: -1), "hash-output-length")
+}
+
 test test_hash_blake2b_variable_output_and_streaming_path { |ctx|
   let data = b"abc"
   let data_path = test.temp_path(ctx, name: "hash-blake2b.txt")

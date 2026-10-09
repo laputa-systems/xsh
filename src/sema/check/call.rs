@@ -2223,7 +2223,18 @@ impl Checker {
         };
         if !matches!(
             name.as_str().as_str(),
-            "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512"
+            "md5"
+                | "sha1"
+                | "sha224"
+                | "sha256"
+                | "sha384"
+                | "sha512"
+                | "sha3_224"
+                | "sha3_256"
+                | "sha3_384"
+                | "sha3_512"
+                | "sm3"
+                | "blake3"
         ) {
             self.error(
                 call_arg_span_arena(arena, &checksum_arg.kind),

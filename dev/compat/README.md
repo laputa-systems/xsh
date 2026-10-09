@@ -17,8 +17,6 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
   env CARGO_HOME="$CARGO_HOME" RUSTUP_HOME="$RUSTUP_HOME" sh -s -- -y --no-modify-path --default-toolchain none
 "$CARGO_HOME/bin/rustup" toolchain install nightly-2026-09-15 --profile minimal \
   --component rust-src --component llvm-tools
-"$CARGO_HOME/bin/rustup" target add x86_64-unknown-linux-musl \
-  --toolchain nightly-2026-09-15
 curl -fL https://github.com/rui314/mold/releases/download/v3.0.0/mold-3.0.0-x86_64-linux.tar.gz \
   -o "$XSH_TOOLS_ROOT/mold-3.0.0-x86_64-linux.tar.gz"
 (cd "$XSH_TOOLS_ROOT" && echo '6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189  mold-3.0.0-x86_64-linux.tar.gz' | sha256sum -c -)
@@ -28,8 +26,10 @@ source dev/compat/native-env.sh
 
 `native-env.sh` defaults tool storage to `../.tools`, requires mold 3.0.0,
 and adds `-C link-arg=-fuse-ld=mold` to `RUSTFLAGS`. The release build and
-Cargo installs therefore use mold. The scope and evidence for this campaign
-are Linux x86_64 only; do not route these commands through Docker. GNU
+Cargo installs therefore use mold. Builds target the native host triple
+`x86_64-unknown-linux-gnu`; the session host has GCC but no musl cross
+compiler. The scope and evidence for this campaign are native Linux x86_64
+only; do not route these commands through Docker. GNU
 preparation needs a C compiler, autotools, Perl, quilt, gperf, texinfo,
 autopoint, gawk, help2man, rsync, ACL tools, and `filefrag`. Install them from
 the host package manager or provide them in `../.tools/gnu-env` when host
@@ -119,3 +119,9 @@ no regression among previously passing tests.
 The baseline run against uutils recorded 573 passed, 85 skipped, 58 failed,
 and 3 harness errors out of 719 test records. Remaining test gaps and exact
 results are maintained in `CAMPAIGN.md`, `gaps.json`, and `results/`.
+
+On this host, the release `xsh` dispatcher build stalled in thin-LTO after its
+linker exited. Setting `CARGO_PROFILE_RELEASE_LTO=false` completed the same
+optimized release build with mold 3.0.0; `xsht` built successfully with the
+workspace release profile. Use this override only for the dispatcher build if
+that host-specific stall recurs.

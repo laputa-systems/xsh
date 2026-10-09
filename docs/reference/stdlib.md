@@ -181,6 +181,7 @@ Unix group lookup records.
 Digest and checksum calculation and verification.
 
 - `hash.blake2b(data: Bytes, output_length: Int = default) -> Result[Digest, Error] (+1 overloads)` — Calculates a variable-length BLAKE2b digest from bytes or a file path.
+- `hash.blake3(data: Bytes, output_length: Int = default) -> Result[Digest, Error] (+1 overloads)` — Calculates a variable-length BLAKE3 digest from bytes or a file path.
 - `hash.bsd_sum(data: Bytes) -> {blocks: Int, checksum: Int} (+1 overloads)` — Calculates a POSIX or traditional checksum from bytes or a file path.
 - `hash.cksum(data: Bytes) -> {bytes: Int, checksum: Int} (+1 overloads)` — Calculates a POSIX or traditional checksum from bytes or a file path.
 - `hash.crc32(data: Bytes) -> Int` — Calculates a CRC checksum for bytes.
@@ -191,7 +192,14 @@ Digest and checksum calculation and verification.
 - `hash.sha224(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha256(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha384(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
+- `hash.sha3_224(data: Bytes) -> Digest (+1 overloads)` — Calculates a SHA-3 digest from bytes or a file path.
+- `hash.sha3_256(data: Bytes) -> Digest (+1 overloads)` — Calculates a SHA-3 digest from bytes or a file path.
+- `hash.sha3_384(data: Bytes) -> Digest (+1 overloads)` — Calculates a SHA-3 digest from bytes or a file path.
+- `hash.sha3_512(data: Bytes) -> Digest (+1 overloads)` — Calculates a SHA-3 digest from bytes or a file path.
 - `hash.sha512(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
+- `hash.shake128(data: Bytes, output_length: Int = default) -> Result[Digest, Error] (+1 overloads)` — Calculates a variable-length SHAKE digest from bytes or a file path.
+- `hash.shake256(data: Bytes, output_length: Int = default) -> Result[Digest, Error] (+1 overloads)` — Calculates a variable-length SHAKE digest from bytes or a file path.
+- `hash.sm3(data: Bytes) -> Digest (+1 overloads)` — Calculates an SM3 digest from bytes or a file path.
 - `hash.sysv_sum(data: Bytes) -> {blocks: Int, checksum: Int} (+1 overloads)` — Calculates a POSIX or traditional checksum from bytes or a file path.
 - `hash.verify_file(path: Path, sha256: Str = default) -> Result[Unit, Error]` — Verifies a file against a named digest.
 

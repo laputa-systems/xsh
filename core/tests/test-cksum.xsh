@@ -30,6 +30,14 @@ test test_cksum_posix_and_algorithm_outputs { |ctx|
   assert sha.stdout == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad  -\n", sha.stdout
   let sha2 = run_cksum(ctx, "sha2", ["--algorithm=sha2", "--length=224"], b"abc")?
   assert sha2.stdout == "SHA224 (-) = 23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7\n", sha2.stdout
+  let sha3 = run_cksum(ctx, "sha3", ["--algorithm=sha3", "--length=256"], b"abc")?
+  assert sha3.stdout == "SHA3-256 (-) = 3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532\n", sha3.stdout
+  let sm3 = run_cksum(ctx, "sm3", ["--algorithm=sm3"], b"abc")?
+  assert sm3.stdout == "SM3 (-) = 66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0\n", sm3.stdout
+  let blake3 = run_cksum(ctx, "blake3", ["--algorithm=blake3", "--length=40"], b"abc")?
+  assert blake3.stdout == "BLAKE3-40 (-) = 6437b3ac38\n", blake3.stdout
+  let shake = run_cksum(ctx, "shake", ["--algorithm=shake128", "--length=3"], b"xxx")?
+  assert shake.stdout == "SHAKE128-3 (-) = 04\n", shake.stdout
   let base64 = run_cksum(ctx, "md5-base64", ["--algorithm=md5", "--base64"], b"abc")?
   assert base64.stdout == "MD5 (-) = kAFQmDzST7DWlj99KOF/cg==\n", base64.stdout
   let raw = run_cksum(ctx, "md5-raw", ["--algorithm=md5", "--raw"], b"abc")?
@@ -47,7 +55,27 @@ test test_cksum_posix_and_algorithm_outputs { |ctx|
   let b2_check = run_cksum_in(ctx, root, ["--algorithm=blake2b", "--check", "check"], b"", false)?
   assert b2_check.status == 0 and b2_check.stdout == "data: OK\n", b2_check.stderr
 
+  let shake_output = run_cksum_in(ctx, root, ["--algorithm=shake128", "--length=128", "data"], b"", false)?
+  fp"{root}/check".write(shake_output.stdout)
+  let shake_check = run_cksum_in(ctx, root, ["--algorithm=shake128", "--check", "check"], b"", false)?
+  assert shake_check.status == 0 and shake_check.stdout == "data: OK\n", shake_check.stderr
+
   fp"{root}/folder".mkdir()?
   let directory = run_cksum_in(ctx, root, ["--algorithm=blake3", "folder"], b"", false)?
   assert directory.status == 1 and directory.stderr == "cksum: folder: Is a directory\n", directory.stderr
+
+  fp"{root}/status-missing".write("SM3 (missing) = 66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0\n")
+  let missing_status = run_cksum_in(ctx, root, ["--check", "--status", "status-missing"], b"", false)?
+  assert missing_status.status == 1 and missing_status.stdout == "", missing_status.stdout
+  assert missing_status.stderr == "cksum: missing: No such file or directory\n", missing_status.stderr
+
+  fp"{root}/status-warn".write("SM3 (data) = 0000000000000000000000000000000000000000000000000000000000000000\nbad line\n")
+  let warn_after_status = run_cksum_in(ctx, root, ["--status", "--warn", "--check", "status-warn"], b"", false)?
+  assert warn_after_status.status == 1 and warn_after_status.stdout == "", warn_after_status.stdout
+  assert "improperly formatted SM3 checksum line" in warn_after_status.stderr, warn_after_status.stderr
+  assert "WARNING: 1 line is improperly formatted" in warn_after_status.stderr, warn_after_status.stderr
+  assert "WARNING: 1 computed checksum did NOT match" in warn_after_status.stderr, warn_after_status.stderr
+
+  let status_after_warn = run_cksum_in(ctx, root, ["--warn", "--status", "--check", "status-warn"], b"", false)?
+  assert status_after_warn.status == 1 and status_after_warn.stdout == "" and status_after_warn.stderr == "", status_after_warn.stderr
 }

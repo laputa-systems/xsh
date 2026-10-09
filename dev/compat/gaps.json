@@ -93,7 +93,6 @@
       "test_base64::test_wrap_no_arg still passes -w/--wrap without COLS and uses the default width; GNU rejects the missing operand."
     ],
     "cksum": [
-      "The 137 non-debug residual IDs require hash support absent from the typed API: SHA3 (45), Blake3 (29), SHAKE (28), and SM3 (35). This includes cksum computation and tagged/untagged check parsing for SHA3-*, BLAKE3-*, SHAKE*, and SM3; 26 SM3 check/base64 fixtures fail during setup and nine test direct SM3 algorithm cases.",
       "`test_cksum::debug_flag::test_debug_flag`, `test_debug_with_algorithms`, and `test_debug_with_glibc_tunables` need native x86 SIMD feature detection and GLIBC_TUNABLES reporting."
     ],
     "date": [

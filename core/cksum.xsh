@@ -112,7 +112,7 @@ const CKSUM_USAGE = """Usage: cksum [OPTION]... [FILE]...
 Print or verify checksums.
 
   -a, --algorithm=TYPE  select checksum algorithm
-  -l, --length=BITS     digest length in bits; supported by BLAKE2b and SHA-2
+  -l, --length=BITS     digest length in bits; supported by BLAKE2b, SHA-2, SHA-3, BLAKE3, and SHAKE
   -c, --check           read checksums from the FILEs and check them
       --tag             create a BSD-style checksum
       --untagged        create a reversed-style checksum
@@ -201,6 +201,14 @@ pure digest_label(algorithm: Str, length: Int) -> Str {
   return "SHA256" when algorithm == "sha256"
   return "SHA384" when algorithm == "sha384"
   return "SHA512" when algorithm == "sha512"
+  return "SHA3-224" when algorithm == "sha3-224"
+  return "SHA3-256" when algorithm == "sha3-256"
+  return "SHA3-384" when algorithm == "sha3-384"
+  return "SHA3-512" when algorithm == "sha3-512"
+  return "SM3" when algorithm == "sm3"
+  if algorithm == "blake3" { return f"BLAKE3-{length}" }
+  if algorithm == "shake128" { return f"SHAKE128-{length}" }
+  if algorithm == "shake256" { return f"SHAKE256-{length}" }
   if algorithm == "blake2b" {
     return "BLAKE2b" when length == 512
     return f"BLAKE2b-{length}"
@@ -215,7 +223,12 @@ pure digest_hex_length(algorithm: Str, length: Int) -> Int {
   return 64 when algorithm == "sha256"
   return 96 when algorithm == "sha384"
   return 128 when algorithm == "sha512"
+  return 56 when algorithm == "sha3-224"
+  return 64 when algorithm == "sha3-256" or algorithm == "sm3"
+  return 96 when algorithm == "sha3-384"
+  return 128 when algorithm == "sha3-512"
   return length / 4 when algorithm == "blake2b"
+  return (length + 7) / 8 * 2 when algorithm == "blake3" or algorithm == "shake128" or algorithm == "shake256"
   0
 }
 
@@ -343,6 +356,36 @@ proc digest_bytes(data: Bytes, algorithm: Str, length: Int) [error] -> Result[Ch
     let digest = hash.sha512(data)
     return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
   }
+  if algorithm == "sha3-224" {
+    let digest = hash.sha3_224(data)
+    return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
+  }
+  if algorithm == "sha3-256" {
+    let digest = hash.sha3_256(data)
+    return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
+  }
+  if algorithm == "sha3-384" {
+    let digest = hash.sha3_384(data)
+    return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
+  }
+  if algorithm == "sha3-512" {
+    let digest = hash.sha3_512(data)
+    return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
+  }
+  if algorithm == "sm3" {
+    let digest = hash.sm3(data)
+    return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
+  }
+  if algorithm == "blake3" {
+    let digest = hash.blake3(data, output_length: length / 8)?
+    return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
+  }
+  if algorithm == "shake128" {
+    return shake_checksum(data, algorithm, length)
+  }
+  if algorithm == "shake256" {
+    return shake_checksum(data, algorithm, length)
+  }
   if algorithm == "blake2b" {
     let digest = hash.blake2b(data, output_length: length / 8)?
     return Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
@@ -366,6 +409,90 @@ proc digest_bytes(data: Bytes, algorithm: Str, length: Int) [error] -> Result[Ch
   Ok({algorithm: "md5", digest: digest.hex(), base64: digest.base64(), number: 0, size: data.len()})
 }
 
+proc shake_checksum(data: Bytes, algorithm: Str, length: Int) [error] -> Result[ChecksumValue] {
+  let output_length = (length + 7) / 8
+  if algorithm == "shake128" {
+    let digest = hash.shake128(data, output_length: output_length)?
+    return shake_checksum_digest(digest, algorithm, length)
+  }
+  let digest = hash.shake256(data, output_length: output_length)?
+  shake_checksum_digest(digest, algorithm, length)
+}
+
+proc shake_checksum_digest(digest: Digest, algorithm: Str, length: Int) [error] -> Result[ChecksumValue] {
+  let raw = digest.base64().base64_decode()?
+  let remaining_bits = length % 8
+  var output = raw
+  var hex = digest.hex()
+  if remaining_bits != 0 {
+    let last_index = raw.len() - 1
+    let last_byte = raw.byte_at(last_index) ?? 0
+    var mask = 1
+    var bit = 0
+    while bit < remaining_bits {
+      mask *= 2
+      bit += 1
+    }
+    let final_byte = bytes.from_ints([last_byte % mask])?
+    output = bytes.concat([raw.slice(0, length: last_index), final_byte])
+    hex = truncate_shake_hex(hex, length)
+  }
+  Ok({algorithm: algorithm, digest: hex, base64: output.base64(), number: 0, size: raw.len()})
+}
+
+pure hex_nibble_value(digit: Str) -> Int {
+  return 0 when digit == "0"
+  return 1 when digit == "1"
+  return 2 when digit == "2"
+  return 3 when digit == "3"
+  return 4 when digit == "4"
+  return 5 when digit == "5"
+  return 6 when digit == "6"
+  return 7 when digit == "7"
+  return 8 when digit == "8"
+  return 9 when digit == "9"
+  return 10 when digit == "a"
+  return 11 when digit == "b"
+  return 12 when digit == "c"
+  return 13 when digit == "d"
+  return 14 when digit == "e"
+  15
+}
+
+pure hex_nibble(value: Int) -> Str {
+  return "0" when value == 0
+  return "1" when value == 1
+  return "2" when value == 2
+  return "3" when value == 3
+  return "4" when value == 4
+  return "5" when value == 5
+  return "6" when value == 6
+  return "7" when value == 7
+  return "8" when value == 8
+  return "9" when value == 9
+  return "a" when value == 10
+  return "b" when value == 11
+  return "c" when value == 12
+  return "d" when value == 13
+  return "e" when value == 14
+  "f"
+}
+
+pure truncate_shake_hex(digest: Str, bit_length: Int) -> Str {
+  let prefix_length = digest.byte_len() - 2
+  let high = hex_nibble_value(digest.byte_slice(prefix_length, length: 1))
+  let low = hex_nibble_value(digest.byte_slice(prefix_length + 1, length: 1))
+  var mask = 1
+  var bit = 0
+  let remaining_bits = bit_length % 8
+  while bit < remaining_bits {
+    mask *= 2
+    bit += 1
+  }
+  let final_byte = (high * 16 + low) % mask
+  f"{digest.byte_slice(0, length: prefix_length)}{hex_nibble(final_byte / 16)}{hex_nibble(final_byte % 16)}"
+}
+
 proc digest_path(path_value: Path, algorithm: Str, length: Int) [fs, error] -> Result[ChecksumValue] {
   if algorithm == "md5" {
     match hash.md5(path_value) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
@@ -381,6 +508,24 @@ proc digest_path(path_value: Path, algorithm: Str, length: Int) [fs, error] -> R
     match hash.sha512(path_value) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
   } else if algorithm == "blake2b" {
     match hash.blake2b(path_value, output_length: length / 8) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
+  } else if algorithm == "sha3-224" {
+    match hash.sha3_224(path_value) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
+  } else if algorithm == "sha3-256" {
+    match hash.sha3_256(path_value) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
+  } else if algorithm == "sha3-384" {
+    match hash.sha3_384(path_value) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
+  } else if algorithm == "sha3-512" {
+    match hash.sha3_512(path_value) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
+  } else if algorithm == "sm3" {
+    match hash.sm3(path_value) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
+  } else if algorithm == "blake3" {
+    match hash.blake3(path_value, output_length: length / 8) { Ok(digest) => Ok({algorithm: algorithm, digest: digest.hex(), base64: digest.base64(), number: 0, size: 0}); Err(failure) => Err(failure) }
+  } else if algorithm == "shake128" {
+    let digest = hash.shake128(path_value, output_length: (length + 7) / 8)?
+    shake_checksum_digest(digest, algorithm, length)
+  } else if algorithm == "shake256" {
+    let digest = hash.shake256(path_value, output_length: (length + 7) / 8)?
+    shake_checksum_digest(digest, algorithm, length)
   } else if algorithm == "crc" {
     match hash.cksum(path_value) { Ok(value) => Ok({algorithm: algorithm, digest: "", base64: "", number: value.checksum, size: value.bytes}); Err(failure) => Err(failure) }
   } else if algorithm == "bsd" {
@@ -526,7 +671,7 @@ pure last_find_bytes(haystack: Bytes, pattern: Bytes) -> Int? {
   found
 }
 
-pure parse_checksum_line(line: Str, raw_line: Bytes, algorithm: Str, length: Int, program: Str) -> ChecksumLine {
+pure parse_checksum_line(line: Str, raw_line: Bytes, algorithm: Str, length: Int, program: Str, explicit_length: Bool) -> ChecksumLine {
   let initial = if program == "cksum" { trim_leading_space(line) } else { line }
   let raw_trim = if program == "cksum" { line.byte_len() - initial.byte_len() } else { 0 }
   let raw_initial_with_prefix = raw_line.slice(raw_trim)
@@ -555,6 +700,11 @@ pure parse_checksum_line(line: Str, raw_line: Bytes, algorithm: Str, length: Int
     if label == "SHA2-256" { line_algorithm = "sha256"; recognized = true }
     if label == "SHA2-384" { line_algorithm = "sha384"; recognized = true }
     if label == "SHA2-512" { line_algorithm = "sha512"; recognized = true }
+    if label == "SHA3-224" { line_algorithm = "sha3-224"; line_length = 224; recognized = true }
+    if label == "SHA3-256" { line_algorithm = "sha3-256"; line_length = 256; recognized = true }
+    if label == "SHA3-384" { line_algorithm = "sha3-384"; line_length = 384; recognized = true }
+    if label == "SHA3-512" { line_algorithm = "sha3-512"; line_length = 512; recognized = true }
+    if label == "SM3" { line_algorithm = "sm3"; line_length = 256; recognized = true }
     if label == "BLAKE2b" { line_algorithm = "blake2b"; line_length = 512; recognized = true }
     if label.starts_with("BLAKE2b-") {
       line_algorithm = "blake2b"
@@ -564,7 +714,34 @@ pure parse_checksum_line(line: Str, raw_line: Bytes, algorithm: Str, length: Int
     if line_algorithm == "blake2b" and (line_length < 8 or line_length > 512 or line_length % 8 != 0) {
       recognized = false
     }
-    if recognized and (algorithm == "crc" or line_algorithm == algorithm or (algorithm == "sha2" and line_algorithm.starts_with("sha"))) and line_length >= 0 {
+    if label == "BLAKE3" { line_algorithm = "blake3"; line_length = 256; recognized = true }
+    if label.starts_with("BLAKE3-") {
+      line_algorithm = "blake3"
+      line_length = label.byte_slice(7).parse_int() ?? -1
+      recognized = true
+    }
+    if label == "SHAKE128" { line_algorithm = "shake128"; line_length = 256; recognized = true }
+    if label.starts_with("SHAKE128-") {
+      line_algorithm = "shake128"
+      line_length = label.byte_slice(9).parse_int() ?? -1
+      recognized = true
+    }
+    if label == "SHAKE256" { line_algorithm = "shake256"; line_length = 512; recognized = true }
+    if label.starts_with("SHAKE256-") {
+      line_algorithm = "shake256"
+      line_length = label.byte_slice(9).parse_int() ?? -1
+      recognized = true
+    }
+    if (line_algorithm == "blake3" or line_algorithm == "shake128" or line_algorithm == "shake256")
+      and (line_length < 1 or line_length > 536870912 or (line_algorithm == "blake3" and line_length % 8 != 0)) {
+      recognized = false
+    }
+    if recognized
+      and (algorithm == "crc"
+        or line_algorithm == algorithm
+        or (algorithm == "sha2" and line_algorithm.starts_with("sha"))
+        or (algorithm == "sha3" and line_algorithm.starts_with("sha3-")))
+      and line_length >= 0 {
       let filename_bytes = raw_initial.slice(start + open_width, length: finish - start - open_width)
       let filename = filename_bytes.utf8() ?? "\u{fffd}"
       let digest = raw_initial.slice(finish + end_width).utf8() ?? ""
@@ -622,11 +799,20 @@ pure parse_checksum_line(line: Str, raw_line: Bytes, algorithm: Str, length: Int
   if (algorithm == "blake2b" or program == "b2sum") and digest_bytes >= 1 and digest_bytes <= 64 {
     line_length = digest_bytes * 8
   }
+  if ! explicit_length and (algorithm == "blake3" or algorithm == "shake128" or algorithm == "shake256") {
+    if digest_bytes >= 1 and digest_bytes <= 67108864 { line_length = digest_bytes * 8 }
+  }
   if algorithm == "sha2" {
     if digest_bytes == 28 { line_algorithm = "sha224"; line_length = 224 }
     if digest_bytes == 32 { line_algorithm = "sha256"; line_length = 256 }
     if digest_bytes == 48 { line_algorithm = "sha384"; line_length = 384 }
     if digest_bytes == 64 { line_algorithm = "sha512"; line_length = 512 }
+  }
+  if algorithm == "sha3" {
+    if digest_bytes == 28 { line_algorithm = "sha3-224"; line_length = 224 }
+    if digest_bytes == 32 { line_algorithm = "sha3-256"; line_length = 256 }
+    if digest_bytes == 48 { line_algorithm = "sha3-384"; line_length = 384 }
+    if digest_bytes == 64 { line_algorithm = "sha3-512"; line_length = 512 }
   }
   let expected_bytes = digest_hex_length(line_algorithm, line_length) / 2
   let correct_size = digest_bytes == expected_bytes
@@ -646,33 +832,59 @@ proc reject_if(condition: Bool, option: Str) [process, env] {
   }
 }
 
+pure warn_after_status(argv: List[Str]) -> Bool {
+  var status_seen = false
+  var warn_after = false
+  for argument in argv {
+    if argument == "--status" {
+      status_seen = true
+      warn_after = false
+    }
+    if argument == "--warn" or argument == "-w" {
+      if status_seen { warn_after = true }
+    }
+  }
+  warn_after
+}
+
 proc parse_length(raw: Str?, program: Str, algorithm: Str) [process, env] -> Int {
-  if raw == null { return 512 when program == "b2sum" or algorithm == "blake2b"; return 256 when algorithm == "sha2"; return 0 }
+  if raw == null {
+    return 512 when program == "b2sum" or algorithm == "blake2b" or algorithm == "shake256"
+    return 256 when algorithm == "sha2" or algorithm == "sha3" or algorithm == "blake3" or algorithm == "shake128"
+    return 0
+  }
   let text = raw ?? ""
   let normalized = if text.starts_with("=") { text.byte_slice(1) } else { text }
   let bits = normalized.parse_int() ?? -1
   if bits == 0 and (program == "b2sum" or algorithm == "blake2b") { return 512 }
+  if bits == 0 and (algorithm == "blake3" or algorithm == "shake128") { return 256 }
+  if bits == 0 and algorithm == "shake256" { return 512 }
   if bits == 0 { return 0 }
   var decimal = normalized != ""
   for digit in normalized {
     if digit < "0" or digit > "9" { decimal = false }
   }
-  let too_large = bits > 512 or (bits == -1 and decimal and normalized.byte_len() > 3)
-  if bits < 8 or too_large or bits % 8 != 0 {
+  let variable_length = algorithm == "blake3" or algorithm == "shake128" or algorithm == "shake256"
+  let bit_limit = if variable_length { 536870912 } else { 512 }
+  let too_large = bits > bit_limit or (bits == -1 and decimal and normalized.byte_len() > 9)
+  let below_minimum = if algorithm == "shake128" or algorithm == "shake256" { bits < 1 } else { bits < 8 }
+  let wrong_quantum = bits % 8 != 0 and algorithm != "shake128" and algorithm != "shake256"
+  if below_minimum or too_large or wrong_quantum {
     gnu.error(f"invalid length: {gnu.quote_value(normalized)}")
-    if ! too_large and bits % 8 != 0 { gnu.error("length is not a multiple of 8") }
-    if too_large { gnu.error("maximum digest length for 'BLAKE2b' is 512 bits") }
+    if ! too_large and wrong_quantum { gnu.error("length is not a multiple of 8") }
+    if too_large and (program == "b2sum" or algorithm == "blake2b") { gnu.error("maximum digest length for 'BLAKE2b' is 512 bits") }
+    if too_large and variable_length { gnu.error("digest output length is too large") }
     exit 1
   }
   bits
 }
 
-proc check_file(name: Str, algorithm: Str, opts: SumOptions, length: Int, program: Str) [fs, process, env, error, io] -> Bool {
+proc check_file(name: Str, algorithm: Str, opts: SumOptions, length: Int, program: Str, warning_output: Bool) [fs, process, env, error, io] -> Bool {
   let data_result: Result[Bytes, Error] = if name == "-" { io.stdin_bytes() } else { fp"{name}".read_bytes() }
   let data = match data_result {
     Ok(contents) => contents
     Err(failure) => {
-      if ! opts.status and ! (opts.ignore_missing and gnu.errno(failure) == 2) {
+      if ! (opts.ignore_missing and gnu.errno(failure) == 2) {
         let reason = if gnu.errno(failure) == 5 { f"read error: {gnu.strerror(failure)}" } else { gnu.strerror(failure) }
         gnu.error(f"{name}: {reason}")
       }
@@ -688,19 +900,25 @@ proc check_file(name: Str, algorithm: Str, opts: SumOptions, length: Int, progra
   var missing = 0
   var mismatches = 0
   var line_number = 0
+  var warning_algorithm = default_algorithm(program)
+  var warning_length = length
   for input_line in checksum_lines(data, delimiter_byte) {
     let line = input_line.text
     line_number += 1
     if line == "" { continue }
     if line.starts_with("#") { continue }
-    let parsed = parse_checksum_line(line, input_line.raw, algorithm, length, program)
+    let parsed = parse_checksum_line(line, input_line.raw, algorithm, length, program, opts.length != null)
     if ! parsed.valid {
         malformed += 1
-        if opts.warn and ! opts.status {
-          let label = if program == "cksum" { "cksum" } else { digest_label(default_algorithm(program), length) }
+        if opts.warn and warning_output {
+          let line_algorithm = if parsed.algorithm == "crc" { warning_algorithm } else { parsed.algorithm }
+          let line_length = if parsed.algorithm == "crc" { warning_length } else { parsed.length }
+          let label = if line_algorithm == "crc" { "cksum" } else { digest_label(line_algorithm, line_length) }
           gnu.error(f"{name}: {line_number}: improperly formatted {label} checksum line")
         }
     } else {
+      warning_algorithm = parsed.algorithm
+      warning_length = parsed.length
       valid_lines += 1
       var target = parsed.path
       var target_bytes = parsed.raw_path ?? bytes.from_text(target)
@@ -715,8 +933,9 @@ proc check_file(name: Str, algorithm: Str, opts: SumOptions, length: Int, progra
             if ! opts.status {
               let shown = gnu.quote_bytes(target_bytes, always: false)
               gnu.write_text(f"{shown}: FAILED open or read\n")
-              gnu.error(f"{shown}: Is a directory")
             }
+            let shown = gnu.quote_bytes(target_bytes, always: false)
+            gnu.error(f"{shown}: Is a directory")
             continue
           }
         }
@@ -746,9 +965,9 @@ proc check_file(name: Str, algorithm: Str, opts: SumOptions, length: Int, progra
           missing += 1
           if ! opts.status {
             gnu.write_text(f"{shown_target}: FAILED open or read\n")
-            let reason = if gnu.errno(failure) == 5 { f"read error: {gnu.strerror(failure)}" } else { gnu.strerror(failure) }
-            gnu.error(f"{shown_target}: {reason}")
           }
+          let reason = if gnu.errno(failure) == 5 { f"read error: {gnu.strerror(failure)}" } else { gnu.strerror(failure) }
+          gnu.error(f"{shown_target}: {reason}")
         }
         Ok(value) => {
           verified += 1
@@ -773,7 +992,7 @@ proc check_file(name: Str, algorithm: Str, opts: SumOptions, length: Int, progra
   if malformed > 0 {
     let line_word = if malformed == 1 { "line" } else { "lines" }
     let verb = if malformed == 1 { "is" } else { "are" }
-    if ! opts.status { gnu.error(f"WARNING: {malformed} {line_word} {verb} improperly formatted") }
+    if warning_output { gnu.error(f"WARNING: {malformed} {line_word} {verb} improperly formatted") }
     failed = failed or opts.strict
   }
   if opts.ignore_missing and verified == 0 {
@@ -781,11 +1000,11 @@ proc check_file(name: Str, algorithm: Str, opts: SumOptions, length: Int, progra
     gnu.error(f"{shown}: no file was verified")
     failed = true
   }
-  if missing > 0 and ! opts.status {
+  if missing > 0 and warning_output {
     let file_word = if missing == 1 { "file" } else { "files" }
     gnu.error(f"WARNING: {missing} listed {file_word} could not be read")
   }
-  if mismatches > 0 and ! opts.status {
+  if mismatches > 0 and warning_output {
     let checksum_word = if mismatches == 1 { "checksum" } else { "checksums" }
     gnu.error(f"WARNING: {mismatches} computed {checksum_word} did NOT match")
   }
@@ -855,7 +1074,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let normalized_algorithm = if raw_algorithm.starts_with("=") { raw_algorithm.byte_slice(1) } else { raw_algorithm }
   var algorithm = if is_sum { sum_mode(argv, "bsd") } else if is_cksum { normalized_algorithm } else { default_algorithm(program) }
   let raw_length = if (opts.length ?? "").starts_with("=") { (opts.length ?? "").byte_slice(1) } else { opts.length ?? "" }
-  if opts.length != null and raw_length != "0" and algorithm != "blake2b" and algorithm != "sha2" and algorithm != "sha3" {
+  let warning_output = ! opts.status or warn_after_status(argv)
+  if opts.length != null and raw_length != "0" and algorithm != "blake2b" and algorithm != "sha2" and algorithm != "sha3" and algorithm != "blake3" and algorithm != "shake128" and algorithm != "shake256" {
     gnu.usage_error("--length is only supported with --algorithm blake2b, sha2, or sha3")
   }
   if opts.length != null and (algorithm == "sha2" or algorithm == "sha3") {
@@ -872,8 +1092,29 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if algorithm == "sha2" or algorithm == "sha3" {
     if opts.length == null and ! opts.check { gnu.usage_error(f"--algorithm={algorithm} requires specifying --length 224, 256, 384, or 512") }
     if algorithm == "sha2" and opts.length != null { algorithm = f"sha{length}" }
+    if algorithm == "sha3" and opts.length != null { algorithm = f"sha3-{length}" }
   }
-  let supported = (algorithm == "sha2" and opts.check) or algorithm == "crc" or algorithm == "crc32b" or algorithm == "bsd" or algorithm == "sysv" or algorithm == "md5" or algorithm == "sha1" or algorithm == "sha224" or algorithm == "sha256" or algorithm == "sha384" or algorithm == "sha512" or algorithm == "blake2b"
+  let supported = (algorithm == "sha2" and opts.check)
+    or (algorithm == "sha3" and opts.check)
+    or algorithm == "crc"
+    or algorithm == "crc32b"
+    or algorithm == "bsd"
+    or algorithm == "sysv"
+    or algorithm == "md5"
+    or algorithm == "sha1"
+    or algorithm == "sha224"
+    or algorithm == "sha256"
+    or algorithm == "sha384"
+    or algorithm == "sha512"
+    or algorithm == "sha3-224"
+    or algorithm == "sha3-256"
+    or algorithm == "sha3-384"
+    or algorithm == "sha3-512"
+    or algorithm == "sm3"
+    or algorithm == "blake2b"
+    or algorithm == "blake3"
+    or algorithm == "shake128"
+    or algorithm == "shake256"
   if ! supported and ! opts.check and (algorithm == "blake3" or algorithm == "sm3") {
     var all_directories = opts.files.len() > 0
     for name in opts.files {
@@ -893,7 +1134,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if ! supported and ! (opts.check and algorithm == "sm3") {
     gnu.usage_error(f"unsupported algorithm {gnu.quote_value(algorithm)}")
   }
-  if opts.length != null and length != 0 and algorithm != "blake2b" and ! (opts.algorithm == "sha2") {
+  if opts.length != null and length != 0 and algorithm != "blake2b" and algorithm != "blake3" and algorithm != "shake128" and algorithm != "shake256" and opts.algorithm != "sha2" and opts.algorithm != "sha3" {
     gnu.usage_error("--length is only supported with --algorithm blake2b, sha2, or sha3")
   }
   if is_cksum and text_option and algorithm != "crc" and algorithm != "bsd" and algorithm != "sysv" and tagged_mode(argv, true) {
@@ -908,7 +1149,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     let check_files = if opts.files.len() == 0 { ["-"] } else { opts.files }
     var failed = false
     for name in check_files {
-      failed = check_file(name, algorithm, opts, length, program) or failed
+      failed = check_file(name, algorithm, opts, length, program, warning_output) or failed
     }
     if failed { exit 1 }
     return

@@ -16,48 +16,54 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   evidence is refreshed. Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
 - Setup is complete on native Linux x86_64. Docker is not used. The workspace
-  uses `nightly-2026-09-15`, the `x86_64-unknown-linux-musl` target, and mold
+  uses `nightly-2026-09-15`, the native `x86_64-unknown-linux-gnu` target, and mold
   3.0.0 from the x86_64 GitHub release (archive SHA-256
   `6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189`).
   `native-env.sh` selects mold for release builds. Bootstrap commands,
   checksum, host prerequisites, and GNU dependency notes are in
   [`README.md`](README.md#setup). GNU 9.12 is prepared with ACL, capability,
-  and Linux xattr support.
+  and Linux xattr support. On this host, the `xsh` thin-LTO link stalled after
+  mold exited; setting `CARGO_PROFILE_RELEASE_LTO=false` produced the optimized
+  release dispatcher successfully. Keep mold enabled; use that Cargo override
+  for `xsh` only if the same host-specific stall recurs.
 - Merged utility slices: `fs-basic` **188 / 203**; `fs-misc` **295 / 304**;
   `perm` **106 / 149**; `stat-du-df` **166 / 237**; and `ls dir vdir split`
   **314 / 365** with no regression among the earlier passing test IDs. The
   `legacy-buckets` lane removed all five non-uutils discard buckets. Native
   byte/hash and GNU patch classification primitives and public API wiring are
-  merged. The API surface now records **369 functions, 393 overloads, and 799
-  queryable items**; SHA-224 and SHA-384 APIs are implemented and their tests,
-  generated docs, and docs project checks pass. Exact remaining utility
+  merged. The API surface now records **377 functions, 409 overloads, and 807
+  queryable items**; SHA-224, SHA-384, SHA-3, SM3, BLAKE3 and SHAKE APIs have
+  native tests and generated reference docs. Exact remaining utility
   failures and their causes are in `gaps.json`.
 - `printf-env` is merged at **225 / 252** (env 79/100, printf 146/152), with
   native tests and ratchets passing. `proc-a` is merged at **106 / 125** (kill
   47/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 24/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
-  across nine applets. Its latest verified progress is **611 / 663** (cut
-  71/83, paste 25/27, fold 95/101, expand 43/46, unexpand 44/44, nl 67/67,
-  fmt 35/37, pr 63/84, tr 168/174); remaining `pr` failures cluster around
+  across nine applets. Its latest verified progress is **643 / 663** (cut
+  78/83, paste 25/27, fold 100/101, expand 46/46, unexpand 44/44, nl 67/67,
+  fmt 35/37, pr 80/84, tr 168/174); remaining `pr` failures cluster around
   merge/date behavior, formfeed input, multicolumn layouts, and help diagnostics. `bytes-enc` has implemented base32, base64,
   basenc, od, and dd; it is merged at **232 / 311** (base32 15/16, base64
   24/25, basenc 38/38, od 56/80, dd 99/152) with all **22** native tests
   passing. The base16 write-error case is resolved; remaining requests
   include typed fd/stream APIs for dd and bounded stdin/seek APIs for od.
   `checksums` is merged over the shared byte/hash APIs and its ten native tests
-  pass. Its first slice was **220 / 507**; its latest slice is **367 / 507**
-  (b2sum 18/18, cksum 251/391, md5sum 38/38, sha1sum 10/10, sha224sum 8/8,
-  sha256sum 13/13, sha384sum 8/8, sha512sum 8/8, sum 13/13). The 140 remaining
-  failures require SHA3, SM3, Blake3, or SHAKE support, except for three CPU
-  `--debug` cases requiring x86 SIMD and GLIBC_TUNABLES reporting. The integrator owns shared results
+  pass. Its first slice was **220 / 507**; its latest pre-hash-API slice was
+  **367 / 507** (b2sum 18/18, cksum 251/391, md5sum 38/38, sha1sum 10/10, sha224sum 8/8,
+  sha256sum 13/13, sha384sum 8/8, sha512sum 8/8, sum 13/13). The previous 140
+  failures included 137 hash cases, now passing with the native SHA3, SM3,
+  BLAKE3, SHAKE APIs and corresponding `cksum` support: the refreshed cksum
+  slice is **388 / 391**.
+  The only cksum gaps are the three CPU `--debug` cases requiring x86 SIMD and
+  GLIBC_TUNABLES reporting. A complete nine-utility checksum slice rerun is
+  pending. The integrator owns shared results
   and baselines; lane runs use scratch outputs.
-- `sort` started at **30 / 217**. The lane is replacing its non-GNU parser and
-  UTF-8-only record handling, with `-m`, `-c`/`-C`, key/numeric ordering, and
-  GNU diagnostics under focused checks. `text-b1` measured **464 / 522** on the
-  refreshed shared release binary (the stored brief baseline is 456 / 522);
-  it is triaging raw-byte/path, shuf-range, and diagnostic failures before
-  changing the denominator or recording any new exclusions.
+- `sort` improved from **30 / 217** to **100 / 217** with merge/check modes,
+  key and numeric ordering, byte records, output files, and explicit rejection
+  of unimplemented flags. `text-b1` improved from **464 / 522** to **479 / 522**;
+  `text-b2` improved from **474 / 536** to **499 / 536**. Their remaining
+  failures need integration into `gaps.json` after the lane merges.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes
   are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;

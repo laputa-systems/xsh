@@ -7,6 +7,8 @@ use md5::Digest as _;
 use std::io::Read;
 use std::path::Path;
 
+const MAX_VARIABLE_DIGEST_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum HashAlgorithm {
     Md5,
@@ -15,6 +17,11 @@ pub(crate) enum HashAlgorithm {
     Sha256,
     Sha384,
     Sha512,
+    Sha3_224,
+    Sha3_256,
+    Sha3_384,
+    Sha3_512,
+    Sm3,
 }
 
 impl HashAlgorithm {
@@ -26,6 +33,11 @@ impl HashAlgorithm {
             Self::Sha256 => "sha256",
             Self::Sha384 => "sha384",
             Self::Sha512 => "sha512",
+            Self::Sha3_224 => "sha3-224",
+            Self::Sha3_256 => "sha3-256",
+            Self::Sha3_384 => "sha3-384",
+            Self::Sha3_512 => "sha3-512",
+            Self::Sm3 => "sm3",
         }
     }
 }
@@ -62,6 +74,31 @@ pub(crate) fn digest_bytes(algorithm: HashAlgorithm, bytes: &[u8]) -> DigestValu
             digest.update(bytes);
             digest_value(algorithm, digest.finalize().as_slice())
         }
+        HashAlgorithm::Sha3_224 => {
+            let mut digest = sha3::Sha3_224::new();
+            digest.update(bytes);
+            digest_value(algorithm, digest.finalize().as_slice())
+        }
+        HashAlgorithm::Sha3_256 => {
+            let mut digest = sha3::Sha3_256::new();
+            digest.update(bytes);
+            digest_value(algorithm, digest.finalize().as_slice())
+        }
+        HashAlgorithm::Sha3_384 => {
+            let mut digest = sha3::Sha3_384::new();
+            digest.update(bytes);
+            digest_value(algorithm, digest.finalize().as_slice())
+        }
+        HashAlgorithm::Sha3_512 => {
+            let mut digest = sha3::Sha3_512::new();
+            digest.update(bytes);
+            digest_value(algorithm, digest.finalize().as_slice())
+        }
+        HashAlgorithm::Sm3 => {
+            let mut digest = sm3::Sm3::new();
+            digest.update(bytes);
+            digest_value(algorithm, digest.finalize().as_slice())
+        }
     }
 }
 
@@ -82,6 +119,141 @@ pub(crate) fn blake2b_file(
 ) -> Result<DigestValue, RuntimeError> {
     let mut file = open_hash_file(path, span)?;
     blake2b_reader(&mut file, output_length, span)
+}
+
+pub(crate) fn blake3_bytes(
+    bytes: &[u8],
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let output_length = checked_xof_length(output_length, "blake3", span)?;
+    let mut state = blake3::Hasher::new();
+    state.update(bytes);
+    let mut reader = state.finalize_xof();
+    let mut output = allocate_output(output_length, "blake3", span)?;
+    reader.fill(&mut output);
+    Ok(DigestValue {
+        algorithm: "blake3".to_string(),
+        bytes: output,
+    })
+}
+
+pub(crate) fn blake3_file(
+    path: &Path,
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let mut file = open_hash_file(path, span)?;
+    blake3_reader(&mut file, output_length, span)
+}
+
+fn blake3_reader(
+    reader: &mut dyn Read,
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let output_length = checked_xof_length(output_length, "blake3", span)?;
+    let mut state = blake3::Hasher::new();
+    read_stream(reader, span, |bytes| {
+        state.update(bytes);
+    })?;
+    let mut output_reader = state.finalize_xof();
+    let mut output = allocate_output(output_length, "blake3", span)?;
+    output_reader.fill(&mut output);
+    Ok(DigestValue {
+        algorithm: "blake3".to_string(),
+        bytes: output,
+    })
+}
+
+pub(crate) fn shake128_bytes(
+    bytes: &[u8],
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let output_length = checked_xof_length(output_length, "shake128", span)?;
+    let mut state = shake::Shake128::default();
+    sha3::digest::Update::update(&mut state, bytes);
+    let mut reader = sha3::digest::ExtendableOutput::finalize_xof(state);
+    let mut output = allocate_output(output_length, "shake128", span)?;
+    sha3::digest::XofReader::read(&mut reader, &mut output);
+    Ok(DigestValue {
+        algorithm: "shake128".to_string(),
+        bytes: output,
+    })
+}
+
+pub(crate) fn shake128_file(
+    path: &Path,
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let mut file = open_hash_file(path, span)?;
+    shake128_reader(&mut file, output_length, span)
+}
+
+fn shake128_reader(
+    reader: &mut dyn Read,
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let output_length = checked_xof_length(output_length, "shake128", span)?;
+    let mut state = shake::Shake128::default();
+    read_stream(reader, span, |bytes| {
+        sha3::digest::Update::update(&mut state, bytes);
+    })?;
+    let mut xof = sha3::digest::ExtendableOutput::finalize_xof(state);
+    let mut output = allocate_output(output_length, "shake128", span)?;
+    sha3::digest::XofReader::read(&mut xof, &mut output);
+    Ok(DigestValue {
+        algorithm: "shake128".to_string(),
+        bytes: output,
+    })
+}
+
+pub(crate) fn shake256_bytes(
+    bytes: &[u8],
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let output_length = checked_xof_length(output_length, "shake256", span)?;
+    let mut state = shake::Shake256::default();
+    sha3::digest::Update::update(&mut state, bytes);
+    let mut reader = sha3::digest::ExtendableOutput::finalize_xof(state);
+    let mut output = allocate_output(output_length, "shake256", span)?;
+    sha3::digest::XofReader::read(&mut reader, &mut output);
+    Ok(DigestValue {
+        algorithm: "shake256".to_string(),
+        bytes: output,
+    })
+}
+
+pub(crate) fn shake256_file(
+    path: &Path,
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let mut file = open_hash_file(path, span)?;
+    shake256_reader(&mut file, output_length, span)
+}
+
+fn shake256_reader(
+    reader: &mut dyn Read,
+    output_length: i64,
+    span: Span,
+) -> Result<DigestValue, RuntimeError> {
+    let output_length = checked_xof_length(output_length, "shake256", span)?;
+    let mut state = shake::Shake256::default();
+    read_stream(reader, span, |bytes| {
+        sha3::digest::Update::update(&mut state, bytes);
+    })?;
+    let mut xof = sha3::digest::ExtendableOutput::finalize_xof(state);
+    let mut output = allocate_output(output_length, "shake256", span)?;
+    sha3::digest::XofReader::read(&mut xof, &mut output);
+    Ok(DigestValue {
+        algorithm: "shake256".to_string(),
+        bytes: output,
+    })
 }
 
 pub(crate) fn digest_hex(digest: &DigestValue) -> String {
@@ -240,6 +412,11 @@ fn digest_reader(
         HashAlgorithm::Sha256 => digest_stream::<sha2::Sha256>(reader, span)?,
         HashAlgorithm::Sha384 => digest_stream::<sha2::Sha384>(reader, span)?,
         HashAlgorithm::Sha512 => digest_stream::<sha2::Sha512>(reader, span)?,
+        HashAlgorithm::Sha3_224 => digest_stream::<sha3::Sha3_224>(reader, span)?,
+        HashAlgorithm::Sha3_256 => digest_stream::<sha3::Sha3_256>(reader, span)?,
+        HashAlgorithm::Sha3_384 => digest_stream::<sha3::Sha3_384>(reader, span)?,
+        HashAlgorithm::Sha3_512 => digest_stream::<sha3::Sha3_512>(reader, span)?,
+        HashAlgorithm::Sm3 => digest_stream::<sm3::Sm3>(reader, span)?,
     };
     Ok(digest_value(algorithm, &bytes))
 }
@@ -297,6 +474,42 @@ fn checked_blake2b_length(output_length: i64, span: Span) -> Result<usize, Runti
         .with_span(span));
     }
     Ok(output_length as usize)
+}
+
+fn checked_xof_length(
+    output_length: i64,
+    algorithm: &str,
+    span: Span,
+) -> Result<usize, RuntimeError> {
+    let valid = usize::try_from(output_length)
+        .ok()
+        .filter(|length| (1..=MAX_VARIABLE_DIGEST_BYTES).contains(length));
+    valid.ok_or_else(|| {
+        RuntimeError::new(
+            "hash-output-length",
+            format!(
+                "{algorithm} output length must be between 1 and {MAX_VARIABLE_DIGEST_BYTES} bytes"
+            ),
+        )
+        .with_span(span)
+    })
+}
+
+fn allocate_output(
+    output_length: usize,
+    algorithm: &str,
+    span: Span,
+) -> Result<Vec<u8>, RuntimeError> {
+    let mut output = Vec::new();
+    output.try_reserve_exact(output_length).map_err(|_| {
+        RuntimeError::new(
+            "hash-output-length",
+            format!("{algorithm} output length is too large"),
+        )
+        .with_span(span)
+    })?;
+    output.resize(output_length, 0);
+    Ok(output)
 }
 
 fn digest_value(algorithm: HashAlgorithm, bytes: &[u8]) -> DigestValue {
@@ -598,6 +811,11 @@ mod tests {
             HashAlgorithm::Sha256,
             HashAlgorithm::Sha384,
             HashAlgorithm::Sha512,
+            HashAlgorithm::Sha3_224,
+            HashAlgorithm::Sha3_256,
+            HashAlgorithm::Sha3_384,
+            HashAlgorithm::Sha3_512,
+            HashAlgorithm::Sm3,
         ] {
             let mut reader = BoundedReader(Cursor::new(data.clone()));
             let file = digest_reader(algorithm, &mut reader, span).expect("bounded file read");
@@ -614,6 +832,78 @@ mod tests {
         assert_eq!(
             super::hex(&digest_bytes(HashAlgorithm::Sha384, b"abc").bytes),
             "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"
+        );
+    }
+
+    #[test]
+    fn sha3_and_sm3_match_known_vectors() {
+        let values = [
+            (
+                HashAlgorithm::Sha3_224,
+                "e642824c3f8cf24ad09234ee7d3c766fc9a3a5168d0c94ad73b46fdf",
+            ),
+            (
+                HashAlgorithm::Sha3_256,
+                "3a985da74fe225b2045c172d6bd390bd855f086e3e9d525b46bfe24511431532",
+            ),
+            (
+                HashAlgorithm::Sha3_384,
+                "ec01498288516fc926459f58e2c6ad8df9b473cb0fc08c2596da7cf0e49be4b298d88cea927ac7f539f1edf228376d25",
+            ),
+            (
+                HashAlgorithm::Sha3_512,
+                "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0",
+            ),
+            (
+                HashAlgorithm::Sm3,
+                "66c7f0f462eeedd9d1f2d46bdc10e4e24167c4875cf2f7a2297da02b8f4ba8e0",
+            ),
+        ];
+        for (algorithm, expected) in values {
+            assert_eq!(super::hex(&digest_bytes(algorithm, b"abc").bytes), expected);
+        }
+    }
+
+    #[test]
+    fn blake3_and_shake_match_known_xof_vectors() {
+        let span = Span::new(SourceId::new(0), 0, 0);
+        assert_eq!(
+            super::hex(&super::blake3_bytes(b"abc", 32, span).unwrap().bytes),
+            "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
+        );
+        assert_eq!(
+            super::hex(&super::shake128_bytes(b"abc", 32, span).unwrap().bytes),
+            "5881092dd818bf5cf8a3ddb793fbcba74097d5c526a6d35f97b83351940f2cc8"
+        );
+        assert_eq!(
+            super::hex(&super::shake256_bytes(b"abc", 32, span).unwrap().bytes),
+            "483366601360a8771c6863080cc4114d8db44530f8f1e1ee4f94ea37e78b5739"
+        );
+    }
+
+    #[test]
+    fn variable_digests_stream_in_bounded_chunks() {
+        let data = (0..(256 * 1024 + 17))
+            .map(|index| index as u8)
+            .collect::<Vec<_>>();
+        let span = Span::new(SourceId::new(0), 0, 0);
+        let mut reader = BoundedReader(Cursor::new(data.clone()));
+        let streamed = super::blake3_reader(&mut reader, 47, span).unwrap();
+        assert_eq!(
+            streamed,
+            super::blake3_bytes(&data, 47, span).expect("BLAKE3 bytes")
+        );
+        let mut reader = BoundedReader(Cursor::new(data.clone()));
+        let streamed = super::shake128_reader(&mut reader, 47, span).unwrap();
+        assert_eq!(
+            streamed,
+            super::shake128_bytes(&data, 47, span).expect("SHAKE128 bytes")
+        );
+        let mut reader = BoundedReader(Cursor::new(data.clone()));
+        let streamed = super::shake256_reader(&mut reader, 47, span).unwrap();
+        assert_eq!(
+            streamed,
+            super::shake256_bytes(&data, 47, span).expect("SHAKE256 bytes")
         );
     }
 

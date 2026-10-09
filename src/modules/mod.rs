@@ -242,7 +242,15 @@ mod tests {
                 .iter()
                 .any(|sig| !sig.pure && sig.params[0].ty == Type::Path)
         );
-        for algorithm in ["sha224", "sha384"] {
+        for algorithm in [
+            "sha224",
+            "sha384",
+            "sha3_224",
+            "sha3_256",
+            "sha3_384",
+            "sha3_512",
+            "sm3",
+        ] {
             assert!(
                 modules["hash"]
                     .function_overloads(algorithm)

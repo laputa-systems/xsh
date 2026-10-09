@@ -5820,6 +5820,11 @@ impl Evaluator {
             | RuntimeOp::HashSha256
             | RuntimeOp::HashSha384
             | RuntimeOp::HashSha512
+            | RuntimeOp::HashSha3_224
+            | RuntimeOp::HashSha3_256
+            | RuntimeOp::HashSha3_384
+            | RuntimeOp::HashSha3_512
+            | RuntimeOp::HashSm3
                 if values.len() == 1 =>
             {
                 let algorithm = match op {
@@ -5829,6 +5834,11 @@ impl Evaluator {
                     RuntimeOp::HashSha256 => hash_module::HashAlgorithm::Sha256,
                     RuntimeOp::HashSha384 => hash_module::HashAlgorithm::Sha384,
                     RuntimeOp::HashSha512 => hash_module::HashAlgorithm::Sha512,
+                    RuntimeOp::HashSha3_224 => hash_module::HashAlgorithm::Sha3_224,
+                    RuntimeOp::HashSha3_256 => hash_module::HashAlgorithm::Sha3_256,
+                    RuntimeOp::HashSha3_384 => hash_module::HashAlgorithm::Sha3_384,
+                    RuntimeOp::HashSha3_512 => hash_module::HashAlgorithm::Sha3_512,
+                    RuntimeOp::HashSm3 => hash_module::HashAlgorithm::Sm3,
                     _ => unreachable!("checked hash digest op"),
                 };
                 match values.pop().expect("checked value length") {
@@ -5903,6 +5913,75 @@ impl Evaluator {
                                 "hash.blake2b expected Bytes or Path, found {}",
                                 other.type_name()
                             ),
+                        )
+                        .with_span(span));
+                    }
+                }
+            }
+            RuntimeOp::HashBlake3 | RuntimeOp::HashShake128 | RuntimeOp::HashShake256
+                if values.len() == 1 || values.len() == 2 =>
+            {
+                let default_length = 32;
+                let name = match op {
+                    RuntimeOp::HashBlake3 => "hash.blake3",
+                    RuntimeOp::HashShake128 => "hash.shake128",
+                    RuntimeOp::HashShake256 => "hash.shake256",
+                    _ => unreachable!("checked variable hash op"),
+                };
+                let output_length =
+                    lowered_int_arg_or(values.get(1).cloned(), default_length, name, span)?;
+                let input = values.remove(0);
+                match input {
+                    LoweredValue::Bytes(bytes) => {
+                        let result = match op {
+                            RuntimeOp::HashBlake3 => {
+                                hash_module::blake3_bytes(&bytes, output_length, span)
+                            }
+                            RuntimeOp::HashShake128 => {
+                                hash_module::shake128_bytes(&bytes, output_length, span)
+                            }
+                            RuntimeOp::HashShake256 => {
+                                hash_module::shake256_bytes(&bytes, output_length, span)
+                            }
+                            _ => unreachable!("checked variable hash op"),
+                        };
+                        lowered_runtime_result(result.map(Value::digest), span)?
+                    }
+                    LoweredValue::BytesView(bytes) => {
+                        let result = match op {
+                            RuntimeOp::HashBlake3 => {
+                                hash_module::blake3_bytes(bytes.as_slice(), output_length, span)
+                            }
+                            RuntimeOp::HashShake128 => {
+                                hash_module::shake128_bytes(bytes.as_slice(), output_length, span)
+                            }
+                            RuntimeOp::HashShake256 => {
+                                hash_module::shake256_bytes(bytes.as_slice(), output_length, span)
+                            }
+                            _ => unreachable!("checked variable hash op"),
+                        };
+                        lowered_runtime_result(result.map(Value::digest), span)?
+                    }
+                    LoweredValue::Path(path) => {
+                        let path = self.host_path(&path);
+                        let result = match op {
+                            RuntimeOp::HashBlake3 => {
+                                hash_module::blake3_file(&path, output_length, span)
+                            }
+                            RuntimeOp::HashShake128 => {
+                                hash_module::shake128_file(&path, output_length, span)
+                            }
+                            RuntimeOp::HashShake256 => {
+                                hash_module::shake256_file(&path, output_length, span)
+                            }
+                            _ => unreachable!("checked variable hash op"),
+                        };
+                        lowered_runtime_result(result.map(Value::digest), span)?
+                    }
+                    other => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("{name} expected Bytes or Path, found {}", other.type_name()),
                         )
                         .with_span(span));
                     }

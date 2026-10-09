@@ -388,6 +388,26 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Output length defaults to 64 bytes and must be from 1 through 64; file paths are read incrementally.",
             &["hash", "digest", "blake2b", "streaming"],
         )),
+        ("hash", "sha3_224" | "sha3_256" | "sha3_384" | "sha3_512") => Some((
+            "Calculates a SHA-3 digest from bytes or a file path.",
+            "These fixed-length SHA-3 digests accept bytes or read file paths incrementally.",
+            &["hash", "digest", "sha3", "streaming"],
+        )),
+        ("hash", "sm3") => Some((
+            "Calculates an SM3 digest from bytes or a file path.",
+            "The fixed-length digest accepts bytes or reads file paths incrementally.",
+            &["hash", "digest", "sm3", "streaming"],
+        )),
+        ("hash", "blake3") => Some((
+            "Calculates a variable-length BLAKE3 digest from bytes or a file path.",
+            "Output length defaults to 32 bytes and must be from 1 through 67108864; file paths are read incrementally.",
+            &["hash", "digest", "blake3", "streaming"],
+        )),
+        ("hash", "shake128" | "shake256") => Some((
+            "Calculates a variable-length SHAKE digest from bytes or a file path.",
+            "Output length defaults to 32 bytes for SHAKE128 and 64 bytes for SHAKE256, and must be from 1 through 67108864; file paths are read incrementally.",
+            &["hash", "digest", "shake", "streaming"],
+        )),
         ("net", "request") => Some((
             "Performs one structured HTTP request.",
             "Network, timeout, and response failures remain typed error data; do not collapse them into booleans.",

@@ -298,6 +298,12 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
         "sha256" => "sha256",
         "sha384" => "sha384",
         "sha512" => "sha512",
+        "sha3_224" => "sha3_224",
+        "sha3_256" => "sha3_256",
+        "sha3_384" => "sha3_384",
+        "sha3_512" => "sha3_512",
+        "sm3" => "sm3",
+        "blake3" => "blake3",
         _ => return None,
     };
     Some(LoweredHashVerifyFileArgs {
@@ -483,6 +489,14 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::HashSha256
             | RuntimeOp::HashSha384
             | RuntimeOp::HashSha512
+            | RuntimeOp::HashSha3_224
+            | RuntimeOp::HashSha3_256
+            | RuntimeOp::HashSha3_384
+            | RuntimeOp::HashSha3_512
+            | RuntimeOp::HashSm3
+            | RuntimeOp::HashBlake3
+            | RuntimeOp::HashShake128
+            | RuntimeOp::HashShake256
             | RuntimeOp::HashBlake2b
             | RuntimeOp::HashCrc32
             | RuntimeOp::HashCrc32c
