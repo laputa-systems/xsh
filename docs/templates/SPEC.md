@@ -1946,6 +1946,11 @@ consumer stops early (a delegated child is closed before its parent). Streams
 are one-pass, and aliases share one cursor. Producers use proc-style effect
 clauses.
 
+A `for` loop over any `Stream[T]` pulls one item at a time and runs its body
+before requesting the next item. `break` stops the upstream source immediately.
+This includes streams from native APIs such as `Path.lines()`,
+`Path.bytes_lines()`, and `Path.chunks()`.
+
 ### 9.6 Effects
 
 A proc may declare an effect clause between its parameters and its return type:
@@ -2739,6 +2744,12 @@ Contracts worth knowing without consulting the reference:
   and special files through EOF, including a FIFO after its writer closes.
   `read_lines` returns what
   `write_lines` wrote when no element contains `\n` or ends with `\r`.
+- `Path.chunks(max_bytes)` opens a path once and lazily streams raw bytes in
+  chunks of at most `max_bytes`. The bound must be between 1 and 1,048,576;
+  chunk boundaries are determined by host reads, and concatenating the stream
+  reproduces the file bytes exactly. Empty files yield no chunks. This also
+  supports special files whose metadata size is zero, including streams that
+  continue until the consumer stops.
 - File-utility primitives in `fs` report the kernel's view and never emulate
   it. `fs.stat` returns every `lstat` field (`follow_symlinks: true` gives
   `stat`): full file kind (`fifo`, `socket`, `block`, `char`), `nlink`, `dev`,

@@ -31,7 +31,7 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   **314 / 365** with no regression among the earlier passing test IDs. The
   `legacy-buckets` lane removed all five non-uutils discard buckets. Native
   byte/hash and GNU patch classification primitives and public API wiring are
-  merged. The API surface now records **381 functions, 413 overloads, and 811
+  merged. The API surface now records **381 functions, 413 overloads, and 812
   queryable items**; SHA-224, SHA-384, SHA-3, SM3, BLAKE3 and SHAKE APIs have
   native tests and generated reference docs. Exact remaining utility
   failures and their causes are in `gaps.json`.
@@ -42,10 +42,15 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   48/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 26/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
-  across nine applets. Its latest verified progress is **643 / 663** (cut
-  78/83, paste 25/27, fold 100/101, expand 46/46, unexpand 44/44, nl 67/67,
+  across nine applets. Its latest verified progress is **644 / 663** (cut
+  78/83, paste 25/27, fold 101/101, expand 46/46, unexpand 44/44, nl 67/67,
   fmt 35/37, pr 80/84, tr 168/174); remaining `pr` failures cluster around
-  merge/date behavior, formfeed input, multicolumn layouts, and help diagnostics. `bytes-enc` has implemented base32, base64,
+  merge/date behavior, formfeed input, multicolumn layouts, and help diagnostics.
+  The shared path API now has `Path.chunks(max_bytes)`, a byte-preserving live
+  stream with a 1..1,048,576 byte bound. Native streams are consumed lazily by
+  `for` loops, including early break. `fold` uses this API for files and reads
+  stdin incrementally; it passes the `/dev/zero` regression without buffering
+  an unbounded input. `bytes-enc` has implemented base32, base64,
   basenc, od, and dd; it is merged at **232 / 311** (base32 15/16, base64
   24/25, basenc 38/38, od 56/80, dd 99/152) with its native tests passing.
   The five focused `basenc` tests pass. Recent decoder fixes enforce base64url and base32hex alphabets,
@@ -84,8 +89,9 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,167 / 5,974 passing**, 807 failing, and 4 excluded. Compared with the
-  prior merged report, it has no regressions. The run includes the focused
+  **5,168 / 5,974 passing**, 806 failing, and 4 excluded. Compared with the
+  prior merged report, one `fold` test is fixed and there are no regressions.
+  The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`
   fixes.

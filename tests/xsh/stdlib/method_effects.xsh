@@ -1,5 +1,5 @@
 test test_filesystem_path_methods_require_the_fs_effect { |ctx|
-  for call in ["source.lines()", "source.bytes_lines()", "source.touch_from(source)", "source.read_lines()"] {
+  for call in ["source.lines()", "source.bytes_lines()", "source.chunks(4)", "source.touch_from(source)", "source.read_lines()"] {
     let denied = test.run_script(ctx, effect_probe("source: Path", "error", call))?
     assert ! denied.success, call
     assert "check.effect-violation" in denied.stderr, denied.stderr

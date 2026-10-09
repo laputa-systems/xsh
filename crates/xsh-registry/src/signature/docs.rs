@@ -1703,6 +1703,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The byte stream preserves non-UTF-8 content and remains lazy until consumed.",
             &["path", "filesystem", "streaming", "bytes"],
         )),
+        ("Path", "chunks") => Some((
+            "Streams a file as bounded Bytes chunks.",
+            "Reads lazily from one open file descriptor and preserves every byte, including newlines. max_bytes must be between 1 and 1,048,576; each item contains at most that many bytes, and an empty file yields no items.",
+            &["path", "filesystem", "streaming", "bytes"],
+        )),
         ("Path", "write") => Some((
             "Writes text or bytes to a path.",
             "The input type selects the boundary explicitly and the destination policy is owned by the filesystem call.",

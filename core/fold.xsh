@@ -13,6 +13,11 @@ Wrap each input line to fit in specified width.
 """
 
 type FoldOptions = {bytes: Bool, characters: Bool, spaces: Bool, width: Str, help: Bool, version: Bool, files: List[Str]}
+type FoldState = {pending: List[Bytes], column: Int, last_blank: Int, carry: Bytes}
+type FoldStep = {state: FoldState, out: Bytes}
+
+const INPUT_CHUNK = 4096
+const FOLD_STEP = 128
 
 pure utf8_width(data: Bytes, at: Int) -> Int {
   let lead = data.byte_at(at) ?? 0
@@ -91,17 +96,96 @@ pure fold_line(line: Bytes, width: Int, byte_mode: Bool, char_mode: Bool, spaces
   bytes.concat(out)
 }
 
-pure fold_data(data: Bytes, width: Int, byte_mode: Bool, char_mode: Bool, spaces: Bool) -> Bytes {
-  var out: List[Bytes] = []
-  var start = 0
-  for at in range(data.len()) {
-    if (data.byte_at(at) ?? -1) == 10 {
-      out += [fold_line(data[start..at], width, byte_mode, char_mode, spaces), b"\n"]
-      start = at + 1
+pure utf8_prefix_is_incomplete(data: Bytes, at: Int, size: Int) -> Bool {
+  return false when at + size <= data.len()
+  let lead = data.byte_at(at) ?? 0
+  var index = 1
+  while at + index < data.len() {
+    let byte = data.byte_at(at + index) ?? 0
+    let valid = if index == 1 {
+      (lead == 224 and byte >= 160 and byte <= 191)
+        or (lead == 237 and byte >= 128 and byte <= 159)
+        or (lead == 240 and byte >= 144 and byte <= 191)
+        or (lead == 244 and byte >= 128 and byte <= 143)
+        or (lead != 224 and lead != 237 and lead != 240 and lead != 244 and byte >= 128 and byte <= 191)
+    } else { byte >= 128 and byte <= 191 }
+    return false when ! valid
+    index += 1
+  }
+  true
+}
+
+pure incomplete_utf8_suffix(data: Bytes) -> Int {
+  let start = if data.len() > 3 { data.len() - 3 } else { 0 }
+  for at in range(start, data.len()) {
+    let lead = data.byte_at(at) ?? 0
+    let size = if lead >= 194 and lead <= 223 { 2 } else if lead >= 224 and lead <= 239 { 3 } else if lead >= 240 and lead <= 244 { 4 } else { 1 }
+    if size > 1 and utf8_prefix_is_incomplete(data, at, size) {
+      return data.len() - at
     }
   }
-  if start < data.len() { out += [fold_line(data[start..], width, byte_mode, char_mode, spaces)] }
-  bytes.concat(out)
+  0
+}
+
+pure fold_chunk(data: Bytes, state: FoldState, width: Int, byte_mode: Bool, char_mode: Bool, spaces: Bool, finish: Bool) -> FoldStep {
+  let combined = bytes.concat([state.carry, data])
+  let carry_size = if finish { 0 } else { incomplete_utf8_suffix(combined) }
+  let end = combined.len() - carry_size
+  var pending = state.pending
+  var column = state.column
+  var last_blank = state.last_blank
+  var out: List[Bytes] = []
+  var at = 0
+  while at < end {
+    let byte = combined.byte_at(at) ?? -1
+    if byte == 10 {
+      out += [bytes.concat(pending), b"\n"]
+      pending = []
+      column = 0
+      last_blank = -1
+      at += 1
+      continue
+    }
+
+    let size = if byte_mode { 1 } else { utf8_width(combined, at) }
+    let unit = combined[at..at + size]
+    let next_column = advance(unit, column, byte_mode, char_mode)
+    if next_column > width and pending.len() > 0 {
+      if spaces and last_blank >= 0 {
+        let split = last_blank + 1
+        out += [bytes.concat(pending[..split]), b"\n"]
+        pending = pending[split..]
+        column = columns(pending, byte_mode, char_mode)
+        last_blank = -1
+        for pos in range(pending.len()) { if is_break(pending[pos]) { last_blank = pos } }
+      } else {
+        out += [bytes.concat(pending), b"\n"]
+        pending = []
+        column = 0
+        last_blank = -1
+      }
+      continue
+    }
+
+    pending += [unit]
+    column = next_column
+    if is_break(unit) { last_blank = pending.len() - 1 }
+    at += size
+  }
+
+  let carry = if finish { b"" } else { combined[end..] }
+  if finish {
+    if pending.len() > 0 { out += [bytes.concat(pending)] }
+    pending = []
+    column = 0
+    last_blank = -1
+  }
+  {state: {pending: pending, column: column, last_blank: last_blank, carry: carry}, out: bytes.concat(out)}
+}
+
+pure fold_data(data: Bytes, width: Int, byte_mode: Bool, char_mode: Bool, spaces: Bool) -> Bytes {
+  let state: FoldState = {pending: [], column: 0, last_blank: -1, carry: b""}
+  fold_chunk(data, state, width, byte_mode, char_mode, spaces, true).out
 }
 
 pure normalized_args(argv: List[Str]) -> List[Str] {
@@ -125,9 +209,43 @@ pure raw_files(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
   files
 }
 
-proc read_input(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
-  return io.stdin_bytes() when name == b"-"
-  Path.parse_bytes(name)?.read_bytes()
+proc fold_path(input_path: Path, width: Int, byte_mode: Bool, char_mode: Bool, spaces: Bool) [fs, process, env, io, error] -> Result[Unit, Error] {
+  let chunks = input_path.chunks(INPUT_CHUNK)?
+  var state: FoldState = {pending: [], column: 0, last_blank: -1, carry: b""}
+  for chunk in chunks {
+    state = fold_feed(chunk, state, width, byte_mode, char_mode, spaces)
+  }
+  let final = fold_chunk(b"", state, width, byte_mode, char_mode, spaces, true)
+  if final.out.len() > 0 { gnu.write_bytes(final.out) }
+  Ok()
+}
+
+proc fold_feed(data: Bytes, initial: FoldState, width: Int, byte_mode: Bool, char_mode: Bool, spaces: Bool) [process, env, io] -> FoldState {
+  var state = initial
+  var at = 0
+  while at < data.len() {
+    let end = if data.len() - at > FOLD_STEP { at + FOLD_STEP } else { data.len() }
+    let step = fold_chunk(data[at..end], state, width, byte_mode, char_mode, spaces, false)
+    state = step.state
+    if step.out.len() > 0 { gnu.write_bytes(step.out) }
+    at = end
+  }
+  state
+}
+
+proc fold_stdin(width: Int, byte_mode: Bool, char_mode: Bool, spaces: Bool) [process, env, io, error] {
+  var state: FoldState = {pending: [], column: 0, last_blank: -1, carry: b""}
+  loop {
+    guard let next = io.stdin_read(INPUT_CHUNK) else { |failure|
+      gnu.error(f"read error: {gnu.strerror(failure)}")
+      exit 1
+    }
+    break when next == null
+    let chunk = next ?? b""
+    state = fold_feed(chunk, state, width, byte_mode, char_mode, spaces)
+  }
+  let final = fold_chunk(b"", state, width, byte_mode, char_mode, spaces, true)
+  if final.out.len() > 0 { gnu.write_bytes(final.out) }
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
@@ -162,12 +280,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let names = raw_files(argv, cli.argv_bytes())
   var failed = false
   for name in if names.len() == 0 { [b"-"] } else { names } {
-    guard let data = read_input(name) else { |failure|
-      gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
-      failed = true
-      continue
+    if name == b"-" {
+      fold_stdin(parsed_width, opts.bytes, opts.characters, opts.spaces)
+    } else {
+      guard let input_path = Path.parse_bytes(name) else { |failure|
+        gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+        failed = true
+        continue
+      }
+      if let Err(failure) = fold_path(input_path, parsed_width, opts.bytes, opts.characters, opts.spaces) {
+        gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+        failed = true
+      }
     }
-    gnu.write_bytes(fold_data(data, parsed_width, opts.bytes, opts.characters, opts.spaces))
   }
   if failed { exit 1 }
 }

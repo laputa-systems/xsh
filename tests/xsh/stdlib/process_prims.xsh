@@ -256,10 +256,9 @@ proc test_invalid_action() [io] {
   assert output.stdout == "action=-1\nkill=22\nsurvived\n"
 }
 
-test test_flush_stdout_reports_a_closed_pipe_unless_sigpipe_is_default { |ctx|
+test test_write_stdout_reports_a_closed_pipe_unless_sigpipe_is_default { |ctx|
   let root = test.temp_dir(ctx, name: "flush")?
-  let body = """io.write_stdout_bytes(bytes.zero(1000000)?)
-match io.flush_stdout() {
+  let body = """match io.write_stdout_bytes(bytes.zero(1000000)?) {
   Err(failure) => {
     if failure.errno == 32 { exit 41 }
     exit 40

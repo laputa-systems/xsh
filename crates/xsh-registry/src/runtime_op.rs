@@ -146,6 +146,7 @@ pub enum RuntimeOp {
     FsReadText,
     FsStreamLines,
     FsBytesLines,
+    FsBytesChunks,
     FsWrite,
     FsWriteAtomic,
     FsWriteLines,

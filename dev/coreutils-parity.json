@@ -678,8 +678,8 @@
       "native_tests": "core/tests/test-fold.xsh",
       "uutils_test_count": 101,
       "uutils_integration": {
-        "pass": 100,
-        "fail": 1,
+        "pass": 101,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -691,9 +691,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "`test_fold::test_bytewise_read_from_pseudo_device` needs a streaming file-read API; `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` as empty."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "head",

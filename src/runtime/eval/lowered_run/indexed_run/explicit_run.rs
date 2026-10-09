@@ -3719,14 +3719,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::ForItems { target, body, span } => match value {
                 FrameValue::Value(value) => {
-                    let script_stream = match &value {
-                        LoweredValue::Stream(stream) => stream.script().is_some(),
-                        _ => false,
-                    };
-                    if script_stream {
-                        let LoweredValue::Stream(stream) = value else {
-                            unreachable!("checked above")
-                        };
+                    if let LoweredValue::Stream(stream) = value {
                         self.calls[index].work.push(FrameWork::ForStream {
                             target,
                             stream: *stream,

@@ -587,13 +587,11 @@
       "applet": true
     },
     "fold": {
-      "pass": 100,
-      "fail": 1,
+      "pass": 101,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_fold::test_bytewise_read_from_pseudo_device"
-      ],
+      "failing": [],
       "applet": true
     },
     "groups": {
@@ -1733,8 +1731,8 @@
     }
   },
   "totals": {
-    "pass": 5167,
-    "fail": 807,
+    "pass": 5168,
+    "fail": 806,
     "skip": 0,
     "excluded": 4
   }

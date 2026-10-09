@@ -11255,6 +11255,41 @@ impl Evaluator {
         }
     }
 
+    /// Open a file for `Path.chunks()` and wrap it in a lazy bounded byte
+    /// stream. The read size is capped so callers can safely stream devices
+    /// and files without materializing their contents.
+    fn path_chunks_stream(
+        &mut self,
+        path: crate::runtime::value::PathValue,
+        max_bytes: i64,
+        span: Span,
+    ) -> Value {
+        let max_bytes = usize::try_from(max_bytes)
+            .ok()
+            .filter(|size| (1..=1_048_576).contains(size));
+        let Some(max_bytes) = max_bytes else {
+            return Value::err(Value::Error(Box::new(
+                RuntimeError::new("fs-chunk-size", "max_bytes must be between 1 and 1048576")
+                    .with_span(span),
+            )));
+        };
+        let host_path = self.host_path(&path);
+        match std::fs::File::open(&host_path) {
+            Ok(file) => Value::ok(Value::stream(StreamValue::from_live(
+                "Path.chunks",
+                super::stream::FileChunkStream {
+                    reader: file,
+                    buffer: vec![0; max_bytes],
+                },
+            ))),
+            Err(error) => Value::err(Value::Error(Box::new(
+                RuntimeError::new("fs-read", format!("{}: {error}", host_path.display()))
+                    .with_host_facet(&error)
+                    .with_span(span),
+            ))),
+        }
+    }
+
     /// Wrap a per-item stream-stage error: emit a `stream.item.error` trace
     /// leaf and reword the message as `stream stage `<stage>` item <i> failed:
     /// …`, preserving the original kind/span/abort (mirrors the deleted
@@ -11893,6 +11928,12 @@ impl Evaluator {
             && values.is_empty()
         {
             let result = self.path_lines_stream(path.clone(), name == "bytes_lines", *span);
+            let value = lowered_runtime_value(result, *span)?;
+            return Ok(ControlFlow::Continue(value));
+        }
+        if let LoweredValue::Path(path) = &receiver && name == "chunks" && values.len() == 1 {
+            let max_bytes = lowered_int_arg(values.pop(), "Path.chunks", *span)?;
+            let result = self.path_chunks_stream(path.clone(), max_bytes, *span);
             let value = lowered_runtime_value(result, *span)?;
             return Ok(ControlFlow::Continue(value));
         }

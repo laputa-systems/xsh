@@ -212,6 +212,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::FsBytesLines,
                 ),
                 method(
+                    "chunks",
+                    vec![param("max_bytes", Type::Int)],
+                    result(Type::Stream(Box::new(Type::Bytes))),
+                    false,
+                    RuntimeOp::FsBytesChunks,
+                ),
+                method(
                     "write",
                     vec![param("data", Type::Bytes)],
                     result(Type::Unit),

@@ -19,10 +19,11 @@ suite.
 
 ## Current evidence
 
-The latest full uutils run from 2026-10-09 recorded **5,167 / 5,974 passing**,
-807 failing, and 4 excluded. Comparison with the preceding merged report found
-no regressions. `shred` is 29/31, one additional pass; its six native tests and
-GNU 9.12's `tests/shred/shred-remove.sh` pass.
+The latest full uutils run from 2026-10-09 recorded **5,168 / 5,974 passing**,
+806 failing, and 4 excluded. Comparison with the preceding merged report fixed
+one test and found no regressions. The `fold` slice is 101/101, including the
+`/dev/zero` streaming case. `shred` is 29/31, one additional pass; its six
+native tests and GNU 9.12's `tests/shred/shred-remove.sh` pass.
 The current focused `tty` slice is 11/11; GNU 9.12's `tests/tty/tty.sh`
 passes. The remaining `who` failures expect uutils' extra-operand and
 write-error wording. Exact residuals are in `gaps.json` and

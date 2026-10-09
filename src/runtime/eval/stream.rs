@@ -304,6 +304,28 @@ impl LiveStream for FileBytesLineStream {
     }
 }
 
+/// Live bounded byte stream over a file opened by `Path.chunks()`.
+pub(super) struct FileChunkStream {
+    pub(super) reader: std::fs::File,
+    pub(super) buffer: Vec<u8>,
+}
+
+impl LiveStream for FileChunkStream {
+    fn next(&mut self, span: Span) -> Result<Option<Value>, RuntimeError> {
+        use std::io::Read;
+        loop {
+            match self.reader.read(&mut self.buffer) {
+                Ok(0) => return Ok(None),
+                Ok(read) => return Ok(Some(Value::Bytes(self.buffer[..read].to_vec()))),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(error) => {
+                    return Err(RuntimeError::host("fs-read", &error).with_span(span));
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn platform_arg_max() -> usize {
     let value = unsafe { libc::sysconf(libc::_SC_ARG_MAX) };
     if value > 0 {
