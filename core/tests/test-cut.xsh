@@ -3,6 +3,10 @@ test test_cut_fields { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -d , -f 2 $input ?
   assert "b" in output
   assert "2" in output
+
+  let empty = test.temp_file(ctx, name: "empty.txt", contents: b"")?
+  let no_output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -d "\n" -f 1 $empty ?
+  assert no_output == ""
 }
 
 test test_cut_reads_files_and_stdin_in_operand_order { |ctx|

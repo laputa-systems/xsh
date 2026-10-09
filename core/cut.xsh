@@ -26,8 +26,33 @@ type CutRecord = {data: Bytes, ended: Bool}
 type CutSplit = {fields: List[Bytes], separated: Bool}
 type CutUnit = {size: Int, text: Str}
 
-pure parse_selection(spec: Str, fields: Bool) -> Result[List[CutRange], Str] {
+pure numeric_suffix(value: Str) -> Str {
+  var at = 0
+  while at < value.byte_len() {
+    let digit = value.byte_slice(at, length: 1)
+    if digit < "0" or digit > "9" { return value[at..] }
+    at += 1
+  }
+  ""
+}
+
+pure parse_position(value: Str, fields: Bool, trailing: Str) -> Result[Int, Str] {
   let label = if fields { "field" } else { "byte/character position" }
+  let invalid = numeric_suffix(value)
+  if invalid != "" or ! rx"^[0-9]+$".matches(value) {
+    let offending = if invalid == "" { value } else { invalid }
+    return Err(if fields { f"invalid field value '{offending}{trailing}'" } else { f"invalid {label} '{offending}{trailing}'" })
+  }
+  match value.parse_int() {
+    Ok(position) => {
+      if position == 0 { return Err(if fields { "fields are numbered from 1" } else { "byte/character positions are numbered from 1" }) }
+      Ok(position)
+    }
+    Err(_) => Err(if fields { f"field number '{value}' is too large" } else { f"byte/character offset '{value}' is too large" }),
+  }
+}
+
+pure parse_selection(spec: Str, fields: Bool) -> Result[List[CutRange], Str] {
   let range_label = if fields { "field range" } else { "byte or character range" }
   let empty_error = if fields { "fields are numbered from 1" } else { "byte/character positions are numbered from 1" }
   var ranges: List[CutRange] = []
@@ -40,11 +65,11 @@ pure parse_selection(spec: Str, fields: Bool) -> Result[List[CutRange], Str] {
     var last = 0
 
     if dash == null {
-      first = if rx"^[0-9]+$".matches(token) { token.parse_int() ?? -1 } else { -1 }
-      last = first
-      if first < 0 {
-        return Err(if fields { f"invalid field value '{token}'" } else { f"invalid {label} '{token}'" })
+      match parse_position(token, fields, "") {
+        Ok(value) => { first = value }
+        Err(message) => { return Err(message) }
       }
+      last = first
     } else {
       let at = dash ?? 0
       let left = token.byte_slice(0, length: at)
@@ -56,15 +81,17 @@ pure parse_selection(spec: Str, fields: Bool) -> Result[List[CutRange], Str] {
       if left == "" and right == "" {
         return Err(f"invalid range with no endpoint: {token}")
       }
-      first = if left == "" { 1 } else if rx"^[0-9]+$".matches(left) { left.parse_int() ?? -1 } else { -1 }
-      last = if right == "" { MAX_POSITION } else if rx"^[0-9]+$".matches(right) { right.parse_int() ?? -1 } else { -1 }
-      if first < 0 {
-        let value = if left == "" { right } else { left }
-        return Err(if fields { f"invalid field value '{value}'" } else { f"invalid {label} '{value}'" })
+      if left == "" { first = 1 } else {
+        match parse_position(left, fields, f"-{right}") {
+          Ok(value) => { first = value }
+          Err(message) => { return Err(message) }
+        }
       }
-      if last < 0 {
-        let value = if right == "" { left } else { right }
-        return Err(if fields { f"invalid field value '{value}'" } else { f"invalid {label} '{value}'" })
+      if right == "" { last = MAX_POSITION } else {
+        match parse_position(right, fields, "") {
+          Ok(value) => { last = value }
+          Err(message) => { return Err(message) }
+        }
       }
       if first > last { return Err("invalid decreasing range") }
     }
@@ -101,20 +128,36 @@ pure matching(data: Bytes, at: Int, pattern: Bytes) -> Bool {
   data[at..at + pattern.len()] == pattern
 }
 
-pure utf8_boundary(data: Bytes, at: Int) -> Bool {
-  var cursor = 0
-  while cursor < at {
-    cursor += utf8_unit(data, cursor).size
-  }
-  cursor == at
-}
-
 pure utf8_unit(data: Bytes, at: Int) -> CutUnit {
   let lead = data.byte_at(at) ?? 0
   let candidate = if lead >= 194 and lead <= 223 { 2 } else if lead >= 224 and lead <= 239 { 3 } else if lead >= 240 and lead <= 244 { 4 } else { 1 }
   let valid = candidate > 1 and at + candidate <= data.len() and (data[at..at + candidate].utf8() ?? "") != ""
   let size = if valid { candidate } else { 1 }
   {size: size, text: data[at..at + size].utf8() ?? ""}
+}
+
+pure gb18030_unit(data: Bytes, at: Int) -> CutUnit {
+  let first = data.byte_at(at) ?? 0
+  if first >= 129 and first <= 254 and at + 1 < data.len() {
+    let second = data.byte_at(at + 1) ?? 0
+    if second >= 48 and second <= 57 and at + 3 < data.len() {
+      let third = data.byte_at(at + 2) ?? 0
+      let fourth = data.byte_at(at + 3) ?? 0
+      if third >= 129 and third <= 254 and fourth >= 48 and fourth <= 57 {
+        return {size: 4, text: ""}
+      }
+    }
+    if second >= 64 and second <= 254 and second != 127 {
+      return {size: 2, text: ""}
+    }
+  }
+  {size: 1, text: data[at..at + 1].utf8() ?? ""}
+}
+
+pure cut_unit(data: Bytes, at: Int, encoding: Str) -> CutUnit {
+  return gb18030_unit(data, at) when encoding == "gb18030"
+  return utf8_unit(data, at) when encoding == "utf8"
+  {size: 1, text: data[at..at + 1].utf8() ?? ""}
 }
 
 pure records(data: Bytes, zero: Bool) -> List[CutRecord] {
@@ -162,7 +205,15 @@ pure trim_blanks(data: Bytes) -> Bytes {
   data[start..end]
 }
 
-pure split_fields(data: Bytes, delimiter: Bytes, whitespace: Bool, trimmed: Bool, utf8: Bool) -> CutSplit {
+pure charset_boundary(data: Bytes, at: Int, encoding: Str) -> Bool {
+  var cursor = 0
+  while cursor < at {
+    cursor += cut_unit(data, cursor, encoding).size
+  }
+  cursor == at
+}
+
+pure split_fields(data: Bytes, delimiter: Bytes, whitespace: Bool, trimmed: Bool, encoding: Str) -> CutSplit {
   let input = if whitespace and trimmed { trim_blanks(data) } else { data }
   var fields: List[Bytes] = []
   var at = 0
@@ -172,14 +223,14 @@ pure split_fields(data: Bytes, delimiter: Bytes, whitespace: Bool, trimmed: Bool
   while at < input.len() {
     let size = if whitespace {
       blank_size(input, at)
-    } else if matching(input, at, delimiter) and (! utf8 or utf8_boundary(input, at)) {
+    } else if matching(input, at, delimiter) and (!(encoding in ["utf8", "gb18030"]) or charset_boundary(input, at, encoding)) {
       delimiter.len()
     } else {
       0
     }
 
     if size == 0 {
-      at += utf8_unit(input, at).size
+      at += cut_unit(input, at, encoding).size
     } else {
       fields += [input[start..at]]
       separated = true
@@ -213,11 +264,11 @@ pure cut_fields(
   output_delimiter: Bytes,
   whitespace: Bool,
   trimmed: Bool,
-  utf8: Bool,
+  encoding: Str,
   only: Bool,
   complement: Bool,
 ) -> Bytes {
-  let split = split_fields(line, delimiter, whitespace, trimmed, utf8)
+  let split = split_fields(line, delimiter, whitespace, trimmed, encoding)
 
   if ! split.separated {
     return b"" when only
@@ -237,7 +288,7 @@ pure cut_units(
   complement: Bool,
   characters: Bool,
   no_partial: Bool,
-  utf8: Bool,
+  encoding: Str,
   output_delimiter: Bytes,
   use_output_delimiter: Bool,
 ) -> Bytes {
@@ -249,7 +300,7 @@ pure cut_units(
   var previous_group = -1
 
   while at < line.len() {
-    let unit = if (characters and utf8) or (no_partial and utf8) { utf8_unit(line, at) } else { {size: 1, text: ""} }
+    let unit = if (characters or no_partial) and encoding in ["utf8", "gb18030"] { cut_unit(line, at, encoding) } else { {size: 1, text: ""} }
     let size = unit.size
     var keep = false
     var range_id = -1
@@ -257,7 +308,7 @@ pure cut_units(
     if characters {
       keep = selected(position, ranges, complement)
       if keep and ! complement { range_id = range_group(position, ranges) }
-    } else if no_partial and utf8 and size > 1 {
+    } else if no_partial and encoding in ["utf8", "gb18030"] and size > 1 {
       var first = -1
       var last = -1
       var count = 0
@@ -356,14 +407,16 @@ proc read_raw(raw: Bytes) [fs, error, io] -> Result[Bytes, Error] {
   target.read_bytes()
 }
 
-proc utf8_locale() [env] -> Bool {
+proc text_encoding() [env] -> Str {
   var value = ""
   for key in ["LC_ALL", "LC_CTYPE", "LANG"] {
     let found = env.get_or(key, "") ?? ""
     if found != "" { value = found; break }
   }
   let lower = value.lower()
-  lower.find("utf-8") != null or lower.find("utf8") != null
+  if lower.find("utf-8") != null or lower.find("utf8") != null { return "utf8" }
+  if lower.find("gb18030") != null { return "gb18030" }
+  "bytes"
 }
 
 type CutOptions = {
@@ -480,14 +533,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let selected_delimiter = raw_option(argv, raw, "-d", "--del")
   let delimiter_value = selected_delimiter ?? bytes.from_text("\t")
   let delimiter = if opts.delimiter != null and delimiter_value.len() == 0 { b"\0" } else { delimiter_value }
-  let utf8 = utf8_locale()
+  let encoding = text_encoding()
 
   if field_mode and opts.delimiter != null {
     let d = opts.delimiter ?? ""
     let raw_d = selected_delimiter ?? bytes.from_text(d)
     let decoded = raw_d.utf8() ?? ""
     let chars = decoded.count_chars()
-    if (utf8 and decoded != "" and chars != 1) or (! utf8 and raw_d.len() > 1) {
+    let gb_char = encoding == "gb18030" and raw_d.len() > 0 and gb18030_unit(raw_d, 0).size == raw_d.len()
+    if (encoding == "utf8" and decoded != "" and chars != 1) or (encoding == "gb18030" and ! gb_char and raw_d.len() > 1) or (encoding == "bytes" and raw_d.len() > 1) {
       gnu.error("the delimiter must be a single character")
       gnu.try_help()
       exit 1
@@ -540,13 +594,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       if field_mode {
         let field_delimiter = if whitespace and opts.delimiter == null { b" " } else { delimiter }
-        let result = cut_fields(content, ranges, field_delimiter, field_output, whitespace and opts.delimiter == null, trimmed, utf8, opts.only, opts.complement)
-        let separated = split_fields(content, field_delimiter, whitespace and opts.delimiter == null, trimmed, utf8).separated
+        let result = cut_fields(content, ranges, field_delimiter, field_output, whitespace and opts.delimiter == null, trimmed, encoding, opts.only, opts.complement)
+        let separated = split_fields(content, field_delimiter, whitespace and opts.delimiter == null, trimmed, encoding).separated
         let is_record_delimiter = zero and delimiter == term and record.ended
         if is_record_delimiter and ! separated { output = content } else { output = result }
         if opts.only and ! separated and ! is_record_delimiter { continue }
       } else {
-        output = cut_units(content, ranges, opts.complement, is_chars, opts.no_partial, utf8, unit_output, use_output)
+        output = cut_units(content, ranges, opts.complement, is_chars, opts.no_partial, encoding, unit_output, use_output)
       }
 
       gnu.write_bytes(bytes.concat([output, term]))
@@ -557,7 +611,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       let had_separator = rows.len() > 1 or (rows.len() == 1 and rows[0].ended)
 
       if ! had_separator {
-        if ! opts.only {
+        if ! opts.only and data.len() > 0 {
           gnu.write_bytes(bytes.concat([data, term]))
         }
       } else {
