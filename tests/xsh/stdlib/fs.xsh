@@ -34,6 +34,29 @@ test test_fs_walk_and_files_take_any_break_and_count { |ctx|
   assert (fs.files(root) |> count()) == 50
 }
 
+test test_fsync_opens_a_write_only_file { |ctx|
+  let root = test.temp_dir(ctx, name: "fsync-write-only")?
+  let file = fp"{root}/write-only"
+  fs.write(file, "data")
+  fs.fsync(root)?
+  fs.chmod(file, 0o200)
+  fs.fsync(file)?
+}
+
+test test_fsync_reports_read_permission_error_for_directory { |ctx|
+  guard applet.current_euid() != 0 else {
+    test.skip("root bypasses directory read permissions")
+    return
+  }
+  let root = test.temp_dir(ctx, name: "fsync-denied-dir")?
+  let directory = fp"{root}/locked"
+  directory.mkdir()
+  directory.chmod(0o000)
+  let result: Result[Unit] = try { fs.fsync(directory) }
+  directory.chmod(0o700)
+  assert result is Err(_)
+}
+
 test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fs.write(fp"{root}/file.txt", "data")

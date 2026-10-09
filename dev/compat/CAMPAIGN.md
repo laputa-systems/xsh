@@ -17,8 +17,10 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   [`native-env.sh`](native-env.sh).
 - The release `xsh` and `xsht` binaries built successfully with mold.
   `run-gnu.sh prepare` completed for GNU 9.12; the generated config enables
-  ACL, capability, and Linux xattr support. The native uutils baseline is
-  **2,205 / 5,974 passing**, with 4 excluded tests. The GNU 9.12 baseline is
+  ACL, capability, and Linux xattr support. The initial uutils baseline was
+  **2,205 / 5,974 passing**. After the date/dircolors merge, the full run was
+  **2,368 / 5,974 passing** (+163) with no regressions against the saved
+  baseline; 4 tests remain excluded. The GNU 9.12 baseline is
   **573 passed, 85 skipped, 58 failed and 3 errors** out of 719 records; `env`,
   `env0-from` and `printenv` are the three harness errors, and `close-stdin`
   timed out at the 10 minute limit.
@@ -26,23 +28,30 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   part of this setup. Rust builds use the workspace-local pinned nightly and
   mold 3.0.0 installed from its verified GitHub release; see `README.md` and
   `native-env.sh`.
-- The `date` and `fs-misc` lanes are active from `81c751a6`. The locked uutils
+- The date/dircolors lane is merged as `243c5bd9` from lane commit `58d3d378`.
+  `fs-misc` is active on a branch based on that merge and will rebase on this
+  update after its final lane slice. The locked uutils
   and GNU source trees and XSH release binaries are prepared in the workspace.
-  `dev/compat/lanes.py brief` now renders the current subagent model, native
-  paths and behavior references. Lanes use scratch result directories; only
-  the integrator writes campaign result JSON.
+  `dev/compat/lanes.py brief` renders the current subagent model, native paths
+  and behavior references. Lanes use scratch result directories; only the
+  integrator writes campaign result JSON.
 - Shared runtime progress since the setup commit: `time.format` supports an
   explicit locale, GNU quarter and colonized timezone directives, and GNU
   field flags and widths. `cli.argv_bytes()` preserves original script argument
   bytes, including non-UTF-8 bytes passed through native `argv`. The release
-  regression for that byte path passes. The date lane is at 183/185 tests
-  (date 164/166, dircolors 19/19); its two remaining failures expect French
-  month abbreviations without the period returned by glibc and GNU `date`.
-  The fs-misc lane is at 271/304, with shared runtime blockers being addressed
-  before integration.
-- The release `xsh`/`xsht` build, `xsht check` (676 files), time stdlib tests,
+  regression for that byte path passes. The full uutils rerun fixed 141 date
+  cases, all 19 dircolors cases, and one each in dirname, expr, and split.
+  Date/dircolors are at 183/185 tests
+  (date 164/166, dircolors 19/19); the two French month abbreviation
+  differences are recorded in `gaps.json` because uutils' ICU expectation
+  omits punctuation returned by glibc and GNU `date`. The fs-misc lane's last
+  slice was 271/304 before the argv-byte runtime change; it is being rerun.
+- The release `xsh`/`xsht` build, `xsht check` (678 files), time stdlib tests,
   registry tests, and compatibility ratchets pass. The focused release argv
-  integration test also passes. A full `cargo test --release -p xsh` currently
+  integration test also passes. The filesystem stdlib suite passes 22/22,
+  including directory and write-only-file `fs.fsync` behavior; that primitive
+  opens read-only first, then retries write-only when access is denied. A full
+  `cargo test --release -p xsh` currently
   crashes in rustc/LLVM ScalarEvolution while compiling the optimized library
   test binary; the ordinary release application build succeeds. The debug
   integration test binary cannot run this repository's tests because they
@@ -157,21 +166,29 @@ worktrees. Current model and host setup are stated in Active resume above.
 - The suite lock must not leak to children: `run-uutils.sh` runs its children with the
   lock descriptor closed.
 
-### Bootstrapping a fresh container
+### Native Linux x86_64 bootstrap
+
+Use the host directly; Docker is outside the campaign setup. Follow the
+versioned toolchain and mold installation steps in [`README.md`](README.md#setup),
+then, from the repository root:
 
 ```sh
+source dev/compat/native-env.sh
 git clone https://github.com/uutils/coreutils ../ref/uutils-coreutils
 git -C ../ref/uutils-coreutils checkout e7c9f3194280835c4487c2945c68d5f01ccacc8d
-curl -fsSL https://get.nexte.st/latest/linux | tar zxf - -C ~/.cargo/bin   # prebuilt nextest
-apt-get -o APT::Sandbox::User=root install -y quilt gperf texinfo autopoint gawk help2man rsync
-cargo build --release -p xsh --bins -p xsht --bin xsht                      # ~6-7 minutes
 export UUTILS_ROOT=$PWD/../ref/uutils-coreutils UUTESTS_THREADS=3
-dev/compat/run-uutils.sh                                                    # ~14 minutes, full suite
-dev/compat/run-gnu.sh prepare && dev/compat/run-gnu.sh uutils               # GNU baseline, ~25 minutes
+cargo build --locked --release -p xsh --bin xsh -p xsht --bin xsht
+cargo install cargo-nextest --locked
+dev/compat/run-uutils.sh
+dev/compat/run-gnu.sh prepare
+dev/compat/run-gnu.sh uutils
 ```
 
-The first `run-uutils.sh` after a new checkout or `PATH` change recompiles the
-uutils test crate once (about 7 minutes). Details are under "Environment notes".
+Build only the `xsh` and `xsht` campaign binaries. Sourcing
+`native-env.sh` selects the workspace-local pinned Rust toolchain and mold
+3.0.0 linker; it rejects non-Linux or non-x86_64 hosts. The first
+`run-uutils.sh` after a new checkout or `PATH` change recompiles the uutils
+test crate once. Details are under "Environment notes".
 
 ## Mission
 

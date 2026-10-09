@@ -9,8 +9,8 @@
     "upstream_utilities": 108,
     "in_scope": 106,
     "capability_gated": 2,
-    "present": 73,
-    "present_in_scope": 73,
+    "present": 74,
+    "present_in_scope": 74,
     "missing_in_scope": [
       "b2sum",
       "base32",
@@ -19,7 +19,6 @@
       "chroot",
       "cksum",
       "dd",
-      "dircolors",
       "expand",
       "fmt",
       "install",
@@ -151,8 +150,8 @@
       "native_tests": "core/tests/test-cat.xsh",
       "uutils_test_count": 54,
       "uutils_integration": {
-        "pass": 42,
-        "fail": 11,
+        "pass": 43,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
@@ -331,8 +330,8 @@
       "native_tests": "core/tests/test-comm.xsh",
       "uutils_test_count": 48,
       "uutils_integration": {
-        "pass": 41,
-        "fail": 6,
+        "pass": 40,
+        "fail": 7,
         "skip": 0,
         "excluded": 0
       },
@@ -349,8 +348,8 @@
       "native_tests": "core/tests/test-cp.xsh",
       "uutils_test_count": 398,
       "uutils_integration": {
-        "pass": 51,
-        "fail": 335,
+        "pass": 58,
+        "fail": 328,
         "skip": 0,
         "excluded": 0
       },
@@ -403,15 +402,17 @@
       "native_tests": "core/tests/test-date.xsh",
       "uutils_test_count": 173,
       "uutils_integration": {
-        "pass": 25,
-        "fail": 141,
+        "pass": 164,
+        "fail": 2,
         "skip": 0,
         "excluded": 0
       },
       "gnu_differential": null,
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "French `%b` abbreviations retain glibc/GNU punctuation (`f\u00e9vr.`, `janv.`, `d\u00e9c.`), while uutils' ICU-based locale expectations omit the trailing dot. Known residuals: `test_date::test_locale_abbreviated_month_names` and `test_date::test_locale_names_for_several_dates_in_one_run`; keep GNU-compatible output."
+      ]
     },
     {
       "utility": "dd",
@@ -421,8 +422,8 @@
       "native_tests": null,
       "uutils_test_count": 155,
       "uutils_integration": {
-        "pass": 4,
-        "fail": 148,
+        "pass": 3,
+        "fail": 149,
         "skip": 0,
         "excluded": 0
       },
@@ -452,13 +453,13 @@
     {
       "utility": "dircolors",
       "capability": null,
-      "xsh_implementation": null,
-      "present": false,
-      "native_tests": null,
+      "xsh_implementation": "core/dircolors.xsh",
+      "present": true,
+      "native_tests": "core/tests/test-dircolors.xsh",
       "uutils_test_count": 20,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 19,
+        "pass": 19,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -475,8 +476,8 @@
       "native_tests": "core/tests/test-dirname.xsh",
       "uutils_test_count": 23,
       "uutils_integration": {
-        "pass": 6,
-        "fail": 15,
+        "pass": 7,
+        "fail": 14,
         "skip": 0,
         "excluded": 0
       },
@@ -529,8 +530,8 @@
       "native_tests": "core/tests/test-expr.xsh",
       "uutils_test_count": 172,
       "uutils_integration": {
-        "pass": 159,
-        "fail": 13,
+        "pass": 160,
+        "fail": 12,
         "skip": 0,
         "excluded": 0
       },
@@ -547,8 +548,8 @@
       "native_tests": "core/tests/test-factor.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 21,
-        "fail": 4,
+        "pass": 22,
+        "fail": 3,
         "skip": 0,
         "excluded": 0
       },
@@ -619,8 +620,8 @@
       "native_tests": "core/tests/test-head.xsh",
       "uutils_test_count": 73,
       "uutils_integration": {
-        "pass": 58,
-        "fail": 15,
+        "pass": 59,
+        "fail": 14,
         "skip": 0,
         "excluded": 0
       },
@@ -735,8 +736,8 @@
       "native_tests": "core/tests/test-mkdir.xsh",
       "uutils_test_count": 50,
       "uutils_integration": {
-        "pass": 25,
-        "fail": 22,
+        "pass": 23,
+        "fail": 24,
         "skip": 0,
         "excluded": 0
       },
@@ -771,8 +772,8 @@
       "native_tests": "core/tests/test-mv.xsh",
       "uutils_test_count": 141,
       "uutils_integration": {
-        "pass": 37,
-        "fail": 110,
+        "pass": 36,
+        "fail": 111,
         "skip": 0,
         "excluded": 0
       },
@@ -1005,8 +1006,8 @@
       "native_tests": "core/tests/test-rm.xsh",
       "uutils_test_count": 80,
       "uutils_integration": {
-        "pass": 17,
-        "fail": 58,
+        "pass": 16,
+        "fail": 59,
         "skip": 0,
         "excluded": 0
       },
@@ -1115,8 +1116,8 @@
       "native_tests": "core/tests/test-sort.xsh",
       "uutils_test_count": 217,
       "uutils_integration": {
-        "pass": 34,
-        "fail": 183,
+        "pass": 30,
+        "fail": 187,
         "skip": 0,
         "excluded": 0
       },
@@ -1133,8 +1134,8 @@
       "native_tests": "core/tests/test-split.xsh",
       "uutils_test_count": 135,
       "uutils_integration": {
-        "pass": 123,
-        "fail": 11,
+        "pass": 124,
+        "fail": 10,
         "skip": 0,
         "excluded": 0
       },
@@ -1187,8 +1188,8 @@
       "native_tests": "core/tests/test-tail.xsh",
       "uutils_test_count": 170,
       "uutils_integration": {
-        "pass": 96,
-        "fail": 71,
+        "pass": 98,
+        "fail": 69,
         "skip": 0,
         "excluded": 0
       },
@@ -1205,8 +1206,8 @@
       "native_tests": "core/tests/test-tee.xsh",
       "uutils_test_count": 35,
       "uutils_integration": {
-        "pass": 23,
-        "fail": 11,
+        "pass": 25,
+        "fail": 9,
         "skip": 0,
         "excluded": 1
       },
@@ -1225,8 +1226,8 @@
       "native_tests": "core/tests/test-test.xsh",
       "uutils_test_count": 126,
       "uutils_integration": {
-        "pass": 97,
-        "fail": 18,
+        "pass": 101,
+        "fail": 14,
         "skip": 0,
         "excluded": 0
       },
@@ -1567,8 +1568,8 @@
       "native_tests": null,
       "uutils_test_count": 13,
       "uutils_integration": {
-        "pass": 1,
-        "fail": 12,
+        "pass": 0,
+        "fail": 13,
         "skip": 0,
         "excluded": 0
       },
@@ -1703,8 +1704,8 @@
       "native_tests": "core/tests/test-chgrp.xsh",
       "uutils_test_count": 32,
       "uutils_integration": {
-        "pass": 15,
-        "fail": 16,
+        "pass": 12,
+        "fail": 19,
         "skip": 0,
         "excluded": 0
       },
@@ -1721,8 +1722,8 @@
       "native_tests": "core/tests/test-chmod.xsh",
       "uutils_test_count": 63,
       "uutils_integration": {
-        "pass": 4,
-        "fail": 59,
+        "pass": 2,
+        "fail": 61,
         "skip": 0,
         "excluded": 0
       },
@@ -1739,8 +1740,8 @@
       "native_tests": "core/tests/test-chown.xsh",
       "uutils_test_count": 34,
       "uutils_integration": {
-        "pass": 7,
-        "fail": 27,
+        "pass": 8,
+        "fail": 26,
         "skip": 0,
         "excluded": 0
       },
@@ -1757,8 +1758,8 @@
       "native_tests": null,
       "uutils_test_count": 21,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 21,
+        "pass": 12,
+        "fail": 9,
         "skip": 0,
         "excluded": 0
       },
@@ -1793,8 +1794,8 @@
       "native_tests": "core/tests/test-id.xsh",
       "uutils_test_count": 22,
       "uutils_integration": {
-        "pass": 13,
-        "fail": 6,
+        "pass": 15,
+        "fail": 4,
         "skip": 0,
         "excluded": 0
       },
@@ -1811,8 +1812,8 @@
       "native_tests": null,
       "uutils_test_count": 124,
       "uutils_integration": {
-        "pass": 3,
-        "fail": 118,
+        "pass": 4,
+        "fail": 117,
         "skip": 0,
         "excluded": 0
       },
@@ -1865,8 +1866,8 @@
       "native_tests": null,
       "uutils_test_count": 17,
       "uutils_integration": {
-        "pass": 0,
-        "fail": 14,
+        "pass": 1,
+        "fail": 13,
         "skip": 0,
         "excluded": 0
       },
@@ -1883,8 +1884,8 @@
       "native_tests": "core/tests/test-stat.xsh",
       "uutils_test_count": 52,
       "uutils_integration": {
-        "pass": 2,
-        "fail": 49,
+        "pass": 4,
+        "fail": 47,
         "skip": 0,
         "excluded": 0
       },

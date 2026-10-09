@@ -16,8 +16,8 @@ on `campaign-utils` is done.
 | proc-a (`kill`, `nice`) | merged; `nohup`, `timeout`, `stdbuf` free |
 | cp | released; no lane commit exists |
 | mv-ln | released; no lane commit exists |
-| date | active on `lane/date`, claimed 2026-10-09 (GPT-6 Luna, xhigh) |
-| fs-misc | active on `lane/fs-misc`, claimed 2026-10-09 (GPT-6 Luna, xhigh) |
+| date | merged as `243c5bd9`; 183/185, two documented locale-data differences |
+| fs-misc | active on `lane/fs-misc`, claimed 2026-10-09 (GPT-6 Luna, xhigh), based on `243c5bd9`; rebase on current integration head before merge |
 
 All other lanes are free. Result JSON and baselines under
 `dev/compat/results/` are integrator-owned and must be regenerated after a

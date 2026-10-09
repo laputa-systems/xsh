@@ -1973,8 +1973,22 @@ pub(crate) fn mkfifo_path(path: PathBuf, mode: i64, span: Span) -> Result<(), Ru
 }
 
 pub(crate) fn fsync_path(path: PathBuf, span: Span) -> Result<(), RuntimeError> {
-    let file = std::fs::File::open(path)
-        .map_err(|error| RuntimeError::host("fs-fsync", &error).with_span(span))?;
+    let file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => {
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .open(path)
+            {
+                Ok(file) => file,
+                // GNU `sync` retries with O_WRONLY, but if both opens fail it
+                // reports the original O_RDONLY error. This preserves EACCES
+                // for directories that cannot be opened without read access.
+                Err(_) => return Err(RuntimeError::host("fs-fsync", &error).with_span(span)),
+            }
+        }
+        Err(error) => return Err(RuntimeError::host("fs-fsync", &error).with_span(span)),
+    };
     file.sync_all()
         .map_err(|error| RuntimeError::host("fs-fsync", &error).with_span(span))
 }
