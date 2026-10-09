@@ -28,6 +28,56 @@ test test_pr_expand_tabs { |ctx|
   assert pr_run(ctx, ["-t", "-ea2"], b"abc\tdef\n")?.stdout == b"  bc    def\n"
 }
 
+test test_pr_invalid_expand_tab_arguments { |ctx|
+  let invalid_cluster = pr_run(ctx, ["-esdgjiojiosdgjiogd"], b"")?
+  assert invalid_cluster.status == 1
+  assert invalid_cluster.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘dgjiojiosdgjiogd’\nTry 'pr --help' for more information.\n"
+
+  let two_chars = pr_run(ctx, ["-eab"], b"")?
+  assert two_chars.status == 1
+  assert two_chars.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘b’\nTry 'pr --help' for more information.\n"
+
+  let bad_width = pr_run(ctx, ["-e1a"], b"")?
+  assert bad_width.status == 1
+  assert bad_width.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘1a’\nTry 'pr --help' for more information.\n"
+
+  let bad_char_width = pr_run(ctx, ["-ea1a"], b"")?
+  assert bad_char_width.status == 1
+  assert bad_char_width.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘1a’\nTry 'pr --help' for more information.\n"
+
+  let oversized = pr_run(ctx, ["-e2147483648"], b"")?
+  assert oversized.status == 1
+  assert oversized.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘2147483648’\nTry 'pr --help' for more information.\n"
+
+  let oversized_char_width = pr_run(ctx, ["-ea2147483648"], b"")?
+  assert oversized_char_width.status == 1
+  assert oversized_char_width.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘2147483648’\nTry 'pr --help' for more information.\n"
+}
+
+test test_pr_negative_expand_tabs { |ctx|
+  let result = pr_run(ctx, ["-e=-1"], b"")?
+
+  assert result.status == 1
+  assert result.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘-1’\nTry 'pr --help' for more information.\n", result.stderr
+}
+
+test test_pr_number_width_too_large { |ctx|
+  let result = pr_run(ctx, ["-n", "18446744073709551615"], b"")?
+
+  assert result.status == 1
+  assert result.stderr == "pr: '-n' extra characters or invalid number in the argument: '18446744073709551615': Value too large for defined data type\nTry 'pr --help' for more information.\n", result.stderr
+}
+
+test test_pr_zero_expand_tab_width { |ctx|
+  let zero_width = pr_run(ctx, ["-e0"], b"")?
+  assert zero_width.status == 1
+  assert zero_width.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘0’\nTry 'pr --help' for more information.\n", zero_width.stderr
+
+  let zero_char_width = pr_run(ctx, ["-eX0"], b"")?
+  assert zero_char_width.status == 1
+  assert zero_char_width.stderr == "pr: '-e' extra characters or invalid number in the argument: ‘0’\nTry 'pr --help' for more information.\n", zero_char_width.stderr
+}
+
 test test_pr_rejects_tab_expansion_overflow { |ctx|
   let result = pr_run(ctx, ["-t", "-e1073741824"], b"\t\t")?
 

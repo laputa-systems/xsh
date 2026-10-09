@@ -38,19 +38,27 @@ pure number(value: Str, fallback: Int) -> Int {
   match value.parse_int() { Ok(parsed) => parsed, Err(_) => fallback }
 }
 
+proc pr_usage_error(message: Str) [process] -> Unit {
+  gnu.error(message)
+  eprint "Try 'pr --help' for more information."
+  exit 1
+}
+
 proc checked_number(value: Str, context: Str, with_help: Bool) [process, env] -> Int {
   let parsed = match value.parse_int() {
     Ok(parsed) => parsed
     Err(_) => {
       let suffix = if rx"^-?[0-9]+$".matches(value) { ": Value too large for defined data type" } else { "" }
-      gnu.error(f"{context}: '{value}'{suffix}")
-      if with_help { gnu.try_help() }
+      let message = f"{context}: '{value}'{suffix}"
+      if with_help { pr_usage_error(message) }
+      gnu.error(message)
       exit 1
     }
   }
   if parsed > 2147483647 or parsed < -2147483648 {
-    gnu.error(f"{context}: '{value}': Value too large for defined data type")
-    if with_help { gnu.try_help() }
+    let message = f"{context}: '{value}': Value too large for defined data type"
+    if with_help { pr_usage_error(message) }
+    gnu.error(message)
     exit 1
   }
   parsed
@@ -164,20 +172,24 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
         } else if flag == "e" {
           result.expand = true
           if rest == "" { at += 1 } else {
-            if rest.starts_with("=") { gnu.usage_error(f"'-e' extra characters or invalid number in the argument: ‘{rest[1..]}’") }
+            if rest.starts_with("=") { pr_usage_error(f"'-e' extra characters or invalid number in the argument: ‘{rest[1..]}’") }
             let digit = first_digit(rest)
             let char = if digit == 0 { "" } else if digit != null { rest[..digit ?? 0] } else { rest[..1] }
             let width = if digit == 0 { rest } else if digit != null { rest[digit ?? 0..] } else { "" }
             if char.byte_len() > 1 or (digit == null and rest.byte_len() > 1) {
               let extra = if digit == null { rest[1..] } else { rest[..digit ?? 0][1..] }
-              gnu.usage_error(f"'-e' extra characters or invalid number in the argument: ‘{extra}’")
+              pr_usage_error(f"'-e' extra characters or invalid number in the argument: ‘{extra}’")
             }
             if char != "" { result.expand_char = char.byte_at(0) ?? -1 }
             if width != "" {
               let parsed = number(width, -1)
-              if ! rx"^[0-9]+$".matches(width) or parsed <= 0 or parsed > 2147483647 {
-                let invalid = if rx"^[0-9]+$".matches(width) and parsed > 2147483647 { f"{width}" } else { width }
-                gnu.usage_error(f"'-e' extra characters or invalid number in the argument: ‘{invalid}’")
+              let numeric_width = rx"^[0-9]+$".matches(width)
+              let too_large = numeric_width and (match width.parse_int() {
+                Ok(value) => value > 2147483647
+                Err(_) => true
+              })
+              if ! numeric_width or parsed <= 0 or too_large {
+                pr_usage_error(f"'-e' extra characters or invalid number in the argument: ‘{width}’")
               }
               result.expand_width = parsed
             }
