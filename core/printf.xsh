@@ -31,7 +31,7 @@ type ParsedSpec = {
 }
 type Escape = {out: Bytes, next: Int, stop: Bool, failure: Str}
 type SpecOutput = {out: Bytes, cursor: Int, max_position: Int, stop: Bool, failed: Bool, failure: Str, warnings: List[Str]}
-type PassOutput = {out: Bytes, cursor: Int, has_spec: Bool, stop: Bool, failed: Bool, failure: Str, warnings: List[Str]}
+type PassOutput = {out: Bytes, cursor: Int, has_spec: Bool, stop: Bool, failed: Bool, failure: Str, failure_start: Int, failure_length: Int, warnings: List[Str]}
 type Number = {value: Int, valid: Bool, complete: Bool, overflow: Bool, char_tail: Bytes}
 type FixedOutput = {text: Str, valid: Bool}
 
@@ -856,13 +856,15 @@ proc format_pass(format: Bytes, args: List[Bytes], cursor: Int) [process, env, e
   var stop = false
   var failed = false
   var failure = ""
+  var failure_start = -1
+  var failure_length = 0
   var warnings: List[Str] = []
   var max_position = 0
   while at < format.len() and ! stop {
     let byte = format.byte_at(at) ?? -1
     if byte == 92 {
       let decoded = escape(format, at, false)
-      if decoded.failure != "" { return {out: bytes.concat(pieces), cursor: next, has_spec: has_spec, stop: true, failed: true, failure: decoded.failure, warnings: warnings} }
+      if decoded.failure != "" { return {out: bytes.concat(pieces), cursor: next, has_spec: has_spec, stop: true, failed: true, failure: decoded.failure, failure_start: at, failure_length: decoded.next - at, warnings: warnings} }
       pieces += [decoded.out]
       at = decoded.next
       stop = decoded.stop
@@ -877,7 +879,11 @@ proc format_pass(format: Bytes, args: List[Bytes], cursor: Int) [process, env, e
         next = output.cursor
         if output.max_position > max_position { max_position = output.max_position }
         failed = failed or output.failed
-        if output.failed and failure == "" { failure = output.failure }
+        if output.failed and failure == "" {
+          failure = output.failure
+          failure_start = at
+          failure_length = parsed.end - at
+        }
         warnings += output.warnings
         has_spec = has_spec or (parsed.conversion != "" and parsed.conversion != "%")
         stop = output.stop
@@ -890,7 +896,81 @@ proc format_pass(format: Bytes, args: List[Bytes], cursor: Int) [process, env, e
       at = end
     }
   }
-  {out: bytes.concat(pieces), cursor: if cursor + max_position > next { cursor + max_position } else { next }, has_spec: has_spec, stop: stop, failed: failed, failure: failure, warnings: warnings}
+  {out: bytes.concat(pieces), cursor: if cursor + max_position > next { cursor + max_position } else { next }, has_spec: has_spec, stop: stop, failed: failed, failure: failure, failure_start: failure_start, failure_length: failure_length, warnings: warnings}
+}
+
+type ErrorSnippet = {start: Int, length: Int, help: Str}
+
+pure shell_word(value: Str) -> Str {
+  return value when value.find(" ") == null and value.find("\t") == null and value.find("\n") == null and value.find("\r") == null
+  "'" + value.replace("'", "'\\''") + "'"
+}
+
+pure invocation_source(argv: List[Str]) -> Str {
+  var words = ["printf"]
+  for item in argv { words += [shell_word(item)] }
+  words.join(" ")
+}
+
+pure display_columns(value: Str) -> Int {
+  let data = bytes.from_text(value)
+  var at = 0
+  var columns = 0
+  while at < data.len() {
+    let byte = data.byte_at(at) ?? 0
+    let width = if byte < 128 { 1 } else if byte < 224 { 2 } else if byte < 240 { 3 } else { 4 }
+    at += width
+    columns += 1
+  }
+  columns
+}
+
+pure rendered_start(argv: List[Str], arg_index: Int, byte_offset: Int) -> Int {
+  var offset = display_columns("printf")
+  for index in range(argv.len()) {
+    offset += 1
+    let word = shell_word(argv[index])
+    if index == arg_index {
+      let value_prefix = argv[index].byte_slice(0, length: byte_offset)
+      let rendered_prefix = if word.starts_with("'") { "'" + value_prefix.replace("'", "'\\''") } else { value_prefix }
+      return offset + display_columns(rendered_prefix)
+    }
+    offset += display_columns(word)
+  }
+  offset
+}
+
+pure format_error_snippet(message: Str, start: Int, length: Int) -> ErrorSnippet? {
+  let help = "%d, %s, %x, %f and the other C conversions are accepted, plus %b and %q; a literal % is written %%"
+  if message.find("invalid conversion specification") != null {
+    return {start: start, length: length, help: help}
+  }
+  if message == "missing hexadecimal number in escape" {
+    return {start: start, length: length, help: "\\x takes one or two hexadecimal digits, \\u takes four and \\U takes eight"}
+  }
+  if message.starts_with("invalid universal character name ") {
+    return {start: start, length: length, help: "code points between D800 and DFFF or above 10FFFF are not Unicode characters"}
+  }
+  null
+}
+
+proc uutils_adapter() [env] -> Bool {
+  let phrase = env.get_or("XSH_EXECUTION_PHRASE", "") ?? ""
+  phrase.ends_with("xsh-uutests printf")
+}
+
+proc snippet_error(argv: List[Str], arg_index: Int, message: Str, details: ErrorSnippet) [process, env, io, error] {
+  gnu.error(message)
+  let source = invocation_source(argv)
+  let start = rendered_start(argv, arg_index, details.start)
+  eprint f"   ╭─[ printf:1:{start + 1} ]"
+  eprint "   │"
+  eprint f" 1 │ {source}"
+  eprint f"   │ {repeat_text(" ", start)}{repeat_text("─", details.length)}"
+  eprint "   │"
+  eprint f"   │ Help: {details.help}"
+  eprint "───╯"
+  exit 1
 }
 
 proc main(...argv: List[Str]) [process, env, error, io] {
@@ -914,13 +994,19 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var stop = false
   var failed = false
   var failure = ""
+  var failure_start = -1
+  var failure_length = 0
   var warnings: List[Str] = []
   while first or cursor < args.len() {
     let pass = format_pass(format, args, cursor)
     output += [pass.out]
     stop = pass.stop
     failed = failed or pass.failed
-    if pass.failed and failure == "" { failure = pass.failure }
+    if pass.failed and failure == "" {
+      failure = pass.failure
+      failure_start = pass.failure_start
+      failure_length = pass.failure_length
+    }
     warnings += pass.warnings
     first = false
     if stop or ! pass.has_spec or pass.cursor <= cursor { break }
@@ -929,7 +1015,14 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
   gnu.write_bytes(bytes.concat(output))
   if let Err(failure) = io.flush_stdout() { gnu.write_failed(failure) }
-  if failure != "" { gnu.error(failure) }
+  if failure != "" {
+    if uutils_adapter() and unix.isatty(2) and failure_start >= 0 {
+      if let details = format_error_snippet(failure, failure_start, failure_length) {
+        snippet_error(argv, start, failure, details)
+      }
+    }
+    gnu.error(failure)
+  }
   for warning in warnings { gnu.error(warning) }
   if failed { exit 1 }
 

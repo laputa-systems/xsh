@@ -4,12 +4,12 @@ proc printf_run(ctx: TestContext, args: List[Str]) [process, error] -> Result[St
 
 type PrintfResult = {status: Int, stdout: Bytes, stderr: Str}
 
-proc printf_result(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[PrintfResult] {
+proc printf_result(ctx: TestContext, args: List[Str], vars: Record = {LC_ALL: "C"}) [fs, process, error] -> Result[PrintfResult] {
   let root = test.temp_dir(ctx, name: "printf-result")?
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/printf.xsh".display()].extend(args)
-  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out, err)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, vars, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
@@ -116,6 +116,16 @@ test test_printf_invalid_formats_keep_gnu_plain_diagnostics { |ctx|
   assert incomplete_hex.status == 1
   assert incomplete_hex.stdout == b"a"
   assert incomplete_hex.stderr == "printf: missing hexadecimal number in escape\n"
+}
+
+test test_printf_piped_diagnostics_keep_gnu_wording_in_uutils_adapter { |ctx|
+  let adapter = printf_result(ctx, ["%z"], {LC_ALL: "C", XSH_EXECUTION_PHRASE: "dev/compat/xsh-uutests printf"})?
+  assert adapter.status == 1
+  assert adapter.stderr == "printf: %z: invalid conversion specification\n"
+
+  let direct = printf_result(ctx, ["%z"], {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""})?
+  assert direct.status == 1
+  assert direct.stderr == "printf: %z: invalid conversion specification\n"
 }
 
 test test_printf_partial_float_keeps_parsed_prefix { |ctx|
