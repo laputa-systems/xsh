@@ -31,6 +31,8 @@ type PrOptions = {
   first_page: Int, last_page: Int, files: List[Bytes], help: Bool, version: Bool,
 }
 
+type PrInputPage = {data: Bytes, feed_after: Bool}
+
 pure number(value: Str, fallback: Int) -> Int {
   match value.parse_int() { Ok(parsed) => parsed, Err(_) => fallback }
 }
@@ -207,6 +209,23 @@ pure split_lines(data: Bytes) -> List[Bytes] {
   rows
 }
 
+pure split_formfeeds(data: Bytes) -> List[PrInputPage] {
+  var pages: List[PrInputPage] = []
+  var start = 0
+  var at = 0
+  while at < data.len() {
+    if data.byte_at(at) == 12 {
+      pages += [{data: data[start..at], feed_after: true}]
+      start = at + 1
+      if start < data.len() and data.byte_at(start) == 10 { start += 1; at += 1 }
+    }
+    at += 1
+  }
+  if start < data.len() { pages += [{data: data[start..], feed_after: false}] }
+  if pages.len() == 0 and data.len() > 0 { pages += [{data: data, feed_after: false}] }
+  pages
+}
+
 pure repeat_byte(value: Bytes, count: Int) -> Bytes {
   var out: List[Bytes] = []
   for _ in range(if count > 0 and count < 100000 { count } else { 0 }) { out += [value] }
@@ -308,6 +327,7 @@ proc render_page(lines: List[Bytes], name: Bytes, page: Int, first_line: Int, op
     let date = title_date(name, opts)?
     out += [b"\n\n", header_line(date, title, page, if width > 0 and width < 10000 { width } else { 72 }), b"\n\n\n"]
   }
+  if opts.formfeed and opts.no_pagination and lines.len() == 0 and ! opts.no_header { out += [b"\n"] }
   let gap = opts.column_separator.len() * (opts.columns - 1)
   let col_width = if width > gap and opts.columns > 0 { (width - gap) / opts.columns } else { 1 }
   let content = if opts.columns > 1 { column_page(lines, opts, col_width, first_line) } else { simple_page(lines, first_line, opts) }
@@ -347,21 +367,25 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       failed = true
       continue
     }
-    let lines = split_lines(data)
-    let per_page = if opts.no_pagination { if lines.len() > 0 { lines.len() } else { 1 } } else {
-      let slots = opts.page_length - (if opts.no_header { 0 } else { 10 })
-      let rows = if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
-      if opts.columns > 1 { rows * opts.columns } else { rows }
-    }
-    let pages = if lines.len() == 0 { 0 } else { (lines.len() + per_page - 1) / per_page }
-    if pages > 0 and opts.first_page > pages { gnu.error(f"starting page number {opts.first_page} exceeds page count {pages}") }
-    for p in range(pages) {
-      page_number += 1
-      if page_number < opts.first_page or page_number > opts.last_page { continue }
-      let start = p * per_page
-      let finish = if start + per_page < lines.len() { start + per_page } else { lines.len() }
-      let page_lines = lines[start..finish]
-      gnu.write_bytes(render_page(page_lines, name, page_number, start + opts.start_number, opts)?)
+    for source_page in split_formfeeds(data) {
+      let lines = split_lines(source_page.data)
+      let per_page = if opts.no_pagination { if lines.len() > 0 { lines.len() } else { 1 } } else {
+        let slots = opts.page_length - (if opts.no_header { 0 } else { 10 })
+        let rows = if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
+        if opts.columns > 1 { rows * opts.columns } else { rows }
+      }
+      let pages = if lines.len() == 0 { if source_page.feed_after { 1 } else { 0 } } else { (lines.len() + per_page - 1) / per_page }
+      if pages > 0 and opts.first_page > pages { gnu.error(f"starting page number {opts.first_page} exceeds page count {pages}") }
+      for p in range(pages) {
+        page_number += 1
+        if page_number < opts.first_page or page_number > opts.last_page { continue }
+        let start = p * per_page
+        let finish = if start + per_page < lines.len() { start + per_page } else { lines.len() }
+        let page_lines = if lines.len() == 0 { [] } else { lines[start..finish] }
+        var render_opts = opts
+        if source_page.feed_after and p == pages - 1 and opts.formfeed { render_opts.no_pagination = true }
+        gnu.write_bytes(render_page(page_lines, name, page_number, start + opts.start_number, render_opts)?)
+      }
     }
   }
   if failed { exit 1 }
