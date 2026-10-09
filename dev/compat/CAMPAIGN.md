@@ -33,15 +33,17 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   native tests and ratchets passing. `proc-a` is merged at **103 / 125** (kill
   47/50, nice 11/13, nohup 12/13, stdbuf 11/20, timeout 22/29); all **57**
   native tests pass, including a fix for the PTY test runner's intermittent
-  SIGHUP. `text-a2` started from **17 / 663** across nine applets; cut, expand,
-  unexpand, paste, fold, nl, and fmt now pass their native tests; tr and pr
-  remain in progress. `bytes-enc` has implemented base32, base64, basenc, od,
-  and dd; native tests pass and its uutils slice is at **301+ / 311** with a
-  slow FIFO timeout and remaining behavior gaps under investigation.
-  `checksums` is merged over the shared byte/hash APIs; its ten native tests
-  pass, and the canonical uutils slice is rerunning after the applet entered
-  the shared tree. The integrator owns shared results and baselines; lane runs
-  use scratch outputs.
+  SIGHUP. `text-a2` started from **17 / 663** across nine applets; its first
+  full slice measured **454 / 663** (cut 70/83, expand 43/46, fmt 27/37, fold
+  93/101, nl 34/67, paste 19/27, pr 25/84, tr 101/174), with gaps under active
+  work. `bytes-enc` has implemented base32, base64, basenc, od, and dd; native
+  tests pass and its first slice measured **168 / 311**, including one timed-out
+  FIFO test; a bounded FIFO fix is being verified. `checksums` is merged over
+  the shared byte/hash APIs and its ten native tests pass. Its first complete
+  slice is **220 / 507** (md5sum 28/38, sha1sum 10/10, sha224sum 8/8, sha256sum
+  13/13, sha384sum 8/8, sha512sum 8/8, b2sum 16/18, cksum 124/391, sum 5/13);
+  parser, verification, and output-format gaps are under active work. The
+  integrator owns shared results and baselines; lane runs use scratch outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes
   are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;
