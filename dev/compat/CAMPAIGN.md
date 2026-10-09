@@ -8,45 +8,42 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 ## Active resume (2026-10-09)
 
-- Current local integration head is `aa8a0183`; origin was last pushed at
-  `5de29706`. The source references are pinned: uutils
+- Current local integration branch includes the `fs-misc`, `perm`, and native
+  byte/hash lane merges; origin was last pushed at `5de29706`. The source
+  references are pinned: uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
-- Setup and baseline work is complete on the native Linux x86_64 host. No
-  Docker is used. `native-env.sh` selects workspace-local
-  `nightly-2026-09-15` and mold 3.0.0 from the verified x86_64 GitHub release;
-  the setup and checksum commands are in [`README.md`](README.md#setup).
-  Release builds of `xsh` and `xsht` use mold. `run-gnu.sh prepare` completed
-  with ACL, capability, and Linux xattr support enabled.
+- Setup is complete on native Linux x86_64 with no Docker. The workspace uses
+  `nightly-2026-09-15`, its x86_64 musl target, and mold 3.0.0 from the verified
+  x86_64 GitHub release; setup and checksum commands are in
+  [`README.md`](README.md#setup). `run-gnu.sh prepare` completed with ACL,
+  capability, and Linux xattr support enabled.
 - The first full uutils baseline was **2,205 / 5,974 passing**. After the
   date/dircolors merge it was **2,368 / 5,974**, with no regressions against
   that baseline and four exclusions. A later full run after the cp and mv/ln
   merges measured **2,813 / 5,974**, but `compare.py` exposed 187 regressions.
-  The investigation traced the broad `ls` family failures to an incomplete
-  `FsStat` literal after the timestamp API extension and `/dev/zero` being
-  read as an unbounded stream. Both runtime issues are fixed at `d0ac7d7c`;
-  cp fixes are merged at `f06c924b` and mv/ln fixes at `e4efc7ed`. The
-  `fs-basic` lane is merged at `aa8a0183` with **188 / 203** passing; it also
-  fixes rm's `/dev/full` reporting path. A full regression run on this
-  corrected head is pending. The focused
-  `ls dir vdir split` slice is **314 / 365**; it has no regressions among
-  previously passing IDs and fixes the `/dev/zero` split cases.
-- Current Wave 1 lanes: `perm` and `stat-du-df` are active; `printf-env` is
-  active from `e4efc7ed`. Each lane
-  uses a separate worktree and scratch results; only the integrator writes
-  shared campaign result JSON. The next full run will also compare against the
-  pre-cp/mv report at `/tmp/uutils-before-cp-mv.json`.
-- The most recent full-run timeout was
-  `wc::test_files0_progressive_stream`: `wc --files0-from=-` currently reads
-  stdin through EOF instead of processing each NUL-delimited name as it
-  arrives. It remains a Wave 2 `coreutils-finish` request. Other known gaps are
-  tracked in `gaps.json` and will be rechecked after Wave 1.
+  The shared `FsStat` and special-file read regressions are fixed at
+  `d0ac7d7c`; cp fixes are merged at `f06c924b`, mv/ln fixes at `e4efc7ed`, and
+  `fs-basic` at `aa8a0183` with **188 / 203** passing. `fs-misc` is **295 / 304**
+  with nine GNU-verified diagnostic gaps. `perm` is **106 / 149**. Native
+  bytes/hash primitives are merged; checksum and encoding applets remain to be
+  implemented. A corrected full regression run is pending. The focused
+  `ls dir vdir split` slice is **314 / 365** with no regressions among earlier
+  passing tests.
+- `printf-env` and `stat-du-df` remain active in separate worktrees. The
+  `legacy-buckets` and `gnu-patch-classify` lanes are also underway. The
+  integrator owns shared results and baselines; lane runs use scratch outputs.
+  The next full run will compare against `/tmp/uutils-before-cp-mv.json`.
+- The last full-run timeout was
+  `wc::test_files0_progressive_stream`: `wc --files0-from=-` read stdin through
+  EOF instead of processing each NUL-delimited name as it arrived. A shared
+  `io.stdin_until` primitive and streaming `wc` path are now implemented and
+  under focused validation. Other known gaps are tracked in `gaps.json`.
 - Earlier verified results remain: date/dircolors **183 / 185** (two French
-  month punctuation differences documented against GNU/glibc), fs-misc
-  **295 / 304** (nine GNU-verified diagnostic differences), and GNU against
+  month punctuation differences documented against GNU/glibc), and GNU against
   uutils **573 passed, 85 skipped, 58 failed, 3 harness errors** out of 719.
-  The release filesystem stdlib tests now pass **27**, with one reflink skip;
-  this includes FIFO reads, zero-sized `/proc` files, and a `/dev/zero` guard.
-  The optimized `cargo test --release -p xsh` still crashes in rustc/LLVM
+  The release filesystem stdlib tests pass **27**, with one reflink skip; this
+  includes FIFO reads, zero-sized `/proc` files, and a `/dev/zero` guard. The
+  optimized `cargo test --release -p xsh` still crashes in rustc/LLVM
   ScalarEvolution while compiling the library test binary; release app builds
   succeed.
 
