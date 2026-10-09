@@ -140,10 +140,27 @@ test test_env_debug_keeps_unicode_next_to_control_bytes { |ctx|
   assert "🎯\\x0B" in result.stderr, result.stderr
 }
 
+test test_env_debug_reports_executable_and_argv { |ctx|
+  let command = ctx.xsh_bin.display()
+  let script = fp"{ctx.core_dir}/printf.xsh".display()
+  let result = env_result(ctx, ["-v", command, script, "%s", "hello"])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "hello"
+  assert f"executing: {command}" in result.stderr
+  assert f"   arg[0]= '{command}'" in result.stderr
+  assert f"   arg[1]= '{script}'" in result.stderr
+  assert "   arg[2]= '%s'" in result.stderr
+  assert "   arg[3]= 'hello'" in result.stderr
+}
+
 test test_env_runtime_limitations_are_explicit { |ctx|
   let argv0 = env_result(ctx, ["--argv0", "custom", "true"])?
   assert argv0.status == 125
   assert "cannot set a child process argv[0]" in argv0.stderr
+
+  let argv0_short = env_result(ctx, ["-a", "custom", "true"])?
+  assert argv0_short.status == 125
+  assert "cannot set a child process argv[0]" in argv0_short.stderr
 
   let block = env_result(ctx, ["--block-signal=PIPE", "true"])?
   assert block.status == 125
