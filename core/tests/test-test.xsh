@@ -218,6 +218,22 @@ test test_test_boolean_operators_and_parentheses { |ctx|
   )
 }
 
+test test_test_parenthesized_comparison_can_use_right_parenthesis_as_operand { |ctx|
+  let expressions = [
+    ["(", "foo", "!=", "bar", ")"],
+    ["(", "contained\nnewline", "=", "contained\nnewline", ")"],
+    ["(", "(", "=", "(", ")"],
+    ["(", "(", "!=", ")", ")"],
+    ["(", "!", "=", "!", ")"],
+    ["(", "=", "=", "=", ")"],
+  ]
+
+  for expression in expressions {
+    assert status_of(ctx, expression)? == 0, expression.join(" ")
+    assert status_of(ctx, ["!"].extend(expression))? == 1, expression.join(" ")
+  }
+}
+
 test test_test_boolean_operators_do_not_short_circuit { |ctx|
   let result = applet_run(ctx, ["", "-a", "1", "-eq", "bad"])?
   assert result.status == 2
@@ -247,6 +263,17 @@ test test_test_syntax_errors_exit_with_status_two { |ctx|
     assert result.stdout == ""
     assert result.stderr == case.message, f"{case.args.join(" ")}: {result.stderr}"
   }
+}
+
+test test_test_uutils_adapter_keeps_piped_diagnostics_plain { |ctx|
+  let result = applet_run(
+    ctx,
+    ["7", "-eq", "zap"],
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: "/tmp/stage/xsh-uutests test"},
+  )?
+
+  assert result.status == 2
+  assert result.stderr == "test: invalid integer 'zap'\n", result.stderr
 }
 
 test test_test_file_type_and_size_operators { |ctx|
