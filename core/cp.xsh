@@ -544,7 +544,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       suffix: {form: "-S --suffix SUFFIX", default: ""},
       symlink: {form: "-s --symbolic-link", default: false},
       target: {form: "-t --target-directory DIR", default: "", conflicts: ["no_target_directory"]},
-      cli_dereference: {form: "-H", default: false, conflicts: ["archive", "dereference", "no_dereference", "no_deref_links"]},
+      cli_dereference: {form: "-H", default: false},
       copy_contents: {form: "--copy-contents", default: false},
       update: {form: "-u --update[=WHEN]", default: "all", optional_default: "older"},
       verbose: {form: "-v --verbose", default: false},
