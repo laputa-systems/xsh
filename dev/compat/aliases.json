@@ -6,8 +6,40 @@
       "target": "test"
     },
     {
+      "name": "b2sum",
+      "target": "cksum"
+    },
+    {
       "name": "dir",
       "target": "ls"
+    },
+    {
+      "name": "md5sum",
+      "target": "cksum"
+    },
+    {
+      "name": "sha1sum",
+      "target": "cksum"
+    },
+    {
+      "name": "sha224sum",
+      "target": "cksum"
+    },
+    {
+      "name": "sha256sum",
+      "target": "cksum"
+    },
+    {
+      "name": "sha384sum",
+      "target": "cksum"
+    },
+    {
+      "name": "sha512sum",
+      "target": "cksum"
+    },
+    {
+      "name": "sum",
+      "target": "cksum"
     },
     {
       "name": "vdir",
