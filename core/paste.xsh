@@ -15,6 +15,8 @@ separated by TABs, to standard output.
 type PasteOptions = {serial: Bool, delimiters: List[Str], zero: Bool, help: Bool, version: Bool, files: List[Str]}
 type PasteArgs = {files: List[Bytes], delimiter: Bytes, has_delimiter: Bool}
 
+const PASTE_CHUNK = 65536
+
 pure matching(data: Bytes, at: Int, marker: Int) -> Bool {
   at < data.len() and (data.byte_at(at) ?? -1) == marker
 }
@@ -118,6 +120,27 @@ proc read_input(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
   input_path.read_bytes()
 }
 
+proc paste_single_file(name: Bytes, separator: Int) [fs, process, env, io, error] {
+  let input_path = Path.parse_bytes(name)?
+  let chunks = match input_path.chunks(PASTE_CHUNK) {
+    Ok(byte_stream) => byte_stream
+    Err(failure) => {
+      gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+      exit 1
+    }
+  }
+  var has_data = false
+  var last_byte = -1
+  for chunk in chunks {
+    if chunk.len() > 0 {
+      has_data = true
+      last_byte = chunk.byte_at(chunk.len() - 1) ?? -1
+      gnu.write_bytes(chunk)
+    }
+  }
+  if has_data and last_byte != separator { gnu.write_bytes(bytes.from_ints([separator])?) }
+}
+
 pure output_delimiter(delims: List[Bytes], position: Int) -> Bytes {
   return b"" when delims.len() == 0
   delims[position % delims.len()]
@@ -184,6 +207,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let names = if raw.files.len() == 0 { [b"-"] } else { raw.files }
   let sep = if opts.zero { 0 } else { 10 }
   let mark = bytes.from_ints([sep])?
+  if ! opts.serial and names.len() == 1 and names[0] != b"-" {
+    paste_single_file(names[0], sep)
+    return
+  }
   var wants_stdin = false
   for name in names { wants_stdin = wants_stdin or name == b"-" }
   var stdin_data = b""
