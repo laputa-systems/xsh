@@ -1086,7 +1086,7 @@ proc syntax_error(message: Str) [process, env] -> Unit {
 # grow: `otop` and `vtop` mark the live part, and entries above are reused.
 # Every user-function call copies the script arguments, so the hot cases (small
 # integer arithmetic, `length`, parentheses) are handled inline.
-proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
+proc evaluate(args: List[Str], raw_args: List[Bytes], here: Locale) [process, env] -> Outcome {
   let total = args.len()
   var vals: List[Outcome] = []
   var ops: List[Str] = []
@@ -1166,18 +1166,18 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
         otop += 1
         at += 1
       } else if want {
-        var literal = token
+        var literal = raw_args[at]
 
         if token == "+" {
           if at + 1 >= total {
             syntax_error(f"missing argument after {gnu.quote(token)}")
           }
 
-          literal = args[at + 1]
+          literal = raw_args[at + 1]
           at += 1
         }
 
-        let item = {value: bytes.from_text(literal), error: ""}
+        let item = {value: literal, error: ""}
 
         if vtop < vals.len() {
           vals[vtop] = item
@@ -1294,6 +1294,8 @@ proc evaluate(args: List[Str], here: Locale) [process, env] -> Outcome {
 }
 
 proc main(...argv: List[Str]) [process, env, error, io] {
+  let raw_argv = cli.argv_bytes()
+
   if argv.len() == 1 and argv[0] == "--help" {
     gnu.help(USAGE)
     return
@@ -1305,12 +1307,13 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let args = if argv.len() > 0 and argv[0] == "--" { argv[1..] } else { argv }
+  let raw_args = if argv.len() > 0 and argv[0] == "--" { raw_argv[1..] } else { raw_argv }
 
   if args.len() == 0 {
     gnu.missing_operand(2)
   }
 
-  let result = evaluate(args, locale())
+  let result = evaluate(args, raw_args, locale())
 
   if result.error != "" {
     gnu.error(result.error)
