@@ -1,10 +1,11 @@
 # XSH Core Compatibility Campaign
 
-Status: Wave 1 in progress on branch `campaign-utils`. Use one integrator;
-any subagent must be GPT-6 Luna at xhigh. The current integration uses one
-agent. Scope widened on 2026-10-04 from coreutils parity to the full
-systems-core surface below. Lane strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
-[`README.md`](README.md).
+Status: Wave 2 residual coreutils work is in progress on branch `campaign-utils`.
+Use one integrator; any subagent must be GPT-6 Luna at xhigh. Four focused lanes
+are active for `cut`/`tr`, `test`, `shuf`, and `numfmt`. Scope widened on
+2026-10-04 from coreutils parity to the full systems-core surface below. Lane
+strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
+usage is in [`README.md`](README.md).
 
 ## Active resume (2026-10-09)
 
@@ -13,6 +14,12 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   `checksums`, and `bytes-enc`; the parity manifest records 106 of 106 in-scope
   utilities present. Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
+- Wave 1 exit checks are met: all 106 scoped uutils utilities are present, the
+  ignored-option and kernel-read ratchets report zero, all 4 exclusions are
+  categorized, and every utility with remaining uutils failures has a matching
+  `gaps.json` entry. The current report is **5,178 / 5,974 passing**, with 796
+  failing and 4 excluded; Wave 2 work is closing residual coreutils behavior
+  while the wider native systems lanes are prepared.
 - Setup is complete on native Linux x86_64. Docker is not used. The workspace
   uses `nightly-2026-09-15`, the native `x86_64-unknown-linux-gnu` target, and mold
   3.0.0 from the x86_64 GitHub release (archive SHA-256

@@ -405,7 +405,9 @@
         "hostname",
         "printenv"
       ],
-      "extra_files": [],
+      "extra_files": [
+        "core/lib/testexpr.xsh"
+      ],
       "depends": [
         "w0"
       ],
