@@ -103,6 +103,33 @@ fn cli_argv_bytes_preserves_non_utf8_script_arguments() {
     assert_eq!(output.stdout, b"ok\n");
 }
 
+#[test]
+fn cli_preserves_double_dash_after_script_as_an_argument() {
+    let script = write_temp_script(
+        "argv-double-dash",
+        r#"proc main(...argv: List[Str]) [io, error] {
+  assert argv == ["--", "--literal", "tail"]
+  let raw = cli.argv_bytes()
+  assert raw == [b"--", b"--literal", b"tail"]
+  print "ok"
+}
+"#,
+    );
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg(&script)
+        .args(["--", "--literal", "tail"])
+        .output()
+        .expect("run script with a leading double-dash argument");
+    let _ = std::fs::remove_file(script);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(output.stdout, b"ok\n");
+}
+
 #[cfg(unix)]
 #[test]
 fn uutils_dispatch_preserves_raw_args_and_deleted_working_directories() {

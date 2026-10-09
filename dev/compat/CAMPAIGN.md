@@ -29,8 +29,12 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   mold 3.0.0 installed from its verified GitHub release; see `README.md` and
   `native-env.sh`.
 - The date/dircolors lane is merged as `243c5bd9` from lane commit `58d3d378`.
-  `fs-misc` is active on a branch based on that merge and will rebase on this
-  update after its final lane slice. The locked uutils
+  The integration head is `745761e6`; it replaces the staged shell wrapper
+  with native `xsh` multicall dispatch, preserving argv bytes and avoiding
+  shell diagnostics when a test runs in a deleted working directory. The
+  release regression for raw argv and deleted-cwd dispatch passes. The
+  `fs-misc` and `fs-basic` lanes are active from that head; fs-misc is rerunning
+  its final slice and fs-basic is establishing its baseline. The locked uutils
   and GNU source trees and XSH release binaries are prepared in the workspace.
   `dev/compat/lanes.py brief` renders the current subagent model, native paths
   and behavior references. Lanes use scratch result directories; only the
@@ -44,8 +48,13 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   Date/dircolors are at 183/185 tests
   (date 164/166, dircolors 19/19); the two French month abbreviation
   differences are recorded in `gaps.json` because uutils' ICU expectation
-  omits punctuation returned by glibc and GNU `date`. The fs-misc lane's last
-  slice was 271/304 before the argv-byte runtime change; it is being rerun.
+  omits punctuation returned by glibc and GNU `date`. The fs-misc lane last
+  measured 288/304 after argv-byte and fsync changes; it is rerunning after the
+  native dispatcher and a pwd deleted-directory diagnostic fix.
+- The CLI now preserves `--` after the script path as an app argument;
+  `xsh -- SCRIPT` remains the CLI's explicit option boundary. A focused release
+  regression covers both text and raw argv. The uutils cases this unblocks will
+  be measured after the shared release binary is rebuilt.
 - The release `xsh`/`xsht` build, `xsht check` (678 files), time stdlib tests,
   registry tests, and compatibility ratchets pass. The focused release argv
   integration test also passes. The filesystem stdlib suite passes 22/22,

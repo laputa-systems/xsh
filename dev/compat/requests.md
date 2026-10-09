@@ -17,7 +17,6 @@ see `check_exclusions.py`.
 
 **Runtime blockers** (record, do not work around)
 
-- `src/entrypoints/xsh.rs:124` swallows a first `--` after the script path. Blocks echo `test_double_hyphens`, `test_double_hyphens_at_start`, `test_flag_like_arguments_which_are_no_flags`, `test_backslash_n_last_char_in_last_argument`; test `test_some_literals`; sleep `test_invalid_time_interval`, `test_negative_interval`, `test_invalid_duration` (cases 1-3), `test_valid_hex_duration::case_2_negative_zero`.
 - Stdout flushing / EPIPE / SIGPIPE: yes `test_simple`, `test_args`, `test_long_output`, `test_long_odd_output`, `test_long_input`, `test_long_line_exceeds_pipe_capacity`, `test_piped_to_dev_full`; true/false `test_full`; tty `test_stdout_fail`, `test_write_error`. `yes` is bounded to 32 MiB of whole lines meanwhile.
 - Non-UTF-8: echo `non_utf_8`; yes `test_non_utf8`; test `test_invalid_utf8_integer_compare`; printenv `test_non_utf8_value`, `test_non_utf8_env_vars` (`env.list` errors on such values).
 

@@ -23,8 +23,7 @@ Usage:
 
 --startup boots the interpreter and exits immediately, running no program. It
 exposes the fixed startup cost for benchmarking (e.g. as a calibration baseline).
-Use `--` between SCRIPT and ARGS when the script path or first argument could be
-ambiguous; `xsh SCRIPT -- ARGS...` is also accepted.
+Use `xsh -- SCRIPT ARGS...` when SCRIPT begins with `-`.
 ";
 
 pub fn main() -> ExitCode {
@@ -229,11 +228,7 @@ fn parse_run(args: Vec<OsString>) -> Result<Option<(RunOptions, Vec<Vec<u8>>)>, 
         .and_then(|script| script.to_str())
         .ok_or_else(|| "SCRIPT is required and must be valid UTF-8".to_string())?
         .to_string();
-    let argument_start = if matches!(text_args.get(1).map(String::as_str), Some("--")) {
-        2
-    } else {
-        1
-    };
+    let argument_start = 1;
     let raw_args = args[argument_start..]
         .iter()
         .map(|argument| os_str_bytes(argument))
