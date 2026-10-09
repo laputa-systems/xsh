@@ -5783,14 +5783,18 @@ impl Evaluator {
             }
             RuntimeOp::HashMd5
             | RuntimeOp::HashSha1
+            | RuntimeOp::HashSha224
             | RuntimeOp::HashSha256
+            | RuntimeOp::HashSha384
             | RuntimeOp::HashSha512
                 if values.len() == 1 =>
             {
                 let algorithm = match op {
                     RuntimeOp::HashMd5 => hash_module::HashAlgorithm::Md5,
                     RuntimeOp::HashSha1 => hash_module::HashAlgorithm::Sha1,
+                    RuntimeOp::HashSha224 => hash_module::HashAlgorithm::Sha224,
                     RuntimeOp::HashSha256 => hash_module::HashAlgorithm::Sha256,
+                    RuntimeOp::HashSha384 => hash_module::HashAlgorithm::Sha384,
                     RuntimeOp::HashSha512 => hash_module::HashAlgorithm::Sha512,
                     _ => unreachable!("checked hash digest op"),
                 };

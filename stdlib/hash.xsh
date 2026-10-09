@@ -69,9 +69,10 @@ pure verify_digest(digest: Digest, algorithm: Str, expected: Str) -> Result[Unit
 ##
 ## The algorithm is the name the caller used for the checksum argument, so
 ## `hash.verify_file(path, sha256: "...")` hashes with SHA-256 and
-## `hash.verify_file(path, md5: "...")` with MD5. The file is hashed first and
-## the checksum is validated second, so a path that cannot be read reports its
-## read failure before a malformed checksum is considered.
+## `hash.verify_file(path, sha224: "...")` with SHA-224, `sha384` with SHA-384,
+## and `md5` with MD5. The file is hashed first and the checksum is validated
+## second, so a path that cannot be read reports its read failure before a
+## malformed checksum is considered.
 ##
 ## A checksum whose byte length is not twice the digest length is rejected with
 ## `checksum-format` and a message naming the algorithm and the required
@@ -84,11 +85,13 @@ pure verify_digest(digest: Digest, algorithm: Str, expected: Str) -> Result[Unit
 ## This entry is reached only through the specialized `hash.verify_file` call
 ## form: the algorithm arrives as a third argument rather than as a value, so
 ## the function is not a positional mirror of the public signature.
-export proc verify_file(file: Path, checksum: Str, algorithm: Str) [error] -> Result[Unit] {
+export proc verify_file(file: Path, checksum: Str, algorithm: Str) [error] -> Result[Unit, Error] {
   match algorithm {
     "md5" => return verify_digest(hash.md5(file)?, algorithm, checksum)
     "sha1" => return verify_digest(hash.sha1(file)?, algorithm, checksum)
+    "sha224" => return verify_digest(hash.sha224(file)?, algorithm, checksum)
     "sha256" => return verify_digest(hash.sha256(file)?, algorithm, checksum)
+    "sha384" => return verify_digest(hash.sha384(file)?, algorithm, checksum)
     "sha512" => return verify_digest(hash.sha512(file)?, algorithm, checksum)
     _ => return Err(
       format_error(f"unsupported checksum algorithm `{algorithm}`"),

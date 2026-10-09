@@ -5488,6 +5488,8 @@ impl FullCodec for HashAlgorithm {
             Self::Sha1 => 1,
             Self::Sha256 => 2,
             Self::Sha512 => 3,
+            Self::Sha224 => 4,
+            Self::Sha384 => 5,
         });
         Ok(())
     }
@@ -5501,6 +5503,8 @@ impl FullCodec for HashAlgorithm {
             1 => Ok(Self::Sha1),
             2 => Ok(Self::Sha256),
             3 => Ok(Self::Sha512),
+            4 => Ok(Self::Sha224),
+            5 => Ok(Self::Sha384),
             _ => Err(IrVerifyError::new("hash algorithm is invalid")),
         }
     }

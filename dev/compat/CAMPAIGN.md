@@ -24,16 +24,19 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   **314 / 365** with no regression among the earlier passing test IDs. The
   `legacy-buckets` lane removed all five non-uutils discard buckets. Native
   byte/hash primitives, their public API wiring, and GNU patch classification
-  are merged. The refreshed API surface records **367 functions, 389 overloads,
-  and 797 queryable items**; generated docs and the docs project checks pass.
-  Exact remaining utility failures and their causes are in `gaps.json`.
-- `printf-env` measured **225 / 252** (env 79/100, printf 146/152) after its
-  latest fixes, with native tests and ratchets green; its branch is being
-  rebased for integration. `proc-a` is committed at **45 / 62** (nohup 12/13,
-  stdbuf 11/20, timeout 22/29), with 23 native tests passing, and is ready for
-  integration. `text-a2` started from **17 / 663** across nine applets and is
-  working on expand/unexpand. `bytes-enc` and `checksums` have started from
-  **8 / 311** and **3 / 507**, respectively, on the merged byte/hash APIs.
+  primitives, their public API wiring, and GNU patch classification are
+  merged. The API surface now records **369 functions, 393 overloads, and 799
+  queryable items**; SHA-224 and SHA-384 APIs are implemented and their tests,
+  generated docs, and docs project checks pass. Exact remaining utility
+  failures and their causes are in `gaps.json`.
+- `printf-env` measured **225 / 252** (env 79/100, printf 146/152); native
+  tests and ratchets pass, and the committed branch is ready to integrate.
+  `proc-a` measured **103 / 125** (kill 47/50, nice 11/13, nohup 12/13,
+  stdbuf 11/20, timeout 22/29); all **57** native tests pass, including a fix
+  for the PTY test runner's intermittent SIGHUP. `text-a2` started from **17 /
+  663** across nine applets; cut, expand, unexpand, paste, fold, nl, and fmt are
+  under implementation. `bytes-enc` and `checksums` are active on the merged
+  byte/hash APIs; their brief baselines were **8 / 311** and **3 / 507**.
   The integrator owns shared results and baselines; lane runs use scratch
   outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**

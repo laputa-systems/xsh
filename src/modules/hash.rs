@@ -11,7 +11,9 @@ use std::path::Path;
 pub(crate) enum HashAlgorithm {
     Md5,
     Sha1,
+    Sha224,
     Sha256,
+    Sha384,
     Sha512,
 }
 
@@ -20,7 +22,9 @@ impl HashAlgorithm {
         match self {
             Self::Md5 => "md5",
             Self::Sha1 => "sha1",
+            Self::Sha224 => "sha224",
             Self::Sha256 => "sha256",
+            Self::Sha384 => "sha384",
             Self::Sha512 => "sha512",
         }
     }
@@ -38,8 +42,18 @@ pub(crate) fn digest_bytes(algorithm: HashAlgorithm, bytes: &[u8]) -> DigestValu
             digest.update(bytes);
             digest_value(algorithm, digest.finalize().as_slice())
         }
+        HashAlgorithm::Sha224 => {
+            let mut digest = sha2::Sha224::new();
+            digest.update(bytes);
+            digest_value(algorithm, digest.finalize().as_slice())
+        }
         HashAlgorithm::Sha256 => {
             let mut digest = sha2::Sha256::new();
+            digest.update(bytes);
+            digest_value(algorithm, digest.finalize().as_slice())
+        }
+        HashAlgorithm::Sha384 => {
+            let mut digest = sha2::Sha384::new();
             digest.update(bytes);
             digest_value(algorithm, digest.finalize().as_slice())
         }
@@ -222,7 +236,9 @@ fn digest_reader(
     let bytes = match algorithm {
         HashAlgorithm::Md5 => digest_stream::<md5::Md5>(reader, span)?,
         HashAlgorithm::Sha1 => digest_stream::<sha1::Sha1>(reader, span)?,
+        HashAlgorithm::Sha224 => digest_stream::<sha2::Sha224>(reader, span)?,
         HashAlgorithm::Sha256 => digest_stream::<sha2::Sha256>(reader, span)?,
+        HashAlgorithm::Sha384 => digest_stream::<sha2::Sha384>(reader, span)?,
         HashAlgorithm::Sha512 => digest_stream::<sha2::Sha512>(reader, span)?,
     };
     Ok(digest_value(algorithm, &bytes))
@@ -578,13 +594,27 @@ mod tests {
         for algorithm in [
             HashAlgorithm::Md5,
             HashAlgorithm::Sha1,
+            HashAlgorithm::Sha224,
             HashAlgorithm::Sha256,
+            HashAlgorithm::Sha384,
             HashAlgorithm::Sha512,
         ] {
             let mut reader = BoundedReader(Cursor::new(data.clone()));
             let file = digest_reader(algorithm, &mut reader, span).expect("bounded file read");
             assert_eq!(file, digest_bytes(algorithm, &data));
         }
+    }
+
+    #[test]
+    fn sha224_and_sha384_match_known_vectors() {
+        assert_eq!(
+            super::hex(&digest_bytes(HashAlgorithm::Sha224, b"abc").bytes),
+            "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"
+        );
+        assert_eq!(
+            super::hex(&digest_bytes(HashAlgorithm::Sha384, b"abc").bytes),
+            "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"
+        );
     }
 
     #[test]

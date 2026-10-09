@@ -2221,7 +2221,10 @@ impl Checker {
             self.check_call_arg_arena(arena, source, &checksum_arg.kind, Some(&Type::Str));
             return;
         };
-        if !matches!(name.as_str().as_str(), "md5" | "sha1" | "sha256" | "sha512") {
+        if !matches!(
+            name.as_str().as_str(),
+            "md5" | "sha1" | "sha224" | "sha256" | "sha384" | "sha512"
+        ) {
             self.error(
                 call_arg_span_arena(arena, &checksum_arg.kind),
                 "unsupported checksum algorithm",

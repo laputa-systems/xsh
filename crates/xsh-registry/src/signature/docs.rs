@@ -378,7 +378,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Runtime-loaded modules must have a ##! module doc and ## docs on every export before they are checked or lowered.",
             &["module", "dynamic", "documentation"],
         )),
-        ("hash", "sha256" | "sha512" | "sha1" | "md5") => Some((
+        ("hash", "sha224" | "sha256" | "sha384" | "sha512" | "sha1" | "md5") => Some((
             "Calculates a digest from bytes or a file path.",
             "Hash bytes at the content boundary; format the digest only for storage, display, or comparison.",
             &["hash", "digest", "bytes"],

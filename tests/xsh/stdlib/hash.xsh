@@ -6,8 +6,12 @@ test test_hash_digests_checksums_and_digest_methods { |ctx|
   assert hash.sha256(data_path)?.hex() == digest.hex()
   assert hash.md5(b"abc").hex() == "900150983cd24fb0d6963f7d28e17f72"
   assert hash.sha1(b"abc").hex() == "a9993e364706816aba3e25717850c26c9cd0d89d"
+  assert hash.sha224(b"abc").hex() == "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7"
 
+  assert hash.sha384(b"abc").hex() == "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"
   assert hash.sha512(b"abc").hex() == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
+  assert hash.sha224(data_path)?.hex() == hash.sha224(b"abc").hex()
+  assert hash.sha384(data_path)?.hex() == hash.sha384(b"abc").hex()
 
   assert hash.crc32(b"123456789") == 3421780262
   assert hash.crc32c(b"123456789") == 3808858755
@@ -140,6 +144,8 @@ test test_hash_verify_file_policy { |ctx|
   # Each named algorithm selects its own digest, and the failure names it.
   assert verify_message(hash.verify_file(data_path, md5: hash.md5(data_path)?.hex())) == ""
   assert verify_message(hash.verify_file(data_path, sha1: hash.sha1(data_path)?.hex())) == ""
+  assert verify_message(hash.verify_file(data_path, sha224: hash.sha224(data_path)?.hex())) == ""
+  assert verify_message(hash.verify_file(data_path, sha384: hash.sha384(data_path)?.hex())) == ""
   assert verify_message(hash.verify_file(data_path, sha512: hash.sha512(data_path)?.hex())) == ""
   let zeros32 = "00000000000000000000000000000000"
   assert verify_message(hash.verify_file(data_path, md5: zeros32)) == f"md5 digest mismatch: expected {zeros32}, got {hash.md5(data_path)?.hex()}"

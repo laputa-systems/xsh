@@ -188,7 +188,9 @@ Digest and checksum calculation and verification.
 - `hash.md5(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.parse_check_line(line: Str) -> Result[{binary: Bool, hex: Str, path: Str}, Error]` — Parses one checksum-file verification line.
 - `hash.sha1(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
+- `hash.sha224(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha256(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
+- `hash.sha384(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sha512(data: Bytes) -> Digest (+1 overloads)` — Calculates a digest from bytes or a file path.
 - `hash.sysv_sum(data: Bytes) -> {blocks: Int, checksum: Int} (+1 overloads)` — Calculates a POSIX or traditional checksum from bytes or a file path.
 - `hash.verify_file(path: Path, sha256: Str = default) -> Result[Unit, Error]` — Verifies a file against a named digest.

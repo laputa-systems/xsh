@@ -242,6 +242,22 @@ mod tests {
                 .iter()
                 .any(|sig| !sig.pure && sig.params[0].ty == Type::Path)
         );
+        for algorithm in ["sha224", "sha384"] {
+            assert!(
+                modules["hash"]
+                    .function_overloads(algorithm)
+                    .unwrap()
+                    .iter()
+                    .any(|sig| sig.pure && sig.params[0].ty == Type::Bytes)
+            );
+            assert!(
+                modules["hash"]
+                    .function_overloads(algorithm)
+                    .unwrap()
+                    .iter()
+                    .any(|sig| !sig.pure && sig.params[0].ty == Type::Path)
+            );
+        }
         assert!(modules["path"].function_overloads("display").is_none());
         assert!(modules["env"].function_overloads("get_path").is_none());
         assert!(modules["json"].function_overloads("lines").is_none());

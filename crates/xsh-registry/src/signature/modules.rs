@@ -2041,6 +2041,24 @@ fn hash_module() -> ModuleSig {
             ),
         ),
         (
+            "sha224",
+            sig(
+                vec![param("data", Type::Bytes)],
+                Type::Digest,
+                true,
+                RuntimeOp::HashSha224,
+            ),
+        ),
+        (
+            "sha224",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashSha224,
+            ),
+        ),
+        (
             "sha256",
             sig(
                 vec![param("data", Type::Bytes)],
@@ -2056,6 +2074,24 @@ fn hash_module() -> ModuleSig {
                 result(Type::Digest),
                 false,
                 RuntimeOp::HashSha256,
+            ),
+        ),
+        (
+            "sha384",
+            sig(
+                vec![param("data", Type::Bytes)],
+                Type::Digest,
+                true,
+                RuntimeOp::HashSha384,
+            ),
+        ),
+        (
+            "sha384",
+            sig(
+                vec![param("path", Type::Path)],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashSha384,
             ),
         ),
         (

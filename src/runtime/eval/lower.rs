@@ -294,7 +294,9 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
     let algorithm = match name.as_str().as_str() {
         "md5" => "md5",
         "sha1" => "sha1",
+        "sha224" => "sha224",
         "sha256" => "sha256",
+        "sha384" => "sha384",
         "sha512" => "sha512",
         _ => return None,
     };
@@ -477,7 +479,9 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::GroupRemove
             | RuntimeOp::HashMd5
             | RuntimeOp::HashSha1
+            | RuntimeOp::HashSha224
             | RuntimeOp::HashSha256
+            | RuntimeOp::HashSha384
             | RuntimeOp::HashSha512
             | RuntimeOp::HashBlake2b
             | RuntimeOp::HashCrc32
