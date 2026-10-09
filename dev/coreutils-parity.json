@@ -1049,8 +1049,8 @@
       "native_tests": "core/tests/test-pr.xsh",
       "uutils_test_count": 84,
       "uutils_integration": {
-        "pass": 80,
-        "fail": 4,
+        "pass": 84,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1062,9 +1062,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "`test_pr::test_invalid_expand_tab_arguments`, `test_pr::test_negative_expand_tabs`, `test_pr::test_number_width_too_large`, and `test_pr::test_zero_expand_tab_width` still differ in `-e` argument validation and width-boundary diagnostics."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "printenv",

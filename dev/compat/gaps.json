@@ -203,9 +203,6 @@
       "Accounts come from /etc/passwd (`lib.auth`, or XSH_PASSWD_FILE) rather than NSS, and `user.lookup` has no GECOS field (request: `gecos` on `user.lookup`). XSH_UTMP_FILE replaces /var/run/utmp for tests.",
       "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`)."
     ],
-    "pr": [
-      "`test_pr::test_invalid_expand_tab_arguments`, `test_pr::test_negative_expand_tabs`, `test_pr::test_number_width_too_large`, and `test_pr::test_zero_expand_tab_width` still differ in `-e` argument validation and width-boundary diagnostics."
-    ],
     "printenv": [
       "test_printenv::test_invalid_option_exit_code expects uutils option-error status; test_printenv::test_non_utf8_env_vars and test_printenv::test_non_utf8_value need byte-preserving environment names and values."
     ],

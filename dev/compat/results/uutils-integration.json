@@ -1031,16 +1031,11 @@
       "applet": true
     },
     "pr": {
-      "pass": 80,
-      "fail": 4,
+      "pass": 84,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_pr::test_invalid_expand_tab_arguments",
-        "test_pr::test_negative_expand_tabs",
-        "test_pr::test_number_width_too_large",
-        "test_pr::test_zero_expand_tab_width"
-      ],
+      "failing": [],
       "applet": true
     },
     "printenv": {
@@ -1725,8 +1720,8 @@
     }
   },
   "totals": {
-    "pass": 5172,
-    "fail": 802,
+    "pass": 5176,
+    "fail": 798,
     "skip": 0,
     "excluded": 4
   }
