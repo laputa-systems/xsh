@@ -1,66 +1,262 @@
 {
-  "comment": "uutils patches to the GNU tests at the locked commit. class: plumbing (needed to run any non-GNU implementation), semantic (accepted uutils-vs-GNU divergence), wording (uutils diagnostic text; not automatic XSH policy). The differential runs both sides on the same patched tree, so classification affects only absolute GNU scoring. util/build-gnu.sh also rewrites tests with sed after line 160; classify those under build_gnu_rewrites.",
+  "comment": "Classifications of the patches applied by the pinned uutils GNU test suite. plumbing adapts harness assumptions or implementation details; semantic records an accepted uutils-vs-GNU behavior/surface difference; wording records diagnostic/help text differences and does not define XSH policy. The four-cell differential runs both implementations on the same patched suite, so these classifications affect absolute GNU scoring only. build_gnu_rewrites groups every test rewrite in util/build-gnu.sh after line 160.",
   "patches": {
     "tests_factor_factor.pl.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Replaces GNU's invalid-option diagnostic and help hint with the clap unexpected-argument diagnostic emitted by uutils factor."
     },
     "tests_cksum_base64.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Parses cksum --help's clap bullet format instead of GNU's indented algorithm list so the help-algorithm test reads the same advertised names."
     },
     "tests_comm.pl.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Updates missing/extra operand and repeated-delimiter stderr expectations to uutils' required-argument and conflict wording."
     },
     "tests_dup_source.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Expects the uutils self-move diagnostic instead of GNU's duplicate-source warning; the test keeps the same failing exit and filesystem assertions."
     },
     "tests_env_env-S.pl.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Expects uutils env -S parser positions/context and clap's malformed-option usage diagnostic."
     },
     "tests_invalid_opt.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Suppresses stderr comparison across the generic -/ invalid-option matrix because implementations format this diagnostic differently; the test still checks its exit status and output."
     },
     "tests_ls_no_cap.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "plumbing",
+      "note": "Traces listxattr instead of capget to check ls capability-color lookup through uutils' xattr-based implementation; the assertion concerns the same internal capability path, not a CLI difference."
     },
     "tests_sort_merge.pl.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Adds GNU's standard help hint to expected invalid --batch-size diagnostics because uutils includes it."
     },
     "tests_du_move_dir_while_traversing.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "semantic",
+      "note": "Accepts uutils du's different path-specific traversal diagnostic while retaining the failure check; its safe openat traversal avoids GNU's race-triggered fts_read failure."
     },
     "test_mkdir_restorecon.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "semantic",
+      "note": "Accepts any valid SELinux type set by mkdir -Z instead of requiring exact equality with restorecon's context, because the Rust SELinux lookup can choose a different valid type."
     },
     "error_msg_uniq.diff": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Replaces GNU uniq invalid-value and mutually-exclusive-option diagnostics with uutils clap wording."
     },
     "tests_numfmt.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "wording",
+      "note": "Updates field-range, invalid-option, and repeated-field diagnostics to uutils wording; also corrects the test's debug flag from ---debug to --debug."
     },
     "tests_pwd-long.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "plumbing",
+      "note": "Runs pwd-long without fault-injecting getcwd=ENOSYS because uutils uses the kernel getcwd rather than GNU's userspace fallback; the test still checks long-path output."
     },
     "tests_getopt_vs_usage.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "semantic",
+      "note": "Skips a GNU C-source option-table versus --help inventory comparison; uutils has a different help layout and command/option surface, which this test cannot compare as GNU output."
     },
     "tests_usage_vs_refs.patch": {
-      "class": "unclassified",
-      "note": ""
+      "class": "semantic",
+      "note": "Skips checking every --help option against GNU's manual because uutils options and commands are documented outside doc/coreutils.texi."
     }
   },
-  "build_gnu_rewrites": "unclassified"
+  "build_gnu_rewrites": [
+    {
+      "lines": "161-163",
+      "class": "plumbing",
+      "note": "Drops the combined help/version test from this run because its output is high volume; this is a test-selection/build-log adjustment, not a classified output difference."
+    },
+    {
+      "lines": "196-206",
+      "class": "plumbing",
+      "note": "Routes PATH, path_prepend_, and test shebang references to the uutils build directory so the GNU harness invokes uutils binaries."
+    },
+    {
+      "lines": "208-211",
+      "class": "plumbing",
+      "note": "Gates runcon/chcon tests on SELinux availability because GNU no longer builds those commands without libselinux."
+    },
+    {
+      "lines": "213-214",
+      "class": "plumbing",
+      "note": "Removes GNU-only --coreutils-prog arguments from the suite's wrapper invocation."
+    },
+    {
+      "lines": "216-217",
+      "class": "plumbing",
+      "note": "Removes a capability-config probe that depends on a different system utility than the command under test."
+    },
+    {
+      "lines": "219-231",
+      "class": "wording",
+      "note": "Changes expected cp, mv, stat, and sort diagnostics/help hints to the text produced by uutils."
+    },
+    {
+      "lines": "233-235",
+      "class": "plumbing",
+      "note": "Deduplicates PATH components after repeated test setup so repeated invocations use the same binary search path."
+    },
+    {
+      "lines": "242-245",
+      "class": "wording",
+      "note": "Adjusts rm trailing-slash and inaccessible-path diagnostic expectations to uutils output, including ENOENT for the absent rel path."
+    },
+    {
+      "lines": "247-249",
+      "class": "semantic",
+      "note": "Changes rm's expected diagnostics and affected paths for inaccessible directory traversal; uutils reports the non-empty directory and the inaccessible descendant it actually reaches."
+    },
+    {
+      "lines": "251-253",
+      "class": "plumbing",
+      "note": "Removes an accidental ---dis argument that aliases to --disable-inotify and invalidates the tail overlay test setup."
+    },
+    {
+      "lines": "255-264",
+      "class": "plumbing",
+      "note": "Moves tail inotify race breakpoints from GNU C source to the corresponding Rust watcher setup and disables gdb auto-load noise."
+    },
+    {
+      "lines": "266-267",
+      "class": "plumbing",
+      "note": "Makes unavailable inotify_add_watch a normal test failure instead of a test-framework error, preserving the test result in the suite."
+    },
+    {
+      "lines": "269-271",
+      "class": "plumbing",
+      "note": "Suppresses huge pr comparison diffs while preserving the mismatch warning and test failure."
+    },
+    {
+      "lines": "273-276",
+      "class": "wording",
+      "note": "Normalizes xstrtol page-range diagnostics to uutils' shorter invalid --pages wording."
+    },
+    {
+      "lines": "278-281",
+      "class": "semantic",
+      "note": "Changes invalid basenc expectations to no partial output; uutils discards all decoded bytes when decoding fails, unlike GNU's partial output."
+    },
+    {
+      "lines": "283-288",
+      "class": "wording",
+      "note": "Updates basenc invalid-input and unexpected-option expectations to uutils' error prefix and clap help block."
+    },
+    {
+      "lines": "290-291",
+      "class": "plumbing",
+      "note": "Stops after the first SELinux capability check so optional SELinux setup does not fail on a second environment-dependent probe."
+    },
+    {
+      "lines": "293-296",
+      "class": "plumbing",
+      "note": "Accepts a numeric package version rather than requiring GNU's exact PACKAGE_VERSION in tests run as nobody."
+    },
+    {
+      "lines": "298-301",
+      "class": "wording",
+      "note": "Adapts usage_vs_getopt parsing to the clap -/ diagnostic spelling and text."
+    },
+    {
+      "lines": "302-304",
+      "class": "semantic",
+      "note": "Excludes runcon and stdbuf from the test's option-order exit-code assertion; these commands do not match the GNU behavior that the generic test assumes."
+    },
+    {
+      "lines": "305-306",
+      "class": "wording",
+      "note": "Normalizes clap angle-bracket value placeholders to GNU's bracketed placeholder form before comparing help options."
+    },
+    {
+      "lines": "307-308",
+      "class": "plumbing",
+      "note": "Deduplicates option-table records generated more than once by the usage comparison."
+    },
+    {
+      "lines": "310-311",
+      "class": "wording",
+      "note": "Changes ginstall's verbose creation prefix to install, the name used by uutils."
+    },
+    {
+      "lines": "313-315",
+      "class": "semantic",
+      "note": "Disables numfmt padding below -LONG_MAX because GNU does not support that range while uutils does."
+    },
+    {
+      "lines": "317-319",
+      "class": "wording",
+      "note": "Updates numfmt and mv conflict/missing-operand diagnostics and help hints to uutils clap wording."
+    },
+    {
+      "lines": "321-323",
+      "class": "semantic",
+      "note": "Disables printf width cases above INT_MAX, which GNU rejects but uutils supports."
+    },
+    {
+      "lines": "325-329",
+      "class": "wording",
+      "note": "Updates du threshold and files0-from error wording, including the access diagnostic for stdin and the uutils help hint."
+    },
+    {
+      "lines": "331-336",
+      "class": "semantic",
+      "note": "Skips du's move-directory race test because uutils' openat traversal avoids the TOCTOU path walk the test tries to trigger."
+    },
+    {
+      "lines": "338",
+      "class": "wording",
+      "note": "Relaxes df conflict-option checks from exact diagnostics to the shared cannot-be-used-with text."
+    },
+    {
+      "lines": "340-344",
+      "class": "wording",
+      "note": "Updates ls --time-style error, valid-value list, and help-hint expectations to uutils wording."
+    },
+    {
+      "lines": "346-349",
+      "class": "semantic",
+      "note": "Disables hostid cases where GNU continues parsing around --help but uutils rejects the same option order."
+    },
+    {
+      "lines": "351-355",
+      "class": "plumbing",
+      "note": "Changes ls stat syscall equality to a lower-bound assertion because uutils performs fewer filesystem calls for the same tested behavior."
+    },
+    {
+      "lines": "357-358",
+      "class": "wording",
+      "note": "Removes GNU's help hint from the md5sum expected error because uutils' diagnostic omits it."
+    },
+    {
+      "lines": "360-383",
+      "class": "semantic",
+      "note": "Normalizes ls color reset codes, ordering, and leading zeroes because uutils emits equivalent ANSI SGR sequences in a different form/order."
+    },
+    {
+      "lines": "385-386",
+      "class": "wording",
+      "note": "Expects uutils' unexpected-argument wording for mv's unsupported exchange option."
+    },
+    {
+      "lines": "388-390",
+      "class": "wording",
+      "note": "Adds chcon's program name to the expected security-context message, as uutils includes it."
+    },
+    {
+      "lines": "392-395",
+      "class": "semantic",
+      "note": "Drops the unconditional failure expectation for cp without an SELinux context; the uutils SELinux crate handles missing context differently and the test itself allows that case."
+    }
+  ],
+  "inactive_patch_files": [
+    {
+      "file": "tests_cut_error_msg.patch",
+      "note": "Not applied: util/gnu-patches/series leaves this entry commented as FIXME."
+    },
+    {
+      "file": "tests_tail_overlay_headers.patch",
+      "note": "Not applied: this patch file is not listed in util/gnu-patches/series."
+    }
+  ]
 }
