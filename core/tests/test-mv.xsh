@@ -43,6 +43,19 @@ test test_mv_no_clobber_force_and_verbose { |ctx|
   assert forced.stdout == f"'{src}' -> '{dst}'\n"
 }
 
+test test_mv_interactive_decline_preserves_directory_and_destination { |ctx|
+  let root = test.temp_dir(ctx, name: "mv-interactive-decline-dir")?
+  let source = fp"{root}/source-dir"
+  let destination = fp"{root}/destination-file"
+  source.mkdir()
+  destination.write("keep")
+
+  let result = mv_run(ctx, root, ["-i", source.display(), destination.display()], b"n\n")?
+  assert result.status == 1
+  assert source.exists()?
+  assert destination.read_text()? == "keep"
+}
+
 test test_mv_update_older_and_backup { |ctx|
   let root = test.temp_dir(ctx, name: "mv-update")?
   let src = fp"{root}/src"

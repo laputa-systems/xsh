@@ -126,6 +126,29 @@ proc same_inode(left: Path, right: Path) [fs] -> Bool {
   }
 }
 
+pure normalized_path(name: Str) -> Str {
+  let absolute = name.starts_with("/")
+  var parts = []
+  for part in name.split("/") {
+    continue when part == "" or part == "."
+    if part == ".." {
+      if parts.len() > 0 and parts[parts.len() - 1] != ".." {
+        parts = parts |> take(parts.len() - 1)
+      } else if ! absolute {
+        parts += [".."]
+      }
+    } else {
+      parts += [part]
+    }
+  }
+  let joined = parts.join("/")
+  if absolute { f"/{joined}" } else if joined == "" { "." } else { joined }
+}
+
+pure same_path(left: Str, right: Str) -> Bool {
+  normalized_path(left) == normalized_path(right)
+}
+
 proc prompt_replace(name: Str) [process, io] -> Bool {
   eprint f"ln: replace {gnu.quote(name)}? "
   let answer = io.stdin_bytes() ?? b""
@@ -172,6 +195,7 @@ proc link_one(source_text: Str, dest: Path, options: LnOptions, backup_mode: Str
   }
 
   if ! options.symbolic and same_inode(source, dest) {
+    if options.force and ! has_backup and ! same_path(source_text, dest_text) { return true }
     gnu.error(f"{gnu.quote(source_text)} and {gnu.quote(dest_text)} are the same file")
     return false
   }
