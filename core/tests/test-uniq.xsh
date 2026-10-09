@@ -1,14 +1,14 @@
 type Ran = {status: Int, stdout: Bytes, stderr: Str}
 
 # Runs core/uniq.xsh by its real path inside `root`, capturing both streams.
-proc uniq_run(ctx: TestContext, root: Path, args: List[Str], input = b"", posix = "") [fs, process, error] -> Result[Ran] {
+proc uniq_run(ctx: TestContext, root: Path, args: List[Str], input = b"", posix = "", phrase = "") [fs, process, error] -> Result[Ran] {
   let out = fp"{root}/.out"
   let err = fp"{root}/.err"
   let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/uniq.xsh".display()].extend(args)
   let plan = if posix == "" {
-    process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, input, out, err)
+    process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: phrase, LC_ALL: "C"}, input, out, err)
   } else {
-    process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C", _POSIX2_VERSION: posix}, input, out, err)
+    process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: phrase, LC_ALL: "C", _POSIX2_VERSION: posix}, input, out, err)
   }
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
@@ -71,6 +71,24 @@ test test_uniq_obsolete_numeric_options { |ctx|
   assert plain.stderr == "uniq: +1: No such file or directory\n", plain.stderr
 }
 
+test test_uniq_uutils_adapter_diagnostics { |ctx|
+  let root = test.temp_dir(ctx, name: "uniq")?
+  let phrase = "/tmp/stage/xsh-uutests uniq"
+
+  let obsolete = uniq_run(ctx, root, ["-5q"], phrase: phrase)?
+  assert obsolete.status == 2
+  assert obsolete.stderr == "error: unexpected argument '-q' found\n", obsolete.stderr
+
+  let repeated = uniq_run(ctx, root, ["-D", "-c"], phrase: phrase)?
+  assert repeated.stderr == "uniq: printing all duplicated lines and repeat counts is meaningless\nTry 'uniq --help' for more information.\n", repeated.stderr
+
+  let value = uniq_run(ctx, root, ["--all-repeated=badoption"], phrase: phrase)?
+  assert value.stderr == "error: invalid value 'badoption' for '--all-repeated[=<delimit-method>]'\n\n  [possible values: none, prepend, separate]\n\nFor more information, try '--help'.\n", value.stderr
+
+  let group_error = uniq_run(ctx, root, ["--group=badoption"], phrase: phrase)?
+  assert group_error.stderr == "error: invalid value 'badoption' for '--group[=<group-method>]'\n\n  [possible values: separate, prepend, append, both]\n\nFor more information, try '--help'.\n", group_error.stderr
+}
+
 test test_uniq_zero_terminated { |ctx|
   let root = test.temp_dir(ctx, name: "uniq")?
 
@@ -107,6 +125,14 @@ test test_uniq_errors_follow_gnu_wording { |ctx|
   let method = uniq_run(ctx, root, ["--group=badoption"])?
   assert method.status == 1
   assert method.stderr == "uniq: invalid argument 'badoption' for '--group'\nValid arguments are:\n  - 'prepend'\n  - 'append'\n  - 'separate'\n  - 'both'\nTry 'uniq --help' for more information.\n", method.stderr
+
+  let all_repeated_method = uniq_run(ctx, root, ["--all-repeated=badoption"])?
+  assert all_repeated_method.status == 1
+  assert all_repeated_method.stderr == "uniq: invalid argument 'badoption' for '--all-repeated'\nValid arguments are:\n  - 'none'\n  - 'prepend'\n  - 'separate'\nTry 'uniq --help' for more information.\n", all_repeated_method.stderr
+
+  let invalid_short = uniq_run(ctx, root, ["-5q"])?
+  assert invalid_short.status == 1
+  assert invalid_short.stderr == "uniq: invalid option -- 'q'\nTry 'uniq --help' for more information.\n", invalid_short.stderr
 
   let skip = uniq_run(ctx, root, ["-f", "x"])?
   assert skip.stderr == "uniq: 'x': invalid number of fields to skip\n", skip.stderr
