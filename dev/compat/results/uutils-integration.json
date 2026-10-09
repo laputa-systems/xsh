@@ -1005,14 +1005,11 @@
       "applet": true
     },
     "paste": {
-      "pass": 25,
-      "fail": 2,
+      "pass": 27,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_paste::test_dev_zero_closed_pipe",
-        "test_paste::test_dev_zero_write_error_dev_full"
-      ],
+      "failing": [],
       "applet": true
     },
     "pathchk": {
@@ -1731,8 +1728,8 @@
     }
   },
   "totals": {
-    "pass": 5168,
-    "fail": 806,
+    "pass": 5170,
+    "fail": 804,
     "skip": 0,
     "excluded": 4
   }

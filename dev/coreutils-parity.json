@@ -1006,8 +1006,8 @@
       "native_tests": "core/tests/test-paste.xsh",
       "uutils_test_count": 27,
       "uutils_integration": {
-        "pass": 25,
-        "fail": 2,
+        "pass": 27,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1019,9 +1019,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "`test_paste::test_dev_zero_closed_pipe` and `test_paste::test_dev_zero_write_error_dev_full` need streaming reads from zero-sized pseudo-files so `/dev/zero` produces bytes until the write failure."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "pathchk",

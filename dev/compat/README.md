@@ -119,9 +119,10 @@ test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
 Keep this scope to native Linux x86_64. Use one integrator; any subagent must
 be GPT-6 Luna at xhigh.
 
-The latest full uutils run after the `fold` streaming change recorded 5,168 /
-5,974 passing, 806 failing, and 4 excluded, with no regressions against its
-prior merged report. `fold` passes 101 / 101, including its `/dev/zero` test;
+The latest full uutils run after the `paste` streaming change recorded 5,170 /
+5,974 passing, 804 failing, and 4 excluded, with no regressions against its
+prior merged report. `paste` passes 27 / 27 and `fold` passes 101 / 101,
+including their `/dev/zero` tests;
 the full run includes the previous `shred` changes at 29 / 31. Six native shred tests and
 GNU 9.12's `tests/shred/shred-remove.sh` pass; the two remaining uutils cases
 request diagnostic carets. The full run includes the focused `factor sort

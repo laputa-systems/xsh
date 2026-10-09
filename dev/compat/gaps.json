@@ -195,9 +195,6 @@
       "Unsigned 64-bit decimal formatting is unavailable (`test_od::test_max_uint`); bounded stdin reads, seek-aware offsets and duplicate suppression also remain incomplete (`test_od::test_read_bytes`, `test_skip_bytes_past_end_message`, `test_skip_bytes_past_end_of_seekable_device`, `test_suppress_duplicates`, `test_od_invalid_bytes`, and the wide ASCII dump/alignment tests).",
       "GNU diagnostic snippets need CLI argument spans (`test_od::diagnostics::*`); `test_od::test_hyphen_leading_byte_count_is_reported_as_invalid` and some multi-format row alignment still differ."
     ],
-    "paste": [
-      "`test_paste::test_dev_zero_closed_pipe` and `test_paste::test_dev_zero_write_error_dev_full` need streaming reads from zero-sized pseudo-files so `/dev/zero` produces bytes until the write failure."
-    ],
     "pathchk": [
       "test_pathchk::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `pathchk: missing operand` and its standard help hint."
     ],

@@ -42,15 +42,18 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   48/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 26/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
-  across nine applets. Its latest verified progress is **644 / 663** (cut
-  78/83, paste 25/27, fold 101/101, expand 46/46, unexpand 44/44, nl 67/67,
+  across nine applets. Its latest verified progress is **646 / 663** (cut
+  78/83, paste 27/27, fold 101/101, expand 46/46, unexpand 44/44, nl 67/67,
   fmt 35/37, pr 80/84, tr 168/174); remaining `pr` failures cluster around
   merge/date behavior, formfeed input, multicolumn layouts, and help diagnostics.
   The shared path API now has `Path.chunks(max_bytes)`, a byte-preserving live
   stream with a 1..1,048,576 byte bound. Native streams are consumed lazily by
   `for` loops, including early break. `fold` uses this API for files and reads
   stdin incrementally; it passes the `/dev/zero` regression without buffering
-  an unbounded input. `bytes-enc` has implemented base32, base64,
+  an unbounded input. `paste` uses bounded chunk reads for its single-file
+  parallel path; it passes all **27 / 27** uutils tests and its native tests
+  pass **6 / 6**, including `/dev/zero` write-error and closed-pipe cases.
+  `bytes-enc` has implemented base32, base64,
   basenc, od, and dd; it is merged at **232 / 311** (base32 15/16, base64
   24/25, basenc 38/38, od 56/80, dd 99/152) with its native tests passing.
   The five focused `basenc` tests pass. Recent decoder fixes enforce base64url and base32hex alphabets,
@@ -89,8 +92,8 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,168 / 5,974 passing**, 806 failing, and 4 excluded. Compared with the
-  prior merged report, one `fold` test is fixed and there are no regressions.
+  **5,170 / 5,974 passing**, 804 failing, and 4 excluded. Compared with the
+  prior merged report, two `paste` tests are fixed and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`
