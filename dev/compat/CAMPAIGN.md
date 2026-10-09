@@ -10,7 +10,7 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 - Local `campaign-utils` now includes `fs-misc`, `perm`, native byte/hash, GNU
   patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, `proc-a`,
-  and `checksums` (last code merge `7033e8fd`; the parity manifest records 96 of
+  `checksums`, and `bytes-enc` (last code merge `78256c56`; the parity manifest records 101 of
   106 in-scope utilities present). The local
   `origin/campaign-utils` ref is still at `5de29706`; push after the campaign
   evidence is refreshed. Pinned references are uutils
@@ -37,10 +37,12 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   SIGHUP. `text-a2` started from **17 / 663** across nine applets; its first
   full slice measured **454 / 663** (cut 70/83, expand 43/46, fmt 27/37, fold
   93/101, nl 34/67, paste 19/27, pr 25/84, tr 101/174), with gaps under active
-  work; a follow-up brought nl to **67/67**, with pr/fmt/tr still active.
-  `bytes-enc` has implemented base32, base64, basenc, od, and dd; native
-  tests pass and its first slice measured **168 / 311**, including one timed-out
-  FIFO test; a bounded FIFO fix is being verified. `checksums` is merged over
+  work; follow-ups brought nl to **67/67** and paste to **25/27** (native
+  paste tests 4/4), while pr/fmt/tr remain active. `bytes-enc` has implemented
+  base32, base64, basenc, od, and dd; native tests pass and its full slice is
+  **193 / 311** (base32 15/16, base64 24/25, basenc 38/38, od 33/80, dd
+  83/152). The `dd` FIFO seek case now passes. The lane is continuing od/dd
+  compatibility work. `checksums` is merged over
   the shared byte/hash APIs and its ten native tests pass. Its first slice was
   **220 / 507**; a follow-up is **304 / 507** (md5sum 37/38,
   sha1sum 10/10, sha224sum 8/8, sha256sum 13/13, sha384sum 8/8, sha512sum 8/8,
