@@ -406,8 +406,8 @@
       "native_tests": "core/tests/test-cut.xsh",
       "uutils_test_count": 83,
       "uutils_integration": {
-        "pass": 78,
-        "fail": 5,
+        "pass": 83,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -419,9 +419,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "The five remaining `test_cut::diagnostics::test_snippet_*` cases need source spans for field-list arguments so XSH can render uutils carets and help snippets; `cli.applet` currently emits the GNU plain diagnostic."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "date",
@@ -1562,8 +1560,8 @@
       "native_tests": "core/tests/test-tr.xsh",
       "uutils_test_count": 174,
       "uutils_integration": {
-        "pass": 168,
-        "fail": 6,
+        "pass": 174,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1575,9 +1573,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "The six remaining `test_tr::diagnostics::test_snippet_*` cases need source spans for operand sets and repeat counts to render uutils carets; `cli.applet` currently emits GNU plain diagnostics."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "true",

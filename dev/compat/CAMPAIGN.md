@@ -1,9 +1,10 @@
 # XSH Core Compatibility Campaign
 
 Status: Wave 2 residual coreutils work is in progress on branch `campaign-utils`.
-Use one integrator; any subagent must be GPT-6 Luna at xhigh. Four focused lanes
-are active for `cut`/`tr`, `test`, `shuf`, and `numfmt`. Scope widened on
-2026-10-04 from coreutils parity to the full systems-core surface below. Lane
+Use one integrator; any subagent must be GPT-6 Luna at xhigh. `cut` and `tr` are
+merged; four queued lanes cover `test`, `shuf`, `numfmt`, and `printf`. Scope
+widened on 2026-10-04 from coreutils parity to the full systems-core surface
+below. Lane
 strategy and the integrator protocol are in [`LANES.md`](LANES.md); harness
 usage is in [`README.md`](README.md).
 
@@ -17,7 +18,7 @@ usage is in [`README.md`](README.md).
 - Wave 1 exit checks are met: all 106 scoped uutils utilities are present, the
   ignored-option and kernel-read ratchets report zero, all 4 exclusions are
   categorized, and every utility with remaining uutils failures has a matching
-  `gaps.json` entry. The current report is **5,178 / 5,974 passing**, with 796
+  `gaps.json` entry. The current report is **5,189 / 5,974 passing**, with 785
   failing and 4 excluded; Wave 2 work is closing residual coreutils behavior
   while the wider native systems lanes are prepared.
 - Setup is complete on native Linux x86_64. Docker is not used. The workspace
@@ -49,13 +50,11 @@ usage is in [`README.md`](README.md).
   48/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 26/29); all **59**
   native tests pass. Recent fixes forward timeout signals to the child process
   group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
-  across nine applets. Its latest verified progress is **652 / 663** (cut
-  78/83, paste 27/27, fold 101/101, expand 46/46, unexpand 44/44, nl 67/67,
-  fmt 37/37, pr 84/84, tr 168/174). `fmt` now follows uutils' Knuth–Plass
-  paragraph line breaking and display-width behavior; its width-7 and width-8
-  outputs also match GNU 9.12, while the uutils optimal-break case intentionally
-  differs from GNU 9.12. `cut` and `tr` retain diagnostic tests that require
-  argv source spans.
+  across nine applets and now passes **663 / 663** (cut 83/83, paste 27/27,
+  fold 101/101, expand 46/46, unexpand 44/44, nl 67/67, fmt 37/37, pr 84/84,
+  tr 174/174). `fmt` now follows uutils' Knuth–Plass paragraph line breaking
+  and display-width behavior; its width-7 and width-8 outputs also match GNU
+  9.12, while the uutils optimal-break case intentionally differs from GNU 9.12.
   The shared path API now has `Path.chunks(max_bytes)`, a byte-preserving live
   stream with a 1..1,048,576 byte bound. Native streams are consumed lazily by
   `for` loops, including early break. `fold` uses this API for files and reads
@@ -102,8 +101,8 @@ usage is in [`README.md`](README.md).
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,178 / 5,974 passing**, 796 failing, and 4 excluded. Compared with the
-  prior merged report, two `fmt` tests are fixed and there are no regressions.
+  **5,189 / 5,974 passing**, 785 failing, and 4 excluded. Compared with the
+  prior merged report, cut/tr fixed 11 tests and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`

@@ -45,9 +45,6 @@
     "csplit": [
       "`test_csplit::repeat_everything` expects the repeated split to start at line 14; its own test comment says GNU starts at line 15. `test_csplit::test_line_num_range_with_up_to_match3` remains a line-number range gap. `test_csplit::test_csplit_dev_full_stdout` expects uutils' `csplit: No space left on device`; pinned GNU 9.12 and XSH report `csplit: write error: No space left on device`."
     ],
-    "cut": [
-      "The five remaining `test_cut::diagnostics::test_snippet_*` cases need source spans for field-list arguments so XSH can render uutils carets and help snippets; `cli.applet` currently emits the GNU plain diagnostic."
-    ],
     "date": [
       "French `%b` abbreviations retain glibc/GNU punctuation (`févr.`, `janv.`, `déc.`), while uutils' ICU-based locale expectations omit the trailing dot. Known residuals: `test_date::test_locale_abbreviated_month_names` and `test_date::test_locale_names_for_several_dates_in_one_run`; keep GNU-compatible output."
     ],
@@ -292,9 +289,6 @@
     "touch": [
       "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
       "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
-    ],
-    "tr": [
-      "The six remaining `test_tr::diagnostics::test_snippet_*` cases need source spans for operand sets and repeat counts to render uutils carets; `cli.applet` currently emits GNU plain diagnostics."
     ],
     "truncate": [
       "test_truncate::diagnostics::test_snippet_counts_the_mode_character_before_the_size expects a source caret; GNU coreutils 9.12 prints `truncate: Invalid number` without a snippet.",

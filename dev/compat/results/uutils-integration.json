@@ -323,17 +323,11 @@
       "applet": true
     },
     "cut": {
-      "pass": 78,
-      "fail": 5,
+      "pass": 83,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_cut::diagnostics::test_snippet_finds_fields_merged_value",
-        "test_cut::diagnostics::test_snippet_ignores_a_file_named_like_the_list",
-        "test_cut::diagnostics::test_snippet_points_at_the_bound_that_is_not_a_number",
-        "test_cut::diagnostics::test_snippet_points_at_the_inverted_range",
-        "test_cut::diagnostics::test_snippet_points_at_the_zero_bound"
-      ],
+      "failing": [],
       "applet": true
     },
     "date": {
@@ -1561,18 +1555,11 @@
       "applet": true
     },
     "tr": {
-      "pass": 168,
-      "fail": 6,
+      "pass": 174,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_tr::diagnostics::test_snippet_ignores_the_program_name_as_a_set",
-        "test_tr::diagnostics::test_snippet_points_at_the_backwards_range",
-        "test_tr::diagnostics::test_snippet_points_at_the_misspelled_class",
-        "test_tr::diagnostics::test_snippet_points_at_the_repeat_count",
-        "test_tr::diagnostics::test_snippet_points_into_the_second_set",
-        "test_tr::diagnostics::test_snippet_underlines_the_whole_set_when_the_set_is_at_fault"
-      ],
+      "failing": [],
       "applet": true
     },
     "true": {
@@ -1717,8 +1704,8 @@
     }
   },
   "totals": {
-    "pass": 5178,
-    "fail": 796,
+    "pass": 5189,
+    "fail": 785,
     "skip": 0,
     "excluded": 4
   }
