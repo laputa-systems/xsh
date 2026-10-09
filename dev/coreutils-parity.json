@@ -1721,8 +1721,8 @@
       "native_tests": "core/tests/test-uniq.xsh",
       "uutils_test_count": 38,
       "uutils_integration": {
-        "pass": 36,
-        "fail": 2,
+        "pass": 38,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -1734,10 +1734,7 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": [
-        "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling.",
-        "`test_uniq::uniq_basic_dedup_cases` expects clap's invalid `--all-repeated` value diagnostic; XSH follows GNU's diagnostic for the incompatible repeated-line mode."
-      ]
+      "known_semantic_gaps": []
     },
     {
       "utility": "unlink",

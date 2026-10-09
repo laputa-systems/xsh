@@ -1639,14 +1639,11 @@
       "applet": true
     },
     "uniq": {
-      "pass": 36,
-      "fail": 2,
+      "pass": 38,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_uniq::test_stdin_skip_invalid_fields_obsolete",
-        "test_uniq::uniq_basic_dedup_cases"
-      ],
+      "failing": [],
       "applet": true
     },
     "unlink": {
@@ -1728,8 +1725,8 @@
     }
   },
   "totals": {
-    "pass": 5170,
-    "fail": 804,
+    "pass": 5172,
+    "fail": 802,
     "skip": 0,
     "excluded": 4
   }

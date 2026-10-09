@@ -79,7 +79,7 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   buffering and the byte-sort fast path make `test_factor::test_parallel` pass
   again. The similarly sized 301-bit factor case still exceeds its timeout, and
   the negative-operand test expects uutils wording instead of GNU option
-  parsing. `text-b1` improved from **464 / 522** to **479 / 522**;
+  parsing. `text-b1` improved from **464 / 522** to **481 / 522**;
   `text-b2` improved from **474 / 536** to **499 / 536**. Their remaining
   failures need integration into `gaps.json` after the lane merges.
 - `unlink` is now **6 / 7**; it resolves non-UTF-8 operand bytes from
@@ -92,12 +92,15 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
 - A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
-  **5,170 / 5,974 passing**, 804 failing, and 4 excluded. Compared with the
-  prior merged report, two `paste` tests are fixed and there are no regressions.
+  **5,172 / 5,974 passing**, 802 failing, and 4 excluded. Compared with the
+  prior merged report, two `uniq` tests are fixed and there are no regressions.
   The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
   `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, `tty`, and `shred`
   fixes.
+  The `uniq` uutils adapter now matches the pinned clap diagnostics for obsolete
+  `-5q`, invalid method values and option conflicts, while direct invocation
+  retains GNU wording; its slice is **38 / 38** and native tests pass **10 / 10**.
   GNU
   9.12's `tests/tty/tty.sh` also passes. XSH now resets inherited ignored
   `SIGCHLD` so process

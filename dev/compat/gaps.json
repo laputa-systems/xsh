@@ -310,10 +310,6 @@
       "`test_tsort::test_only_one_input_file` expects a basename-only `Try 'tsort --help'` hint from the uutils adapter; XSH reports the actual multicall command phrase `xsh-uutests tsort`. GNU-stage direct invocation uses `tsort`."
     ],
     "tty": [],
-    "uniq": [
-      "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling.",
-      "`test_uniq::uniq_basic_dedup_cases` expects clap's invalid `--all-repeated` value diagnostic; XSH follows GNU's diagnostic for the incompatible repeated-line mode."
-    ],
     "unlink": [
       "`test_unlink::test_unlink_multiple_files` checks for uutils' `Usage` block on a second operand. XSH emits GNU's `unlink: extra operand` diagnostic and help hint, matching GNU coreutils 9.12. Non-UTF-8 operand paths are handled through raw argv bytes."
     ],
