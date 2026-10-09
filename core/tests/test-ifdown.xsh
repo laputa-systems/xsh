@@ -159,3 +159,16 @@ test test_ifdown_logical_selection { |ctx|
   assert "\"interface\":\"eth0\"" in linux_log.read_text()?
   assert state.exists()? == false
 }
+
+test test_ifdown_rejects_unimplemented_verbose_mode { |ctx|
+  let root = test.temp_dir(ctx, name: "ifdown-verbose")?
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
+
+  for option in ["-v", "--verbose"] {
+    let output = run_ifupdown(ctx, "ifdown", [option, "eth0"], interfaces, state, linux_log)
+    assert ! output.success, option
+    assert "is not supported" in output.stderr, output.stderr
+  }
+}

@@ -159,3 +159,16 @@ auto eth0
 
   assert "\"address\":\"10.0.1.42\"" in linux_log.read_text()?
 }
+
+test test_ifup_rejects_unimplemented_verbose_mode { |ctx|
+  let root = test.temp_dir(ctx, name: "ifup-verbose")?
+  let interfaces = fp"{root}/interfaces"
+  let state = fp"{root}/ifstate"
+  let linux_log = fp"{root}/linux.jsonl"
+
+  for option in ["-v", "--verbose"] {
+    let output = run_ifupdown(ctx, "ifup", [option, "eth0"], interfaces, state, linux_log)
+    assert ! output.success, option
+    assert "is not supported" in output.stderr, output.stderr
+  }
+}

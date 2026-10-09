@@ -62,3 +62,17 @@ test test_pstree_default_prints_visible_root { |ctx|
 
   assert "[1]" in output
 }
+
+test test_pstree_rejects_unimplemented_options { |ctx|
+  for option in ["-c", "--compact-not", "-l", "--long", "-t", "--thread-names", "-T", "--hide-threads", "-h", "-H"] {
+    let err = test.temp_path(ctx, name: "pstree-unsupported.err")
+    let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" $option 2> $err
+    assert ! status.exited_with(0), option
+    assert "is not supported" in err.read_text()?, option
+  }
+}
+
+test test_pstree_help_uses_an_unambiguous_long_option { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pstree.xsh" --help ?
+  assert "usage: pstree" in output
+}
