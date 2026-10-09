@@ -21,8 +21,9 @@ pure utf8_width(data: Bytes, at: Int) -> Int {
 }
 
 pure display_width(unit: Bytes) -> Int {
+  return 0 when unit.len() == 1 and (unit.byte_at(0) ?? 0) == 0
   let text = unit.utf8() ?? ""
-  return 0 when text == ""
+  return 1 when text == ""
   return 0 when rx"[\x{300}-\x{36f}\x{483}-\x{489}\x{591}-\x{5bd}\x{610}-\x{61a}\x{64b}-\x{65f}\x{670}\x{200b}-\x{200f}\x{20d0}-\x{20f0}\x{fe00}-\x{fe0f}\x{fe20}-\x{fe2f}\x{1ab0}-\x{1aff}\x{1dc0}-\x{1dff}]".matches(text)
   return 2 when rx"[\x{1100}-\x{115f}\x{231a}-\x{231b}\x{2329}-\x{232a}\x{2e80}-\x{a4cf}\x{ac00}-\x{d7a3}\x{f900}-\x{faff}\x{fe10}-\x{fe6f}\x{ff01}-\x{ff60}\x{1f300}-\x{1faff}\x{20000}-\x{3fffd}]".matches(text)
   1

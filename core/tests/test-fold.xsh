@@ -4,6 +4,12 @@ test test_fold_width { |ctx|
   assert output == "abc\ndef\n"
 }
 
+test test_fold_nul_bytes_have_zero_column_width { |ctx|
+  let input = test.temp_file(ctx, name: "nul.txt", contents: b"\0\0\0")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fold.xsh" -w 1 $input ?
+  assert output == "\0\0\0"
+}
+
 test test_fold_soft_break_tabs_and_utf8 { |ctx|
   let words = test.temp_file(ctx, name: "words.txt", contents: b"ab cd ef\n")?
   let soft = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/fold.xsh" -s -w 5 $words ?
