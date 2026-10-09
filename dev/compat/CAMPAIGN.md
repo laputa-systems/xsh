@@ -83,12 +83,14 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   136 failures are listed in `gaps.json`. `ln` improved from **44 / 60** to
   **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
   documented with their native API needs and GNU policy differences.
-- The latest merged uutils results combine the 2026-10-09 full run and focused
+- A fresh full uutils run on the current `XSH_BIN` completed on 2026-10-09:
+  **5,166 / 5,974 passing**, 808 failing, and 4 excluded. Compared with the
+  prior merged report, it has no regressions. The run includes the focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-  `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, and `ln` refreshes on the
-  current `XSH_BIN`: **5,164 / 5,974 passing**, 810 failing, and 4 excluded.
-  Compared with the preceding integration result, 3 additional test IDs pass
-  and none regressed. XSH now resets inherited ignored `SIGCHLD` so process
+  `echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, `ln`, and `tty` fixes.
+  GNU
+  9.12's `tests/tty/tty.sh` also passes. XSH now resets inherited ignored
+  `SIGCHLD` so process
   waits remain reliable, returns signal-derived default statuses, and records
   inherited signal actions before Rust startup changes them. `yes` keeps the
   default pipe termination for uutils and reports EPIPE when GNU `timeout`
@@ -101,6 +103,8 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   regressions; `rm` is 75/75 and `tee` is
   34/34. `basenc` passes all **38 / 38** uutils tests after the decoder changes;
   `yes` passes **10 / 10** with continuous output, raw argv bytes, and SIGPIPE.
+  `tty` passes **11 / 11**. The remaining `who` failures expect uutils' clap
+  extra-operand wording or omit GNU's `write error:` prefix.
   Full and focused results are merged in
   `results/uutils-integration.json`.
 - `tail -f` classifies named FIFOs before reading and waits for `--pid` without
@@ -131,9 +135,9 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   the two French month-abbreviation cases match GNU 9.12 and glibc. The pinned
   uutils GNU baseline is **573 passed, 85 skipped, 58 failed, 3 harness errors**
   out of 719. The last full XSH GNU run is **298 passed, 115 skipped, 280
-  failed, 26 harness errors** out of 719. The merged XSH GNU records are **305
-  passed, 115 skipped, 274 failed, 25 harness errors**. The current GNU
-  differential is **299 / 274 / 6 / 57** (uutils-pass/XSH-pass,
+  failed, 26 harness errors** out of 719. After the focused tty refresh, the
+  merged XSH GNU records are **306 passed, 115 skipped, 273 failed, 25 harness
+  errors**. The current GNU differential is **300 / 273 / 6 / 57** (uutils-pass/XSH-pass,
   uutils-pass/XSH-fail, uutils-fail/XSH-pass, both-fail). GNU
   `tests/timeout/timeout.sh` now passes; `timeout-group.sh` remains skipped
   because its SIGALRM case is not handled by the runtime.

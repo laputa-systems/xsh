@@ -1,8 +1,8 @@
 {
   "suite": "gnu-differential",
   "counts": {
-    "uutils_pass_xsh_pass": 299,
-    "uutils_pass_xsh_fail": 274,
+    "uutils_pass_xsh_pass": 300,
+    "uutils_pass_xsh_fail": 273,
     "uutils_fail_xsh_pass": 6,
     "uutils_fail_xsh_fail": 57
   },
@@ -300,6 +300,7 @@
       "truncate/truncate-overflow.log",
       "truncate/truncate-parameters.log",
       "truncate/truncate-relative.log",
+      "tty/tty.log",
       "unexpand/mb.log",
       "uniq/uniq-collate.log",
       "uniq/uniq-perf.log",
@@ -576,7 +577,6 @@
       "touch/obsolescent.log",
       "tr/tr-case-class.log",
       "tr/tr.log",
-      "tty/tty.log",
       "unexpand/bounded-memory.log",
       "unexpand/unexpand.log",
       "uniq/uniq-c-width.log",
@@ -1397,13 +1397,11 @@
       "blockers": []
     },
     "tty": {
-      "pass": 0,
-      "fail": 1,
+      "pass": 1,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "blockers": [
-        "tty/tty.log"
-      ]
+      "blockers": []
     },
     "unexpand": {
       "pass": 1,

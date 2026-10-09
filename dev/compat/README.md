@@ -119,12 +119,12 @@ test harness, GNU 9.12 preparation, and real GNU/uutils test runs all work.
 Keep this scope to native Linux x86_64. Use one integrator; any subagent must
 be GPT-6 Luna at xhigh.
 
-The latest merged uutils results combine the 2026-10-09 full run with focused
-`factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-`echo`, `test`, `tail`, `sleep`, `timeout`, `cp`, and `ln` refreshes on the
-current `XSH_BIN`: 5,164 / 5,974 passing, 810 failing, and 4 excluded. Compared
-with the preceding integration result, 3 additional test IDs pass and none
-regressed. The timeout slice passes 26 / 29; XSH now clears inherited ignored
+The latest results include a fresh full uutils run on the current `XSH_BIN`:
+5,166 / 5,974 passing, 808 failing, and 4 excluded. It has no regressions
+against the prior merged report. The run includes the focused `factor sort
+unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`, `echo`, `test`,
+`tail`, `sleep`, `timeout`, `cp`, `ln`, and `tty` fixes. The timeout slice
+passes 26 / 29; XSH now clears inherited ignored
 `SIGCHLD`, returns signal-derived default statuses, and records inherited
 signal actions before Rust startup changes them. `yes` preserves an inherited
 ignored `SIGPIPE` for GNU `timeout` while keeping the default pipe termination
@@ -138,19 +138,22 @@ the checked-in result with no regressions. The `unlink` slice is 6 / 7; raw non-
 now work, while its extra-operand wording follows GNU. `basenc` remains 38 / 38;
 `yes` passes 10 / 10 with continuous output and raw argument bytes.
 `cp` passes 250 / 386 and `ln` passes 54 / 60; both gained focused tests and
-their residuals are enumerated in `gaps.json`.
+their residuals are enumerated in `gaps.json`. `tty` passes 11 / 11, including
+GNU 9.12's `tests/tty/tty.sh`. The two `who` write-error cases remain uutils
+wording differences; XSH preserves GNU 9.12's `write error:` prefix.
 The merged results and remaining failures are tracked in [`CAMPAIGN.md`](CAMPAIGN.md),
 `gaps.json`, and `results/`.
 
 `run-gnu.sh prepare` completed with ACL, capability, and Linux xattr support.
 The pinned uutils GNU baseline recorded 573 passed, 85 skipped, 58 failed, and
 3 harness errors out of 719 test records. The last full XSH GNU run recorded
-298 passed, 115 skipped, 280 failed, and 26 harness errors. The merged XSH GNU
-records are 305 passed, 115 skipped, 274 failed, and 25 harness errors.
+298 passed, 115 skipped, 280 failed, and 26 harness errors. After the focused
+tty refresh, merged XSH GNU records are 306 passed, 115 skipped, 273 failed,
+and 25 harness errors.
 Remaining test gaps and exact results are maintained in `CAMPAIGN.md`,
 `gaps.json`, and `results/`.
 
-The current GNU differential is 299 / 274 / 6 / 57 across the four
+The current GNU differential is 300 / 273 / 6 / 57 across the four
 uutils-pass/XSH-pass, uutils-pass/XSH-fail, uutils-fail/XSH-pass, and both-fail
 cells. GNU `tests/timeout/timeout.sh` now passes. `timeout-group.sh` remains
 skipped because its SIGALRM case is not handled by the runtime. The `sync` FIFO

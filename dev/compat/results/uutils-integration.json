@@ -1621,14 +1621,11 @@
       "applet": true
     },
     "tty": {
-      "pass": 9,
-      "fail": 2,
+      "pass": 11,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_tty::test_stdout_fail",
-        "test_tty::test_write_error"
-      ],
+      "failing": [],
       "applet": true
     },
     "uname": {
@@ -1737,8 +1734,8 @@
     }
   },
   "totals": {
-    "pass": 5164,
-    "fail": 810,
+    "pass": 5166,
+    "fail": 808,
     "skip": 0,
     "excluded": 4
   }

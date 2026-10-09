@@ -43,7 +43,7 @@
       "Further script behavior remains in same-file and link handling (`test_cp::same_file::*`, `test_cp::link_deref::test_cp_symlink_as_source_with_link_and_no_deref`, `test_cp::test_cp_mode_hardlink_no_dereference`, `test_cp::test_cp_no_deref_preserve_with_deref_keeps_hardlinks`, `test_cp::test_cp_preserve_links_case_*`, `test_cp::test_cp_preserve_hardlink_attributes_in_directory`, `test_cp::test_remove_destination_with_destination_being_a_hardlink_to_source`, `test_cp::test_copy_same_symlink_no_dereference_dangling`, `test_cp::test_copy_symlink_overwrite`, `test_cp::test_copy_through_dangling_symlink_no_dereference_permissions`, `test_cp::test_copy_through_just_created_symlink`, and `test_cp::test_symlink_mode_overwrite`), recursive directory/self-copy and verbose-path handling (`test_cp::test_copy_dir_preserve_permissions_inaccessible_file`, `test_cp::test_copy_directory_to_itself_disallowed`, `test_cp::test_copy_nested_directory_to_itself_disallowed`, `test_cp::test_cp_current_directory_to_itself_disallowed`, `test_cp::test_cp_circular_symbolic_links_in_directory`, `test_cp::test_cp_seen_file`, `test_cp::test_cp_recurse_verbose_output*`, and `test_cp::test_cp_verbose_preserved_link_to_dir`), and destination/error/metadata handling (`test_cp::test_cp_archive_on_nonexistent_file`, `test_cp::test_cp_arg_interactive*`, `test_cp::test_cp_arg_no_target_directory`, `test_cp::test_cp_attributes_only_dest_open_error`, `test_cp::test_cp_backup_no_clobber_conflicting_options`, `test_cp::test_cp_backup_simple_protect_source*`, `test_cp::test_cp_cannot_create_regular_file*`, `test_cp::test_cp_f_i_verbose_non_writeable_destination_*`, `test_cp::test_cp_multiple_files_with_*`, `test_cp::test_cp_no_preserve_mode`, `test_cp::test_cp_no_such`, `test_cp::test_cp_duplicate_*`, `test_cp::test_cp_recursive_char_device_no_permission::*`, `test_cp::test_cp_update_older_interactive_prompt_*`, `test_cp::test_cp_preserve_directory_permissions_by_default`, `test_cp::test_no_preserve_mode_with_later_preserve`, `test_cp::test_preserve_attrs_overriding_2`, and `test_cp::test_cp_dir_vs_file`)."
     ],
     "csplit": [
-      "Remaining cases are repeated-pattern expansion (`test_csplit::repeat_everything`), line-number range matching (`test_csplit::test_line_num_range_with_up_to_match3`), and immediate stdout write errors (`test_csplit::test_csplit_dev_full_stdout`)."
+      "`test_csplit::repeat_everything` expects the repeated split to start at line 14; its own test comment says GNU starts at line 15. `test_csplit::test_line_num_range_with_up_to_match3` remains a line-number range gap. `test_csplit::test_csplit_dev_full_stdout` expects uutils' `csplit: No space left on device`; pinned GNU 9.12 and XSH report `csplit: write error: No space left on device`."
     ],
     "cut": [
       "The five remaining `test_cut::diagnostics::test_snippet_*` cases need source spans for field-list arguments so XSH can render uutils carets and help snippets; `cli.applet` currently emits the GNU plain diagnostic."
@@ -222,7 +222,7 @@
       "pstree -c/--compact-not, -l/--long, -t/--thread-names, -T/--hide-threads, and -h/-H highlighting are explicitly rejected because subtree controls, terminal-width-aware rendering, thread display, and process highlighting are unavailable; these flags match procps-ng pstree help, and uutils has no pstree tests."
     ],
     "ptx": [
-      "`test_ptx::test_failed_write_is_reported` needs immediate stdout error propagation; `test_ptx::test_unicode_padding_alignment` differs in display-width padding for Unicode keywords."
+      "`test_ptx::test_failed_write_is_reported` expects uutils' `ptx: write failed: No space left on device`; pinned GNU 9.12 and XSH report `ptx: write error: No space left on device`. `test_ptx::test_unicode_padding_alignment` differs in display-width padding for Unicode keywords."
     ],
     "pwd": [
       "For a deleted working directory, GNU coreutils 9.12 reports `couldn't find directory entry in ‘..’ with matching i-node`; uutils' test_pwd::test_deleted_dir expects `failed to get current directory: No such file or directory`, which XSH follows."
@@ -314,9 +314,7 @@
     "tsort": [
       "`test_tsort::test_only_one_input_file` expects a basename-only `Try 'tsort --help'` hint from the uutils adapter; XSH reports the actual multicall command phrase `xsh-uutests tsort`. GNU-stage direct invocation uses `tsort`."
     ],
-    "tty": [
-      "test_tty::test_stdout_fail and test_tty::test_write_error need the standard-output write failure to be reported with GNU `tty: write error` diagnostics and the expected status."
-    ],
+    "tty": [],
     "uniq": [
       "`test_uniq::test_stdin_skip_invalid_fields_obsolete` differs in obsolete numeric-option handling.",
       "`test_uniq::uniq_basic_dedup_cases` expects clap's invalid `--all-repeated` value diagnostic; XSH follows GNU's diagnostic for the incompatible repeated-line mode."
@@ -342,7 +340,7 @@
       "Time zones: TZ is read as UTC or a fixed POSIX offset (`EST5`, `<+03>-3`); zone names and DST rules need a tz database, and an unset TZ reads as UTC instead of /etc/localtime (request: a local-time primitive).",
       "`who -b` and the boot record synthesized for a default utmp file without one derive the boot time from `unix.uptime_seconds` (whole seconds), so it can differ from GNU's by a second at a minute boundary.",
       "`--lookup` canonicalizes nothing: `dns` has no canonical name (getaddrinfo AI_CANONNAME), so numeric hosts pass and a host name fails with an explicit message (request: `dns.canonical`).",
-      "test_who::test_too_many_args and the two test_who::*_piped_to_dev_full tests assert clap and uutils wording; the applet prints GNU 9.4's `extra operand 'u'` and `who: write error: No space left on device`."
+      "`test_who::test_too_many_args` expects clap's `unexpected value` wording; XSH reports GNU's `extra operand` diagnostic. `test_who::test_piped_to_dev_full` and `test_who::test_short_list_piped_to_dev_full` expect `who: No space left on device`; pinned GNU 9.12 and XSH report `who: write error: No space left on device`."
     ],
     "sync": [
       "GNU `tests/misc/sync.sh` expects `sync FIFO`, `sync -f FIFO`, and `sync -d FIFO` to block until timeout; `fs.fsync` opens FIFO operands in a blocking native filesystem call that the evaluator cannot interrupt to process TERM."

@@ -828,7 +828,7 @@
     "truncate-relative.log": "PASS"
   },
   "tty": {
-    "tty.log": "FAIL"
+    "tty.log": "PASS"
   },
   "unexpand": {
     "bounded-memory.log": "SKIP",
