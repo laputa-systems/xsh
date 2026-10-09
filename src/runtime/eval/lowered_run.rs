@@ -1698,6 +1698,22 @@ fn lowered_result_ok(value: LoweredValue) -> LoweredValue {
     LoweredValue::ResultOk(Box::new(value))
 }
 
+fn hash_count_record(
+    checksum: u32,
+    count: u64,
+    count_field: &str,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    let count = i64::try_from(count).map_err(|_| {
+        RuntimeError::new("hash-count", "checksum input count exceeds the Int range")
+            .with_span(span)
+    })?;
+    Ok(Value::Record(RecordMap::from([
+        (Arc::from("checksum"), Value::Int(i64::from(checksum))),
+        (Arc::from(count_field), Value::Int(count)),
+    ])))
+}
+
 fn lowered_result_err_value(error: RuntimeError) -> LoweredValue {
     LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))
 }
@@ -5818,6 +5834,103 @@ impl Evaluator {
                         )
                         .with_span(span));
                     }
+                }
+            }
+            RuntimeOp::HashBlake2b if values.len() == 1 || values.len() == 2 => {
+                let output_length =
+                    lowered_int_arg_or(values.get(1).cloned(), 64, "hash.blake2b", span)?;
+                let input = values.remove(0);
+                match input {
+                    LoweredValue::Bytes(bytes) => lowered_runtime_result(
+                        hash_module::blake2b_bytes(&bytes, output_length, span).map(Value::digest),
+                        span,
+                    )?,
+                    LoweredValue::BytesView(bytes) => lowered_runtime_result(
+                        hash_module::blake2b_bytes(bytes.as_slice(), output_length, span)
+                            .map(Value::digest),
+                        span,
+                    )?,
+                    LoweredValue::Path(path) => lowered_runtime_result(
+                        hash_module::blake2b_file(
+                            &self.host_path(&path),
+                            output_length,
+                            span,
+                        )
+                        .map(Value::digest),
+                        span,
+                    )?,
+                    other => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!(
+                                "hash.blake2b expected Bytes or Path, found {}",
+                                other.type_name()
+                            ),
+                        )
+                        .with_span(span));
+                    }
+                }
+            }
+            RuntimeOp::HashCksum | RuntimeOp::HashBsdSum | RuntimeOp::HashSysvSum
+                if values.len() == 1 =>
+            {
+                let input = values.remove(0);
+                let input_is_path = matches!(&input, LoweredValue::Path(_));
+                let operation = match op {
+                    RuntimeOp::HashCksum => "hash.cksum",
+                    RuntimeOp::HashBsdSum => "hash.bsd_sum",
+                    RuntimeOp::HashSysvSum => "hash.sysv_sum",
+                    _ => unreachable!("checked checksum op"),
+                };
+                let count_field = if op == RuntimeOp::HashCksum {
+                    "bytes"
+                } else {
+                    "blocks"
+                };
+                let checksum_result = match input {
+                    byte_value @ LoweredValue::Bytes(_)
+                    | byte_value @ LoweredValue::BytesView(_) => {
+                        let data = lowered_bytes_arg(&byte_value, operation, span)?;
+                        let (checksum, count) = match op {
+                            RuntimeOp::HashCksum => hash_module::cksum_bytes(data),
+                            RuntimeOp::HashBsdSum => {
+                                let (checksum, count) = hash_module::bsd_sum_bytes(data);
+                                (u32::from(checksum), count)
+                            }
+                            RuntimeOp::HashSysvSum => {
+                                let (checksum, count) = hash_module::sysv_sum_bytes(data);
+                                (u32::from(checksum), count)
+                            }
+                            _ => unreachable!("checked checksum op"),
+                        };
+                        hash_count_record(checksum, count, count_field, span)
+                    }
+                    LoweredValue::Path(path) => {
+                        let path = self.host_path(&path);
+                        let computed = match op {
+                            RuntimeOp::HashCksum => hash_module::cksum_file(&path, span),
+                            RuntimeOp::HashBsdSum => hash_module::bsd_sum_file(&path, span)
+                                .map(|(checksum, count)| (u32::from(checksum), count)),
+                            RuntimeOp::HashSysvSum => hash_module::sysv_sum_file(&path, span)
+                                .map(|(checksum, count)| (u32::from(checksum), count)),
+                            _ => unreachable!("checked checksum op"),
+                        };
+                        computed.and_then(|(checksum, count)| {
+                            hash_count_record(checksum, count, count_field, span)
+                        })
+                    }
+                    other => {
+                        return Err(RuntimeError::new(
+                            "type-error",
+                            format!("{operation} expected Bytes or Path, found {}", other.type_name()),
+                        )
+                        .with_span(span));
+                    }
+                };
+                if input_is_path {
+                    lowered_runtime_result(checksum_result, span)?
+                } else {
+                    lowered_runtime_value(checksum_result?, span)?
                 }
             }
             RuntimeOp::HashCrc32 if values.len() == 1 => {

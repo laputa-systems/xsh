@@ -132,8 +132,8 @@ fn module_docs(module: &str) -> ApiDocs {
             "Host lookup failures remain typed error data.",
         ),
         "hash" => (
-            "Digest calculation and checksum verification.",
-            "Hash file contents as bytes, not formatted text.",
+            "Digest and checksum calculation and verification.",
+            "File inputs are read incrementally; checksum results include the byte or block count.",
         ),
         "ini" => ("INI decoding, encoding, and file helpers.", ""),
         "io" => ("Script stdin and stdout helpers.", ""),
@@ -382,6 +382,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Calculates a digest from bytes or a file path.",
             "Hash bytes at the content boundary; format the digest only for storage, display, or comparison.",
             &["hash", "digest", "bytes"],
+        )),
+        ("hash", "blake2b") => Some((
+            "Calculates a variable-length BLAKE2b digest from bytes or a file path.",
+            "Output length defaults to 64 bytes and must be from 1 through 64; file paths are read incrementally.",
+            &["hash", "digest", "blake2b", "streaming"],
         )),
         ("net", "request") => Some((
             "Performs one structured HTTP request.",
@@ -835,6 +840,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Calculates a CRC checksum for bytes.",
             "CRC is an integrity check, not a cryptographic authenticity guarantee.",
             &["hash", "checksum", "bytes"],
+        )),
+        ("hash", "cksum" | "bsd_sum" | "sysv_sum") => Some((
+            "Calculates a POSIX or traditional checksum from bytes or a file path.",
+            "cksum reports the length-adjusted CRC and byte count; the sums report their checksum and 1024-byte block count. File paths are read incrementally.",
+            &["hash", "checksum", "streaming"],
         )),
         ("hash", "parse_check_line") => Some((
             "Parses one checksum-file verification line.",

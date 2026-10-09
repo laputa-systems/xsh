@@ -479,8 +479,12 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::HashSha1
             | RuntimeOp::HashSha256
             | RuntimeOp::HashSha512
+            | RuntimeOp::HashBlake2b
             | RuntimeOp::HashCrc32
             | RuntimeOp::HashCrc32c
+            | RuntimeOp::HashCksum
+            | RuntimeOp::HashBsdSum
+            | RuntimeOp::HashSysvSum
             | RuntimeOp::IoStdinBytes
             | RuntimeOp::IoStdinText
             | RuntimeOp::IoStdinLine

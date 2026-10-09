@@ -1964,8 +1964,46 @@ fn group_module() -> ModuleSig {
     ])
 }
 
+fn hash_cksum_type() -> Type {
+    Type::Record(btree_map(vec![
+        ("checksum".to_string(), Type::Int),
+        ("bytes".to_string(), Type::Int),
+    ]))
+}
+
+fn hash_sum_type() -> Type {
+    Type::Record(btree_map(vec![
+        ("checksum".to_string(), Type::Int),
+        ("blocks".to_string(), Type::Int),
+    ]))
+}
+
 fn hash_module() -> ModuleSig {
     module_sig(vec![
+        (
+            "blake2b",
+            sig(
+                vec![
+                    param("data", Type::Bytes),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                true,
+                RuntimeOp::HashBlake2b,
+            ),
+        ),
+        (
+            "blake2b",
+            sig(
+                vec![
+                    param("path", Type::Path),
+                    default_param("output_length", Type::Int),
+                ],
+                result(Type::Digest),
+                false,
+                RuntimeOp::HashBlake2b,
+            ),
+        ),
         (
             "md5",
             sig(
@@ -2054,6 +2092,60 @@ fn hash_module() -> ModuleSig {
                 Type::Int,
                 true,
                 RuntimeOp::HashCrc32c,
+            ),
+        ),
+        (
+            "cksum",
+            sig(
+                vec![param("data", Type::Bytes)],
+                hash_cksum_type(),
+                true,
+                RuntimeOp::HashCksum,
+            ),
+        ),
+        (
+            "cksum",
+            sig(
+                vec![param("path", Type::Path)],
+                result(hash_cksum_type()),
+                false,
+                RuntimeOp::HashCksum,
+            ),
+        ),
+        (
+            "bsd_sum",
+            sig(
+                vec![param("data", Type::Bytes)],
+                hash_sum_type(),
+                true,
+                RuntimeOp::HashBsdSum,
+            ),
+        ),
+        (
+            "bsd_sum",
+            sig(
+                vec![param("path", Type::Path)],
+                result(hash_sum_type()),
+                false,
+                RuntimeOp::HashBsdSum,
+            ),
+        ),
+        (
+            "sysv_sum",
+            sig(
+                vec![param("data", Type::Bytes)],
+                hash_sum_type(),
+                true,
+                RuntimeOp::HashSysvSum,
+            ),
+        ),
+        (
+            "sysv_sum",
+            sig(
+                vec![param("path", Type::Path)],
+                result(hash_sum_type()),
+                false,
+                RuntimeOp::HashSysvSum,
             ),
         ),
         (
