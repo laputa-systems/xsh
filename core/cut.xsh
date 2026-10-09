@@ -25,6 +25,8 @@ type CutRange = {first: Int, last: Int}
 type CutRecord = {data: Bytes, ended: Bool}
 type CutSplit = {fields: List[Bytes], separated: Bool}
 type CutUnit = {size: Int, text: Str}
+type CutSelectionError = {message: Str, offset: Int, length: Int}
+type CutSourcePoint = {arg: Int, offset: Int}
 
 pure numeric_suffix(value: Str) -> Str {
   var at = 0
@@ -36,38 +38,40 @@ pure numeric_suffix(value: Str) -> Str {
   ""
 }
 
-pure parse_position(value: Str, fields: Bool, trailing: Str) -> Result[Int, Str] {
+pure parse_position(value: Str, fields: Bool, trailing: Str, source_offset: Int) -> Result[Int, CutSelectionError] {
   let label = if fields { "field" } else { "byte/character position" }
   let invalid = numeric_suffix(value)
   if invalid != "" or ! rx"^[0-9]+$".matches(value) {
     let offending = if invalid == "" { value } else { invalid }
-    return Err(if fields { f"invalid field value '{offending}{trailing}'" } else { f"invalid {label} '{offending}{trailing}'" })
+    let offset = source_offset + (if invalid == "" { 0 } else { value.byte_len() - invalid.byte_len() })
+    return Err({message: if fields { f"invalid field value '{offending}{trailing}'" } else { f"invalid {label} '{offending}{trailing}'" }, offset: offset, length: offending.byte_len()})
   }
   match value.parse_int() {
     Ok(position) => {
-      if position == 0 { return Err(if fields { "fields are numbered from 1" } else { "byte/character positions are numbered from 1" }) }
+      if position == 0 { return Err({message: if fields { "fields are numbered from 1" } else { "byte/character positions are numbered from 1" }, offset: source_offset, length: value.byte_len()}) }
       Ok(position)
     }
-    Err(_) => Err(if fields { f"field number '{value}' is too large" } else { f"byte/character offset '{value}' is too large" }),
+    Err(_) => Err({message: if fields { f"field number '{value}' is too large" } else { f"byte/character offset '{value}' is too large" }, offset: source_offset, length: value.byte_len()}),
   }
 }
 
-pure parse_selection(spec: Str, fields: Bool) -> Result[List[CutRange], Str] {
+pure parse_selection(spec: Str, fields: Bool) -> Result[List[CutRange], CutSelectionError] {
   let range_label = if fields { "field range" } else { "byte or character range" }
   let empty_error = if fields { "fields are numbered from 1" } else { "byte/character positions are numbered from 1" }
   var ranges: List[CutRange] = []
+  var token_offset = 0
 
   for token in spec.split(",") {
-    if token == "" { return Err(empty_error) }
+    if token == "" { return Err({message: empty_error, offset: token_offset, length: 1}) }
 
     let dash = token.find("-")
     var first = 0
     var last = 0
 
     if dash == null {
-      match parse_position(token, fields, "") {
+      match parse_position(token, fields, "", token_offset) {
         Ok(value) => { first = value }
-        Err(message) => { return Err(message) }
+        Err(problem) => { return Err(problem) }
       }
       last = first
     } else {
@@ -76,31 +80,113 @@ pure parse_selection(spec: Str, fields: Bool) -> Result[List[CutRange], Str] {
       let right = token.byte_slice(at + 1)
 
       if right.find("-") != null {
-        return Err(f"invalid {range_label}")
+        return Err({message: f"invalid {range_label}", offset: token_offset, length: token.byte_len()})
       }
       if left == "" and right == "" {
-        return Err(f"invalid range with no endpoint: {token}")
+        return Err({message: f"invalid range with no endpoint: {token}", offset: token_offset, length: token.byte_len()})
       }
       if left == "" { first = 1 } else {
-        match parse_position(left, fields, f"-{right}") {
+        match parse_position(left, fields, f"-{right}", token_offset) {
           Ok(value) => { first = value }
-          Err(message) => { return Err(message) }
+          Err(problem) => { return Err(problem) }
         }
       }
       if right == "" { last = MAX_POSITION } else {
-        match parse_position(right, fields, "") {
+        match parse_position(right, fields, "", token_offset + at + 1) {
           Ok(value) => { last = value }
-          Err(message) => { return Err(message) }
+          Err(problem) => { return Err(problem) }
         }
       }
-      if first > last { return Err("invalid decreasing range") }
+      if first > last { return Err({message: "invalid decreasing range", offset: token_offset, length: token.byte_len()}) }
     }
 
-    if first == 0 or last == 0 { return Err(empty_error) }
+    if first == 0 or last == 0 { return Err({message: empty_error, offset: token_offset, length: token.byte_len()}) }
     ranges += [{first: first, last: last}]
+    token_offset += token.byte_len() + 1
   }
 
   Ok(ranges)
+}
+
+pure selection_source(argv: List[Str], short: Str) -> CutSourcePoint {
+  let long = if short == "-b" { "--bytes" } else if short == "-c" { "--characters" } else if short == "-f" { "--fields" } else { "" }
+  let short_name = short.byte_slice(1, length: 1)
+  var index = 0
+  var options = true
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and (arg == short or (long != "" and arg == long)) {
+      return {arg: index + 1, offset: 0}
+    }
+    if options and long != "" and arg.starts_with(f"{long}=") {
+      return {arg: index, offset: long.byte_len() + 1}
+    }
+    if options and arg.starts_with("-") and ! arg.starts_with("--") and arg != "-" {
+      var at = 1
+      while at < arg.byte_len() {
+        let option = arg.byte_slice(at, length: 1)
+        if option == short_name {
+          if at + 1 < arg.byte_len() { return {arg: index, offset: at + 1} }
+          return {arg: index + 1, offset: 0}
+        }
+        if option == "d" {
+          if at + 1 == arg.byte_len() { index += 1 }
+          break
+        }
+        at += 1
+      }
+    }
+    if options and (arg == "--delimiter" or arg == "--output-delimiter") {
+      index += 1
+    }
+    index += 1
+  }
+  {arg: 0, offset: 0}
+}
+
+pure cut_source(program: Str, argv: List[Str]) -> Str {
+  var source = program
+  for arg in argv { source = f"{source} {arg}" }
+  source
+}
+
+pure cut_padding(count: Int) -> Str {
+  var padding = ""
+  for _ in range(count) { padding = f"{padding} " }
+  padding
+}
+
+pure cut_dashes(count: Int) -> Str {
+  var dashes = ""
+  for _ in range(count) { dashes = f"{dashes}─" }
+  dashes
+}
+
+pure cut_snippet(program: Str, argv: List[Str], column: Int, length: Int, message: Str) -> Str {
+  let width = if length < 1 { 1 } else { length }
+  var out = f"   ╭─[ {program}:1:{column} ]\n   │\n 1 │ {cut_source(program, argv)}\n"
+  if message == "invalid decreasing range" and width == 3 {
+    out = f"{out}   │ {cut_padding(column - 1)}─┬─\n   │ {cut_padding(column)}╰─── this range ends before it starts\n"
+    out = f"{out}   │\n   │ Help: a list is N, N-M, N- or -M, separated by commas, as in -f1,4-6,9-\n───╯"
+  } else if message == "fields are numbered from 1" or message == "byte/character positions are numbered from 1" {
+    out = f"{out}   │ {cut_padding(column - 1)}{cut_dashes(width)}\n   │\n   │ Help: counting starts at 1\n───╯"
+  } else {
+    out = f"{out}   │ {cut_padding(column - 1)}{cut_dashes(width)}\n   │\n───╯"
+  }
+  out
+}
+
+proc report_selection_error(argv: List[Str], short: Str, problem: CutSelectionError) [process, env] {
+  gnu.error(problem.message)
+  if gnu.phrase().find("xsh-uutests cut") != null and unix.isatty(2) {
+    let point = selection_source(argv, short)
+    var column = gnu.prog().byte_len() + 2
+    for index in range(point.arg) { column += argv[index].byte_len() + 1 }
+    column += point.offset + problem.offset
+    eprint cut_snippet(gnu.prog(), argv, column, problem.length, problem.message)
+  }
+  gnu.try_help()
 }
 
 pure in_selection(position: Int, ranges: List[CutRange]) -> Bool {
@@ -489,11 +575,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let spec = if is_bytes { opts.bytes[0] } else if is_chars { opts.characters[0] } else if merged { opts.merged[0] } else { opts.fields[0] }
+  let selection_option = if is_bytes { "-b" } else if is_chars { "-c" } else if merged { "-F" } else { "-f" }
   let ranges = match parse_selection(spec, field_mode) {
     Ok(value) => value
-    Err(message) => {
-      gnu.error(message)
-      gnu.try_help()
+    Err(problem) => {
+      report_selection_error(argv, selection_option, problem)
       exit 1
     }
   }
