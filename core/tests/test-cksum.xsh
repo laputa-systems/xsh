@@ -46,4 +46,8 @@ test test_cksum_posix_and_algorithm_outputs { |ctx|
   fp"{root}/check".write(b2_output.stdout)
   let b2_check = run_cksum_in(ctx, root, ["--algorithm=blake2b", "--check", "check"], b"", false)?
   assert b2_check.status == 0 and b2_check.stdout == "data: OK\n", b2_check.stderr
+
+  fp"{root}/folder".mkdir()?
+  let directory = run_cksum_in(ctx, root, ["--algorithm=blake3", "folder"], b"", false)?
+  assert directory.status == 1 and directory.stderr == "cksum: folder: Is a directory\n", directory.stderr
 }

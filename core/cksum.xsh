@@ -874,6 +874,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if algorithm == "sha2" and opts.length != null { algorithm = f"sha{length}" }
   }
   let supported = (algorithm == "sha2" and opts.check) or algorithm == "crc" or algorithm == "crc32b" or algorithm == "bsd" or algorithm == "sysv" or algorithm == "md5" or algorithm == "sha1" or algorithm == "sha224" or algorithm == "sha256" or algorithm == "sha384" or algorithm == "sha512" or algorithm == "blake2b"
+  if ! supported and ! opts.check and (algorithm == "blake3" or algorithm == "sm3") {
+    var all_directories = opts.files.len() > 0
+    for name in opts.files {
+      if let Ok(metadata) = fs.stat(fp"{name}") {
+        if metadata.kind != "dir" { all_directories = false }
+      } else {
+        all_directories = false
+      }
+    }
+    if all_directories {
+      for name in opts.files {
+        gnu.error(f"{gnu.quote_maybe(name)}: Is a directory")
+      }
+      exit 1
+    }
+  }
   if ! supported and ! (opts.check and algorithm == "sm3") {
     gnu.usage_error(f"unsupported algorithm {gnu.quote_value(algorithm)}")
   }
