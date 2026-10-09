@@ -61,6 +61,14 @@ pure first_digit(value: Str) -> Int? {
   null
 }
 
+pure number_spec(value: Str) -> Bool {
+  let digit = first_digit(value)
+  if digit == null { return value.byte_len() == 1 }
+  if digit == 0 { return rx"^[0-9]+$".matches(value) }
+  if digit == 1 { return rx"^[0-9]*$".matches(value[1..]) }
+  false
+}
+
 pure parse_option_value(arg: Str, name: Str) -> Str? {
   if arg.starts_with(name + "=") { arg[name.byte_len() + 1..] } else { null }
 }
@@ -127,7 +135,7 @@ proc parse_args(argv: List[Str], raw: List[Bytes]) [env, process] -> PrOptions {
         if flag == "a" { result.across = true; at += 1 } else if flag == "b" or flag == "c" { at += 1 } else if flag == "d" { result.double = true; at += 1 } else if flag == "f" { result.formfeed = true; at += 1 } else if flag == "J" { result.join = true; at += 1 } else if flag == "m" { result.merge = true; at += 1 } else if flag == "r" { at += 1 } else if flag == "t" { result.no_header = true; result.no_pagination = true; at += 1 } else if flag == "T" { result.no_header = true; result.no_pagination = true; at += 1 } else if flag == "n" {
           result.number = true
           var value = rest
-          if value == "" and i + 1 < argv.len() and rx"^[0-9]+$".matches(argv[i + 1]) { i += 1; value = argv[i] }
+          if value == "" and i + 1 < argv.len() and number_spec(argv[i + 1]) { i += 1; value = argv[i] }
           if value != "" {
             let digit = first_digit(value)
             if digit == 0 { result.number_width = checked_number(value, "'-n' extra characters or invalid number in the argument", true) } else if digit != null {
@@ -234,7 +242,7 @@ pure number_line(line: Bytes, index: Int, opts: PrOptions) -> Bytes {
   bytes.concat([repeat_byte(b" ", fill), bytes.from_text(digits), opts.number_separator, line])
 }
 
-pure column_page(lines: List[Bytes], opts: PrOptions, col_width: Int) -> Bytes {
+pure column_page(lines: List[Bytes], opts: PrOptions, col_width: Int, first_line: Int) -> Bytes {
   var out: List[Bytes] = []
   let per_column = (lines.len() + opts.columns - 1) / opts.columns
   let row_count = if opts.across { per_column } else { per_column }
@@ -247,7 +255,7 @@ pure column_page(lines: List[Bytes], opts: PrOptions, col_width: Int) -> Bytes {
     for col in range(last + 1) {
       let index = if opts.across { row * opts.columns + col } else { col * per_column + row }
       if col > 0 { out += [opts.column_separator] }
-      let raw = if index < lines.len() { number_line(lines[index], opts.start_number + index, opts) } else { b"" }
+      let raw = if index < lines.len() { number_line(lines[index], first_line + index, opts) } else { b"" }
       let cell = expand_tabs(raw, opts)
       out += [pad_right(cell, col_width)]
     }
@@ -280,13 +288,10 @@ proc title_date(name: Bytes, opts: PrOptions) [fs, error, time] -> Result[Str] {
 
 pure header_line(date: Str, title: Str, page: Int, width: Int) -> Bytes {
   let page_text = f"Page {page}"
-  let title_start = (width - title.byte_len()) / 2
-  let date_end = date.byte_len() + 2
-  let page_start = width - page_text.byte_len()
-  let prefix = date + repeat_str(" ", if title_start > date_end { title_start - date_end } else { 1 })
-  let middle = prefix + title
-  let suffix = repeat_str(" ", if page_start > middle.byte_len() { page_start - middle.byte_len() } else { 1 })
-  bytes.from_text(middle + suffix + page_text)
+  let room = width - date.byte_len() - title.byte_len() - page_text.byte_len()
+  let before = if room > 1 { room / 2 } else { 1 }
+  let after = if room > 1 { room - before } else { 1 }
+  bytes.from_text(date + repeat_str(" ", before) + title + repeat_str(" ", after) + page_text)
 }
 
 pure repeat_str(value: Str, count: Int) -> Str {
@@ -305,11 +310,12 @@ proc render_page(lines: List[Bytes], name: Bytes, page: Int, first_line: Int, op
   }
   let gap = opts.column_separator.len() * (opts.columns - 1)
   let col_width = if width > gap and opts.columns > 0 { (width - gap) / opts.columns } else { 1 }
-  let content = if opts.columns > 1 { column_page(lines, opts, col_width) } else { simple_page(lines, first_line, opts) }
+  let content = if opts.columns > 1 { column_page(lines, opts, col_width, first_line) } else { simple_page(lines, first_line, opts) }
   out += [repeat_byte(b" ", opts.margin), content]
   if ! opts.no_pagination {
-    let used = lines.len() * (if opts.double { 2 } else { 1 })
-    let overhead = if opts.no_header { 0 } else { 10 }
+    let row_count = if opts.columns > 1 { (lines.len() + opts.columns - 1) / opts.columns } else { lines.len() }
+    let used = row_count * (if opts.double { 2 } else { 1 })
+    let overhead = if opts.no_header { 0 } else { 5 }
     let blanks = opts.page_length - overhead - used
     if blanks > 0 { out += [repeat_byte(b"\n", if blanks < 10000 { blanks } else { 0 })] }
   }
@@ -344,7 +350,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     let lines = split_lines(data)
     let per_page = if opts.no_pagination { if lines.len() > 0 { lines.len() } else { 1 } } else {
       let slots = opts.page_length - (if opts.no_header { 0 } else { 10 })
-      if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
+      let rows = if slots > 0 { slots / (if opts.double { 2 } else { 1 }) } else { 1 }
+      if opts.columns > 1 { rows * opts.columns } else { rows }
     }
     let pages = if lines.len() == 0 { 0 } else { (lines.len() + per_page - 1) / per_page }
     if pages > 0 and opts.first_page > pages { gnu.error(f"starting page number {opts.first_page} exceeds page count {pages}") }
