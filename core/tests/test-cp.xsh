@@ -1,7 +1,6 @@
 type CpRun = {status: Int, stdout: Str, stderr: Str}
 
-proc cp_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[CpRun] {
-  let root = test.temp_dir(ctx, name: "cp-run")?
+proc cp_run_at(ctx: TestContext, root: Path, args: List[Str]) [fs, process, error] -> Result[CpRun] {
   let out = fp"{root}/stdout"
   let err = fp"{root}/stderr"
   let script = fp"{ctx.core_dir}/cp.xsh"
@@ -9,6 +8,11 @@ proc cp_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Cp
   let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?})
+}
+
+proc cp_run(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[CpRun] {
+  let root = test.temp_dir(ctx, name: "cp-run")?
+  cp_run_at(ctx, root, args)
 }
 
 test test_cp_file_copy_and_verbose { |ctx|
@@ -39,6 +43,58 @@ test test_cp_recursive_directory_copy { |ctx|
   let result = cp_run(ctx, ["-R", src.display(), dst.display()])?
   assert result.status == 0, result.stderr
   assert fp"{dst}/nested.txt".read_text()? == "nested"
+}
+
+test test_cp_parents_creates_nested_directories { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-run")?
+  let first = fp"{root}/p1"
+  let second = fp"{first}/p2"
+  first.mkdir()
+  second.mkdir()
+  fp"{second}/source".write("parents")
+  let destination = p"destination"
+  fp"{root}/destination".mkdir()
+
+  let result = cp_run_at(ctx, root, ["--parents", "p1/p2/source", destination.display()])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == ""
+  assert fp"{root}/destination/p1/p2/source".read_text()? == "parents"
+}
+
+test test_cp_parents_preserves_ancestor_modes { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-run")?
+  let first = fp"{root}/p1"
+  let second = fp"{first}/p2"
+  first.mkdir()
+  second.mkdir()
+  first.chmod(0o750)?
+  second.chmod(0o711)?
+  let source = fp"{second}/source"
+  source.write("parents")
+  let destination = fp"{root}/destination"
+  destination.mkdir()
+
+  let result = cp_run_at(ctx, root, ["--preserve", "--parents", source.display(), destination.display()])?
+  assert result.status == 0, result.stderr
+  let copied = fp"{destination}{source.display()}"
+  let copied_second = copied.parent()
+  let copied_first = copied_second.parent()
+  assert fs.stat(copied_first)?.mode.bit_and(0o777) == 0o750
+  assert fs.stat(copied_second)?.mode.bit_and(0o777) == 0o711
+}
+
+test test_cp_parents_recursive_source_ending_in_parent_dir { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-run")?
+  let source = fp"{root}/src/sub"
+  source.mkdir(parents: true)
+  fp"{source}/file".write("source")
+  fp"{root}/d".mkdir()
+
+  let result = cp_run_at(ctx, root, ["--parents", "-r", "src/sub/..", "d"])?
+  assert result.status == 1
+  assert result.stderr == "cp: cannot create directory 'd/src/sub/..': File exists\n", result.stderr
+  assert fp"{root}/d/src/sub".exists()?
+  assert ! fp"{root}/d/src/sub/file".exists()?
 }
 
 test test_cp_no_clobber_preserves_destination { |ctx|

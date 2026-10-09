@@ -169,6 +169,90 @@ pure parent_dest(source: Str, target: Path) -> Path {
   result
 }
 
+pure source_parent_components(source_text: Str) -> List[Str] {
+  var components = source_text.split("/")
+  while components.len() > 0 and (components[components.len() - 1] == "" or components[components.len() - 1] == ".") {
+    components = components |> take(components.len() - 1)
+  }
+  if components.len() < 2 { return [] }
+
+  components |> take(components.len() - 1)
+}
+
+proc prepare_parent_dirs(source_text: Str, dest_root: Path, opts: CpOptions) [fs, env, process, io, error] -> Result[Unit] {
+  let components = source_parent_components(source_text)
+  var source_prefix = if source_text.starts_with("/") { "/" } else { "" }
+  var target_prefix = dest_root
+  for component in components {
+    continue when component == "" or component == "."
+    source_prefix = if source_prefix == "/" { f"/{component}" } else if source_prefix == "" { component } else { f"{source_prefix}/{component}" }
+
+    if component == ".." {
+      target_prefix = target_prefix.parent()
+      continue
+    }
+
+    let source_dir = fp"{source_prefix}"
+    let source_is_dir = if let Ok(meta) = fs.stat(source_dir, follow_symlinks: true) { meta.kind == "dir" } else { false }
+    if ! source_is_dir { continue }
+
+    target_prefix = fp"{target_prefix}/{component}"
+    if path_exists(target_prefix) {
+      let target_meta = fs.stat(target_prefix, follow_symlinks: false)?
+      if target_meta.kind != "dir" {
+        return error.fail(f"cannot overwrite non-directory {gnu.quote(target_prefix.display())} with directory {gnu.quote(source_dir.display())}")
+      }
+    } else {
+      target_prefix.mkdir()?
+      if opts.verbose {
+        gnu.write_text(f"{source_dir.display()} -> {target_prefix.display()}\n")
+      }
+    }
+  }
+
+  Ok()
+}
+
+proc preserve_parent_dirs(source_text: Str, dest_root: Path, opts: CpOptions) [fs, error] -> Result[Unit] {
+  if has_attribute(opts, "mode") or has_attribute(opts, "timestamps") {
+    let components = source_parent_components(source_text)
+    var source_prefix = if source_text.starts_with("/") { "/" } else { "" }
+    var target_prefix = dest_root
+    var source_dirs: List[Path] = []
+    var target_dirs: List[Path] = []
+    for component in components {
+      continue when component == "" or component == "."
+      source_prefix = if source_prefix == "/" { f"/{component}" } else if source_prefix == "" { component } else { f"{source_prefix}/{component}" }
+      if component == ".." {
+        target_prefix = target_prefix.parent()
+        continue
+      }
+      let source_dir = fp"{source_prefix}"
+      let is_source_dir = if let Ok(meta) = fs.stat(source_dir, follow_symlinks: true) { meta.kind == "dir" } else { false }
+      if ! is_source_dir { continue }
+      target_prefix = fp"{target_prefix}/{component}"
+      if ! path_exists(target_prefix) { continue }
+      source_dirs += [source_dir]
+      target_dirs += [target_prefix]
+    }
+
+    var preserve_index = source_dirs.len()
+    while preserve_index > 0 {
+      preserve_index -= 1
+      let source_meta = fs.stat(source_dirs[preserve_index], follow_symlinks: true)?
+      if has_attribute(opts, "mode") {
+        fs.chmod(target_dirs[preserve_index], source_meta.mode.bit_and(0o7777))?
+      }
+      if has_attribute(opts, "timestamps") {
+        let current = fs.stat(source_dirs[preserve_index], follow_symlinks: true)?
+        fs.set_times(target_dirs[preserve_index], atime_ns: current.atime_ns, mtime_ns: source_meta.mtime_ns)?
+      }
+    }
+  }
+
+  Ok()
+}
+
 pure simple_backup(target_path: Path, suffix: Str) -> Path {
   fp"{target_path}{suffix}"
 }
@@ -656,12 +740,28 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     } else {
       dest_for(source, dest, target_is_dir)
     }
+    if opts.parents { prepare_parent_dirs(source_name, dest, opts)? }
+    if opts.parents and opts.recursive and source_name.ends_with("/..") and path_exists(target) {
+      gnu.error(f"cannot create directory {gnu.quote(target.display())}: File exists")
+      failed = true
+      continue
+    }
     let mode = dereference_mode(argv)
     let follow_all = mode == "follow"
     let follow_root = follow_all or mode == "command-line" or opts.hardlink or (mode == "default" and ! opts.recursive)
     let root_device: Int? = if let Ok(stat) = fs.stat(source, follow_symlinks: follow_root) { stat.dev } else { null }
     match copy_node(source, target, opts, follow_root, follow_all, true, root_device, []) {
-      Ok(_) => {},
+      Ok(_) => {
+        if opts.parents {
+          match preserve_parent_dirs(source_name, dest, opts) {
+            Ok(_) => {},
+            Err(failure) => {
+              gnu.error(failure.message)
+              failed = true
+            },
+          }
+        }
+      },
       Err(failure) => {
         gnu.error(failure.message)
         failed = true
