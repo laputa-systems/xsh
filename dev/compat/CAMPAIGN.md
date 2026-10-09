@@ -8,9 +8,10 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 ## Active resume (2026-10-09)
 
-- Local `campaign-utils` now includes the `fs-misc`, `perm`, native byte/hash,
-  GNU patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, and
-  `proc-a`, and `checksums` merges (integrator head `7033e8fd`). The local
+- Local `campaign-utils` now includes `fs-misc`, `perm`, native byte/hash, GNU
+  patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, `proc-a`,
+  and `checksums` (last code merge `7033e8fd`; the parity manifest records 96 of
+  106 in-scope utilities present). The local
   `origin/campaign-utils` ref is still at `5de29706`; push after the campaign
   evidence is refreshed. Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
@@ -36,14 +37,16 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   SIGHUP. `text-a2` started from **17 / 663** across nine applets; its first
   full slice measured **454 / 663** (cut 70/83, expand 43/46, fmt 27/37, fold
   93/101, nl 34/67, paste 19/27, pr 25/84, tr 101/174), with gaps under active
-  work. `bytes-enc` has implemented base32, base64, basenc, od, and dd; native
+  work; a follow-up brought nl to **67/67**, with pr/fmt/tr still active.
+  `bytes-enc` has implemented base32, base64, basenc, od, and dd; native
   tests pass and its first slice measured **168 / 311**, including one timed-out
   FIFO test; a bounded FIFO fix is being verified. `checksums` is merged over
-  the shared byte/hash APIs and its ten native tests pass. Its first complete
-  slice is **220 / 507** (md5sum 28/38, sha1sum 10/10, sha224sum 8/8, sha256sum
-  13/13, sha384sum 8/8, sha512sum 8/8, b2sum 16/18, cksum 124/391, sum 5/13);
-  parser, verification, and output-format gaps are under active work. The
-  integrator owns shared results and baselines; lane runs use scratch outputs.
+  the shared byte/hash APIs and its ten native tests pass. Its first slice was
+  **220 / 507**; a follow-up is **304 / 507** (md5sum 37/38,
+  sha1sum 10/10, sha224sum 8/8, sha256sum 13/13, sha384sum 8/8, sha512sum 8/8,
+  b2sum 17/18, cksum 191/391, sum 12/13). Remaining parser, verification, and
+  output-format gaps are under active work. The integrator owns shared results
+  and baselines; lane runs use scratch outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes
   are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;
