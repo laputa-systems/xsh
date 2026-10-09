@@ -22,23 +22,103 @@ type BasenameOptions = {
   names: List[Str],
 }
 
+pure long_suffix_option(arg: Str) -> Bool {
+  let equal_at = arg.find("=")
+  let option = if equal_at == null { arg } else { arg.byte_slice(0, length: equal_at ?? 0) }
+  option.byte_len() > 2 and "--suffix".starts_with(option)
+}
+
+pure short_suffix_value_start(arg: Str) -> Int? {
+  return null when ! arg.starts_with("-") or arg.starts_with("--")
+
+  var at = 1
+  while at < arg.byte_len() {
+    if arg.byte_slice(at, length: 1) == "s" { return at + 1 }
+    at += 1
+  }
+  null
+}
+
 # The last path component of NAME after trailing slashes are dropped; a NAME of
 # only slashes is "/". A SUFFIX is removed unless that would leave nothing.
-pure basename_value(name: Str, suffix: Str) -> Str {
-  var end = name.byte_len()
-  while end > 0 and name.byte_slice(end - 1, length: 1) == "/" {
+pure raw_names(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var names: List[Bytes] = []
+  var index = 0
+  var options = true
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" {
+      options = false
+      index += 1
+      continue
+    }
+    if options and (arg == "-a" or arg == "--multiple" or arg == "-z" or arg == "--zero" or arg == "-h" or arg == "--help" or arg == "-V" or arg == "--version") {
+      index += 1
+      continue
+    }
+    if options and long_suffix_option(arg) {
+      index += if arg.find("=") == null { 2 } else { 1 }
+      continue
+    }
+    let suffix_start = short_suffix_value_start(arg)
+    if options and suffix_start != null {
+      index += if (suffix_start ?? 0) >= arg.byte_len() { 2 } else { 1 }
+      continue
+    }
+    if options and arg.starts_with("-") and arg != "-" {
+      index += 1
+      continue
+    }
+    names += [raw[index]]
+    options = false
+    index += 1
+  }
+  names
+}
+
+proc raw_suffix(argv: List[Str], raw: List[Bytes], fallback: Bytes) -> Bytes {
+  var index = 0
+  var options = true
+  var selected: Bytes? = null
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and long_suffix_option(arg) {
+      let equal_at = arg.find("=")
+      if equal_at == null { selected = raw[index + 1]; index += 2 } else { selected = raw[index].slice((equal_at ?? 0) + 1); index += 1 }
+      continue
+    }
+    let suffix_start = short_suffix_value_start(arg)
+    if options and suffix_start != null {
+      if (suffix_start ?? 0) >= arg.byte_len() { selected = raw[index + 1]; index += 2 } else { selected = raw[index].slice(suffix_start ?? 0); index += 1 }
+      continue
+    }
+    if options and (! arg.starts_with("-") or arg == "-") { options = false }
+    index += 1
+  }
+  selected ?? fallback
+}
+
+pure basename_value(name: Bytes, suffix: Bytes) -> Bytes {
+  var end = name.len()
+  while end > 0 and (name.byte_at(end - 1) ?? -1) == 47 {
     end -= 1
   }
 
-  return "/" when end == 0 and name != ""
+  return bytes.from_text("/") when end == 0 and name.len() > 0
 
-  let trimmed = name.byte_slice(0, length: end)
-  let parts = trimmed.split("/")
-  let base = if parts.len() > 0 { parts[parts.len() - 1] } else { trimmed }
+  let trimmed = name.slice(0, length: end)
+  var start = 0
+  var index = 0
+  while index < trimmed.len() {
+    if (trimmed.byte_at(index) ?? -1) == 47 { start = index + 1 }
+    index += 1
+  }
+  let base = trimmed.slice(start)
 
-  return base when suffix == "" or base == suffix or ! base.ends_with(suffix)
+  return base when suffix.len() == 0 or base == suffix or ! base.ends_with(suffix)
 
-  base.byte_slice(0, length: base.byte_len() - suffix.byte_len())
+  base.slice(0, length: base.len() - suffix.len())
 }
 
 proc main(...argv: List[Str]) [process, env, error, io] {
@@ -65,8 +145,8 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  var names = opts.names
-  var suffix = opts.suffix ?? ""
+  var names = raw_names(argv, cli.argv_bytes())
+  var suffix = raw_suffix(argv, cli.argv_bytes(), bytes.from_text(opts.suffix ?? ""))
 
   if names.len() == 0 {
     gnu.missing_operand()
@@ -74,7 +154,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
 
   if ! (opts.multiple or opts.suffix != null) {
     if names.len() > 2 {
-      gnu.extra_operand(names[2])
+      gnu.extra_operand(opts.names[2])
     }
 
     if names.len() == 2 {
@@ -83,9 +163,9 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     }
   }
 
-  let ending = if opts.zero { "\0" } else { "\n" }
+  let ending = bytes.from_text(if opts.zero { "\0" } else { "\n" })
 
   for name in names {
-    gnu.write_text(basename_value(name, suffix) + ending)
+    gnu.write_bytes(bytes.concat([basename_value(name, suffix), ending]))
   }
 }

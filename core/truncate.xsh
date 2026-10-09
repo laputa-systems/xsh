@@ -105,6 +105,39 @@ pure computed_size(mode: SizeMode, current: Int) -> Int? {
   (current + n - 1) / n * n
 }
 
+pure raw_files(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var files: List[Bytes] = []
+  var index = 0
+  var options = true
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and (arg == "-r" or arg == "--reference" or arg == "-s" or arg == "--size") { index += 2; continue }
+    if options and (arg == "--reference=" or arg.starts_with("--reference=") or arg.starts_with("--size=") or (arg.starts_with("-s") and arg.byte_len() > 2)) { index += 1; continue }
+    if options and arg.starts_with("-") and arg != "-" { index += 1; continue }
+    files += [raw[index]]
+    index += 1
+  }
+  files
+}
+
+pure raw_reference(argv: List[Str], raw: List[Bytes], fallback: Bytes) -> Bytes {
+  var index = 0
+  var options = true
+  var selected: Bytes? = null
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and (arg == "-r" or arg == "--reference") { selected = raw[index + 1]; index += 2; continue }
+    if options and arg.starts_with("--reference=") { selected = raw[index].slice(12); index += 1; continue }
+    if options and arg.starts_with("-r") and arg.byte_len() > 2 { selected = raw[index].slice(2); index += 1; continue }
+    if options and (arg == "-s" or arg == "--size") { index += 2; continue }
+    if options and (arg.starts_with("--size=") or (arg.starts_with("-s") and arg.byte_len() > 2) or arg == "-c" or arg == "--no-create" or arg == "-o" or arg == "--io-blocks" or arg == "--help" or arg == "--version") { index += 1; continue }
+    index += 1
+  }
+  selected ?? fallback
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: TruncateOptions = cli.applet(
     argv,
@@ -129,12 +162,15 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if ! size_given and opts.reference == "" { gnu.usage_error("you must specify either --size or --reference") }
   if opts.io_blocks and ! size_given { gnu.usage_error("option --io-blocks requires --size") }
 
+  let raw = cli.argv_bytes()
+  let raw_reference = raw_reference(argv, raw, bytes.from_text(opts.reference))
   var reference_size: Int? = null
   if opts.reference != "" {
-    if let Err(failure) = fs.stat(fp"{opts.reference}", true) {
+    let reference_path = Path.parse_bytes(raw_reference)?
+    if let Err(failure) = fs.stat(reference_path, true) {
       gnu.error(f"cannot stat {gnu.quote(opts.reference)}: {gnu.strerror(failure)}")
       exit 1
-    } else if let Ok(meta) = fs.stat(fp"{opts.reference}", true) {
+    } else if let Ok(meta) = fs.stat(reference_path, true) {
       reference_size = meta.size
     }
   }
@@ -147,9 +183,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if reference_size != null and mode.op == "=" { gnu.usage_error("size must be relative when --reference is used") }
 
+  let raw_paths = raw_files(argv, raw)
   var failed = false
-  for name in opts.files {
-    let target = fp"{name}"
+  for index in range(opts.files.len()) {
+    let name = opts.files[index]
+    let target = Path.parse_bytes(raw_paths[index])?
     var exists = false
     var current = 0
     var io_block_size = 4096

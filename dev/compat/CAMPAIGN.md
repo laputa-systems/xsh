@@ -49,9 +49,12 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   Date/dircolors are at 183/185 tests
   (date 164/166, dircolors 19/19); the two French month abbreviation
   differences are recorded in `gaps.json` because uutils' ICU expectation
-  omits punctuation returned by glibc and GNU `date`. The fs-misc lane last
-  measured 288/304 after argv-byte and fsync changes; it will rerun after the
-  native dispatcher and pwd deleted-directory diagnostic fix.
+  omits punctuation returned by glibc and GNU `date`. The fs-misc lane's final
+  run selected 304 tests: 295 passed and 9 failed, with 2 excluded by the
+  converter. The 9 remaining failures are uutils-only diagnostic and caret
+  expectations checked against GNU 9.12 and recorded in `gaps.json`. The
+  native lane suite passes 45 tests with 1 skipped because `/bin/xsh` is not
+  installed.
 - The CLI now preserves `--` after the script path as an app argument;
   `xsh -- SCRIPT` remains the CLI's explicit option boundary. A focused release
   regression covers both text and raw argv. The uutils cases this unblocks will

@@ -15,10 +15,13 @@ type PwdOptions = {logical: Bool, physical: Bool, help: Bool, version: Bool, ope
 proc logical_pwd(cwd: Path) [fs, env] -> Path {
   let text = env.get_or("PWD", "") ?? ""
   return cwd when text == "" or ! text.starts_with("/")
+  for part in text.split("/") {
+    return cwd when part == "." or part == ".."
+  }
 
   let candidate = fp"{text}"
   if let Ok(expected) = fs.stat(cwd) {
-    if let Ok(found) = fs.stat(candidate) {
+    if let Ok(found) = fs.stat(candidate, follow_symlinks: true) {
       return candidate when expected.dev == found.dev and expected.ino == found.ino
     }
   }
@@ -57,6 +60,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let cwd = if let Ok(directory) = cwd_result { directory } else { p"/" }
   let posix = (env.get_or("POSIXLY_CORRECT", "") ?? "") != ""
   let use_logical = opts.logical or (! opts.physical and posix)
-  let output = if use_logical { logical_pwd(cwd) } else { cwd.resolve()? }
+  let output_result = if use_logical { Ok(logical_pwd(cwd)) } else { cwd.resolve() }
+  if let Err(failure) = output_result {
+    gnu.error(f"failed to get current directory: {gnu.strerror(failure)}")
+    exit 1
+  }
+  let output = if let Ok(resolved) = output_result { resolved } else { p"/" }
   gnu.write_text(f"{output.display()}\n")
 }

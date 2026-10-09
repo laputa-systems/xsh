@@ -1,9 +1,6 @@
 {
   "comment": "Known semantic gaps per utility, each a short sentence naming the option or behavior. Lanes update their own utilities.",
   "utilities": {
-    "basename": [
-      "Non-UTF-8 operands: `xsh` rejects non-UTF-8 argv (`argument N is not valid UTF-8`) before the script runs; needs a native argv-bytes path (test_basename::test_invalid_utf8_args)."
-    ],
     "ls": [
       "SELinux contexts (-Z, --context) print `?` and the ACL/context marker after the mode string is never shown: there is no xattr API (needs `system.posix_acl_access`/`security.selinux`/`security.capability` reads for the `+`/`.` marker, `-Z`, and the `ca=` color).",
       "Names sort bytewise (the C locale); a UTF-8 locale's `strcoll` order (test_ls_sort_dot_first_utf8_locale, the UTF-8 branch of test_ls_order_time_breaks_ties_by_name) is not implemented.",
@@ -49,6 +46,29 @@
     ],
     "date": [
       "French `%b` abbreviations retain glibc/GNU punctuation (`févr.`, `janv.`, `déc.`), while uutils' ICU-based locale expectations omit the trailing dot. Known residuals: `test_date::test_locale_abbreviated_month_names` and `test_date::test_locale_names_for_several_dates_in_one_run`; keep GNU-compatible output."
+    ],
+    "mkfifo": [
+      "test_mkfifo::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mkfifo: invalid mode`."
+    ],
+    "mknod": [
+      "test_mknod::diagnostics::test_snippet_points_at_the_bad_operator expects a source caret; GNU coreutils 9.12 prints `mknod: invalid mode`.",
+      "test_mknod::test_mknod_invalid_arg expects clap's `unexpected argument` wording; GNU coreutils 9.12 prints `mknod: unrecognized option` and its standard help hint."
+    ],
+    "pathchk": [
+      "test_pathchk::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `pathchk: missing operand` and its standard help hint."
+    ],
+    "pwd": [
+      "For a deleted working directory, GNU coreutils 9.12 reports `couldn't find directory entry in ‘..’ with matching i-node`; uutils' test_pwd::test_deleted_dir expects `failed to get current directory: No such file or directory`, which XSH follows."
+    ],
+    "readlink": [
+      "test_readlink::test_no_args expects clap's required-arguments wording; GNU coreutils 9.12 prints `readlink: missing operand` and its standard help hint."
+    ],
+    "shred": [
+      "test_shred::diagnostics::test_snippet_points_at_the_unknown_unit and test_shred::diagnostics::test_snippet_underlines_a_size_with_no_number expect source carets; GNU coreutils 9.12 prints `shred: invalid file size` without a snippet."
+    ],
+    "truncate": [
+      "test_truncate::diagnostics::test_snippet_counts_the_mode_character_before_the_size expects a source caret; GNU coreutils 9.12 prints `truncate: Invalid number` without a snippet.",
+      "test_truncate::test_error_filename_only expects clap's required-arguments block; GNU coreutils 9.12 prints `truncate: you must specify either '--size' or '--reference'` and its standard help hint."
     ]
   }
 }

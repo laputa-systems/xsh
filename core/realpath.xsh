@@ -21,6 +21,22 @@ Print the resolved absolute file name.
 type RealpathOptions = {existing: Bool, canonicalize: Bool, missing: Bool, logical: Bool, physical: Bool, strip: Bool, quiet: Bool, zero: Bool, relative_to: Str, relative_base: Str, help: Bool, version: Bool, paths: List[Str]}
 type RelativePath = {text: Str, below: Bool}
 
+pure raw_paths(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var paths: List[Bytes] = []
+  var index = 0
+  var options = true
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and (arg == "--relative-to" or arg == "--relative-base") { index += 2; continue }
+    if options and (arg.starts_with("--relative-to=") or arg.starts_with("--relative-base=") or arg == "-e" or arg == "-E" or arg == "-m" or arg == "-L" or arg == "-P" or arg == "-s" or arg == "-q" or arg == "-z" or arg == "--canonicalize-existing" or arg == "--canonicalize" or arg == "--canonicalize-missing" or arg == "--logical" or arg == "--physical" or arg == "--strip" or arg == "--no-symlinks" or arg == "--quiet" or arg == "--zero" or arg == "--help" or arg == "--version") { index += 1; continue }
+    if options and arg.starts_with("-") and arg != "-" { index += 1; continue }
+    paths += [raw[index]]
+    index += 1
+  }
+  paths
+}
+
 pure join_parts(base: Path, parts: List[Str]) -> Path {
   var text = base.display()
   for part in parts { text = if text == "/" { f"/{part}" } else { f"{text}/{part}" } }
@@ -197,13 +213,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let ending = if opts.zero { "\0" } else { "\n" }
   var failed = false
-  for name in opts.paths {
-    let result: Path? = if name == "" { null } else { canonical(fp"{name}", cwd, allow_missing, allow_all, opts.strip, opts.logical) }
+  let raw_names = raw_paths(argv, cli.argv_bytes())
+  for index in range(opts.paths.len()) {
+    let name = opts.paths[index]
+    let raw_name = raw_names[index]
+    let target_path = Path.parse_bytes(raw_name)?
+    let invalid_utf8 = if let Err(_) = raw_name.utf8() { true } else { false }
+    let result: Path? = if name == "" { null } else if invalid_utf8 {
+      if opts.strip { target_path.normalize() } else if let Ok(resolved) = target_path.resolve() { resolved } else { null }
+    } else { canonical(target_path, cwd, allow_missing, allow_all, opts.strip, opts.logical) }
     if result == null {
       failed = true
       if ! opts.quiet {
-        let message = if let Err(failure) = fp"{name}".resolve() { gnu.strerror(failure) } else { "No such file or directory" }
-        gnu.error(f"{gnu.quote_maybe(name)}: {message}")
+        let message = if let Err(failure) = target_path.resolve() { gnu.strerror(failure) } else { "No such file or directory" }
+        gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {message}")
       }
     } else {
       let target = result ?? p"/"
@@ -221,7 +244,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         let rel = relative_text(target, base)
         if rel.below { rendered = rel.text }
       }
-      gnu.write_text(f"{rendered}{ending}")
+      let rendered_bytes = if invalid_utf8 and opts.relative_to == "" and opts.relative_base == "" { target.bytes() } else { bytes.from_text(rendered) }
+      gnu.write_bytes(bytes.concat([rendered_bytes, bytes.from_text(ending)]))
     }
   }
   if failed { exit 1 }

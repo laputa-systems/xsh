@@ -60,6 +60,22 @@ pure increment_name(text: Str) -> Str? {
   increment_name_at(text, text.byte_len() - 1)
 }
 
+pure raw_files(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var files: List[Bytes] = []
+  var index = 0
+  var options = true
+  while index < argv.len() {
+    let arg = argv[index]
+    if options and arg == "--" { options = false; index += 1; continue }
+    if options and (arg == "-n" or arg == "--iterations" or arg == "-s" or arg == "--size" or arg == "--random-source") { index += 2; continue }
+    if options and (arg.starts_with("--iterations=") or arg.starts_with("--size=") or arg.starts_with("--random-source=") or arg.starts_with("--remove=") or (arg.starts_with("-n") and arg.byte_len() > 2) or (arg.starts_with("-s") and arg.byte_len() > 2)) { index += 1; continue }
+    if options and arg.starts_with("-") and arg != "-" { index += 1; continue }
+    files += [raw[index]]
+    index += 1
+  }
+  files
+}
+
 pure pattern_byte(name: Str, index: Int) -> Int {
   if name == "000000" { return 0 }
   if name == "ffffff" { return 255 }
@@ -211,9 +227,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
   let sequence = pass_sequence(count ?? 3, seeded)
+  let raw_paths = raw_files(argv, cli.argv_bytes())
   var failed = false
-  for name in opts.files {
-    let target = fp"{name}"
+  for index in range(opts.files.len()) {
+    let name = opts.files[index]
+    let target = Path.parse_bytes(raw_paths[index])?
     let metadata = fs.stat(target, true)
     if let Err(failure) = metadata {
       gnu.error(f"cannot open {gnu.quote(name)}: {gnu.strerror(failure)}")
