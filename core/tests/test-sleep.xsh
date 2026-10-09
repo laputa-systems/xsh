@@ -87,6 +87,20 @@ test test_sleep_reports_every_invalid_interval_then_the_usage_hint { |ctx|
   assert result.stderr == "sleep: invalid time interval 'abc'\nsleep: invalid time interval '1years'\nsleep: invalid time interval ' '\nsleep: invalid time interval '0.1s '\nTry 'sleep --help' for more information.\n", result.stderr
 }
 
+test test_sleep_quotes_control_characters_like_gnu { |ctx|
+  let tab = applet_run(ctx, ["\t"])?
+  assert tab.status == 1
+  assert tab.stderr == "sleep: invalid time interval '\\t'\nTry 'sleep --help' for more information.\n", tab.stderr
+
+  let newline = applet_run(ctx, ["\n"])?
+  assert newline.status == 1
+  assert newline.stderr == "sleep: invalid time interval '\\n'\nTry 'sleep --help' for more information.\n", newline.stderr
+
+  let mixed = applet_run(ctx, ["\n\t0.1s \n "])?
+  assert mixed.status == 1
+  assert mixed.stderr == "sleep: invalid time interval '\\n\\t0.1s \\n '\nTry 'sleep --help' for more information.\n", mixed.stderr
+}
+
 test test_sleep_rejects_negative_nan_and_malformed_numbers { |ctx|
   for interval in ["nan", "infD", "iNfD", "'1", "1e", "0x", "0x1p", "1_0", "1m1"] {
     let result = applet_run(ctx, [interval])?
