@@ -17,7 +17,7 @@ see `check_exclusions.py`.
 
 **Runtime blockers** (record, do not work around)
 
-- Stdout flushing / EPIPE / SIGPIPE: yes `test_simple`, `test_args`, `test_long_output`, `test_long_odd_output`, `test_long_input`, `test_long_line_exceeds_pipe_capacity`, `test_piped_to_dev_full`; true/false `test_full`; tty `test_stdout_fail`, `test_write_error`. `yes` is bounded to 32 MiB of whole lines meanwhile.
+- Stdout write failures / EPIPE / SIGPIPE: the native `io.write_stdout` and `io.write_stdout_bytes` paths now report write errors immediately. Applets that still use buffered `print` need per-applet verification for `test_simple`, `test_args`, `test_long_output`, `test_long_odd_output`, `test_long_input`, `test_long_line_exceeds_pipe_capacity`, `test_piped_to_dev_full`; true/false `test_full`; tty `test_stdout_fail`, `test_write_error`. The default SIGPIPE action is unchanged. `yes` is bounded to 32 MiB of whole lines meanwhile.
 - Non-UTF-8: echo `non_utf_8`; yes `test_non_utf8`; test `test_invalid_utf8_integer_compare`; printenv `test_non_utf8_value`, `test_non_utf8_env_vars` (`env.list` errors on such values).
 
 **New native APIs wanted**
@@ -38,7 +38,7 @@ see `check_exclusions.py`.
 
 **Runtime blockers**
 
-- Stdout flushed only at exit and write errors invisible: cat `test_broken_pipe`, `test_cat_broken_pipe_nonzero_and_message`, `test_dev_full_show_all`, `test_piped_to_dev_full`, `test_version_help_dev_full`, `test_uchild_when_no_capture_reading_from_infinite_source`; tac `test_failed_write_is_reported`; head `test_write_to_dev_full`, `test_verbose_header_write_error_long_filename`; tail `test_failed_write_is_reported`, `test_failed_write_is_reported_on_seekable_input`, `test_when_output_closed_then_no_broken_pipe`, all `test_follow_*` and `test_retry*`; tee `test_pipe_error_*`, `test_space_error_exit*`, `test_tee_no_more_writeable_2`, `test_tee_output_not_buffered`, `test_tee_continues_after_short_read`.
+- Stdout failure behavior needs applet-level verification after the immediate-write API was added. Remaining candidate tests include cat `test_broken_pipe`, `test_cat_broken_pipe_nonzero_and_message`, `test_dev_full_show_all`, `test_piped_to_dev_full`, `test_version_help_dev_full`, `test_uchild_when_no_capture_reading_from_infinite_source`; tac `test_failed_write_is_reported`; head `test_write_to_dev_full`, `test_verbose_header_write_error_long_filename`; tail `test_failed_write_is_reported`, `test_failed_write_is_reported_on_seekable_input`, `test_when_output_closed_then_no_broken_pipe`, all `test_follow_*` and `test_retry*`; tee `test_pipe_error_*`, `test_space_error_exit*`, `test_tee_no_more_writeable_2`, `test_tee_output_not_buffered`, `test_tee_continues_after_short_read`. Focused host checks show `/dev/full` reports ENOSPC and a closed pipe exits 141 for callers of the new API; `print` remains buffered.
 - `io.stdin_bytes` reads all of stdin; no incremental read: head `test_validate_stdin_offset_lines`, `test_validate_stdin_offset_bytes`, tee/cat live-stdin tests. Stdin and non-seekable files are read whole by the applets.
 - No native FIFO read (`read_bytes` on a FIFO returns nothing): cat `test_fifo_symlink`.
 - Non-UTF-8 argv: cat `test_cat_non_utf8_paths`; head `test_head_non_utf8_paths`; tac `test_tac_non_utf8_paths`, `test_non_utf8_separator`, `test_non_utf8_regex_separator`; tail `test_obsolete_encoding_unix`.
@@ -77,7 +77,7 @@ see `check_exclusions.py`.
 - Done by the integrator: `make docs` (run as `target/release/xsh dev/main.xsh docs`; the `cargo dev` alias builds a debug `xsh` that overflows its stack on Linux).
 - `unix.exec` ignores plan redirections: `nohup` should use `process.run` with an ignored HUP and a `stdout` path.
 - No primitive for `kill -1` (signal every process) and no core-dump flag on `Status`.
-- Stdout stays buffered until exit or `io.flush_stdout()`; infinite writers such as `yes` must flush periodically. `process.set_signal_action("PIPE", "default")` gives SIGPIPE.
+- `io.write_stdout` and `io.write_stdout_bytes` report native write errors immediately; `print` remains buffered until exit or `io.flush_stdout()`. Infinite writers such as `yes` must flush periodically. `process.set_signal_action("PIPE", "default")` opts in to SIGPIPE.
 - Never compiled on macOS: the `libc` termios flag names in `src/modules/unix/tty.rs` and the rustix `pty` calls are the risk; `unix.read_utmp` fails `unsupported` off Linux. The lane added rustix's `pty` feature to `Cargo.toml` and regenerated `tests/fixtures/modules/standard-api-surface.jsonl`.
 
 ## From `tty-misc` (merged; slice 2/103 -> 95/103)

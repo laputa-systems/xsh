@@ -10,14 +10,16 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
 
 - Local `campaign-utils` now includes `fs-misc`, `perm`, native byte/hash, GNU
   patch classification, `legacy-buckets`, `stat-du-df`, `printf-env`, `proc-a`,
-  `checksums`, and `bytes-enc` (last code merge `78256c56`; the parity manifest records 101 of
-  106 in-scope utilities present). The local
+  `checksums`, and `bytes-enc` (last code merge `b1954910`; the parity manifest
+  records 101 of 106 in-scope utilities present). The local
   `origin/campaign-utils` ref is still at `5de29706`; push after the campaign
   evidence is refreshed. Pinned references are uutils
   `e7c9f3194280835c4487c2945c68d5f01ccacc8d` and GNU coreutils 9.12.
 - Setup is complete on native Linux x86_64. Docker is not used. The workspace
   uses `nightly-2026-09-15`, the `x86_64-unknown-linux-musl` target, and mold
-  3.0.0 from the SHA-256-verified x86_64 GitHub release. Bootstrap commands,
+  3.0.0 from the x86_64 GitHub release (archive SHA-256
+  `6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189`).
+  `native-env.sh` selects mold for release builds. Bootstrap commands,
   checksum, host prerequisites, and GNU dependency notes are in
   [`README.md`](README.md#setup). GNU 9.12 is prepared with ACL, capability,
   and Linux xattr support.
@@ -31,29 +33,34 @@ integrator protocol are in [`LANES.md`](LANES.md); harness usage is in
   generated docs, and docs project checks pass. Exact remaining utility
   failures and their causes are in `gaps.json`.
 - `printf-env` is merged at **225 / 252** (env 79/100, printf 146/152), with
-  native tests and ratchets passing. `proc-a` is merged at **103 / 125** (kill
-  47/50, nice 11/13, nohup 12/13, stdbuf 11/20, timeout 22/29); all **57**
-  native tests pass, including a fix for the PTY test runner's intermittent
-  SIGHUP. `text-a2` started from **17 / 663** across nine applets; its first
-  full slice measured **454 / 663** (cut 70/83, expand 43/46, fmt 27/37, fold
-  93/101, nl 34/67, paste 19/27, pr 25/84, tr 101/174), with gaps under active
-  work; follow-ups brought nl to **67/67** and paste to **25/27** (native
-  paste tests 4/4), while pr/fmt/tr remain active. `bytes-enc` has implemented
-  base32, base64, basenc, od, and dd; native tests pass and its full slice is
-  **193 / 311** (base32 15/16, base64 24/25, basenc 38/38, od 33/80, dd
-  83/152). The `dd` FIFO seek case now passes. The lane is continuing od/dd
-  compatibility work. `checksums` is merged over
+  native tests and ratchets passing. `proc-a` is merged at **106 / 125** (kill
+  47/50, nice 11/13, nohup 12/13, stdbuf 12/20, timeout 24/29); all **59**
+  native tests pass. Recent fixes forward timeout signals to the child process
+  group and preserve raw argv in `stdbuf`. `text-a2` started from **17 / 663**
+  across nine applets. Its latest full slice on `b1954910` is **570 / 663**
+  (cut 71/83, paste 25/27, fold 94/101, expand 43/46, unexpand 44/44,
+  nl 67/67, fmt 35/37, pr 26/84, tr 165/174); the lane is working on the
+  remaining `pr`, `tr`, and `fold` failures. `bytes-enc` has implemented
+  base32, base64, basenc, od, and dd; its latest full slice is **229 / 311**
+  (base32 15/16, base64 24/25, basenc 37/38, od 54/80, dd 99/152). Native
+  tests pass. The lane is checking one newly failing base16 write-error case
+  and continuing od spacing work. `checksums` is merged over
   the shared byte/hash APIs and its ten native tests pass. Its first slice was
-  **220 / 507**; a follow-up is **304 / 507** (md5sum 37/38,
-  sha1sum 10/10, sha224sum 8/8, sha256sum 13/13, sha384sum 8/8, sha512sum 8/8,
-  b2sum 17/18, cksum 191/391, sum 12/13). Remaining parser, verification, and
-  output-format gaps are under active work. The integrator owns shared results
+  **220 / 507**; its latest slice is **361 / 507** (b2sum 18/18, cksum
+  245/391, md5sum 38/38, sha1sum 10/10, sha224sum 8/8, sha256sum 13/13,
+  sha384sum 8/8, sha512sum 8/8, sum 13/13). Remaining cksum parser, verification,
+  and output-format gaps are under active work. The integrator owns shared results
   and baselines; lane runs use scratch outputs.
 - The last full uutils run after cp/mv integration measured **2,813 / 5,974**
   and exposed 187 regressions. The shared `FsStat` and special-file read fixes
   are at `d0ac7d7c`; cp fixes at `f06c924b`; mv/ln fixes at `e4efc7ed`;
   `fs-basic` at `aa8a0183`. A corrected full run is pending the active lanes and
   current integration changes.
+- Native `io.write_stdout` and `io.write_stdout_bytes` now write immediately
+  on the host path and report write errors. Focused release-binary checks
+  confirmed `/dev/full` returns an error and a closed pipe exits with status
+  141. Captured evaluators keep in-memory capture, and `print` remains buffered;
+  applets still need focused reruns to record which tests this unblocks.
 - `wc --files0-from=-` now reads NUL-delimited filenames incrementally through
   the new `io.stdin_until` primitive. The focused wc slice passes **59 / 59**,
   including progressive input, directory diagnostics, output errors, and
@@ -150,12 +157,14 @@ worktrees. Current model and host setup are stated in Active resume above.
   `CARGO_TARGET_DIR` avoids replacing the binary under a running suite. The full suite
   takes 25-30 minutes with other work running.
 
-### Runtime requests (none implemented; full lists with test IDs in `requests.md`)
+### Remaining runtime requests (full lists with test IDs in `requests.md`)
 
 - Non-UTF-8 argv is rejected by `xsh` before the script runs.
-- Stdout is buffered to exit; `io.flush_stdout()` now exists but write errors, EPIPE
-  and SIGPIPE are still not observable by default (`process.set_signal_action("PIPE",
-  "default")` opts in): blocks the broken-pipe and `/dev/full` tests.
+- `io.write_stdout` and `io.write_stdout_bytes` report host write errors
+  immediately; `print` remains buffered until exit or `io.flush_stdout()`. Applets
+  using `print` may still miss EPIPE or `/dev/full` diagnostics. Infinite writers
+  such as `yes` must flush periodically. The default SIGPIPE action is unchanged;
+  `process.set_signal_action("PIPE", "default")` opts in to SIGPIPE.
 - `src/entrypoints/xsh.rs:124` swallows a first `--` after the script path.
 - `main`'s `Int` return does not set the exit status (use `exit(n)`); no `Path` to
   `Bytes` accessor; no incremental stdin read; no FIFO read; no lazy `fs.children`.
