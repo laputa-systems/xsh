@@ -79,11 +79,17 @@ systems-core surface below. Lane strategy and the integrator protocol are in [`L
   `cli.argv_bytes()` and removes those paths correctly. The remaining multiple-
   operand test expects uutils' usage block; the applet follows GNU's
   extra-operand diagnostic.
+- `cp` improved from **238 / 386** to **250 / 386** with GNU-compatible
+  `--parents` directory creation and ancestor mode preservation; the other
+  136 failures are listed in `gaps.json`. `ln` improved from **44 / 60** to
+  **54 / 60** with backup and symlink-target fixes; its six remaining IDs are
+  documented with their native API needs and GNU policy differences.
 - The latest merged uutils results combine the 2026-10-09 full run and focused
   `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-  `echo`, `test`, `tail`, and `sleep` refreshes on the current `XSH_BIN`:
-  **5,139 / 5,974 passing**, 835 failing, and 4 excluded. Compared with the
-  preceding integration result, 2 additional test IDs pass and none regressed.
+  `echo`, `test`, `tail`, `sleep`, `cp`, and `ln` refreshes on the current
+  `XSH_BIN`: **5,161 / 5,974 passing**, 813 failing, and 4 excluded. Compared
+  with the preceding integration result, 22 additional test IDs pass and none
+  regressed.
   The focused
   slice is **139 / 242** (`factor` 23/25,
   `sort` 116/217). The default-sort byte-key fast path restored

@@ -121,9 +121,10 @@ be GPT-6 Luna at xhigh.
 
 The latest merged uutils results combine the 2026-10-09 full run with focused
 `factor sort unlink`, `cat head tail tac rm tee touch`, `basenc`, `yes`,
-`echo`, `test`, `tail`, and `sleep` refreshes on the current `XSH_BIN`: 5,139 /
-5,974 passing, 835 failing, and 4 excluded. Compared with the preceding
-integration result, 2 additional test IDs pass and none regressed. The focused `factor sort`
+`echo`, `test`, `tail`, `sleep`, `cp`, and `ln` refreshes on the current
+`XSH_BIN`: 5,161 / 5,974 passing, 813 failing, and 4 excluded. Compared with
+the preceding integration result, 22 additional test IDs pass and none
+regressed. The focused `factor sort`
 result is 139 / 242 (factor 23/25, sort 116/217). The byte-key fast path
 restored `test_factor::test_parallel`, and removing unneeded unique-sort key
 work brought the buffer-size test under its 30-second limit. `--batch-size`
@@ -132,6 +133,8 @@ The `cat head tail tac rm tee touch` slice is 435 / 499, two more passes than
 the checked-in result with no regressions. The `unlink` slice is 6 / 7; raw non-UTF-8 operand paths
 now work, while its extra-operand wording follows GNU. `basenc` remains 38 / 38;
 `yes` passes 10 / 10 with continuous output and raw argument bytes.
+`cp` passes 250 / 386 and `ln` passes 54 / 60; both gained focused tests and
+their residuals are enumerated in `gaps.json`.
 The merged results and remaining failures are tracked in [`CAMPAIGN.md`](CAMPAIGN.md),
 `gaps.json`, and `results/`.
 

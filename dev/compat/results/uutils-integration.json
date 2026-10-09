@@ -166,8 +166,8 @@
       "applet": true
     },
     "cp": {
-      "pass": 238,
-      "fail": 148,
+      "pass": 250,
+      "fail": 136,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -264,18 +264,6 @@
         "test_cp::test_cp_no_preserve_mode",
         "test_cp::test_cp_no_such",
         "test_cp::test_cp_only_source_no_target",
-        "test_cp::test_cp_parents",
-        "test_cp::test_cp_parents_2",
-        "test_cp::test_cp_parents_2_deep_dir",
-        "test_cp::test_cp_parents_2_dir",
-        "test_cp::test_cp_parents_2_link",
-        "test_cp::test_cp_parents_absolute_path",
-        "test_cp::test_cp_parents_multiple_files",
-        "test_cp::test_cp_parents_recursive_source_ending_in_parent_dir",
-        "test_cp::test_cp_parents_symlink_permissions_dir",
-        "test_cp::test_cp_parents_symlink_permissions_file",
-        "test_cp::test_cp_parents_with_permissions_copy_dir",
-        "test_cp::test_cp_parents_with_permissions_copy_file",
         "test_cp::test_cp_preserve_all",
         "test_cp::test_cp_preserve_directory_permissions_by_default",
         "test_cp::test_cp_preserve_link_parses",
@@ -713,25 +701,15 @@
       "applet": true
     },
     "ln": {
-      "pass": 44,
-      "fail": 16,
+      "pass": 54,
+      "fail": 6,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_ln::test_backup_existing_hard_linked_target_is_fifo",
-        "test_ln::test_backup_existing_hard_linked_under_different_name",
         "test_ln::test_hard_logical_dir_fail",
-        "test_ln::test_ln_backup_no_path_traversal",
-        "test_ln::test_ln_hard_link_dir",
-        "test_ln::test_ln_no_dereference_symbolic",
         "test_ln::test_ln_non_utf8_paths",
         "test_ln::test_ln_seen_file",
-        "test_ln::test_relative_src_already_symlink",
-        "test_ln::test_symlink_error_includes_destination",
         "test_ln::test_symlink_missing_destination",
-        "test_ln::test_symlink_no_deref_dir",
-        "test_ln::test_symlink_remove_existing_same_src_and_dest",
-        "test_ln::test_symlink_suffix_without_backup_option",
         "test_ln::test_symlink_target_dir_non_utf8_source_name",
         "test_ln::test_symlink_verbose"
       ],
@@ -1762,8 +1740,8 @@
     }
   },
   "totals": {
-    "pass": 5139,
-    "fail": 835,
+    "pass": 5161,
+    "fail": 813,
     "skip": 0,
     "excluded": 4
   }

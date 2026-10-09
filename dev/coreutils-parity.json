@@ -348,8 +348,8 @@
       "native_tests": "core/tests/test-cp.xsh",
       "uutils_test_count": 398,
       "uutils_integration": {
-        "pass": 238,
-        "fail": 148,
+        "pass": 250,
+        "fail": 136,
         "skip": 0,
         "excluded": 0
       },
@@ -361,7 +361,15 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "The `--parents` path now creates ancestor directories, reports GNU verbose directory copies, restores preserved ancestor modes/timestamps after copying, and rejects recursive source paths ending in `..`; all 14 `test_cp::test_cp_parents*` cases pass.",
+        "The exact non-UTF-8 operand blockers are `test_cp::test_cp_recursive_non_utf8_source`, `test_cp::test_non_utf8_dest`, `test_cp::test_non_utf8_src`, and `test_cp::test_non_utf8_target`; `xsh` rejects non-UTF-8 argv before the script can inspect `cli.argv_bytes()`.",
+        "`test_cp::test_cp_preserve_xattr`, `test_cp::test_cp_preserve_xattr_readonly_source`, and `test_cp::test_cp_xattr_failure_keeps_dest_contents` need native xattr list/get/set/remove APIs so `--preserve=xattr` can copy attributes and report partial failures.",
+        "`test_cp::test_cp_stream_to_full` and `test_cp::test_cp_zero_sized_virtual_file_contents` need a streaming path read/write API: `Path.read_bytes()` treats zero-sized pseudo-files such as `/dev/zero` and `/proc/version` as empty, and the applet needs write errors from `/dev/full`.",
+        "`test_cp::test_cp_reflink_always_failure` needs the native clone operation to expose the underlying reflink failure for special-file sources/destinations; the current `fs.copy_file` rejects non-regular sources before attempting the clone and the script's special-file path bypasses it.",
+        "Several failures assert uutils-only clap behavior that GNU 9.12 does not provide: `test_cp::test_cp_debug_*`, `test_cp::test_progressbar_inexistent_source`, `test_cp::test_cp_arg_no_clobber*` and `test_cp::test_cp_arg_interactive_verbose_clobber` require `--debug`/`--progress`; `test_cp::test_cp_reflink_never`, `test_cp::test_cp_sparse_always_empty`, and `test_cp::test_cp_preserve_all` accept abbreviated enum values; `test_cp::test_cp_reflink_bad` checks clap's invalid-value wording; and `test_cp::test_cp_no_file` expects clap's missing-required-argument block. Keep GNU option and diagnostic behavior.",
+        "Further script behavior remains in same-file and link handling (`test_cp::same_file::*`, `test_cp::link_deref::test_cp_symlink_as_source_with_link_and_no_deref`, `test_cp::test_cp_mode_hardlink_no_dereference`, `test_cp::test_cp_no_deref_preserve_with_deref_keeps_hardlinks`, `test_cp::test_cp_preserve_links_case_*`, `test_cp::test_cp_preserve_hardlink_attributes_in_directory`, `test_cp::test_remove_destination_with_destination_being_a_hardlink_to_source`, `test_cp::test_copy_same_symlink_no_dereference_dangling`, `test_cp::test_copy_symlink_overwrite`, `test_cp::test_copy_through_dangling_symlink_no_dereference_permissions`, `test_cp::test_copy_through_just_created_symlink`, and `test_cp::test_symlink_mode_overwrite`), recursive directory/self-copy and verbose-path handling (`test_cp::test_copy_dir_preserve_permissions_inaccessible_file`, `test_cp::test_copy_directory_to_itself_disallowed`, `test_cp::test_copy_nested_directory_to_itself_disallowed`, `test_cp::test_cp_current_directory_to_itself_disallowed`, `test_cp::test_cp_circular_symbolic_links_in_directory`, `test_cp::test_cp_seen_file`, `test_cp::test_cp_recurse_verbose_output*`, and `test_cp::test_cp_verbose_preserved_link_to_dir`), and destination/error/metadata handling (`test_cp::test_cp_archive_on_nonexistent_file`, `test_cp::test_cp_arg_interactive*`, `test_cp::test_cp_arg_no_target_directory`, `test_cp::test_cp_attributes_only_dest_open_error`, `test_cp::test_cp_backup_no_clobber_conflicting_options`, `test_cp::test_cp_backup_simple_protect_source*`, `test_cp::test_cp_cannot_create_regular_file*`, `test_cp::test_cp_f_i_verbose_non_writeable_destination_*`, `test_cp::test_cp_multiple_files_with_*`, `test_cp::test_cp_no_preserve_mode`, `test_cp::test_cp_no_such`, `test_cp::test_cp_duplicate_*`, `test_cp::test_cp_recursive_char_device_no_permission::*`, `test_cp::test_cp_update_older_interactive_prompt_*`, `test_cp::test_cp_preserve_directory_permissions_by_default`, `test_cp::test_no_preserve_mode_with_later_preserve`, `test_cp::test_preserve_attrs_overriding_2`, and `test_cp::test_cp_dir_vs_file`)."
+      ]
     },
     {
       "utility": "csplit",
@@ -777,8 +785,8 @@
       "native_tests": "core/tests/test-ln.xsh",
       "uutils_test_count": 60,
       "uutils_integration": {
-        "pass": 44,
-        "fail": 16,
+        "pass": 54,
+        "fail": 6,
         "skip": 0,
         "excluded": 0
       },
@@ -790,7 +798,14 @@
       },
       "busybox": null,
       "excluded_tests": [],
-      "known_semantic_gaps": []
+      "known_semantic_gaps": [
+        "test_ln::test_ln_non_utf8_paths and test_ln::test_symlink_target_dir_non_utf8_source_name need raw pathname arguments to reach applets. `cli.argv_bytes()` preserves argv bytes, but XSH has no `Path`-from-`Bytes` constructor or byte-path overloads for `fs.link`/`fs.symlink`; request those shared APIs.",
+        "test_ln::test_hard_logical_dir_fail never runs its first `ln -s d link-to-dir` command: the test constructs a command with `.args()` but does not execute it. The later source is therefore missing, and GNU 9.12 correctly reports `failed to access 'link-to-dir'`.",
+        "test_ln::test_ln_seen_file expects uutils' `will not overwrite just-created` diagnostic without `-f`; GNU 9.12 reports the ordinary `failed to create hard link 'c/f': File exists` for the occupied destination, which XSH follows.",
+        "test_ln::test_symlink_missing_destination expects uutils' missing-destination diagnostic without the usage hint. GNU 9.12 emits `missing destination file operand after ...` followed by the `Try 'ln --help'` hint, which XSH follows.",
+        "test_ln::test_symlink_verbose expects uutils' `(backup: '...')` annotation. GNU 9.12 prints `'backup' ~ 'destination' -> 'source'`, which XSH follows.",
+        "`-d`, `-F`, and `--directory` are explicitly rejected because this Linux applet does not support directory hard links; they are never silently ignored."
+      ]
     },
     {
       "utility": "ls",
