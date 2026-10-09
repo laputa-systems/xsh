@@ -91,6 +91,33 @@ test test_printf_conversion_errors_keep_already_formatted_bytes { |ctx|
   assert partial.stderr == "printf: '42x23': value not completely converted\n"
 }
 
+test test_printf_invalid_formats_keep_gnu_plain_diagnostics { |ctx|
+  let invalid_spec = printf_result(ctx, ["hello %s and %z", "world"])?
+  assert invalid_spec.status == 1
+  assert invalid_spec.stdout == b"hello world and "
+  assert invalid_spec.stderr == "printf: %z: invalid conversion specification\n"
+
+  let option_format = printf_result(ctx, ["-%z", "world"])?
+  assert option_format.status == 1
+  assert option_format.stdout == b"-"
+  assert option_format.stderr == "printf: %z: invalid conversion specification\n"
+
+  let collision = printf_result(ctx, ["╰%z"])?
+  assert collision.status == 1
+  assert collision.stdout == bytes.from_text("╰")
+  assert collision.stderr == "printf: %z: invalid conversion specification\n"
+
+  let bad_codepoint = printf_result(ctx, ["x\\ud800y"])?
+  assert bad_codepoint.status == 1
+  assert bad_codepoint.stdout == b"x"
+  assert bad_codepoint.stderr == "printf: invalid universal character name \\ud800\n"
+
+  let incomplete_hex = printf_result(ctx, ["a\\xzb", "q"])?
+  assert incomplete_hex.status == 1
+  assert incomplete_hex.stdout == b"a"
+  assert incomplete_hex.stderr == "printf: missing hexadecimal number in escape\n"
+}
+
 test test_printf_partial_float_keeps_parsed_prefix { |ctx|
   let partial = printf_result(ctx, ["%.2f is %s", "42.03x", "a lot"])?
   assert partial.status == 1

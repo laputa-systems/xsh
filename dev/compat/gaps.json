@@ -190,6 +190,9 @@
     "pr": [
       "`test_pr::test_invalid_expand_tab_arguments`, `test_pr::test_negative_expand_tabs`, `test_pr::test_number_width_too_large`, and `test_pr::test_zero_expand_tab_width` still differ in `-e` argument validation and width-boundary diagnostics."
     ],
+    "printf": [
+      "The six remaining failures (`test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report`, `test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option`, `test_printf::diagnostics::test_snippet_points_at_the_bad_code_point`, `test_printf::diagnostics::test_snippet_points_at_the_bad_spec`, `test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape`, and `test_printf::diagnostics::test_snippet_points_inside_a_quoted_format`) require uutils' feature-gated terminal carets and Help snippets. GNU coreutils 9.12 `src/printf.c` emits plain stderr messages for invalid conversions and escape errors, as its `tests/printf/printf-cov.pl` checks; XSH keeps those GNU diagnostics. The native printf tests cover the plain messages and preserved output prefixes."
+    ],
     "tr": [
       "The six remaining `test_tr::diagnostics::test_snippet_*` cases need source spans for operand sets and repeat counts to render uutils carets; `cli.applet` currently emits GNU plain diagnostics."
     ],
