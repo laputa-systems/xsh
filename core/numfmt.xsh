@@ -809,6 +809,7 @@ proc consider_suffix(n: Float, unit: Str, method: Str, precision: Int) -> Suffix
 }
 
 type Rendered = {text: Str, err: Str}
+type ByteRendered = {text: Bytes, err: Str}
 
 proc to_unit_text(num: Num, to: Str, to_unit: Int, method: Str, precision: Int, separator: Str, specified: Bool, decimal: Str) [env] -> Rendered {
   # A whole number that divides evenly prints exactly, whatever its size.
@@ -1445,7 +1446,7 @@ proc unit_option(value: Str, option: Str, allow_auto: Bool) [process, env] -> St
   value
 }
 
-proc settings_from(opts: NumfmtOptions) [process, env, io] -> Settings {
+proc settings_from(opts: NumfmtOptions, byte_delimiter: Bool) [process, env, io] -> Settings {
   let from = unit_option(opts.from, "from", true)
   let to = unit_option(opts.to, "to", false)
   let from_unit = parse_unit_size(opts.from_unit)
@@ -1526,7 +1527,7 @@ proc settings_from(opts: NumfmtOptions) [process, env, io] -> Settings {
   }
 
   if let delimiter = opts.delimiter {
-    if delimiter.count_chars() > 1 {
+    if delimiter.count_chars() > 1 and ! byte_delimiter {
       option_error("the delimiter must be a single character")
     }
   }
@@ -1566,9 +1567,193 @@ proc settings_from(opts: NumfmtOptions) [process, env, io] -> Settings {
   }
 }
 
+# The pinned uutils tests use `-d=CHAR` as a separator spelling, while GNU
+# treats `=CHAR` as the attached value. Normalize this nonempty short form to
+# match the tested uutils interface; `-d=` still means the delimiter `=`.
+pure normalize_delimiter_option(argv: List[Str]) -> List[Str] {
+  var normalized: List[Str] = []
+
+  for item in argv {
+    if item.starts_with("-d=") and item.byte_len() > 3 {
+      normalized += ["-d" + item.byte_slice(3)]
+    } else {
+      normalized += [item]
+    }
+  }
+
+  normalized
+}
+
+pure long_name_matches(name: Str, full: Str) -> Bool {
+  name != "" and full.starts_with(name)
+}
+
+pure option_takes_value(name: Str) -> Bool {
+  long_name_matches(name, "delimiter") or long_name_matches(name, "field") or
+    long_name_matches(name, "format") or long_name_matches(name, "from") or
+    long_name_matches(name, "from-unit") or long_name_matches(name, "invalid") or
+    long_name_matches(name, "padding") or long_name_matches(name, "round") or
+    long_name_matches(name, "suffix") or long_name_matches(name, "to") or
+    long_name_matches(name, "to-unit") or long_name_matches(name, "unit-separator")
+}
+
+# Preserve argv bytes for the option value even though cli.applet also exposes
+# the lossy Str view used for parsing and diagnostics.
+pure raw_delimiter(argv: List[Str], raw: List[Bytes], fallback: Bytes) -> Bytes {
+  var selected = fallback
+  var at = 0
+
+  while at < argv.len() {
+    let item = argv[at]
+
+    if item.starts_with("--") {
+      let equal_at = item.find("=")
+      let name = if equal_at == null { item.byte_slice(2) } else { item.byte_slice(2, length: (equal_at ?? 0) - 2) }
+
+      if long_name_matches(name, "delimiter") {
+        if equal_at == null {
+          if at + 1 < raw.len() { selected = raw[at + 1] }
+          at += 2
+        } else {
+          selected = raw[at].slice((equal_at ?? 0) + 1)
+          at += 1
+        }
+      } else if option_takes_value(name) and equal_at == null {
+        at += 2
+      } else {
+        at += 1
+      }
+    } else if item.starts_with("-") and item != "-" {
+      var pos = 1
+      var consumed = false
+
+      while pos < item.byte_len() {
+        let letter = item.byte_slice(pos, length: 1)
+
+        if letter == "d" {
+          if pos + 1 < item.byte_len() {
+            selected = raw[at].slice(pos + 1)
+            at += 1
+          } else {
+            if at + 1 < raw.len() { selected = raw[at + 1] }
+            at += 2
+          }
+          consumed = true
+          break
+        }
+
+        pos += 1
+      }
+
+      if ! consumed { at += 1 }
+    } else {
+      at += 1
+    }
+  }
+
+  selected
+}
+
+# Return only positional bytes, consuming the options whose values are not
+# operands. GNU parsing has already rejected malformed or ambiguous options.
+pure raw_operands(argv: List[Str], raw: List[Bytes]) -> List[Bytes] {
+  var operands: List[Bytes] = []
+  var at = 0
+  var options = true
+
+  while at < argv.len() {
+    let item = argv[at]
+
+    if options and item == "--" {
+      options = false
+      at += 1
+    } else if options and item.starts_with("--") {
+      let equal_at = item.find("=")
+      let name = if equal_at == null { item.byte_slice(2) } else { item.byte_slice(2, length: (equal_at ?? 0) - 2) }
+      at += if option_takes_value(name) and equal_at == null { 2 } else { 1 }
+    } else if options and item.starts_with("-") and item != "-" {
+      var pos = 1
+      var takes_next = false
+      var has_value = false
+
+      while pos < item.byte_len() {
+        let letter = item.byte_slice(pos, length: 1)
+
+        if letter == "d" {
+          takes_next = pos == item.byte_len() - 1
+          has_value = true
+          break
+        }
+
+        pos += 1
+      }
+
+      at += if has_value and takes_next { 2 } else { 1 }
+    } else {
+      operands += [raw[at]]
+      at += 1
+    }
+  }
+
+  operands
+}
+
+pure split_bytes(line: Bytes, delimiter: Bytes) -> List[Bytes] {
+  return [line] when delimiter.len() == 0
+
+  var pieces: List[Bytes] = []
+  var start = 0
+  var at = 0
+
+  while at + delimiter.len() <= line.len() {
+    if line[at..at + delimiter.len()] == delimiter {
+      pieces += [line[start..at]]
+      at += delimiter.len()
+      start = at
+    } else {
+      at += 1
+    }
+  }
+
+  pieces += [line[start..line.len()]]
+  pieces
+}
+
+pure invalid_utf8(value: Bytes) -> Bool {
+  match value.utf8() {
+    Ok(_) => false
+    Err(_) => true
+  }
+}
+
+proc format_delimited_bytes(line: Bytes, delimiter: Bytes, settings: Settings) [env] -> ByteRendered {
+  var out: List[Bytes] = []
+  let pieces = split_bytes(line, delimiter)
+
+  for index in range(pieces.len()) {
+    let field = pieces[index]
+
+    if index > 0 { out += [delimiter] }
+
+    if field_selected(settings, index + 1) {
+      guard let text = field.utf8() else {
+        return {text: bytes.concat(out), err: f"invalid number: {gnu.quote(escape_line(field))}"}
+      }
+
+      let formatted = format_string(trim_start(text), settings, null)
+      return {text: bytes.concat(out), err: formatted.err} when formatted.err != ""
+      out += [bytes.from_text(formatted.text)]
+    } else {
+      out += [field]
+    }
+  }
+
+  {text: bytes.concat(out), err: ""}
+}
+
 proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: NumfmtOptions = cli.applet(
-    argv,
+    normalize_delimiter_option(argv),
     {
       gnu: {status: 1},
       debug: {form: "--debug", default: false},
@@ -1603,7 +1788,10 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  let settings = settings_from(opts)
+  let raw_argv = cli.argv_bytes()
+  let delimiter_bytes = raw_delimiter(argv, raw_argv, bytes.from_text(opts.delimiter ?? ""))
+  let byte_delimiter = opts.delimiter != null and invalid_utf8(delimiter_bytes)
+  let settings = settings_from(opts, byte_delimiter)
 
   if settings.debug {
     if settings.from == "none" and settings.to == "none" and settings.padding == 0 and ! settings.grouping {
@@ -1624,7 +1812,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var ends: List[Bool] = []
 
   if opts.numbers.len() > 0 {
-    lines = [bytes.from_text(item) for item in opts.numbers]
+    lines = if byte_delimiter { raw_operands(argv, raw_argv) } else { [bytes.from_text(item) for item in opts.numbers] }
     ends = [true for item in opts.numbers]
   } else {
     var data = b""
@@ -1649,6 +1837,56 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       lines += [data[start..data.len()]]
       ends += [false]
     }
+  }
+
+  if byte_delimiter {
+    let terminator_bytes = bytes.from_text(if settings.zero { "\0" } else { "\n" })
+    var output: List[Bytes] = []
+    var failed = false
+    var saw_invalid = false
+
+    for index in range(lines.len()) {
+      let raw = lines[index]
+      let eol = if ends[index] { terminator_bytes } else { b"" }
+
+      if opts.numbers.len() == 0 and index < settings.header {
+        output += [raw, eol]
+        continue
+      }
+
+      let result = format_delimited_bytes(raw, delimiter_bytes, settings)
+
+      if result.err == "" {
+        output += [result.text, eol]
+      } else if settings.invalid == "abort" {
+        output += [result.text]
+        gnu.write_bytes(bytes.concat(output))
+        gnu.error(result.err)
+        exit 2
+      } else {
+        if settings.invalid == "fail" {
+          gnu.error(result.err)
+          failed = true
+        } else if settings.invalid == "warn" {
+          gnu.error(result.err)
+        }
+
+        saw_invalid = true
+        output += [raw, eol]
+      }
+    }
+
+    gnu.write_bytes(bytes.concat(output))
+
+    if settings.debug and saw_invalid {
+      gnu.error("failed to convert some of the input numbers")
+    }
+
+    if failed {
+      exit 2
+    }
+
+    return
   }
 
   var out = ""
