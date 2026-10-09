@@ -209,3 +209,19 @@ test test_expr_help_and_version { |ctx|
   assert version.status == 0
   assert version.stdout.starts_with("expr")
 }
+
+test test_expr_write_failure_uses_status_3 { |ctx|
+  if ! p"/dev/full".exists()? {
+    test.skip("/dev/full is not available")
+  }
+
+  let root = test.temp_dir(ctx, name: "expr-full")?
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/expr.xsh"
+  let argv = [ctx.xsh_bin.display(), script.display(), "2", "+", "2"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", p"/dev/full", err)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 3
+  assert err.read_text()? == "expr: No space left on device\n"
+}

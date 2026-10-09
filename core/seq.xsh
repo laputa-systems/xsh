@@ -509,7 +509,8 @@ pure parse_format(format: Str, shown: Str) -> Parsed {
 
   return {message: f"invalid width: '{parts[2]}'", spec: empty} when parts[2].byte_len() > 8 or (parts[2].parse_int() ?? 0) > SIZE_LIMIT
   return {message: f"invalid precision: '{parts[4]}'", spec: empty} when parts[4].byte_len() > 8 or (parts[4].parse_int() ?? 0) > SIZE_LIMIT
-  return {message: f"format {shown} has unknown %{conv} directive", spec: empty} when conv == "" or ! ("aAeEfFgG".find(conv) != null)
+  return {message: f"{format}: invalid conversion specification", spec: empty} when conv == "c"
+  return {message: f"invalid format {shown}, directive must be %[0]['][-][N][.][N]f", spec: empty} when conv == "" or ! ("aAeEfFgG".find(conv) != null)
   return {message: f"format {shown}: the %{conv} conversion is not supported", spec: empty} when conv == "a" or conv == "A"
 
   var suffix = ""
@@ -601,6 +602,129 @@ pure value_of(number: Num, scale: Int) -> Signed {
   {neg: number.neg, digits: if number.scale < scale { number.digits + zeros(scale - number.scale) } else { number.digits }}
 }
 
+pure infinity_line(negative: Bool, spec: Spec) -> Str {
+  let sign = if negative { "-" } else if spec.plus { "+" } else if spec.space { " " } else { "" }
+  let text = sign + "inf"
+  let padding = if spec.width > text.byte_len() { pad_spaces(spec.width - text.byte_len()) } else { "" }
+  let value = if spec.left { text + padding } else { padding + text }
+
+  spec.prefix + value + spec.suffix
+}
+
+proc seq_write(text: Bytes) [process, env, io] {
+  if let Err(failure) = io.write_stdout_bytes(text) {
+    gnu.write_failed(failure)
+  }
+}
+
+# Infinite sequences must reach the reader as they are produced. The host
+# runtime normally ignores SIGPIPE so finite writers can report errors; seq
+# restores the utility default while it is streaming an endless result.
+proc stream_endless(first: Num, step: Num, spec: Spec, separator: Bytes) [process, env, error, io] {
+  process.set_signal_action("PIPE", "default")?
+
+  var emitted = false
+  let scale = if first.scale > step.scale { first.scale } else { step.scale }
+  let plain = spec.conv == "f" and spec.precision == scale and spec.prefix == "" and spec.suffix == "" and ! spec.left and ! spec.plus and ! spec.space and ! spec.alt
+  let increment = if step.kind == "fin" { value_of(step, scale) } else { {neg: step.neg, digits: "0"} }
+  var current = value_of(first, scale)
+
+  if first.kind == "inf" {
+    let line = infinity_line(first.neg, spec)
+
+    while true {
+      seq_write(bytes.concat([if emitted { separator } else { b"" }, bytes.from_text(line)]))
+      emitted = true
+    }
+  }
+
+  if step.kind == "inf" {
+    let line = if plain { plain_line(current, scale, spec.width) } else { spec.prefix + format_number(current.neg, current.digits, scale, spec) + spec.suffix }
+    seq_write(bytes.from_text(line))
+    let infinite = infinity_line(step.neg, spec)
+
+    while true {
+      seq_write(bytes.concat([separator, bytes.from_text(infinite)]))
+    }
+  }
+
+  while true {
+    let line = if plain { plain_line(current, scale, spec.width) } else { spec.prefix + format_number(current.neg, current.digits, scale, spec) + spec.suffix }
+    seq_write(bytes.concat([if emitted { separator } else { b"" }, bytes.from_text(line)]))
+    emitted = true
+    current = signed_add(current, increment)
+  }
+}
+
+# Preserve byte-valued separator and terminator arguments for stdout. The
+# parser still consumes the lossy Str view, while cli.argv_bytes exposes the
+# original argument vector for output values.
+pure sequence_option_bytes(argv: List[Str], raw: List[Bytes], long_name: Str, short_name: Str, fallback: Bytes) -> Bytes {
+  var selected = fallback
+  var at = 0
+
+  while at < argv.len() {
+    let item = argv[at]
+
+    if item == "--" or ! item.starts_with("-") or item == "-" {
+      break
+    }
+
+    if item.starts_with("--") {
+      let equal_at = item.find("=")
+      let name = if equal_at == null { item.byte_slice(2) } else { item.byte_slice(2, length: (equal_at ?? 0) - 2) }
+      let is_target = name != "" and long_name.starts_with(name)
+
+      if is_target {
+        if equal_at == null {
+          if at + 1 < raw.len() { selected = raw[at + 1] }
+          at += 2
+        } else {
+          selected = raw[at].slice((equal_at ?? 0) + 1)
+          at += 1
+        }
+      } else if equal_at == null and ("format".starts_with(name) or "separator".starts_with(name) or "terminator".starts_with(name)) {
+        at += 2
+      } else {
+        at += 1
+      }
+    } else {
+      var pos = 1
+      var found = false
+      var takes_next = false
+
+      while pos < item.byte_len() {
+        let letter = item.byte_slice(pos, length: 1)
+
+        if letter == short_name {
+          if pos + 1 < item.byte_len() {
+            selected = raw[at].slice(pos + 1)
+            at += 1
+          } else {
+            if at + 1 < raw.len() { selected = raw[at + 1] }
+            at += 2
+          }
+          found = true
+          break
+        }
+
+        if letter == "f" or letter == "s" or letter == "t" {
+          takes_next = pos == item.byte_len() - 1
+          break
+        }
+
+        pos += 1
+      }
+
+      if ! found {
+        at += if takes_next { 2 } else { 1 }
+      }
+    }
+  }
+
+  selected
+}
+
 # A line for the default fixed-point format at a scale equal to the precision.
 pure plain_line(value: Signed, places: Int, width: Int) -> Str {
   let sign = if value.neg { "-" } else { "" }
@@ -614,6 +738,7 @@ pure plain_line(value: Signed, places: Int, width: Int) -> Str {
 }
 
 proc main(...argv: List[Str]) [process, env, error, io] {
+  let raw_argv = cli.argv_bytes()
   let opts: SeqOptions = cli.applet(
     protect_numbers(argv),
     {
@@ -661,6 +786,8 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   let last = number_argument(words[words.len() - 1])
+  let separator_bytes = sequence_option_bytes(argv, raw_argv, "separator", "s", bytes.from_text(opts.separator))
+  let terminator_bytes = sequence_option_bytes(argv, raw_argv, "terminator", "t", bytes.from_text(opts.terminator))
   var spec = {prefix: "", suffix: "", left: false, plus: false, space: false, alt: false, zero: true, width: 0, precision: -1, conv: "g"}
   var places = -1
 
@@ -698,8 +825,8 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   if endless {
-    gnu.error("an endless sequence cannot be printed: standard output is not flushed incrementally")
-    exit 1
+    stream_endless(first, step, spec, separator_bytes)
+    return
   }
 
   var lines: List[Str] = []
@@ -753,6 +880,14 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   }
 
   if lines.len() > 0 {
-    gnu.write_text(lines.join(opts.separator) + opts.terminator)
+    var output: List[Bytes] = []
+
+    for index in range(lines.len()) {
+      if index > 0 { output += [separator_bytes] }
+      output += [bytes.from_text(lines[index])]
+    }
+
+    output += [terminator_bytes]
+    gnu.write_bytes(bytes.concat(output))
   }
 }

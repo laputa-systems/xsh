@@ -98,7 +98,8 @@ test test_seq_format_errors { |ctx|
     {format: "%g%g", message: "format '%g%g' has too many % directives"},
     {format: "%g%", message: "format '%g%' has too many % directives"},
     {format: "%", message: "format '%' ends in %"},
-    {format: "%5.2c", message: "format '%5.2c' has unknown %c directive"},
+    {format: "%5.2c", message: "%5.2c: invalid conversion specification"},
+    {format: "%q", message: "invalid format '%q', directive must be %[0]['][-][N][.][N]f"},
     {format: "%a", message: "format '%a': the %a conversion is not supported"},
   ] {
     let result = seq_run(ctx, ["-f", case.format, "1"])?
@@ -131,15 +132,10 @@ test test_seq_argument_errors_are_gnu_usage_errors { |ctx|
   }
 }
 
-test test_seq_option_errors_and_endless_sequences_fail_explicitly { |ctx|
+test test_seq_unknown_option_is_a_gnu_usage_error { |ctx|
   let unknown = seq_run(ctx, ["--definitely-invalid"])?
   assert unknown.status == 1
   assert unknown.stderr == "seq: unrecognized option '--definitely-invalid'\nTry 'seq --help' for more information.\n", unknown.stderr
-
-  let endless = seq_run(ctx, ["inf"])?
-  assert endless.status == 1
-  assert endless.stdout == ""
-  assert "endless sequence" in endless.stderr
 }
 
 test test_seq_help_and_version { |ctx|
@@ -151,4 +147,20 @@ test test_seq_help_and_version { |ctx|
   let version = seq_run(ctx, ["--version"])?
   assert version.status == 0
   assert version.stdout.starts_with("seq")
+}
+
+test test_seq_endless_stream_reports_device_write_failure { |ctx|
+  if ! p"/dev/full".exists()? {
+    test.skip("/dev/full is not available")
+  }
+
+  let root = test.temp_dir(ctx, name: "seq-full")?
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/seq.xsh"
+  let argv = [ctx.xsh_bin.display(), script.display(), "inf"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", p"/dev/full", err)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+  assert err.read_text()? == "seq: write error: No space left on device\n"
 }

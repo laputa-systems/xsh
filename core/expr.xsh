@@ -1317,7 +1317,10 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     exit 2
   }
 
-  gnu.write_bytes(bytes.concat([result.value, b"\n"]))
+  if let Err(failure) = io.write_stdout_bytes(bytes.concat([result.value, b"\n"])) {
+    gnu.error(gnu.strerror(failure))
+    exit 3
+  }
 
   if is_null(text_of(result.value)) {
     exit 1
