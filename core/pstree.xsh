@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  f"usage: xsh applets/{applet_name}.xsh {summary}"
+  f"usage: {applet_name} {summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
@@ -127,18 +127,14 @@ pure vertical(ascii: Bool) -> Str {
 }
 
 proc print_help() [error] {
-  print "usage: pstree [-aAcGhlpstT] [PID|USER]"
+  print "usage: pstree [-aAGps] [--help] [PID|USER]"
   print "options:"
   print "  -a, --arguments     show command line arguments"
   print "  -A, --ascii         use ASCII line drawing characters"
-  print "  -c, --compact-not   don't compact identical subtrees"
   print "  -G, --vt100         use VT100 line drawing characters"
-  print "  -h, --help          show this help"
-  print "  -l, --long          don't truncate long lines"
-  print "  -p, --show-pids     show PIDs; implies -c"
+  print "      --help          show this help"
+  print "  -p, --show-pids     show PIDs"
   print "  -s, --show-parents  show parents of the selected process"
-  print "  -t, --thread-names  show full thread names"
-  print "  -T, --hide-threads  hide threads, show only processes"
 }
 
 pure render_children(
@@ -258,6 +254,22 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let opts: PstreeOptions = cli.applet(
     argv,
     {
+      gnu: {
+        prog: "pstree",
+        status: 1,
+        unsupported: {
+          "-c": "identical-subtree compaction control is not implemented",
+          "--compact-not": "identical-subtree compaction control is not implemented",
+          "-l": "terminal-width-aware line handling is not implemented",
+          "--long": "terminal-width-aware line handling is not implemented",
+          "-t": "thread-name rendering is not implemented",
+          "--thread-names": "thread-name rendering is not implemented",
+          "-T": "thread filtering is not implemented",
+          "--hide-threads": "thread filtering is not implemented",
+          "-h": "process highlighting is not implemented",
+          "-H": "process highlighting is not implemented",
+        },
+      },
       show_args: {
         form: "-a --arguments",
         default: true,
@@ -273,8 +285,9 @@ proc main(...argv: List[Str]) [fs, process, error] {
         conflicts: "ascii",
       },
       show_help: {
-        form: "-h",
+        form: "--help",
         default: false,
+        stop: true,
       },
       show_pids: {
         form: "-p --show-pids",
@@ -282,10 +295,6 @@ proc main(...argv: List[Str]) [fs, process, error] {
       },
       show_parents: {
         form: "-s --show-parents",
-        default: false,
-      },
-      ignored: {
-        form: "-c --compact-not -l --long -t --thread-names -T --hide-threads",
         default: false,
       },
       operands: {
@@ -302,7 +311,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     return
   }
 
-  return Err(usage_error("pstree", "[-aAcGhlpstT] [PID|USER]")) when operands.len() > 1
+  return Err(usage_error("pstree", "[-aAGps] [PID|USER]")) when operands.len() > 1
 
   if show_parents and operands.len() == 0 {
     return Err(AppletError.Usage("pstree: -s requires a PID selector"))

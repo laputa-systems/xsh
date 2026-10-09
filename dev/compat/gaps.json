@@ -86,6 +86,18 @@
       "test_touch::test_touch_invalid_timestamp_leading_multibyte_char expects a literal euro sign in the invalid-date diagnostic; under LC_ALL=C GNU quotes its UTF-8 bytes as `\\342\\202\\254`, which the applet follows.",
       "test_touch::test_touch_mtime_dst_fails passes a nonexistent local time in a DST gap; time.parse has no timezone transition rules to reject it, so touch succeeds where the test expects an error.",
       "test_touch::test_touch_set_date_wrong_format expects uutils' `Unable to parse date: 2005-43-21`; GNU 9.12 prints `touch: invalid date format '2005-43-21'`, which the applet follows."
+    ],
+    "getty": [
+      "getty -h/--flow-control, -L/--local-line, -m/--extract-baud, -w/--wait-cr, and -t/--timeout are explicitly rejected because terminal line control, modem baud detection, CR-wait, and timed login are unavailable; these options match util-linux getty's host help, and uutils has no getty tests."
+    ],
+    "ifdown": [
+      "ifdown -v/--verbose is explicitly rejected because verbose hook and network-operation reporting is not implemented; ifupdown is not installed on the host for a native comparison, and uutils has no ifdown tests."
+    ],
+    "ifup": [
+      "ifup -v/--verbose is explicitly rejected because verbose hook and network-operation reporting is not implemented; ifupdown is not installed on the host for a native comparison, and uutils has no ifup tests."
+    ],
+    "pstree": [
+      "pstree -c/--compact-not, -l/--long, -t/--thread-names, -T/--hide-threads, and -h/-H highlighting are explicitly rejected because subtree controls, terminal-width-aware rendering, thread display, and process highlighting are unavailable; these flags match procps-ng pstree help, and uutils has no pstree tests."
     ]
   }
 }

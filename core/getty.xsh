@@ -18,6 +18,22 @@ pure parse_getty_args(argv: List[Str]) -> Result[GettyOptions] {
   let opts = cli.applet(
     argv,
     {
+      gnu: {
+        prog: "getty",
+        status: 1,
+        unsupported: {
+          "-h": "hardware flow control requires terminal control support",
+          "--flow-control": "hardware flow control requires terminal control support",
+          "-L": "local-line mode requires terminal control support",
+          "--local-line": "local-line mode requires terminal control support",
+          "-m": "modem baud-rate detection is not available",
+          "--extract-baud": "modem baud-rate detection is not available",
+          "-w": "waiting for carriage return is not available",
+          "--wait-cr": "waiting for carriage return is not available",
+          "-t": "login timeouts are not available",
+          "--timeout": "login timeouts are not available",
+        },
+      },
       no_prompt: {
         form: "-n --no-prompt",
         default: false,
@@ -42,14 +58,6 @@ pure parse_getty_args(argv: List[Str]) -> Result[GettyOptions] {
       init_string: {
         form: "-I --init-string STRING",
         default: "",
-      },
-      timeout: {
-        form: "-t --timeout SECONDS",
-        default: "",
-      },
-      ignored: {
-        form: "-h -L -m -w",
-        default: false,
       },
       operands: {
         form: "...ARG",

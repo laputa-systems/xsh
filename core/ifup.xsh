@@ -632,12 +632,16 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   let opts: IfupOptions = cli.applet(
     argv,
     {
+      gnu: {
+        prog: "ifup",
+        status: 1,
+        unsupported: {
+          "-v": "verbose hook and network-operation reporting is not implemented",
+          "--verbose": "verbose hook and network-operation reporting is not implemented",
+        },
+      },
       all: {
         form: "-a --all",
-        default: false,
-      },
-      ignored: {
-        form: "-v --verbose",
         default: false,
       },
       operands: {
