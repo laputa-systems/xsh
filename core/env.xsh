@@ -449,6 +449,9 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
       continue
     }
     if raw_word == b"--block-signal" or byte_prefix(raw_word, b"--block-signal=") {
+      # Names are checked first so an unknown name reports "invalid signal" as GNU
+      # does; only a valid request reaches the unsupported-operation error.
+      if byte_prefix(raw_word, b"--block-signal=") { validate_signal_names(signal_names(raw_word[15..].utf8()?)) }
       gnu.error("signal mask operations are unavailable in this runtime")
       exit 125
     }
