@@ -20,7 +20,9 @@ enum Address { Line(Int), Stride(Int, Int), Last, Pattern(RegexChoice), Plus(Int
 # One piece of a replacement: literal TEXT followed by capture GROUP (-1 for
 # none, 0 for the whole match) rendered under case-conversion KIND.
 type ReplNode = {text: Bytes, group: Int, kind: Int}
-type Substitution = {regex: RegexChoice, nodes: List[ReplNode], global: Bool, occurrence: Int, print: Bool, write: Str?}
+# PRINT is 0 for no `p` flag, 1 when `p` precedes any `e` flag (print before the
+# command runs), and 2 when it follows `e` (print the command's output).
+type Substitution = {regex: RegexChoice, nodes: List[ReplNode], global: Bool, occurrence: Int, print: Int, write: Str?, evaluate: Bool}
 # One compiled command. Which fields matter depends on OP (the command byte):
 # TEXT for a/i/c, NAME for r/R/w/W file names, NUMBER for q/Q exit codes, the
 # l width, and jump targets, LABEL for b/t/T/: names.
@@ -117,18 +119,18 @@ pure lower_byte(byte: Int) -> Int { if byte >= 65 and byte <= 90 { byte + 32 } e
 # End of the bracket expression whose `[` is at OPEN: the index after its `]`,
 # or -1 when it never closes on that line. A `]` first in the list is a member,
 # and `[:`, `[.`, `[=` open nested classes that close with `:]`, `.]`, `=]`.
-pure bracket_end(text: Bytes, open: Int) -> Int {
+pure bracket_end(text: Bytes, open: Int, newline_ends: Bool) -> Int {
   var at = open + 1
   if at_byte(text, at) == 94 { at += 1 }
   if at_byte(text, at) == 93 { at += 1 }
   while at < text.len() {
     let byte = at_byte(text, at)
-    if byte == NEWLINE { return -1 }
+    if byte == NEWLINE and newline_ends { return -1 }
     if byte == 91 and at_byte(text, at + 1) in [58, 46, 61] {
       let kind = at_byte(text, at + 1)
       var close = at + 2
       while close + 1 < text.len() and !(at_byte(text, close) == kind and at_byte(text, close + 1) == 93) {
-        if at_byte(text, close) == NEWLINE { return -1 }
+        if at_byte(text, close) == NEWLINE and newline_ends { return -1 }
         close += 1
       }
       if close + 1 >= text.len() { return -1 }
@@ -169,7 +171,7 @@ pure match_slash(text: Bytes, start: Int, slash: Int, is_regex: Bool) -> SlashSc
       continue
     }
     if byte == 91 and is_regex {
-      let close = bracket_end(text, at - 1)
+      let close = bracket_end(text, at - 1, true)
       if close < 0 {
         var stop = at
         while stop < text.len() and at_byte(text, stop) != NEWLINE { stop += 1 }
@@ -268,7 +270,7 @@ pure group_count(pattern: Bytes, extended: Bool) -> Int {
         at += 1
       }
     } else if byte == 91 {
-      let close = bracket_end(pattern, at - 1)
+      let close = bracket_end(pattern, at - 1, false)
       if close >= 0 { at = close }
     } else if extended and byte == 40 { count += 1 }
   }
@@ -291,7 +293,7 @@ pure rewrite_anchors(pattern: Bytes) -> AnchorScan {
       continue
     }
     if byte == 91 {
-      let close = bracket_end(pattern, at)
+      let close = bracket_end(pattern, at, false)
       if close >= 0 {
         out += [pattern[at..close]]
         at = close
@@ -322,7 +324,7 @@ pure paren_failure(pattern: Bytes, extended: Bool) -> Str? {
       continue
     }
     if byte == 91 {
-      let close = bracket_end(pattern, at - 1)
+      let close = bracket_end(pattern, at - 1, false)
       if close >= 0 { at = close }
       continue
     }
@@ -346,7 +348,7 @@ pure extended_precheck(pattern: Bytes) -> Str? {
     at += 1
     if byte == 92 { at += 1; previous = 0; continue }
     if byte == 91 {
-      let close = bracket_end(pattern, at - 1)
+      let close = bracket_end(pattern, at - 1, false)
       if close >= 0 { at = close }
       previous = 0
       continue
@@ -392,7 +394,7 @@ pure widen_intervals(pattern: Bytes, extended: Bool) -> Bytes {
       continue
     }
     if byte == 91 {
-      let close = bracket_end(pattern, at)
+      let close = bracket_end(pattern, at, false)
       if close >= 0 {
         out += [pattern[at..close]]
         at = close
@@ -434,7 +436,7 @@ pure adapt_basic(pattern: Bytes) -> Bytes {
       continue
     }
     if byte == 91 {
-      let close = bracket_end(pattern, at)
+      let close = bracket_end(pattern, at, false)
       if close >= 0 {
         out += [simplify_bracket(pattern[at..close])]
         at = close
@@ -506,7 +508,7 @@ pure parse_address(chunk: Chunk, start: Int, extended: Bool) -> Result[AddressSc
     }
     let normal = normalize(scan.text, .RegexText)?
     if normal.is_empty() {
-      if ignore_case or multiline { return Err(complain(chunk, at, "no previous regular expression")) }
+      if ignore_case or multiline { return Err(complain(chunk, at, "cannot specify modifiers on empty regexp")) }
       return Ok({found: true, address: .Pattern(.Previous), next: at})
     }
     let spec = match compile_regex(normal, extended, ignore_case, multiline) {
@@ -791,17 +793,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
           at = after
           continue
         }
-        let probe = skip_blanks(text, after)
-        if at_byte(text, probe) == NEWLINE {
-          begin = probe + 1
-        } else if probe >= text.len() {
-          commands += [command]
-          pending = commands.len() - 1
-          at = probe
-          continue
-        } else {
-          begin = after
-        }
+        if at_byte(text, after) == NEWLINE { begin = after + 1 } else { begin = after }
       }
       let scan = read_text(chunk, begin)?
       commands += [{...command, text: scan.text}]
@@ -850,7 +842,16 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
     }
     if op == 101 {
       if options.sandbox { return Err(complain(chunk, at, "e/r/w commands disabled in sandbox mode")) }
-      return Err(complain(chunk, at, "the 'e' command is not supported"))
+      let start = skip_blanks(text, at)
+      if start >= text.len() or at_byte(text, start) == NEWLINE {
+        at = start
+        commands += [command]
+        continue
+      }
+      let scan = read_text(chunk, start)?
+      commands += [{...command, text: scan.text}]
+      at = scan.next
+      continue
     }
     if op == 115 {
       let slash = at_byte(text, at)
@@ -863,7 +864,8 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
       at = replacement_scan.next
       let replacement_text = normalize(replacement_scan.text, .ReplacementText)?
       var global = false
-      var print = false
+      var print = 0
+      var evaluate = false
       var occurrence = 0
       var ignore_case = false
       var multiline = false
@@ -874,10 +876,10 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
         at += 1
         if flag == 105 or flag == 73 { ignore_case = true } else if flag == 109 or flag == 77 { multiline = true } else if flag == 101 {
           if options.sandbox { return Err(complain(chunk, at, "e/r/w commands disabled in sandbox mode")) }
-          return Err(complain(chunk, at, "the 'e' flag of the 's' command is not supported"))
+          evaluate = true
         } else if flag == 112 {
-          if print { return Err(complain(chunk, at, "multiple 'p' options to 's' command")) }
-          print = true
+          if print != 0 { return Err(complain(chunk, at, "multiple 'p' options to 's' command")) }
+          print = if evaluate { 2 } else { 1 }
         } else if flag == 103 {
           if global { return Err(complain(chunk, at, "multiple 'g' options to 's' command")) }
           global = true
@@ -914,7 +916,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
       var choice: RegexChoice = .Previous
       var groups = -1
       if pattern_text.is_empty() {
-        if ignore_case or multiline { return Err(complain(chunk, at, "no previous regular expression")) }
+        if ignore_case or multiline { return Err(complain(chunk, at, "cannot specify modifiers on empty regexp")) }
       } else {
         choice = match compile_regex(pattern_text, options.extended, ignore_case, multiline) {
           Ok(value) => value
@@ -927,7 +929,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
       if groups >= 0 and highest > groups {
         return Err(complain(chunk, at, f"invalid reference \\{highest} on 's' command's RHS"))
       }
-      let substitution: Substitution = {regex: choice, nodes: nodes, global: global, occurrence: occurrence, print: print, write: write}
+      let substitution: Substitution = {regex: choice, nodes: nodes, global: global, occurrence: occurrence, print: print, write: write, evaluate: evaluate}
       commands += [{...command, sub: substitution}]
       continue
     }
@@ -999,8 +1001,11 @@ type Selection = {matched: Bool, state: RangeState, end: Int, last_regex: RegexS
 # literal text, 1 the contents of file NAME, 2 one raw line read by R.
 type QueueItem = {kind: Int, data: Bytes, name: Str}
 type Outputs = {bufs: List[List[Bytes]], missing: List[Bool]}
-type Input = {names: List[Str], next_name: Int, records: List[Bytes], position: Int, trailing: Bool, current: Str, line: Int, bad: Int, fatal: Bool}
-type Step = {input: Input, line: Space?}
+# Where the stream stands in its input files. The records of the current file
+# live beside the cursor, not inside it, because a record holding a long list
+# is copied whenever it is passed or updated.
+type Cursor = {next_name: Int, position: Int, count: Int, trailing: Bool, current: Str, line: Int, bad: Int, fatal: Bool}
+type Loaded = {cursor: Cursor, records: List[Bytes]}
 type Machine = {hold: Space, out: Outputs, last_regex: RegexSpec?, status: Int, quit: Bool, bad: Int, rdata: Map[Bytes], roffset: Map[Int]}
 # FILE_TARGETS maps each command to its w-file output target (-1 if none).
 type Context = {program: Program, options: Options, in_place: Bool, delim: Int, delim_bytes: Bytes, targets: List[Int], file_names: List[Str]}
@@ -1027,6 +1032,9 @@ pure emit(out: Outputs, target: Int, in_place: Bool, text: Bytes, newline: Bool,
   if missing[target] { parts += [delim]; missing[target] = false }
   parts += [text]
   if newline { parts += [delim] } else { missing[target] = true }
+  # Output kept until the end (in-place and `w` files) is merged in chunks so
+  # that appending stays cheap for long inputs.
+  if index != 0 and parts.len() > 128 { parts = [bytes.concat(parts)] }
   var bufs = out.bufs
   bufs[index] = parts
   {bufs: bufs, missing: missing}
@@ -1039,6 +1047,7 @@ pure emit_raw(out: Outputs, target: Int, in_place: Bool, text: Bytes, delim: Byt
   var missing = out.missing
   if missing[target] { parts += [delim]; missing[target] = false }
   parts += [text]
+  if index != 0 and parts.len() > 128 { parts = [bytes.concat(parts)] }
   var bufs = out.bufs
   bufs[index] = parts
   {bufs: bufs, missing: missing}
@@ -1096,12 +1105,31 @@ pure regex_subject(pattern: Str, text: Bytes) -> Result[Bytes, Error] {
   Ok(bytes.concat(out))
 }
 
+# Whether the pattern itself spells a newline outside any bracket expression.
+pure newline_outside_brackets(pattern: Bytes) -> Bool {
+  var at = 0
+  while at < pattern.len() {
+    let byte = at_byte(pattern, at)
+    if byte == NEWLINE { return true }
+    if byte == 92 { at += 2; continue }
+    if byte == 91 {
+      let close = bracket_end(pattern, at, false)
+      if close >= 0 {
+        at = close
+        continue
+      }
+    }
+    at += 1
+  }
+  false
+}
+
 # First match at or after START. A multiline regex is searched line by line so
 # that `^` and `$` hold at every line boundary; a pattern that spells a newline
 # itself is searched over the whole buffer instead.
 pure find_match(spec: RegexSpec, text: Bytes, start: Int, extended: Bool) -> Result[List[Capture?], Error] {
   let subject = regex_subject(spec.pattern, text)?
-  if !spec.multiline or contains_byte(bytes.from_text(spec.pattern), 10) {
+  if !spec.multiline or newline_outside_brackets(bytes.from_text(spec.pattern)) {
     return regex.captures_bytes(spec.pattern, subject, start, extended, spec.ignore_case)
   }
   var line_start = if start > subject.len() { subject.len() } else { start }
@@ -1337,59 +1365,32 @@ pure split_records(data: Bytes, delim: Int) -> List[Bytes] {
 
 # Open the next named input. A missing or unreadable file is reported and
 # skipped (status 2 at exit); a directory ends the run.
-proc open_next(input: Input, delim: Int) [fs, io, error, process, env] -> Input {
-  let name = input.names[input.next_name]
-  var next: Input = {...input, next_name: input.next_name + 1}
+proc open_next(cursor: Cursor, name: Str, delim: Int) [fs, io, error, process, env] -> Loaded {
+  let next: Cursor = {...cursor, next_name: cursor.next_name + 1, position: 0, count: 0}
   if name == "" {
     gnu.error("can't read : No such file or directory")
-    return {...next, bad: next.bad + 1, records: [], position: 0}
+    return {cursor: {...next, bad: next.bad + 1}, records: []}
   }
   match gnu.read_operand(name) {
     Ok(data) => {
-      next = {...next, records: split_records(data, delim), position: 0, trailing: data.is_empty() or data.byte_at(data.len() - 1) == delim, current: name}
+      let records = split_records(data, delim)
+      return {cursor: {...next, count: records.len(), trailing: data.is_empty() or data.byte_at(data.len() - 1) == delim, current: name}, records: records}
     }
     Err(failure) => {
       if gnu.errno(failure) == 21 {
         gnu.error(f"read error on {name}: Is a directory")
-        next = {...next, fatal: true}
-      } else {
-        gnu.error(f"can't read {name}: {gnu.strerror(failure)}")
-        next = {...next, bad: next.bad + 1, records: [], position: 0}
+        return {cursor: {...next, fatal: true}, records: []}
       }
+      gnu.error(f"can't read {name}: {gnu.strerror(failure)}")
+      return {cursor: {...next, bad: next.bad + 1}, records: []}
     }
   }
-  next
+  {cursor: next, records: []}
 }
 
-# The next record of the stream, advancing through input files as needed.
-proc next_line(input: Input, delim: Int) [fs, io, error, process, env] -> Step {
-  var current = input
-  while true {
-    if current.position < current.records.len() {
-      let text = current.records[current.position]
-      let position = current.position + 1
-      let chomped = position < current.records.len() or current.trailing
-      current = {...current, position: position, line: current.line + 1}
-      return {input: current, line: {text: text, chomped: chomped}}
-    }
-    if current.next_name >= current.names.len() or current.fatal { return {input: current, line: null} }
-    current = open_next(current, delim)
-  }
-  {input: current, line: null}
-}
-
-type LastStep = {input: Input, last: Bool}
-
-# GNU's `$` test: the current line is last when no input remains, which may
-# mean opening following files to see whether any of them has data.
-proc at_last(input: Input, delim: Int) [fs, io, error, process, env] -> LastStep {
-  var current = input
-  if current.position < current.records.len() { return {input: current, last: false} }
-  while current.next_name < current.names.len() and !current.fatal {
-    current = open_next(current, delim)
-    if current.position < current.records.len() { return {input: current, last: false} }
-  }
-  {input: current, last: true}
+# Whether the current file is exhausted while another input remains to open.
+pure needs_file(cursor: Cursor, names: Int) -> Bool {
+  cursor.position >= cursor.count and cursor.next_name < names and !cursor.fatal
 }
 
 # Write buffered standard output.
@@ -1450,6 +1451,27 @@ proc flush_queue(m: Machine, queue: List[QueueItem], ctx: Context) [fs, io, erro
 
 type ReadLine = {machine: Machine, data: Bytes}
 
+# a/i/c text always ends in a newline; `i` and `c` write it as the record
+# delimiter, so `-z` output stays NUL separated.
+pure delimited_text(text: Bytes, delim: Bytes) -> Bytes {
+  if text.is_empty() or delim == b"\n" { return text }
+  bytes.concat([text[0..text.len() - 1], delim])
+}
+
+pure strip_delimiter(text: Bytes, delim: Int) -> Bytes {
+  if !text.is_empty() and text.byte_at(text.len() - 1) == delim { return text[0..text.len() - 1] }
+  text
+}
+
+# Run COMMAND with the shell and return its standard output; its standard error
+# stays the caller's, as with popen.
+proc shell_output(command: Bytes) [process, io, error] -> Bytes {
+  let text = command.utf8() ?? ""
+  let captured = run.capture --bytes /bin/sh -c $text
+  let _ = io.write_stderr(captured.stderr.utf8() ?? "")
+  captured.stdout
+}
+
 # One `R` line: raw bytes through the next delimiter, remembered per file.
 proc read_line_from(m: Machine, name: Str, delim: Int) [fs, io, env] -> ReadLine {
   var rdata = m.rdata
@@ -1480,7 +1502,9 @@ proc runtime_failure(m: Machine, ctx: Context, failure: Error) [fs, io, error, p
 # regex persist in the machine across streams (separate files).
 proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error, process, env] -> Machine {
   var m = machine
-  var input: Input = {names: names, next_name: 0, records: [], position: 0, trailing: true, current: "-", line: 0, bad: 0, fatal: false}
+  var cursor: Cursor = {next_name: 0, position: 0, count: 0, trailing: true, current: "-", line: 0, bad: 0, fatal: false}
+  var records: List[Bytes] = []
+  let name_count = names.len()
   let commands = ctx.program.commands
   let total = commands.len()
   let extended = ctx.options.extended
@@ -1492,7 +1516,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
     ranges += [initial]
   }
   var ends: List[Int] = [0 for command in commands]
-  if ctx.options.separate { m = {...m, roffset: {}, rdata: {}} }
+  if ctx.options.separate { m = {...m, roffset: {}, rdata: {}, hold: {text: b"", chomped: true}} }
   var queue: List[QueueItem] = []
   var line: Space = {text: b"", chomped: true}
   var replaced = false
@@ -1504,14 +1528,18 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
         queue = []
       }
       replaced = false
-      let step = next_line(input, delim)
-      input = step.input
-      if input.fatal {
-        m = {...m, bad: m.bad + input.bad}
+      while needs_file(cursor, name_count) {
+        let loaded = open_next(cursor, names[cursor.next_name], delim)
+        cursor = loaded.cursor
+        records = loaded.records
+      }
+      if cursor.fatal {
+        m = {...m, bad: m.bad + cursor.bad}
         shutdown(m, ctx, 4)
       }
-      guard let got = step.line else { break }
-      line = got
+      if cursor.position >= cursor.count { break }
+      line = {text: records[cursor.position], chomped: cursor.position + 1 < cursor.count or cursor.trailing}
+      cursor = {...cursor, position: cursor.position + 1, line: cursor.line + 1}
     }
     restart = false
     var autoprint = !ctx.program.quiet
@@ -1526,11 +1554,18 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
         var is_last = false
         let needs_last = command.first == .Last or command.last == .Last
         if needs_last {
-          let probe = at_last(input, delim)
-          input = probe.input
-          is_last = probe.last
+          while needs_file(cursor, name_count) {
+            let loaded = open_next(cursor, names[cursor.next_name], delim)
+            cursor = loaded.cursor
+            records = loaded.records
+          }
+          if cursor.fatal {
+            m = {...m, bad: m.bad + cursor.bad}
+            shutdown(m, ctx, 4)
+          }
+          is_last = cursor.position >= cursor.count
         }
-        match select(command, ranges[index], ends[index], input.line, is_last, line.text, m.last_regex, extended) {
+        match select(command, ranges[index], ends[index], cursor.line, is_last, line.text, m.last_regex, extended) {
           Ok(chosen) => {
             ranges[index] = chosen.state
             ends[index] = chosen.end
@@ -1547,10 +1582,10 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
       }
       match command.op {
         97 => queue += [{kind: 0, data: command.text, name: ""}]
-        105 => m = {...m, out: emit_raw(m.out, MAIN, in_place, command.text, ctx.delim_bytes)}
+        105 => m = {...m, out: emit_raw(m.out, MAIN, in_place, delimited_text(command.text, ctx.delim_bytes), ctx.delim_bytes)}
         99 => {
           if ranges[index] != .Active or command.last == null {
-            m = {...m, out: emit_raw(m.out, MAIN, in_place, command.text, ctx.delim_bytes)}
+            m = {...m, out: emit_raw(m.out, MAIN, in_place, delimited_text(command.text, ctx.delim_bytes), ctx.delim_bytes)}
           }
           autoprint = false
           ended = true
@@ -1571,7 +1606,15 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
             restart = true
           }
         }
-        70 => m = {...m, out: emit_raw(m.out, MAIN, in_place, bytes.concat([bytes.from_text(input.current), ctx.delim_bytes]), ctx.delim_bytes)}
+        101 => {
+          if command.text.is_empty() {
+            line = {...line, text: strip_delimiter(shell_output(line.text), delim)}
+          } else {
+            let output = shell_output(strip_delimiter(command.text, NEWLINE))
+            m = {...m, out: emit_raw(m.out, MAIN, in_place, output, ctx.delim_bytes)}
+          }
+        }
+        70 => m = {...m, out: emit_raw(m.out, MAIN, in_place, bytes.concat([bytes.from_text(cursor.current), ctx.delim_bytes]), ctx.delim_bytes)}
         103 => line = m.hold
         71 => line = {text: bytes.concat([line.text, ctx.delim_bytes, m.hold.text]), chomped: m.hold.chomped}
         104 => m = {...m, hold: line}
@@ -1587,9 +1630,16 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
         }
         110 => {
           if !ctx.program.quiet { m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)} }
-          let probe = at_last(input, delim)
-          input = probe.input
-          if probe.last {
+          while needs_file(cursor, name_count) {
+            let loaded = open_next(cursor, names[cursor.next_name], delim)
+            cursor = loaded.cursor
+            records = loaded.records
+          }
+          if cursor.fatal {
+            m = {...m, bad: m.bad + cursor.bad}
+            shutdown(m, ctx, 4)
+          }
+          if cursor.position >= cursor.count {
             autoprint = false
             ended = true
           } else {
@@ -1598,15 +1648,21 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
               queue = []
             }
             replaced = false
-            let step = next_line(input, delim)
-            input = step.input
-            if let got = step.line { line = got }
+            line = {text: records[cursor.position], chomped: cursor.position + 1 < cursor.count or cursor.trailing}
+            cursor = {...cursor, position: cursor.position + 1, line: cursor.line + 1}
           }
         }
         78 => {
-          let probe = at_last(input, delim)
-          input = probe.input
-          if probe.last {
+          while needs_file(cursor, name_count) {
+            let loaded = open_next(cursor, names[cursor.next_name], delim)
+            cursor = loaded.cursor
+            records = loaded.records
+          }
+          if cursor.fatal {
+            m = {...m, bad: m.bad + cursor.bad}
+            shutdown(m, ctx, 4)
+          }
+          if cursor.position >= cursor.count {
             if !ctx.program.quiet { m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)} }
             autoprint = false
             ended = true
@@ -1616,11 +1672,9 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
               queue = []
             }
             replaced = false
-            let step = next_line(input, delim)
-            input = step.input
-            if let got = step.line {
-              line = {text: bytes.concat([line.text, ctx.delim_bytes, got.text]), chomped: got.chomped}
-            }
+            let joined = bytes.concat([line.text, ctx.delim_bytes, records[cursor.position]])
+            line = {text: joined, chomped: cursor.position + 1 < cursor.count or cursor.trailing}
+            cursor = {...cursor, position: cursor.position + 1, line: cursor.line + 1}
           }
         }
         112 => m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)}
@@ -1667,7 +1721,12 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
                   line = {...line, text: result.text}
                   if result.changed {
                     replaced = true
-                    if sub.print { m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)} }
+                    if sub.print == 1 { m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)} }
+                    if sub.evaluate {
+                      let output = shell_output(line.text)
+                      line = {...line, text: strip_delimiter(output, delim)}
+                    }
+                    if sub.print == 2 { m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)} }
                     if ctx.targets[index] >= 0 { m = {...m, out: emit(m.out, ctx.targets[index], in_place, line.text, line.chomped, ctx.delim_bytes)} }
                   }
                 }
@@ -1703,7 +1762,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
           line = {...line, text: bytes.from_ints(translated) ?? line.text}
         }
         122 => line = {...line, text: b""}
-        61 => m = {...m, out: emit_raw(m.out, MAIN, in_place, bytes.concat([bytes.from_text(f"{input.line}"), ctx.delim_bytes]), ctx.delim_bytes)}
+        61 => m = {...m, out: emit_raw(m.out, MAIN, in_place, bytes.concat([bytes.from_text(f"{cursor.line}"), ctx.delim_bytes]), ctx.delim_bytes)}
         _ => {}
       }
     }
@@ -1712,7 +1771,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
     if m.quit { break }
   }
   if !m.quit and !queue.is_empty() { m = flush_queue(m, queue, ctx) }
-  {...m, bad: m.bad + input.bad}
+  {...m, bad: m.bad + cursor.bad}
 }
 
 # Resolve a symlink chain the way `--follow-symlinks` does: each hop reads the

@@ -85,6 +85,19 @@ proc read_script_file(name: Str) [fs, io, error, process, env] -> Bytes {
   b""
 }
 
+# C `atoi`: the leading decimal digits of TEXT, 0 when there are none.
+pure leading_integer(text: Str) -> Int {
+  var value = 0
+  var at = 0
+  while at < text.byte_len() {
+    let digit = text.byte_slice(at, 1)
+    if digit < "0" or digit > "9" { break }
+    value = value * 10 + (digit.parse_int() ?? 0)
+    at += 1
+  }
+  value
+}
+
 # Apply one option, identified by its short code or long-option code.
 proc apply(settings: Settings, code: Str, value: Str?) [fs, io, error, process, env] -> Settings {
   var next = settings
@@ -107,7 +120,7 @@ proc apply(settings: Settings, code: Str, value: Str?) [fs, io, error, process, 
       gnu.error("--posix is not supported")
       exit 1
     }
-    "l" => next = {...next, line_length: (value ?? "0").parse_int() ?? 0}
+    "l" => next = {...next, line_length: leading_integer(value ?? "")}
     "e" => {
       let number = next.expressions + 1
       let chunk: editing.Chunk = {text: bytes.from_text(value ?? ""), file: null, number: number}

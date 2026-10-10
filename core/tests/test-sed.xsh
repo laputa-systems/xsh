@@ -46,9 +46,9 @@ test sed_basic_regex_bytes_and_errors { |ctx|
   let raw = test.temp_file(ctx, name: "raw", contents: b"a\0b\n")?
   let raw_output = run.bytes ${ctx.xsh_bin} $app -- -n "1p" $raw
   assert raw_output == b"a\0b\n"
-  let unsupported = run.capture --text ${ctx.xsh_bin} $app -- "s/a/b/e" $file
+  let unsupported = run.capture --text ${ctx.xsh_bin} $app -- "s/a/b/q" $file
   assert unsupported.status.exited_with(1)
-  assert "the 'e' flag of the 's' command is not supported" in unsupported.stderr
+  assert "char 7: unknown option to 's'" in unsupported.stderr
   let malformed = run.capture --text ${ctx.xsh_bin} $app -- "{p" $file
   assert malformed.status.exited_with(1)
   assert "char 0: unmatched '{'" in malformed.stderr
@@ -359,6 +359,8 @@ proc apply_setup(work: Path, command: Str) [fs, error] -> Result[Unit] {
   let words = command.split(" ")
   if words[0] == "mkdir" {
     fp"{work}/{words[1]}".mkdir()?
+  } else if words[0] == "ln" {
+    fp"{work}/{words[3]}".symlink(to: fp"{words[2]}")?
   } else if words[0] == "chmod" {
     var mode = 0
     for digit in words[1].split("") { mode = mode * 8 + (digit.parse_int() ?? 0) }
@@ -512,6 +514,46 @@ test sed_table_locale_bytes { |ctx|
 test sed_table_in_place { |ctx|
   let failures = check_group(ctx, "ip-")?
   assert failures.is_empty(), failures.join("\n")
+}
+
+test sed_table_shell_commands { |ctx|
+  let failures = check_group(ctx, "eval-")?
+  assert failures.is_empty(), failures.join("\n")
+}
+
+test sed_table_extra_cli_and_trailing_newline_shapes { |ctx|
+  let options = check_group(ctx, "cli-")?
+  assert options.is_empty(), options.join("\n")
+  let tail = check_group(ctx, "tail-")?
+  assert tail.is_empty(), tail.join("\n")
+  let zero = check_group(ctx, "zero-")?
+  assert zero.is_empty(), zero.join("\n")
+}
+
+test sed_table_separate_files_and_matching { |ctx|
+  let separate = check_group(ctx, "sep-")?
+  assert separate.is_empty(), separate.join("\n")
+  let matching = check_group(ctx, "rx-")?
+  assert matching.is_empty(), matching.join("\n")
+  let mixed = check_group(ctx, "mix-")?
+  assert mixed.is_empty(), mixed.join("\n")
+}
+
+test sed_refused_options_fail_explicitly { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\n")?
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let debug = run.capture --text ${ctx.xsh_bin} $app -- --debug p $file
+  assert debug.status.exited_with(1)
+  assert "--debug is not supported" in debug.stderr
+  let posix = run.capture --text ${ctx.xsh_bin} $app -- --posix p $file
+  assert posix.status.exited_with(1)
+  assert "--posix is not supported" in posix.stderr
+}
+
+test sed_version_probe_line_matches_autoconf_check { |ctx|
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let version = run.text ${ctx.xsh_bin} $app -- --version
+  assert version.starts_with("GNU sed version ")
 }
 
 test sed_table_exit_statuses_and_scripts { |ctx|

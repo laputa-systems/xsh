@@ -955,47 +955,46 @@
 {"name": "syn-197", "args": ["v 9.0", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "syn-198", "args": ["v;p", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "syn-199", "args": ["v 4.2\np", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-200", "args": ["e", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": "the e command and s///e flag are refused"}
-{"name": "syn-201", "args": ["k", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-202", "args": ["2k", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-203", "args": ["!", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-204", "args": ["1,2", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-205", "args": ["1,", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-206", "args": ["1", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-207", "args": ["/a/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-208", "args": [":", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-209", "args": [": ", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-210", "args": ["1:a", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-211", "args": ["1,2:a", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-212", "args": ["1}", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-213", "args": ["1{p;1}", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-214", "args": ["{p;!}", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-215", "args": ["b nolabel", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-216", "args": ["t nolabel", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-217", "args": ["T nolabel", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-218", "args": ["b nolabel;:other", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-219", "args": ["1,2=", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-220", "args": ["1,2a x", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-221", "args": ["1,2i x", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-222", "args": ["1,2r rfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-223", "args": ["1,2q", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-224", "args": ["1,2Q", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-225", "args": ["1,2:a", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-226", "args": ["1,2}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-227", "args": ["1,2#c", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-228", "args": ["1,2l", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-229", "args": ["1,2F", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-230", "args": ["1,2z", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-231", "args": ["1,2v", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-232", "args": ["r", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-233", "args": ["R", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-234", "args": ["w", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-235", "args": ["W", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-236", "args": ["r  ", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-237", "args": ["rrfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-238", "args": ["2rrfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-239", "args": ["2r\trfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "syn-240", "args": ["2r  rfile.txt ", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-200", "args": ["k", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-201", "args": ["2k", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-202", "args": ["!", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-203", "args": ["1,2", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-204", "args": ["1,", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-205", "args": ["1", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-206", "args": ["/a/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-207", "args": [":", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-208", "args": [": ", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-209", "args": ["1:a", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-210", "args": ["1,2:a", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-211", "args": ["1}", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-212", "args": ["1{p;1}", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-213", "args": ["{p;!}", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-214", "args": ["b nolabel", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-215", "args": ["t nolabel", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-216", "args": ["T nolabel", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-217", "args": ["b nolabel;:other", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-218", "args": ["1,2=", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-219", "args": ["1,2a x", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-220", "args": ["1,2i x", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-221", "args": ["1,2r rfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-222", "args": ["1,2q", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-223", "args": ["1,2Q", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-224", "args": ["1,2:a", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-225", "args": ["1,2}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-226", "args": ["1,2#c", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-227", "args": ["1,2l", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-228", "args": ["1,2F", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-229", "args": ["1,2z", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-230", "args": ["1,2v", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-231", "args": ["r", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-232", "args": ["R", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-233", "args": ["w", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-234", "args": ["W", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-235", "args": ["r  ", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-236", "args": ["rrfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-237", "args": ["2rrfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-238", "args": ["2r\trfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "syn-239", "args": ["2r  rfile.txt ", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "addr-001", "args": ["-n", "3p", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "addr-002", "args": ["3p", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "addr-003", "args": ["-n", "$p", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
@@ -1735,74 +1734,72 @@
 {"name": "sub-346", "args": ["-n", "s/a/X/ii", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "sub-347", "args": ["s/a/X/gIm", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "sub-348", "args": ["-n", "s/a/X/gIm", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-349", "args": ["s/a/X/e", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": "the e command and s///e flag are refused"}
-{"name": "sub-350", "args": ["-n", "s/a/X/e", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": "the e command and s///e flag are refused"}
-{"name": "sub-351", "args": ["s/a/X", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-352", "args": ["-n", "s/a/X", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-353", "args": ["s/a", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-354", "args": ["-n", "s/a", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-355", "args": ["s/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-356", "args": ["-n", "s/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-357", "args": ["s", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-358", "args": ["-n", "s", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-359", "args": ["s//X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-360", "args": ["-n", "s//X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-361", "args": ["s/\\(/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-362", "args": ["-n", "s/\\(/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-363", "args": ["s/\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-364", "args": ["-n", "s/\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-365", "args": ["s/a\\{/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-366", "args": ["-n", "s/a\\{/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-367", "args": ["s/a\\{1/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-368", "args": ["-n", "s/a\\{1/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-369", "args": ["s/[/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-370", "args": ["-n", "s/[/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-371", "args": ["s/[a/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-372", "args": ["-n", "s/[a/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-373", "args": ["s/a/\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-374", "args": ["-n", "s/a/\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-375", "args": ["s/a/X\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-376", "args": ["-n", "s/a/X\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-377", "args": ["s/a/X\\\n", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-378", "args": ["-n", "s/a/X\\\n", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-379", "args": ["s/*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-380", "args": ["-n", "s/*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-381", "args": ["s/\\(*\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-382", "args": ["-n", "s/\\(*\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-383", "args": ["s/a**/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-384", "args": ["-n", "s/a**/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-385", "args": ["s/^*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-386", "args": ["-n", "s/^*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-387", "args": ["s/\\(^a\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-388", "args": ["-n", "s/\\(^a\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-389", "args": ["s/a\\|*b/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-390", "args": ["-n", "s/a\\|*b/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-391", "args": ["s/\\+/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-392", "args": ["-n", "s/\\+/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-393", "args": ["s/a\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-394", "args": ["-n", "s/a\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-395", "args": ["s/\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-396", "args": ["-n", "s/\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-397", "args": ["s/a\\{1,2\\}\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-398", "args": ["-n", "s/a\\{1,2\\}\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-399", "args": ["s/\\(a\\)\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-400", "args": ["-n", "s/\\(a\\)\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-401", "args": ["s/[[:alpha:]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-402", "args": ["-n", "s/[[:alpha:]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-403", "args": ["s/[[.a.]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-404", "args": ["-n", "s/[[.a.]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-405", "args": ["s/[[=a=]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-406", "args": ["-n", "s/[[=a=]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-407", "args": ["s/a/\\0/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-408", "args": ["-n", "s/a/\\0/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-409", "args": ["s/a/\\00/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-410", "args": ["-n", "s/a/\\00/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-411", "args": ["s/a/\\1\\2/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-412", "args": ["-n", "s/a/\\1\\2/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-413", "args": ["s/\\(a\\)\\(b\\)\\(c\\)\\(d\\)\\(e\\)\\(f\\)\\(g\\)\\(h\\)\\(i\\)/\\9/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-414", "args": ["-n", "s/\\(a\\)\\(b\\)\\(c\\)\\(d\\)\\(e\\)\\(f\\)\\(g\\)\\(h\\)\\(i\\)/\\9/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-415", "args": ["s/a/b/I;s//c/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
-{"name": "sub-416", "args": ["-n", "s/a/b/I;s//c/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-349", "args": ["s/a/X", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-350", "args": ["-n", "s/a/X", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-351", "args": ["s/a", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-352", "args": ["-n", "s/a", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-353", "args": ["s/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-354", "args": ["-n", "s/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-355", "args": ["s", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-356", "args": ["-n", "s", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-357", "args": ["s//X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-358", "args": ["-n", "s//X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-359", "args": ["s/\\(/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-360", "args": ["-n", "s/\\(/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-361", "args": ["s/\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-362", "args": ["-n", "s/\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-363", "args": ["s/a\\{/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-364", "args": ["-n", "s/a\\{/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-365", "args": ["s/a\\{1/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-366", "args": ["-n", "s/a\\{1/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-367", "args": ["s/[/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-368", "args": ["-n", "s/[/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-369", "args": ["s/[a/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-370", "args": ["-n", "s/[a/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-371", "args": ["s/a/\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-372", "args": ["-n", "s/a/\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-373", "args": ["s/a/X\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-374", "args": ["-n", "s/a/X\\", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-375", "args": ["s/a/X\\\n", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-376", "args": ["-n", "s/a/X\\\n", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-377", "args": ["s/*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-378", "args": ["-n", "s/*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-379", "args": ["s/\\(*\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-380", "args": ["-n", "s/\\(*\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-381", "args": ["s/a**/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-382", "args": ["-n", "s/a**/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-383", "args": ["s/^*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-384", "args": ["-n", "s/^*/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-385", "args": ["s/\\(^a\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-386", "args": ["-n", "s/\\(^a\\)/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-387", "args": ["s/a\\|*b/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-388", "args": ["-n", "s/a\\|*b/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-389", "args": ["s/\\+/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-390", "args": ["-n", "s/\\+/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-391", "args": ["s/a\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-392", "args": ["-n", "s/a\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-393", "args": ["s/\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-394", "args": ["-n", "s/\\?/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-395", "args": ["s/a\\{1,2\\}\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-396", "args": ["-n", "s/a\\{1,2\\}\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-397", "args": ["s/\\(a\\)\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-398", "args": ["-n", "s/\\(a\\)\\{2\\}/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-399", "args": ["s/[[:alpha:]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-400", "args": ["-n", "s/[[:alpha:]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-401", "args": ["s/[[.a.]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-402", "args": ["-n", "s/[[.a.]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-403", "args": ["s/[[=a=]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-404", "args": ["-n", "s/[[=a=]]/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-405", "args": ["s/a/\\0/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-406", "args": ["-n", "s/a/\\0/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-407", "args": ["s/a/\\00/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-408", "args": ["-n", "s/a/\\00/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-409", "args": ["s/a/\\1\\2/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-410", "args": ["-n", "s/a/\\1\\2/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-411", "args": ["s/\\(a\\)\\(b\\)\\(c\\)\\(d\\)\\(e\\)\\(f\\)\\(g\\)\\(h\\)\\(i\\)/\\9/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-412", "args": ["-n", "s/\\(a\\)\\(b\\)\\(c\\)\\(d\\)\\(e\\)\\(f\\)\\(g\\)\\(h\\)\\(i\\)/\\9/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-413", "args": ["s/a/b/I;s//c/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sub-414", "args": ["-n", "s/a/b/I;s//c/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "sub2-001", "args": ["s/a*b/X/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "sub2-002", "args": ["s/a*b/X/g", "dup.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "sub2-003", "args": ["s/a*b/X/g", "ctl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
@@ -2218,21 +2215,492 @@
 {"name": "ip-066", "args": ["-ibk/*", "s/i/I/", "d/f.txt"], "stdin": "", "show": ["d/f.txt", "d/bk/f.txt", "bk/f.txt", "bk/d/f.txt"], "env": [], "setup": [], "skip": ""}
 {"name": "ip-067", "args": ["-i", "s/a/X/", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": ["chmod 600 a.txt"], "skip": ""}
 {"name": "ip-068", "args": ["-i", "s/a/X/", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": ["chmod 755 a.txt"], "skip": ""}
-{"name": "ip-069", "args": ["-i", "--debug", "s/a/X/", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": "debug annotation is refused"}
-{"name": "ip-070", "args": ["-n", "-i", "-e", "p", "-e", "p", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-071", "args": ["-s", "-n", "p", "a.txt", "one.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-072", "args": ["-i", "q5", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-073", "args": ["-i", "-f", "s_p.sed", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-074", "args": ["-i", "-z", "s/\\n/,/g", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-075", "args": ["--in-place=", "p", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-076", "args": ["--in-place=.b", "p", "one.txt"], "stdin": "", "show": ["one.txt", "one.txt.b"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-077", "args": ["-i", "-u", "p", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-078", "args": ["-i", "-l", "5", "l", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-079", "args": ["-i", "=", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-080", "args": ["-i", "l", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-081", "args": ["-i", "i\\\nfoo", "empty.txt"], "stdin": "", "show": ["empty.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-082", "args": ["-i", "a foo", "empty.txt"], "stdin": "", "show": ["empty.txt"], "env": [], "setup": [], "skip": ""}
-{"name": "ip-083", "args": ["-i", "s/./X/", "onenl.txt", "a.txt"], "stdin": "", "show": ["onenl.txt", "a.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-069", "args": ["-i", "--follow-symlinks", "s/a/X/", "link2"], "stdin": "", "show": ["link2", "link.txt", "a.txt"], "env": [], "setup": ["ln -s link.txt link2"], "skip": ""}
+{"name": "ip-070", "args": ["-i", "s/a/X/", "link2"], "stdin": "", "show": ["link2", "link.txt", "a.txt"], "env": [], "setup": ["ln -s link.txt link2"], "skip": ""}
+{"name": "ip-071", "args": ["-i.bak", "--follow-symlinks", "s/a/X/", "link2"], "stdin": "", "show": ["link2", "link.txt", "a.txt", "a.txt.bak", "link.txt.bak", "link2.bak"], "env": [], "setup": ["ln -s link.txt link2"], "skip": ""}
+{"name": "ip-072", "args": ["--follow-symlinks", "-n", "p", "link2"], "stdin": "", "show": [], "env": [], "setup": ["ln -s link.txt link2"], "skip": ""}
+{"name": "ip-073", "args": ["-i", "--debug", "s/a/X/", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": "debug annotation is refused"}
+{"name": "ip-074", "args": ["-n", "-i", "-e", "p", "-e", "p", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-075", "args": ["-s", "-n", "p", "a.txt", "one.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-076", "args": ["-i", "q5", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-077", "args": ["-i", "-f", "s_p.sed", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-078", "args": ["-i", "-z", "s/\\n/,/g", "a.txt"], "stdin": "", "show": ["a.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-079", "args": ["--in-place=", "p", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-080", "args": ["--in-place=.b", "p", "one.txt"], "stdin": "", "show": ["one.txt", "one.txt.b"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-081", "args": ["-i", "-u", "p", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-082", "args": ["-i", "-l", "5", "l", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-083", "args": ["-i", "=", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-084", "args": ["-i", "l", "one.txt"], "stdin": "", "show": ["one.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-085", "args": ["-i", "i\\\nfoo", "empty.txt"], "stdin": "", "show": ["empty.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-086", "args": ["-i", "a foo", "empty.txt"], "stdin": "", "show": ["empty.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "ip-087", "args": ["-i", "s/./X/", "onenl.txt", "a.txt"], "stdin": "", "show": ["onenl.txt", "a.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "zero-001", "args": ["-z", "p", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-002", "args": ["-z", "-n", "p", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-003", "args": ["-z", "=", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-004", "args": ["-z", "-n", "=", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-005", "args": ["-z", "l", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-006", "args": ["-z", "-n", "l", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-007", "args": ["-z", "F", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-008", "args": ["-z", "-n", "F", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-009", "args": ["-z", "$!N;P;D", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-010", "args": ["-z", "-n", "$!N;P;D", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-011", "args": ["-z", "G", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-012", "args": ["-z", "-n", "G", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-013", "args": ["-z", "H;x", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-014", "args": ["-z", "-n", "H;x", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-015", "args": ["-z", "N;s/\\n/+/", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-016", "args": ["-z", "-n", "N;s/\\n/+/", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-017", "args": ["-z", "s/^/>/", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-018", "args": ["-z", "-n", "s/^/>/", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-019", "args": ["-z", "a txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-020", "args": ["-z", "-n", "a txt", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-021", "args": ["-z", "i txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-022", "args": ["-z", "-n", "i txt", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-023", "args": ["-z", "c txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-024", "args": ["-z", "-n", "c txt", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-025", "args": ["-z", "r rfile.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-026", "args": ["-z", "-n", "r rfile.txt", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-027", "args": ["-z", "R rfile.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-028", "args": ["-z", "-n", "R rfile.txt", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-029", "args": ["-z", "w out.txt", "bin.bin"], "stdin": "", "show": ["out.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "zero-030", "args": ["-z", "-n", "w out.txt", "nonl.txt", "bin.bin"], "stdin": "", "show": ["out.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "zero-031", "args": ["-z", "y/a\\n/AN/", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-032", "args": ["-z", "-n", "y/a\\n/AN/", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-033", "args": ["-z", "n;d", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-034", "args": ["-z", "-n", "n;d", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-035", "args": ["-z", "$d", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-036", "args": ["-z", "-n", "$d", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-037", "args": ["-z", "1d", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-038", "args": ["-z", "-n", "1d", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-039", "args": ["-z", "2q", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-040", "args": ["-z", "-n", "2q", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-041", "args": ["-z", "x;G", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-042", "args": ["-z", "-n", "x;G", "nonl.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-043", "args": ["-z", "s/\\n/,/g", "a.txt", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-044", "args": ["-s", "-z", "-n", "$p", "bin.bin", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "zero-045", "args": ["-z", "$!d", "a.txt", "bin.bin"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-001", "args": ["-s", "-n", "=", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-002", "args": ["-s", "=", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-003", "args": ["-s", "-n", "F", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-004", "args": ["-s", "F", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-005", "args": ["-s", "-n", "$p", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-006", "args": ["-s", "$p", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-007", "args": ["-s", "-n", "1~2p", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-008", "args": ["-s", "1~2p", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-009", "args": ["-s", "-n", "2,4p", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-010", "args": ["-s", "2,4p", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-011", "args": ["-s", "-n", "/a/,/e/p", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-012", "args": ["-s", "/a/,/e/p", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-013", "args": ["-s", "-n", "0,/a/p", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-014", "args": ["-s", "0,/a/p", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-015", "args": ["-s", "-n", "x", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-016", "args": ["-s", "x", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-017", "args": ["-s", "-n", "G", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-018", "args": ["-s", "G", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-019", "args": ["-s", "-n", "h;$G", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-020", "args": ["-s", "h;$G", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-021", "args": ["-s", "-n", "$!N;s/\\n/+/", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-022", "args": ["-s", "$!N;s/\\n/+/", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-023", "args": ["-s", "-n", "N;N", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-024", "args": ["-s", "N;N", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-025", "args": ["-s", "-n", "n;n", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-026", "args": ["-s", "n;n", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-027", "args": ["-s", "-n", "R rfile.txt", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-028", "args": ["-s", "R rfile.txt", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-029", "args": ["-s", "-n", "1R rfile.txt", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-030", "args": ["-s", "1R rfile.txt", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-031", "args": ["-s", "-n", "w out.txt", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": ["out.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "sep-032", "args": ["-s", "w out.txt", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": ["out.txt"], "env": [], "setup": [], "skip": ""}
+{"name": "sep-033", "args": ["-s", "-n", "$r rfile.txt", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-034", "args": ["-s", "$r rfile.txt", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-035", "args": ["-s", "-n", "q", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-036", "args": ["-s", "q", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-037", "args": ["-s", "-n", "2q", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-038", "args": ["-s", "2q", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-039", "args": ["-s", "-n", "$a end", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-040", "args": ["-s", "$a end", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-041", "args": ["-s", "-n", "1i top", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-042", "args": ["-s", "1i top", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-043", "args": ["-s", "-n", "$!d", "a.txt", "n.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-044", "args": ["-s", "$!d", "a.txt", "one.txt", "empty.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-045", "args": ["-s", "p", "missing.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-046", "args": ["-s", "-n", "$p", "a.txt", "missing.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "sep-047", "args": ["--separate", "-n", "$=", "n.txt", "a.txt", "-"], "stdin": "one.txt", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-001", "args": ["s/a.b/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-002", "args": ["s/a.b/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-003", "args": ["s/a.b/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-004", "args": ["s/a\\.b/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-005", "args": ["s/a\\.b/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-006", "args": ["s/a\\.b/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-007", "args": ["s/^*a/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-008", "args": ["s/^*a/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-009", "args": ["s/^*a/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-010", "args": ["s/\\(^\\|x\\)a/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-011", "args": ["s/\\(^\\|x\\)a/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-012", "args": ["s/\\(^\\|x\\)a/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-013", "args": ["s/a\\{2,\\}/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-014", "args": ["s/a\\{2,\\}/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-015", "args": ["s/a\\{2,\\}/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-016", "args": ["s/\\(a\\)\\1/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-017", "args": ["s/\\(a\\)\\1/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-018", "args": ["s/\\(a\\)\\1/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-019", "args": ["s/.*/<&>/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-020", "args": ["s/.*/<&>/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-021", "args": ["s/.*/<&>/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-022", "args": ["s/[[:space:]]\\+/_/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-023", "args": ["s/[[:space:]]\\+/_/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-024", "args": ["s/[[:space:]]\\+/_/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-025", "args": ["s/[a-z]*$/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-026", "args": ["s/[a-z]*$/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-027", "args": ["s/[a-z]*$/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-028", "args": ["s/\\(foo\\|bar\\)*/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-029", "args": ["s/\\(foo\\|bar\\)*/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-030", "args": ["s/\\(foo\\|bar\\)*/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-031", "args": ["s/x*$/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-032", "args": ["s/x*$/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-033", "args": ["s/x*$/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-034", "args": ["s/^x*/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-035", "args": ["s/^x*/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-036", "args": ["s/^x*/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-037", "args": ["s/a*b*c*/X/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-038", "args": ["s/a*b*c*/X/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-039", "args": ["s/a*b*c*/X/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-040", "args": ["s/[0-9]\\+/<&>/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-041", "args": ["s/[0-9]\\+/<&>/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-042", "args": ["s/[0-9]\\+/<&>/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-043", "args": ["s/\\([^ ]*\\) \\(.*\\)/\\2 \\1/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-044", "args": ["s/\\([^ ]*\\) \\(.*\\)/\\2 \\1/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-045", "args": ["s/\\([^ ]*\\) \\(.*\\)/\\2 \\1/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-046", "args": ["s/\\w\\+/W/2", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-047", "args": ["s/\\w\\+/W/2", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-048", "args": ["s/\\w\\+/W/2", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-049", "args": ["s/\\s/_/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-050", "args": ["s/\\s/_/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-051", "args": ["s/\\s/_/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-052", "args": ["s/\\S\\+$/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-053", "args": ["s/\\S\\+$/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-054", "args": ["s/\\S\\+$/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-055", "args": ["s/\\W/_/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-056", "args": ["s/\\W/_/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-057", "args": ["s/\\W/_/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-058", "args": ["s/[[:digit:]]/D/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-059", "args": ["s/[[:digit:]]/D/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-060", "args": ["s/[[:digit:]]/D/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-061", "args": ["s/[[:punct:]]/P/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-062", "args": ["s/[[:punct:]]/P/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-063", "args": ["s/[[:punct:]]/P/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-064", "args": ["s/\\(.\\)\\(.\\)\\(.\\)/\\3\\2\\1/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-065", "args": ["s/\\(.\\)\\(.\\)\\(.\\)/\\3\\2\\1/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-066", "args": ["s/\\(.\\)\\(.\\)\\(.\\)/\\3\\2\\1/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-067", "args": ["s/.\\{2\\}/[&]/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-068", "args": ["s/.\\{2\\}/[&]/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-069", "args": ["s/.\\{2\\}/[&]/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-070", "args": ["s/\\(ab\\)\\{2\\}/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-071", "args": ["s/\\(ab\\)\\{2\\}/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-072", "args": ["s/\\(ab\\)\\{2\\}/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-073", "args": ["s/a\\?b/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-074", "args": ["s/a\\?b/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-075", "args": ["s/a\\?b/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-076", "args": ["s/b\\+/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-077", "args": ["s/b\\+/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-078", "args": ["s/b\\+/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-079", "args": ["s/\\(a\\|b\\)\\+/X/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-080", "args": ["s/\\(a\\|b\\)\\+/X/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-081", "args": ["s/\\(a\\|b\\)\\+/X/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-082", "args": ["s/^\\(.*\\)\\n\\1$/dup/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-083", "args": ["s/^\\(.*\\)\\n\\1$/dup/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-084", "args": ["s/^\\(.*\\)\\n\\1$/dup/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-085", "args": ["s/\\n//", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-086", "args": ["s/\\n//", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-087", "args": ["s/\\n//", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-088", "args": ["s/$/\\n/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-089", "args": ["s/$/\\n/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-090", "args": ["s/$/\\n/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-091", "args": ["s/\\//|/g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-092", "args": ["s/\\//|/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-093", "args": ["s/\\//|/g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-094", "args": ["s/|/\\//g", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-095", "args": ["s/|/\\//g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-096", "args": ["s/|/\\//g", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-097", "args": ["s/\\^/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-098", "args": ["s/\\^/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-099", "args": ["s/\\^/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-100", "args": ["s/\\$/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-101", "args": ["s/\\$/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-102", "args": ["s/\\$/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-103", "args": ["s/\\[/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-104", "args": ["s/\\[/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-105", "args": ["s/\\[/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-106", "args": ["s/\\]/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-107", "args": ["s/\\]/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-108", "args": ["s/\\]/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-109", "args": ["s/[\\]]/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-110", "args": ["s/[\\]]/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-111", "args": ["s/[\\]]/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-112", "args": ["s/\\*/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-113", "args": ["s/\\*/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-114", "args": ["s/\\*/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-115", "args": ["s/\\.\\*/X/", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-116", "args": ["s/\\.\\*/X/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-117", "args": ["s/\\.\\*/X/", "path.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-118", "args": ["N;s/a.b/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-119", "args": ["N;s/a$/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-120", "args": ["N;s/^b/X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-121", "args": ["N;N;s/\\n/-/2", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-122", "args": ["$!N;s/\\n.*//", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-123", "args": ["/a/s//X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-124", "args": ["/a/I s//X/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-125", "args": ["s/A/X/I;s//Y/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-126", "args": ["/b/s//[&]/;//d", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-127", "args": ["s/a/X/;s//Y/g", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-128", "args": ["//p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-129", "args": ["s//X/I", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-130", "args": ["/a/Id", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-131", "args": ["/ALPHA/Id", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-132", "args": ["/A/,/E/Ip", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-133", "args": ["-n", "N;/^b/Mp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-134", "args": ["-n", "N;/a$/Mp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-135", "args": ["-n", "N;/a\\nb/p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-136", "args": ["-n", "N;N;s/^/>/Mgp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-137", "args": ["-n", "N;N;s/$/</Mgp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-138", "args": ["-n", "N;N;s/^./X/Mgp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-139", "args": ["-n", "N;N;s/.$/X/Mgp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-140", "args": ["-n", "N;N;s/a$\\n/X/p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-141", "args": ["-n", "N;N;s/\\`a/X/Mp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-142", "args": ["-n", "N;N;s/a\\'/X/Mp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-143", "args": ["-n", "N;N;s/[^\\n]*$/X/Mp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-144", "args": ["-E", "-n", "N;N;s/(^|\\n)b/<&>/Mgp", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-145", "args": ["-n", "s/\\(a\\)\\(b\\)\\?/[\\1|\\2]/p", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-146", "args": ["-E", "-n", "s/(a)(b)?/[\\1|\\2]/p", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-147", "args": ["-n", "s/a*/X/gp", "re.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-148", "args": ["-n", "s/\\(x\\)*/[\\1]/gp", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-149", "args": ["s/b*/X/3", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-150", "args": ["s/b*/X/2g", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-151", "args": ["s/\\(\\)/X/g", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-152", "args": ["-E", "s/()/X/g", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-153", "args": ["s/$/X/2", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "rx-154", "args": ["s/^/X/2", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-001", "args": ["$!N;$!D", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-002", "args": ["N;N;N;$!D", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-003", "args": ["1!G;h;$!d", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-004", "args": ["-n", "1!G;h;$p", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-005", "args": ["G;h", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-006", "args": ["-n", "/b/{n;p}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-007", "args": ["-n", "/b/{N;p}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-008", "args": ["/b/{N;N;D}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-009", "args": ["/b/!d", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-010", "args": ["/b/,/d/!d", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-011", "args": ["2,3{N;s/\\n/+/}", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-012", "args": ["2,3{$!N;s/\\n/+/}", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-013", "args": ["2{h;d};4{G}", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-014", "args": ["3{x;p;x}", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-015", "args": ["2{x;p;x;p}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-016", "args": ["/a/{s//X/;t;s/$/ no/}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-017", "args": ["/b/{s/b/B/;n;s/g/G/}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-018", "args": ["2{p;d};p", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-019", "args": ["n;n;s/./X/", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-020", "args": ["N;P;P;D", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-021", "args": ["-n", "$!{N;P};D", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-022", "args": ["-n", "x;n;x;p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-023", "args": ["=;=", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-024", "args": ["l;l 2", "ctl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-025", "args": ["a\\\none\\\ntwo\n$a\\\nthree", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-026", "args": ["i\\\n  indented", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-027", "args": ["a\\\n\tTabbed", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-028", "args": ["1c\\\nA\\\nB\n2c\\\nC", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-029", "args": ["/b/c\\\nBEE", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-030", "args": ["$!{N;N;c\\\ngrp\n}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-031", "args": ["2r rfile.txt\n2a after", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-032", "args": ["2a after\n2r rfile.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-033", "args": ["2i before\n2a after\n2c change", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-034", "args": ["r rnonl.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-035", "args": ["R rnonl.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-036", "args": ["r rfile.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-037", "args": ["$r rnonl.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-038", "args": ["$R rnonl.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-039", "args": ["1r rfile.txt\n1R rfile.txt\n1r rnonl.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-040", "args": ["w /dev/stdout\ns/o/0/w /dev/stdout", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-041", "args": ["-n", "p;w /dev/stdout", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-042", "args": ["p;w /dev/stdout", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-043", "args": ["w /dev/stdout", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-044", "args": ["-n", "s/./X/pw /dev/stdout", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-045", "args": ["$!N;l", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-046", "args": ["N;N;l;d", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-047", "args": ["x;l;x", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-048", "args": ["-n", "z;l", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-049", "args": ["y/xyz/XYZ/;$!N;y/\\n/_/", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-050", "args": ["s/z/&\\n/", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-051", "args": ["$!N;s/\\n/ /;P;D", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-052", "args": ["N;N;N;P", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-053", "args": ["$s/$/!/", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-054", "args": ["F;=", "nonl.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-055", "args": ["-n", "$F", "a.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-056", "args": ["a\\", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-057", "args": ["a\\\n", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-058", "args": ["a\\\n\n", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-059", "args": ["a   ", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-060", "args": ["a\\\ttext", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-061", "args": ["a\\\\ttext", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-062", "args": ["a x\\\\y", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-063", "args": ["a x\\ny", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-064", "args": ["a \\ x", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-065", "args": ["a\\  \n x", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-066", "args": ["s/o/\\\n/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-067", "args": ["s/o/a\\\nb/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-068", "args": ["s/o/\\\\\\n/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-069", "args": ["s/n/\\t/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-070", "args": ["s/n/\\x41\\x42/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-071", "args": ["s/n/\\o101/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-072", "args": ["s/n/\\d066/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-073", "args": ["s/n/\\cA/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-074", "args": ["s/n/\\c[/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-075", "args": ["s/n/\\cz/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-076", "args": ["s/n/\\x/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-077", "args": ["s/n/\\xZ/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-078", "args": ["s/n/\\x4/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-079", "args": ["s/n/\\x414/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-080", "args": ["s/n/\\u&/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-081", "args": ["s/n/\\U&x/;s/$/Y/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-082", "args": ["s/o\\(n\\)/\\U\\1\\Lx\\1/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-083", "args": ["s/\\(o\\)\\(n\\)/\\u\\1\\l\\2/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-084", "args": ["s/\\(o\\)\\(n\\)/\\U\\1\\E\\2/", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-085", "args": ["s/.*/\\L\\u&/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-086", "args": ["s/\\(.\\)\\(.*\\)/\\U\\1\\L\\2/", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-087", "args": ["s/\\w\\+/\\u&/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-088", "args": ["s/\\(\\w\\)\\(\\w*\\)/\\U\\1\\E\\2/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "mix-089", "args": ["s/\\b./\\u&/g", "words.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": "word-boundary escapes are rejected by the regex module"}
+{"name": "cli-001", "args": ["-n", "-n", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-002", "args": ["-E", "-E", "s/(a)/<\\1>/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-003", "args": ["--expression=", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-004", "args": ["-e", "", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-005", "args": ["", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-006", "args": [";", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-007", "args": ["#c", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-008", "args": ["-n", "#c", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-009", "args": ["-l5", "-n", "l", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-010", "args": ["-l", "5x", "-n", "l", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-011", "args": ["--line-length=abc", "-n", "l", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-012", "args": ["-nl", "5", "l", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-013", "args": ["-ne", "p", "--", "-n", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-014", "args": ["--version=x"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-015", "args": ["--help=x"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-016", "args": ["--quiet=1", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-017", "args": ["--quiet", "--quiet", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-018", "args": ["--null-data", "-z", "p", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-019", "args": ["--zero-terminated", "p", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-020", "args": ["--zero", "p", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-021", "args": ["--line", "5", "-n", "l", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-022", "args": ["--in-place=.bak", "-n", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-023", "args": ["--in-place", ".bak", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-024", "args": ["--regexp", "s/(a)/<\\1>/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-025", "args": ["--regexp-e", "s/(a)/<\\1>/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-026", "args": ["--follow", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-027", "args": ["--unbuffered", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-028", "args": ["--unb", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-029", "args": ["--sep", "-n", "$p", "a.txt", "n.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-030", "args": ["--si", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-031", "args": ["--expression", "p", "--expression", "p", "-n", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-032", "args": ["-f", "s_p.sed", "-n", "-f", "s_p.sed", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-033", "args": ["-f", "noaccess.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-034", "args": ["-f", "s_p.sed", "-e", "p;p", "-n", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-035", "args": ["-n", "-e", "p", "-f", "s_p.sed", "-e", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-036", "args": ["-e", "1{", "-e", "p", "-e", "}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-037", "args": ["-e", "1!{", "-e", "d", "-e", "}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-038", "args": ["-e", "s/a/", "-e", "b/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-039", "args": ["-e", "y/a/", "-e", "b/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-040", "args": ["-e", "a\\", "-e", "x", "-e", "a\\", "-e", "y", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-041", "args": ["-e", "i\\", "-e", "multi\\", "-e", "line", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-042", "args": ["-e", "c\\", "-e", "changed", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-043", "args": ["-e", "$!N", "-e", "P;D", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-044", "args": ["-s", "-f", "s_p.sed", "-n", "a.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-045", "args": ["--debug"], "stdin": "", "show": [], "env": [], "setup": [], "skip": "debug annotation is refused"}
+{"name": "cli-046", "args": ["-i", "--follow-symlinks", "p"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-047", "args": ["-E", "-r", "-E", "s/(a)/\\1\\1/", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-048", "args": ["--posix", "-n", "p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": "posix mode is refused"}
+{"name": "cli-049", "args": ["-nz", "p", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-050", "args": ["-zn", "p", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-051", "args": ["-sn", "$p", "a.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-052", "args": ["-ns", "$p", "a.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-053", "args": ["-nse", "$p", "a.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-054", "args": ["-nEe", "s/(a)/\\1/p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-055", "args": ["-nEf", "s_sub.sed", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-056", "args": ["-ni.bak", "p", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-057", "args": ["-n", "5q;p", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-058", "args": ["5q", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-059", "args": ["10q", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-060", "args": ["-n", "$!{p}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-061", "args": ["-n", "$!{$!p}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-062", "args": ["-n", "p", "-", "-"], "stdin": "one.txt", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-063", "args": ["-", "-"], "stdin": "one.txt", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-064", "args": ["-s", "-n", "$p", "-", "a.txt"], "stdin": "one.txt", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-065", "args": ["--", "-"], "stdin": "one.txt", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-066", "args": ["-e", "p", "--", "-"], "stdin": "one.txt", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "cli-067", "args": ["-n", "F", "--", "-"], "stdin": "one.txt", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-001", "args": ["$c\\\nfoo", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-002", "args": ["$a foo", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-003", "args": ["$i foo", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-004", "args": ["$r rfile.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-005", "args": ["$R rfile.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-006", "args": ["$!N;$a foo", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-007", "args": ["$=", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-008", "args": ["$l", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-009", "args": ["-n", "$p;$p", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-010", "args": ["$G", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-011", "args": ["$x", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-012", "args": ["$x;$G", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-013", "args": ["x", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-014", "args": ["h;G", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-015", "args": ["$!d;h;G", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-016", "args": ["$s/z/&\\n/", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-017", "args": ["s/z/\\n&/", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-018", "args": ["$d", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-019", "args": ["2d", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-020", "args": ["3d", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-021", "args": ["$!{$!d}", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-022", "args": ["N;N;P;P", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-023", "args": ["$!N;$!N;N", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-024", "args": ["2q", "nonl.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-025", "args": ["3q", "nonl.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-026", "args": ["4q", "nonl.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-027", "args": ["3Q", "nonl.txt", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-028", "args": ["$q", "a.txt", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-029", "args": ["p;p", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-030", "args": ["$!N;P;D", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-031", "args": ["N", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-032", "args": ["n", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-033", "args": ["G", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-034", "args": ["a x", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-035", "args": ["i x", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-036", "args": ["r rfile.txt", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-037", "args": ["w /dev/stdout", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-038", "args": ["l", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-039", "args": ["=", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-040", "args": ["y/o/O/", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "tail-041", "args": ["s/$/\\n/", "onenl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-001", "args": ["e echo hi", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-002", "args": ["1e echo hi", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-003", "args": ["-n", "e echo hi", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-004", "args": ["e", "cmds.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-005", "args": ["-n", "e\np", "cmds.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-006", "args": ["s/.*/echo &/e", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-007", "args": ["s/^/echo /e", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-008", "args": ["s/^/echo /ep", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-009", "args": ["s/^/echo /pe", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-010", "args": ["-n", "s/^/echo /pe", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-011", "args": ["-n", "s/^/echo /ep", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-012", "args": ["2s/.*/echo X&/e", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-013", "args": ["s/x/y/e", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-014", "args": ["$!N;s/\\n/ /;s/^/echo /e", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-015", "args": ["e printf x", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-016", "args": ["s/^/printf /e", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-017", "args": ["s/z/echo hi/e", "nonl.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-018", "args": ["s/^/echo /e", "a.txt", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-019", "args": ["1{e echo first\n}", "a.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-020", "args": ["e echo a;echo b", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-021", "args": ["e true", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-022", "args": ["s/^/printf 'a\\nb\\n'; echo /e", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-023", "args": ["--sandbox", "s/^/echo /e", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
+{"name": "eval-024", "args": ["--sandbox", "e", "one.txt"], "stdin": "", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "exit-005", "args": ["q"], "stdin": "a.txt", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "exit-006", "args": ["q0"], "stdin": "a.txt", "show": [], "env": [], "setup": [], "skip": ""}
 {"name": "exit-007", "args": ["q1"], "stdin": "a.txt", "show": [], "env": [], "setup": [], "skip": ""}

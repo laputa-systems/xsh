@@ -28,6 +28,7 @@ FIXTURES = {
     "csv.txt": b"name,age,city\nann,30,paris\nbob,25,rome\n",
     "path.txt": b"/usr/local/bin\n/etc/passwd\nrelative/path\n",
     "rfile.txt": b"R1\nR2\n",
+    "cmds.txt": b"echo one\nprintf 'a\\nb\\n'\ntrue\n",
     "rnonl.txt": b"RR",
     "d/f.txt": b"in dir\n",
     "rodir/f.txt": b"read only dir\n",
@@ -478,7 +479,6 @@ for args, show in [
     (["v 9.0", "a.txt"], []),
     (["v;p", "one.txt"], []),
     (["v 4.2\np", "one.txt"], []),
-    (["e", "one.txt"], []),
     (["k", "one.txt"], []),
     (["2k", "one.txt"], []),
     (["!", "one.txt"], []),
@@ -582,7 +582,7 @@ SUBS = [
     "N;N;s/\\n/+/2", "N;N;s/\\n/+/g", "G;s/\\n/+/", "G;s/^$/E/", "x;s/^$/E/;x", "H;x;s/\\n/,/g;x",
     "s/a/X/;s/e/Y/", "s/a/X/;ta;s/$/ !/;:a", "s/a/X/ ; s/e/Y/", "s/a/X/\ns/e/Y/", "s/a/X/}", "{s/a/X/}", "{s/a/X/;}", "s/a/X/;;s/e/Y/",
     "s/a/X/ p", "s/a/X/g p", "s/a/X/gg", "s/a/X/pp", "s/a/X/2 3", "s/a/X/2p3", "s/a/X/0", "s/a/X/0g", "s/a/X/q", "s/a/X/w", "s/a/X/gw",
-    "s/a/X/mM", "s/a/X/ii", "s/a/X/gIm", "s/a/X/e", "s/a/X", "s/a", "s/", "s", "s//X/", "s/\\(/X/", "s/\\)/X/", "s/a\\{/X/", "s/a\\{1/X/",
+    "s/a/X/mM", "s/a/X/ii", "s/a/X/gIm", "s/a/X", "s/a", "s/", "s", "s//X/", "s/\\(/X/", "s/\\)/X/", "s/a\\{/X/", "s/a\\{1/X/",
     "s/[/X/", "s/[a/X/", "s/a/\\", "s/a/X\\", "s/a/X\\\n", "s/*/X/", "s/\\(*\\)/X/", "s/a**/X/", "s/^*/X/", "s/\\(^a\\)/X/", "s/a\\|*b/X/",
     "s/\\+/X/", "s/a\\?/X/", "s/\\?/X/", "s/a\\{1,2\\}\\{2\\}/X/", "s/\\(a\\)\\{2\\}/X/", "s/[[:alpha:]/X/", "s/[[.a.]]/X/", "s/[[=a=]]/X/",
     "s/a/\\0/", "s/a/\\00/", "s/a/\\1\\2/", "s/\\(a\\)\\(b\\)\\(c\\)\\(d\\)\\(e\\)\\(f\\)\\(g\\)\\(h\\)\\(i\\)/\\9/", "s/a/b/I;s//c/",
@@ -692,6 +692,10 @@ add("ip", ["-i.bak", "s/i/I/", "d/f.txt"], show=["d/f.txt", "d/f.txt.bak"])
 add("ip", ["-ibk/*", "s/i/I/", "d/f.txt"], show=["d/f.txt", "d/bk/f.txt", "bk/f.txt", "bk/d/f.txt"])
 add("ip", ["-i", "s/a/X/", "a.txt"], show=["a.txt"], setup=["chmod 600 a.txt"])
 add("ip", ["-i", "s/a/X/", "a.txt"], show=["a.txt"], setup=["chmod 755 a.txt"])
+add("ip", ["-i", "--follow-symlinks", "s/a/X/", "link2"], show=["link2", "link.txt", "a.txt"], setup=["ln -s link.txt link2"])
+add("ip", ["-i", "s/a/X/", "link2"], show=["link2", "link.txt", "a.txt"], setup=["ln -s link.txt link2"])
+add("ip", ["-i.bak", "--follow-symlinks", "s/a/X/", "link2"], show=["link2", "link.txt", "a.txt", "a.txt.bak", "link.txt.bak", "link2.bak"], setup=["ln -s link.txt link2"])
+add("ip", ["--follow-symlinks", "-n", "p", "link2"], setup=["ln -s link.txt link2"])
 add("ip", ["-i", "--debug", "s/a/X/", "a.txt"], show=["a.txt"])
 add("ip", ["-n", "-i", "-e", "p", "-e", "p", "one.txt"], show=["one.txt"])
 add("ip", ["-s", "-n", "p", "a.txt", "one.txt"], show=["a.txt"])
@@ -707,6 +711,141 @@ add("ip", ["-i", "l", "one.txt"], show=["one.txt"])
 add("ip", ["-i", "i\\\nfoo", "empty.txt"], show=["empty.txt"])
 add("ip", ["-i", "a foo", "empty.txt"], show=["empty.txt"])
 add("ip", ["-i", "s/./X/", "onenl.txt", "a.txt"], show=["onenl.txt", "a.txt"])
+
+# NUL-delimited records: the delimiter replaces the newline in every record boundary.
+for script in ["p", "=", "l", "F", "$!N;P;D", "G", "H;x", "N;s/\\n/+/", "s/^/>/", "a txt", "i txt", "c txt", "r rfile.txt", "R rfile.txt", "w out.txt", "y/a\\n/AN/", "n;d", "$d", "1d", "2q", "x;G"]:
+    show = ["out.txt"] if "out.txt" in script else []
+    add("zero", ["-z", script, "bin.bin"], show=show)
+    add("zero", ["-z", "-n", script, "nonl.txt", "bin.bin"], show=show)
+add("zero", ["-z", "s/\\n/,/g", "a.txt", "n.txt"])
+add("zero", ["-s", "-z", "-n", "$p", "bin.bin", "a.txt"])
+add("zero", ["-z", "$!d", "a.txt", "bin.bin"])
+
+# Separate files: line numbers, ranges, $, hold space, and R/w state per file.
+for script in ["=", "F", "$p", "1~2p", "2,4p", "/a/,/e/p", "0,/a/p", "x", "G", "h;$G", "$!N;s/\\n/+/", "N;N", "n;n", "R rfile.txt", "1R rfile.txt", "w out.txt", "$r rfile.txt", "q", "2q", "$a end", "1i top", "$!d"]:
+    show = ["out.txt"] if "out.txt" in script else []
+    add("sep", ["-s", "-n", script, "a.txt", "n.txt", "nonl.txt"], show=show)
+    add("sep", ["-s", script, "a.txt", "one.txt", "empty.txt", "nonl.txt"], show=show)
+add("sep", ["-s", "p", "missing.txt", "a.txt"])
+add("sep", ["-s", "-n", "$p", "a.txt", "missing.txt"])
+add("sep", ["--separate", "-n", "$=", "n.txt", "a.txt", "-"], stdin="one.txt")
+
+# Regular expression semantics that the host matcher must reproduce.
+for script in [
+    "s/a.b/X/", "s/a\\.b/X/", "s/^*a/X/", "s/\\(^\\|x\\)a/X/", "s/a\\{2,\\}/X/", "s/\\(a\\)\\1/X/", "s/.*/<&>/", "s/[[:space:]]\\+/_/g",
+    "s/[a-z]*$/X/", "s/\\(foo\\|bar\\)*/X/", "s/x*$/X/", "s/^x*/X/", "s/a*b*c*/X/g", "s/[0-9]\\+/<&>/g", "s/\\([^ ]*\\) \\(.*\\)/\\2 \\1/",
+    "s/\\w\\+/W/2", "s/\\s/_/g", "s/\\S\\+$/X/", "s/\\W/_/g", "s/[[:digit:]]/D/g", "s/[[:punct:]]/P/g", "s/\\(.\\)\\(.\\)\\(.\\)/\\3\\2\\1/",
+    "s/.\\{2\\}/[&]/g", "s/\\(ab\\)\\{2\\}/X/", "s/a\\?b/X/", "s/b\\+/X/", "s/\\(a\\|b\\)\\+/X/g", "s/^\\(.*\\)\\n\\1$/dup/", "s/\\n//", "s/$/\\n/",
+    "s/\\//|/g", "s/|/\\//g", "s/\\^/X/", "s/\\$/X/", "s/\\[/X/", "s/\\]/X/", "s/[\\]]/X/", "s/\\*/X/", "s/\\.\\*/X/",
+]:
+    for f in ["re.txt", "words.txt", "path.txt"]:
+        add("rx", [script, f])
+add("rx", ["N;s/a.b/X/", "a.txt"])
+add("rx", ["N;s/a$/X/", "a.txt"])
+add("rx", ["N;s/^b/X/", "a.txt"])
+add("rx", ["N;N;s/\\n/-/2", "a.txt"])
+add("rx", ["$!N;s/\\n.*//", "a.txt"])
+add("rx", ["/a/s//X/", "a.txt"])
+add("rx", ["/a/I s//X/", "a.txt"])
+add("rx", ["s/A/X/I;s//Y/", "a.txt"])
+add("rx", ["/b/s//[&]/;//d", "a.txt"])
+add("rx", ["s/a/X/;s//Y/g", "a.txt"])
+add("rx", ["//p", "a.txt"])
+add("rx", ["s//X/I", "a.txt"])
+add("rx", ["/a/Id", "a.txt"])
+add("rx", ["/ALPHA/Id", "a.txt"])
+add("rx", ["/A/,/E/Ip", "a.txt"])
+add("rx", ["-n", "N;/^b/Mp", "a.txt"])
+add("rx", ["-n", "N;/a$/Mp", "a.txt"])
+add("rx", ["-n", "N;/a\\nb/p", "a.txt"])
+add("rx", ["-n", "N;N;s/^/>/Mgp", "a.txt"])
+add("rx", ["-n", "N;N;s/$/</Mgp", "a.txt"])
+add("rx", ["-n", "N;N;s/^./X/Mgp", "a.txt"])
+add("rx", ["-n", "N;N;s/.$/X/Mgp", "a.txt"])
+add("rx", ["-n", "N;N;s/a$\\n/X/p", "a.txt"])
+add("rx", ["-n", "N;N;s/\\`a/X/Mp", "a.txt"])
+add("rx", ["-n", "N;N;s/a\\'/X/Mp", "a.txt"])
+add("rx", ["-n", "N;N;s/[^\\n]*$/X/Mp", "a.txt"])
+add("rx", ["-E", "-n", "N;N;s/(^|\\n)b/<&>/Mgp", "a.txt"])
+add("rx", ["-n", "s/\\(a\\)\\(b\\)\\?/[\\1|\\2]/p", "re.txt"])
+add("rx", ["-E", "-n", "s/(a)(b)?/[\\1|\\2]/p", "re.txt"])
+add("rx", ["-n", "s/a*/X/gp", "re.txt"])
+add("rx", ["-n", "s/\\(x\\)*/[\\1]/gp", "words.txt"])
+add("rx", ["s/b*/X/3", "a.txt"])
+add("rx", ["s/b*/X/2g", "a.txt"])
+add("rx", ["s/\\(\\)/X/g", "a.txt"])
+add("rx", ["-E", "s/()/X/g", "a.txt"])
+add("rx", ["s/$/X/2", "a.txt"])
+add("rx", ["s/^/X/2", "a.txt"])
+
+# Commands in less common positions and combinations.
+for args in [
+    ["$!N;$!D", "n.txt"], ["N;N;N;$!D", "n.txt"], ["1!G;h;$!d", "n.txt"], ["-n", "1!G;h;$p", "n.txt"], ["G;h", "a.txt"],
+    ["-n", "/b/{n;p}", "a.txt"], ["-n", "/b/{N;p}", "a.txt"], ["/b/{N;N;D}", "a.txt"], ["/b/!d", "a.txt"], ["/b/,/d/!d", "a.txt"],
+    ["2,3{N;s/\\n/+/}", "n.txt"], ["2,3{$!N;s/\\n/+/}", "n.txt"], ["2{h;d};4{G}", "n.txt"], ["3{x;p;x}", "n.txt"], ["2{x;p;x;p}", "a.txt"],
+    ["/a/{s//X/;t;s/$/ no/}", "a.txt"], ["/b/{s/b/B/;n;s/g/G/}", "a.txt"], ["2{p;d};p", "n.txt"], ["n;n;s/./X/", "n.txt"], ["N;P;P;D", "a.txt"],
+    ["-n", "$!{N;P};D", "a.txt"], ["-n", "x;n;x;p", "a.txt"], ["=;=", "one.txt"], ["l;l 2", "ctl.txt"], ["a\\\none\\\ntwo\n$a\\\nthree", "one.txt"],
+    ["i\\\n  indented", "one.txt"], ["a\\\n\tTabbed", "one.txt"], ["1c\\\nA\\\nB\n2c\\\nC", "a.txt"], ["/b/c\\\nBEE", "a.txt"], ["$!{N;N;c\\\ngrp\n}", "a.txt"],
+    ["2r rfile.txt\n2a after", "a.txt"], ["2a after\n2r rfile.txt", "a.txt"], ["2i before\n2a after\n2c change", "a.txt"], ["r rnonl.txt", "a.txt"],
+    ["R rnonl.txt", "a.txt"], ["r rfile.txt", "nonl.txt"], ["$r rnonl.txt", "nonl.txt"], ["$R rnonl.txt", "nonl.txt"], ["1r rfile.txt\n1R rfile.txt\n1r rnonl.txt", "one.txt"],
+    ["w /dev/stdout\ns/o/0/w /dev/stdout", "one.txt"], ["-n", "p;w /dev/stdout", "one.txt"], ["p;w /dev/stdout", "nonl.txt"], ["w /dev/stdout", "nonl.txt"],
+    ["-n", "s/./X/pw /dev/stdout", "nonl.txt"], ["$!N;l", "nonl.txt"], ["N;N;l;d", "nonl.txt"], ["x;l;x", "nonl.txt"], ["-n", "z;l", "nonl.txt"],
+    ["y/xyz/XYZ/;$!N;y/\\n/_/", "nonl.txt"], ["s/z/&\\n/", "nonl.txt"], ["$!N;s/\\n/ /;P;D", "nonl.txt"], ["N;N;N;P", "nonl.txt"], ["$s/$/!/", "nonl.txt"],
+    ["F;=", "nonl.txt", "one.txt"], ["-n", "$F", "a.txt", "one.txt"], ["a\\", "one.txt"], ["a\\\n", "one.txt"], ["a\\\n\n", "one.txt"], ["a   ", "one.txt"],
+    ["a\\\ttext", "one.txt"], ["a\\\\ttext", "one.txt"], ["a x\\\\y", "one.txt"], ["a x\\ny", "one.txt"], ["a \\ x", "one.txt"], ["a\\  \n x", "one.txt"],
+    ["s/o/\\\n/", "one.txt"], ["s/o/a\\\nb/", "one.txt"], ["s/o/\\\\\\n/", "one.txt"], ["s/n/\\t/", "one.txt"], ["s/n/\\x41\\x42/", "one.txt"],
+    ["s/n/\\o101/", "one.txt"], ["s/n/\\d066/", "one.txt"], ["s/n/\\cA/", "one.txt"], ["s/n/\\c[/", "one.txt"], ["s/n/\\cz/", "one.txt"], ["s/n/\\x/", "one.txt"],
+    ["s/n/\\xZ/", "one.txt"], ["s/n/\\x4/", "one.txt"], ["s/n/\\x414/", "one.txt"], ["s/n/\\u&/", "one.txt"], ["s/n/\\U&x/;s/$/Y/", "one.txt"],
+    ["s/o\\(n\\)/\\U\\1\\Lx\\1/", "one.txt"], ["s/\\(o\\)\\(n\\)/\\u\\1\\l\\2/", "one.txt"], ["s/\\(o\\)\\(n\\)/\\U\\1\\E\\2/", "one.txt"], ["s/.*/\\L\\u&/", "words.txt"],
+    ["s/\\(.\\)\\(.*\\)/\\U\\1\\L\\2/", "words.txt"], ["s/\\w\\+/\\u&/g", "words.txt"], ["s/\\(\\w\\)\\(\\w*\\)/\\U\\1\\E\\2/g", "words.txt"], ["s/\\b./\\u&/g", "words.txt"],
+]:
+    add("mix", args)
+
+# Option syntax corners and empty or degenerate scripts.
+for args in [
+    ["-n", "-n", "p", "a.txt"], ["-E", "-E", "s/(a)/<\\1>/", "a.txt"], ["--expression=", "a.txt"], ["-e", "", "a.txt"], ["", "a.txt"], [";", "a.txt"],
+    ["#c", "a.txt"], ["-n", "#c", "a.txt"], ["-l5", "-n", "l", "a.txt"], ["-l", "5x", "-n", "l", "a.txt"], ["--line-length=abc", "-n", "l", "a.txt"],
+    ["-nl", "5", "l", "a.txt"], ["-ne", "p", "--", "-n", "a.txt"], ["--version=x"], ["--help=x"], ["--quiet=1", "p", "a.txt"], ["--quiet", "--quiet", "p", "a.txt"],
+    ["--null-data", "-z", "p", "nonl.txt"], ["--zero-terminated", "p", "nonl.txt"], ["--zero", "p", "nonl.txt"], ["--line", "5", "-n", "l", "a.txt"],
+    ["--in-place=.bak", "-n", "p", "a.txt"], ["--in-place", ".bak", "p", "a.txt"], ["--regexp", "s/(a)/<\\1>/", "a.txt"], ["--regexp-e", "s/(a)/<\\1>/", "a.txt"],
+    ["--follow", "p", "a.txt"], ["--unbuffered", "p", "a.txt"], ["--unb", "p", "a.txt"], ["--sep", "-n", "$p", "a.txt", "n.txt"], ["--si", "p", "a.txt"],
+    ["--expression", "p", "--expression", "p", "-n", "a.txt"], ["-f", "s_p.sed", "-n", "-f", "s_p.sed", "a.txt"], ["-f", "noaccess.txt", "a.txt"],
+    ["-f", "s_p.sed", "-e", "p;p", "-n", "a.txt"], ["-n", "-e", "p", "-f", "s_p.sed", "-e", "p", "a.txt"], ["-e", "1{", "-e", "p", "-e", "}", "a.txt"],
+    ["-e", "1!{", "-e", "d", "-e", "}", "a.txt"], ["-e", "s/a/", "-e", "b/", "a.txt"], ["-e", "y/a/", "-e", "b/", "a.txt"], ["-e", "a\\", "-e", "x", "-e", "a\\", "-e", "y", "one.txt"],
+    ["-e", "i\\", "-e", "multi\\", "-e", "line", "one.txt"], ["-e", "c\\", "-e", "changed", "a.txt"], ["-e", "$!N", "-e", "P;D", "a.txt"],
+    ["-s", "-f", "s_p.sed", "-n", "a.txt", "one.txt"], ["--debug"], ["-i", "--follow-symlinks", "p"], ["-E", "-r", "-E", "s/(a)/\\1\\1/", "a.txt"],
+    ["--posix", "-n", "p", "a.txt"], ["-nz", "p", "nonl.txt"], ["-zn", "p", "nonl.txt"], ["-sn", "$p", "a.txt", "one.txt"], ["-ns", "$p", "a.txt", "one.txt"],
+    ["-nse", "$p", "a.txt", "one.txt"], ["-nEe", "s/(a)/\\1/p", "a.txt"], ["-nEf", "s_sub.sed", "a.txt"], ["-ni.bak", "p", "one.txt"],
+    ["-n", "5q;p", "a.txt"], ["5q", "a.txt"], ["10q", "a.txt"], ["-n", "$!{p}", "a.txt"], ["-n", "$!{$!p}", "a.txt"],
+]:
+    add("cli", args)
+for args in [
+    ["-n", "p", "-", "-"], ["-", "-"], ["-s", "-n", "$p", "-", "a.txt"], ["--", "-"], ["-e", "p", "--", "-"], ["-n", "F", "--", "-"],
+]:
+    add("cli", args, stdin="one.txt")
+
+# Text commands and their interaction with the last line of unterminated input.
+for args in [
+    ["$c\\\nfoo", "nonl.txt"], ["$a foo", "nonl.txt"], ["$i foo", "nonl.txt"], ["$r rfile.txt", "nonl.txt"], ["$R rfile.txt", "nonl.txt"],
+    ["$!N;$a foo", "nonl.txt"], ["$=", "nonl.txt"], ["$l", "nonl.txt"], ["-n", "$p;$p", "nonl.txt"], ["$G", "nonl.txt"], ["$x", "nonl.txt"],
+    ["$x;$G", "nonl.txt"], ["x", "nonl.txt"], ["h;G", "nonl.txt"], ["$!d;h;G", "nonl.txt"], ["$s/z/&\\n/", "nonl.txt"], ["s/z/\\n&/", "nonl.txt"],
+    ["$d", "nonl.txt"], ["2d", "nonl.txt"], ["3d", "nonl.txt"], ["$!{$!d}", "nonl.txt"], ["N;N;P;P", "nonl.txt"], ["$!N;$!N;N", "nonl.txt"],
+    ["2q", "nonl.txt", "a.txt"], ["3q", "nonl.txt", "a.txt"], ["4q", "nonl.txt", "a.txt"], ["3Q", "nonl.txt", "a.txt"], ["$q", "a.txt", "nonl.txt"],
+    ["p;p", "onenl.txt"], ["$!N;P;D", "onenl.txt"], ["N", "onenl.txt"], ["n", "onenl.txt"], ["G", "onenl.txt"], ["a x", "onenl.txt"], ["i x", "onenl.txt"],
+    ["r rfile.txt", "onenl.txt"], ["w /dev/stdout", "onenl.txt"], ["l", "onenl.txt"], ["=", "onenl.txt"], ["y/o/O/", "onenl.txt"], ["s/$/\\n/", "onenl.txt"],
+]:
+    add("tail", args)
+
+# The e command and the s///e flag run the shell.
+for args in [
+    ["e echo hi", "a.txt"], ["1e echo hi", "a.txt"], ["-n", "e echo hi", "one.txt"], ["e", "cmds.txt"], ["-n", "e\np", "cmds.txt"],
+    ["s/.*/echo &/e", "a.txt"], ["s/^/echo /e", "one.txt"], ["s/^/echo /ep", "one.txt"], ["s/^/echo /pe", "one.txt"],
+    ["-n", "s/^/echo /pe", "one.txt"], ["-n", "s/^/echo /ep", "one.txt"], ["2s/.*/echo X&/e", "a.txt"], ["s/x/y/e", "one.txt"],
+    ["$!N;s/\\n/ /;s/^/echo /e", "a.txt"], ["e printf x", "nonl.txt"], ["s/^/printf /e", "nonl.txt"], ["s/z/echo hi/e", "nonl.txt"],
+    ["s/^/echo /e", "a.txt", "one.txt"], ["1{e echo first\n}", "a.txt"], ["e echo a;echo b", "one.txt"], ["e true", "one.txt"],
+    ["s/^/printf 'a\\nb\\n'; echo /e", "one.txt"], ["--sandbox", "s/^/echo /e", "one.txt"], ["--sandbox", "e", "one.txt"],
+]:
+    add("eval", args)
 
 # Exit statuses and diagnostics that depend on runtime state.
 for args, stdin in [
@@ -765,10 +904,6 @@ def _skip(case):
         return "posix mode is refused"
     if "--debug" in args:
         return "debug annotation is refused"
-    if "--sandbox" not in args:
-        for a in args:
-            if a == "e" or a.endswith("/e"):
-                return "the e command and s///e flag are refused"
     if args and args[-1] in ("--version", "--ver") or args == ["-n", "--version"]:
         return "the pinned BusyBox suite requires a `GNU sed version` first line"
     if case["name"] in BUSYBOX_CONFLICTS:
