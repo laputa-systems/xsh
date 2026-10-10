@@ -409,6 +409,99 @@ test test_cp_new_directory_drops_setid_but_keeps_sticky { |ctx|
   assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o1711.clear_bits(fs.umask()?)
 }
 
+test test_cp_no_preserve_mode_new_directory_keeps_inherited_setgid { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-no-mode-setgid")?
+  let parent = fp"{root}/parent"
+  parent.mkdir()
+  parent.chmod(0o2777)
+  let source = fp"{root}/source"
+  source.mkdir()
+  source.chmod(0o705)
+  let dest = fp"{parent}/dest"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --no-preserve=mode -r $source $dest
+  assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o2777.clear_bits(fs.umask()?)
+}
+
+test test_cp_suffix_alone_enables_simple_backups { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-suffix-alone")?
+  let source = fp"{root}/source"
+  source.write("new\n")
+  let dest = fp"{root}/dest"
+  dest.write("old\n")
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --suffix .bak $source $dest
+  assert dest.read_text()? == "new\n"
+  assert fp"{dest}.bak".read_text()? == "old\n"
+}
+
+test test_cp_backup_protects_source_with_two_spaces_in_message { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-protect-source")?
+  let source = fp"{root}/file~"
+  source.write("")
+  let dest = fp"{root}/file"
+  dest.write("kept\n")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --backup=simple $source $dest
+  assert result.status.exited_with(1)
+  assert result.stderr == f"cp: backing up '{dest}' might destroy source;  '{source}' not copied\n", result.stderr
+  assert dest.read_text()? == "kept\n"
+}
+
+test test_cp_backup_rejects_update_none_modes { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-backup-update")?
+  let source = fp"{root}/source"
+  source.write("a")
+  let dest = fp"{root}/dest"
+  dest.write("b")
+  for update in ["--update=none", "--update=none-fail"] {
+    let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -b $update $source $dest
+    assert result.status.exited_with(1)
+    assert result.stderr.find("--backup is mutually exclusive with -n or --update=none-fail") != null, result.stderr
+  }
+  assert dest.read_text()? == "b"
+}
+
+test test_cp_parents_refuses_dot_dot_destination { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-parents-dotdot")?
+  fp"{root}/src/sub".mkdir(parents: true)
+  fp"{root}/src/sub/f".write("x\n")
+  fp"{root}/d".mkdir()
+  cd $root {
+    let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- --parents -r src/sub/.. d
+    assert result.status.exited_with(1)
+    assert result.stderr.find("cp: cannot create directory 'd/src/sub/..': File exists") != null, result.stderr
+  }
+  assert ! fp"{root}/d/src/sub/f".exists()?
+}
+
+test test_cp_special_file_creation_failure_names_the_file { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("mkfifo fixture is Linux-specific") }
+  if user.current()?.uid == 0 { test.skip("root can create special files in a read-only directory") }
+  let root = test.temp_dir(ctx, name: "cp-special-create")?
+  let source = fp"{root}/fifo"
+  fs.mknod(source, "fifo", 0o644)
+  let locked = fp"{root}/locked"
+  locked.mkdir()
+  locked.chmod(0o555)
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R $source fp"{locked}/copy"
+  locked.chmod(0o755)
+  assert result.status.exited_with(1)
+  assert result.stderr.find(f"cp: cannot create special file '{locked}/copy': ") != null, result.stderr
+}
+
+test test_cp_undecodable_operands_reach_the_kernel_unchanged { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-raw-operands")?
+  let source = Path.parse_bytes(bytes.concat([root.bytes(), b"/raw-\xff"]))?
+  source.write("raw\n")
+  let dest = Path.parse_bytes(bytes.concat([root.bytes(), b"/out-\xfe"]))?
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- $source $dest
+  assert dest.read_bytes()? == b"raw\n"
+
+  let dir = Path.parse_bytes(bytes.concat([root.bytes(), b"/dir-\xfd"]))?
+  dir.mkdir()
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -t $dir $source
+  let copied = Path.parse_bytes(bytes.concat([dir.bytes(), b"/raw-\xff"]))?
+  assert copied.read_bytes()? == b"raw\n"
+}
+
 test test_cp_force_backup_same_named_source { |ctx|
   let root = test.temp_dir(ctx, name: "cp-self-backup")?
   let source = fp"{root}/source"
