@@ -3062,22 +3062,12 @@
   "linux_surface": {
     "totals": {
       "commands": 125,
-      "present": 112,
+      "present": 122,
       "optional": 6,
       "missing": [
         "arp",
-        "ethtool",
         "ifconfig",
-        "iw",
-        "nc",
-        "nvme",
-        "ping",
-        "ping6",
-        "route",
-        "smartctl",
-        "ss",
-        "tracepath",
-        "traceroute"
+        "route"
       ]
     },
     "commands": [
@@ -3349,7 +3339,7 @@
         "optional": false,
         "xsh_implementation": "core/pkill.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "pidof",
@@ -3389,7 +3379,7 @@
         "optional": false,
         "xsh_implementation": "core/watch.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "vmstat",
@@ -3409,7 +3399,7 @@
         "optional": false,
         "xsh_implementation": "core/killall.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "pstree",
@@ -3429,7 +3419,7 @@
         "optional": false,
         "xsh_implementation": "core/fuser.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "lsof",
@@ -3449,7 +3439,7 @@
         "optional": true,
         "xsh_implementation": "core/iostat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "pidstat",
@@ -3459,7 +3449,7 @@
         "optional": true,
         "xsh_implementation": "core/pidstat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "ip",
@@ -3477,9 +3467,9 @@
         "domain": "linux.net",
         "reference": "iproute2",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/ss.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ss.xsh"
       },
       {
         "command": "ping",
@@ -3487,9 +3477,9 @@
         "domain": "linux.net",
         "reference": "iputils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/ping.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ping.xsh"
       },
       {
         "command": "ping6",
@@ -3497,9 +3487,9 @@
         "domain": "linux.net",
         "reference": "iputils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/ping6.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ping6.xsh"
       },
       {
         "command": "ifconfig",
@@ -3689,7 +3679,7 @@
         "optional": false,
         "xsh_implementation": "core/zcat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "bzip2",
@@ -3719,7 +3709,7 @@
         "optional": false,
         "xsh_implementation": "core/bzcat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "xz",
@@ -3749,7 +3739,7 @@
         "optional": false,
         "xsh_implementation": "core/xzcat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "lzma",
@@ -3779,7 +3769,7 @@
         "optional": false,
         "xsh_implementation": "core/lzcat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "zstd",
@@ -3899,7 +3889,7 @@
         "optional": false,
         "xsh_implementation": "core/umount.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "losetup",
@@ -3939,7 +3929,7 @@
         "optional": false,
         "xsh_implementation": "core/partx.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "partprobe",
@@ -3949,7 +3939,7 @@
         "optional": false,
         "xsh_implementation": "core/partprobe.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "fstrim",
@@ -3959,7 +3949,7 @@
         "optional": false,
         "xsh_implementation": "core/fstrim.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "fsfreeze",
@@ -3989,7 +3979,7 @@
         "optional": false,
         "xsh_implementation": "core/fdisk.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "mkfs.fat",
@@ -4127,9 +4117,9 @@
         "domain": "linux.storage_health",
         "reference": "smartmontools",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/smartctl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-smartctl.xsh"
       },
       {
         "command": "nvme",
@@ -4137,9 +4127,9 @@
         "domain": "linux.nvme",
         "reference": "nvme-cli",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": "core/tests/test-sys-pci.xsh"
+        "xsh_implementation": "core/nvme.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nvme.xsh"
       },
       {
         "command": "nsenter",
@@ -4227,9 +4217,9 @@
         "domain": "linux.net",
         "reference": "ethtool",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/ethtool.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ethtool.xsh"
       },
       {
         "command": "iw",
@@ -4237,9 +4227,9 @@
         "domain": "linux.wifi",
         "reference": "iw",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/iw.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-iw.xsh"
       },
       {
         "command": "traceroute",
@@ -4247,9 +4237,9 @@
         "domain": "linux.net",
         "reference": "traceroute",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/traceroute.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-traceroute.xsh"
       },
       {
         "command": "tracepath",
@@ -4257,9 +4247,9 @@
         "domain": "linux.net",
         "reference": "iputils",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/tracepath.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-tracepath.xsh"
       },
       {
         "command": "dig",
@@ -4287,9 +4277,9 @@
         "domain": "linux.net",
         "reference": "netcat-openbsd",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": "core/tests/test-sed.xsh"
+        "xsh_implementation": "core/nc.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nc.xsh"
       },
       {
         "command": "curl",
