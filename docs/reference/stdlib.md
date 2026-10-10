@@ -374,11 +374,13 @@ Path normalization and resolution.
 
 Process discovery, command construction, execution, spawning, and signals.
 
+- `process.affinity(pid: Int = default) -> Result[List[Int], Error]` — Reads or changes the CPUs a process may run on.
 - `process.argv_words(text: Str) -> Result[List[Str], Error]` — Splits a command string into an argv vector.
 - `process.command() -> Command` — Builds a typed command plan without starting it.
 - `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default, same_group: Bool = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
 - `process.current_pid() -> Result[Int, Error]` — Returns the current process ID.
 - `process.group_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
+- `process.io_priority(who: Int = default, which: Str = default) -> Result[{class: Str, level: Int}, Error]` — Reads or changes the I/O scheduling class and level of a process, group, or user.
 - `process.kill(pid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a selected signal to a process.
 - `process.kill_group(pgid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a signal to every member of a process group.
 - `process.list() -> Result[Stream[{argv: Str, argv0: Str, command: Str, cpu_ticks: Int?, nice: Int?, parent_pid: Int, pgrp: Int?, pid: Int, priority: Int?, processor: Int?, rss_bytes: Int?, runtime_seconds: Int, session: Int?, start_ticks: Int?, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int?, thread_count: Int?, ticks_per_second: Int?, tty: Str?, tty_number: Int?, uid: Int, user: Str, user_ticks: Int?, vsize_bytes: Int?}], Error]` — Reads structured process or listener information from the host.
@@ -388,14 +390,19 @@ Process discovery, command construction, execution, spawning, and signals.
 - `process.port(port: Int) -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error]` — Reads structured process or listener information from the host.
 - `process.ports() -> Result[Stream[{argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}], Error] (+1 overloads)` — Reads structured process or listener information from the host.
 - `process.priority(pid: Int = default, which: Str = default) -> Result[Int, Error]` — Reads or changes scheduling priority (niceness).
-- `process.rlimit(resource: Str) -> Result[{hard: Int?, resource: Str, soft: Int?}, Error]` — Reads or changes this process's resource limits.
-- `process.rlimits() -> Result[List[{hard: Int?, resource: Str, soft: Int?}], Error]` — Reads or changes this process's resource limits.
+- `process.rlimit(resource: Str, pid: Int = default) -> Result[{hard: Int?, resource: Str, soft: Int?}, Error]` — Reads or changes the resource limits of this process or another.
+- `process.rlimits(pid: Int = default) -> Result[List[{hard: Int?, resource: Str, soft: Int?}], Error]` — Reads or changes the resource limits of this process or another.
 - `process.run(command: Command) -> Result[Status, ProcessError]` — Runs a typed command and returns its process status.
+- `process.scheduler(pid: Int = default) -> Result[{deadline_ns: Int, period_ns: Int, policy: Str, priority: Int, reset_on_fork: Bool, runtime_ns: Int}, Error]` — Reads or changes the scheduler policy and priority of a process.
+- `process.scheduler_priorities(policy: Str) -> Result[{max: Int, min: Int}, Error]` — Reports the lowest and highest priority a scheduler policy accepts.
 - `process.script_path() -> Result[Path, Error]` — Returns the script path this process was started with.
 - `process.session_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
+- `process.set_affinity(pid: Int, cpus: List[Int]) -> Result[Unit, Error]` — Reads or changes the CPUs a process may run on.
 - `process.set_group_id(pid: Int, pgid: Int) -> Result[Unit, Error]` — Moves a process into a process group, or makes this process a session leader.
+- `process.set_io_priority(who: Int, class: Str, level: Int = default, which: Str = default) -> Result[Unit, Error]` — Reads or changes the I/O scheduling class and level of a process, group, or user.
 - `process.set_priority(pid: Int, value: Int, which: Str = default) -> Result[Unit, Error]` — Reads or changes scheduling priority (niceness).
-- `process.set_rlimit(resource: Str, soft: Int? = default, hard: Int? = default) -> Result[Unit, Error]` — Reads or changes this process's resource limits.
+- `process.set_rlimit(resource: Str, soft: Int? = default, hard: Int? = default, pid: Int = default) -> Result[Unit, Error]` — Reads or changes the resource limits of this process or another.
+- `process.set_scheduler(pid: Int, policy: Str, priority: Int = default, reset_on_fork: Bool = default, runtime_ns: Int = default, deadline_ns: Int = default, period_ns: Int = default) -> Result[Unit, Error]` — Reads or changes the scheduler policy and priority of a process.
 - `process.set_signal_action(signal: Str, action: Str) -> Result[Unit, Error]` — Reads or changes how this process treats a signal.
 - `process.signal(signal: Str) -> Result[{name: Str, number: Int}, Error]` — Sends a selected signal to a process.
 - `process.signal_action(signal: Str) -> Result[Str, Error]` — Reads or changes how this process treats a signal.
@@ -892,9 +899,12 @@ Process-scoped utility helpers.
 - `NetResponse {body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` — Describes one structured HTTP response.
 - `PatchResult {files: Int, hunks: Int}` — Reports files changed by a rooted patch.
 - `ProcessEntry {argv: Str, argv0: Str, command: Str, cpu_ticks: Int?, nice: Int?, parent_pid: Int, pgrp: Int?, pid: Int, priority: Int?, processor: Int?, rss_bytes: Int?, runtime_seconds: Int, session: Int?, start_ticks: Int?, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int?, thread_count: Int?, ticks_per_second: Int?, tty: Str?, tty_number: Int?, uid: Int, user: Str, user_ticks: Int?, vsize_bytes: Int?}` — Describes one process-table entry.
+- `ProcessIoPriority {class: Str, level: Int}` — Describes the I/O scheduling class and level of a process.
 - `ProcessPort {argv: Str, argv0: Str, command: Str, fd: Int, inode: Int, local: Str, local_address: Str, local_port: Int, parent_pid: Int, pid: Int, protocol: Str, remote: Str, remote_address: Str, remote_port: Int, state: Str, uid: Int, user: Str}` — Describes one process-owned network port.
+- `ProcessScheduler {deadline_ns: Int, period_ns: Int, policy: Str, priority: Int, reset_on_fork: Bool, runtime_ns: Int}` — Describes the scheduler policy of one process.
+- `ProcessSchedulerRange {max: Int, min: Int}` — Describes the priorities a scheduler policy accepts.
 - `ProcessThread {argv: Str, argv0: Str, command: Str, owner_pid: Int, parent_pid: Int, pid: Int, runtime_seconds: Int, start_time: Str, start_time_ms: Int, status: Str, thread_id: Int, thread_name: Str, uid: Int, user: Str}` — Describes one thread belonging to a process.
-- `Rlimit {hard: Int?, resource: Str, soft: Int?}` — Describes one resource limit of the calling process.
+- `Rlimit {hard: Int?, resource: Str, soft: Int?}` — Describes one resource limit of a process.
 - `Signal {name: Str, number: Int}` — Describes a Unix signal value.
 - `Spawn {argv: Str, command: Str, detach: Bool, ignore_hup: Bool, new_session: Bool, pid: Int}` — Represents an owned spawned process.
 - `SystemExecutionUnits {clock_ticks_per_second: Int, page_size_bytes: Int}` — Reports host page size and process clock-tick rate.

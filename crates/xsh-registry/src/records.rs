@@ -85,6 +85,9 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("ProcessEntry", process_entry_type()),
         ("ProcessPort", process_port_type()),
         ("ProcessThread", process_thread_type()),
+        ("ProcessIoPriority", process_io_priority_type()),
+        ("ProcessScheduler", process_scheduler_type()),
+        ("ProcessSchedulerRange", process_scheduler_range_type()),
         ("Rlimit", rlimit_type()),
         ("Signal", signal_record_type()),
         ("Spawn", spawn_record_type()),
@@ -554,6 +557,31 @@ pub fn rlimit_type() -> Type {
         ("resource".to_string(), Type::Str),
         ("soft".to_string(), Type::Optional(Box::new(Type::Int))),
         ("hard".to_string(), Type::Optional(Box::new(Type::Int))),
+    ]))
+}
+
+pub fn process_scheduler_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("policy".to_string(), Type::Str),
+        ("priority".to_string(), Type::Int),
+        ("reset_on_fork".to_string(), Type::Bool),
+        ("runtime_ns".to_string(), Type::Int),
+        ("deadline_ns".to_string(), Type::Int),
+        ("period_ns".to_string(), Type::Int),
+    ]))
+}
+
+pub fn process_scheduler_range_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("min".to_string(), Type::Int),
+        ("max".to_string(), Type::Int),
+    ]))
+}
+
+pub fn process_io_priority_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("class".to_string(), Type::Str),
+        ("level".to_string(), Type::Int),
     ]))
 }
 

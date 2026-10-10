@@ -41,6 +41,14 @@ wording and exit statuses cannot drift, and it chooses its own status (1 by
 default, 2 for `ls`, `cmp`, `diff`, and `grep`, 125 for `env`, `nice`,
 `nohup`, `timeout`, `stdbuf`, and `chroot`).
 
+`taskset`, `chrt`, `ionice`, and `prlimit` reproduce the util-linux utilities
+over the typed `process.affinity`, `scheduler`, `io_priority`, and `rlimit`
+families. They keep util-linux's own diagnostics (`failed to set pid N's
+affinity: ...`) through `lib/gnu.xsh`, parse options in `getopt_long` order
+with the glibc wording, and exit 1 on failure and 126 or 127 when the command
+cannot be executed. The listing `prlimit` prints before running a command is
+written in full, where util-linux loses its unflushed rows at `exec`.
+
 Prefer typed standard-module APIs over shelling out or parsing command text.
 Use `cli.parse` for ordinary option records, including short aliases and
 clusters, and reserve `cli.tokens` for applets whose option grammar is itself

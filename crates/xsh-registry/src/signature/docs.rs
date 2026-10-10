@@ -1180,9 +1180,29 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["process", "priority", "privileged"],
         )),
         ("process", "rlimit" | "rlimits" | "set_rlimit") => Some((
-            "Reads or changes this process's resource limits.",
-            "Limits are process-global and inherited by children; null is unlimited, an omitted bound is left unchanged, and raising a hard limit needs privilege.",
+            "Reads or changes the resource limits of this process or another.",
+            "Limits are process-global and inherited by children; null is unlimited, an omitted bound is left unchanged, and raising a hard limit needs privilege. A pid of 0 or none is this process; another pid goes through prlimit(2), which needs the same user or privilege and fails with ESRCH for a missing process and ENOSYS where the host cannot reach other processes.",
             &["process", "limits", "host-state"],
+        )),
+        ("process", "affinity" | "set_affinity") => Some((
+            "Reads or changes the CPUs a process may run on.",
+            "A pid of 0 is the calling thread, which unix.exec carries into the new program. affinity lists CPU numbers in order; set_affinity takes the same list and fails with EINVAL when none of its CPUs is online or allowed, while CPUs the kernel does not configure are ignored. Another process needs the same user or privilege; a missing one fails with ESRCH and a host without the call with ENOSYS.",
+            &["process", "scheduler", "host-state"],
+        )),
+        ("process", "scheduler" | "set_scheduler") => Some((
+            "Reads or changes the scheduler policy and priority of a process.",
+            "policy is other, fifo, rr, batch, idle, deadline, or ext. set_scheduler keeps the niceness of the target; reset_on_fork makes children start under the other policy, and runtime_ns, deadline_ns, and period_ns switch to sched_setattr(2) for the deadline reservation or the time slice of other and batch. Real-time and deadline policies need privilege or an rtprio limit, and every failure carries its errno.",
+            &["process", "scheduler", "privileged"],
+        )),
+        ("process", "scheduler_priorities") => Some((
+            "Reports the lowest and highest priority a scheduler policy accepts.",
+            "The kernel answers for every policy it knows; a policy it lacks, such as ext without sched_ext, fails with EINVAL.",
+            &["process", "scheduler", "host-state"],
+        )),
+        ("process", "io_priority" | "set_io_priority") => Some((
+            "Reads or changes the I/O scheduling class and level of a process, group, or user.",
+            "which selects a process, a process group, or a user, and 0 is the caller's own. A group or user reads as the highest priority among its members. class is none, realtime, best-effort, or idle; the realtime class needs privilege, and a level outside 0 to 8191 fails with EINVAL. Every failure carries its errno.",
+            &["process", "io", "privileged"],
         )),
         ("process", "signal_action" | "set_signal_action") => Some((
             "Reads or changes how this process treats a signal.",
