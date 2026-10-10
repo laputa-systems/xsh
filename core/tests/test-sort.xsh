@@ -566,6 +566,86 @@ test test_sort_separator_null_and_invalid_character_counts { |ctx|
   }
 }
 
+test test_sort_field_separator_is_the_long_form_of_t { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-field-separator")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"b:2\na:1\nc:3\n"
+  for args in [["--field-separator=:", "-k2"], ["--field-separator", ":", "-k2"], ["-t:", "--field-separator=:", "-k2"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      {LC_ALL: "C"}, input, stdout, stderr))?
+    assert result.exit_code()? == 0
+    assert stdout.read_bytes()? == b"a:1\nb:2\nc:3\n"
+    assert stderr.read_bytes()?.is_empty()
+  }
+
+  let null_separator = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--field-separator=\\0", "-k2"], root,
+    {LC_ALL: "C"}, b"a\0z\nb\0a\n", stdout, stderr))?
+  assert null_separator.exit_code()? == 0
+  assert stdout.read_bytes()? == b"b\0a\na\0z\n"
+
+  for case in [
+    {args: ["--field-separator="], message: "sort: empty tab\n"},
+    {args: ["-t:", "--field-separator=,"], message: "sort: incompatible tabs\n"},
+  ] {
+    let invalid = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + case.args, root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert invalid.exit_code()? == 2
+    assert stderr.read_text()? == case.message, case.message
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
+test test_sort_parallel_is_validated_and_does_not_change_output { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-parallel")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"b\na\n"
+  for value in ["1", "+2", " 3", "\t4", "4096"] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), f"--parallel={value}"], root,
+      {LC_ALL: "C"}, input, stdout, stderr))?
+    assert result.exit_code()? == 0, value
+    assert stdout.read_bytes()? == b"a\nb\n", value
+    assert stderr.read_bytes()?.is_empty()
+  }
+
+  let separate = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--parallel", "2"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert separate.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\nb\n"
+
+  for case in [
+    ["0", "sort: number in parallel must be nonzero\n"],
+    ["+0", "sort: number in parallel must be nonzero\n"],
+    ["NaN", "sort: invalid --parallel argument 'NaN'\n"],
+    ["-1", "sort: invalid --parallel argument '-1'\n"],
+    ["", "sort: invalid --parallel argument ''\n"],
+    ["+", "sort: invalid --parallel argument '+'\n"],
+    ["1x", "sort: invalid suffix in --parallel argument '1x'\n"],
+    ["2 ", "sort: invalid suffix in --parallel argument '2 '\n"],
+  ] {
+    let invalid = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), f"--parallel={case[0]}"], root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert invalid.exit_code()? == 2, case[0]
+    assert stderr.read_text()? == case[1], case[0]
+    assert stdout.read_bytes()?.is_empty()
+  }
+
+  let later_invalid = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--parallel=2", "--parallel=x"], root,
+    {LC_ALL: "C"}, input, stdout, stderr))?
+  assert later_invalid.exit_code()? == 2
+  assert stderr.read_text()? == "sort: invalid --parallel argument 'x'\n"
+}
+
 test test_sort_key_option_suffixes_and_blank_boundaries { |ctx|
   let root = test.temp_dir(ctx, name: "sort-key-options")?
   let script = fp"{ctx.core_dir}/sort.xsh"
