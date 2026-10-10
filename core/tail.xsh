@@ -311,12 +311,23 @@ proc stdout_pollable() [fs, error] -> Result[Bool] {
   Ok(metadata.kind in ["fifo", "socket"])
 }
 
+# GNU writes diagnostics unbuffered, so a diagnostic reported before some output
+# must reach the output stream first. Stderr is buffered here, so it is flushed
+# before every write to standard output.
+proc write_output(data: Bytes) [process, env, io] {
+  if let Err(_) = io.flush_stderr() {
+    exit 1
+  }
+
+  gnu.write_bytes(data)
+}
+
 # Writes the `==> NAME <==` line that introduces output from a file. `previous`
 # is the label of the last banner, "" before any output; a banner after earlier
 # output starts on a new line.
 proc write_banner(label: Str, previous: Str) [process, env, io] {
   let separator = if previous == "" { "" } else { "\n" }
-  gnu.write_text(f"{separator}==> {gnu.quote_maybe(label)} <==\n")
+  write_output(bytes.from_text(f"{separator}==> {gnu.quote_maybe(label)} <==\n"))
 }
 
 # Warnings are written before any operand is read. A stderr write that fails
@@ -369,7 +380,10 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
               }
             }
           } else {
-            still_missing += [name]
+            # Descriptors never retry a name that became a directory, FIFO, or device:
+            # it is reported and given up, even under --retry, as GNU does.
+            gnu.error(f"{gnu.quote(name)} has been replaced with an untailable file; giving up on this name")
+            failed = true
           }
         }
         Err(_) => still_missing += [name]
@@ -396,15 +410,21 @@ proc follow_descriptors(files: List[FollowFile], waiting: List[Str], pid: Int, i
               last = file.label
             }
 
-            gnu.write_bytes(chunk)
+            write_output(chunk)
             next += [{...file, offset: file.offset + chunk.len()}]
             produced = true
           }
         }
         Err(failure) => {
-          gnu.error_reading(file.label, failure)
-          unix.close_fd(file.fd)?
-          failed = true
+          # A FIFO is opened without blocking, so an empty pipe reports EAGAIN until
+          # data or a writer arrives; that is not a failure to read.
+          if gnu.errno(failure) in [11, 35] {
+            next += [file]
+          } else {
+            gnu.error_reading(file.label, failure)
+            unix.close_fd(file.fd)?
+            failed = true
+          }
         }
       }
     }
@@ -484,6 +504,15 @@ proc untailable_step(file: NameFile, kind: Str, retrying: Bool, last: Str) [proc
   {file: {...file, state: "untailable"}, last: last, keep: retrying, failed: ! retrying, dir_removed: false}
 }
 
+# Whether TARGET opens for reading. The descriptor is closed at once; the data is
+# read separately by the caller.
+proc openable(target: Path) [fs, process, error] -> Result[Bool, Error] {
+  let fd = unix.open_fd(target)?
+  defer unix.close_fd(fd)
+
+  Ok(true)
+}
+
 # One pass over a followed name. A name's file identity (device and inode) that
 # changed is read from its start; that also covers a file that appears after it
 # was missing. A file that became shorter than the offset already read is
@@ -512,6 +541,13 @@ proc follow_name_once(file: NameFile, retrying: Bool, headers: Bool, last: Str) 
   var failed = false
 
   if file.state != "tailing" {
+    # A name that exists but cannot be opened keeps waiting without a report, as GNU
+    # does under --retry; it is reported once it can be read.
+    match openable(name_path) {
+      Ok(_) => {}
+      Err(failure) => return gone_step(file, failure, retrying, last)
+    }
+
     gnu.error(f"{gnu.quote(file.label)} has appeared;  following new file")
     current = {...file, state: "tailing", dev: entry.dev, ino: entry.ino, offset: 0}
   } else if entry.dev != file.dev or entry.ino != file.ino {
@@ -532,7 +568,7 @@ proc follow_name_once(file: NameFile, retrying: Bool, headers: Bool, last: Str) 
           position = file.label
         }
 
-        gnu.write_bytes(data)
+        write_output(data)
         current = {...current, offset: current.offset + data.len()}
       }
       Err(failure) => {
@@ -739,7 +775,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
   var last = ""
   var failed = false
-  var growing: List[Str] = []
   var waiting: List[Str] = []
   var name_files: List[NameFile] = []
   var follow_files: List[FollowFile] = []
@@ -777,6 +812,21 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 
     if following and opts.pid != "" and source.kind == 1 {
       pid_fifos += [{label: label, path: source.path}]
+      continue
+    }
+
+    # A FIFO operand is followed from its first byte without waiting for a writer to
+    # close, so its output streams as it arrives; the descriptor is opened without
+    # blocking for that reason.
+    if following and follow_mode == "descriptor" and source.kind == 1 {
+      guard let fd = unix.open_fd(source.path, nonblock: true) else { |failure|
+        gnu.error_reading(label, failure)
+        follow_classes += ["unwatchable"]
+        failed = true
+        continue
+      }
+
+      follow_files += [{label: label, fd: fd, offset: 0}]
       continue
     }
 
@@ -835,12 +885,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
 
         break when chunk.is_empty()
 
-        gnu.write_bytes(chunk)
+        write_output(chunk)
         offset += chunk.len()
       }
       follow_offset = offset
     } else {
-      gnu.write_bytes(plan.data[plan.start..])
+      write_output(plan.data[plan.start..])
     }
 
     # Regular files and character devices (such as /dev/null, which never ends)
@@ -857,8 +907,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     } else if following and follow_mode == "name" and source.kind == 8 {
       let entry = fs.stat(source.path, follow_symlinks: true)?
       name_files += [{name: name, label: label, state: "tailing", symlink: is_link(name), dir_watched: ! parent_missing(name), dev: entry.dev, ino: entry.ino, offset: follow_offset}]
-    } else if following and name == "-" and tio.standard_file(0) != "" {
-      growing += [name]
+    } else if following and follow_mode == "descriptor" and name == "-" and tio.standard_file(0) != "" {
+      follow_files += [{label: label, fd: 0, offset: tio.stdin_offset()?}]
     }
   }
 
@@ -891,7 +941,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       write_banner(fifo.label, last)
       last = fifo.label
     }
-    gnu.write_bytes(data)
+    write_output(data)
   }
 
   if following and follow_mode == "descriptor" and (! follow_files.is_empty() or ! waiting.is_empty()) {
@@ -904,17 +954,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     failed = follow_names(name_files, headers, retrying, pid, interval, last, inotify) or failed
   }
 
-  if following and ! growing.is_empty() {
-    let running = [entry for entry in process.list()? if entry.pid == pid]
-    let alive = pid > 0 and ! running.is_empty()
-
-    if pid == 0 or alive {
-      gnu.error(
-        f"cannot follow {gnu.quote_value(growing[0])}: following a growing file is not supported because output is not flushed incrementally",
-      )
-      exit 1
-    }
-  } else if following and failed and follow_files.is_empty() and name_files.is_empty() and waiting.is_empty() {
+  if following and failed and follow_files.is_empty() and name_files.is_empty() and waiting.is_empty() {
     gnu.error("no files remaining")
   }
 

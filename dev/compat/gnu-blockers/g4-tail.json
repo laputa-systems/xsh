@@ -1,0 +1,62 @@
+{
+  "tests/tail/follow-stdin.sh": {
+    "class": "XSH-GAP",
+    "note": "Regular-file stdin is now followed by descriptor (core/tail.xsh; native test test_tail_follows_standard_input_redirected_from_a_regular_file). The remaining failing step is `tail -f - <&-`, which must exit 1 with 'cannot fstat standard input': the Rust runtime opens /dev/null on a closed fd 0 before the applet runs, so XSH cannot observe EBADF. Needs a runtime boundary (no sanitising of closed standard descriptors, or an fd-validity query). The /dev/tty line is ENV: the harness has no controlling terminal."
+  },
+  "tests/tail/pipe-f.sh": {
+    "class": "XSH-GAP",
+    "note": "SKIP comes from trap_sigpipe_or_skip_ (init.cfg), which needs `(trap '' PIPE; timeout 10 yes | :)` to print 'Broken pipe'. XSH yes (core/yes.xsh, not owned) prints nothing: the Rust runtime ignores SIGPIPE at startup, so an inherited SIG_IGN is not observable. With the guard removed in a scratch copy, tail's own pipeline cases pass; the remaining failure is `tail -f /dev/null >&-` expecting exit 1 (closed stdout, same runtime cause as follow-stdin)."
+  },
+  "tests/tail/pipe-f2.sh": {
+    "class": "FIXED",
+    "note": "tail -f on a FIFO operand streamed nothing until its writers closed and then exited. It now reads from a non-blocking descriptor and keeps polling after EOF (core/tail.xsh). Native test test_tail_follows_a_fifo_operand_as_it_is_written."
+  },
+  "tests/tail/retry.sh": {
+    "class": "FIXED",
+    "note": "Three real differences in core/tail.xsh: (1) stderr diagnostics were buffered behind stdout data; stderr is now flushed before each stdout write (test_tail_diagnostics_precede_the_output_they_introduce). (2) -F on an unreadable name exited instead of waiting; open failures are now operand errors in core/lib/textio_a1.xsh source_of, and a waiting name that cannot be opened stays silent (test_tail_follow_name_keeps_an_unreadable_file_waiting_silently). (3) --follow=descriptor --retry gives up when the name becomes a directory, printing 'has been replaced with an untailable file; giving up on this name' (test_tail_descriptor_retry_gives_up_when_the_name_becomes_a_directory)."
+  },
+  "tests/tail/tail-c.sh": {
+    "class": "FIXED",
+    "note": "/sys/kernel/profiling reports a 4096-byte stat size but holds 2 bytes; chunked offsets derived from the stat size found no data. core/lib/textio_a1.xsh source_of now classifies such a file as whole. Native test test_tail_reads_a_regular_file_shorter_than_its_stat_size (skips where the attribute is absent)."
+  },
+  "tests/tail/tail-sysfs.sh": {
+    "class": "FIXED",
+    "note": "Same root cause and fix as tests/tail/tail-c.sh (core/lib/textio_a1.xsh source_of); native test test_tail_reads_a_regular_file_shorter_than_its_stat_size."
+  },
+  "tests/tail/wait.sh": {
+    "class": "FIXED",
+    "note": "`tail -F unreadable` exited with 'no files remaining' instead of waiting. The unreadable operand is now an open failure that -F keeps waiting on (core/lib/textio_a1.xsh source_of; core/tail.xsh). Native tests: test_tail_reports_an_unreadable_empty_file_at_open and test_tail_follow_name_keeps_an_unreadable_file_waiting_silently. Runs as uid 1000, so the unreadable checks are not skipped."
+  },
+  "tests/head/head.sh": {
+    "class": "FIXED",
+    "note": "The upstream file is tests/head/head.pl, not head.sh. obs-4 (-2b) and obs-5 (-1k) read the count as lines. core/head.xsh modernize now reads the obsolete -NUM[FLAGS] letters in order as GNU head.c does: b/k/m select bytes with that multiplier, c drops it, l restores lines, q/v last wins, and an unknown letter is 'invalid trailing option -- X'. Native test test_head_obsolete_option_letters_are_read_in_order."
+  },
+  "tests/tac/tac-2-nonseekable.sh": {
+    "class": "XSH-GAP",
+    "note": "The only failing step is `tac - - <&-`, which must exit 1 (GNU: 'read error: Bad file descriptor'). XSH sees /dev/null on a closed fd 0 because the Rust runtime sanitises closed standard descriptors (same runtime gap as follow-stdin). The /proc and /sys steps pass."
+  },
+  "tests/misc/coreutils.sh": {
+    "class": "XSH-GAP",
+    "note": "The test runs the multicall program `coreutils` (`coreutils yes`, `coreutils blah`, expecting GNU's \"coreutils: unknown program 'blah'\" from src/coreutils.c). The XSH stage (dev/compat/stage.py) has no such program; gnu-bin maps it to false. Needs a multicall dispatcher program in the stage, which is not an applet in core/. The uutils build sed (util/build-gnu.sh line 214) only removes --coreutils-prog=, which is an invocation change, not a wording change."
+  },
+  "tests/misc/dircolors.sh": {
+    "class": "XSH-GAP",
+    "note": "The upstream file is tests/misc/dircolors.pl. Failing wording is in core/dircolors.xsh (not owned). GNU prints 'invalid line;  missing second token' (two spaces; XSH one space). GNU prints 'options --print-database and --print-ls-colors are mutually exclusive' and 'options to output non shell syntax, and to select a shell syntax are mutually exclusive'; XSH prints 'unrecognized option' for the abbreviated --print-ls and 'options are mutually exclusive'. Needs a change in core/dircolors.xsh."
+  },
+  "tests/misc/kill.sh": {
+    "class": "XSH-GAP",
+    "note": "Failing steps are in core/kill.xsh (not owned): `kill -l -l` and `kill -l -t` must exit 1 (XSH exits 0); `kill -0 -1` (signal to process group -1) is rejected as 'invalid option -- 1'; `kill -L` (bash compatibility) is rejected as an invalid option. The kill -l listing itself matches GNU for 0-64."
+  },
+  "tests/misc/time-style.sh": {
+    "class": "XSH-GAP",
+    "note": "Only the ls lines fail, in core/ls.xsh (not owned). load_tz accepts fixed offsets only, so TZ=PST8PDT,M3.2.0,M11.1.0 prints '+0000 (UTC)' where GNU prints '-0700 (PDT)' in summer. Needs POSIX DST rule support in ls.xsh or a shared library. du and pr lines match."
+  },
+  "tests/misc/xstrtol.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "The upstream file is tests/misc/xstrtol.pl. uutils util/build-gnu.sh lines 274-276 rewrite the expected text of inval-suffix, too-big and inv-pg-range to 'invalid --pages argument' (GNU 9.11 prints 'invalid suffix in --pages argument', \"--pages argument '<n>' too large\", and \"invalid page range '9x'\"). simply-inval also needs a GNU fix in core/pr.xsh (not owned): XSH prints \"invalid page range 'x'\"; GNU prints \"invalid --pages argument 'x'\"."
+  },
+  "tests/misc/yes.sh": {
+    "class": "XSH-GAP",
+    "note": "The write-error step fails in core/yes.xsh (not owned). GNU prints 'yes: standard output: No space left on device' (verified with the oracle); XSH prints 'yes: write error: No space left on device'. The zero-copy section needs strace, which is ENV."
+  }
+}

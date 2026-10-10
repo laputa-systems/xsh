@@ -75,17 +75,8 @@ proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
 
   let input_path = Path.parse_bytes(name)?
   let target = input_path.resolve()?
-  let entry = target.metadata()?
-  let kind = entry.mode / 4096 % 16
-  let mode = if kind == 8 and entry.size > 0 {
-    "file"
-  } else if kind == 2 or kind == 6 {
-    "device"
-  } else {
-    "whole"
-  }
 
-  Ok({name: target.display(), path: target, mode: mode, kind: kind, size: entry.size})
+  tio.source_of(target.display(), target)
 }
 
 proc report_cannot_open(name: Bytes, failure: Error) [process, env] {
@@ -99,22 +90,45 @@ proc report_cannot_open(name: Bytes, failure: Error) [process, env] {
 # A parsed NUM: `elide` is the leading `-` (all but the last NUM units).
 type Count = {value: Int, elide: Bool}
 
-# Rewrite the obsolete first argument `-NUM[bkm][cqvz]...` into the options it
-# stands for.
-pure modernize(argv: List[Str]) -> List[Str] {
+# Rewrite the obsolete first argument `-NUM[FLAGS]` into the options it stands
+# for. The letters are read in order, as GNU does: `c` selects bytes and drops a
+# multiplier, `b`, `k`, or `m` select bytes with that multiplier, `l` selects
+# lines again, and the last of `q` or `v` wins. Any other letter is a usage error.
+proc modernize(argv: List[Str]) [process, env] -> List[Str] {
   guard ! argv.is_empty() else {
     return argv
   }
 
-  let parts = rx"^-([0-9]+[bkm]?)([cqvz]*)$".captures(argv[0])
+  let parts = rx"^-([0-9]+)(.*)$".captures(argv[0])
 
   return argv when parts.is_empty()
 
-  let flags = parts[2]
-  let unit = if flags.find("c") != null { "-c" } else { "-n" }
-  let extra = [f"-{letter}" for letter in ["q", "v", "z"] if flags.find(letter) != null]
+  var by_lines = true
+  var multiplier = ""
+  var header = ""
+  var zero = false
 
-  [unit, parts[1], @extra, @argv[1..]]
+  for letter in parts[2] {
+    match letter {
+      "c" => {
+        by_lines = false
+        multiplier = ""
+      }
+      "b" | "k" | "m" => {
+        by_lines = false
+        multiplier = letter
+      }
+      "l" => by_lines = true
+      "q" | "v" => header = letter
+      "z" => zero = true
+      else => gnu.usage_error(f"invalid trailing option -- {letter}")
+    }
+  }
+
+  let unit = if by_lines { "-n" } else { "-c" }
+  let extra = [@if header != "" { [f"-{header}"] } else { [] }, @if zero { ["-z"] } else { [] }]
+
+  [unit, f"{parts[1]}{multiplier}", @extra, @argv[1..]]
 }
 
 # A write failure on standard output is reported with head's own wording; a

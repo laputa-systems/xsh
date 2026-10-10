@@ -25,6 +25,24 @@ test test_head_lines_bytes_and_obsolete_counts { |ctx|
   assert head_run(ctx, root, ["-n", "0", "n20"])?.stdout == b""
 }
 
+test test_head_obsolete_option_letters_are_read_in_order { |ctx|
+  let root = test.temp_dir(ctx, name: "head")?
+  let input = bytes.concat([b"a\n" for _ in range(1000)])
+  fp"{root}/f".write(b"a\n")
+
+  assert head_run(ctx, root, ["-2b"], input)?.stdout == input[..1024], "b selects bytes with a 512 multiplier"
+  assert head_run(ctx, root, ["-1k"], input)?.stdout == input[..1024]
+  assert head_run(ctx, root, ["-1kc"], input)?.stdout == b"a", "c after a multiplier drops it"
+  assert head_run(ctx, root, ["-2l"], input)?.stdout == b"a\na\n"
+  assert head_run(ctx, root, ["-2bl"], input)?.stdout == input, "l after b keeps the multiplier on a line count"
+  assert head_run(ctx, root, ["-1qv", "f"])?.stdout == b"==> f <==\na\n", "the last of q and v wins"
+
+  let bad = head_run(ctx, root, ["-1K"], input)?
+  assert bad.status == 1
+  assert bad.stdout == b""
+  assert bad.stderr == "head: invalid trailing option -- K\nTry 'head --help' for more information.\n", bad.stderr
+}
+
 test test_head_reads_standard_input_across_chunks { |ctx|
   let root = test.temp_dir(ctx, name: "head")?
   let input = bytes.concat([b"x\n" for _ in range(40000)])

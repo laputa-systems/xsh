@@ -28,14 +28,22 @@ export type Source = {name: Str, path: Path, mode: Str, kind: Int, size: Int}
 export type Fd = {pos: Int, append: Bool, ino: Int, mnt: Int}
 
 ## Open an operand: resolve symlinks and classify the file. A failure is the
-## operating-system error of the missing, looping, or unreachable name.
+## operating-system error of the missing, looping, unreachable, or unreadable name.
 export proc open_source(name: Str) [fs, error] -> Result[Source, Error] {
   return Ok({name: name, path: /dev/stdin, mode: "stdin", kind: 0, size: 0}) when name == "-"
 
-  let target = fp"{name}".resolve()?
+  source_of(name, fp"{name}".resolve()?)
+}
+
+## Classify an already resolved path as `open_source` does. A regular file that
+## cannot be opened is an operand error. A regular file whose stat size its
+## contents do not reach is `whole`: sysfs attributes report a page, and chunked
+## reads would start from that size and find no data.
+export proc source_of(name: Str, target: Path) [fs, error] -> Result[Source, Error] {
   let entry = target.metadata()?
   let kind = entry.mode / 4096 % 16
-  let mode = if kind == 8 and entry.size > 0 {
+  let reached = if kind == 8 { size_is_reached(target, entry.size)? } else { true }
+  let mode = if kind == 8 and reached and entry.size > 0 {
     "file"
   } else if kind == 2 or kind == 6 {
     "device"
@@ -44,6 +52,20 @@ export proc open_source(name: Str) [fs, error] -> Result[Source, Error] {
   }
 
   Ok({name: name, path: target, mode: mode, kind: kind, size: entry.size})
+}
+
+# Whether the last byte at the stat size can be read; an empty file reads zero
+# bytes at offset 0. A short read reports a size the file does not have. Other
+# failures, such as an unreadable file, are the operand's error and are returned.
+# Only regular files are probed, since opening a FIFO for reading can block.
+proc size_is_reached(target: Path, size: Int) [fs, error] -> Result[Bool, Error] {
+  let offset = if size > 0 { size - 1 } else { 0 }
+  let count = if size > 0 { 1 } else { 0 }
+
+  match bytes.read_at(target, offset, count) {
+    Ok(_) => Ok(true)
+    Err(failure) => if failure.message.find("failed to fill") != null { Ok(false) } else { Err(failure) }
+  }
 }
 
 ## The bytes of `source` from `offset`, at most `count` for chunked sources
