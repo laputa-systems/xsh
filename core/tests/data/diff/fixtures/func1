@@ -1,0 +1,28 @@
+#include <stdio.h>
+
+int add(int a, int b)
+{
+    int c = a + b;
+    return c;
+}
+
+static void greet(const char *name_that_is_very_long_and_goes_beyond_forty)
+{
+    puts(name);
+    puts(name);
+    puts(name);
+    puts(name);
+    puts(name);
+    puts(name);
+}
+
+$weird_name:
+    stuff
+    more
+    more
+    more
+    more
+    more
+    more
+    more
+    last
