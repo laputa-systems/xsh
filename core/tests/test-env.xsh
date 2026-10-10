@@ -328,3 +328,13 @@ test test_env_reports_uncatchable_signal_actions { |ctx|
   assert result.status == 125
   assert result.stderr == "env: failed to set signal action for signal 9: Invalid argument\n"
 }
+
+test test_env_block_signal_validates_names_before_unsupported { |ctx|
+  let invalid = env_run(ctx, ["--block-signal=__ALL__", "/bin/true"])?
+  let valid = env_run(ctx, ["--block-signal=USR1", "/bin/true"])?
+
+  assert invalid.status == 125
+  assert "'__ALL__': invalid signal" in invalid.stderr, invalid.stderr
+  assert valid.status == 125
+  assert valid.stderr == "env: signal mask operations are unavailable in this runtime\n", valid.stderr
+}
