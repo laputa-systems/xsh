@@ -560,7 +560,7 @@ test test_sort_separator_null_and_invalid_character_counts { |ctx|
       [ctx.xsh_bin.display(), "--", script.display(), "-t", separator, "-k2"], root,
       {LC_ALL: "C"}, b"", stdout, stderr))?
     assert invalid.exit_code()? == 2
-    let expected = if separator == "==" { "sort: separator must be exactly one character long: '=='\n" } else { "sort: separator must be exactly one character long: '=a'\n" }
+    let expected = if separator == "==" { "sort: multi-character tab '=='\n" } else { "sort: multi-character tab '=a'\n" }
     assert stderr.read_text()? == expected
     assert stdout.read_bytes()?.is_empty()
   }
@@ -1420,4 +1420,72 @@ test test_sort_legacy_plus_key_saturates_oversized_positions { |ctx|
   assert result.exit_code()? == 0, stderr.read_text()?
   assert stdout.read_text()? == "aa\nbb\n"
   assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_multi_character_tab_is_a_gnu_diagnostic { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-multi-character-tab")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  for case in [
+    {args: ["-t", "ab"], message: "sort: multi-character tab 'ab'\n"},
+    {args: ["-tab"], message: "sort: multi-character tab 'ab'\n"},
+    {args: ["--field-separator=ab"], message: "sort: multi-character tab 'ab'\n"},
+    {args: ["--field-separator", "ab"], message: "sort: multi-character tab 'ab'\n"},
+    {args: ["-t", "\\0x"], message: "sort: multi-character tab '\\\\0x'\n"},
+    {args: ["-t", "\\\\0"], message: "sort: multi-character tab '\\\\\\\\0'\n"},
+    {args: ["-t", "é"], message: "sort: multi-character tab '\\303\\251'\n"},
+    {args: ["-t:", "-tab"], message: "sort: multi-character tab 'ab'\n"},
+  ] {
+    let invalid = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display(), "-k2"] + case.args, root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert invalid.exit_code()? == 2, case.message
+    assert stderr.read_text()? == case.message, case.message
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
+test test_sort_long_options_accept_unambiguous_prefixes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-long-prefixes")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = b"b:2\na:1\nc:3\n"
+  for args in [["--field-sep=:", "-k2"], ["--field-sep", ":", "--ke=2,2"], ["--par=1", "--field-s=:", "--key=2"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      {LC_ALL: "C"}, input, stdout, stderr))?
+    assert result.exit_code()? == 0, stderr.read_text()?
+    assert stdout.read_bytes()? == b"a:1\nb:2\nc:3\n"
+    assert stderr.read_bytes()?.is_empty()
+  }
+}
+
+test test_sort_help_prints_gnu_usage { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-help")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--he"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  let text = stdout.read_text()?
+  assert text.starts_with("Usage: sort [OPTION]... [FILE]...\n")
+  assert text.ends_with("or available locally via: info '(coreutils) sort invocation'\n")
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_unrecognized_long_option_is_a_gnu_usage_error { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-unrecognized")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--misspelled"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 2
+  assert stderr.read_text()? == "sort: unrecognized option '--misspelled'\nTry 'sort --help' for more information.\n"
+  assert stdout.read_bytes()?.is_empty()
 }
