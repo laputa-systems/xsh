@@ -192,11 +192,25 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
 
   let gone = csplit_run(ctx, root, ["n", "/20/+1", "5"])?
   assert gone.status == 1
-  assert gone.stdout == b"51\n"
-  assert gone.stderr == "csplit: input disappeared\n", gone.stderr
-  assert piece(root, "xx00")? == numbers(1, 21), "finished pieces stay"
+  assert gone.stdout == b"51\n0\n", "the piece being opened is counted"
+  assert gone.stderr == "csplit: '5': line number out of range\n", gone.stderr
+  assert ! fp"{root}/xx00".exists()?, "without -k the finished pieces are removed"
+  assert ! fp"{root}/xx01".exists()?
+  clean(root)
+
+  let kept_gone = csplit_run(ctx, root, ["-k", "n", "/20/+1", "5"])?
+  assert kept_gone.status == 1
+  assert kept_gone.stdout == b"51\n0\n"
+  assert piece(root, "xx00")? == numbers(1, 21), "with -k the finished pieces stay"
   assert piece(root, "xx01")? == b"", "and so does the piece being opened"
   clean(root)
+
+  fp"{root}/empty".write(b"")
+  let empty = csplit_run(ctx, root, ["empty", "1"])?
+  assert empty.status == 1
+  assert empty.stdout == b"0\n"
+  assert empty.stderr == "csplit: '1': line number out of range\n", empty.stderr
+  assert ! fp"{root}/xx00".exists()?, "an empty input leaves no piece behind"
 
   let behind = csplit_run(ctx, root, ["n", "/^15$/-3", "14", "/^15$/"])?
   assert behind.stdout == b"24\n6\n21\n", "a line number leaves the lines already read by a negative offset unmatched"
@@ -221,4 +235,30 @@ test test_csplit_non_utf8_operand_names_the_file_by_bytes { |ctx|
   assert status.exit_code()? == 0
   assert piece(root, "xx00")? == b"line1\nline2\n"
   assert piece(root, "xx01")? == b"line3\nline4\nline5\n"
+}
+
+test test_csplit_write_error_removes_the_file_it_opened { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+
+  let root = test.temp_dir(ctx, name: "csplit-full-file")?
+  fp"{root}/n".write(numbers(1, 3))
+  fs.symlink(p"/dev/full", fp"{root}/xx01")?
+
+  let failed = csplit_run(ctx, root, ["n", "1"])?
+  assert failed.status == 1
+  assert failed.stderr == "csplit: xx01: No space left on device\n", failed.stderr
+  assert ! fp"{root}/xx00".exists()?
+  assert ! fp"{root}/xx01".exists()?, "the file opened for the failed write is removed"
+}
+
+test test_csplit_directory_in_the_way_is_not_removed { |ctx|
+  let root = test.temp_dir(ctx, name: "csplit-directory")?
+  fp"{root}/n".write(numbers(1, 3))
+  fp"{root}/xx01".mkdir()?
+
+  let failed = csplit_run(ctx, root, ["n", "1"])?
+  assert failed.status == 1
+  assert failed.stderr == "csplit: xx01: Is a directory\n", failed.stderr
+  assert fp"{root}/xx01".is_dir()?, "a path that could not be opened is left alone"
+  assert ! fp"{root}/xx00".exists()?
 }

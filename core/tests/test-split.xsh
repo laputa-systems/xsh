@@ -283,3 +283,68 @@ test test_split_round_robin_fits_under_a_small_descriptor_limit { |ctx|
   assert piece(root, "xaa")? == b"0\n40\n80\n"
   assert piece(root, "xbn")? == b"39\n79\n"
 }
+
+test test_split_io_blksize_accepts_getopt_prefixes_and_values { |ctx|
+  let root = test.temp_dir(ctx, name: "split-blksize")?
+  fp"{root}/five".write("1\n2\n3\n4\n5\n")
+
+  assert split_run(ctx, root, ["---io=1", "-l", "2", "five", "a-"])?.status == 0
+  assert piece(root, "a-aa")? == b"1\n2\n"
+
+  assert split_run(ctx, root, ["---i", "4096", "-l", "2", "five", "b-"])?.status == 0
+  assert piece(root, "b-ab")? == b"3\n4\n"
+
+  let missing = split_run(ctx, root, ["-l", "2", "five", "---io"])?
+  assert missing.status == 1
+  assert missing.stderr == "split: option '---io-blksize' requires an argument\nTry 'split --help' for more information.\n", missing.stderr
+
+  let empty = split_run(ctx, root, ["---io-blksize=", "five"])?
+  assert empty.status == 1
+  assert empty.stderr == "split: invalid IO block size: ''\n", empty.stderr
+}
+
+test test_split_non_utf8_equals_option_value_keeps_its_name { |ctx|
+  let root = test.temp_dir(ctx, name: "split-raw-equals")?
+  let stderr = fp"{root}/stderr"
+  let command = r"""suffix=$(printf '\376'); exec "$1" "$2" -b 1 --additional-suffix="$suffix" input.txt q"""
+  fp"{root}/input.txt".write("AB")
+
+  let status = process.run(process.command_argv(
+    p"/bin/sh",
+    ["sh", "-c", command, "split-raw-equals", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    root,
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+    b"",
+    fp"{root}/stdout",
+    stderr,
+    timeout: 5s,
+  ))?
+  let first = Path.parse_bytes(bytes.concat([root.bytes(), b"/qaa\xfe"]))?
+  let second = Path.parse_bytes(bytes.concat([root.bytes(), b"/qab\xfe"]))?
+
+  assert status.exited_with(0), stderr.read_text()?
+  assert first.read_bytes()? == b"A"
+  assert second.read_bytes()? == b"B"
+}
+
+test test_split_stdin_redirected_from_the_output_is_refused { |ctx|
+  let root = test.temp_dir(ctx, name: "split-stdin-guard")?
+  fp"{root}/xaa".write("1\n2\n3\n4\n5\n")
+  let stderr = fp"{root}/stderr"
+  let command = r"""exec "$1" "$2" -C 6 - < xaa"""
+
+  let status = process.run(process.command_argv(
+    p"/bin/sh",
+    ["sh", "-c", command, "split-stdin-guard", ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display()],
+    root,
+    {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""},
+    b"",
+    fp"{root}/stdout",
+    stderr,
+    timeout: 5s,
+  ))?
+
+  assert status.exited_with(1), stderr.read_text()?
+  assert stderr.read_text()? == "split: 'xaa' would overwrite input; aborting\n"
+  assert piece(root, "xaa")? == b"1\n2\n3\n4\n5\n", "the input is left intact"
+}
