@@ -483,3 +483,8 @@ case("hunk-beyond-end-of-file", "t p", t=F5, p="--- f\n+++ f\n@@ -9,2 +9,2 @@\n 
 case("hunk-trailing-context-beyond-end", "t p", t=F5, p="--- f\n+++ f\n@@ -4,3 +4,3 @@\n 4\n-5\n+FIVE\n 6\n")
 case("empty-patch-file-named", "t p", t=F5, p="")
 case("name-with-trailing-slash", "-p1", stdin="--- a/f/\n+++ a/f/\n@@ -1 +1 @@\n-1\n+X\n", f=F5)
+case("name-non-ascii", "", stdin="--- \"é\"\n+++ \"é\"\n@@ -1 +1 @@\n-1\n+2\n", **{"é": "1\n"})
+case("name-with-double-quote", "", stdin="--- \"q\\\"uote\"\n+++ \"q\\\"uote\"\n@@ -1 +1 @@\n-1\n+2\n", **{'q"uote': "1\n"})
+case("name-with-apostrophe", "", stdin="--- \"ap'ostrophe\"\n+++ \"ap'ostrophe\"\n@@ -1 +1 @@\n-1\n+2\n", **{"ap'ostrophe": "1\n"})
+case("name-with-dollar", "", stdin="--- \"dollar$x\"\n+++ \"dollar$x\"\n@@ -1 +1 @@\n-1\n+2\n", **{"dollar$x": "1\n"})
+case("name-with-octal-escape", "", stdin="--- \"a\\303\\251\"\n+++ \"a\\303\\251\"\n@@ -1 +1 @@\n-1\n+2\n", **{"aé": "1\n"})

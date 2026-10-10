@@ -156,30 +156,33 @@ pure number(text: Str) -> Int {
 }
 
 pure unquote(text: Str) -> HeaderName {
-  var output = ""
+  let raw = bytes.from_text(text)
+  var output: List[Int] = []
   var index = 1
-  let size = text.byte_len()
+  let size = raw.len()
   while index < size {
-    let char = text.byte_slice(index, length: 1)
-    if char == "\"" { index += 1; break }
-    if char == "\\" and index + 1 < size {
-      let next = text.byte_slice(index + 1, length: 1)
+    let byte = raw.byte_at(index) ?? 0
+    if byte == 34 { index += 1; break }
+    if byte == 92 and index + 1 < size {
+      let next = raw.byte_at(index + 1) ?? 0
       index += 2
-      if next == "n" { output += "\n" } else if next == "t" { output += "\t" } else if next == "r" { output += "\r" } else if next == "a" { output += "\u{07}" } else if next == "b" { output += "\u{08}" } else if next == "f" { output += "\u{0c}" } else if next == "v" { output += "\u{0b}" } else if next >= "0" and next <= "7" {
-        var value = number(next)
+      if next == 110 { output += [10] } else if next == 116 { output += [9] } else if next == 114 { output += [13] } else if next == 97 { output += [7] } else if next == 98 { output += [8] } else if next == 102 { output += [12] } else if next == 118 { output += [11] } else if next >= 48 and next <= 55 {
+        var value = next - 48
         var digits = 1
         while digits < 3 and index < size {
-          let more = text.byte_slice(index, length: 1)
-          if more >= "0" and more <= "7" { value = value * 8 + number(more); index += 1; digits += 1 } else { break }
+          let more = raw.byte_at(index) ?? 0
+          if more >= 48 and more <= 55 { value = value * 8 + more - 48; index += 1; digits += 1 } else { break }
         }
-        output += (bytes.from_ints([value % 256]) ?? b"").utf8() ?? "?"
-      } else { output += next }
+        output += [value % 256]
+      } else { output += [next] }
       continue
     }
-    output += char
+    output += [byte]
     index += 1
   }
-  {name: output, stamp: text.byte_slice(index).trim(), present: true}
+  let name = (bytes.from_ints(output) ?? b"").utf8() ?? ""
+  let rest = (raw[index..].utf8() ?? "").trim()
+  {name: name, stamp: rest, present: true}
 }
 
 ## Split the text after a `--- `, `+++ `, or `*** ` marker into name and
@@ -188,16 +191,10 @@ pure unquote(text: Str) -> HeaderName {
 export pure fetch_name(rest: Str) -> HeaderName {
   let text = rest.trim()
   if text.starts_with("\"") { return unquote(text) }
-  var end = 0
-  let size = text.byte_len()
   # A tab ends the name, so a name may hold spaces; without one the first
   # space ends it.
-  let tabbed = text.find("\t") != null
-  while end < size {
-    let char = text.byte_slice(end, length: 1)
-    if char == "\t" or (char == " " and !tabbed) { break }
-    end += 1
-  }
+  let tab = text.find("\t")
+  let end = tab ?? text.find(" ") ?? text.byte_len()
   {name: text.byte_slice(0, end), stamp: text.byte_slice(end).trim(), present: true}
 }
 
@@ -205,35 +202,21 @@ export pure fetch_name(rest: Str) -> HeaderName {
 ## the final component (GNU's default). Doubled slashes count as one
 ## separator; a name with fewer components than requested has no name left.
 export pure strip_name(name: Str, count: Int) -> Str {
-  if count < 0 {
-    var last = name
-    var index = 0
-    let size = name.byte_len()
-    var start = 0
-    while index < size {
-      if name.byte_slice(index, length: 1) == "/" {
-        while index + 1 < size and name.byte_slice(index + 1, length: 1) == "/" { index += 1 }
-        start = index + 1
-      }
-      index += 1
-    }
-    last = name.byte_slice(start)
-    return last
-  }
+  let raw = bytes.from_text(name)
+  let size = raw.len()
   var start = 0
   var remaining = count
   var index = 0
-  let size = name.byte_len()
-  while remaining > 0 and index < size {
-    if name.byte_slice(index, length: 1) == "/" {
-      while index + 1 < size and name.byte_slice(index + 1, length: 1) == "/" { index += 1 }
+  while index < size and (count < 0 or remaining > 0) {
+    if raw.byte_at(index) == 47 {
+      while index + 1 < size and raw.byte_at(index + 1) == 47 { index += 1 }
       start = index + 1
       remaining -= 1
     }
     index += 1
   }
-  if remaining > 0 { return "" }
-  name.byte_slice(start)
+  if count >= 0 and remaining > 0 { return "" }
+  raw[start..].utf8() ?? ""
 }
 
 # Days from 1970-01-01 to a civil date.
@@ -284,9 +267,10 @@ type GitNames = {old: Str, new: Str}
 pure git_names(text: Str) -> GitNames {
   let words = text.split(" ")
   if words.len() == 2 { return {old: words[0], new: words[1]} }
-  let half = (text.byte_len() - 1) / 2
-  if text.byte_len() % 2 == 1 and text.byte_slice(half, length: 1) == " " {
-    return {old: text.byte_slice(0, half), new: text.byte_slice(half + 1)}
+  let raw = bytes.from_text(text)
+  let half = (raw.len() - 1) / 2
+  if raw.len() % 2 == 1 and raw.byte_at(half) == 32 {
+    return {old: raw[0..half].utf8() ?? "", new: raw[half + 1..].utf8() ?? ""}
   }
   {old: words[0], new: words[words.len() - 1]}
 }
@@ -340,8 +324,9 @@ export pure deindent(lines: List[Bytes], from: Int, width: Int) -> List[Bytes] {
 }
 
 pure leading_blanks(text: Str) -> Int {
+  let raw = bytes.from_text(text)
   var count = 0
-  while count < text.byte_len() and (text.byte_slice(count, length: 1) == " " or text.byte_slice(count, length: 1) == "\t") { count += 1 }
+  while count < raw.len() and (raw.byte_at(count) == 32 or raw.byte_at(count) == 9) { count += 1 }
   count
 }
 
@@ -359,7 +344,7 @@ export pure scan(lines: List[Bytes], from: Int, allowed: Str) -> Scan {
     let crlf = lines[i].ends_with(b"\r\n")
     let next_text = if i + 1 < total { body_text(lines[i + 1]) } else { "" }
     let lead = leading_blanks(text)
-    let marker = text.byte_slice(lead)
+    let marker = (bytes.from_text(text)[lead..].utf8() ?? "")
     if lead > 0 and (marker.starts_with("--- ") or marker.starts_with("+++ ") or marker.starts_with("*** ") or marker.starts_with("@@ -") or marker.starts_with("diff --git ")) {
       # An indented patch: read it with the indentation taken off.
       var inner = scan(deindent(lines, i, lead), i, allowed)

@@ -72,7 +72,8 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
       buffer = bytes_list_splice(buffer, first - 1, last, [])
       current = if first - 1 < buffer.len() { first } else { buffer.len() }
     } else if command == "s" {
-      let parts = c[4].split(c[4].byte_slice(0, length: 1))
+      let delimiter = (bytes.from_ints([c[4].byte_at(0) ?? 47]) ?? b"/").utf8() ?? "/"
+      let parts = c[4].split(delimiter)
       if parts.len() < 3 or first < 1 or last > size { return {output: buffer, failed: text, next: i} }
       let pattern = regex.compile(parts[1])
       let compiled = match pattern {

@@ -169,7 +169,7 @@ proc note(opts: Options, text: Str) [process, env, io, error] {
 
 # A file name as GNU patch prints it: shell style unless `--quoting-style`
 # or QUOTING_STYLE chooses another.
-proc q(opts: Options, name: Str) [env] -> Str {
+proc q(opts: Options, name: Str) [env, error] -> Str {
   let style = opts.quoting_style ?? env.get_or("QUOTING_STYLE", "shell") ?? "shell"
   if style == "literal" { return name }
   if style == "shell-always" { return gnu.quote(name) }
@@ -180,7 +180,13 @@ proc q(opts: Options, name: Str) [env] -> Str {
     }
     return if style == "c" { "\"" + out + "\"" } else { out }
   }
-  gnu.quote_maybe(name)
+  # GNU patch's shell style never escapes non-ASCII bytes, whatever the
+  # locale; the UTF-8 view keeps them as they are.
+  var quoted = name
+  env LC_ALL="C.UTF-8" {
+    quoted = gnu.quote_maybe(name)
+  }
+  quoted
 }
 
 pure plural(count: Int) -> Str {
@@ -597,17 +603,23 @@ pure read_one(lines: List[Bytes], position: Int, kind: Str, strip_cr: Bool) -> p
 # touching either end, as GNU patch's Prereq check requires.
 pure contains_word(content: Bytes, word: Str) -> Bool {
   let text = content.utf8() ?? ""
+  let wanted = bytes.from_text(word)
   var from = 0
   loop {
     let at = text.find(word, from) ?? -1
     if at < 0 { return false }
-    let before = if at == 0 { " " } else { text.byte_slice(at - 1, length: 1) }
-    let end = at + word.byte_len()
-    let after = if end >= text.byte_len() { " " } else { text.byte_slice(end, length: 1) }
-    if !rx"[A-Za-z0-9_]".matches(before) and !rx"[A-Za-z0-9_]".matches(after) { return true }
+    let raw = bytes.from_text(text)
+    let end = at + wanted.len()
+    let before = if at == 0 { 32 } else { raw.byte_at(at - 1) ?? 32 }
+    let after = if end >= raw.len() { 32 } else { raw.byte_at(end) ?? 32 }
+    if !is_word_byte(before) and !is_word_byte(after) { return true }
     from = at + 1
   }
   false
+}
+
+pure is_word_byte(byte: Int) -> Bool {
+  (byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or byte == 95
 }
 
 # What the patch says about the file's existence, in the patch's own
