@@ -4494,7 +4494,9 @@ Contracts worth knowing without consulting the reference:
   TTL, and TOS are read; sends set `MSG_NOSIGNAL`. `linux.netlink_open`,
   `netlink_request`, and `genl_family_id` send one netlink request and collect
   the multipart reply as header-parsed message records; a negative
-  `NLMSG_ERROR` code is the errno. `linux.ioctl` admits only the fixed-layout
+  `NLMSG_ERROR` code is the errno. Under `test.linux_fake` with a
+  `netlink_fixture` they answer from recorded exchanges (§17). `linux.ioctl`
+  admits only the fixed-layout
   interface, ARP, and ethtool requests named by `linux.net_constants()`, which
   also names every socket, option, netlink, and ioctl number. Interface
   configuration needs the kernel's usual capability; nothing in the runtime
@@ -4731,8 +4733,9 @@ never touches the host: every entry returns fixed data, and each call appends a
 JSON line naming its operation and arguments to the `log` setting. The other
 settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
 `hwclock_epoch_ms`) choose the values some queries report; `storage_fixture`
-names the recorded device exchanges that answer the storage transport
-functions (below); unknown settings fail with `test-linux-fake`. Only the test harness can install the fake: no
+and `netlink_fixture` name the recorded device and netlink exchanges that
+answer the storage transport and netlink functions (below); unknown settings
+fail with `test-linux-fake`. Only the test harness can install the fake: no
 environment variable or `xsh` option enables it.
 
 The `storage_fixture` setting names a JSON Lines file of recorded device
@@ -4758,6 +4761,40 @@ with its line number. Each line has an `op`:
 instead of response fields fails the matching call with that kernel errno, as
 a real ioctl would. The call log (`log`) records each storage call by function
 name and descriptor number, including calls the function then refused.
+
+The `netlink_fixture` setting names a JSON Lines file of recorded netlink
+exchanges, which lets a script that talks to hardware the test host lacks (a
+wireless device, for `iw`) run unchanged against the fake. Under it,
+`linux.genl_family_id` and `linux.netlink_open` never reach the kernel, and
+`linux.netlink_request`, `linux.recvfrom`, `linux.setsockopt_int`, and
+`linux.set_socket_timeout` are answered from the file for the descriptors
+`netlink_open` returned under the fake (each is an anonymous in-memory file,
+which `unix.close_fd` releases); any other descriptor takes the real path, and
+without the setting every netlink call does. The file is re-read on every
+call and the first matching line answers. A call that matches no line fails
+with `linux-netlink-fake`, and a line with an unknown field or a `payload`
+that is not base64 text is reported with its line number. Each line has an
+`op`:
+
+- `genl_family`: request `name`; response `id`, or `errno`.
+- `netlink_request`: request `protocol`, `type`, `flags`, `cmd` (the first
+  payload byte, the generic-netlink command), and `payload` (the exact request
+  bytes), each matched only when present; response `replies`, a list of
+  `{type, flags, payload}` data messages (the DONE or acknowledgement framing
+  is implied; `seq` is the request's), or `errno` to fail the request as a
+  negative `NLMSG_ERROR` would.
+- `netlink_event`: `type`, `flags` (default 0), `payload`, and an optional
+  multicast group id `group`. `recvfrom` on a fake socket returns the events in
+  file order as whole netlink datagrams, skipping those of groups the socket
+  has not joined (with `NETLINK_ADD_MEMBERSHIP` through `setsockopt_int`, or
+  the legacy group mask of `netlink_open`; a line with no `group` goes to
+  every socket). A line with `errno` instead of `payload` fails the receive
+  at that position, and after the last event a receive fails with `EAGAIN`.
+
+`payload` is base64 text. The call log records each netlink call by function
+name (`genl_family_id`, `netlink_open`, `netlink_request`, `recvfrom`,
+`setsockopt`, `set_socket_timeout`) with the request's `type`, `flags`, and
+base64 `payload`, so a test asserts exactly which requests a script sent.
 
 `test.unix_fake(ctx, settings)` does the same for `unix`, with the same scope
 and harness-only installation. It covers the process-group, PID 1, tty,

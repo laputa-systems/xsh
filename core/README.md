@@ -75,6 +75,27 @@ namespaces to bind the namespace file; `nsenter` adds
 `--preserve-credentials` for entering a user namespace whose `setgroups` is
 denied, the case every unprivileged `unshare --map-root-user` creates.
 
+`iw` reproduces the wireless configuration tool over the generic-netlink
+primitives (`linux.genl_family_id`, `netlink_open`, `netlink_request`,
+`recvfrom`); `lib/nl80211.xsh` owns the nl80211 attribute codec, the
+decoders, and the report formats, and `iw.xsh` owns the command line and the
+order of requests. The surface is `dev`, `dev DEV info|link|scan [dump|trigger|
+abort]|station dump|get|set type|channel|freq|txpower`, `phy`, `list`,
+`phy PHY info|reg get|set channel|freq|txpower`, `reg get|set|reload`, `event
+[-t|-T|-r]`, `help`, and `--version`. Association, authentication, access
+point, mesh, wowlan, and the other commands are not implemented and are not
+listed in the help, so they fail as unknown commands. Command parsing, usage
+text, `command failed: ... (-N)` errors and exit statuses follow iw 6.17,
+whose output formats were checked against the strings of that binary; the
+`reg get` report was compared byte for byte with it on a host without
+wireless hardware. Report parts the decoders do not implement are omitted
+rather than approximated: VHT, HE, and EHT capability blocks, the HT
+operation and capability elements of a BSS, the vendor-specific elements
+other than WPA, TID and TXQ statistics, MLO links, and DMG capability names.
+`--debug`, `event -f`, and `station dump -v` are not accepted. Tests run the
+applet under `test.linux_fake` with a `netlink_fixture` of recorded
+exchanges (SPEC section 17), so no test reaches a wireless device.
+
 `system-report` is documented in `core/SYSTEM-REPORT.md`.
 
 `core/wc.xsh` reads raw bytes for line and byte counts, so `-l` and `-c`

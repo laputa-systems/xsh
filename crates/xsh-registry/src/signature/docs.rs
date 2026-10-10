@@ -1349,7 +1349,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("linux", "recvfrom") => Some((
             "Receives one datagram or stream chunk with its sender and ancillary messages.",
-            "max_bytes bounds the data; a longer datagram is truncated and flags reports MSG_TRUNC. Up to 1024 bytes of control data are decoded into control messages; MSG_ERRQUEUE reads the IP_RECVERR queue. Descriptors passed with SCM_RIGHTS arrive close-on-exec and are the script's to close. Interruption is retried.",
+            "max_bytes bounds the data; a longer datagram is truncated and flags reports MSG_TRUNC. Up to 1024 bytes of control data are decoded into control messages; MSG_ERRQUEUE reads the IP_RECVERR queue. Descriptors passed with SCM_RIGHTS arrive close-on-exec and are the script's to close. Interruption is retried. On a descriptor that netlink_open returned under a native-test linux fake with a netlink_fixture setting, the next recorded netlink_event for the groups the socket joined is returned, and EAGAIN once none is left.",
             &["linux", "network", "socket"],
         )),
         ("linux", "shutdown") => Some((
@@ -1374,17 +1374,17 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("linux", "netlink_open") => Some((
             "Opens a close-on-exec netlink socket for a protocol and binds it.",
-            "protocol is a NETLINK_* number; groups is the multicast group bitmask to join, default zero. The kernel assigns the port id.",
+            "protocol is a NETLINK_* number; groups is the multicast group bitmask to join, default zero. The kernel assigns the port id. Under a native-test linux fake with a netlink_fixture setting no socket is opened: the call returns a descriptor of an anonymous file that the fixture's netlink_request, recvfrom and socket-option calls recognise.",
             &["linux", "network", "netlink"],
         )),
         ("linux", "netlink_request") => Some((
             "Sends one netlink request and collects the reply messages.",
-            "Builds the 16-byte header from message_type, flags and payload, with seq 0 meaning a fresh sequence number, and reads until NLMSG_DONE, an acknowledgement, or a non-multipart reply. An NLMSG_ERROR with a negative code fails with that errno; timeout_ms defaults to 5000 and expiry fails with ETIMEDOUT.",
+            "Builds the 16-byte header from message_type, flags and payload, with seq 0 meaning a fresh sequence number, and reads until NLMSG_DONE, an acknowledgement, or a non-multipart reply. An NLMSG_ERROR with a negative code fails with that errno; timeout_ms defaults to 5000 and expiry fails with ETIMEDOUT. Under a native-test linux fake with a netlink_fixture setting a descriptor from netlink_open is answered by the matching recorded netlink_request line and the call is logged with its type, flags and base64 payload.",
             &["linux", "network", "netlink"],
         )),
         ("linux", "genl_family_id") => Some((
             "Resolves a generic-netlink family name to its numeric id.",
-            "Opens a private NETLINK_GENERIC socket; an unknown family fails with ENOENT. Use the id as the message type of requests on a NETLINK_GENERIC socket.",
+            "Opens a private NETLINK_GENERIC socket; an unknown family fails with ENOENT. Use the id as the message type of requests on a NETLINK_GENERIC socket. Under a native-test linux fake with a netlink_fixture setting the id comes from the recorded genl_family line.",
             &["linux", "network", "netlink"],
         )),
         ("linux", "ioctl") => Some((

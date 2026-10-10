@@ -4193,6 +4193,11 @@ impl Evaluator {
         if linux_module::storage::handles(op) {
             return lowered_module_result_value(self.linux_storage_call(op, &values, span), span);
         }
+        if linux_module::net_prim_fakeable(op)
+            && let Some(result) = self.linux_netlink_fake_call(op, &values, span)
+        {
+            return lowered_module_result_value(result, span);
+        }
         let args = process_module::Args::new(op, &values, span);
         let result = if linux_module::is_net_prim(op) {
             linux_module::net_prim_call(op, &values, span)

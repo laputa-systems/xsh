@@ -18,11 +18,14 @@ pub struct LinuxFake {
 #[cfg(feature = "native-tests")]
 impl LinuxFake {
     /// Settings a fake accepts: the call log path, the fixed values some
-    /// queries report, and `storage_fixture`, the file of recorded device
-    /// command/response pairs that answers the storage transport primitives.
-    pub const KEYS: [&'static str; 8] = [
+    /// queries report, `storage_fixture`, the file of recorded device
+    /// command/response pairs that answers the storage transport primitives,
+    /// and `netlink_fixture`, the file of recorded netlink exchanges that
+    /// answers the netlink primitives.
+    pub const KEYS: [&'static str; 9] = [
         "log",
         "storage_fixture",
+        "netlink_fixture",
         "root_device",
         "sysctl_value",
         "file_attrs_flags",
@@ -112,6 +115,26 @@ impl Evaluator {
             self.linux_fake_log(name, &[("fd", fd)], span)?;
         }
         storage::call(op, values, &backend, span)
+    }
+
+    /// Answers a netlink primitive from the recorded `netlink_fixture` and
+    /// logs the call. `None` means the fake has no netlink fixture or the
+    /// descriptor is not one the fake opened, so the real primitive runs.
+    pub(in crate::runtime::eval) fn linux_netlink_fake_call(
+        &self,
+        op: crate::modules::RuntimeOp,
+        values: &[Option<crate::runtime::value::Value>],
+        span: Span,
+    ) -> Option<Result<crate::runtime::value::Value, RuntimeError>> {
+        let fixture = self.linux_fake_setting("netlink_fixture")?;
+        let mut log = |name: &str, fields: &[(&str, String)]| self.linux_fake_log(name, fields, span);
+        crate::modules::linux::net_prim_fake_call(
+            op,
+            values,
+            std::path::Path::new(fixture),
+            &mut log,
+            span,
+        )
     }
 
     pub(in crate::runtime::eval) fn linux_fake_value(&self, key: &str, default: &str) -> String {
