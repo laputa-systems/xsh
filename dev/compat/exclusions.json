@@ -272,6 +272,18 @@
       "reason": "uses uutils' `-g`/`--progress-bar`, which GNU cp does not have; GNU rejects the option and XSH follows GNU"
     },
     {
+      "id": "test_csplit::repeat_everything",
+      "utility": "csplit",
+      "category": "gnu-semantics",
+      "reason": "expects the second piece to hold lines 14-17; GNU coreutils 9.11 (clean Alpine container) writes lines 15-17 for this command with --suppress-matched, which XSH matches"
+    },
+    {
+      "id": "test_csplit::test_line_num_range_with_up_to_match3",
+      "utility": "csplit",
+      "category": "gnu-semantics",
+      "reason": "expects `10 /10/ -k` to fail with 'match not found'; GNU coreutils 9.11 exits 0 and prints 18, 0 and 123, which XSH matches"
+    },
+    {
       "id": "test_cut::diagnostics::test_snippet_finds_fields_merged_value",
       "utility": "cut",
       "category": "clap-wording",
