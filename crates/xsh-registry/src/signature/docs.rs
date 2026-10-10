@@ -962,7 +962,12 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Path traversal and value compatibility are checked explicitly; the operation returns an updated document value.",
             &["json", "path", "dynamic"],
         )),
-        ("linux", "interfaces" | "routes" | "uevent_stream") => Some((
+        ("linux", "interfaces" | "routes") => Some((
+            "Reads Linux network interface or route records.",
+            "The records come from route netlink, so they describe the network namespace of the calling process, not the namespace that mounted sysfs; routes lists the main table only. The result is only available on Linux.",
+            &["linux", "network", "host-state"],
+        )),
+        ("linux", "uevent_stream") => Some((
             "Reads Linux network interface or route records.",
             "The result is a host-global snapshot and is only available on Linux.",
             &["linux", "network", "host-state"],

@@ -58,6 +58,7 @@ pub(crate) struct NetAgentKey {
     pub(crate) pool: String,
     pub(crate) tls_verify: bool,
     pub(crate) ca_certificate: Option<PathBuf>,
+    pub(crate) system_ca_file: Option<PathBuf>,
     pub(crate) max_idle_per_host: usize,
     pub(crate) idle_timeout: Duration,
 }
@@ -163,6 +164,7 @@ pub(crate) struct NetCallOptions {
     pub(crate) pool: String,
     pub(crate) tls_verify: bool,
     pub(crate) ca_certificate: Option<PathBuf>,
+    pub(crate) system_ca_file: Option<PathBuf>,
 }
 
 #[cfg(feature = "net")]

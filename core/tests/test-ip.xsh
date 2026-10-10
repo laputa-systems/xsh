@@ -29,3 +29,44 @@ test test_ip_addr_alternatives_accept_address_show_and_device_forms { |ctx|
     assert ip_output(ctx, argv) == device
   }
 }
+
+# The real `ip`, run in a new network namespace of its own, lists that
+# namespace and not the host's devices: sysfs is a mount-scoped view of the
+# namespace that mounted it, so `ip` must read interfaces and routes over
+# netlink.
+proc ip_in_new_netns(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Str?] {
+  let root = test.temp_dir(ctx, name: "ip-netns")?
+  let out = fp"{root}/out"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/ip.xsh".display()].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out)
+  match linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true) {
+    Ok(status) => {
+      guard status.exited_with(0) else { return Ok(null) }
+      Ok(out.read_text()?)
+    }
+    Err(_) => Ok(null)
+  }
+}
+
+test test_ip_in_a_new_network_namespace_lists_only_that_namespace { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("network namespaces are Linux-only")
+    return
+  }
+  let addr = ip_in_new_netns(ctx, ["addr"])?
+  guard let listing = addr else {
+    test.skip("the kernel refuses unprivileged user and network namespaces")
+    return
+  }
+  # A new namespace holds a down loopback device and, where tunnel modules
+  # are loaded, their fallback devices, which the outer namespace has too.
+  let fallback = ["tunl0", "gre0", "gretap0", "erspan0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0"]
+  assert "lo:" in listing, listing
+  for iface in linux.interfaces()? {
+    continue when iface.name == "lo" or iface.name in fallback
+    assert !(f"{iface.name}:" in listing), f"{iface.name} leaked from the outer namespace into: {listing}"
+  }
+
+  let route = ip_in_new_netns(ctx, ["route"])?
+  assert route == "", "a new network namespace has no routes"
+}
