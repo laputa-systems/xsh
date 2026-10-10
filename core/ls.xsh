@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.fs_misc
 
 const USAGE = """Usage: {prog} [OPTION]... [FILE]...
 List information about the FILEs (the current directory by default).
@@ -1289,8 +1290,10 @@ pure quote_raw(raw: Bytes, qs: QuoteStyle) -> Bytes {
     "escape" => bytes.from_text(backslash_quote(units, "", "", false, qs.extra, qs.space) ?? "")
     "c" => bytes.from_text(backslash_quote(units, "\"", "\"", false, qs.extra, false) ?? "")
     "c-maybe" => {
+      # Once a character needs a backslash, GNU adds the outer quotes and drops
+      # the extra-quoted set, so commas are quoted but not escaped.
       match backslash_quote(units, "\"", "\"", true, qs.extra, false) {
-        null => bytes.from_text(backslash_quote(units, "\"", "\"", false, qs.extra, false) ?? "")
+        null => bytes.from_text(backslash_quote(units, "\"", "\"", false, "", false) ?? "")
         else => raw
       }
     }
@@ -1493,6 +1496,7 @@ type File = {
   linkok: Bool,
   linkmode: Int,
   linkkind: Str,
+  absolute: Bytes?,
 }
 
 # Everything the options and environment settle before any file is read.
@@ -1584,7 +1588,7 @@ proc follow_stat(target: Path, follow: Bool) [fs] -> Result[FsStat] {
   fs.stat(target, follow)
 }
 
-proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, process, env] -> Gobbled {
+proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, process, env, error] -> Gobbled {
   let full = if dir.is_empty() or dir == b"." { name } else { join_raw(dir, name) }
   let target = raw_path(full)
   let display = lossy(full)
@@ -1592,17 +1596,35 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
   var ok = false
   var kind = hint
   var failed = false
+  var absolute: Bytes? = null
+  var canonical_status = 0
 
-  if arg or ctx.needs_stat or hint == "" {
+  if ctx.hyper {
+    match canonical_name(ctx, full) {
+      Ok(found) => absolute = found
+      Err(problem) => {
+        gnu.error(f"error canonicalizing {gnu.quote(display)}: {gnu.strerror(problem)}")
+        canonical_status = if arg { 2 } else { 1 }
+      }
+    }
+  }
+
+  # The directory read reports fifos, sockets, and devices only as "other", so
+  # those entries are statted to learn which type they are. Classification
+  # reads the mode only of regular files: the read already gives directories
+  # and links their indicators.
+  if arg or ctx.needs_stat or hint == "" or hint == "other" or (ctx.cfg.indicator == "classify" and hint == "file") {
     var result = follow_stat(target, ctx.deref == "always")
 
     if arg and (ctx.deref == "cmdline" or ctx.deref == "cmdline_dir") {
       result = follow_stat(target, true)
 
+      # A command-line symlink that cannot be traversed (ENOENT or ELOOP) is shown
+      # as the link itself, as is one that does not name a directory.
       if ctx.deref == "cmdline_dir" {
         let need_lstat = match result {
           Ok(found) => found.kind != "dir",
-          Err(problem) => gnu.errno(problem) == 2,
+          Err(problem) => gnu.errno(problem) in [2, 40],
         }
 
         if need_lstat {
@@ -1676,9 +1698,34 @@ proc gobble(ctx: Ctx, name: Bytes, dir: Bytes, arg: Bool, hint: Str) [fs, proces
     linkok:,
     linkmode:,
     linkkind:,
+    absolute:,
   )
 
-  {file: file, status: if failed { 1 } else { 0 }}
+  {file: file, status: max_of(canonical_status, if failed { 1 } else { 0 })}
+}
+
+# The name a hyperlink points at: symlinks in every directory are resolved, and
+# only the last component may be missing. canonicalization works on text, so a
+# non-UTF-8 final name is kept as its raw bytes beside the canonical parent; a
+# non-UTF-8 parent has no canonical text and keeps its lexical absolute name.
+proc canonical_name(ctx: Ctx, full: Bytes) [fs, error] -> Result[Bytes, Error] {
+  match full.utf8() {
+    Ok(text) => match fs_misc.canonical(text, "missing") {
+      Ok(found) => Ok(bytes.from_text(found))
+      Err(problem) => Err(problem)
+    }
+    Err(_) => {
+      let parent = base_dir(full)
+
+      match parent.utf8() {
+        Ok(text) => match fs_misc.canonical(text, "missing") {
+          Ok(found) => Ok(bytes.concat([bytes.from_text(if found == "/" { "" } else { found }), b"/", base_raw(full)])),
+          Err(problem) => Err(problem)
+        }
+        Err(_) => Ok(lexical_absolute(ctx, full))
+      }
+    }
+  }
 }
 
 # The directory part of `raw` as the kernel would resolve a relative link
@@ -1863,7 +1910,8 @@ proc terminal_has_color() [process, env] -> Bool {
   glob_matches([compile_glob(pattern) for pattern in patterns], term)
 }
 
-# gnulib filevercmp: version-aware comparison of file names.
+# gnulib filevercmp: version-aware comparison of file names. A tilde ranks
+# below the end of the name (-1), so `zz~` sorts before `zz`.
 pure ver_order(text: Str, at: Int, len: Int) -> Int {
   return -1 when at >= len
 
@@ -1871,7 +1919,7 @@ pure ver_order(text: Str, at: Int, len: Int) -> Int {
 
   return 0 when c >= 48 and c <= 57
   return c when (c >= 65 and c <= 90) or (c >= 97 and c <= 122)
-  return -1 when c == 126
+  return -2 when c == 126
 
   c + 256
 }
@@ -2048,6 +2096,12 @@ pure reversed(files: List[File]) -> List[File] {
   [files[total - 1 - at] for at in range(total)]
 }
 
+# A symlink whose target is a directory groups with the directories under
+# --group-directories-first; its target is resolved when that option is set.
+pure linked_dir(f: File) -> Bool {
+  f.kind == "dir" or f.linkkind == "dir"
+}
+
 pure sort_files(ctx: Ctx, files: List[File]) -> List[File] {
   return files when ctx.sort == "none" or files.len() < 2
 
@@ -2067,7 +2121,7 @@ pure sort_files(ctx: Ctx, files: List[File]) -> List[File] {
   }
 
   if ctx.cfg.dirs_first {
-    sorted = [f for f in sorted if f.kind == "dir"] + [f for f in sorted if f.kind != "dir"]
+    sorted = [f for f in sorted if linked_dir(f)] + [f for f in sorted if ! linked_dir(f)]
   }
 
   sorted
@@ -2402,10 +2456,20 @@ pure url_escape(raw: Bytes) -> Str {
   out
 }
 
-pure hyperlink_start(ctx: Ctx, full: Bytes) -> Bytes {
+# The absolute name with `.` and `..` removed lexically, without touching the
+# file system.
+pure lexical_absolute(ctx: Ctx, full: Bytes) -> Bytes {
   let absolute = if full.byte_at(0) == 47 { full } else { join_raw(bytes.from_text(ctx.cwd), full) }
-  let clean = raw_path(absolute).normalize().bytes()
 
+  raw_path(absolute).normalize().bytes()
+}
+
+pure hyperlink_start(ctx: Ctx, full: Bytes) -> Bytes {
+  hyperlink_at(ctx, lexical_absolute(ctx, full))
+}
+
+# The OSC 8 opener for a name that is already absolute and canonical.
+pure hyperlink_at(ctx: Ctx, clean: Bytes) -> Bytes {
   bytes.from_text(f"]8;;file://{ctx.host}{url_escape(clean)}\\")
 }
 
@@ -2444,17 +2508,20 @@ pure name_piece(ctx: Ctx, f: File, target: Bool, pad0: Bool, used0: Bool, col: I
     }
   }
 
-  var before = bytes.from_text(f"{pre}{if pad { " " } else { "" }}")
+  # The alignment space precedes the color sequence, and a symlink target is
+  # never preceded by one, though its width still counts it.
+  var before = bytes.from_text(f"{if pad and ! target { " " } else { "" }}{pre}")
   var after = b""
 
-  if ctx.hyper {
-    let full = if target {
-      join_raw(base_dir(f.path.bytes()), f.link ?? b"")
+  # A name whose canonical form could not be found has no hyperlink.
+  if ctx.hyper and (target or f.absolute != null) {
+    let opener = if target {
+      hyperlink_start(ctx, join_raw(base_dir(f.path.bytes()), f.link ?? b""))
     } else {
-      f.path.bytes()
+      hyperlink_at(ctx, f.absolute ?? b"")
     }
 
-    before = bytes.concat([before, hyperlink_start(ctx, full)])
+    before = bytes.concat([before, opener])
     after = HYPERLINK_END
   }
 
@@ -2588,10 +2655,13 @@ pure print_grid(ctx: Ctx, files: List[File], wd: Widths, pad: Bool, used0: Bool,
   let total = files.len()
   let lens = [name_len(ctx, f, wd, pad) for f in files]
   let line_length = ctx.line_length
-  let max_cols = max_of(1, if line_length / 3 < total { line_length / 3 } else { total })
+  # The width is an inclusive maximum, and a width of W admits ceil(W / 3)
+  # columns. Column count i+1 starts with its last cell at 1 and the others at
+  # 3, the smallest a cell can be: one name byte plus the two-space separator.
+  let max_cols = max_of(1, if (line_length + 2) / 3 < total { (line_length + 2) / 3 } else { total })
   var valid = [true for _ in range(max_cols)]
-  var line_len = [(i + 1) * 3 for i in range(max_cols)]
-  var col_arr = [[3 for _ in range(i + 1)] for i in range(max_cols)]
+  var line_len = [i * 3 + 1 for i in range(max_cols)]
+  var col_arr = [[if j == i { 1 } else { 3 } for j in range(i + 1)] for i in range(max_cols)]
 
   for filesno in range(total) {
     for i in range(max_cols) {
@@ -2850,7 +2920,7 @@ pure file_ignored(ctx: Ctx, name: Str) -> Bool {
   )
 }
 
-proc take_entry(ctx: Ctx, dir: Bytes, raw: Bytes, kind: Str) [fs, process, env] -> Gobbled {
+proc take_entry(ctx: Ctx, dir: Bytes, raw: Bytes, kind: Str) [fs, process, env, error] -> Gobbled {
   return {file: null, status: 0} when file_ignored(ctx, lossy(raw))
 
   gobble(ctx, raw, dir, false, kind)
@@ -2999,7 +3069,18 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
       first = false
 
       let shown = quote_name(ctx, dir.raw, ctx.dir_qs)
-      let start = if ctx.hyper { hyperlink_start(ctx, dir.raw) } else { b"" }
+      var start = b""
+
+      if ctx.hyper {
+        match canonical_name(ctx, dir.raw) {
+          Ok(found) => start = hyperlink_at(ctx, found)
+          Err(problem) => {
+            gnu.error(f"error canonicalizing {gnu.quote(display)}: {gnu.strerror(problem)}")
+            status = max_of(status, if dir.arg { 2 } else { 1 })
+          }
+        }
+      }
+
       let before = bytes.concat([bytes.from_text(indent), start])
       let after = bytes.concat([if ctx.hyper { HYPERLINK_END } else { b"" }, b":\n"])
 
@@ -3281,14 +3362,21 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   let long = cfg.format == "long"
   let deref = cfg.deref ?? (if cfg.directory or cfg.indicator == "classify" or long { "never" } else { "cmdline_dir" })
   let sort = cfg.sort ?? (if cfg.time_given and ! long { "time" } else { "name" })
-  let check_symlink = color and (is_colored(colors, "or") or (is_colored(colors, "ex") and colors.referent) or (is_colored(
+  # Grouping directories first needs each symlink's target type, so symlinks are
+  # resolved then as they are for coloring.
+  let check_symlink = cfg.dirs_first or (color and (is_colored(colors, "or") or (is_colored(colors, "ex") and colors.referent) or (is_colored(
     colors,
     "mi",
-  ) and long))
+  ) and long)))
   let link_stat = cfg.indicator == "classify" or cfg.indicator == "file-type" or check_symlink
-  let needs_stat = long or cfg.inode or cfg.size or cfg.context or sort == "size" or sort == "time" or color or cfg.indicator != "none" or cfg.recursive or cfg.dirs_first or cfg.hyperlink == "always" or deref == "always"
+  # Entries carry the type from the directory read, so a stat is taken only when
+  # the output needs more than that: -p and --file-type need none unless -L
+  # must resolve a symlink's type, and -F also reads the mode of regular files.
+  let needs_stat = long or cfg.inode or cfg.size or cfg.context or sort == "size" or sort == "time" or color or (cfg.indicator != "none" and deref == "always") or cfg.recursive or cfg.dirs_first or cfg.hyperlink == "always"
   let hyper = cfg.hyperlink == "always"
-  let align = cfg.format != "commas" and (style == "shell" or style == "shell-escape")
+  # Quoted names are padded to line up their outer quotes only in long format
+  # and in column layouts with a width limit; one-per-line and commas never pad.
+  let align = (cfg.format == "long" or (cfg.format in ["columns", "across"] and line_length > 0)) and style in ["shell", "shell-escape", "c-maybe"]
   var host = ""
   var cwd = ""
 

@@ -1,0 +1,50 @@
+{
+  "tests/ls/color-norm.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "build-gnu.sh rewrites the expectation: sed 's/^[[([1-9]m)/^[[0\\1/' turns GNU's ^[[7m (no=7) into ^[[07m and ^[[1m into ^[[01m; s/^[[m/^[[0m/ and a collapse of repeated resets. Real GNU 9.12 prints ^[[7m for no=7 and ^[[m where the expectation has ^[[0m. XSH output matches GNU on every line except those rewritten forms (checked against the GNU oracle), so the test cannot pass without printing non-GNU bytes. Also listed as wording-conflict in the report."
+  },
+  "tests/ls/follow-slink.sh": {
+    "class": "FIXED",
+    "note": "ls -L with an implicit broken or looping symlink must list the name with no error; XSH statted every entry under -L. Now only -L with a format that needs the target type or inode stats entries, and a command-line ELOOP falls back to the link. Native: test_ls_symlink_dereference_options (plain -L corrected, -FL keeps the error), test_ls_command_line_loop_is_listed_as_the_link."
+  },
+  "tests/ls/getxattr-speedup.sh": {
+    "class": "ENV",
+    "note": "The test counts getxattr calls by LD_PRELOAD-ing a shared object into ls. The xsh binary is a static-pie executable, so the preload never interposes, x is never written, and the test reports an internal failure and skips. Needs a dynamically linked ls."
+  },
+  "tests/ls/group-dirs.sh": {
+    "class": "FIXED",
+    "note": "--group-directories-first groups a symlink whose target is a directory with the directories (GNU stats the link target for this). Native: test_ls_group_directories_first_counts_symlinks_to_directories."
+  },
+  "tests/ls/hyperlink.sh": {
+    "class": "XSH-GAP",
+    "note": "ls part fixed: operands and entries reached through a symlinked directory now link to the canonical location, and a non-UTF-8 final name keeps its raw bytes; a listing matches GNU byte for byte after host/path normalization. Native: test_ls_hyperlink_names_the_canonical_location. The test still fails because its encode() helper pipes names through core/sort.xsh, which dies with io.stdin_text on non-UTF-8 input (sort.xsh line 1557), so the expected text is generated as file:///. Needs a byte-input read in sort.xsh (not an owned file)."
+  },
+  "tests/ls/ls-misc.sh": {
+    "class": "FIXED",
+    "note": "The file in the GNU tree is ls-misc.pl (perl harness); its only failing subtest is version-sort. gnulib filevercmp ranks a tilde below the end of the name, so zz~ sorts before zz; XSH ranked it above. Native: test_ls_version_sort_puts_tilde_backups_before_their_base."
+  },
+  "tests/ls/m-option.sh": {
+    "class": "FIXED",
+    "note": "c-maybe with a comma must give outer double quotes and no backslash, because adding outer quotes drops the extra-quoted set (XSH escaped the comma). Native: test_ls_c_maybe_quotes_commas_without_escaping."
+  },
+  "tests/ls/quote-align.sh": {
+    "class": "FIXED",
+    "note": "The alignment space was printed inside the color sequence. It now precedes the sequence, and alignment is applied only in long format and in width-limited column layouts, as GNU does. The test's color_code was patched from 0;31;42 to 31;42 by build-gnu.sh; XSH output matches GNU for both. Native: test_ls_quoted_name_padding_stays_outside_the_color_sequence."
+  },
+  "tests/ls/stat-dtype.sh": {
+    "class": "FIXED",
+    "note": "The test skipped because ls -p c on a directory without search permission statted its entries. -p, --file-type and -F now take types from the directory read and stat only fifos, sockets and devices (the runtime reports them as other) and regular files under -F. The rest of the test (s@, a2345/ tab layout) now matches GNU. Native: test_ls_indicator_takes_types_from_the_directory_read."
+  },
+  "tests/ls/stat-free-symlinks.sh": {
+    "class": "XSH-GAP",
+    "note": "The stat counts now match GNU when all threads are followed (ls -F d: 1 lstat; ls -F x link-to-x: 2). But xsh runs the script on a runtime worker thread, and the test's strace (without -f) sees only the main thread, which issues the four config probes in both runs, so the counts are equal and the test fails. Needs the runtime to run the script on the main thread or the test to follow threads; not fixable in ls."
+  },
+  "tests/ls/symlink-loop.sh": {
+    "class": "FIXED",
+    "note": "A command-line symlink whose stat fails with ELOOP is shown as the link (GNU falls back to lstat for ENOENT or ELOOP); -H and -L still fail with status 2. Native: test_ls_command_line_loop_is_listed_as_the_link."
+  },
+  "tests/ls/w-option.sh": {
+    "class": "FIXED",
+    "note": "The width is an inclusive maximum and a width W admits ceil(W/3) columns with GNU's cell minimums (column count i+1 starts at 3i+1), so -w4 -x fits 'a  b', -w0 -x is unlimited, and -w5 -C wraps as GNU does. Native: test_ls_width_is_an_inclusive_maximum."
+  }
+}
