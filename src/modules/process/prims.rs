@@ -103,6 +103,15 @@ impl<'a> Args<'a> {
         }
     }
 
+    /// An integer parameter whose `null` or omitted value means "leave as is".
+    pub(crate) fn int_or_null(&self, index: usize) -> Result<Option<i64>, RuntimeError> {
+        match self.get(index) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::Int(value)) => Ok(Some(*value)),
+            Some(other) => Err(self.type_error("Int or null", other)),
+        }
+    }
+
     pub(crate) fn slot(&self, index: usize) -> Result<Slot<i64>, RuntimeError> {
         match self.get(index) {
             None => Ok(Slot::Omitted),

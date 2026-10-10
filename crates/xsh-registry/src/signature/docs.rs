@@ -1258,6 +1258,51 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("compression", "gzip_name") => Some(("Reads a gzip header filename.", "Returns only a safe filename component, or null when the header has no usable filename.", &["compression", "filesystem"])),
         ("linux", "sample") => Some(("Samples Linux CPU, memory, process and disk counters.", "Cross-file snapshots are not atomic. Times use milliseconds; disk sectors are 512 bytes, paging counters use KiB and swap counters use host pages. PID and start_ticks identify a process. proc_root selects a fixture root; missing or malformed required counters fail.", &["linux", "sampling"])),
         ("linux", "module_plan") => Some(("Resolves kernel module dependencies and options.", "Reads indexes and configuration without running commands. remove chooses reverse dependency removal order; loaded reports current kernel state.", &["linux", "kernel"])),
+        ("linux", "privileges") => Some((
+            "Reads the capability sets, securebits, no_new_privs and parent-death signal of the calling thread.",
+            "effective, permitted and inheritable come from capget; bounding and ambient list every capability the kernel defines. A capability is its number (0 is CAP_CHOWN); names belong to the caller. The state is per thread and changes as the setters below run.",
+            &["linux", "privileges", "host-state"],
+        )),
+        ("linux", "set_capabilities") => Some((
+            "Replaces the effective, permitted and inheritable capability sets of the calling thread.",
+            "All three sets are named arguments of capability numbers in 0..63 and are replaced together with one capset call. The kernel refuses growing the permitted set, an effective capability that is not permitted, and an inheritable capability outside the bounding set (or outside the permitted set without CAP_SETPCAP) with EPERM. Dropping all three sets is irreversible for the thread.",
+            &["linux", "privileges", "privileged"],
+        )),
+        ("linux", "drop_bounding_capability") => Some((
+            "Removes one capability from the bounding set of the calling thread.",
+            "The capability is its number in 0..63. Requires CAP_SETPCAP; a number the kernel does not define fails with EINVAL. The removal is irreversible and is inherited across fork and exec.",
+            &["linux", "privileges", "privileged"],
+        )),
+        ("linux", "set_ambient_capability") => Some((
+            "Raises or lowers one ambient capability of the calling thread.",
+            "Raising requires the capability in both the permitted and inheritable sets (and the no_cap_ambient_raise securebit clear); otherwise the kernel fails with EPERM. Lowering a capability that is not raised succeeds. Ambient capabilities survive exec of a program without file capabilities.",
+            &["linux", "privileges"],
+        )),
+        ("linux", "set_securebits") => Some((
+            "Replaces the securebits of the calling thread with exactly the named flags.",
+            "Flags are noroot, noroot_locked, no_setuid_fixup, no_setuid_fixup_locked, keep_caps, keep_caps_locked, no_cap_ambient_raise and no_cap_ambient_raise_locked; an unknown name is rejected before the kernel is called. Requires CAP_SETPCAP; a locked flag cannot be changed again, and the kernel clears keep_caps on exec.",
+            &["linux", "privileges", "privileged"],
+        )),
+        ("linux", "set_no_new_privs") => Some((
+            "Sets the no_new_privs attribute so that exec can never grant new privileges.",
+            "The attribute is inherited across fork and exec and cannot be cleared. It stops setuid and setgid bits, file capabilities, and LSM transitions from adding privileges.",
+            &["linux", "privileges"],
+        )),
+        ("linux", "set_keep_capabilities") => Some((
+            "Sets whether the permitted capabilities survive a switch from UID 0 to a non-zero UID.",
+            "This is the keep_caps securebit and needs no CAP_SETPCAP. The kernel clears it on exec, so it only affects UID changes made before the process is replaced.",
+            &["linux", "privileges"],
+        )),
+        ("linux", "set_parent_death_signal") => Some((
+            "Chooses the signal the calling thread receives when its parent thread exits.",
+            "A signal number of 0 clears the request; an invalid number fails with EINVAL. The kernel clears the setting on fork and when a UID, GID or capability change reduces privileges, so set it after changing credentials.",
+            &["linux", "privileges"],
+        )),
+        ("linux", "set_ptracer") => Some((
+            "Names the process allowed to trace the calling process under the Yama policy.",
+            "pid is a process ID, 0 for none, or -1 for any process. A host without Yama, or a process ID that does not exist, fails with EINVAL.",
+            &["linux", "privileges"],
+        )),
         ("linux", "umount" | "blockdev_info" | "blockdev_set_read_only" | "blockdev_flush" | "blockdev_reread_partition_table" | "fstrim" | "fsfreeze") => Some(("Controls mounts, filesystems and block devices.", "Host errors retain errno. Mutations require the relevant kernel permissions. fstrim reports discarded bytes; freeze holds filesystem writes until explicitly thawed.", &["linux", "filesystem", "privileged"])),
         ("regex", "captures_bytes") => Some(("Matches POSIX byte captures at an input offset.", "Returns an empty list for no match; a match has ten nullable ranges, index zero for the full match and one through nine for captures. Offsets are absolute byte positions. Basic syntax is default; extended and ignore_case select POSIX flags. Patterns are validated even for empty input; NUL input and GNU word boundary escapes are rejected. A nonzero offset does not create a new beginning-of-line anchor.", &["regex", "bytes"])),
 
@@ -1485,6 +1530,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("unix", "set_groups") => Some((
             "Replaces the current process supplementary groups with explicit numeric IDs.",
             "Every ID must be in 0..4294967294. An empty list clears supplementary groups. All IDs are validated before changing state; host permission failures remain errors. No account lookup or inherited-group default is applied.",
+            &["unix", "credentials", "privileged"],
+        )),
+        ("unix", "set_resuid" | "set_resgid") => Some((
+            "Sets the real, effective and saved user or group ID of the current process independently.",
+            "real, effective and saved are named arguments; null leaves that ID as it is, so an explicit ID is never confused with the kernel's unchanged sentinel. IDs must be in 0..4294967294. Supplementary groups are untouched; callers dropping privileges set groups and GID before UID. Permission failures remain host errors.",
             &["unix", "credentials", "privileged"],
         )),
         ("unix", "set_credentials") => Some((

@@ -64,6 +64,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxProcessSample", linux_process_sample_type()),
         ("LinuxModulePlan", linux_module_plan_type()),
         ("LinuxBlockdevInfo", linux_blockdev_info_type()),
+        ("LinuxPrivileges", linux_privileges_type()),
         ("LinuxBlkid", linux_blkid_type()),
         ("LinuxFsck", linux_fsck_type()),
         ("LinuxModinfo", linux_modinfo_type()),
@@ -1231,6 +1232,22 @@ pub fn group_record_type() -> Type {
 
 pub fn linux_module_plan_type() -> Type {
     Type::Record(name_type_map(vec![("name", Type::Str), ("filename", Type::Path), ("params", Type::Str), ("loaded", Type::Bool)]))
+}
+
+/// Capability numbers are lists of `Int`, ascending; `securebits` holds flag names.
+pub fn linux_privileges_type() -> Type {
+    let numbers = || Type::List(Box::new(Type::Int));
+    Type::Record(name_type_map(vec![
+        ("effective", numbers()),
+        ("permitted", numbers()),
+        ("inheritable", numbers()),
+        ("bounding", numbers()),
+        ("ambient", numbers()),
+        ("securebits", Type::List(Box::new(Type::Str))),
+        ("no_new_privs", Type::Bool),
+        ("parent_death_signal", Type::Int),
+        ("last_capability", Type::Int),
+    ]))
 }
 
 pub fn linux_blockdev_info_type() -> Type {

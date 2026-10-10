@@ -1,5 +1,5 @@
 #![allow(clippy::single_call_fn)]
-use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type};
+use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_privileges_type};
 
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
@@ -2255,6 +2255,16 @@ fn linux_module() -> ModuleSig {
 
         ("fsfreeze", sig(vec![param("path", Type::Path), param("freeze", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxFsfreeze)),
 
+        ("privileges", sig(vec![], result(linux_privileges_type()), false, RuntimeOp::LinuxPrivileges)),
+        ("set_capabilities", sig(vec![labeled_param("effective", Type::List(Box::new(Type::Int))), labeled_param("permitted", Type::List(Box::new(Type::Int))), labeled_param("inheritable", Type::List(Box::new(Type::Int)))], result(Type::Unit), false, RuntimeOp::LinuxSetCapabilities)),
+        ("drop_bounding_capability", sig(vec![param("capability", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxDropBoundingCapability)),
+        ("set_ambient_capability", sig(vec![param("capability", Type::Int), param("enabled", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxSetAmbientCapability)),
+        ("set_securebits", sig(vec![param("flags", list_str())], result(Type::Unit), false, RuntimeOp::LinuxSetSecurebits)),
+        ("set_no_new_privs", sig(vec![], result(Type::Unit), false, RuntimeOp::LinuxSetNoNewPrivs)),
+        ("set_keep_capabilities", sig(vec![param("enabled", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxSetKeepCapabilities)),
+        ("set_parent_death_signal", sig(vec![param("signal", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxSetParentDeathSignal)),
+        ("set_ptracer", sig(vec![param("pid", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxSetPtracer)),
+
         (
             "write_device",
             sig(
@@ -3071,6 +3081,20 @@ fn unix_module() -> ModuleSig {
             "set_groups",
             sig(vec![param("groups", Type::List(Box::new(Type::Int)))],
                 result(Type::Unit), false, RuntimeOp::UnixSetGroups),
+        ),
+        (
+            "set_resuid",
+            sig(vec![labeled_param("real", Type::Optional(Box::new(Type::Int))),
+                labeled_param("effective", Type::Optional(Box::new(Type::Int))),
+                labeled_param("saved", Type::Optional(Box::new(Type::Int)))],
+                result(Type::Unit), false, RuntimeOp::UnixSetResuid),
+        ),
+        (
+            "set_resgid",
+            sig(vec![labeled_param("real", Type::Optional(Box::new(Type::Int))),
+                labeled_param("effective", Type::Optional(Box::new(Type::Int))),
+                labeled_param("saved", Type::Optional(Box::new(Type::Int)))],
+                result(Type::Unit), false, RuntimeOp::UnixSetResgid),
         ),
         (
             "set_credentials",
@@ -4708,6 +4732,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "LinuxModulePlan" => ("One resolved kernel module operation.", "Planning reads module indexes and configuration without executing commands or loading modules.", &["linux", "kernel"]),
         "LinuxBlockdevInfo" => ("Block device dimensions and read-only state.", "Values reflect device state at query time.", &["linux", "device"]),
+        "LinuxPrivileges" => ("The privilege state of the calling thread.", "Capability sets are ascending capability numbers; bounding and ambient cover every capability the kernel defines. securebits names the flags that are set, parent_death_signal is 0 when none is requested, and last_capability is the highest capability number this kernel defines.", &["linux", "privileges", "host-state"]),
         "LinuxModinfo" => (
             "Describes Linux kernel-module metadata.",
             "The record is inspection data and does not load the named module.",

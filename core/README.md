@@ -56,6 +56,16 @@ the feature. Keep usage errors local and explicit unless the applet follows
 GNU diagnostics (see above), preserve Unix-compatible stdout shapes, and cover
 behavior through `core/tests/*.xsh`.
 
+`core/setpriv.xsh` parses its own command line instead of using `cli.applet`:
+util-linux reports a duplicate or conflicting option in command-line order and
+names the earlier one, and the first operand starts the command, neither of
+which a parsed option record keeps. Privilege state is read and changed only
+through `linux.privileges()` and the `linux` and `unix` setters, in the order
+the script header documents. Where util-linux silently skips a request the
+kernel refused (an ambient capability that is not inheritable, adding back a
+capability already dropped from the bounding set), the applet fails with the
+kernel's wording; `+all` stays tolerant and covers only what can still apply.
+
 `system-report` is documented in `core/SYSTEM-REPORT.md`.
 
 `core/wc.xsh` reads raw bytes for line and byte counts, so `-l` and `-c`

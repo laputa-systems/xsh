@@ -167,6 +167,8 @@ mod unsupported;
 use unsupported as imp;
 
 mod block_control;
+mod capabilities;
+pub(crate) use capabilities::{call as prim_call, handles as is_prim};
 pub(crate) mod sampling;
 pub(crate) use block_control::{block_signatures, wipe_block_signatures, umount, blockdev_info, blockdev_set_read_only, blockdev_flush, blockdev_reread_partition_table, fstrim, fsfreeze};
 #[cfg(target_os = "linux")]
