@@ -2,13 +2,16 @@
 
 error AwkError = Syntax : Usage | Unsupported : InvalidArgument | Runtime : InvalidArgument
 
-enum Token { TokWord(Str), TokNumber(Float), TokText(Str), TokRegex(Str), TokOp(Str), TokEnd }
+# TokCall is a name written immediately before "(". Only that spelling makes a
+# user function call, so "v (a)" stays a concatenation as POSIX requires.
+enum Token { TokWord(Str), TokCall(Str), TokNumber(Float), TokText(Str), TokRegex(Str), TokOp(Str), TokEnd }
 enum Expression {
   Number(Float), Text(Str), RegexLiteral(Str), Variable(Str), Field(Int), Index(Str, List[Int]), Call(Str, List[Int]),
   Unary(Str, Int), Binary(Str, Int, Int), Assign(Str, Int, Int), Increment(Int, Float, Bool), Conditional(Int, Int, Int),
+  CommandInput(Int, Int?),
 }
 enum Statement {
-  Block(List[Int]), ExpressionStatement(Int), Print(List[Int], Bool), If(Int, Int, Int?), While(Int, Int), Do(Int, Int),
+  Block(List[Int]), ExpressionStatement(Int), Print(List[Int], Bool, Int?), If(Int, Int, Int?), While(Int, Int), Do(Int, Int),
   For(Int?, Int?, Int?, Int), Each(Str, Str, Int), Delete(Str, List[Int]?), Next, Break, Continue, Exit(Int?), Return(Int?),
 }
 type Rule = {pattern: Int?, end: Int?, action: Int}
@@ -25,6 +28,15 @@ pure runtime(message: Str) -> Error { AwkError.Runtime(f"runtime: {message}") }
 pure unsupported(message: Str) -> Error { AwkError.Unsupported(f"unsupported: {message}") }
 pure digit(byte: Int) -> Bool { byte >= 48 and byte <= 57 }
 pure letter(byte: Int) -> Bool { byte == 95 or (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) }
+pure hex_digit(byte: Int) -> Bool { digit(byte) or (byte >= 65 and byte <= 70) or (byte >= 97 and byte <= 102) }
+pure digit_value(byte: Int) -> Int { if digit(byte) { byte - 48 } else if byte >= 97 { byte - 87 } else { byte - 55 } }
+# A numeric literal with a leading zero and only octal digits is octal in program
+# text, as in GNU awk; input fields never reach this and keep decimal spelling.
+pure octal_literal(text: Str) -> Bool {
+  if text.byte_len() < 2 or text.byte_at(0) != 48 { return false }
+  for at in range(text.byte_len()) { if (text.byte_at(at) ?? 0) not in [48, 49, 50, 51, 52, 53, 54, 55] { return false } }
+  true
+}
 
 pure escaped(source: Bytes, start: Int, quote: Int) -> Result[Escaped] {
   var at = start
@@ -42,6 +54,15 @@ pure escaped(source: Bytes, start: Int, quote: Int) -> Result[Escaped] {
       var count = 0
       while count < 2 and (source.byte_at(at) ?? -1) >= 48 and (source.byte_at(at) ?? -1) <= 55 {
         number = number * 8 + (source.byte_at(at) ?? 48) - 48
+        at += 1
+        count += 1
+      }
+      out += [number]
+    } else if next == 120 and quote != 47 and hex_digit(source.byte_at(at) ?? 0) {
+      var number = 0
+      var count = 0
+      while count < 2 and hex_digit(source.byte_at(at) ?? 0) {
+        number = number * 16 + digit_value(source.byte_at(at) ?? 0)
         at += 1
         count += 1
       }
@@ -70,6 +91,16 @@ pure lex(content: Str) -> Result[List[Token]] {
       operand = false
       continue
     }
+    if byte == 48 and (source.byte_at(at + 1) == 120 or source.byte_at(at + 1) == 88) and hex_digit(source.byte_at(at + 2) ?? 0) {
+      let digits = at + 2
+      at = digits
+      while hex_digit(source.byte_at(at) ?? 0) { at += 1 }
+      var value = 0.0
+      for position in range(digits, at) { value = value * 16.0 + digit_value(source.byte_at(position) ?? 0).float() }
+      tokens += [TokNumber(value)]
+      operand = false
+      continue
+    }
     if digit(byte) or (byte == 46 and digit(source.byte_at(at + 1) ?? 0)) {
       let start = at
       at += 1
@@ -79,7 +110,12 @@ pure lex(content: Str) -> Result[List[Token]] {
         if source.byte_at(at) == 43 or source.byte_at(at) == 45 { at += 1 }
         while digit(source.byte_at(at) ?? 0) { at += 1 }
       }
-      tokens += [TokNumber(source[start..at].utf8()?.parse_float()?)]
+      let text = source[start..at].utf8()?
+      var value = 0.0
+      if octal_literal(text) {
+        for position in range(start, at) { value = value * 8.0 + digit_value(source.byte_at(position) ?? 48).float() }
+      } else { value = text.parse_float()? }
+      tokens += [TokNumber(value)]
       operand = false
       continue
     }
@@ -88,7 +124,7 @@ pure lex(content: Str) -> Result[List[Token]] {
       at += 1
       while letter(source.byte_at(at) ?? 0) or digit(source.byte_at(at) ?? 0) { at += 1 }
       let word = source[start..at].utf8()?
-      tokens += [TokWord(word)]
+      tokens += [if source.byte_at(at) == 40 { TokCall(word) } else { TokWord(word) }]
       operand = word in ["print", "printf", "return", "exit", "in", "delete"]
       continue
     }
@@ -109,7 +145,7 @@ pure lex(content: Str) -> Result[List[Token]] {
   Ok(tokens + [TokEnd])
 }
 
-pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokOp(op) => op; _ => "" } }
+pure spelling(token: Token) -> Str { match token { TokWord(word) => word; TokCall(word) => word; TokOp(op) => op; _ => "" } }
 pure peek(p: Parser) -> Token { p.tokens[p.at] }
 pure is_at(p: Parser, content: Str) -> Bool { spelling(peek(p)) == content }
 pure advance(parser: Parser) -> Parser { var p = parser; p.at += 1; p }
@@ -122,7 +158,7 @@ pure separators(parser: Parser) -> Parser {
   p
 }
 pure name(parser: Parser) -> Result[Parsed[Str]] {
-  match peek(parser) { TokWord(word) => Ok({parser: advance(parser), value: word}); _ => Err(syntax("expected identifier")) }
+  match peek(parser) { TokWord(word) => Ok({parser: advance(parser), value: word}); TokCall(word) => Ok({parser: advance(parser), value: word}); _ => Err(syntax("expected identifier")) }
 }
 pure expression_node(parser: Parser, node: Expression) -> Parsed[Int] {
   var p = parser
@@ -153,6 +189,42 @@ pure expression_list(parser: Parser, end: Str) -> Result[Parsed[List[Int]]] {
 
 const PRECEDENCE: Map[Int] = {"=": 1, "+=": 1, "-=": 1, "*=": 1, "/=": 1, "%=": 1, "^=": 1, "||": 3, "&&": 4, "in": 5, "~": 6, "!~": 6, "==": 7, "!=": 7, "<": 7, ">": 7, "<=": 7, ">=": 7, "+": 9, "-": 9, "*": 10, "/": 10, "%": 10, "^": 12}
 
+# Builtins may be written with a space before "(" (GNU awk); user functions may not.
+pure word_term(parser: Parser, word: Str, tight: Bool) -> Result[Parsed[Int]] {
+  if word in ["getline", "system", "close", "fflush"] { return Err(unsupported(word)) }
+  if is_at(parser, "(") and (tight or word in ["length", "substr", "index", "split", "sub", "gsub", "match", "sprintf", "int", "sqrt", "exp", "log", "sin", "cos", "atan2", "tolower", "toupper", "and", "or", "xor", "lshift", "rshift"]) {
+    let args = expression_list(advance(parser), ")")?
+    return Ok(expression_node(args.parser, Call(word, args.value)))
+  }
+  if is_at(parser, "[") {
+    let args = expression_list(advance(parser), "]")?
+    return Ok(expression_node(args.parser, Index(word, args.value)))
+  }
+  # A bare length is the length of the current record, not a variable.
+  if word == "length" { return Ok(expression_node(parser, Call(word, []))) }
+  Ok(expression_node(parser, Variable(word)))
+}
+pure lvalue(program: Program, id: Int) -> Bool {
+  match program.expressions[id] { Variable(_) => true; Field(_) => true; Index(_, _) => true; _ => false }
+}
+# The optional variable after "cmd | getline"; without one the record becomes $0.
+pure getline_target(parser: Parser) -> Result[Parsed[Int?]] {
+  match peek(parser) {
+    TokWord(word) => {
+      if word in ["else", "in", "while"] { return Ok({parser: parser, value: null}) }
+      let advanced = advance(parser)
+      if is_at(advanced, "[") {
+        let keys = expression_list(advance(advanced), "]")?
+        let node = expression_node(keys.parser, Index(word, keys.value))
+        return Ok({parser: node.parser, value: node.value})
+      }
+      let node = expression_node(advanced, Variable(word))
+      Ok({parser: node.parser, value: node.value})
+    }
+    _ => Ok({parser: parser, value: null})
+  }
+}
+
 pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
   var p = parser
   if p.depth >= 128 { return Err(syntax("expression nesting limit exceeded")) }
@@ -163,17 +235,9 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
   match token {
     TokNumber(number) => { first = expression_node(p, Number(number)) }
     TokText(content) => { first = expression_node(p, Text(content)) }
-    TokRegex(pattern) => { let _ = regex.find_bytes(pattern, b"", extended: true)?; first = expression_node(p, RegexLiteral(pattern)) }
-    TokWord(word) => {
-      if word in ["getline", "system", "close", "fflush"] { return Err(unsupported(word)) }
-      if is_at(p, "(") {
-        let args = expression_list(advance(p), ")")?
-        first = expression_node(args.parser, Call(word, args.value))
-      } else if is_at(p, "[") {
-        let args = expression_list(advance(p), "]")?
-        first = expression_node(args.parser, Index(word, args.value))
-      } else { first = expression_node(p, Variable(word)) }
-    }
+    TokRegex(pattern) => { let _ = regex.find_bytes(ere(pattern)?, b"", extended: true)?; first = expression_node(p, RegexLiteral(pattern)) }
+    TokWord(word) => { first = word_term(p, word, false)? }
+    TokCall(word) => { first = word_term(p, word, true)? }
     TokOp(op) => {
       if op == "(" {
         let printing = p.printing
@@ -199,7 +263,8 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
   var operators = 0
   loop {
     let op = spelling(peek(p))
-    if minimum <= 13 and op in ["++", "--"] {
+    # "str"++ is not a postfix increment: the operator then starts a concatenated prefix increment.
+    if minimum <= 13 and op in ["++", "--"] and lvalue(p.program, left) {
       let next = expression_node(advance(p), Increment(left, if op == "++" { 1.0 } else { -1.0 }, true))
       p = next.parser
       left = next.value
@@ -214,10 +279,19 @@ pure expression(parser: Parser, minimum: Int) -> Result[Parsed[Int]] {
       continue
     }
     if p.printing and op == ">" { break }
+    if minimum <= 6 and op == "|" and spelling(p.tokens.get(p.at + 1) ?? TokEnd) == "getline" {
+      let target = getline_target(advance(advance(p)))?
+      let next = expression_node(target.parser, CommandInput(left, target.value))
+      p = next.parser
+      left = next.value
+      continue
+    }
     let known = PRECEDENCE.get(op) ?? 0
-    let concat = known == 0 and (match peek(p) { TokNumber(_) => true; TokText(_) => true; TokRegex(_) => true; TokWord(word) => word not in ["else", "in", "while"]; TokOp(symbol) => symbol in ["$", "("]; _ => false })
+    let concat = known == 0 and (match peek(p) { TokNumber(_) => true; TokText(_) => true; TokRegex(_) => true; TokWord(word) => word not in ["else", "in", "while"]; TokCall(word) => word not in ["else", "in", "while"]; TokOp(symbol) => symbol in ["$", "(", "++", "--"]; _ => false })
     let power = if concat { 8 } else { known }
-    if power == 0 or power < minimum { break }
+    # An assignment whose target is already parsed binds to that target even as the right operand, as in $1==$1="x".
+    let assigns = power == 1 and lvalue(p.program, left)
+    if power == 0 or (power < minimum and ! assigns) { break }
     operators += 1
     if operators > 128 { return Err(syntax("expression operator limit exceeded")) }
     let operator = if concat { "concat" } else { op }
@@ -329,8 +403,14 @@ pure statement_inner(parser: Parser) -> Result[Parsed[Int]] {
         p = advance(p)
       }
     }
-    if is_at(p, "|") or is_at(p, ">") { return Err(unsupported("output redirection")) }
-    return Ok(statement_node(p, Print(args, word == "printf")))
+    if is_at(p, "|") { return Err(unsupported("output redirection")) }
+    var target: Int? = null
+    if is_at(p, ">") {
+      let destination = expression(advance(p), 0)?
+      p = destination.parser
+      target = destination.value
+    }
+    return Ok(statement_node(p, Print(args, word == "printf", target)))
   }
   let next = expression(p, 0)?
   Ok(statement_node(next.parser, ExpressionStatement(next.value)))
@@ -341,7 +421,7 @@ pure parse(source: Str) -> Result[Program] {
   p = separators(p)
   while peek(p) != TokEnd {
     let word = spelling(peek(p))
-    if word == "function" {
+    if word in ["function", "func"] {
       let function_name = name(advance(p))?
       p = require(function_name.parser, "(")?
       var parameters: List[Str] = []
@@ -367,7 +447,7 @@ pure parse(source: Str) -> Result[Program] {
       var end: Int? = null
       if ! is_at(p, "{") { let next = expression(p, 0)?; p = next.parser; pattern = next.value }
       if is_at(p, ",") { let next = expression(advance(p), 0)?; p = next.parser; end = next.value }
-      let action = if is_at(p, "{") { block(p)? } else { statement_node(p, Print([], false)) }
+      let action = if is_at(p, "{") { block(p)? } else { statement_node(p, Print([], false, null)) }
       p = action.parser
       p.program.rules += [Rule(pattern: pattern, end: end, action: action.value)]
     }
@@ -382,7 +462,8 @@ enum Scalar { Empty, Numeric(Float), String(Str), Input(Str, Float?) }
 enum Flow { Normal, NextRecord, BreakLoop, ContinueLoop, ExitProgram, ReturnFunction }
 enum Place { Named(Str), FieldPlace(Int), Element(Str, Str) }
 type Scope = {values: Map[Scalar], arrays: Map[Str]}
-type Machine = {program: Program, values: Map[Scalar], arrays: Map[Map[Scalar]], scopes: List[Scope], fields: List[Scalar], record: Str, output: Str, status: Int, flow: Flow, value: Scalar, steps: Int, depth: Int}
+# pipes holds, per command string, the output not yet consumed by getline.
+type Machine = {program: Program, values: Map[Scalar], arrays: Map[Map[Scalar]], scopes: List[Scope], fields: List[Scalar], record: Str, output: Str, status: Int, flow: Flow, value: Scalar, steps: Int, depth: Int, pipes: Map[Str]}
 type Located = {machine: Machine, place: Place}
 type Keyed = {machine: Machine, key: Str}
 type Format = {conversion: Str, width: Int, precision: Int?, left: Bool, plus: Bool, space: Bool, zero: Bool, alternate: Bool}
@@ -574,9 +655,64 @@ pure printf(format: Str, values: List[Scalar], conversion: Str) -> Result[Str] {
   Ok(out)
 }
 
+# POSIX extended syntax rejects a brace that does not open a valid interval, while GNU
+# awk compiles it as a literal brace, so such braces are escaped first. Escapes and
+# bracket expressions are copied unchanged, since a brace inside brackets is literal already.
+pure ere(pattern: Str) -> Result[Str] {
+  let source = bytes.from_text(pattern)
+  var out: List[Int] = []
+  var at = 0
+  while at < source.len() {
+    let byte = source.byte_at(at) ?? 0
+    if byte == 92 and at + 1 < source.len() {
+      out += [92, source.byte_at(at + 1) ?? 0]
+      at += 2
+    } else if byte == 91 {
+      out += [91]
+      at += 1
+      if source.byte_at(at) == 94 { out += [94]; at += 1 }
+      if source.byte_at(at) == 93 { out += [93]; at += 1 }
+      while at < source.len() and source.byte_at(at) != 93 {
+        if source.byte_at(at) == 91 and source.byte_at(at + 1) == 58 {
+          out += [91, 58]
+          at += 2
+          while at < source.len() and ! (source.byte_at(at) == 58 and source.byte_at(at + 1) == 93) {
+            out += [source.byte_at(at) ?? 0]
+            at += 1
+          }
+          if at < source.len() { out += [58, 93]; at += 2 }
+          continue
+        }
+        out += [source.byte_at(at) ?? 0]
+        at += 1
+      }
+      if at < source.len() { out += [93]; at += 1 }
+    } else if byte == 123 {
+      var end = at + 1
+      var digits = 0
+      while digit(source.byte_at(end) ?? 0) { end += 1; digits += 1 }
+      if source.byte_at(end) == 44 {
+        end += 1
+        while digit(source.byte_at(end) ?? 0) { end += 1; digits += 1 }
+      }
+      if digits > 0 and source.byte_at(end) == 125 {
+        for position in range(at, end + 1) { out += [source.byte_at(position) ?? 0] }
+        at = end + 1
+      } else {
+        out += [92, 123]
+        at += 1
+      }
+    } else {
+      out += [byte]
+      at += 1
+    }
+  }
+  bytes.from_ints(out)?.utf8()
+}
+
 type Match = {start: Int, end: Int}
 pure find(pattern: Str, content: Str, offset = 0) -> Result[Match?] {
-  let hits = regex.find_bytes(pattern, bytes.from_text(content), extended: true)?
+  let hits = regex.find_bytes(ere(pattern)?, bytes.from_text(content), extended: true)?
   for hit in hits { if hit.start >= offset { return Ok(hit) } }
   Ok(null)
 }
@@ -593,7 +729,7 @@ pure split_fields(content: Str, separator: Str) -> Result[List[Scalar]] {
   if separator.count_chars() == 1 { return Ok([input(piece)? for piece in content.split(separator)]) }
   var fields: List[Scalar] = []
   var start = 0
-  for hit in regex.find_bytes(separator, bytes.from_text(content), extended: true)? {
+  for hit in regex.find_bytes(ere(separator)?, bytes.from_text(content), extended: true)? {
     if hit.start == hit.end { continue }
     fields += [input(slice(content, start, hit.start)?)?]
     start = hit.end
@@ -664,7 +800,7 @@ pure record(machine: Machine, content: Str) -> Result[Machine] {
   m.values = m.values.set("NF", Numeric(m.fields.len().float()))
   Ok(m)
 }
-pure key(machine: Machine, expressions: List[Int]) -> Result[Keyed] {
+proc key(machine: Machine, expressions: List[Int]) -> Result[Keyed] {
   var m = machine
   var keys: List[Str] = []
   for id in expressions {
@@ -674,7 +810,7 @@ pure key(machine: Machine, expressions: List[Int]) -> Result[Keyed] {
   }
   Ok({machine: m, key: keys.join(variable_text(m, "SUBSEP")?)})
 }
-pure locate(machine: Machine, id: Int) -> Result[Located] {
+proc locate(machine: Machine, id: Int) -> Result[Located] {
   var m = machine
   match m.program.expressions[id] {
     Variable(name) => Ok({machine: m, place: Named(name)})
@@ -718,6 +854,27 @@ pure write_place(machine: Machine, place: Place, value: Scalar) -> Result[Machin
     }
   }
 }
+# Bit operations are not POSIX; operands must be non-negative, and the bitwise
+# combination covers the 53 bits a double holds exactly.
+pure bitwise(name: Str, left: Float, right: Float) -> Result[Float] {
+  if left < 0.0 or right < 0.0 { return Err(runtime(f"{name} operand is negative")) }
+  if name == "lshift" { return Ok(left * 2.0.pow(right)) }
+  if name == "rshift" { return Ok(integer(left / 2.0.pow(right))?.float()) }
+  var a = integer(left)?
+  var b = integer(right)?
+  var result = 0
+  var weight = 1
+  for _ in range(53) {
+    let x = a % 2
+    let y = b % 2
+    let bit = if name == "and" { x * y } else if name == "or" { if x + y > 0 { 1 } else { 0 } } else { if x != y { 1 } else { 0 } }
+    result += bit * weight
+    weight *= 2
+    a = a / 2
+    b = b / 2
+  }
+  Ok(result.float())
+}
 pure binary(op: Str, left: Scalar, right: Scalar, conversion: Str) -> Result[Scalar] {
   if op == "concat" { return Ok(String(scalar_text(left, conversion)? + scalar_text(right, conversion)?)) }
   if op in ["==", "!=", "<", ">", "<=", ">="] {
@@ -740,7 +897,7 @@ pure binary(op: Str, left: Scalar, right: Scalar, conversion: Str) -> Result[Sca
   let value = if op == "+" { a + b } else if op == "-" { a - b } else if op == "*" { a * b } else if op == "/" { a / b } else if op == "%" { a - integer(a / b)?.float() * b } else if op == "^" { a.pow(b) } else { return Err(unsupported(f"operator {op}")) }
   Ok(Numeric(value))
 }
-pure regex_value(machine: Machine, id: Int) -> Result[Keyed] {
+proc regex_value(machine: Machine, id: Int) -> Result[Keyed] {
   match machine.program.expressions[id] {
     RegexLiteral(pattern) => Ok({machine: machine, key: pattern})
     _ => { let m = evaluate(machine, id)?; Ok({machine: m, key: scalar_text(m.value, variable_text(m, "CONVFMT")?)?}) }
@@ -752,7 +909,7 @@ pure tick(machine: Machine) -> Result[Machine] {
   if m.steps > 50000000 { return Err(runtime("execution step limit exceeded")) }
   Ok(m)
 }
-pure evaluate(machine: Machine, id: Int) -> Result[Machine] {
+proc evaluate(machine: Machine, id: Int) -> Result[Machine] {
   var m = machine
   if m.flow != Normal { return Ok(m) }
   if m.depth >= 256 { return Err(runtime("execution nesting limit exceeded")) }
@@ -761,7 +918,7 @@ pure evaluate(machine: Machine, id: Int) -> Result[Machine] {
   m.depth -= 1
   Ok(m)
 }
-pure evaluate_inner(machine: Machine, id: Int) -> Result[Machine] {
+proc evaluate_inner(machine: Machine, id: Int) -> Result[Machine] {
   var m = machine
   match m.program.expressions[id] {
     Number(n) => Ok(result(m, Numeric(n)))
@@ -840,11 +997,40 @@ pure evaluate_inner(machine: Machine, id: Int) -> Result[Machine] {
       if m.flow != Normal { return Ok(m) }
       Ok(result(m, binary(op, a, m.value, variable_text(m, "CONVFMT")?)?))
     }
+    CommandInput(command, target) => {
+      m = evaluate(m, command)?
+      if m.flow != Normal { return Ok(m) }
+      let text = scalar_text(m.value, variable_text(m, "CONVFMT")?)?
+      # Each command string has one shared output stream: its records are read in order
+      # until it is exhausted, and later calls with the same string continue after them.
+      if text not in m.pipes { m.pipes = m.pipes.set(text, command_output(text)?) }
+      let pending = m.pipes.get(text) ?? ""
+      let next = record_at(pending, 0, variable_text(m, "RS")?)?
+      m.pipes = m.pipes.set(text, if next.position >= pending.byte_len() { "" } else { pending.byte_slice(next.position) })
+      if next.content == null { return Ok(result(m, Numeric(0.0))) }
+      let content = next.content ?? ""
+      if target == null { m = record(m, content)? } else {
+        let located = locate(m, target)?
+        m = write_place(located.machine, located.place, input(content)?)?
+      }
+      m = assign_variable(m, "NR", Numeric(number(get(m, "NR"))? + 1.0))?
+      Ok(result(m, Numeric(1.0)))
+    }
     Call(name, args) => call(m, name, args)
   }
 }
+# Stderr is written as the print statement runs, so it is not reordered behind the
+# collected stdout.
+proc write_stderr(text: Str) -> Result[Unit] {
+  io.write_stderr(text)?
+  io.flush_stderr()?
+}
+# The command runs through sh, as GNU awk does; its stdout is the input stream.
+proc command_output(command: Str) -> Result[Str] {
+  Ok(run.text sh -c ${command}?)
+}
 
-pure execute_statement(machine: Machine, id: Int) -> Result[Machine] {
+proc execute_statement(machine: Machine, id: Int) -> Result[Machine] {
   var m = machine
   if m.flow != Normal { return Ok(m) }
   if m.depth >= 256 { return Err(runtime("execution nesting limit exceeded")) }
@@ -853,22 +1039,23 @@ pure execute_statement(machine: Machine, id: Int) -> Result[Machine] {
   m.depth -= 1
   Ok(m)
 }
-pure execute_inner(machine: Machine, id: Int) -> Result[Machine] {
+proc execute_inner(machine: Machine, id: Int) -> Result[Machine] {
   var m = machine
   match m.program.statements[id] {
     Block(body) => {
       for child in body { m = execute_statement(m, child)?; if m.flow != Normal { return Ok(m) } }
     }
     ExpressionStatement(child) => { m = evaluate(m, child)? }
-    Print(args, formatted_output) => {
+    Print(args, formatted_output, target) => {
       var values: List[Scalar] = []
       for child in args { m = evaluate(m, child)?; if m.flow != Normal { return Ok(m) }; values += [m.value] }
       let conversion = variable_text(m, "CONVFMT")?
+      var text = ""
       if formatted_output {
         if values.is_empty() { return Err(syntax("printf requires a format")) }
-        m.output += printf(scalar_text(values[0], conversion)?, values[1..], conversion)?
+        text = printf(scalar_text(values[0], conversion)?, values[1..], conversion)?
       } else {
-        if values.is_empty() { m.output += m.record } else {
+        if values.is_empty() { text = m.record } else {
           var pieces: List[Str] = []
           for value in values {
             match value {
@@ -878,9 +1065,15 @@ pure execute_inner(machine: Machine, id: Int) -> Result[Machine] {
               _ => { pieces += [scalar_text(value, conversion)?] }
             }
           }
-          m.output += pieces.join(variable_text(m, "OFS")?)
+          text = pieces.join(variable_text(m, "OFS")?)
         }
-        m.output += variable_text(m, "ORS")?
+        text += variable_text(m, "ORS")?
+      }
+      if target == null { m.output += text } else {
+        m = evaluate(m, target)?
+        if m.flow != Normal { return Ok(m) }
+        let destination = scalar_text(m.value, conversion)?
+        if destination == "/dev/stdout" { m.output += text } else if destination == "/dev/stderr" { write_stderr(text)? } else { return Err(unsupported("output redirection")) }
       }
     }
     If(condition, yes, no) => {
@@ -971,6 +1164,7 @@ pure expression_arrays(program: Program, id: Int) -> List[Str] {
     Unary(_, child) => { children = [child] }
     Increment(child, _, _) => { children = [child] }
     Conditional(a, b, c) => { children = [a, b, c] }
+    CommandInput(command, target) => { children = [command]; if target != null { children += [target] } }
     _ => {}
   }
   for child in children { arrays += expression_arrays(program, child) }
@@ -983,7 +1177,7 @@ pure statement_arrays(program: Program, id: Int) -> List[Str] {
   match program.statements[id] {
     Block(body) => { children = body }
     ExpressionStatement(child) => { expressions = [child] }
-    Print(args, _) => { expressions = args }
+    Print(args, _, target) => { expressions = args; if target != null { expressions += [target] } }
     If(condition, yes, no) => { expressions = [condition]; children = [yes]; if no != null { children += [no] } }
     While(condition, body) => { expressions = [condition]; children = [body] }
     Do(body, condition) => { expressions = [condition]; children = [body] }
@@ -1022,11 +1216,10 @@ pure substitute(replacement: Str, matched: Str) -> Str {
 }
 # Scopes carry scalar parameters by value and array parameters by name. Next and
 # exit leave their flow marker intact while return is consumed at this boundary.
-pure call(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
+proc call(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
   var m = machine
   if name in m.program.functions {
     let function = m.program.functions.get(name)?
-    if args.len() > function.parameters.len() { return Err(runtime(f"too many arguments to {name}")) }
     let inferred = statement_arrays(m.program, function.body)
     var scope = Scope(values: {}, arrays: {})
     var locals: List[Str] = []
@@ -1058,6 +1251,13 @@ pure call(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
         scope.values = scope.values.set(parameter, m.value)
       }
     }
+    # Surplus arguments have no parameter to bind, but their side effects still happen, in order.
+    for at in range(args.len()) {
+      if at >= function.parameters.len() {
+        m = evaluate(m, args[at])?
+        if m.flow != Normal { return Ok(m) }
+      }
+    }
     m.scopes += [scope]
     m = execute_statement(m, function.body)?
     m.scopes = m.scopes[..m.scopes.len() - 1]
@@ -1078,7 +1278,7 @@ pure call(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
     var copied = 0
     var count = 0
     var previous_end = -1
-    for hit in regex.find_bytes(pattern.key, bytes.from_text(content), extended: true)? {
+    for hit in regex.find_bytes(ere(pattern.key)?, bytes.from_text(content), extended: true)? {
       if hit.start == hit.end and previous_end == hit.start { continue }
       out += slice(content, copied, hit.start)? + substitute(replacement, slice(content, hit.start, hit.end)?)
       copied = hit.end
@@ -1117,14 +1317,25 @@ pure call(machine: Machine, name: Str, args: List[Int]) -> Result[Machine] {
     m = assign_variable(m, "RLENGTH", Numeric(length.float()))?
     return Ok(result(m, Numeric(start.float())))
   }
-  let minimum = if name == "length" { 0 } else if name in ["substr", "index", "atan2"] { 2 } else if name in ["sprintf", "int", "sqrt", "exp", "log", "sin", "cos", "tolower", "toupper"] { 1 } else { return Err(unsupported(f"function {name}")) }
+  let minimum = if name == "length" { 0 } else if name in ["substr", "index", "atan2", "and", "or", "xor", "lshift", "rshift"] { 2 } else if name in ["sprintf", "int", "sqrt", "exp", "log", "sin", "cos", "tolower", "toupper"] { 1 } else { return Err(unsupported(f"function {name}")) }
   let maximum = if name == "length" { 1 } else if name == "substr" { 3 } else if name == "sprintf" { 1000000 } else { minimum }
   if args.len() < minimum or args.len() > maximum { return Err(runtime(f"wrong argument count for {name}")) }
+  if name == "length" and args.len() == 1 {
+    match m.program.expressions[args[0]] {
+      Variable(variable) => {
+        let array = array_name(m, variable)
+        if array in m.arrays { return Ok(result(m, Numeric((m.arrays.get(array) ?? {}).len().float()))) }
+      }
+      _ => {}
+    }
+  }
   var values: List[Scalar] = []
   for child in args { m = evaluate(m, child)?; if m.flow != Normal { return Ok(m) }; values += [m.value] }
   let conversion = variable_text(m, "CONVFMT")?
   var value: Scalar = Empty
-  if name == "length" { value = Numeric((if values.is_empty() { m.record } else { scalar_text(values[0], conversion)? }).count_chars().float()) } else if name == "substr" {
+  if name == "length" { value = Numeric((if values.is_empty() { m.record } else { scalar_text(values[0], conversion)? }).count_chars().float()) } else if name in ["and", "or", "xor", "lshift", "rshift"] {
+    value = Numeric(bitwise(name, number(values[0])?, number(values[1])?)?)
+  } else if name == "substr" {
     let content = scalar_text(values[0], conversion)?
     let pieces = content.split("")
     let given = integer(number(values[1])?)?
@@ -1170,7 +1381,7 @@ pure record_at(content: Str, position: Int, separator: Str) -> Result[ReadRecord
     if found == null { return Ok({content: content.byte_slice(at), position: content.byte_len(), terminator: ""}) }
     return Ok({content: content.byte_slice(at, length: found - at), position: found + separator.byte_len(), terminator: separator})
   }
-  for hit in regex.find_bytes(separator, bytes.from_text(content), extended: true)? {
+  for hit in regex.find_bytes(ere(separator)?, bytes.from_text(content), extended: true)? {
     if hit.start < at or hit.end == hit.start { continue }
     let terminator = content.byte_slice(hit.start, length: hit.end - hit.start)
     return Ok({content: content.byte_slice(at, length: hit.start - at), position: if hit.end == content.byte_len() { hit.end + 1 } else { hit.end }, terminator: terminator})
@@ -1204,7 +1415,7 @@ pure next_argv(machine: Machine, after: Int, count: Int) -> Result[Int?] {
 }
 pure new_machine(program: Program, separator: Str) -> Machine {
   let values: Map[Scalar] = {"FS": String(separator), "OFS": String(" "), "RS": String("\n"), "RT": String(""), "ORS": String("\n"), "SUBSEP": String("\u{1c}"), "OFMT": String("%.6g"), "CONVFMT": String("%.6g"), "NR": Numeric(0.0), "FNR": Numeric(0.0), "NF": Numeric(0.0), "RSTART": Numeric(0.0), "RLENGTH": Numeric(0.0)}
-  Machine(program: program, values: values, arrays: {}, scopes: [], fields: [], record: "", output: "", status: 0, flow: Normal, value: Empty, steps: 0, depth: 0)
+  Machine(program: program, values: values, arrays: {}, scopes: [], fields: [], record: "", output: "", status: 0, flow: Normal, value: Empty, steps: 0, depth: 0, pipes: {})
 }
 
 ## Collected output and conventional byte-sized process exit status.
@@ -1212,7 +1423,7 @@ export type Output = {stdout: Str, status: Int}
 
 ## Parse and execute a program over named inputs; variable bindings precede BEGIN.
 ## File operands containing name=value are applied between inputs, after BEGIN.
-export pure execute(source: Str, inputs: List[Str], names: List[Str], variables: List[Str] = [], field_separator = " ") -> Result[Output, Error] {
+export proc execute(source: Str, inputs: List[Str], names: List[Str], variables: List[Str] = [], field_separator = " ") -> Result[Output, Error] {
   if inputs.len() != names.len() { return Err(runtime("input names and contents must have equal lengths")) }
   let program = parse(source)?
   let separator = escaped(bytes.from_text(field_separator), 0, -1)?

@@ -214,3 +214,63 @@ test test_awk_gawk_regex_record_separators_and_rt { |ctx|
   let empty_match = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { RS = "()" } { print NR, $0, "[" RT "]" }""" $unseparated
   assert empty_match == "1 whole []\n"
 }
+
+test test_awk_hex_and_octal_program_literals { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { print or(0xffffffff,1), or(0x80000000,1), or(01234,1), 011 + 1, 0x1F + 0, 08 + 0, 0.5 + 00.5 }"""
+  assert output == "4294967295 2147483649 669 10 31 8 1\n"
+}
+
+test test_awk_bit_operations { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { print and(12,10), xor(12,10), or(12,10), lshift(3,4), rshift(48,4), rshift(1,1) }"""
+  assert output == "8 6 14 48 3 0\n"
+}
+
+test test_awk_func_keyword_and_surplus_arguments { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""func f() { print "F" } function g() { print "G"; return 1 } BEGIN { f(g(), g()); print "done" }"""
+  assert output == "G\nG\nF\ndone\n"
+}
+
+test test_awk_space_before_paren_is_concatenation { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""function f(a) { return a + 1 } BEGIN { v = 1; a = 2; print v (a), f(3), substr ("abc", 2) }"""
+  assert output == "12 4 bc\n"
+}
+
+test test_awk_postfix_applies_only_to_variables { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { i = 1; print "str" ++i; print "x" i++; print i }"""
+  assert output == "str2\nx2\n3\n"
+}
+
+test test_awk_assignment_binds_to_its_target_inside_comparison { |ctx|
+  let input = test.temp_file(ctx, name: "assign-compare", contents: b"foo\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""$1==$1="foo" {print $1}""" $input
+  assert output == "foo\n"
+}
+
+test test_awk_bare_length_and_array_length { |ctx|
+  let input = test.temp_file(ctx, name: "length-record", contents: b"qwe\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""{ print length, length(), length 1 } END { A[1]; A["qwe"]; print length(A) }""" $input
+  assert output == "3 3 31\n2\n"
+}
+
+test test_awk_hex_escapes_in_strings_and_separators { |ctx|
+  let input = test.temp_file(ctx, name: "hex-separator", contents: b"a!b\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- -F r"""\x21""" r"""{ print $1; print "\x41\x4a!" }""" $input
+  assert output == "a\nAJ!\n"
+}
+
+test test_awk_braces_are_literal_outside_intervals { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { s = "a{b"; print (s ~ /a{/), ("aa" ~ /^a{2}$/), gsub("{", "-", s), s }"""
+  assert output == "1 1 1 a-b\n"
+}
+
+test test_awk_print_redirects_only_to_standard_streams { |ctx|
+  let result = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { print "err" > "/dev/stderr"; print "out" > "/dev/stdout" }"""], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+  assert result.status == 0
+  assert result.stdout == "out\n"
+  assert result.stderr == "err\n"
+}
+
+test test_awk_command_getline_reads_shared_stream { |ctx|
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { "printf 'a b\nc\n'" | getline; print $2; "printf 'a b\nc\n'" | getline x; print x, NR; print ("printf ''" | getline z), z "" }"""
+  assert output == "b\nc 2\n0 \n"
+}
