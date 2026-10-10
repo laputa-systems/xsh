@@ -2,7 +2,7 @@
 use lib.procps
 
 type Options = {signal: Str, quiet: Bool, verbose: Bool, ignore_case: Bool, regexp: Bool, user: Str?, help: Bool, operands: List[Str]}
-proc main(...argv: List[Str]) [process, error] {
+proc main(...argv: List[Str]) [process, error, fs] {
   var normalized: List[Str] = []
   var option_words = true
   for word in argv {
@@ -10,10 +10,14 @@ proc main(...argv: List[Str]) [process, error] {
     let signal_name = word.split("") |> drop(1).join("")
     if option_words and word.starts_with("-") and ! word.starts_with("--") and word.byte_len() > 1 and process.signal(signal_name) is Ok(_) { normalized = normalized.push("--signal").push(signal_name) } else { normalized = normalized.push(word) }
   }
-  let opts: Options = cli.applet(normalized, {gnu: {status: 2}, signal: {form: "-s --signal SIGNAL", default: "TERM"}, quiet: {form: "-q --quiet", default: false}, verbose: {form: "-v --verbose", default: false}, ignore_case: {form: "-I --ignore-case", default: false}, regexp: {form: "-r --regexp", default: false}, user: {form: "-u --user USER"}, help: {form: "--help", default: false}, operands: {form: "...NAME"}})?
+  let opts: Options = cli.applet(normalized, {gnu: {status: 1}, signal: {form: "-s --signal SIGNAL", default: "TERM"}, quiet: {form: "-q --quiet", default: false}, verbose: {form: "-v --verbose", default: false}, ignore_case: {form: "-I --ignore-case", default: false}, regexp: {form: "-r --regexp", default: false}, user: {form: "-u --user USER"}, help: {form: "--help", default: false}, operands: {form: "...NAME"}})?
   if opts.help { print "Usage: killall [-qvIr] [-s SIGNAL] [-u USER] NAME..."; return }
-  if opts.operands.is_empty() { eprint "killall: process name required"; exit 2 }
-  let signal = process.signal(opts.signal)?
+  if opts.operands.is_empty() { eprint "killall: process name required"; exit 1 }
+  let requested = process.signal(opts.signal)
+  if let Err(_) = requested { eprint f"{opts.signal}: unknown signal; killall -l lists signals."; exit 1 }
+  let signal = requested?
+  let account = opts.user ?? ""
+  if opts.user != null and user.lookup(account) is Err(_) { eprint f"Cannot find user {account}"; exit 1 }
   let self_pid = process.current_pid()?
   let rows: List[ProcessEntry] = process.list()? |> collect
   var failed = false
@@ -30,7 +34,7 @@ proc main(...argv: List[Str]) [process, error] {
         failed = true
       } else {
         signaled = signaled.push(row.pid)
-        if opts.verbose { eprint f"Killed {row.command}({row.pid}) with signal {signal.name}" }
+        if opts.verbose { eprint f"Killed {row.command}({row.pid}) with signal {signal.number}" }
       }
     }
     if ! matched { failed = true; if ! opts.quiet { eprint f"{name}: no process found" } }
