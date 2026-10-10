@@ -1,0 +1,11 @@
+Hmm...  Looks like a unified diff to me...
+The text leading up to this was:
+--------------------------
+|diff --git a/a b/a
+|index 1111111..2222222 100644
+|--- a/a
+|+++ b/a
+--------------------------
+patching file a
+Hunk #1 succeeded at 1.
+done

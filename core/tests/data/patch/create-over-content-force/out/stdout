@@ -1,0 +1,5 @@
+The next patch would create the file n,
+which already exists!  Applying it anyway.
+patching file n
+Hunk #1 FAILED at 1.
+1 out of 1 hunk FAILED -- saving rejects to file n.rej

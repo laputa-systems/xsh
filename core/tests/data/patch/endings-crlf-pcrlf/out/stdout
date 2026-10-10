@@ -1,0 +1,4 @@
+(Stripping trailing CRs from patch; use --binary to disable.)
+patching file t
+Hunk #1 FAILED at 1 (different line endings).
+1 out of 1 hunk FAILED -- saving rejects to file t.rej

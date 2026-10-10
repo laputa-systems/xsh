@@ -1,0 +1,4 @@
+(Stripping trailing CRs from patch; use --binary to disable.)
+patching file x
+(Stripping trailing CRs from patch; use --binary to disable.)
+patching file y

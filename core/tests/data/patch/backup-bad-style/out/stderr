@@ -1,0 +1,6 @@
+patch: invalid argument 'bogus' for '--version-control or -V option'
+Valid arguments are:
+  - 'none', 'off'
+  - 'simple', 'never'
+  - 'existing', 'nil'
+  - 'numbered', 't'

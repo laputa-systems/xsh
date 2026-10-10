@@ -1,0 +1,8 @@
+diff --git a/ln b/ln
+new file mode 120000
+index 0000000..2222222
+--- /dev/null
++++ b/ln
+@@ -0,0 +1 @@
++target
+\ No newline at end of file

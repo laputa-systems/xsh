@@ -1,0 +1,5 @@
+The next patch would delete the file d,
+which does not exist!  Applying it anyway.
+patching file d
+Hunk #1 FAILED at 1.
+1 out of 1 hunk FAILED -- saving rejects to file d.rej

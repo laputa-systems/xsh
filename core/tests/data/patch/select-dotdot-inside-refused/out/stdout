@@ -1,0 +1,12 @@
+Ignoring potentially dangerous file name sub/../x
+can't find file to patch at input line 3
+Perhaps you used the wrong -p or --strip option?
+The text leading up to this was:
+--------------------------
+|--- /dev/null
+|+++ sub/../x
+--------------------------
+File to patch: 
+Skip this patch? [y] 
+Skipping patch.
+1 out of 1 hunk ignored
