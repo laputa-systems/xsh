@@ -50,7 +50,7 @@ FROM alpine:edge
 RUN apk add --no-cache coreutils util-linux util-linux-misc util-linux-login iproute2 \
     iproute2-ss iputils iputils-ping iputils-tracepath net-tools traceroute ethtool iw \
     smartmontools nvme-cli efibootmgr cpio curl wget netcat-openbsd eudev udev procps-ng \
-    psmisc findutils e2fsprogs e2fsprogs-extra dosfstools
+    psmisc findutils e2fsprogs e2fsprogs-extra dosfstools gzip bzip2 xz zstd lzip sysstat
 EOF
 	docker build --platform linux/amd64 -t "$image" "$context" >&2
 	rm -rf "${context:?}"
