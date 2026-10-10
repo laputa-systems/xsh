@@ -84,3 +84,8 @@ test test_factor_options_follow_gnu_grammar { |ctx|
   let version = factor_run(ctx, ["--version"])?
   assert version.stdout.starts_with("factor")
 }
+
+test test_factor_clustered_factors { |ctx|
+  assert factor_text(ctx, ["1000112004278059472142857"])? == "1000112004278059472142857: 1000003 1000033 1000037 1000039\n", "primes of one size cluster are all found"
+  assert factor_text(ctx, ["-h", "1000148008409224570707382030594142843"])? == "1000148008409224570707382030594142843: 1000003^2 1000033^2 1000037 1000039\n", "repeated clustered factors keep their exponents"
+}
