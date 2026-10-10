@@ -40,3 +40,17 @@ test test_basenc_base16_reports_write_error { |ctx|
   assert result.status == 1
   assert result.stderr == "basenc: No space left on device\n"
 }
+
+test test_basenc_reads_non_utf8_file_operand { |ctx|
+  let root = test.temp_dir(ctx, name: "basenc-raw-operand")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  file.write(b"foo")
+  let output = fp"{root}/out"
+  let error = fp"{root}/err"
+  let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/basenc.xsh".display(), file, "--base64"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
+  let status = process.run(plan)?
+  assert status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"Zm9v\n"
+  assert error.read_text()? == ""
+}

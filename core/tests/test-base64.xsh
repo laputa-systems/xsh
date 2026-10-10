@@ -50,3 +50,30 @@ test test_base64_padded_blocks_continue { |ctx|
   assert invoke(ctx, ["-d"], b"MTIzNA==MTIzNA")?.stdout == b"12341234"
   assert invoke(ctx, ["-d"], b"MTIzNA==QUJD")?.stdout == b"1234ABC"
 }
+
+test test_base64_reads_non_utf8_file_operand { |ctx|
+  let root = test.temp_dir(ctx, name: "base64-raw-operand")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff"]))?
+  file.write(b"hello world")
+  let output = fp"{root}/out"
+  let error = fp"{root}/err"
+  let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/base64.xsh".display(), file]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
+  let status = process.run(plan)?
+  assert status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"aGVsbG8gd29ybGQ=\n"
+  assert error.read_text()? == ""
+}
+
+test test_base64_non_utf8_extra_operand_is_quoted_as_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "base64-raw-extra")?
+  let output = fp"{root}/out"
+  let error = fp"{root}/err"
+  let extra = Path.parse_bytes(b"\xff")?
+  let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/base64.xsh".display(), "a", extra]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
+  let status = process.run(plan)?
+  assert status.exit_code()? == 1
+  assert output.read_bytes()? == b""
+  assert error.read_text()? == "base64: extra operand ''$'\\377'\nTry 'base64 --help' for more information.\n", error.read_text()?
+}
