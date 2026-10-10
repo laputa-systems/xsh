@@ -192,6 +192,7 @@ test test_numfmt_option_errors_are_gnu_usage_errors { |ctx|
     {args: ["--to=auto", "100"], message: "invalid argument 'auto' for '--to'"},
     {args: ["--from=xyz", "100"], message: "invalid argument 'xyz' for '--from'"},
     {args: ["--field=0", "1"], message: "range '0' was invalid: fields and positions are numbered from 1"},
+    {args: ["--field", "-", "--field", "1-", "--to=si", "10"], message: "multiple field specifications"},
   ] {
     let result = numfmt_run(ctx, case.args)?
     assert result.status == 1, case.args.join(" ")

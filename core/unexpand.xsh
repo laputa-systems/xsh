@@ -5,6 +5,15 @@ use lib.text_a2 as text
 type Options = {tabs: List[Str], all: Bool, first: Bool, help: Bool, version: Bool, paths: List[Str]}
 proc main(...argv: List[Bytes]) {
   let arguments = text.normalize_arguments(argv)
+  # The obsolete -N form reports overflow without the value, unlike -t N. Digits-only
+  # text parses to a non-negative Int, so a negative fallback marks overflow.
+  for arg in arguments.values {
+    break when arg == "--"
+    if rx"^-[0-9]+$".matches(arg) and (arg.byte_slice(1).parse_int() ?? -1) < 0 {
+      gnu.error("tab stop is too large")
+      exit 1
+    }
+  }
   let opts: Options = cli.applet(text.numeric_options(arguments.values, "-t"), {
     gnu: {status: 1},
     tabs: {form: "-t --tabs LIST", repeated: true},

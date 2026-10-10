@@ -21,8 +21,8 @@ test test_printf_escapes_and_usage { |ctx|
 
   let err = test.temp_path(ctx, name: "printf.err")
   let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/printf.xsh" 2> $err
-  assert ! status.exited_with(0)
-  assert "usage:" in err.read_text()?
+  assert status.exited_with(1)
+  assert err.read_text()? == "printf: missing operand\nTry 'printf --help' for more information.\n"
 }
 
 type PrintfResult = {status: Int, stdout: Str, stderr: Str}
@@ -273,7 +273,7 @@ test test_printf_numeric_string_and_character_conversions { |ctx|
   let output = printf_run(ctx, ["[%05d][%-5s][%.3s][%#x][%c]", "-12", "xy", "abcdef", "26", "65"])?
 
   assert output.status == 0, output.stderr
-  assert output.stdout == "[-0012][xy   ][abc][0x1a][A]"
+  assert output.stdout == "[-0012][xy   ][abc][0x1a][6]"
   assert output.stderr == ""
 }
 

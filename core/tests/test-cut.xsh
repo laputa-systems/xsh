@@ -69,6 +69,17 @@ test test_cut_rejects_repeated_modes_and_keeps_fields_abbreviation { |ctx|
   assert "only one list may be specified" in error.read_text()?
 }
 
+test test_cut_range_zero_start_and_decreasing_end_are_distinct_errors { |ctx|
+  let input = test.temp_file(ctx, name: "table", contents: b"a:b\n")?
+  let error = test.temp_path(ctx, name: "range-error")
+  let decreasing = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -f 2-0 -d: $input 2> $error
+  assert decreasing.exited_with(1)
+  assert error.read_text()?.starts_with("cut: invalid decreasing range\n")
+  let zero_start = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -f 0-2 -d: $input 2> $error
+  assert zero_start.exited_with(1)
+  assert error.read_text()?.starts_with("cut: fields are numbered from 1\n")
+}
+
 test test_cut_whitespace_delimiter_uses_unicode_blank_characters { |ctx|
   let input = test.temp_file(ctx, name: "words", contents: b"one\xe3\x80\x80two three\n")?
   let output = run.text env LC_ALL=C.UTF-8 ${ctx.xsh_bin} fp"{ctx.core_dir}/cut.xsh" -- -w -f2 $input

@@ -107,6 +107,7 @@ test test_seq_format { |ctx|
   assert seq_out(ctx, ["-f", "%.2g", "10", "10"])? == "10\n"
   assert seq_out(ctx, ["-f", "<%5.1f|%%>", "1", "2"])? == "<  1.0|%>\n<  2.0|%>\n"
   assert seq_out(ctx, ["-f", "%-6.1f|", "1"])? == "1.0   |\n"
+  assert seq_out(ctx, ["-f", "%3.0f", "1", "2"])? == "  1\n  2\n", "a width without the zero flag pads with spaces"
   assert seq_out(ctx, ["-f", "%+.0f", "2"])? == "+1\n+2\n"
   assert seq_out(ctx, ["-f", "%.0f", "0.5", "1", "2.5"])? == "0\n2\n2\n", "ties round to even"
   assert seq_out(ctx, ["-f", "%.66000f", "4", "4"])?.byte_len() == 66003
