@@ -197,15 +197,14 @@ proc install_one(source: Path, target: Path, opts: Options, mode: Int, uid: Int?
   Installed
 }
 
-# Intermediate installation directories use fixed searchable permissions even
-# when the installed leaf is deliberately inaccessible.
+# Intermediate directories keep the default mode the kernel gives new directories
+# (modified by the umask), not the installed mode, so -m never reaches them.
 proc make_ancestors(dest: Path, verbose = false) -> Result[Unit] {
   if files.present(dest)? { return }
   make_ancestors(dest.parent(), verbose)?
   if let Err(failure) = dest.mkdir() {
     if ! files.directory(dest, true)? { return Err(failure) }
   }
-  dest.chmod(0o755)
   if verbose { print f"install: creating directory {gnu.quote_bytes(dest.bytes())}" }
 }
 
@@ -219,7 +218,12 @@ proc install_directory(raw: Path, opts: Options, mode: Int, uid: Int?, gid: Int?
   let existed = files.present(dest)?
   make_ancestors(dest.parent(), opts.verbose)?
   dest.mkdir(parents: true)
-  fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true)
+  if let Err(failure) = fs.set_owner(dest, uid: uid, gid: gid, follow_symlinks: true) {
+    # A new directory can inherit setgid from a setgid parent; a failed ownership
+    # change must not leave special bits on the directory it created.
+    if ! existed { dest.chmod(mode.clear_bits(0o6000))? }
+    return Err(failure)
+  }
   dest.chmod(mode)
   if opts.verbose and ! existed {
     let raw_bytes = raw.bytes()
