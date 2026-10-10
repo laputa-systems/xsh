@@ -138,10 +138,14 @@ test test_kill_reports_each_bad_operand_and_continues { |ctx|
   assert status.signal_number()? == 15, "operands after a failure are still signaled"
 }
 
-test test_kill_every_process_is_refused_not_signaled { |ctx|
-  let result = kill_run(ctx, ["-s", "0", "--", "-1"])?
-  assert result.status == 1
-  assert result.stderr == "kill: '-1': signaling every process is not supported\n", result.stderr
+test test_kill_signal_zero_to_every_process_succeeds { |ctx|
+  # Only signal 0 may reach pid -1 from a test: it probes without delivering.
+  for args in [["-0", "--", "-1"], ["-s", "0", "-1"], ["-s", "EXIT", "--", "-1"]] {
+    let result = kill_run(ctx, args)?
+    assert result.status == 0, args.join(" ")
+    assert result.stdout == "", args.join(" ")
+    assert result.stderr == "", result.stderr
+  }
 }
 
 test test_kill_without_a_process_id_is_a_usage_error { |ctx|
@@ -196,10 +200,11 @@ test test_kill_signal_conflicts_with_listing { |ctx|
 }
 
 test test_kill_list_and_table_are_exclusive { |ctx|
-  for args in [["-l", "-t"], ["-t", "--list"]] {
+  for args in [["-l", "-t"], ["-t", "--list"], ["-l", "-l"], ["-t", "-t"], ["-lt"], ["-L", "--table"], ["--list", "--li"]] {
     let result = kill_run(ctx, args)?
     assert result.status == 1, args.join(" ")
-    assert result.stderr == "kill: cannot combine -l and -t\nTry 'kill --help' for more information.\n", result.stderr
+    assert result.stdout == "", args.join(" ")
+    assert result.stderr == "kill: multiple -l or -t options specified\nTry 'kill --help' for more information.\n", result.stderr
   }
 }
 
@@ -241,7 +246,7 @@ test test_kill_list_converts_between_names_and_numbers { |ctx|
   assert kill_run(ctx, ["-l", "KILL"])?.stdout == "9\n"
   assert kill_run(ctx, ["-l", "KiLl"])?.stdout == "9\n"
   assert kill_run(ctx, ["-l", "SIGTERM"])?.stdout == "15\n"
-  assert kill_run(ctx, ["-l", "--list", "INT", "KILL"])?.stdout == "2\n9\n"
+  assert kill_run(ctx, ["--list", "INT", "KILL"])?.stdout == "2\n9\n"
   assert kill_run(ctx, ["-l", "IO"])?.stdout == "29\n"
   assert kill_run(ctx, ["-l", "SIGIO"])?.stdout == "29\n"
   assert kill_run(ctx, ["-l", "0"])?.stdout == "EXIT\n"
@@ -318,4 +323,31 @@ test test_kill_realtime_aliases_list_and_probe_the_same_signal { |ctx|
   let status = kill_sleeper(ctx, ["-s", "SIGRTMIN+1", "PID"])?
   assert status.signal_number()? == number
   sleeper.cancel()
+}
+
+test test_kill_probe_and_continue_spellings_reach_the_target { |ctx|
+  let child = spawn run sleep 30 ?
+  for spelling in [["-0"], ["-s0"], ["-n0"], ["-CONT"], ["-Cont"]] {
+    let result = kill_run(ctx, spelling.extend([f"{child.pid}"]))?
+    assert result.status == 0, spelling.join(" ")
+    assert result.stderr == "", result.stderr
+  }
+
+  let lowercase = kill_run(ctx, ["-cont", f"{child.pid}"])?
+  assert lowercase.status == 1
+  assert lowercase.stdout == ""
+  assert lowercase.stderr.starts_with("kill: unexpected argument '-cont' found\n"), lowercase.stderr
+
+  child.cancel(signal: "KILL")
+}
+
+test test_kill_table_takes_every_number_and_list_rejects_negative_numbers { |ctx|
+  let numbers = [f"{n}" for n in range(last_signal() + 1)]
+  assert kill_run(ctx, ["-t", "--"].extend(numbers))?.status == 0
+
+  for args in [["-l", "-1"], ["-l", "-1", "0"]] {
+    let result = kill_run(ctx, args)?
+    assert result.status == 1, args.join(" ")
+    assert result.stderr.starts_with("kill: '-1': invalid signal\n"), result.stderr
+  }
 }

@@ -190,8 +190,79 @@ pure parse_pid(text: Str) -> Int? {
   value
 }
 
+# Counts the -l, -L, and -t options before `--`, short, bundled, or long. GNU
+# refuses a second one, and the option parser keeps only the last, so the count
+# is taken from the words. The value of -s, -n, or --signal is skipped so that a
+# signal named like a listing option is not counted.
+pure list_or_table_count(words: List[Str]) -> Int {
+  var count = 0
+  var index = 0
+
+  while index < words.len() {
+    let word = words[index]
+    index += 1
+    break when word == "--"
+
+    if word.starts_with("--") {
+      let body = word.byte_slice(2)
+      let name = body.split("=")[0]
+
+      if name != "" {
+        if "list".starts_with(name) { count += 1 }
+        if "table".starts_with(name) { count += 1 }
+        if "signal".starts_with(name) and body.find("=") == null { index += 1 }
+      }
+    } else if word.starts_with("-") and word.byte_len() > 1 {
+      var at = 1
+
+      while at < word.byte_len() {
+        let letter = word.byte_slice(at, length: 1)
+
+        if letter == "l" or letter == "L" or letter == "t" {
+          count += 1
+        } else if letter == "s" or letter == "n" {
+          if at + 1 == word.byte_len() { index += 1 }
+          break
+        } else {
+          break
+        }
+
+        at += 1
+      }
+    }
+  }
+
+  count
+}
+
+# kill(2) with pid -1 signals every process except init and the caller. XSH's
+# process.kill and process.kill_group take positive ids only, so the same set is
+# read from the process table. As in the kernel, a member that exited or cannot
+# be signaled is skipped and any other failure is reported once the rest have
+# been signaled. The result is whether the set had any member.
+proc signal_every_process(name: Str) [process, error] -> Result[Bool, Error] {
+  let self_pid = process.current_pid()?
+  var members = false
+  var failure: Error? = null
+
+  for entry in process.list()? {
+    continue when entry.pid <= 1 or entry.pid == self_pid
+    members = true
+
+    if let Err(error) = process.kill(entry.pid, name) {
+      # EPERM (1) and ESRCH (3): the member is not ours to signal, or has gone.
+      let code = error.errno ?? 0
+      if code != 1 and code != 3 { failure = error }
+    }
+  }
+
+  if let found = failure { return Err(found) }
+
+  Ok(members)
+}
+
 # Deliver `name` to one operand. Zero is the caller's own process group and a
-# negative number names a group.
+# negative number names a group; -1 is handled by signal_every_process.
 proc deliver(pid: Int, name: Str) [process, error] {
   return process.kill(pid, name) when pid > 0
   return process.kill_group(process.group_id()?, name) when pid == 0
@@ -248,11 +319,11 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  if opts.list or opts.table {
-    if opts.list and opts.table {
-      gnu.usage_error("cannot combine -l and -t")
-    }
+  if list_or_table_count(separate_negative_pids(args)) > 1 {
+    gnu.usage_error("multiple -l or -t options specified")
+  }
 
+  if opts.list or opts.table {
     if opts.signal != null or obsolete != null {
       gnu.usage_error("cannot combine signal with -l or -t")
     }
@@ -296,8 +367,17 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       gnu.error(f"{gnu.quote_value(operand)}: invalid process id")
       failed = true
     } else if pid == -1 {
-      gnu.error(f"{gnu.quote_value(operand)}: signaling every process is not supported")
-      failed = true
+      match signal_every_process(chosen.name) {
+        Ok(true) => {}
+        Ok(false) => {
+          gnu.error("sending signal to -1 failed: No such process")
+          failed = true
+        }
+        Err(failure) => {
+          gnu.error(f"sending signal to -1 failed: {delivery_text(failure)}")
+          failed = true
+        }
+      }
     } else if let Err(failure) = deliver(pid, chosen.name) {
       gnu.error(f"sending signal to {pid} failed: {delivery_text(failure)}")
       failed = true
