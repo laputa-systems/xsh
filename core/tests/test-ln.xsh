@@ -517,3 +517,66 @@ test test_ln_same_file_without_replacement_reports_existing_destination { |ctx|
   assert forced.stderr == f"ln: '{file}' and '{file}' are the same file\n", forced.stderr
   assert file.read_text()? == "keep"
 }
+
+test test_ln_relative_link_climbs_out_of_the_source_directory { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  cd root {
+    p"usr".mkdir()
+    p"usr/bin".mkdir()
+    p"usr/lib".mkdir()
+    p"usr/lib/foo".mkdir()
+    fp"usr/lib/foo/foo".write("x")
+    run.text ${ctx.xsh_bin} $script -- -sr p"usr/lib/foo/foo" p"usr/bin/foo"
+    assert p"usr/bin/foo".readlink()? == p"../lib/foo/foo"
+
+    p"web".mkdir()
+    p"beta".symlink(to: p"release2")
+    p"latest".symlink(to: p"beta")
+    run.text ${ctx.xsh_bin} $script -- -sr p"latest" p"web/latest"
+    assert p"web/latest".readlink()? == p"../release2"
+  }
+}
+
+test test_ln_backup_replaces_a_hard_link_to_the_destination { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/a"
+  let dest = fp"{root}/b"
+  let backup = fp"{root}/b~"
+  source.write("new")
+  dest.write("old")
+  fs.link(dest, backup)
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/ln.xsh" -- -f --b=simple $source $dest
+  assert fs.stat(dest)?.ino == fs.stat(source)?.ino
+  assert backup.read_text()? == "old"
+  assert fs.stat(backup)?.nlink == 1
+}
+
+test test_ln_force_replaces_dangling_and_looping_symlinks_with_themselves { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  cd root {
+    p"loop".symlink(to: p"loop")?
+    run.text ${ctx.xsh_bin} $script -- -sf p"loop" p"loop"
+    assert p"loop".readlink()? == p"loop"
+
+    p"dangle".symlink(to: p"missing")?
+    run.text ${ctx.xsh_bin} $script -- -sf p"dangle" p"dangle"
+    assert p"dangle".readlink()? == p"dangle"
+  }
+}
+
+test test_ln_too_long_destination_reports_access_only_when_replacing { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let long = ["0" for _ in range(300)].join("")
+  cd root {
+    let forced = run.capture --text ${ctx.xsh_bin} $script -- -sf p"x" fp"{long}"
+    assert forced.status.exited_with(1)
+    assert forced.stderr.starts_with(f"ln: failed to access '{long}': "), forced.stderr
+
+    let plain = run.capture --text ${ctx.xsh_bin} $script -- -s p"x" fp"{long}"
+    assert plain.status.exited_with(1)
+    assert plain.stderr.starts_with(f"ln: failed to create symbolic link '{long}': "), plain.stderr
+  }
+}

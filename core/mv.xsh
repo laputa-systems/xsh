@@ -14,7 +14,7 @@ enum MoveOutcome { Moved, Skipped, Failed }
 type MoveMetadata = {kind: Str, uid: Int, gid: Int, mode: Int, atime_ns: Int, mtime_ns: Int, rdev: Int}
 type MoveResult = {outcome: MoveOutcome, copies: List[FileIdentity]}
 type FileIdentity = {dev: Int, ino: Int, path: Path}
-type CopyResult = {moved: Bool, copies: List[FileIdentity]}
+type CopyResult = {outcome: MoveOutcome, copies: List[FileIdentity]}
 
 pure permission_text(mode: Int) -> Str {
   let masks = [0o400, 0o200, 0o100, 0o40, 0o20, 0o10, 0o4, 0o2, 0o1]
@@ -145,7 +145,16 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
   let staged_dir = fp"{target.parent()}/.xsh-move-{scratch.root.host_path()?.name()}"
   let parent = fs.open_root(staged_dir.parent().resolve()?)?
   defer parent.close()
-  parent.mkdir(basename_path(staged_dir)?, mode: 0o700.clear_bits(fs.umask()?))?
+  let made = parent.mkdir(basename_path(staged_dir)?, mode: 0o700.clear_bits(fs.umask()?))
+  if let Err(failure) = made {
+    # GNU unlinks an existing destination before copying across devices, and a
+    # directory that refuses the staging entry refuses that unlink too.
+    if gnu.errno(failure) in [1, 13] and files.present(target)? {
+      gnu.error(f"inter-device move failed: {gnu.quote(source.display())} to {gnu.quote(target.display())}; unable to remove target: {gnu.strerror(failure)}")
+      return {outcome: Failed, copies}
+    }
+    return Err(failure)
+  }
   let staged = fp"{staged_dir}/entry"
   let copied = copy_move_node(source, staged, copies)
   if let Err(failure) = copied {
@@ -156,7 +165,7 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
   let published = if policy == "skip" { fs.rename_noreplace(staged, target) } else { staged.rename(to: target, overwrite: true) }
   if let Err(failure) = published {
     remove_move_tree(staged_dir)?
-    if policy == "skip" and gnu.errno(failure) == 17 { return {moved: false, copies} }
+    if policy == "skip" and gnu.errno(failure) == 17 { return {outcome: Skipped, copies} }
     return Err(failure)
   }
   var published_copies: List[FileIdentity] = []
@@ -175,7 +184,7 @@ proc copy_across_devices(source: Path, target: Path, policy: Str, verbose: Bool,
   staged_dir.remove_dir()?
   if verbose and fs.stat(source)?.kind == "dir" { report_move_children(source, target)? }
   remove_move_tree(source)?
-  {moved: true, copies: published_copies}
+  {outcome: Moved, copies: published_copies}
 }
 
 # A terminal user gets the protected-file prompt unless force was requested.
@@ -249,7 +258,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   let suffix = opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~"
   if existing and backup in ["simple", "never", "existing", "nil"] and metadata.kind != "symlink" and
     files.same_entry(source, fp"{target}{suffix}")? {
-    gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not moved")
+    gnu.error(f"backing up {gnu.quote(target.display())} might destroy source;  {gnu.quote(source.display())} not moved")
     return {outcome: Failed, copies}
   }
   var moving_source = source
@@ -259,7 +268,7 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     if saved != null {
       if files.same_entry(saved, source)? {
         if metadata.kind != "symlink" {
-          gnu.error(f"backing up {gnu.quote(target.display())} might destroy source; {gnu.quote(source.display())} not moved")
+          gnu.error(f"backing up {gnu.quote(target.display())} might destroy source;  {gnu.quote(source.display())} not moved")
           return {outcome: Failed, copies}
         }
         # Keep the source link alive when its name is also the backup name.
@@ -285,10 +294,10 @@ proc move_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
         return {outcome: Failed, copies}
       }
       let result = copied?
-      if ! result.moved {
+      if result.outcome != Moved {
         if saved != null { saved.rename(to: target, overwrite: true) }
         if moving_source != source { moving_source.rename(to: source, overwrite: true) }
-        return {outcome: Skipped, copies: result.copies}
+        return {outcome: result.outcome, copies: result.copies}
       }
       if opts.verbose or opts.debug {
         let tail = if saved != null { f" (backup: {gnu.quote(saved.display())})" } else { "" }
@@ -357,7 +366,8 @@ proc main(...argv: List[Str]) {
       }
     }
   }
-  if dest.display().ends_with("/") and ! is_dir {
+  # With -T the destination is a name to rename onto, so a trailing slash on an existing directory is not an error.
+  if dest.display().ends_with("/") and ! is_dir and ! opts.no_target_directory {
     match fs.stat(dest, follow_symlinks: true) {
       Ok(_) => { gnu.error(f"failed to access {gnu.quote(dest.display())}: Not a directory"); exit 1 }
       Err(failure) => {
@@ -393,8 +403,12 @@ proc main(...argv: List[Str]) {
     }
     let source = fp"{stripped}"
     let target = if is_dir { files.destination(dest, source) } else { dest }
+    # A source that has already moved away is reported as missing, as GNU does, before the overwrite check.
     if target in seen {
-      gnu.error(f"will not overwrite just-created {gnu.quote(target.display())} with {gnu.quote(text)}")
+      match fs.stat(source) {
+        Ok(_) => gnu.error(f"will not overwrite just-created {gnu.quote(target.display())} with {gnu.quote(text)}")
+        Err(failure) => gnu.cannot("stat", text, failure)
+      }
       failed = true
       continue
     }

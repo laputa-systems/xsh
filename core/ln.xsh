@@ -37,6 +37,31 @@ proc version_control_backup() [process, env] -> Str {
   backup_control(named, "$VERSION_CONTROL")
 }
 
+# The link text that names TARGET from the directory BASE, climbing with ".." where
+# the two paths diverge. Both paths are absolute and resolved.
+proc relative_link(target: Path, base: Path) -> Result[Path] {
+  let to = target.components()
+  let from = base.components()
+  var common = 0
+  while common < to.len() and common < from.len() and to[common].bytes() == from[common].bytes() {
+    common += 1
+  }
+  var parts: List[Bytes] = []
+  for _ in range(from.len() - common) { parts += [b".."] }
+  for index in range(common, to.len()) { parts += [to[index].bytes()] }
+  if parts.len() == 0 { parts = [b"."] }
+  var text = parts[0]
+  for index in range(1, parts.len()) { text = bytes.concat([text, b"/", parts[index]]) }
+  Path.parse_bytes(text)
+}
+
+# A symbolic link is refused only when both names resolve to one file, so a
+# dangling or looping destination can be replaced by a link to itself. A hard link
+# is refused when the two directory entries are the same name.
+proc same_destination(source: Path, target: Path, symbolic: Bool) -> Result[Bool] {
+  if symbolic { files.same_file(source, target) } else { files.same_entry(source, target) }
+}
+
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
   if ! opts.symbolic {
     # The source is statted before the destination changes, so a missing source is an access error that removes nothing.
@@ -49,10 +74,19 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     }
     if source_meta.kind == "dir" and ! opts.hard_dir { gnu.error(f"{gnu.quote_bytes(source.bytes(), always: false)}: hard link not allowed for directory"); return false }
   }
-  var existing = files.present(target)?
   # Only -f, -i, or a backup may remove the destination. Without them an existing
   # destination reaches link(2), which reports EEXIST, so no overwrite diagnostics apply.
   let replacing = policy != "default" or backup != "none"
+  var existing = match files.present(target) {
+    Ok(found) => found
+    Err(failure) => {
+      # Only a replacing link examines the destination first, so only it reports
+      # an examination failure as an access error; otherwise link(2) reports it.
+      if ! replacing { return Err(failure) }
+      gnu.error(f"failed to access {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")
+      return false
+    }
+  }
   if existing and replacing and fs.stat(target)?.kind == "dir" {
     gnu.error(f"{gnu.quote_bytes(target.bytes(), always: false)}: cannot overwrite directory")
     exit 1
@@ -60,7 +94,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
   # GNU backs up a destination that names the source before making a symbolic
   # link, so the link may name its own destination. A hard link to itself is refused.
   let self_symlink_with_backup = opts.symbolic and backup != "none"
-  if existing and replacing and ! self_symlink_with_backup and files.same_entry(source, target)? {
+  if existing and replacing and ! self_symlink_with_backup and same_destination(source, target, opts.symbolic)? {
     gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
     exit 1
   }
@@ -70,11 +104,14 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
     saved = files.backup_name(target, backup, opts.suffix ?? "~")?
     if saved != null {
       target.rename(to: saved, overwrite: true)
+      # rename(2) does nothing when the destination and the backup name are one hard
+      # link, so the original name is removed here as GNU does before linking.
+      if files.present(target)? { target.remove() }
       existing = false
     }
   }
   let linked_source = if opts.relative {
-    files.canonical(source)?.relative_to(target.parent().resolve()?)
+    relative_link(files.canonical(source)?, target.parent().resolve()?)?
   } else { source }
   let result = files.publish_link(linked_source, target, opts.symbolic, opts.logical, existing and (policy != "default" or backup not in ["none", "off"]))
   if let Err(failure) = result {
@@ -158,7 +195,14 @@ proc main(...argv: List[Bytes]) {
   if target_directory == null and ! opts.no_target_directory {
     match files.directory(dest, ! opts.no_dereference) {
       Ok(found) => is_dir = found
-      Err(failure) => { gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}"); exit 1 }
+      Err(failure) => {
+        # A name that is too long or loops cannot be a directory; GNU links over it
+        # anyway, and reports it only where a directory is required.
+        if gnu.errno(failure) in [36, 40] { is_dir = false } else {
+          gnu.error(f"failed to access {gnu.quote_bytes(dest.bytes())}: {gnu.strerror(failure)}")
+          exit 1
+        }
+      }
     }
   }
   if sources.len() > 1 and ! is_dir {
