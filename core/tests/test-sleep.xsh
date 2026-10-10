@@ -83,6 +83,40 @@ test test_sleep_help_and_version { |ctx|
   assert applet_run(ctx, ["--version"])?.stdout.starts_with("sleep ")
 }
 
+proc sleep_signal_exit_status(ctx: TestContext, signal: Str) [fs, process, time, error] -> Result[Int] {
+  let root = test.temp_dir(ctx, name: f"sleep-signal-{signal}")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/sleep.xsh"
+  let argv = [ctx.xsh_bin.display(), script.display(), "100"]
+  let child = spawn process.command_argv(
+    ctx.xsh_bin,
+    argv,
+    root,
+    {LC_ALL: "C"},
+    b"",
+    stdout,
+    stderr,
+    new_session: true,
+  )?
+
+  time.sleep(100ms)?
+  process.kill(child.pid, signal: signal)?
+
+  if let completed = process.wait_timeout([child], 2000ms)? {
+    return completed.status.shell_code()?
+  }
+
+  child.cancel(signal: "KILL", kill_after: 0ms)?
+  -1
+}
+
+test test_sleep_stops_on_default_signal_actions { |ctx|
+  assert sleep_signal_exit_status(ctx, "TERM")? == 128 + 15
+  assert sleep_signal_exit_status(ctx, "BUS")? == 128 + 7
+  assert sleep_signal_exit_status(ctx, "SEGV")? == 128 + 11
+}
+
 test test_sleep_preserves_an_inherited_ignored_signal { |ctx|
   let env_script = fp"{ctx.core_dir}/env.xsh"
   let sleep_script = fp"{ctx.core_dir}/sleep.xsh"
