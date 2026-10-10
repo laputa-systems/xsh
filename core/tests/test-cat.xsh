@@ -155,3 +155,22 @@ test test_cat_streams_show_all_from_an_unbounded_device { |ctx|
   assert code == 0
   assert error.read_text()? == ""
 }
+
+test test_cat_closes_each_file_before_opening_the_next { |ctx|
+  let root = test.temp_dir(ctx, name: "cat")?
+  fp"{root}/alpha".write(b"alpha\n")
+
+  # Five files under a descriptor limit of nine: an input left open per file
+  # exhausts the descriptors, so each must be closed before the next opens.
+  let argv = [
+    "sh", "-c", "ulimit -n 9; exec \"$@\"", "sh",
+    ctx.xsh_bin.display(), fp"{ctx.core_dir}/cat.xsh".display(),
+    "alpha", "alpha", "alpha", "alpha", "alpha",
+  ]
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let plan = process.command_argv("sh", argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", out, err)
+
+  assert process.run(plan)?.exit_code()? == 0, err.read_text()?
+  assert out.read_bytes()? == b"alpha\nalpha\nalpha\nalpha\nalpha\n"
+}

@@ -8,8 +8,10 @@ Layout written to STAGE (default: target/compat-stage):
     STAGE/bin/<alias>       symlink to its target applet (aliases.json)
     STAGE/mem-limit-kb      address-space cap (KiB) the adapter applies to each applet
     STAGE/applets.json      the deterministic applet manifest for this stage
-    STAGE/xsh-uutests       the uutils multicall adapter; it finds the stage from its own
-                            path because the uutils framework clears the environment
+    STAGE/xsh-uutests       the uutils multicall adapter, an XSH script generated from
+                            dev/compat/xsh-uutests.xsh with the absolute stage path baked in
+                            because the uutils framework clears the environment; it needs
+                            no shell, so it starts under a tiny RLIMIT_NOFILE
     STAGE/gnu-bin/          (with --gnu-programs) every GNU program name: a
     symlink into bin/ when XSH provides it, otherwise a
     command that exits with `false` status, plus lib/ for imports from PATH
@@ -47,6 +49,15 @@ def install_script(src: Path, dst: Path, interpreter: str, mode: int) -> None:
         data = src.read_bytes()
     dst.write_bytes(data)
     dst.chmod(mode)
+
+
+def install_adapter(src: Path, dst: Path, interpreter: str, stage: Path) -> None:
+    placeholder = "@STAGE@"
+    lines = src.read_text().split("\n", 1)
+    if not lines[0].startswith("#!") or placeholder not in lines[1]:
+        raise SystemExit(f"{src} must start with a shebang line and name {placeholder}")
+    dst.write_text(f"#!{interpreter} --\n" + lines[1].replace(placeholder, str(stage)))
+    dst.chmod(0o755)
 
 
 def manifest(names: list[str], aliases: dict[str, str]) -> dict:
@@ -90,9 +101,7 @@ def main() -> int:
             return 1
         (bin_dir / alias).symlink_to(target)
 
-    adapter = stage / "xsh-uutests"
-    shutil.copy(REPO / "dev" / "compat" / "xsh-uutests", adapter)
-    adapter.chmod(0o755)
+    install_adapter(REPO / "dev" / "compat" / "xsh-uutests.xsh", stage / "xsh-uutests", str(xsh), stage)
     (stage / "mem-limit-kb").write_text(os.environ.get("XSH_COMPAT_MEM_KB", "3145728") + "\n")
     (stage / "applets.json").write_text(json.dumps(manifest(names, aliases), indent=2) + "\n")
 
