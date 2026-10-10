@@ -55,9 +55,6 @@ type Format = {pre: Str, post: Str, flags: Str, width: Int, precision: Int, conv
 # Where the walk through the input stands: the next unconsumed line, how many
 # of the lines from there were already examined (and so cannot match again),
 # and the finished pieces.
-# The failure of a line number pattern met after all input was consumed.
-const DISAPPEARED = "input disappeared"
-
 type Walk = {cur: Int, held: Int, pieces: List[Piece], failure: Str}
 
 pure line_value(text: Str) -> Int {
@@ -316,6 +313,13 @@ pure flags_has(spec: Format, flag: Str) -> Bool {
   spec.flags.find(flag) != null
 }
 
+# A failure to open the output path (EPERM, EACCES, EISDIR, EROFS) means the file
+# was never created, so cleanup must leave that path alone; any other failure came
+# after the open, and the file that was opened is removed with the others.
+pure opened_for_write(failure: Error) -> Bool {
+  ! (gnu.errno(failure) in [1, 13, 21, 30])
+}
+
 # csplit reports count-output failures as the bare operating-system message.
 proc write_count(count: Int) [process, env, io] {
   let text = f"{count}\n"
@@ -452,18 +456,16 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
       if item.kind == "line" {
         if begin >= total {
-          if opts.suppress {
-            let at = if total == 0 { 0 } else { spans[total - 1] }
+          # GNU opens the next piece before it finds no line left to start it, so
+          # that empty piece is counted in the output and removed with the rest.
+          let at = if total == 0 { 0 } else { spans[total - 1] }
 
-            pieces += [{from: at, to: at}]
-            walk = {
-              cur: total,
-              held: 0,
-              pieces: pieces,
-              failure: f"{gnu.quote(item.text)}: line number out of range{again}",
-            }
-          } else {
-            walk = {cur: total, held: 0, pieces: pieces, failure: DISAPPEARED}
+          pieces += [{from: at, to: at}]
+          walk = {
+            cur: total,
+            held: 0,
+            pieces: pieces,
+            failure: f"{gnu.quote(item.text)}: line number out of range{again}",
           }
 
           continue
@@ -595,7 +597,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     }
   }
 
-  let writing = walk.failure == "" or walk.failure == DISAPPEARED or opts.keep
+  let writing = walk.failure == "" or opts.keep
   var made: List[Str] = []
 
   for piece in pieces {
@@ -613,6 +615,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
           for done in made {
             fp"{done}".remove()
           }
+
+          if opened_for_write(failure) {
+            fp"{name}".remove()
+          }
         }
 
         exit 1
@@ -626,11 +632,6 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if ! opts.quiet {
       write_count(size)
     }
-  }
-
-  if walk.failure == DISAPPEARED {
-    # GNU dies as the next piece is opened, leaving it and the finished ones.
-    fp"{opts.prefix + suffix(spec, made.len())}".write(b"")
   }
 
   if walk.failure != "" {

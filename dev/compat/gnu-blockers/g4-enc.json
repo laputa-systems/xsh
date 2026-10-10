@@ -1,0 +1,42 @@
+{
+  "tests/basenc/base64.sh": {
+    "class": "FIXED",
+    "note": "base64 -w 0x0 is rejected (wrap width is decimal) and non-zero padding bits are invalid (GNU 9.12 NEWS). Native: test_basenc_wrap_width_is_decimal, test_basenc_nonzero_padding_bits_are_invalid. Passes only through the pre-existing padded-input suppression in core/lib/bytes_enc.xsh execute(); GNU prints the partial output for baddecode6/7, whose OUT is rewritten to empty by uutils build-gnu.sh. See Requests."
+  },
+  "tests/basenc/basenc.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "Remaining failures are uutils rewrites: the --foobar error is clap wording (\"error: unexpected argument '--foobar' found ... tip: ...\"); GNU prints \"basenc: unrecognized option '--foobar'\" and \"Try 'basenc --help' for more information.\". Build-gnu.sh sets OUT to empty for b2m_6, b2m_9, b2l_6, b2l_9, z85_8, z85_35, but GNU prints the bytes decoded before the invalid symbol (e.g. 0xC1 for b2m_6). Also \"$prog: error: invalid input\" is a uutils rewrite of GNU's \"basenc: invalid input\". Fixed in this lane: b64u_7 and b58_inval_5/6 (GNU prints nothing; native test_basenc_base64url_rejects_standard_alphabet_before_output and test_basenc_base58_invalid_byte_outputs_nothing)."
+  },
+  "tests/basenc/bounded-memory.sh": {
+    "class": "XSH-GAP",
+    "note": "get_min_ulimit_v_ (init.cfg) probes ulimit -v only from 5000 to 50000 KB. XSH fails at 5000 KB (SIGSEGV) and at 50000 KB (evaluation worker thread spawn fails with EAGAIN), and runs at 60000 KB, so the helper finds no limit and the test skips. Needs a smaller address-space footprint in the Rust runtime (run_eval in src/runtime/eval.rs)."
+  },
+  "tests/csplit/csplit-heap.sh": {
+    "class": "XSH-GAP",
+    "note": "Same cause as bounded-memory.sh: get_min_ulimit_v_ csplit finds no working limit below 50000 KB because XSH needs more than 55000 KB of address space."
+  },
+  "tests/csplit/csplit-io-err.sh": {
+    "class": "FIXED",
+    "note": "A write that fails after the output file was opened removes that file, as GNU does (xx01 -> /dev/full symlink); an open that fails (directory) leaves the path alone. Native: test_csplit_write_error_removes_the_file_it_opened, test_csplit_directory_in_the_way_is_not_removed."
+  },
+  "tests/csplit/csplit.sh": {
+    "class": "FIXED",
+    "note": "A line number past the end of the input reports GNU's \"'N': line number out of range\" (was \"input disappeared\", which GNU does not print), counts the piece being opened, and removes the pieces unless -k. The non-GNU expectations in test_csplit_matches_gnu_current_line_rules were changed to GNU behavior, and its empty-input case (csplit /dev/null 1) is new there."
+  },
+  "tests/split/guard-input.sh": {
+    "class": "FIXED",
+    "note": "split refuses to write a piece over standard input when stdin is redirected from that same regular file (\"would overwrite input; aborting\"). Native: test_split_stdin_redirected_from_the_output_is_refused."
+  },
+  "tests/split/line-bytes.sh": {
+    "class": "FIXED",
+    "note": "The undocumented ---io-blksize option accepts getopt prefixes (---io=N, ---i N) and rejects a missing value and an empty value as GNU does. Native: test_split_io_blksize_accepts_getopt_prefixes_and_values. The ulimit probe segfaults on XSH and the test skips that part (see bounded-memory.sh)."
+  },
+  "tests/split/non-utf8.sh": {
+    "class": "FIXED",
+    "note": "--additional-suffix=VALUE with a non-UTF-8 VALUE keeps the option name as text instead of becoming a positional operand. Native: test_split_non_utf8_equals_option_value_keeps_its_name."
+  },
+  "tests/cksum/cksum-c.sh": {
+    "class": "XSH-GAP",
+    "note": "The EIO test injects the fault with strace -P without -f. XSH evaluates each script on a spawned thread (run_eval in src/runtime/eval.rs), and the checksum read happens on that thread, so the fault never reaches cksum and the test's set-up step fails. Under strace -f the EIO is reported as GNU reports it. Needs the runtime to perform script I/O on the traced thread."
+  }
+}

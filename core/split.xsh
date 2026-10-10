@@ -81,9 +81,22 @@ type Chunks = {kind: Str, k: Int, n: Int}
 # and whether the width grows when the names run out.
 type Naming = {prefix: Bytes, radix: Int, width: Int, start: Int, widen: Bool, extra: Bytes}
 
-type Rewritten = {argv: List[Str], obsolete: Str, blksize: Str}
+type Rewritten = {argv: List[Str], obsolete: Str, blksize: Str?, blksize_missing: Bool}
 
 const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+
+# GNU's getopt takes `---io-blksize` by any unambiguous prefix of at least two
+# characters after the leading `--`, so `---io=N` and `---i N` select it too.
+pure blksize_option(item: Str) -> Bool {
+  let body = item.byte_slice(2)
+  var name = body
+
+  if let equals = body.find("=") {
+    name = body.byte_slice(0, equals)
+  }
+
+  name.byte_len() >= 2 and "-io-blksize".starts_with(name)
+}
 
 # Rewrite the obsolete `-NUM` (lines per file) out of the argument list: digit
 # runs inside a short cluster are removed and remembered, the way `-NUM` and
@@ -92,7 +105,7 @@ const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
 # option name that starts with a dash).
 pure modernize(argv: List[Str]) -> Rewritten {
   var obsolete = ""
-  var blksize = ""
+  var blksize: Str? = null
   var pending = false
   var options = true
   var value = false
@@ -108,10 +121,12 @@ pure modernize(argv: List[Str]) -> Rewritten {
       } else if item == "--" {
         options = false
         yield item
-      } else if item == "---io-blksize" {
-        pending = true
-      } else if item.starts_with("---io-blksize=") {
-        blksize = item.byte_slice(14)
+      } else if item.starts_with("---") and blksize_option(item) {
+        if let equals = item.byte_slice(2).find("=") {
+          blksize = item.byte_slice(2 + equals + 1)
+        } else {
+          pending = true
+        }
       } else if item.starts_with("--") or ! item.starts_with("-") or item.byte_len() < 2 {
         yield item
         value = item in [
@@ -158,7 +173,44 @@ pure modernize(argv: List[Str]) -> Rewritten {
     }
   }
 
-  {argv: out, obsolete: obsolete, blksize: blksize}
+  {argv: out, obsolete: obsolete, blksize: blksize, blksize_missing: pending}
+}
+
+# An option value that is not UTF-8 is kept as raw bytes, but `--NAME=VALUE`
+# keeps its NAME as text so the option still parses; only VALUE is raw.
+pure equals_offset(argument: Bytes) -> Int {
+  for at in range(argument.len()) {
+    return at when argument.byte_at(at) == 61
+  }
+
+  -1
+}
+
+pure prepare_arguments(argv: List[Bytes]) -> gnu.PreparedArguments {
+  var text: List[Str] = []
+  var raw: List[gnu.RawArgument] = []
+
+  for index in range(argv.len()) {
+    let argument = argv[index]
+    match argument.utf8() {
+      Ok(value) => text += [value]
+      Err(_) => {
+        let marker = f"\0split-raw-argument-{index}\0"
+        let equals = equals_offset(argument)
+        let name = if equals > 0 { argument[0..equals].utf8() ?? "" } else { "" }
+
+        if name.starts_with("--") {
+          text += [f"{name}={marker}"]
+          raw += [{marker: marker, value: argument[equals + 1..]}]
+        } else {
+          text += [marker]
+          raw += [{marker: marker, value: argument}]
+        }
+      }
+    }
+  }
+
+  {text: text, raw: raw}
 }
 
 # uutils reports an invalid short option left behind by the obsolete -NUM
@@ -845,8 +897,12 @@ proc filter_round_robin_stdin(command: Str, naming: Naming, count: Int, sep: Int
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
-  let prepared = gnu.prepare_arguments(argv)
+  let prepared = prepare_arguments(argv)
   let rewritten = modernize(prepared.text)
+
+  if rewritten.blksize_missing {
+    gnu.usage_error("option '---io-blksize' requires an argument")
+  }
 
   if rewritten.obsolete != "" {
     if let option = invalid_obsolete_short(prepared.text) {
@@ -981,11 +1037,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
   var blksize = 131072
 
-  if rewritten.blksize != "" {
-    let parsed = if rx"^[0-9]".matches(rewritten.blksize) { tio.parse_count(rewritten.blksize) } else { null }
+  if let text = rewritten.blksize {
+    let parsed = if rx"^[0-9]".matches(text) { tio.parse_count(text) } else { null }
 
     if parsed == null or parsed > 2147483647 or parsed == 0 {
-      gnu.error(f"invalid IO block size: {gnu.quote(rewritten.blksize)}")
+      gnu.error(f"invalid IO block size: {gnu.quote(text)}")
       exit 1
     }
 
@@ -1222,6 +1278,17 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if chunks.n > 0 and found.kind != "file" and input_name != b"/dev/null" {
         gnu.error(f"{gnu.quote_bytes(input_name, always: false)}: cannot determine file size")
         exit 1
+      }
+    }
+  } else {
+    # Standard input redirected from a regular file is an input too, so a piece
+    # that would be written over that file is refused as for a named operand.
+    let stdin_file = tio.standard_file(0)
+
+    if stdin_file != "" {
+      if let Ok(found) = fs.stat(fp"{stdin_file}", follow_symlinks: true) {
+        input_ino = found.ino
+        input_dev = found.dev
       }
     }
   }

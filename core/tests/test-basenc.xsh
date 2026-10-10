@@ -54,3 +54,37 @@ test test_basenc_reads_non_utf8_file_operand { |ctx|
   assert output.read_bytes()? == b"Zm9v\n"
   assert error.read_text()? == ""
 }
+
+test test_basenc_wrap_width_is_decimal { |ctx|
+  let hex = invoke(ctx, ["--base64", "-w", "0x0"], b"foo")?
+  assert hex.status == 1
+  assert hex.stdout == b""
+  assert hex.stderr == "basenc: invalid wrap size: '0x0'\n", hex.stderr
+  assert invoke(ctx, ["--base64", "-w", "0"], b"foo")?.stdout == b"Zm9v"
+}
+
+test test_basenc_base64url_rejects_standard_alphabet_before_output { |ctx|
+  let slash = invoke(ctx, ["--base64url", "-d"], b"VA/c8A+vSg==")?
+  assert slash.status == 1
+  assert slash.stdout == b"", "GNU writes nothing for a base64url block with '/'"
+  assert slash.stderr == "basenc: error: invalid input\n", slash.stderr
+}
+
+test test_basenc_base58_invalid_byte_outputs_nothing { |ctx|
+  let trailing = invoke(ctx, ["--base58", "-d"], b"2NEpo7TZRRrLZSi2U ")?
+  assert trailing.status == 1
+  assert trailing.stdout == b"", "base58 converts only after the whole input is valid"
+}
+
+test test_basenc_nonzero_padding_bits_are_invalid { |ctx|
+  let base64 = invoke(ctx, ["--base64", "-d"], b"SB==")?
+  assert base64.status == 1
+  assert base64.stdout == b"H", "GNU writes the bytes decoded before the invalid final symbol"
+  assert base64.stderr == "basenc: error: invalid input\n", base64.stderr
+
+  let base32 = invoke(ctx, ["--base32", "-d"], b"MZXW5===")?
+  assert base32.status == 1
+  assert base32.stdout == b"fon"
+  assert base32.stderr == "basenc: error: invalid input\n", base32.stderr
+  assert invoke(ctx, ["--base32", "-d"], b"MZXW4===")?.stdout == b"fon"
+}

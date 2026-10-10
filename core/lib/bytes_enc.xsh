@@ -95,8 +95,22 @@ pure encode(data: Bytes, kind: Str) -> Result[Str] {
   Ok(out)
 }
 
+pure has_any_byte(data: Bytes, targets: List[Int]) -> Bool {
+  for position in range(data.len()) {
+    return true when (data.byte_at(position) ?? 0) in targets
+  }
+  false
+}
+
 pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
   let chars = if kind == "z85" { Z85 } else if kind == "base58" { B58 } else { alphabet(kind) }
+  # GNU rejects a base64url input that contains the standard alphabet's '+' or '/'
+  # before it decodes any of it. The check covers the whole input, which is GNU's
+  # behavior for inputs within one read block. With --ignore-garbage those bytes
+  # are dropped first, so they never reach this check.
+  if kind == "base64url" and ! ignore and has_any_byte(data, [43, 47]) {
+    return Ok({data: b"", valid: false})
+  }
   var values: List[Int] = []
   var valid = true
   var padded = false
@@ -127,6 +141,9 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
   }
   var out: List[Int] = []
   if kind == "base58" {
+    # GNU accumulates base58 input before converting it, so an invalid byte
+    # produces no output at all.
+    return Ok({data: b"", valid: false}) when ! valid
     var zeros = 0
     var leading = true
     for value in values {
@@ -174,7 +191,9 @@ pure decode(data: Bytes, kind: Str, ignore: Bool) -> Result[Decoded] {
   let remainder = values.len() % quantum
   let legal = if base == 64 { remainder in [0, 2, 3] } else if base == 32 { remainder in [0, 2, 4, 5, 7] } else { remainder == 0 }
   let correct_pad = pads == 0 or (remainder > 0 and pads == quantum - remainder)
-  Ok({data: bytes.from_ints(out)?, valid: valid and legal and correct_pad})
+  # Bits left after the last whole byte must be zero: GNU 9.12 rejects encodings
+  # whose padding bits are not zero, with or without padding characters.
+  Ok({data: bytes.from_ints(out)?, valid: valid and legal and correct_pad and acc == 0})
 }
 
 pure wrap(text: Str, width: Int) -> Str {
@@ -258,7 +277,8 @@ export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env,
       Err(_) => gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
     }
   }
-  let width = opts.wrap.parse_int() ?? -1
+  # GNU reads the wrap width as decimal only, so `0x0` is an invalid size.
+  let width = if rx"^[0-9]+$".matches(opts.wrap) { opts.wrap.parse_int() ?? -1 } else { -1 }
   if width < 0 { gnu.error(f"invalid wrap size: {gnu.quote(opts.wrap)}"); exit 1 }
   let name = gnu.argument_bytes(opts.files.get(0) ?? "-", prepared.raw)
   guard let data = read_operand(name) else { |failure|
