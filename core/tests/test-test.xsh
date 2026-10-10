@@ -344,11 +344,74 @@ test test_test_modification_time_comparisons { |ctx|
   )
 }
 
-test test_test_same_file_comparison_is_explicitly_unsupported { |ctx|
-  let result = applet_run(ctx, ["a", "-ef", "b"])?
+test test_test_same_file_comparison { |ctx|
+  let root = fixtures(ctx)?
+  let regular = f"{root}/regular"
+
+  expect(
+    ctx,
+    [
+      ["0", regular, "-ef", regular],
+      ["0", regular, "-ef", f"{root}/link"],
+      ["0", f"{root}/link", "-ef", regular],
+      ["0", f"{root}/dir", "-ef", f"{root}/dir"],
+      ["1", regular, "-ef", f"{root}/empty"],
+      ["1", regular, "-ef", f"{root}/dir"],
+      ["1", regular, "-ef", f"{root}/missing"],
+      ["1", regular, "-ef", f"{root}/dangling"],
+      ["1", f"{root}/missing", "-ef", f"{root}/missing"],
+      ["0", "-ef"],
+    ],
+  )
+}
+
+test test_test_parenthesized_string_comparison { |ctx|
+  for words in [
+    ["(", "foo", "!=", "bar", ")"],
+    ["(", "contained\nnewline", "=", "contained\nnewline", ")"],
+    ["(", "(", "=", "(", ")"],
+    ["(", "(", "!=", ")", ")"],
+    ["(", "!", "=", "!", ")"],
+    ["(", "=", "=", "=", ")"],
+  ] {
+    assert status_of(ctx, words)? == 0, words.join(" ")
+    assert status_of(ctx, ["!"].extend(words))? == 1, f"! {words.join(" ")}"
+  }
+}
+
+# Runs core/test.xsh with operands that may not be UTF-8. `applet_run` takes
+# text arguments, so these are built as paths, which carry arbitrary bytes.
+proc raw_applet_run(ctx: TestContext, args: List[Path]) [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "test")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/test.xsh"
+  let argv = [ctx.xsh_bin, script].extend(args)
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  let raw = out.read_bytes()?
+
+  Ok({status: status.exit_code()?, stdout: raw.utf8() ?? "", stderr: err.read_text()?, bytes: raw})
+}
+
+test test_test_undecodable_operands_keep_their_bytes { |ctx|
+  let bad = Path.parse_bytes(b"fo\x80o")?
+
+  let result = raw_applet_run(ctx, [fp"123", fp"-ne", bad])?
   assert result.status == 2
-  assert result.stderr.starts_with("test: -ef is not supported:"), result.stderr
-  assert applet_run(ctx, ["-ef"])?.status == 0, "-ef alone is a plain string"
+  assert result.stderr == "test: invalid integer 'fo\\200o'\n", result.stderr
+
+  let length = raw_applet_run(ctx, [fp"-l", bad, fp"-eq", fp"4"])?
+  assert length.status == 0, "-l counts the four bytes of the operand"
+
+  assert raw_applet_run(ctx, [bad, fp"=", bad])?.status == 0, "identical undecodable operands are equal"
+  assert raw_applet_run(ctx, [bad, fp"!=", bad])?.status == 1
+
+  let root = test.temp_dir(ctx, name: "test-undecodable-file")?
+  let name = Path.parse_bytes(bytes.concat([bytes.from_text(f"{root}/"), b"fo\x80o"]))?
+  name.write("data")
+  assert raw_applet_run(ctx, [fp"-f", name])?.status == 0, "a file operand names its real bytes"
+  assert raw_applet_run(ctx, [fp"-f", Path.parse_bytes(b"/nonexistent/fo\x80o")?])?.status == 1
 }
 
 test test_test_terminal_descriptor_operator { |ctx|

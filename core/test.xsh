@@ -1,6 +1,6 @@
 #!/bin/xsh
 use lib.testexpr
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   testexpr.evaluate(argv)
 }
