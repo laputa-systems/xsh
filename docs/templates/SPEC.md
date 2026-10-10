@@ -3516,6 +3516,10 @@ function and the scope returns as its `Err`.
   `env.get_or(name, fallback)`, `env.int`, `env.bool`, `env.path`, and
   `env.path_list` read computed names; the typed readers use their fallback
   only for an unset variable and fail on a present value they cannot convert.
+  `env.list()` returns every variable as `Str` pairs and fails on the first
+  value that is not UTF-8; `env.entries()` returns the same variables in name
+  order as `{name: Bytes, value: Bytes}` and never fails on encoding, for
+  programs that must pass such values through.
 - A `Str` lookup fails when the variable is missing (`env-missing`) or not
   valid UTF-8 (`invalid-utf8`); bytes are never decoded lossily. Child
   processes still inherit non-UTF-8 values unchanged.
@@ -4467,6 +4471,9 @@ Contracts worth knowing without consulting the reference:
   earlier changes applied. Separate UID/GID/group setters change only the
   named credential. `user.groups` uses NSS with an optional selected primary
   GID, without implicitly granting the account's original primary GID.
+  `unix.id()` reports `groups` as the sorted membership set with the primary
+  GID added and `supplementary` as the kernel's own list in the order
+  `getgroups(2)` returns it, which is what a privilege dump must show.
 - Terminal primitives in `unix` work on descriptor numbers: `isatty`,
   `ttyname`, `controlling_tty`, `window_size` and `set_window_size`,
   `foreground_group` and `set_foreground_group`, `tty_session`, and
@@ -4494,7 +4501,9 @@ Contracts worth knowing without consulting the reference:
   TTL, and TOS are read; sends set `MSG_NOSIGNAL`. `linux.netlink_open`,
   `netlink_request`, and `genl_family_id` send one netlink request and collect
   the multipart reply as header-parsed message records; a negative
-  `NLMSG_ERROR` code is the errno. Under `test.linux_fake` with a
+  `NLMSG_ERROR` code, or a negative status carried by the closing `NLMSG_DONE`
+  of a dump the kernel could not complete (a `sock_diag` dump for a protocol
+  without a handler), is the errno. Under `test.linux_fake` with a
   `netlink_fixture` they answer from recorded exchanges (§17). `linux.ioctl`
   admits only the fixed-layout
   interface, ARP, and ethtool requests named by `linux.net_constants()`, which

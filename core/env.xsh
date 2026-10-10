@@ -177,29 +177,13 @@ proc print_environment(environment: Map[Str, Bytes], null_delimited: Bool) [proc
 
 # The inherited environment with its values as raw bytes: `env.list` rejects a
 # value that is not valid UTF-8, and env passes such values through unchanged.
-# The block is read from /proc where there is one; elsewhere `env.list` stands
-# in and carries only text.
-proc inherited_environment() [fs, env, error] -> Result[Map[Str, Bytes]] {
+proc inherited_environment() [env, error] -> Result[Map[Str, Bytes]] {
   var environment: Map[Str, Bytes] = {}
-  match fp"/proc/self/environ".read_bytes() {
-    Ok(raw) => {
-      var begin = 0
-      for index in range(raw.len() + 1) {
-        if index != raw.len() and raw.byte_at(index) != 0 { continue }
-        let entry = raw.slice(begin, length: index - begin)
-        begin = index + 1
-        let separator = assignment_separator(entry)
-        if let at = separator { if at > 0 { environment[entry[0..at].utf8()?] = entry[at + 1..] } }
-      }
-    }
-    Err(_) => {
-      for item in env.list()? { environment[item.name] = bytes.from_text(item.value) }
-    }
-  }
+  for item in env.entries()? { environment[item.name.utf8()?] = item.value }
   Ok(environment)
 }
 
-proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments: Map[Str, Bytes]) [fs, env, error] -> Result[Map[Str, Bytes]] {
+proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments: Map[Str, Bytes]) [env, error] -> Result[Map[Str, Bytes]] {
   var environment: Map[Str, Bytes] = {}
   if ! ignore_inherited { environment = inherited_environment()? }
   for name in unset_names { environment = environment.remove(name) }

@@ -16,22 +16,17 @@ for details about the options it supports.
 
 type PrintenvOptions = {null: Bool, help: Bool, version: Bool, names: List[Str]}
 
-# The environment block as its NUL-terminated `NAME=VALUE` entries, kept as
-# bytes: `env.list` rejects any value that is not valid UTF-8, and GNU printenv
-# prints the block unchanged.
-pure nul_fields(raw: Bytes) -> List[Bytes] {
-  var fields: List[Bytes] = []
-  var begin = 0
+# Every environment variable as its `NAME=VALUE` bytes: `env.list` rejects any
+# value that is not valid UTF-8, and GNU printenv prints the variables
+# unchanged.
+proc environment_entries() [env, error] -> Result[List[Bytes]] {
+  var entries: List[Bytes] = []
 
-  for index in range(raw.len()) {
-    if raw.byte_at(index) == 0 {
-      fields += [raw.slice(begin, length: index - begin)]
-      begin = index + 1
-    }
+  for item in env.entries()? {
+    entries += [bytes.concat([item.name, b"=", item.value])]
   }
 
-  return fields when begin == raw.len()
-  fields + [raw.slice(begin, length: raw.len() - begin)]
+  Ok(entries)
 }
 
 # The value of the first entry named NAME, as getenv finds it; null when unset.
@@ -50,7 +45,7 @@ pure env_value(entries: List[Bytes], name: Str) -> Bytes? {
 
 # Exit statuses: 0 when every named variable is set, 1 when any is not, 2 for
 # a usage error.
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Str]) [process, env, error, io] {
   let opts: PrintenvOptions = cli.applet(
     argv,
     {
@@ -74,17 +69,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   let ending = if opts.null { "\0" } else { "\n" }
 
-  var entries: List[Bytes] = []
-
-  match fp"/proc/self/environ".read_bytes() {
-    Ok(raw) => {
-      entries = nul_fields(raw)
-    }
-    Err(failure) => {
-      gnu.error_reading("/proc/self/environ", failure)
-      exit 1
-    }
-  }
+  let entries = environment_entries()?
 
   if opts.names.is_empty() {
     for entry in entries {
