@@ -202,9 +202,9 @@ pure function_heading(first: gnudiff.Source, from: Int, floor: Int, last_match: 
   {line: last_match, search_from: from}
 }
 
-# The hunk groups of a script when context joins nearby changes. Two changes
-# belong together when fewer than `2 * context + 1` lines separate them, or
-# fewer than `context` when either one is ignorable.
+# The hunk groups of a script when context joins nearby changes. A change
+# joins the one before it when fewer than `2 * context + 1` lines separate
+# them, or fewer than `context` when the later change is ignorable.
 pure hunk_groups(script: List[gnudiff.Change], flags: List[Bool], context: Int) -> List[List[Int]] {
   var groups: List[List[Int]] = []
   var index = 0
@@ -216,7 +216,7 @@ pure hunk_groups(script: List[gnudiff.Change], flags: List[Bool], context: Int) 
       let next = prev + 1
       if next >= count { break }
       let top0 = script[prev].line0 + script[prev].deleted
-      let threshold = if flags[prev] or flags[next] { context } else { 2 * context + 1 }
+      let threshold = if flags[next] { context } else { 2 * context + 1 }
       if script[next].line0 - top0 < threshold {
         members += [next]
         prev = next
@@ -641,7 +641,7 @@ pure pad_to(text: Str, width: Int, left: Bool, zero: Bool) -> Str {
   let fill = width - out.byte_len()
   var padding = ""
   for _ in range(fill) { padding += if zero and !left { "0" } else { " " } }
-  if left { out + padding } else if zero and (out.starts_with("-")) { "-" + padding + out.byte_slice(1) } else { padding + out }
+  if left { out + padding } else if zero and out.starts_with("-") { "-" + padding + out.byte_slice(1) } else { padding + out }
 }
 
 # printf-style rendering of an integer with the conversion `d`, `o`, `x` or `X`.

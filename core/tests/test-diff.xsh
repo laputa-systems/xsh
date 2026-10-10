@@ -183,6 +183,10 @@ test test_diff_recorded_labels_binary_and_brief { |ctx|
   run_group(ctx, "brf")?
 }
 
+test test_diff_recorded_hunk_grouping_and_tab_comparison { |ctx|
+  run_group(ctx, "grp")?
+}
+
 test test_diff_recorded_search_heuristics { |ctx|
   run_group(ctx, "alg")?
 }

@@ -9,8 +9,9 @@
 export type Source = {lines: List[Bytes], open: Bool}
 
 ## How lines are compared and which lines the search may drop first. `utf8`
-## says the locale is UTF-8, so case folding and tab columns follow characters.
-export type Rules = {utf8: Bool, ignore_case: Bool, all_space: Bool, space_change: Bool, trailing_space: Bool, expand_tabs: Bool, minimal: Bool, speed_large_files: Bool, horizon: Int}
+## says the locale is UTF-8, so case folding and tab columns follow characters;
+## `tabsize` is the tab stop `expand_tabs` (`-E`) compares by.
+export type Rules = {utf8: Bool, tabsize: Int, ignore_case: Bool, all_space: Bool, space_change: Bool, trailing_space: Bool, expand_tabs: Bool, minimal: Bool, speed_large_files: Bool, horizon: Int}
 
 ## One run of changed lines: `deleted` lines of the first file starting at
 ## `line0` become `inserted` lines of the second starting at `line1`. Indexes are
@@ -104,8 +105,8 @@ pure line_key(line: Bytes, rules: Rules) -> Bytes {
     while index < text.len() {
       if text.byte_at(index) == 9 {
         chunks += [text[start..index]]
-        let pad = 8 - column % 8
-        chunks += [b"        "[0..pad]]
+        let pad = rules.tabsize - column % rules.tabsize
+        for _ in range(pad) { chunks += [b" "] }
         column += pad
         start = index + 1
         index += 1
@@ -533,7 +534,7 @@ pure search(x: List[Int], y: List[Int], minimal: Bool, speed: Bool) -> Flags {
           }
           d -= 2
         }
-        if (xlim + ylim) - bxybest < fxybest - (xoff + yoff) {
+        if xlim + ylim - bxybest < fxybest - (xoff + yoff) {
           xmid = fxbest
           ymid = fxybest - fxbest
           lo_minimal = true
