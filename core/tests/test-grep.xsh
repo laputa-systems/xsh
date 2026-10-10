@@ -256,6 +256,7 @@ test test_grep_differential_exit_statuses { |ctx| check_group(ctx, "exit")? }
 test test_grep_differential_null_data_records { |ctx| check_group(ctx, "z")? }
 test test_grep_differential_egrep_wrapper { |ctx| check_group(ctx, "egrep")? }
 test test_grep_differential_fgrep_wrapper { |ctx| check_group(ctx, "fgrep")? }
+test test_grep_differential_operand_names_and_filters { |ctx| check_group(ctx, "names")? }
 test test_grep_differential_generated_expressions { |ctx| check_group(ctx, "fz")? }
 
 test test_grep_perl_regexp_is_refused_explicitly { |ctx|

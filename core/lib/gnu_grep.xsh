@@ -137,7 +137,7 @@ type Options = {
   show_version: Bool,
 }
 
-type Context = {o: Options, m: gnu_regex.Matcher, c: Colors, utf8: Bool, quiet_output: Bool, report_binary: Bool, done_on_match: Bool, eol: Int, ctx_given: Bool, before: Int, after: Int}
+type Context = {o: Options, m: gnu_regex.Matcher, c: Colors, utf8: Bool, prefilter: Str?, quiet_output: Bool, report_binary: Bool, done_on_match: Bool, eol: Int, ctx_given: Bool, before: Int, after: Int}
 type Run = {used: Bool, selected: Bool, failed: Bool}
 type Scan = {count: Int, used: Bool, ok: Bool}
 type Rendered = {data: Bytes, ok: Bool}
@@ -180,10 +180,15 @@ pure short_takes_argument(ch: Str) -> Int {
   -1
 }
 
+# Output is buffered by the runtime and a failed write only shows when the
+# buffer is flushed, so scans flush as they go: a closed pipe ends the
+# search early, as SIGPIPE ends GNU grep.
 proc flush_stdout() {
   let flushed = io.flush_stdout()
   if let Err(failure) = flushed {
     if gnu.errno(failure) == 32 { exit 141 }
+    eprint f"grep: write error: {gnu.strerror(failure)}"
+    exit 2
   }
 }
 
@@ -617,6 +622,24 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
   let text_mode = o.binary_files == "text"
   let detect_nuls = ctx.eol == 10 and ! text_mode
   var offset = 0
+  var flushed_at = 0
+  # With a selection limit, GNU grep's list modes consider the whole file
+  # before the first selected line, so a NUL anywhere makes it binary.
+  if o.list != 0 and o.max_count != INTMAX and detect_nuls and mode == "seek" {
+    var probe = 0
+    while probe < size and ! zap {
+      let want = if size - probe < CHUNK { size - probe } else { CHUNK }
+      let read = bytes.read_at(target ?? p"", probe, want)
+      match read {
+        Ok(data) => {
+          if data.is_empty() { break }
+          if has_nul(data) { zap = true; first_null = 0 }
+          probe += data.len()
+        }
+        Err(_) => { break }
+      }
+    }
+  }
   while ! stopped {
     var chunk = b""
     if mode == "stdin" {
@@ -660,12 +683,37 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
     }
     leftover = data[begin..]
     if eof and ! leftover.is_empty() { records += [leftover]; leftover = b"" }
+    # Plain strings: one native search over the buffer finds which records
+    # can match at all, so the rest skip per-record matching.
+    var possible: List[Bool] = []
+    if ctx.prefilter != null and ! zap and ctx.eol == 10 and ! records.is_empty() {
+      match regex.find_bytes(ctx.prefilter ?? "", data, extended: true, ignore_case: o.ignore_case) {
+        Ok(found) => {
+          var cursor = 0
+          var record_begin = 0
+          for record in records {
+            let record_end = record_begin + record.len()
+            var seen = false
+            while cursor < found.len() and found[cursor].start <= record_end {
+              if found[cursor].start >= record_begin { seen = true }
+              cursor += 1
+            }
+            possible += [seen]
+            record_begin = record_end + 1
+          }
+        }
+        Err(_) => {}
+      }
+    }
+    var record_index = -1
     for line in records {
+      record_index += 1
       lineno += 1
       let line_offset = offset
       offset += line.len() + 1
-      let decoded = gnu_regex.subject(ctx.m, line)
-      let hit = ! gnu_regex.find_bytes(ctx.m, line, decoded, 0, false).is_empty()
+      let skip = ! possible.is_empty() and ! possible[record_index]
+      let decoded = if skip { {chars: [], offs: [], native: true} } else { gnu_regex.subject(ctx.m, line) }
+      let hit = ! skip and ! gnu_regex.find_bytes(ctx.m, line, decoded, 0, false).is_empty()
       let selected = hit != o.invert
       if outleft == 0 {
         if pending > 0 and ! quiet {
@@ -717,6 +765,10 @@ proc scan(ctx: Context, target: Path?, mode: Str, label: Bytes, show_name: Bool,
         }
       }
       if stopped { break }
+      if offset - flushed_at > 65536 {
+        flush_stdout()
+        flushed_at = offset
+      }
     }
     if eof { break }
   }
@@ -762,10 +814,13 @@ pure join_path(display: Bytes, name: Bytes) -> Bytes {
   bytes.concat([display, b"/", name])
 }
 
-# An operand with trailing slashes removed, as fts reports it.
-pure strip_slashes(raw: Bytes) -> Bytes {
+# How fts names a root: two or more trailing slashes shrink to one, and a
+# single trailing slash stays (so `d/` is not matched by the pattern `d`).
+pure fts_root_name(raw: Bytes) -> Bytes {
   var end = raw.len()
-  while end > 1 and raw.byte_at(end - 1) == 47 { end -= 1 }
+  if end > 2 and raw.byte_at(end - 1) == 47 {
+    while end > 1 and raw.byte_at(end - 2) == 47 { end -= 1 }
+  }
   raw[0..end]
 }
 
@@ -841,10 +896,11 @@ proc search_input(ctx: Context, progress: Run, display: Bytes, real: Path?, show
 
 # Visit one operand or directory entry. `show` is 1 or 0 for whether names
 # prefix output and -1 when it depends on this being a directory.
-proc visit(ctx: Context, progress: Run, display: Bytes, real: Path, show: Int, command_line: Bool, implicit_root: Bool, ancestors: List[Str]) [fs, io, error] -> Run {
+proc visit(ctx: Context, progress: Run, display: Bytes, walk_name: Bytes, real: Path, show: Int, command_line: Bool, implicit_root: Bool, ancestors: List[Str]) [fs, io, error] -> Run {
   let o = ctx.o
   let follow = command_line or o.dereference
   let meta = fs.stat(real, follow_symlinks: follow)
+  let name = if command_line { walk_name } else { search.basename_bytes(display) }
   var stat_kind = ""
   var identity = ""
   match meta {
@@ -853,6 +909,9 @@ proc visit(ctx: Context, progress: Run, display: Bytes, real: Path, show: Int, c
       identity = f"{stat.dev}:{stat.ino}"
     }
     Err(failure) => {
+      # File filters run on an entry before it is opened, so a filtered-out
+      # dangling link is skipped without a diagnostic.
+      if ! command_line and excluded_file(o.excludes, name, true) { return progress }
       open_error(ctx, display, gnu.strerror(failure))
       var out = progress
       out.failed = true
@@ -860,7 +919,6 @@ proc visit(ctx: Context, progress: Run, display: Bytes, real: Path, show: Int, c
     }
   }
   if stat_kind == "symlink" { return progress }
-  let name = if command_line { display } else { search.basename_bytes(display) }
   if stat_kind == "dir" {
     if o.directories == "skip" { return progress }
     if ! (command_line and implicit_root) and excluded_dir(o.exclude_dirs, name, ! command_line) { return progress }
@@ -879,7 +937,8 @@ proc visit(ctx: Context, progress: Run, display: Bytes, real: Path, show: Int, c
             let child = search.child(real, leaf)
             match child {
               Ok(entry_path) => {
-                current = visit(ctx, current, join_path(display, leaf), entry_path, if show_names { 1 } else { 0 }, false, false, ancestors + [identity])
+                let child_name = join_path(if command_line { walk_name } else { display }, leaf)
+                current = visit(ctx, current, child_name, child_name, entry_path, if show_names { 1 } else { 0 }, false, false, ancestors + [identity])
               }
               Err(failure) => {
                 open_error(ctx, display, failure.message)
@@ -1126,7 +1185,8 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
   settled.list = list
   settled.count = count
   let matcher = gnu_regex.matcher(programs, utf8, word, whole)
-  let ctx: Context = {o: settled, m: matcher, c: colors, utf8: utf8, quiet_output: quiet_output, report_binary: ! (count or o.quiet or (list != 0 and o.max_count == INTMAX)), done_on_match: done, eol: if o.null_data { 0 } else { 10 }, ctx_given: ctx_given, before: if before > 0 { before } else { 0 }, after: if after > 0 { after } else { 0 }}
+  let prefilter = gnu_regex.alternation(programs)
+  let ctx: Context = {o: settled, m: matcher, c: colors, utf8: utf8, prefilter: prefilter, quiet_output: quiet_output, report_binary: ! (count or o.quiet or (list != 0 and o.max_count == INTMAX)), done_on_match: done, eol: if o.null_data { 0 } else { 10 }, ctx_given: ctx_given, before: if before > 0 { before } else { 0 }, after: if after > 0 { after } else { 0 }}
   var targets = operands
   var implicit_root = false
   if targets.is_empty() {
@@ -1144,10 +1204,10 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
       progress = search_input(ctx, progress, b"", null, show == 1, true, o.label)
       continue
     }
-    let stripped = if implicit_root { b"" } else { strip_slashes(target) }
+    let rooted = if implicit_root { b"" } else { fts_root_name(target) }
     let parsed = Path.parse_bytes(if implicit_root { b"." } else { target })
     match parsed {
-      Ok(real) => { progress = visit(ctx, progress, stripped, real, show, true, implicit_root, []) }
+      Ok(real) => { progress = visit(ctx, progress, if implicit_root { b"" } else { target }, rooted, real, show, true, implicit_root, []) }
       Err(failure) => {
         open_error(ctx, target, failure.message)
         progress.failed = true

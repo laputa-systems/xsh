@@ -1208,3 +1208,25 @@ export pure find_bytes(m: Matcher, line: Bytes, dec: Decoded, from_byte: Int, it
 pure ascii_word(byte: Int) -> Bool {
   byte == 95 or (byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122)
 }
+
+## An extended regular expression matching any of the programs' plain ASCII
+## strings, or null when some program is not one. A buffer-wide search with
+## it finds the records that can match at all.
+export pure alternation(programs: List[Program]) -> Str? {
+  if programs.is_empty() or programs.len() > 2000 { return null }
+  var parts: List[Str] = []
+  for program in programs {
+    let literal = program.literal
+    if literal == null or program.backrefs { return null }
+    var quoted: List[Int] = []
+    for byte in literal ?? b"" {
+      if byte in [92, 94, 36, 46, 91, 93, 124, 40, 41, 42, 43, 63, 123, 125] { quoted += [92] }
+      quoted += [byte]
+    }
+    match bytes.from_ints(quoted) {
+      Ok(data) => { parts += [bytes_text(data) ?? ""] }
+      Err(_) => { return null }
+    }
+  }
+  parts.join("|")
+}

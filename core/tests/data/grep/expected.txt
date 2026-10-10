@@ -2066,3 +2066,51 @@ err
 rc 0
 out 0:a\n1:b\n2:c\n4:a\n5:a\n6:b\n7:b\n8:c\n9:c\n11:a\n12:b\n13:c\n14:a\n15:b\n16:c\n18:a\n19:.\n20:c\n22:a\n23:+\n24:c\n26:a\n27:|\n28:b\n30:(\n31:a\n32:b\n33:)\n35:a\n36:{\n37:2\n38:}\n40:a\n41:b\n42:{\n43:2\n44:}\n46:a\n47: \n48:b\n50:w\n51:o\n52:r\n53:d\n54: \n55:w\n56:o\n57:r\n58:d\n59:y\n60: \n61:s\n62:w\n63:o\n64:r\n65:d\n67:f\n68:o\n69:o\n70:-\n71:b\n72:a\n73:r\n75:t\n76:h\n77:e\n78: \n79:e\n80:n\n81:d\n83:T\n84:H\n85:E\n86: \n87:E\n88:N\n89:D\n91:x\n93:x\n94:x\n96:x\n97:x\n98:x\n100:1\n101:2\n102:3\n103: \n104:4\n105:5\n106:6\n108:t\n109:a\n110:b\n111:\t\n112:h\n113:e\n114:r\n115:e\n117: \n118: \n119:i\n120:n\n121:d\n122:e\n123:n\n124:t\n125:e\n126:d\n128:e\n129:n\n130:d\n131:s\n132: \n133:w\n134:i\n135:t\n136:h\n137: \n138:s\n139:p\n140:a\n141:c\n142:e\n143: \n145:U\n146:P\n147:P\n148:E\n149:R\n150: \n151:l\n152:o\n153:w\n154:e\n155:r\n158:a\n159:a\n160:a\n162:b\n163:b\n164:b\n166:a\n167:b\n168:a\n169:b\n171:b\n172:a\n173:a\n174:b\n176:c\n177:a\n178:_\n179:t\n180: \n181:c\n182:a\n183:t\n185:a\n186:1\n187:b\n188:2\n190:_\n191:_\n193:a\n194:\\\n195:b\n197:[\n198:x\n199:]\n201:^\n202:c\n203:a\n204:r\n205:e\n206:t\n208:d\n209:o\n210:l\n211:l\n212:a\n213:r\n214:$\n216:s\n217:t\n218:a\n219:r\n220:*\n222:q\n223:?\n225:b\n226:-\n227:c\n229:z\n230:z\n231: \n232:z\n233:z\n235:H\n236:e\n237:l\n238:l\n239:o\n240:,\n241: \n242:W\n243:o\n244:r\n245:l\n246:d\n248:h\n249:e\n250:l\n251:l\n252:o\n253: \n254:h\n255:e\n256:l\n257:l\n258:o\n260:a\n261:b\n262:c\n263:d\n264:e\n265:f\n266:a\n267:b\n268:c\n269:d\n270:e\n271:f\n273:a\n274:X\n275:b\n276:X\n277:c\n279:o\n280:n\n281:e\n282: \n283:t\n284:w\n285:o\n286: \n287:t\n288:h\n289:r\n290:e\n291:e\n293:a\n294:b\n295:c\n296:a\n297:b\n298:c\n299: \n300:a\n301:b\n302:c\n304:a\n305:a\n306:a\n307: \n308:b\n309:b\n310:b\n311: \n312:c\n313:c\n314:c\n316:a\n317:b\n318: \n319:a\n320:b\n321: \n322:a\n323:b\n325:x\n326:y\n327:z\n328: \n329:x\n330:y\n331:z\n333:a\n334:1\n335: \n336:b\n337:2\n338: \n339:c\n340:3\n342: \n343: \n344:a\n345: \n346: \n347:b\n348: \n349: \n351:a\n352:b\n353:a\n354:b\n356:c\n357:b\n358:a\n359:c\n360:b\n361:a\n363:x\n364:_\n365:y\n366: \n367:z\n369:a\n370:.\n371:b\n372:*\n373:c\n
 err 
+@ names-exclude-dir-trailing-slash
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ names-exclude-dir-plain
+rc 1
+out 
+err 
+@ names-label-directory-read
+rc 2
+out 0\n
+err grep: d//sub//: Is a directory\n
+@ names-recursion-root-slashes
+rc 0
+out d//sub/deeper/e.txt:needle deep\nd//sub/c.txt:needle sub\n
+err 
+@ names-include-skips-dangling-link
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/dirlink/deeper/e.txt:needle deep\nd/dirlink/c.txt:needle sub\nd/a.txt:needle one\n
+err 
+@ names-dangling-link-reported
+rc 2
+out d/a.txt:needle one\n
+err grep: d/broken: No such file or directory\n
+@ names-separator-after-binary-file
+rc 0
+out --\na1:abc\n
+err grep: nuldata: binary file matches\n
+@ names-separator-after-binary-match
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ names-list-with-limit-reports-binary
+rc 0
+out bin\n
+err grep: bin: binary file matches\n
+@ names-count-with-limit-is-quiet
+rc 0
+out 1\n
+err 
+@ names-files-without-match-with-limit
+rc 0
+out a1\n
+err grep: bin: binary file matches\n
+@ names-null-file-name-after-recursion
+rc 0
+out d/b.log\0
+err 
