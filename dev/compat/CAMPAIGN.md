@@ -96,6 +96,11 @@ uses it when `XSH_COMPAT_DOCKER=1`. The image is Alpine/musl like the host, so
 it does not add locale data, `libstdbuf`, a login session or `GNU/Linux` from
 `uname -o`; it adds isolation, `setpriv`, and root-only fixtures.
 
+A real GNU oracle is one command away: `docker run --rm alpine:edge sh -c
+'apk add -q coreutils && ...'` runs GNU coreutils 9.11 on musl in a throwaway
+container. Use it to settle "GNU or uutils?" for any exclusion before adding
+it, and as the validation oracle for ported native tests (see above).
+
 ## Handoff (2026-10-10, first Claude Code session)
 
 Status: paused, incomplete. `master` is clean. The pinned uutils suite
