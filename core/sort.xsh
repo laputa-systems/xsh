@@ -20,6 +20,7 @@ type SortOptions = {
   buffer_size: Str?,
   batch_size: Str?,
   temp_directory: Str?,
+  compress_program: Str?,
   debug: Bool,
   key: List[Str],
   delimiter: Str,
@@ -39,7 +40,8 @@ type NumericSortKey = {number: Str, raw: Str}
 type HumanNumericSortKey = {key: Str, raw: Str}
 type GeneralNumericSortKey = {key: Str, raw: Str}
 type TextSortKey = {key: Str, raw: Str}
-type SortInput = {name: Bytes, path: Path, stdin: Bool}
+## `compressed` names the program that wrote a temporary run; null marks plain input or a plain run.
+type SortInput = {name: Bytes, path: Path, stdin: Bool, compressed: Str?}
 type SortMergeReader = {fd: Int, name: Bytes, pending: Bytes, eof: Bool, current: Str?}
 type SortKeyError = {kind: Str, value: Str}
 
@@ -372,10 +374,14 @@ pure general_numeric_value(line: Str) -> Float {
   }
 }
 
-## A biased exponent and padded significand preserve numeric order because sort-by has no Float key.
+## Decimal input is keyed from its own digits rather than a Float, so values that differ
+## past 17 significant digits keep GNU's order. Each key ends with a terminator that sorts
+## before every digit (positive) or after every complemented digit (negative), so a shorter
+## significand orders correctly against its extensions in both signs.
 ## GNU places failed numeric conversions before NaN and all valid numbers.
 pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey {
-  if general_numeric_prefix(line) == "" {
+  let prefix = general_numeric_prefix(line)
+  if prefix == "" {
     return {key: "0", raw: if stable { "" } else { line }}
   }
   let number = general_numeric_value(line)
@@ -383,8 +389,14 @@ pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey 
   if special == "NaN" { return {key: "1", raw: if stable { "" } else { line }} }
   if special == "-Infinity" { return {key: "2", raw: if stable { "" } else { line }} }
   if special == "Infinity" { return {key: "6", raw: if stable { "" } else { line }} }
-  let display = if let Ok(exact) = number.format_number("g", 17) { exact } else { special }
-  if display in ["0", "-0"] { return {key: "4", raw: if stable { "" } else { line }} }
+  let unsigned_prefix = if prefix.starts_with("-") or prefix.starts_with("+") { prefix.byte_slice(1) } else { prefix }
+  let display = if unsigned_prefix.lower().starts_with("0x") {
+    if let Ok(exact) = number.format_number("g", 17) { exact } else { special }
+  } else if prefix.starts_with("-") {
+    f"-{unsigned_prefix}"
+  } else {
+    unsigned_prefix
+  }
 
   let negative = display.starts_with("-")
   let unsigned = if negative { display.byte_slice(1) } else { display }
@@ -411,24 +423,21 @@ pure general_numeric_sort_key(line: Str, stable: Bool) -> GeneralNumericSortKey 
   while first_significant < digits.byte_len() and digits.byte_slice(first_significant, length: 1) == "0" {
     first_significant += 1
   }
-  let significant = digits.byte_slice(first_significant)
-  var normalized = significant
+  if first_significant == digits.byte_len() or number == 0.0 {
+    return {key: "4", raw: if stable { "" } else { line }}
+  }
+  var normalized = digits.byte_slice(first_significant)
   while normalized.ends_with("0") and normalized.byte_len() > 1 {
     normalized = normalized.byte_slice(0, length: normalized.byte_len() - 1)
   }
-  while normalized.byte_len() < 17 { normalized += "0" }
 
   let decimal_exponent = decimal_position - first_significant - 1 + exponent
-  let positive_exponent = decimal_exponent + 400
-  let ordered_exponent = if negative { 999 - positive_exponent } else { positive_exponent }
-  var significance = normalized
+  let biased_exponent = decimal_exponent + 10000
   if negative {
-    significance = ""
-    for at in range(normalized.byte_len()) {
-      significance += f"{9 - ((normalized.byte_at(at) ?? 48) - 48)}"
-    }
+    {key: f"3{padded_decimal(99999 - biased_exponent, 5)}{invert_decimal_digits(normalized)}:", raw: if stable { "" } else { line }}
+  } else {
+    {key: f"5{padded_decimal(biased_exponent, 5)}{normalized}!", raw: if stable { "" } else { line }}
   }
-  {key: f"{if negative { "3" } else { "5" }}{padded_decimal(ordered_exponent, 3)}{significance}", raw: if stable { "" } else { line }}
 }
 
 pure numeric_field_sort_key(line: Str, delimiter: Str, field: Int, opts: SortOptions) -> NumericSortKey {
@@ -710,9 +719,14 @@ pure key_start_byte(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> 
   if offset > input.len() - position { input.len() } else { position + offset }
 }
 
-pure key_debug_width(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Int {
-  let start = key_start_byte(line, delimiter, spec, opts)
-  key_range_bytes(line, delimiter, spec, opts).len()
+## The debug overlay ignores NUL bytes when it aligns columns, because NUL bytes are often
+## removed from the output before it is inspected.
+pure non_nul_byte_count(input: Bytes) -> Int {
+  var count = 0
+  for at in range(input.len()) {
+    if (input.byte_at(at) ?? 0) != 0 { count += 1 }
+  }
+  count
 }
 
 pure key_order_value(line: Str, delimiter: Str, spec: Str, opts: SortOptions) -> Str {
@@ -1135,8 +1149,8 @@ pure debug_key_annotation(line: Str, opts: SortOptions, spec: Str) -> Str {
   if is_month_sort(key_opts) or is_human_numeric_sort(key_opts) or is_numeric_sort(key_opts) or is_general_numeric_sort(key_opts) {
     debug_annotation(debug_key_text(line, opts, spec))
   } else {
-    let width = key_debug_width(line, sort_delimiter(opts), spec, key_opts)
-    if width == 0 { "^ no match for key" } else { text.padding(width, "_") }
+    let range = key_range_bytes(line, sort_delimiter(opts), spec, key_opts)
+    if range.len() == 0 { "^ no match for key" } else { text.padding(non_nul_byte_count(range), "_") }
   }
 }
 
@@ -1148,7 +1162,8 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
     if has_key {
       for spec in opts.key {
         let key_opts = key_effective_options(spec, opts)
-        let indentation = text.padding(key_start_byte(line, sort_delimiter(opts), spec, key_opts), " ")
+        let start = key_start_byte(line, sort_delimiter(opts), spec, key_opts)
+        let indentation = text.padding(non_nul_byte_count(bytes.from_text(line).slice(0, length: start)), " ")
         output += indentation + debug_key_annotation(line, opts, spec) + "\n"
       }
       if ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
@@ -1297,6 +1312,120 @@ pure normalize_output_args(argv: List[Str]) -> List[Str] {
       # A bare --check takes no value; the argument parser would otherwise
       # consume the following operand as the check mode.
       normalized += ["--check=diagnose-first"]
+      at += 1
+    } else {
+      normalized += [arg]
+      at += 1
+    }
+  }
+  normalized
+}
+
+type LegacyKeyPart = {field: Str, char_pos: Str, opts: Str}
+
+## Decimal count without leading zeros, saturated at the largest unsigned value so
+## that oversized legacy positions behave as GNU's unsigned parse does.
+pure unsigned_count(digits: Str) -> Str {
+  let largest = "18446744073709551615"
+  var start = 0
+  while start < digits.byte_len() - 1 and digits.byte_slice(start, length: 1) == "0" { start += 1 }
+  let trimmed = digits.byte_slice(start)
+  if trimmed.byte_len() > largest.byte_len() or (trimmed.byte_len() == largest.byte_len() and trimmed > largest) {
+    largest
+  } else {
+    trimmed
+  }
+}
+
+pure unsigned_successor(digits: Str) -> Str {
+  let count = unsigned_count(digits)
+  if count == "18446744073709551615" { return count }
+  var sum = ""
+  var carry = 1
+  var at = count.byte_len()
+  while at > 0 {
+    at -= 1
+    let digit = (count.byte_at(at) ?? 48) - 48 + carry
+    sum = f"{digit % 10}{sum}"
+    carry = digit / 10
+  }
+  if carry == 1 { "1" + sum } else { sum }
+}
+
+## `POS1` or `POS1.CHAR` followed by option letters, as in the traditional `+POS1 [-POS2]` form.
+pure legacy_key_part(spec: Str) -> LegacyKeyPart? {
+  let input = bytes.from_text(spec)
+  var at = 0
+  while at < input.len() and is_ascii_digit(input.byte_at(at) ?? 0) { at += 1 }
+  if at == 0 { return null }
+  var char_pos = "0"
+  var rest = spec.byte_slice(at)
+  if rest.starts_with(".") {
+    let tail = bytes.from_text(rest)
+    var stop = 1
+    while stop < tail.len() and is_ascii_digit(tail.byte_at(stop) ?? 0) { stop += 1 }
+    if stop == 1 { return null }
+    char_pos = unsigned_count(rest.byte_slice(1, length: stop - 1))
+    rest = rest.byte_slice(stop)
+  }
+  {field: unsigned_count(spec.byte_slice(0, length: at)), char_pos: char_pos, opts: rest}
+}
+
+## The `-k` spelling of a traditional key: fields are one-based, and an end position
+## with no character offset stays on its field, clamped to field 1.
+pure legacy_key_spec(from: LegacyKeyPart, to: LegacyKeyPart?) -> Str {
+  var keydef = unsigned_successor(from.field)
+  if from.char_pos != "0" { keydef += f".{unsigned_successor(from.char_pos)}" }
+  keydef += from.opts
+  if let end = to {
+    let end_field = if end.char_pos != "0" {
+      unsigned_successor(end.field)
+    } else if end.field == "0" {
+      "1"
+    } else {
+      end.field
+    }
+    keydef += f",{end_field}"
+    if end.char_pos != "0" { keydef += f".{end.char_pos}" }
+    keydef += end.opts
+  }
+  keydef
+}
+
+## GNU keeps the traditional `+POS1 [-POS2]` form unless _POSIX2_VERSION is in
+## [200112, 200809); an unset or non-numeric value keeps the form.
+proc traditional_key_syntax() [env] -> Bool {
+  match (env.get_or("_POSIX2_VERSION", "") ?? "").parse_int() {
+    Ok(version) => version < 200112 or version >= 200809
+    Err(_) => true
+  }
+}
+
+pure legacy_key_args(argv: List[Str], traditional: Bool) -> List[Str] {
+  if ! traditional { return argv }
+  var normalized: List[Str] = []
+  var at = 0
+  while at < argv.len() {
+    let arg = argv[at]
+    if arg == "--" {
+      for index in range(at, argv.len()) { normalized += [argv[index]] }
+      break
+    }
+    let from: LegacyKeyPart? = if arg.starts_with("+") { legacy_key_part(arg.byte_slice(1)) } else { null }
+    if let start = from {
+      var to: LegacyKeyPart? = null
+      let next_is_position = at + 1 < argv.len() and argv[at + 1].starts_with("-") and argv[at + 1].byte_len() > 1 and is_ascii_digit(bytes.from_text(argv[at + 1]).byte_at(1) ?? 0)
+      if next_is_position {
+        if let parsed = legacy_key_part(argv[at + 1].byte_slice(1)) {
+          to = parsed
+          at += 1
+        } else {
+          normalized += [arg, argv[at + 1]]
+          at += 2
+          continue
+        }
+      }
+      normalized += [f"-k{legacy_key_spec(start, to)}"]
       at += 1
     } else {
       normalized += [arg]
@@ -1637,14 +1766,83 @@ proc sort_temp_path(root: FsRoot, name: Str) [fs, error] -> Path {
   fp"{root.host_path()?}/{name}"
 }
 
-proc write_sort_run(root: FsRoot, name: Str, records: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) [fs, error] -> Path {
+## GNU sort reports a compression program it cannot start and then sorts without compressing temporary runs.
+proc startable_compress_program(program: Str?) [process, env] -> Str? {
+  if let name = program {
+    match process.which(name) {
+      Ok(_) => return name
+      Err(failure) => {
+        let reason = if failure is NotFound { "No such file or directory" } else { gnu.strerror(failure) }
+        gnu.error(f"could not run compress program {gnu.quote(name)}: {reason}")
+        return null
+      }
+    }
+  }
+  null
+}
+
+## Runs the compression program with the bytes as stdin and the output file as stdout.
+## A program that does not exit 0 leaves a truncated run behind, so it stops the sort.
+proc run_compress_program(program: Str, argv: List[Str], input: Bytes, output: Path) [process, env, error] {
+  let status = match process.run(process.command_argv(program, argv, stdin: input, stdout: output)) {
+    Ok(status) => status
+    Err(failure) => {
+      gnu.error(f"could not run compress program {gnu.quote(program)}: {gnu.strerror(failure)}")
+      exit 2
+    }
+  }
+  if ! status.exited_with(0) {
+    gnu.error(f"{gnu.quote(program)} terminated abnormally")
+    exit 2
+  }
+}
+
+proc write_temp_run(root: FsRoot, name: Str, contents: Bytes, compress: Str?) [fs, process, env, error] -> SortInput {
+  let run_path = sort_temp_path(root, name)
+  if let program = compress {
+    run_compress_program(program, [program], contents, run_path)
+  } else {
+    root.write(fp"{name}", contents)?
+    root.chmod(fp"{name}", 0o600)?
+  }
+  {name: bytes.from_text(run_path.display()), path: run_path, stdin: false, compressed: compress}
+}
+
+## A plain file that was merged into can become a run only after compression; the plain copy is then removed.
+proc compress_temp_run(root: FsRoot, name: Str, plain: Path, compress: Str?) [fs, process, env, error] -> SortInput {
+  if let program = compress {
+    let stored = write_temp_run(root, name, plain.read_bytes()?, compress)
+    plain.remove()?
+    stored
+  } else {
+    {name: bytes.from_text(plain.display()), path: plain, stdin: false, compressed: null}
+  }
+}
+
+## Returns the input as plain text, decompressing a temporary run into a new file under the root.
+proc plain_sort_input(root: FsRoot, input: SortInput, name: Str) [fs, process, env, error] -> SortInput {
+  if let program = input.compressed {
+    let plain = sort_temp_path(root, name)
+    run_compress_program(program, [program, "-d"], input.path.read_bytes()?, plain)
+    {name: bytes.from_text(plain.display()), path: plain, stdin: false, compressed: null}
+  } else {
+    input
+  }
+}
+
+proc plain_sort_inputs(root: FsRoot, inputs: List[SortInput], prefix: Str) [fs, process, env, error] -> List[SortInput] {
+  var plain: List[SortInput] = []
+  for index in range(inputs.len()) {
+    plain += [plain_sort_input(root, inputs[index], f"{prefix}-in-{index}")]
+  }
+  plain
+}
+
+proc write_sort_run(root: FsRoot, name: Str, records: List[Str], opts: SortOptions, has_key: Bool, key_field: Int, compress: Str?) [fs, process, env, error] -> SortInput {
   let sorted = sort_input_lines(records, opts, has_key, key_field)
   let ending = if opts.zero_terminated { "\0" } else { "\n" }
   let contents = if sorted.is_empty() { "" } else { f"{sorted.join(ending)}{ending}" }
-  let relative = fp"{name}"
-  root.write(relative, contents)?
-  root.chmod(relative, 0o600)?
-  fp"{root.host_path()?}/{name}"
+  write_temp_run(root, name, bytes.from_text(contents), compress)
 }
 
 # A fan-in below two cannot reduce the number of runs, so the batch limit never drops under two.
@@ -1748,7 +1946,7 @@ proc merge_sort_stream(inputs: List[SortInput], opts: SortOptions, has_key: Bool
   }
 }
 
-proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions, has_key: Bool, key_field: Int, batch_limit: Int, output_fd: Int?, deduplicate: Bool) [fs, io, env, process, error] {
+proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions, has_key: Bool, key_field: Int, batch_limit: Int, output_fd: Int?, deduplicate: Bool, compress: Str?) [fs, io, env, process, error] {
   var runs = inputs
   var pass = 0
   while runs.len() > batch_limit {
@@ -1763,11 +1961,12 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
         next += input_group
       } else {
         let name = f"merge-{pass}-{group_number}"
-        let run_file = sort_temp_path(root, name)
-        let fd = unix.open_fd(run_file, write: true)?
-        merge_sort_stream(input_group, opts, has_key, key_field, fd, false)
+        let plain_inputs = plain_sort_inputs(root, input_group, name)
+        let merged = sort_temp_path(root, f"{name}-plain")
+        let fd = unix.open_fd(merged, write: true)?
+        merge_sort_stream(plain_inputs, opts, has_key, key_field, fd, false)
         unix.close_fd(fd)?
-        next += [{name: bytes.from_text(run_file.display()), path: run_file, stdin: false}]
+        next += [compress_temp_run(root, name, merged, compress)]
       }
       start = stop
       group_number += 1
@@ -1775,10 +1974,12 @@ proc merge_sort_batched(inputs: List[SortInput], root: FsRoot, opts: SortOptions
     runs = next
     pass += 1
   }
-  merge_sort_stream(runs, opts, has_key, key_field, output_fd, deduplicate)
+  let plain_runs = plain_sort_inputs(root, runs, f"final-{pass}")
+  merge_sort_stream(plain_runs, opts, has_key, key_field, output_fd, deduplicate)
 }
 
 proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int, has_key: Bool, key_field: Int, output: Path, has_output: Bool) [fs, io, env, process, error] {
+  let compress = startable_compress_program(opts.compress_program)
   var temp_root: FsRoot? = null
   defer { if let root = temp_root { root.close()? } }
 
@@ -1788,7 +1989,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
   let separator_bytes = if opts.zero_terminated { 1 } else { 1 }
   var chunk: List[Str] = []
   var chunk_bytes = 0
-  var runs: List[Path] = []
+  var runs: List[SortInput] = []
   var run_number = 0
 
   for input in inputs {
@@ -1814,7 +2015,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
             if chunk_bytes >= chunk_limit {
               if temp_root == null { temp_root = create_sort_temp_root(opts.temp_directory) }
               if let root = temp_root {
-                runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field)]
+                runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field, compress)]
               } else {
                 fail "sort temporary directory was not created"
               }
@@ -1855,14 +2056,12 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
 
   if ! chunk.is_empty() {
     if let root = temp_root {
-      runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field)]
+      runs += [write_sort_run(root, f"run-{run_number}", chunk, opts, has_key, key_field, compress)]
     } else {
       fail "sort temporary directory was not created"
     }
   }
   if let root = temp_root {
-    var run_inputs: List[SortInput] = []
-    for run_file in runs { run_inputs += [{name: bytes.from_text(run_file.display()), path: run_file, stdin: false}] }
     let batch_limit = sort_merge_batch_limit(opts)
     if has_output {
       if let Err(failure) = output.write("") {
@@ -1871,10 +2070,10 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
         exit 2
       }
       let fd = unix.open_fd(output, write: true)?
-      merge_sort_batched(run_inputs, root, opts, has_key, key_field, batch_limit, fd, opts.unique)
+      merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, fd, opts.unique, compress)
       unix.close_fd(fd)?
     } else {
-      merge_sort_batched(run_inputs, root, opts, has_key, key_field, batch_limit, null, opts.unique)
+      merge_sort_batched(runs, root, opts, has_key, key_field, batch_limit, null, opts.unique, compress)
     }
   } else {
     fail "sort temporary directory was not created"
@@ -1883,7 +2082,7 @@ proc buffered_sort(inputs: List[SortInput], opts: SortOptions, buffer_size: Int,
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: SortOptions = cli.applet(
-    normalize_output_args(argv),
+    normalize_output_args(legacy_key_args(argv, traditional_key_syntax())),
     {
       reverse: {
         form: "-r --reverse",
@@ -1953,6 +2152,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       },
       temp_directory: {
         form: "-T --temporary-directory DIR",
+      },
+      compress_program: {
+        form: "--compress-program PROG",
       },
       key: {
         form: "-k KEY",
@@ -2173,13 +2375,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         exit 2
       }
       let input_path = Path.parse_bytes(name)?
-      inputs += [{name: name, path: input_path, stdin: name == b"-"}]
+      inputs += [{name: name, path: input_path, stdin: name == b"-", compressed: null}]
     }
   } else if paths.is_empty() {
-    inputs = [{name: b"-", path: p"-", stdin: true}]
+    inputs = [{name: b"-", path: p"-", stdin: true, compressed: null}]
   } else {
     for path_arg in paths {
-      inputs += [{name: bytes.from_text(path_arg), path: fp"{path_arg}", stdin: path_arg == "-"}]
+      inputs += [{name: bytes.from_text(path_arg), path: fp"{path_arg}", stdin: path_arg == "-", compressed: null}]
     }
   }
 
@@ -2203,7 +2405,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if inputs.len() > batch_limit {
       let scratch = create_sort_temp_root(opts.temp_directory)
       defer scratch.close()?
-      merge_sort_batched(inputs, scratch, opts, has_key, key_field, batch_limit, null, opts.unique)
+      merge_sort_batched(inputs, scratch, opts, has_key, key_field, batch_limit, null, opts.unique, startable_compress_program(opts.compress_program))
       return
     }
   }
