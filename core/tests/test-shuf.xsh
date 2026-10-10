@@ -10,6 +10,17 @@ proc shuf_run(ctx: TestContext, root: Path, args: List[Str], input = b"") [fs, p
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
 }
 
+# Like `shuf_run`, but each argument may be a Path built from raw bytes, so an
+# argument that is not valid UTF-8 reaches the applet unchanged.
+proc shuf_raw_run(ctx: TestContext, root: Path, args: List[Union[Str, Path]]) [fs, process, error] -> Result[Ran] {
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, fp"{ctx.core_dir}/shuf.xsh"]
+  let plan = process.command_argv(ctx.xsh_bin, words.extend(args), root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
 pure sorted_lines(data: Bytes) -> List[Str] {
   [line for line in (data.utf8() ?? "").lines() |> sort-by .]
 }
@@ -190,4 +201,27 @@ test test_shuf_large_ranges { |ctx|
   let descending = shuf_run(ctx, root, ["-n1", "-i", "18446744073709551615-18446744073709551614"])?
   assert descending.status == 1
   assert "start exceeds end" in descending.stderr, descending.stderr
+}
+
+test test_shuf_invalid_utf8_operands_are_raw_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "shuf-invalid-utf8-echo")?
+  let args: List[Union[Str, Path]] = ["-e", Path.parse_bytes(b"a\xFFb")?, "ok"]
+  let result = shuf_raw_run(ctx, root, args)?
+  assert result.status == 0, result.stderr
+  assert result.stderr == ""
+  assert result.stdout == b"a\xFFb\nok\n" or result.stdout == b"ok\na\xFFb\n", "both orders of the two arguments are permutations"
+}
+
+test test_shuf_reads_invalid_utf8_operand_file { |ctx|
+  let root = test.temp_dir(ctx, name: "shuf-invalid-utf8-file")?
+  let name = Path.parse_bytes(b"a\xFFb")?
+  cd root {
+    name.write("foo\n")
+  }
+
+  let args: List[Union[Str, Path]] = [name]
+  let result = shuf_raw_run(ctx, root, args)?
+  assert result.status == 0, result.stderr
+  assert result.stderr == ""
+  assert result.stdout == b"foo\n"
 }

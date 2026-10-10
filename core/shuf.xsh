@@ -268,9 +268,10 @@ pure parse_count(text: Str) -> Int? {
   digits.parse_int() ?? 0
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
   let opts: ShufOptions = cli.applet(
-    argv,
+    prepared.text,
     {
       gnu: {status: 1, unsupported: {"--random-seed": "a uutils extension; use --random-source=FILE"}},
       echo: {form: "-e --echo", default: false},
@@ -537,13 +538,21 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if ! opts.range.is_empty() {
     total = hi - lo + 1
   } else if opts.echo {
-    items = [bytes.from_text(item) for item in opts.operands]
+    items = [gnu.argument_bytes(item, prepared.raw) for item in opts.operands]
     total = items.len()
   } else {
     let name = opts.operands.get(0) ?? "-"
+    let raw_name = gnu.argument_bytes(name, prepared.raw)
+    let input = Path.parse_bytes(raw_name)?
+    let read = if name == "-" { gnu.read_operand(name) } else { input.read_bytes() }
 
-    guard let data = gnu.read_operand(name) else { |failure|
-      gnu.name_error(name, failure)
+    guard let data = read else { |failure|
+      if name == "-" {
+        gnu.name_error(name, failure)
+      } else {
+        gnu.error(f"{gnu.quote_bytes(raw_name, always: false)}: {gnu.strerror(failure)}")
+      }
+
       exit 1
     }
 
@@ -554,7 +563,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     # reservoir of that many lines: each later line draws a slot and replaces
     # its line when the slot is inside the reservoir (and a last draw is spent
     # at the end), then the survivors are permuted as usual.
-    let place = if name == "-" { /dev/stdin } else { fp"{name}" }
+    let place = if name == "-" { /dev/stdin } else { input }
     let regular = if let Ok(found) = fs.stat(place, follow_symlinks: true) { found.kind == "file" } else { false }
 
     if ! opts.repeat and ! regular and head < tio.MAX_COUNT and total >= head {
