@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.fs_misc
+use lib.selinux
 
 type Options = {mode: Str?, help: Bool, version: Bool, operands: List[Str], context_flag: Bool, context: Str?}
 type ModeSource = {index: Int, start: Int}
@@ -8,13 +9,6 @@ type ModeSource = {index: Int, start: Int}
 # argv strings cannot contain NUL, so this value can only come from a bare --context
 # (no `=`), which GNU accepts silently; an empty `--context=` is a real value.
 const BARE_CONTEXT = "\0"
-
-# libselinux treats SELinux as enabled when the kernel lists selinuxfs. Labelling the
-# created node is not implemented, so a context value is only tolerated where there is
-# no SELinux policy to apply it, which is also where GNU ignores it.
-proc selinux_enabled() -> Result[Bool] {
-  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
-}
 
 pure mode_source(argv: List[Str]) -> ModeSource {
   for index in range(argv.len()) {
@@ -80,8 +74,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     version: {form: "--version", default: false, stop: true},
     operands: {form: "...ARG"},
   })?
+  # Labelling the created node is not implemented, so a context value is only
+  # tolerated where there is no SELinux policy to apply it, which is also where
+  # GNU ignores it.
   if opts.context != null and opts.context != BARE_CONTEXT {
-    if selinux_enabled()? {
+    if selinux.enabled()? {
       gnu.error("--context is not supported on SELinux-enabled systems")
       exit 1
     }

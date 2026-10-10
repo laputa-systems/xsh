@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.selinux
 error AppletError = Usage : Usage
 
 type MkdirOptions = {parents: Bool, mode: Str?, verbose: Bool, default_context: Bool, context: List[Str], help: Bool, version: Bool, directories: List[Str]}
@@ -7,13 +8,6 @@ type MkdirOptions = {parents: Bool, mode: Str?, verbose: Bool, default_context: 
 # --context takes an optional value, so a bare --context is recorded with this
 # sentinel. No argv element can contain NUL, so it never equals a real value.
 const NO_CONTEXT_VALUE = "\0"
-
-# libselinux reports SELinux when the kernel lists selinuxfs. Labelling created
-# directories is not implemented, so a label request is only GNU's silent or
-# warning no-op on kernels without SELinux; on SELinux kernels it must fail.
-proc selinux_enabled() -> Result[Bool] {
-  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
-}
 
 pure parse_mode(spec: Str, umask: Int) -> Result[Int] {
   if rx"^[0-7]+$".matches(spec) {
@@ -119,8 +113,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if value != NO_CONTEXT_VALUE { valued_contexts += 1 }
   }
   let labelled = opts.default_context or valued_contexts > 0
-  let selinux = labelled and selinux_enabled()?
-  if valued_contexts > 0 and !selinux {
+  # Labelling created directories is not implemented, so a label request is
+  # only GNU's silent or warning no-op on kernels without SELinux; on SELinux
+  # kernels it must fail.
+  let enabled = labelled and selinux.enabled()?
+  if valued_contexts > 0 and !enabled {
     for _ in range(valued_contexts) {
       gnu.error("warning: ignoring --context; it requires an SELinux/SMACK-enabled kernel")
     }
@@ -131,7 +128,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
   if opts.version { gnu.version("mkdir")
     return }
-  if selinux {
+  if enabled {
     gnu.error("--context (-Z) is not supported on SELinux-enabled systems")
     exit 1
   }

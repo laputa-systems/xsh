@@ -5,7 +5,6 @@ use lib.gnu
 # Boot-manager variables live in the directory named by EFIVARFS_PATH, which
 # defaults to the kernel's efivarfs mount. A directory that is not shaped like
 # efivarfs is refused unless EFIBOOTMGR_ALLOW_ANY_DIR is set.
-const DEFAULT_DIR = "/sys/firmware/efi/efivars"
 const DEFAULT_LOADER = "\\EFI\\BOOT\\BOOTX64.EFI"
 
 const USAGE = """efibootmgr version 18
@@ -553,9 +552,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   if (request.activate or request.deactivate) and request.bootnum == null { stop(4, "You must specify a entry to activate (see the -b option)") }
   if (request.reconnect or request.no_reconnect) and request.bootnum == null { stop(4, "You must specify a driver entry to set re-connect on (see the -b option)") }
 
-  let dir = fp"{env.get_or("EFIVARFS_PATH", DEFAULT_DIR) ?? DEFAULT_DIR}"
+  let dir = efi.store_dir()
   let any_dir = (env.get_or("EFIBOOTMGR_ALLOW_ANY_DIR", "") ?? "") != ""
-  if ! dir.exists() { stop(2, "EFI variables are not supported on this system.") }
+  if ! efi.supported(dir) { stop(2, "EFI variables are not supported on this system.") }
   let opened = efi.open_store(dir, any_dir)
   if let Err(failure) = opened { stop(2, f"efibootmgr: {failure_text(failure)}") }
   let store = opened?

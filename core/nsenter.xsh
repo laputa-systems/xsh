@@ -1,5 +1,6 @@
 #!/bin/xsh
 use lib.gnu
+use lib.proc_target as target_files
 
 const USAGE = """Usage: nsenter [options] [<program> [<argument>...]]
 
@@ -165,7 +166,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
       if file == "" {
         needs_target = true
         if let pid = target {
-          join += [fp"/proc/{pid}/ns/{entry.name}"]
+          join += [target_files.namespace_file(pid, entry.name)]
         }
       } else {
         join += [fp"{file}"]
@@ -189,7 +190,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     if file != "" {
       root_path = fp"{file}"
     } else if let pid = target {
-      root_path = fp"/proc/{pid}/root"
+      root_path = target_files.root_dir(pid)
     } else {
       gnu.error("neither filename nor target pid supplied for root")
       exit 1
@@ -199,7 +200,7 @@ proc main(...argv: List[Str]) [fs, error, process, env, io] {
     if file != "" {
       cwd_path = fp"{file}"
     } else if let pid = target {
-      cwd_path = fp"/proc/{pid}/cwd"
+      cwd_path = target_files.cwd_dir(pid)
     } else {
       gnu.error("neither filename nor target pid supplied for cwd")
       exit 1
