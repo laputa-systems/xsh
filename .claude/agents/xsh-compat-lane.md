@@ -20,6 +20,17 @@ You implement one utility in the XSH compatibility campaign, from a brief.
 - The only goal is passing tests. Do no formatting, linting, refactoring,
   cleanup of code you were not asked to touch, or performance work; speed and
   tidiness come after full parity.
+- Upstream tests are read-only. Never edit, delete, skip, add to, or
+  special-case the uutils or GNU tests, fixtures, or harness; that is cheating.
+  A test passes only when the unmodified upstream test passes.
+- XSH first. Implement behavior in XSH. Ask for Rust only for a reusable OS or
+  byte boundary XSH cannot express. When XSH makes something awkward, report it
+  under `Language gaps:` (what you wrote, what you wanted); this campaign is
+  also a test of the language.
+- GNU's output wins over uutils. If a test can only pass by printing
+  non-GNU wording, or by detecting the test harness, change nothing for that
+  test and report its ID as `wording-conflict`. Never alter an existing native
+  test's expected text to satisfy a uutils test.
 - Command semantics live in XSH. Follow the existing applet's use of
   `core/lib/gnu.xsh`. Implement or explicitly reject every option; never parse
   and discard one.
@@ -34,4 +45,4 @@ You implement one utility in the XSH compatibility campaign, from a brief.
 - Probe `xsh` only under a wall-clock limit and leave no process running.
 - Commit only after `GATE PASS`, only the two owned files.
 - Report in under 150 words: the gate result line, tests fixed and unresolved,
-  `Requests:`, blockers.
+  `Requests:`, `Language gaps:`, blockers.

@@ -56,6 +56,15 @@ as campaign gates.
    or effort level is permitted there. Claude Code sessions use the model
    policy in `.claude/skills/xsh-compat-campaign/SKILL.md`.
 
+8. **Upstream tests are read-only.** The pinned uutils and GNU tests,
+   fixtures and harness inputs are the oracle. No lane or integrator edits,
+   deletes, skips, adds to, or special-cases them, and no applet or adapter
+   branches on the harness. A test stops counting only through an
+   `exclusions.json` entry with an exact ID, category and reason.
+9. **XSH first.** Behavior is implemented in XSH; Rust is the smallest
+   reusable OS or byte primitive XSH cannot express. Lanes report language
+   gaps they hit.
+
 ## Integrator-owned paths
 
 Lanes request changes to these through their report; the integrator edits:

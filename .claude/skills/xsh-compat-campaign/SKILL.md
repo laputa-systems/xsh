@@ -31,6 +31,39 @@ advisory:
   The same `gate` accepts the merge, so a lane cannot pass a weaker check than
   yours. The full suite is yours, and runs once per batch.
 
+**Upstream tests are read-only; editing them is cheating.** The pinned uutils
+and GNU tests, fixtures, and harness inputs are the oracle. Nobody (lane,
+coordinator, or script) edits, deletes, skips, adds to, or special-cases them,
+and no adapter or applet branches on the harness (`XSH_EXECUTION_PHRASE`,
+`xsh-uutests`). `lane.py gate` fails when the checkout under `UUTILS_ROOT` is
+not exactly the pinned commit with a clean `tests/` and `src/`; also keep those
+trees read-only (`chmod -R a-w tests src`). An exclusion is the only sanctioned
+way a test stops counting: by exact ID, with a category and reason, in
+`dev/compat/exclusions.json`. The coordinator proposes exclusions and the
+owner approves them; never add one to hide a real failure. Native tests under
+`core/tests` are ours, but their expected text is a contract: do not rewrite
+one to satisfy an upstream test unless the native test is demonstrably wrong
+(shown against upstream-generated fixtures), and say so in the commit.
+
+**XSH first.** The point of the campaign is to put XSH to the test: command
+semantics, parsers, formatting, traversal and policy are XSH. Rust is for
+reusable OS or byte boundaries XSH cannot express (a syscall, descriptor
+operation, codec, or a time range the runtime cannot hold), added as the
+smallest primitive, never as a ported applet or a donor's pre-baked formatter.
+When a request for Rust arrives, ask first whether XSH can do it; judge
+exceptions yourself and record each with its reason. Lanes also report
+`Language gaps:` (what they wrote versus what they wanted). Collect them in
+`.work/claude-campaign/language-gaps.md`; they are a campaign output.
+
+**GNU wording wins.** Some donor "wins" only match uutils or clap text
+(`(invalid value 'X')`, a bare strerror for write errors, `basenc 0.13.0`), or
+detect the harness (`XSH_EXECUTION_PHRASE`). Lanes report those as
+`wording-conflict` and change nothing. At review, reject any diff that
+rewrites an existing native test's expected text or branches on the harness.
+Park a rejected-but-passing lane as `wording/U` (keep the branch, remove the
+worktree) so the owner can reverse the policy later, and list the test IDs in
+`.work/claude-campaign/requests.md` as exclusion candidates for batch close.
+
 ## Tooling
 
 `scripts/lane.py` (next to this file), always run from the primary checkout:
