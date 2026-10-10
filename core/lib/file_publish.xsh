@@ -50,12 +50,40 @@ export proc overwrite(argv: List[Str], fallback: Str, no_clobber = true) -> Resu
   selected
 }
 
+## Compare the files two names resolve to, following symbolic links. A name that
+## cannot be resolved names no file, so it is never the same file as another name.
+export proc same_file(source: Path, dest: Path) -> Result[Bool, Error] {
+  let a = match fs.stat(source, follow_symlinks: true) {
+    Ok(meta) => meta
+    Err(failure) => {
+      return false when unresolved(failure)
+      return Err(failure)
+    }
+  }
+  let b = match fs.stat(dest, follow_symlinks: true) {
+    Ok(meta) => meta
+    Err(failure) => {
+      return false when unresolved(failure)
+      return Err(failure)
+    }
+  }
+  a.dev == b.dev and a.ino == b.ino
+}
+
+# ENOENT, ENOTDIR, ENAMETOOLONG, and ELOOP: the name does not lead to a file.
+proc unresolved(failure: Error) -> Bool {
+  gnu.errno(failure) in [2, 20, 36, 40]
+}
+
 ## Choose a backup name without ever interpreting the suffix as a path.
 export proc backup_name(dest: Path, control: Str, suffix: Str) -> Result[Path?, Error] {
   return null when control in ["none", "off"]
   if "/" in suffix {
     gnu.usage_error(f"invalid suffix {gnu.quote(suffix)}")
   }
+  # A trailing slash only requires the destination to be a directory; appending a
+  # suffix after it would name a path inside that directory.
+  let stem = if dest.display().ends_with("/") { dest.normalize() } else { dest }
   var number = 1
   for entry in fs.children(dest.parent())? {
     let prefix = f"{dest.name()}.~"
@@ -65,9 +93,9 @@ export proc backup_name(dest: Path, control: Str, suffix: Str) -> Result[Path?, 
       if found >= number { number = found + 1 }
     }
   }
-  return fp"{dest}.~{number}~" when control in ["numbered", "t"] or
+  return fp"{stem}.~{number}~" when control in ["numbered", "t"] or
     (control in ["existing", "nil"] and number > 1)
-  return fp"{dest}{suffix}" when control in ["simple", "never", "existing", "nil"]
+  return fp"{stem}{suffix}" when control in ["simple", "never", "existing", "nil"]
   gnu.usage_error(f"invalid argument {gnu.quote(control)} for 'backup type'")
   null
 }

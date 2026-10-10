@@ -291,3 +291,72 @@ test test_mv_context_rejects_an_argument_like_gnu { |ctx|
   assert result.stderr == "mv: option '--context' doesn't allow an argument\nTry 'mv --help' for more information.\n"
   assert source.read_text()? == "data"
 }
+
+test test_mv_backup_source_message_keeps_gnu_double_space { |ctx|
+  let root = test.temp_dir(ctx)?
+  let target = fp"{root}/a"
+  let source = fp"{root}/a~"
+  target.write("a")
+  source.write("a2")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- --b=simple $source $target
+  assert result.status.exited_with(1)
+  assert result.stderr == f"mv: backing up '{target}' might destroy source;  '{source}' not moved\n", result.stderr
+  assert source.read_text()? == "a2"
+}
+
+test test_mv_no_target_directory_renames_onto_directory_with_trailing_slash { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.mkdir()
+  fp"{source}/inside".write("moved")
+  let dest = fp"{root}/dest"
+  dest.mkdir()
+  fp"{dest}/old".write("old")
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- -T --backup=numbered $source fp"{dest}/"
+  assert ! source.exists()?
+  assert fp"{dest}/inside".read_text()? == "moved"
+  assert fp"{root}/dest.~1~/old".read_text()? == "old"
+}
+
+test test_mv_missing_duplicate_source_is_reported_before_overwrite_check { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/mv.xsh"
+  cd root {
+    p"a".write("a")
+    p"d".mkdir()
+    let result = run.capture --text ${ctx.xsh_bin} $script -- p"a" p"a" p"d/"
+    assert result.status.exited_with(1)
+    assert result.stderr == "mv: cannot stat 'a': No such file or directory\n", result.stderr
+    assert p"d/a".read_text()? == "a"
+  }
+}
+
+test test_mv_cross_device_unremovable_target_reports_inter_device_failure { |ctx|
+  let root = test.temp_dir(ctx, name: "mv-unremovable-target")?
+  let shared = p"/dev/shm"
+  let shared_meta = match fs.stat(shared) {
+    Ok(meta) => meta
+    Err(_) => { test.skip("/dev/shm is not available"); return }
+  }
+  if fs.stat(root)?.dev == shared_meta.dev { test.skip("requires a second filesystem"); return }
+  if applet.current_euid() == 0 { test.skip("requires an unprivileged caller"); return }
+
+  let destination_dir = fp"{shared}/xsh-mv-locked-{root.name()}"
+  destination_dir.mkdir()
+  let destination = fp"{destination_dir}/k"
+  defer {
+    destination_dir.chmod(0o700)
+    destination.remove(missing_ok: true)
+    destination_dir.remove_dir()
+  }
+  destination.write("old")
+  let source = fp"{root}/k"
+  source.write("new")
+  destination_dir.chmod(0o500)
+
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- -f $source $destination
+  assert result.status.exited_with(1)
+  assert result.stderr == f"mv: inter-device move failed: '{source}' to '{destination}'; unable to remove target: Permission denied\n", result.stderr
+  assert destination.read_text()? == "old"
+  assert source.read_text()? == "new"
+}

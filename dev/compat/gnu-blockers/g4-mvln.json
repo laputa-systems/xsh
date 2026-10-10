@@ -1,0 +1,38 @@
+{
+  "tests/mv/backup-dir.sh": {
+    "class": "FIXED",
+    "note": "mv -T onto an existing directory with a trailing slash was rejected as 'Not a directory'; numbered backup names were built as 'E/.~1~' (EINVAL). GNU renames E to E.~1~ and moves the source into E. Pinned by test_mv_no_target_directory_renames_onto_directory_with_trailing_slash."
+  },
+  "tests/mv/backup-is-src.sh": {
+    "class": "FIXED",
+    "note": "The 'might destroy source' diagnostic lacked GNU's two spaces after 'source;'. Real GNU mv 9.11 prints the two spaces (verified with oracle). Pinned by test_mv_backup_source_message_keeps_gnu_double_space."
+  },
+  "tests/mv/diag.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "The patched expectation is clap wording: 'error: the following required arguments were not provided:' and 'error: ... requires at least 2 values, but only 1 was provided'. Real GNU 9.11 prints 'mv: missing file operand' + \"Try 'mv --help' for more information.\" and 'mv: missing destination file operand after 'no-file''. No change made; listed as wording-conflict. XSH's own clap-style text is pinned by test_mv_operand_errors_include_usage."
+  },
+  "tests/mv/dup-source.sh": {
+    "class": "XSH-GAP",
+    "note": "The mv half is fixed: a source that already moved away is reported as 'cannot stat' before the 'will not overwrite just-created' check (pinned by test_mv_missing_duplicate_source_is_reported_before_overwrite_check). The cp half is in core/cp.xsh (not owned): for 'cp -a ./b b b/' XSH prints \"cannot copy a directory, 'b', into itself\" where GNU prints \"'./b'\" and then the 'source directory 'b' specified more than once' warning. Test cannot pass until cp is fixed."
+  },
+  "tests/mv/part-fail.sh": {
+    "class": "FIXED",
+    "note": "When the destination exists and its directory refuses the staging entry (EACCES/EPERM), mv now prints GNU's \"inter-device move failed: 'SRC' to 'DST'; unable to remove target: ...\" instead of a wrapped 'cannot move' line. Pinned by test_mv_cross_device_unremovable_target_reports_inter_device_failure (skips as root)."
+  },
+  "tests/mv/part-symlink.sh": {
+    "class": "XSH-GAP",
+    "note": "The failing steps are all cp, in core/cp.xsh (not owned). For 'cp --rem -d rem_sl loc_reg' GNU 9.11 prints \"'rem_sl' and 'loc_reg' are the same file\" and exits 1; XSH copies and exits 0. The mv half of the test passes. Needs a cp.xsh fix."
+  },
+  "tests/ln/backup-1.sh": {
+    "class": "FIXED",
+    "note": "With --backup, the rename of the destination onto its backup name does nothing when both are one hard link, so the original name stayed and the new link failed with EEXIST. The original name is now removed before linking, as GNU does. Pinned by test_ln_backup_replaces_a_hard_link_to_the_destination."
+  },
+  "tests/ln/relative.sh": {
+    "class": "FIXED",
+    "note": "ln -r wrote absolute link text when the target was not below the link's directory, because Path.relative_to returns the input unchanged in that case. Link text is now computed from the components of both resolved paths, climbing with '..'. Pinned by test_ln_relative_link_climbs_out_of_the_source_directory."
+  },
+  "tests/ln/sf-1.sh": {
+    "class": "FIXED",
+    "note": "A destination whose name is too long or loops was reported as 'failed to access' before ln looked at it, so ln -sf could not replace it. GNU replaces it. Symbolic-link same-file detection now follows links, so a dangling or looping name is never 'the same file'. Pinned by test_ln_force_replaces_dangling_and_looping_symlinks_with_themselves and test_ln_too_long_destination_reports_access_only_when_replacing."
+  }
+}
