@@ -2,6 +2,18 @@
   "comment": "Exact uutils test IDs (module::function) excluded from Gate 3. One entry per test; module-wide exclusions are rejected by dev/compat/check_exclusions.py, which also fixes the category list. Excluded tests still count in the totals as `excluded`.",
   "tests": [
     {
+      "id": "test_base32::test_version",
+      "utility": "base32",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_base64::test_version",
+      "utility": "base64",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
       "id": "test_basename::test_help",
       "utility": "basename",
       "category": "uutils-extension",
@@ -14,16 +26,46 @@
       "reason": "The test also runs `-V`, a version alias uutils adds; GNU basename has only --version and XSH follows GNU. --version is covered by core/tests/test-basename.xsh."
     },
     {
-      "id": "test_tee::test_short_help_is_long_help",
-      "utility": "tee",
-      "category": "uutils-extension",
-      "reason": "Runs `tee -h` expecting the --help text; GNU tee's short options are only -a, -i and -p (src/tee.c getopt string \"aip\"), so -h is a uutils extension and XSH follows GNU. --help is covered by core/tests/test-tee.xsh."
+      "id": "test_basenc::test_version",
+      "utility": "basenc",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
     },
     {
-      "id": "test_sleep::test_invalid_duration::case_7_single_quote",
-      "utility": "sleep",
-      "category": "uutils-extension",
-      "reason": "uutils quotes an argument containing an apostrophe as \"'1\" (double quotes); GNU quote() prints '\\'1' (verified on GNU coreutils 9.4: `sleep \"'1\"`), and XSH follows GNU via gnu.quote_value."
+      "id": "test_chmod::diagnostics::test_snippet_marks_a_clause_with_no_operator",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_at_the_bad_operator",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_at_the_mode_not_a_file_with_the_same_name",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_into_a_negative_mode",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_into_the_right_negative_mode",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_chmod::diagnostics::test_snippet_points_into_the_second_clause",
+      "utility": "chmod",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
     },
     {
       "id": "test_cp::test_copy_dir_preserve_permissions",
@@ -72,6 +114,708 @@
       "utility": "cp",
       "category": "gnu-semantics",
       "reason": "The assertion compares destination atime with source metadata after copying. GNU 9.12 captures source metadata before reading and restores that earlier atime on the destination, while reading can update the source atime; XSH follows GNU's saved timestamp."
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_finds_fields_merged_value",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_ignores_a_file_named_like_the_list",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_points_at_the_bound_that_is_not_a_number",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_points_at_the_inverted_range",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_cut::diagnostics::test_snippet_points_at_the_zero_bound",
+      "utility": "cut",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_dir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+      "utility": "dir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_dir::test_version",
+      "utility": "dir",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_echo::full_version_argument",
+      "utility": "echo",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_follows_the_string_when_it_is_glued_to_the_option",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_at_the_invalid_escape",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_at_the_unterminated_quote",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_at_the_whole_variable_reference",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::diagnostics::test_snippet_points_into_the_right_argument",
+      "utility": "env",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_env::test_env_version",
+      "utility": "env",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_dangling_operator",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_non_integer_operand",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_operand_that_failed_not_its_twin",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_expr::diagnostics::test_snippet_points_at_the_unexpected_argument",
+      "utility": "expr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_head::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "head",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling",
+      "utility": "head",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_head::diagnostics::test_snippet_underlines_a_size_with_no_number",
+      "utility": "head",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_head::test_all_but_last_bytes_huge_count_does_not_panic",
+      "utility": "head",
+      "category": "uutils-extension",
+      "reason": "uses the `-c=N` / `-n=N` spelling clap accepts; GNU rejects it and XSH follows GNU"
+    },
+    {
+      "id": "test_head::test_all_but_last_lines_huge_count_does_not_panic",
+      "utility": "head",
+      "category": "uutils-extension",
+      "reason": "uses the `-c=N` / `-n=N` spelling clap accepts; GNU rejects it and XSH follows GNU"
+    },
+    {
+      "id": "test_head::test_head_invalid_num",
+      "utility": "head",
+      "category": "uutils-extension",
+      "reason": "uses the `-c=N` / `-n=N` spelling clap accepts; GNU rejects it and XSH follows GNU"
+    },
+    {
+      "id": "test_join::diagnostics::test_snippet_points_at_the_failing_field_of_a_list",
+      "utility": "join",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_join::diagnostics::test_snippet_points_inside_a_glued_short_option",
+      "utility": "join",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_ls::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+      "utility": "ls",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_ls::diagnostics::test_snippet_underlines_a_zero_block_size",
+      "utility": "ls",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_ls::test_localized_possible_values",
+      "utility": "ls",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_mkdir::diagnostics::test_snippet_points_at_the_bad_operator",
+      "utility": "mkdir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_mkdir::diagnostics::test_snippet_points_into_the_second_clause",
+      "utility": "mkdir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_nohup::test_nohup_help_and_version",
+      "utility": "nohup",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_blames_the_suffix_not_the_zero_in_a_unit_size",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_ignores_an_option_value_with_the_number_text",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_ignores_another_option_with_the_same_value",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_leaves_the_suffix_out_of_the_bad_conversion",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_marks_a_format_without_a_directive",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_marks_a_whitespace_only_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_marks_an_input_that_is_not_a_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_names_no_conversion_when_the_format_has_none",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_bad_directive",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_i_a_unit_does_not_take",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_stray_percent",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_points_at_the_suffix_of_a_bad_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_a_unit_size_cannot_be_zero",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_auto_belongs_to_from",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_nothing_about_suffixes_without_a_number",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_says_why_a_zero_padding_is_refused",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_a_header_count",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit_size",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::diagnostics::test_snippet_underlines_the_oversized_precision",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::field_diagnostics::test_snippet_points_at_the_inverted_field_range",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::field_diagnostics::test_snippet_points_at_the_zero_field",
+      "utility": "numfmt",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_from_si",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_preserves_leading_whitespace_in_unselected_fields",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_skips_leading_whitespace",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_to_si",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_with_padding",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_delimiter_with_padding_and_fields",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_numfmt::test_transform_with_suffix_and_delimiter",
+      "utility": "numfmt",
+      "category": "uutils-extension",
+      "reason": "uses the `-d=,` spelling (clap accepts `=` before an attached value); GNU reads `=,` as the delimiter and XSH follows GNU"
+    },
+    {
+      "id": "test_od::diagnostics::test_snippet_points_at_the_unknown_unit_of_read_bytes",
+      "utility": "od",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_od::diagnostics::test_snippet_points_inside_a_width_value",
+      "utility": "od",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_od::diagnostics::test_snippet_underlines_a_hexadecimal_offset_that_does_not_parse",
+      "utility": "od",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_the_bad_code_point",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_the_bad_spec",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_printf::diagnostics::test_snippet_points_inside_a_quoted_format",
+      "utility": "printf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_seq::diagnostics::test_snippet_points_at_the_failing_conversion",
+      "utility": "seq",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_seq::diagnostics::test_snippet_points_inside_a_glued_short_option",
+      "utility": "seq",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_seq::diagnostics::test_snippet_underlines_a_format_with_no_directive",
+      "utility": "seq",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_shuf::test_range_permute_no_overflow_0_max",
+      "utility": "shuf",
+      "category": "gnu-semantics",
+      "reason": "GNU shuf rejects this input range; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_args_no_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_args_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_long_range_no_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_range_no_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_shuf::test_seed_range_repeat",
+      "utility": "shuf",
+      "category": "uutils-extension",
+      "reason": "uses --random-seed, a uutils option GNU shuf does not have; XSH follows GNU"
+    },
+    {
+      "id": "test_sleep::test_invalid_duration::case_7_single_quote",
+      "utility": "sleep",
+      "category": "uutils-extension",
+      "reason": "uutils quotes an argument containing an apostrophe as \"'1\" (double quotes); GNU quote() prints '\\'1' (verified on GNU coreutils 9.4: `sleep \"'1\"`), and XSH follows GNU via gnu.quote_value."
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_a_missing_number",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_the_stray_character",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_points_inside_a_detached_key",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_argument_suggestion",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_argument_suggestion_colors_enabled",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_clap_localization_help_message",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_clap_localization_invalid_value",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_clap_localization_missing_required_argument",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_clap_localization_unknown_argument",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_color_environment_variables",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_error_colors_disabled",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_error_colors_enabled",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_sort::test_french_translations",
+      "utility": "sort",
+      "category": "clap-wording",
+      "reason": "asserts clap's localized or colored diagnostic text; XSH follows GNU wording"
+    },
+    {
+      "id": "test_split::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "split",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value",
+      "utility": "split",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "stdbuf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value",
+      "utility": "stdbuf",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tail::diagnostics::test_snippet_points_at_the_unknown_unit",
+      "utility": "tail",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tail::test_debug_flag_with_inotify",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses a uutils-only tail option or inotify behavior GNU does not define"
+    },
+    {
+      "id": "test_tail::test_debug_flag_with_polling",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses a uutils-only tail option or inotify behavior GNU does not define"
+    },
+    {
+      "id": "test_tail::test_follow_inotify_only_regular",
+      "utility": "tail",
+      "category": "uutils-extension",
+      "reason": "uses a uutils-only tail option or inotify behavior GNU does not define"
+    },
+    {
+      "id": "test_tee::test_short_help_is_long_help",
+      "utility": "tee",
+      "category": "uutils-extension",
+      "reason": "Runs `tee -h` expecting the --help text; GNU tee's short options are only -a, -i and -p (src/tee.c getopt string \"aip\"), so -h is a uutils extension and XSH follows GNU. --help is covered by core/tests/test-tee.xsh."
+    },
+    {
+      "id": "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::test_bracket_syntax_version",
+      "utility": "test",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_ignores_the_program_name_as_a_set",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_at_the_backwards_range",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_at_the_misspelled_class",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_at_the_repeat_count",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_points_into_the_second_set",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_tr::diagnostics::test_snippet_underlines_the_whole_set_when_the_set_is_at_fault",
+      "utility": "tr",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_vdir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
+      "utility": "vdir",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_vdir::test_version",
+      "utility": "vdir",
+      "category": "help-text",
+      "reason": "asserts the uutils version line; XSH prints GNU's version text"
     }
   ]
 }
