@@ -55,6 +55,50 @@ test test_patch_multi_file_failure_keeps_prior_applied_file { |ctx|
   assert fp"{root}/second".read_text()? == "different\n"
 }
 
+pure hex_digit(byte: Int) -> Int {
+  if byte >= 48 and byte <= 57 { return byte - 48 }
+  if byte >= 65 and byte <= 70 { return byte - 55 }
+  if byte >= 97 and byte <= 102 { return byte - 87 }
+  -1
+}
+
+# A stored file name with its %XX escapes turned back into bytes.
+pure decode_name(name: Str) -> Bytes {
+  let raw = bytes.from_text(name)
+  var output: List[Int] = []
+  var at = 0
+  while at < raw.len() {
+    let byte = raw.byte_at(at) ?? 0
+    let high = hex_digit(raw.byte_at(at + 1) ?? 0)
+    let low = hex_digit(raw.byte_at(at + 2) ?? 0)
+    if byte == 37 and high >= 0 and low >= 0 {
+      output += [high * 16 + low]
+      at += 3
+    } else {
+      output += [byte]
+      at += 1
+    }
+  }
+  bytes.from_ints(output) ?? b""
+}
+
+# A real file name as the corpus stores it: anything outside letters, digits,
+# and `._-/` is written as %XX, so the repository holds no names that need
+# quoting.
+pure encode_name(name: Str) -> Str {
+  var output = ""
+  for byte in bytes.from_text(name) {
+    let safe = (byte >= 48 and byte <= 57) or (byte >= 65 and byte <= 90) or (byte >= 97 and byte <= 122) or byte == 46 or byte == 95 or byte == 45 or byte == 47
+    if safe {
+      output += (bytes.from_ints([byte]) ?? b"").utf8() ?? ""
+    } else {
+      let digits = "0123456789ABCDEF"
+      output += "%" + digits.byte_slice(byte / 16, length: 1) + digits.byte_slice(byte % 16, length: 1)
+    }
+  }
+  output
+}
+
 # Octal permission text such as "644" as a number.
 pure octal(text: Str) -> Int {
   var value = 0
@@ -68,17 +112,20 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   let name = root.name()
   let work = test.temp_dir(ctx, name: "patch-case")?
   let _ = fs.copy_tree(fp"{root}/in", fp"{work}/w", parents: true)?
-  # Names with spaces are stored as `%20`; restore them, deepest first.
+  # Stored names are percent-encoded; restore them, deepest first.
   var encoded: List[Str] = []
   for entry in fs.walk(fp"{work}/w", hidden: true)? {
-    if entry.path.display().find("%20") != null { encoded += [entry.path.display()] }
+    if entry.path.display().find("%") != null { encoded += [entry.path.display()] }
   }
   let ascending = encoded |> sort
   var position = ascending.len()
   while position > 0 {
     position -= 1
     let old = ascending[position]
-    fp"{old}".rename(to: fp"{old.replace("%20", with: " ")}")?
+    let at = old.find("/w/") ?? 0
+    let decoded_tail = decode_name(old.byte_slice(at + 3))
+    let parent = fp"{work}/w"
+    fp"{old}".rename(to: Path.parse_bytes(bytes.concat([parent.bytes(), b"/", decoded_tail]))?)?
   }
   var mtimes: List[Str] = []
   if fp"{root}/mtimes".exists()? { mtimes = fp"{root}/mtimes".read_text()?.lines().collect() }
@@ -139,7 +186,7 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     var relative = row.byte_slice(4)
     let stamp = relative.find(" mtime=") ?? -1
     if stamp >= 0 { relative = relative.byte_slice(0, stamp) }
-    let encoded_name = relative.replace(" ", with: "%20")
+    let encoded_name = encode_name(relative)
     let stored = fp"{root}/out/tree/{encoded_name}"
     let wanted = if stored.exists()? { stored.read_bytes()? } else { fp"{root}/in/{encoded_name}".read_bytes()? }
     let actual = fp"{work}/w/{relative}".read_bytes()?

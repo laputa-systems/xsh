@@ -78,6 +78,26 @@ def case(name, args="", stdin=None, links=None, dirs=(), chmod=(), touch=(), mti
     )
 
 
+SAFE = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-/")
+
+
+def enc(name):
+    """A file name as stored in the repository: bytes outside a small safe set
+    become %XX, so the repository never holds names that need quoting."""
+    out = []
+    for char in name:
+        if char in SAFE:
+            out.append(char)
+        else:
+            out.extend("%%%02X" % byte for byte in char.encode("utf-8"))
+    return "".join(out)
+
+
+def dec(name):
+    import re
+    return re.sub(rb"%([0-9A-F]{2})", lambda m: bytes([int(m.group(1), 16)]), name.encode("utf-8")).decode("utf-8")
+
+
 def as_bytes(value):
     return value if isinstance(value, bytes) else value.encode("utf-8")
 
@@ -104,26 +124,25 @@ def run_case(item, out_root):
         with open(os.path.join(out, "env"), "w") as handle:
             handle.write("".join("%s=%s\n" % pair for pair in sorted(item["env"].items())))
     for path, content in item["files"].items():
-        full = os.path.join(out, "in", path)
+        full = os.path.join(out, "in", enc(path))
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "wb") as handle:
             handle.write(as_bytes(content))
     for path, target in item["links"].items():
-        full = os.path.join(out, "in", path)
+        full = os.path.join(out, "in", enc(path))
         os.makedirs(os.path.dirname(full), exist_ok=True)
         os.symlink(target, full)
     for path in item["dirs"]:
-        os.makedirs(os.path.join(out, "in", path), exist_ok=True)
+        os.makedirs(os.path.join(out, "in", enc(path)), exist_ok=True)
 
     work = tempfile.mkdtemp(prefix="patch-case-")
     try:
         shutil.copytree(os.path.join(out, "in"), os.path.join(work, "w"), symlinks=True)
-        # File names with spaces are stored with `%20` so paths stay free of
-        # white space in the repository; the run sees the real names.
+        # Stored names are percent-encoded; the run sees the real names.
         for base, dirs, names in os.walk(os.path.join(work, "w"), topdown=False):
             for entry in dirs + names:
-                if "%20" in entry:
-                    os.rename(os.path.join(base, entry), os.path.join(base, entry.replace("%20", " ")))
+                if "%" in entry:
+                    os.rename(os.path.join(base, entry), os.path.join(base, dec(entry)))
         if item["stdin"] is not None:
             shutil.copy(os.path.join(out, "stdin"), os.path.join(work, "stdin"))
         else:
@@ -179,10 +198,10 @@ def run_case(item, out_root):
                     if rel in mtimes:
                         line += " mtime=%d" % int(info.st_mtime)
                     manifest.append(line)
-                    original = os.path.join(out, "in", rel.replace(" ", "%20"))
+                    original = os.path.join(out, "in", enc(rel))
                     same = os.path.isfile(original) and open(original, "rb").read() == open(full, "rb").read()
                     if not same:
-                        target = os.path.join(out, "out", "tree", rel.replace(" ", "%20"))
+                        target = os.path.join(out, "out", "tree", enc(rel))
                         os.makedirs(os.path.dirname(target), exist_ok=True)
                         shutil.copy(full, target)
         with open(os.path.join(out, "out", "manifest"), "w") as handle:
