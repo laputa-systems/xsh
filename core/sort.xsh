@@ -565,6 +565,12 @@ pure key_effective_options(spec: Str, opts: SortOptions) -> SortOptions {
   }
 }
 
+## Names a -d or -i option that conflicts with a numeric-style mode, using the
+## alphabetical letter order GNU sort reports conflicting option pairs in.
+pure ordering_conflict(dictionary: Bool, mode: Str) -> Str {
+  if ! dictionary and mode in ["g", "h"] { f"-{mode}i" } else { f"-{if dictionary { "d" } else { "i" }}{mode}" }
+}
+
 ## Encode bytes with a low end marker so descending keys keep equal-key order.
 pure sort_direction_bytes(input: Bytes, reverse: Bool) -> Str {
   var key = ""
@@ -1152,7 +1158,7 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
       if ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
     } else {
       let primary = debug_primary_text(line, opts, false, key_field)
-      let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) { text.padding(leading_blank_count(line), " ") } else { "" }
+      let indentation = if is_month_sort(opts) or is_general_numeric_sort(opts) or is_numeric_sort(opts) or is_human_numeric_sort(opts) or opts.blank { text.padding(leading_blank_count(line), " ") } else { "" }
       output += indentation + debug_annotation(primary) + "\n"
       if has_last_resort and ! opts.stable and ! opts.unique { output += debug_annotation(line) + "\n" }
     }
@@ -1249,6 +1255,11 @@ pure normalize_output_args(argv: List[Str]) -> List[Str] {
       let value = argv[at + 1]
       normalized += [if arg == "-o" { f"-o{value}" } else { f"--output={value}" }]
       at += 2
+    } else if ! operands_only and arg == "--check" {
+      # A bare --check takes no value; the argument parser would otherwise
+      # consume the following operand as the check mode.
+      normalized += ["--check=diagnose-first"]
+      at += 1
     } else {
       normalized += [arg]
       at += 1
@@ -1532,13 +1543,16 @@ proc write_sort_stdout(text: Str) [io, env, process] -> Unit {
   gnu.write_text(text)
 }
 
-## Final merge output uses sort's named stdout diagnostic.
+## Final output uses sort's named stdout diagnostic. A closed reader ends the
+## process with the SIGPIPE status and no diagnostic, as in the other output paths.
 proc finish_sort_stdout(text: Str) [io, env, process] -> Unit {
   if let Err(failure) = io.write_stdout(text) {
+    if gnu.errno(failure) == 32 { exit 141 }
     gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
     exit 2
   }
   if let Err(failure) = io.flush_stdout() {
+    if gnu.errno(failure) == 32 { exit 141 }
     gnu.error(f"write failed: 'standard output': {gnu.strerror(failure)}")
     exit 2
   }
@@ -1966,6 +1980,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
   }
 
+  # A key's own ordering letters are checked here; global -d and -i are not, because
+  # a key that names its own ordering does not inherit them.
+  for spec in opts.key {
+    if key_options_are_explicit(spec) {
+      let key_opts = key_effective_options(spec, opts)
+      let key_mode = if key_opts.numeric { "n" } else if key_opts.human_numeric { "h" } else if key_opts.general_numeric { "g" } else if key_opts.month { "M" } else { "" }
+      if key_mode != "" and (key_opts.dictionary or key_opts.ignore_nonprinting) {
+        gnu.error(f"options '{ordering_conflict(key_opts.dictionary, key_mode)}' are incompatible")
+        exit 2
+      }
+    }
+  }
+
   let buffer_size: Int? = if let value = opts.buffer_size { parse_buffer_size(value) } else { null }
   if let batch_size = opts.batch_size { validate_batch_size(batch_size) }
 
@@ -2006,9 +2033,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     exit 2
   }
 
-  if (is_numeric_sort(opts) or human_numeric) and (opts.dictionary or opts.ignore_nonprinting) {
-    let conflict = if opts.dictionary { if human_numeric { "-dh" } else { "-dn" } } else { if human_numeric { "-hi" } else { "-in" } }
-    gnu.error(f"options '{conflict}' are incompatible")
+  let global_mode = if numeric_requested { "n" } else if human_numeric_requested { "h" } else if general_numeric_requested { "g" } else if month_requested { "M" } else { "" }
+  if global_mode != "" and (opts.dictionary or opts.ignore_nonprinting) {
+    gnu.error(f"options '{ordering_conflict(opts.dictionary, global_mode)}' are incompatible")
     exit 2
   }
 
@@ -2188,8 +2215,6 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   } else if opts.zero_terminated or opts.debug {
     write_sort_stdout(text)
   } else {
-    for line in lines {
-      print $line
-    }
+    finish_sort_stdout(text)
   }
 }

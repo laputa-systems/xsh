@@ -84,6 +84,18 @@ test test_sort_dictionary_and_nonprinting_conflict_with_numeric { |ctx|
     assert stderr.read_text()? == f"sort: options '{args[0]}' are incompatible\n"
     assert stdout.read_bytes()?.is_empty()
   }
+  for args in [["-dg"], ["-dM"], ["-ig"], ["-iM"], ["-k", "1d,1n"], ["-k", "1i,1M"]] {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + args, root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert result.exit_code()? == 2, args.join(" ")
+    assert stderr.read_text()?.starts_with("sort: options '-"), args.join(" ")
+    assert stdout.read_bytes()?.is_empty()
+  }
+  let inherited = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-d", "-k", "1,1n"], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert inherited.exit_code()? == 0, stderr.read_text()?
 }
 
 test test_sort_numeric_rejects_leading_plus_and_uses_line_tie_break { |ctx|
@@ -902,6 +914,48 @@ test test_sort_check_conflicting_modes_match_gnu { |ctx|
     {LC_ALL: "C"}, b"", stdout, stderr))?
   assert long_check.exit_code()? == 2
   assert stderr.read_text()? == "sort: options '-cC' are incompatible\n"
+}
+
+test test_sort_bare_check_leaves_following_operand_as_input { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-bare-check")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"1\n3\n2\n")?
+  let failed = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "--check", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert failed.exit_code()? == 1
+  assert stderr.read_text()? == f"sort: {input}:3: disorder: 2\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_reports_default_stdout_write_failure { |ctx|
+  if ! p"/dev/full".exists() { test.skip("requires /dev/full"); return }
+  let root = test.temp_dir(ctx, name: "sort-default-write-failure")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let status = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "exec \"$@\" > /dev/full", "sort-full", ctx.xsh_bin.display(), "--", script.display()],
+    root, {LC_ALL: "C"}, b"hello\n", stdout, stderr))?
+  assert status.exit_code()? == 2, stderr.read_text()?
+  assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_blank_debug_annotations_skip_leading_blanks { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-blank-debug")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"  a\nb\n")?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-b", "--debug", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stderr.read_bytes()?.is_empty()
+  assert stdout.read_text()? == "  a\n  _\n___\nb\n_\n_\n"
 }
 
 test test_sort_check_zero_terminated_records { |ctx|
