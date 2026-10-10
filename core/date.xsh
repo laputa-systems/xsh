@@ -3,7 +3,7 @@ use lib.gnu
 use lib.date_parse
 
 # GNU date treats a lone dash like an empty date expression, which means midnight today.
-proc parse_date(text: Str, utc: Bool) [time, error] -> Result[Int, Error] {
+proc parse_date(text: Str, utc: Bool) [time, error] -> Result[date_parse.Instant, Error] {
   var input = if text == "-" { "" } else { text }
   let words = input.replace("\t", with: " ").split(" ") |> where . != ""
   if words.len() >= 2 {
@@ -28,14 +28,14 @@ proc parse_date(text: Str, utc: Bool) [time, error] -> Result[Int, Error] {
       input = f"{input.byte_slice(timezone_end + 2)} {offset}"
     }
   }
-  date_parse.parse(input, utc:)
+  date_parse.parse_instant(input, utc:)
 }
 
 # GNU date removes fractional trailing zeroes up to the requested precision, then pads after the digits.
-proc format_nanoseconds(epoch_ns: Int, flags: Str, width_text: Str, utc: Bool) [time, error] -> Result[Str] {
+proc format_nanoseconds(instant: date_parse.Instant, flags: Str, width_text: Str, utc: Bool) [time, error] -> Result[Str] {
   var width = if width_text == "" { 9 } else { width_text.parse_int_decimal()? }
   if width <= 0 { width = 9 }
-  let digits = time.format(epoch_ns, "%9N", utc:)?
+  let digits = time.format(date_parse.native_ns(instant)?, "%9N", utc:)?
   var digit_count = 9
   while digit_count > width or (digit_count > 1 and (digits.byte_at(digit_count - 1) ?? 0) == 48) { digit_count -= 1 }
   var output = digits.byte_slice(0, digit_count)
@@ -55,7 +55,7 @@ proc format_nanoseconds(epoch_ns: Int, flags: Str, width_text: Str, utc: Bool) [
     var threshold = 10
     while threshold <= resolution { width -= 1; threshold *= 10 }
     if width <= 0 { width = 9 }
-    return time.format(epoch_ns, f"%{width}N", utc:)
+    return time.format(date_parse.native_ns(instant)?, f"%{width}N", utc:)
   }
   if ! no_padding {
     var remaining = width - digit_count
@@ -88,14 +88,14 @@ pure utf8_char_width(raw: Bytes, at: Int) -> Int {
 # Each valid UTF-8 run is formatted as text. An undecodable byte is copied
 # unchanged, so a `%` before it prints literally and the byte is never read as a
 # conversion.
-proc format_date(epoch_ns: Int, format: Bytes, utc: Bool) [time, error] -> Result[Bytes] {
+proc format_date(instant: date_parse.Instant, format: Bytes, utc: Bool, style: DateStyle) [time, error, process] -> Result[Bytes] {
   var pieces: List[Bytes] = []
   var piece_start = 0
   var at = 0
   while at < format.len() {
     let width = utf8_char_width(format, at)
     if width == 0 {
-      if piece_start < at { pieces += [bytes.from_text(format_text(epoch_ns, format[piece_start..at].utf8()?, utc:)?)] }
+      if piece_start < at { pieces += [bytes.from_text(format_text(instant, format[piece_start..at].utf8()?, utc, style)?)] }
       pieces += [format[at..at + 1]]
       at += 1
       piece_start = at
@@ -103,7 +103,7 @@ proc format_date(epoch_ns: Int, format: Bytes, utc: Bool) [time, error] -> Resul
       at += width
     }
   }
-  if piece_start < format.len() { pieces += [bytes.from_text(format_text(epoch_ns, format[piece_start..format.len()].utf8()?, utc:)?)] }
+  if piece_start < format.len() { pieces += [bytes.from_text(format_text(instant, format[piece_start..format.len()].utf8()?, utc, style)?)] }
   Ok(bytes.concat(pieces))
 }
 
@@ -127,10 +127,210 @@ proc reject_extra_operand(raw: Bytes) [process, env] -> Unit {
   }
 }
 
-proc format_text(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[Str] {
-  # The shared formatter enforces width and output limits before date adjusts %N padding.
-  let formatted = time.format(epoch_ns, format, utc:)?
-  if format.find("N") == null { return Ok(formatted) }
+# Month and weekday names for the languages that have a table. A locale without a
+# table keeps the host's English names.
+type NameSet = {months: List[Str], short_months: List[Str], weekdays: List[Str], short_weekdays: List[Str]}
+
+pure name_set(language: Str) -> NameSet? {
+  match language {
+    "fr" => {
+      months: ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"],
+      short_months: ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"],
+      weekdays: ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"],
+      short_weekdays: ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."],
+    }
+    "de" => {
+      months: ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
+      short_months: ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"],
+      weekdays: ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"],
+      short_weekdays: ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"],
+    }
+    "es" => {
+      months: ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
+      short_months: ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"],
+      weekdays: ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"],
+      short_weekdays: ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"],
+    }
+    "it" => {
+      months: ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"],
+      short_months: ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"],
+      weekdays: ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"],
+      short_weekdays: ["dom", "lun", "mar", "mer", "gio", "ven", "sab"],
+    }
+    "pt" => {
+      months: ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"],
+      short_months: ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"],
+      weekdays: ["domingo", "segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado"],
+      short_weekdays: ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"],
+    }
+    "hu" => {
+      months: ["január", "február", "március", "április", "május", "június", "július", "augusztus", "szeptember", "október", "november", "december"],
+      short_months: ["jan", "febr", "márc", "ápr", "máj", "jún", "júl", "aug", "szept", "okt", "nov", "dec"],
+      weekdays: ["vasárnap", "hétfő", "kedd", "szerda", "csütörtök", "péntek", "szombat"],
+      short_weekdays: ["V", "H", "K", "Sze", "Cs", "P", "Szo"],
+    }
+    "ja" => {
+      months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+      short_months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+      weekdays: ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"],
+      short_weekdays: ["日", "月", "火", "水", "木", "金", "土"],
+    }
+    "zh" => {
+      months: ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"],
+      short_months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
+      weekdays: ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"],
+      short_weekdays: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"],
+    }
+    else => null
+  }
+}
+
+# Calendar systems selected by locale. Only the year, month and day directives
+# follow these; the rest of the format keeps the Gregorian fields.
+pure calendar_name(locale: Str) -> Str {
+  match locale {
+    "fa_IR" => "persian"
+    "th_TH" => "buddhist"
+    "am_ET" => "ethiopian"
+    else => "gregorian"
+  }
+}
+
+type DateStyle = {names: NameSet?, calendar: Str}
+type CalendarDate = {year: Int, month: Int, day: Int}
+
+# The name table and calendar for a locale such as fr_FR.UTF-8; the codeset and
+# modifier are not part of the table key.
+pure date_style(locale: Str) -> DateStyle {
+  let base_with_modifier = locale.split(".")[0]
+  let base = base_with_modifier.split("@")[0]
+  let language = base.split("_")[0].lower()
+  {names: name_set(language), calendar: calendar_name(base)}
+}
+
+proc locale_name() [env] -> Str {
+  for name in ["LC_ALL", "LC_TIME", "LANG"] {
+    let found = env.get_or(name, "") ?? ""
+    if found != "" { return found }
+  }
+  ""
+}
+
+# Persian years follow the 33-year leap cycle; the anchor places 1405-01-01 on 2026-03-21.
+pure persian_is_leap(year: Int) -> Bool {
+  date_parse.positive_mod(year, 33) in [1, 5, 9, 13, 17, 22, 26, 30]
+}
+
+# Days from the start of the Persian calendar's numbering to the given date.
+pure persian_day_number(year: Int, month: Int, day: Int) -> Int {
+  let previous = year - 1
+  var leaps = date_parse.floor_div(previous, 33) * 8
+  for offset in range(date_parse.positive_mod(previous, 33)) {
+    if persian_is_leap(offset + 1) { leaps += 1 }
+  }
+  let month_start = if month <= 6 { 31 * (month - 1) } else { 186 + 30 * (month - 7) }
+  365 * previous + leaps + month_start + day - 1
+}
+
+pure persian_from_days(days: Int) -> CalendarDate {
+  let number = days + persian_day_number(1405, 1, 1) - date_parse.days_from_civil(2026, 3, 21)
+  var year = date_parse.floor_div(number, 365) + 1
+  while persian_day_number(year + 1, 1, 1) <= number { year += 1 }
+  while persian_day_number(year, 1, 1) > number { year -= 1 }
+  let offset = number - persian_day_number(year, 1, 1)
+  return {year: year, month: offset / 31 + 1, day: offset % 31 + 1} when offset < 186
+  {year: year, month: (offset - 186) / 30 + 7, day: (offset - 186) % 30 + 1}
+}
+
+# Ethiopian years have 13 months, the last of 5 days or 6 in a leap year. Year Y
+# is leap when Y is 3 modulo 4, so every four years span 1461 days.
+pure ethiopian_from_days(days: Int) -> CalendarDate {
+  let number = days + 2440588 - 1724221
+  let cycle = date_parse.floor_div(number, 1461)
+  let within = date_parse.positive_mod(number, 1461)
+  let index = if within < 365 { 0 } else if within < 730 { 1 } else if within < 1096 { 2 } else { 3 }
+  let start = if within < 365 { 0 } else if within < 730 { 365 } else if within < 1096 { 730 } else { 1096 }
+  let offset = within - start
+  {year: cycle * 4 + index + 1, month: offset / 30 + 1, day: offset % 30 + 1}
+}
+
+pure calendar_date(calendar: Str, year: Int, month: Int, day: Int) -> CalendarDate {
+  match calendar {
+    "buddhist" => {year: year + 543, month: month, day: day}
+    "persian" => persian_from_days(date_parse.days_from_civil(year, month, day))
+    "ethiopian" => ethiopian_from_days(date_parse.days_from_civil(year, month, day))
+    else => {year: year, month: month, day: day}
+  }
+}
+
+# Whether a format needs the per-directive path: names, a non-Gregorian calendar,
+# or a year shifted for native conversion.
+pure needs_pieces(style: DateStyle, shift: Int) -> Bool {
+  shift != 0 or style.names != null or style.calendar != "gregorian"
+}
+
+# One directive or literal run. Directives that depend on the year, the calendar
+# or the locale's names are computed here. The host formatter handles the rest,
+# applied to the native instant, which shares the true weekday, month and day.
+proc format_directive(instant: date_parse.Instant, spec: Str, utc: Bool, style: DateStyle) [time, error, process] -> Result[Str] {
+  let native = time.format(date_parse.native_ns(instant)?, spec, utc:)?
+  if (spec.byte_at(0) ?? 0) != 37 { return Ok(native) }
+  let conversion = spec.byte_slice(spec.byte_len() - 1)
+  let shift = date_parse.shift_years(instant)?
+  let year_directive = conversion in ["Y", "C", "y", "F", "D", "x", "c", "G", "g", "s", "+"]
+  let calendar_directive = conversion in ["Y", "C", "y", "m", "d", "e", "F", "D"]
+  let name_directive = conversion in ["a", "A", "b", "B", "h"]
+  if spec.byte_len() != 2 {
+    if (shift != 0 and year_directive) or (style.calendar != "gregorian" and calendar_directive) or (style.names != null and name_directive) {
+      gnu.error(f"format directive {spec} is not supported for this year or locale")
+      exit 1
+    }
+    return Ok(native)
+  }
+  let name_set_for_locale = style.names
+  if name_directive and name_set_for_locale != null {
+    let names = name_set_for_locale
+    let fields = date_parse.calendar(instant, utc)?
+    let text = match conversion {
+      "a" => names.short_weekdays[fields.weekday]
+      "A" => names.weekdays[fields.weekday]
+      "b" | "h" => names.short_months[fields.month - 1]
+      else => names.months[fields.month - 1]
+    }
+    return Ok(text)
+  }
+  if shift == 0 and style.calendar == "gregorian" { return Ok(native) }
+  let fields = date_parse.calendar(instant, utc)?
+  let date = calendar_date(style.calendar, fields.year, fields.month, fields.day)
+  # ISO week-based years repeat with the same 400-year cycle, so the shifted
+  # native year only needs the shift added back.
+  let iso_year = if shift != 0 and conversion in ["G", "g"] { time.format(date_parse.native_ns(instant)?, "%G", utc:)?.parse_int_decimal()? + shift } else { 0 }
+  match conversion {
+    "Y" => Ok(f"{date.year:04}")
+    "C" => Ok(f"{date.year / 100:02}")
+    "y" => Ok(f"{date_parse.positive_mod(date.year, 100):02}")
+    "m" => Ok(f"{date.month:02}")
+    "d" => Ok(f"{date.day:02}")
+    "e" => Ok(f"{date.day:>2}")
+    "F" => Ok(f"{date.year:04}-{date.month:02}-{date.day:02}")
+    "D" => Ok(f"{date.month:02}/{date.day:02}/{date_parse.positive_mod(date.year, 100):02}")
+    "s" => if shift != 0 { Ok(f"{instant.seconds}") } else { Ok(native) }
+    "c" => if shift != 0 or style.names != null { format_text(instant, "%a %b %e %H:%M:%S %Y", utc, style) } else { Ok(native) }
+    "x" => if shift != 0 or style.names != null { format_text(instant, "%m/%d/%y", utc, style) } else { Ok(native) }
+    "G" => if shift != 0 { Ok(f"{iso_year:04}") } else { Ok(native) }
+    "g" => if shift != 0 { Ok(f"{date_parse.positive_mod(iso_year, 100):02}") } else { Ok(native) }
+    "+" => if shift != 0 {
+      gnu.error(f"format directive {spec} is not supported for this year or locale")
+      exit 1
+    } else { Ok(native) }
+    else => Ok(native)
+  }
+}
+
+# The shared formatter enforces width and output limits before date adjusts %N padding.
+proc format_text(instant: date_parse.Instant, format: Str, utc: Bool, style: DateStyle) [time, error, process] -> Result[Str] {
+  let formatted = time.format(date_parse.native_ns(instant)?, format, utc:)?
+  if ! needs_pieces(style, date_parse.shift_years(instant)?) and format.find("N") == null { return Ok(formatted) }
   var output = ""
   var index = 0
   let length = format.byte_len()
@@ -138,13 +338,13 @@ proc format_text(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[
     if (format.byte_at(index) ?? 0) != 37 {
       let start = index
       while index < length and (format.byte_at(index) ?? 0) != 37 { index += 1 }
-      output = f"{output}{time.format(epoch_ns, format.byte_slice(start, length: index - start), utc:)?}"
+      output = f"{output}{format_directive(instant, format.byte_slice(start, length: index - start), utc, style)?}"
       continue
     }
     let start = index
     index += 1
     if index >= length {
-      output = f"{output}{time.format(epoch_ns, format.byte_slice(start), utc:)?}"
+      output = f"{output}{format_directive(instant, format.byte_slice(start), utc, style)?}"
       break
     }
     if (format.byte_at(index) ?? 0) == 37 { output = f"{output}%"; index += 1; continue }
@@ -166,7 +366,7 @@ proc format_text(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[
       index += 1
     }
     if index >= length {
-      output = f"{output}{time.format(epoch_ns, format.byte_slice(start), utc:)?}"
+      output = f"{output}{format_directive(instant, format.byte_slice(start), utc, style)?}"
       break
     }
     let first_byte = format.byte_at(index) ?? 0
@@ -174,9 +374,9 @@ proc format_text(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[
     let end = index + spec_width
     let specifier = format.byte_slice(index, length: spec_width)
     let piece = if specifier == "N" and colons == 0 {
-      if modifier == "E" { format.byte_slice(start, length: end - start) } else { format_nanoseconds(epoch_ns, flags, width_text, utc:)? }
+      if modifier == "E" { format.byte_slice(start, length: end - start) } else { format_nanoseconds(instant, flags, width_text, utc:)? }
     } else {
-      time.format(epoch_ns, format.byte_slice(start, length: end - start), utc:)?
+      format_directive(instant, format.byte_slice(start, length: end - start), utc, style)?
     }
     output = f"{output}{piece}"
     index = end
@@ -189,7 +389,7 @@ pure has_explicit_time(input: Str) -> Bool {
 }
 
 # Date-only inputs inherit midnight; epoch timestamps already identify a complete instant.
-proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool) [time, process, env, io, error] -> Bool {
+proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool, style: DateStyle) [time, process, env, io, error] -> Bool {
   # A date with undecodable bytes cannot match any date syntax, so it is reported
   # with octal escapes instead of being parsed.
   var text = ""
@@ -204,14 +404,14 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool) [time, process
     Ok(epoch) => {
       if debug {
         gnu.error(f"input string: {text}")
-        gnu.error(f"parsed date part: (Y-M-D) {time.format(epoch, "%F", utc:)?}")
-        gnu.error(f"parsed time part: (H:M:S) {time.format(epoch, "%T", utc:)?}")
-        gnu.error(f"input timezone: {time.format(epoch, "%Z", utc:)?}")
+        gnu.error(f"parsed date part: (Y-M-D) {format_text(epoch, "%F", utc, style)?}")
+        gnu.error(f"parsed time part: (H:M:S) {format_text(epoch, "%T", utc, style)?}")
+        gnu.error(f"input timezone: {format_text(epoch, "%Z", utc, style)?}")
         if ! has_explicit_time(text) {
           gnu.error("warning: using midnight")
         }
       }
-      match format_date(epoch, format, utc:) {
+      match format_date(epoch, format, utc, style) {
         Ok(output) => { gnu.write_bytes(bytes.concat([output, b"\n"])); return true }
         Err(failure) => gnu.error(failure.message)
       }
@@ -223,6 +423,7 @@ proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool) [time, process
 
 proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
   let prepared = gnu.prepare_arguments(raw)
+  var style = date_style(locale_name())
   var argv: List[Str] = []
   for item in prepared.text {
     if item.starts_with("-") and ! item.starts_with("--") and item.byte_len() > 2 {
@@ -258,7 +459,8 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
     if ! operands and arg == "--version" { gnu.version("date"); return }
     if ! operands and arg == "--debug" { debug = true; continue }
     if ! operands and (arg == "-u" or arg == "--utc" or arg == "--universal" or arg == "--uct" or arg == "--uni" or arg == "--u") { utc = true; continue }
-    if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822" or arg == "--rfc-e") { format = b"%a, %d %b %Y %H:%M:%S %z"; continue }
+    # RFC 5322 dates use the C names and Gregorian fields whatever the locale.
+    if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822" or arg == "--rfc-e") { format = b"%a, %d %b %Y %H:%M:%S %z"; style = {names: null, calendar: "gregorian"}; continue }
     if ! operands and arg == "--resolution" { resolution = true; continue }
     if ! operands and (arg.starts_with("-I") or arg.starts_with("--iso-8601") or arg == "--i" or arg.starts_with("--i=") or arg.starts_with("--rfc-3339") or arg.starts_with("--rfc-3=")) {
       var spec = "date"
@@ -266,6 +468,7 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
       if arg.starts_with("-I") { spec = arg.byte_slice(2) } else if arg.find("=") != null { spec = arg.split("=", maxsplit: 1)[1] } else if rfc { gnu.usage_error("option '--rfc-3339' requires an argument") }
       if spec == "" { spec = "date" }
       let separator = if rfc { " " } else { "T" }
+      style = {names: style.names, calendar: "gregorian"}
       match spec {
         "date" => format = b"%Y-%m-%d"
         "hour" | "hours" => format = bytes.from_text(f"%Y-%m-%d{separator}%H%:z")
@@ -306,12 +509,12 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
   if resolution {
     if source != "" { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
     let nanos = time.clock_resolution()?
-    if specified_format or format != b"%a %b %e %H:%M:%S %Z %Y" { gnu.write_bytes(bytes.concat([format_date(nanos, format, utc:)?, b"\n"])) } else { gnu.write_text(f"{nanos / 1000000000}.{format_text(nanos % 1000000000, "%N", utc: true)?}\n") }
+    if specified_format or format != b"%a %b %e %H:%M:%S %Z %Y" { gnu.write_bytes(bytes.concat([format_date(date_parse.instant_from_ns(nanos), format, utc, style)?, b"\n"])) } else { gnu.write_text(f"{nanos / 1000000000}.{format_text(date_parse.instant_from_ns(nanos % 1000000000), "%N", utc: true, style)?}\n") }
     return
   }
   if source == "reference" {
     match fs.stat(Path.parse_bytes(reference)?, follow_symlinks: true) {
-      Ok(meta) => { gnu.write_bytes(bytes.concat([format_date(meta.mtime_ns, format, utc:)?, b"\n"])); return }
+      Ok(meta) => { gnu.write_bytes(bytes.concat([format_date(date_parse.instant_from_ns(meta.mtime_ns), format, utc, style)?, b"\n"])); return }
       Err(failure) => { gnu.error(f"{gnu.quote_bytes(reference, always: false)}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
@@ -329,7 +532,7 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
       var end = 0
       while end < raw_line.len() and raw_line.byte_at(end) != 0 { end += 1 }
       let line = raw_line[0..end]
-      if ! emit_date(line, format, utc, debug) { success = false }
+      if ! emit_date(line, format, utc, debug, style) { success = false }
     }
     if ! success { exit 1 }
     return
@@ -341,17 +544,22 @@ proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
       Ok(value) => text = value
       Err(_) => { gnu.error(f"invalid date {gnu.quote_value_bytes(date)}"); exit 1 }
     }
-    let parsed = if set_option { parse_date(text, utc:) } else { date_parse.parse(text, utc:) }
+    let parsed = if set_option { parse_date(text, utc:) } else { date_parse.parse_instant(text, utc:) }
     match parsed {
       Ok(epoch) => {
-        if let Err(failure) = linux.set_system_clock(epoch / 1000000) {
-          gnu.error(f"cannot set date: {gnu.strerror(failure)}")
-          let _ = emit_date(date, format, utc, false)
-          exit 1
+        match date_parse.instant_ns(epoch) {
+          Ok(nanos) => {
+            if let Err(failure) = linux.set_system_clock(nanos / 1000000) {
+              gnu.error(f"cannot set date: {gnu.strerror(failure)}")
+              let _ = emit_date(date, format, utc, false, style)
+              exit 1
+            }
+          }
+          Err(failure) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
         }
       }
       Err(failure) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
     }
   }
-  if ! emit_date(date, format, utc, debug and source == "date") { exit 1 }
+  if ! emit_date(date, format, utc, debug and source == "date", style) { exit 1 }
 }

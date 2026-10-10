@@ -259,3 +259,71 @@ test test_date_file_and_reference_accept_non_utf8_paths { |ctx|
   assert reference_result.status == 0, reference_result.stderr
   assert reference_result.stdout == bytes.from_text(f"{fs.stat(reference)?.mtime_ns / 1000000000}\n")
 }
+
+test test_date_parse_instant_carries_years_beyond_nanoseconds {
+  let instant = date_parse.parse_instant("18978-01-01", utc: true)?
+  assert instant.seconds == date_parse.days_from_civil(18978, 1, 1) * 86400
+  assert instant.nanoseconds == 0
+  assert date_parse.instant_ns(instant) is Err(_)
+  assert date_parse.parse("18978-01-01", utc: true) is Err(_)
+  assert date_parse.parse("2000-01-01 00:00:00.5", utc: true)? == 946684800500000000
+}
+
+test test_date_large_years_default_output { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let output = run.text env LC_ALL=C TZ=UTC0 ${ctx.xsh_bin} $script -- -d 18978-01-01
+  assert output == "Thu Jan  1 00:00:00 UTC 18978\n"
+  let offset = run.text env LC_ALL=C TZ=UTC0 ${ctx.xsh_bin} $script -- -d "10000-01-01 00:00 +1400"
+  assert offset == "Fri Dec 31 10:00:00 UTC 9999\n"
+  let invalid = run.capture --text ${ctx.xsh_bin} $script -- -d 10000-02-30
+  assert invalid.status.exited_with(1)
+  assert invalid.stdout == ""
+  assert invalid.stderr == "date: invalid date '10000-02-30'\n"
+}
+
+test test_date_shifted_years_format_each_field { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let seconds = date_parse.days_from_civil(18978, 1, 1) * 86400
+  let output = run.text env LC_ALL=C TZ=UTC0 ${ctx.xsh_bin} $script -- -d 18978-01-01 "+%C %y %F %D %s %c"
+  assert output == f"189 78 18978-01-01 01/01/78 {seconds} Thu Jan  1 00:00:00 18978\n"
+  let unsupported = run.capture --text env LC_ALL=C TZ=UTC0 ${ctx.xsh_bin} $script -- -d 18978-01-01 "+%+"
+  assert unsupported.status.exited_with(1)
+  assert unsupported.stderr == "date: format directive %+ is not supported for this year or locale\n"
+}
+
+test test_date_locale_names_follow_locale_table { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let names = run.text env LC_ALL=fr_FR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-01-26 "+%A %a %B %b"
+  assert names == "lundi lun. janvier janv\n"
+  let german = run.text env LC_ALL=de_DE.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-06-15 +%B
+  assert german == "Juni\n"
+  let japanese = run.text env LC_ALL=ja_JP.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-01-24 +%A
+  assert japanese == "土曜日\n"
+  let english = run.text env LC_ALL=en_US.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-01-24 +%A
+  assert english == "Saturday\n"
+  let modified = run.capture --text env LC_ALL=fr_FR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-01-26 "+%^A"
+  assert modified.status.exited_with(1)
+  assert modified.stderr == "date: format directive %^A is not supported for this year or locale\n"
+}
+
+test test_date_locale_calendars_convert_year_month_and_day { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let calendar_1 = run.text env LC_ALL=fa_IR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-03-21 "+%Y-%m-%d"
+  assert calendar_1 == "1405-01-01\n"
+  let calendar_2 = run.text env LC_ALL=fa_IR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-03-20 "+%Y-%m-%d"
+  assert calendar_2 == "1404-12-29\n"
+  let calendar_3 = run.text env LC_ALL=th_TH.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-01-01 "+%Y-%m-%d"
+  assert calendar_3 == "2569-01-01\n"
+  let calendar_4 = run.text env LC_ALL=am_ET.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-09-11 "+%Y-%m-%d"
+  assert calendar_4 == "2019-01-01\n"
+  let calendar_5 = run.text env LC_ALL=am_ET.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -d 2026-09-10 "+%Y-%m-%d"
+  assert calendar_5 == "2018-13-05\n"
+}
+
+test test_date_rfc_and_iso_formats_ignore_calendar_locale { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let rfc = run.text env LC_ALL=fr_FR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -R -d "1997-01-19 08:17:48 +0"
+  assert rfc == "Sun, 19 Jan 1997 08:17:48 +0000\n"
+  let iso = run.text env LC_ALL=fa_IR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -I -d 2026-03-21
+  assert iso == "2026-03-21\n"
+}
