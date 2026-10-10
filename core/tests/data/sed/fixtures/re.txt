@@ -1,0 +1,10 @@
+a.b
+a*b
+[x]
+(y)
+a+b
+ab
+aab
+aaab
+^a$
+foo|bar

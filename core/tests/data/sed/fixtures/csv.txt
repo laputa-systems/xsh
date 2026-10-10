@@ -1,0 +1,3 @@
+name,age,city
+ann,30,paris
+bob,25,rome
