@@ -2199,6 +2199,7 @@ type Widths = {
   minor: Int,
   users: Map[Str],
   groups: Map[Str],
+  any_acl: Bool,
 }
 
 pure digits(n: Int) -> Int {
@@ -2232,6 +2233,7 @@ proc listing_widths(ctx: Ctx, files: List[File]) [fs] -> Widths {
     minor: 0,
     users: {},
     groups: {},
+    any_acl: false,
   )
   let long = ctx.format == "long"
   let cfg = ctx.cfg
@@ -2253,6 +2255,7 @@ proc listing_widths(ctx: Ctx, files: List[File]) [fs] -> Widths {
     continue when ! long
 
     w.nlink = max_of(w.nlink, digits(f.st.nlink))
+    w.any_acl = w.any_acl or f.acl
 
     if cfg.owner or cfg.author {
       let key = f"{f.st.uid}"
@@ -2310,7 +2313,9 @@ proc group_name(gid: Int) [fs] -> Str {
   }
 }
 
-pure mode_string(f: File) -> Str {
+# `any_acl` is whether some entry in the listing has an ACL. The marker column is
+# then always present so that the link-count column stays aligned.
+pure mode_string(f: File, any_acl: Bool) -> Str {
   let letter = kind_letter(f.kind)
 
   return f"{letter}?????????" when ! f.ok
@@ -2345,7 +2350,13 @@ pure mode_string(f: File) -> Str {
   let w3 = if mode_has(mode, 2) { "w" } else { "-" }
 
   let permissions = f"{letter}{r1}{w1}{user_x}{r2}{w2}{group_x}{r3}{w3}{other_x}"
-  if f.acl { f"{permissions}+" } else { permissions }
+  if f.acl {
+    f"{permissions}+"
+  } else if any_acl {
+    f"{permissions} "
+  } else {
+    permissions
+  }
 }
 
 # The character ls -F / -p / --file-type appends, or "".
@@ -2704,7 +2715,7 @@ proc long_line(ctx: Ctx, f: File, wd: Widths, pad: Bool, used0: Bool) [fs] -> Lo
     head = f"{head}{rpad(blocks_text(ctx, f), wd.blocks)} "
   }
 
-  head = f"{head}{mode_string(f)} {rpad(if f.ok { f"{f.st.nlink}" } else { "?" }, wd.nlink)} "
+  head = f"{head}{mode_string(f, wd.any_acl)} {rpad(if f.ok { f"{f.st.nlink}" } else { "?" }, wd.nlink)} "
 
   if cfg.owner {
     head = f"{head}{owner_text(ctx, wd, f, false)}"
@@ -3104,6 +3115,12 @@ proc time_formats(cfg: Cfg) [process, env] -> List[Str] {
     }
 
     style = style[6..]
+  }
+
+  # The name is validated before the POSIX-locale shortcut so that a bad name is
+  # rejected in every locale, including an empty name left after "posix-".
+  if ! style.starts_with("+") and quiet_match(style, TIME_STYLE_NAMES) == null {
+    invalid_time_style(style)
   }
 
   return ["%b %e  %Y", "%b %e %H:%M"] when locale_only

@@ -124,6 +124,24 @@ test test_ls_long_marks_default_acl { |ctx|
   assert "lrwxrwxrwx+" not in not_followed.text, not_followed.text
 }
 
+test test_ls_long_keeps_columns_aligned_when_an_entry_has_an_acl { |ctx|
+  let work = sandbox(ctx)?
+  let with_acl = fp"{work}/with-acl"
+  let without_acl = fp"{work}/without-acl"
+  with_acl.mkdir()
+  without_acl.mkdir()
+  let entries = acl.parse("u::rwx,u:12345:r-x,g::r-x,m::r-x,o::r-x", defaults: true)?
+  if let Err(failure) = fs.xattr_set(with_acl, "system.posix_acl_default", acl.encode(entries)?) {
+    if (failure.errno ?? -1) in [1, 95, 93] { test.skip(f"default ACL fixture unavailable: {failure.message}"); return }
+    test.fail(failure.message)
+  }
+
+  let result = ls_in(ctx, work, ["-ld", "with-acl", "without-acl"])?
+  assert result.status == 0, result.err
+  assert result.text.find("drwxr-xr-x+ 2 ") != null, result.text
+  assert result.text.find("drwxr-xr-x  2 ") != null, "the entry without an ACL gets a blank marker column"
+}
+
 test test_ls_directory_operands_and_headers { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/x".mkdir()
@@ -205,6 +223,21 @@ test test_ls_option_errors_use_getopt_and_argmatch_wording { |ctx|
   assert style.status == 2
   assert style.err == "ls: invalid --time-style argument 'bogus'\nPossible values are:\n  - [posix-]full-iso\n  - [posix-]long-iso\n  - [posix-]iso\n  - [posix-]locale\n  - +FORMAT (e.g., +%H:%M) for a 'date'-style format\n\nFor more information try --help\n", style.err
   assert ls_in(ctx, work, ["--time-style=bogus"])?.status == 0, "the style is checked only for long listings"
+}
+
+test test_ls_posix_prefix_still_validates_the_style_name { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/old".write("")
+
+  for style in ["posix-", "posix-l", "posix-lo", "posix-full-isox", "Locale"] {
+    let result = ls_in(ctx, work, ["-l", f"--time-style={style}", "old"], {LC_ALL: "C", TZ: "UTC"})?
+    assert result.status == 2, style
+    assert result.out == b"", style
+    assert "invalid --time-style argument" in result.err, result.err
+  }
+
+  let empty = ls_in(ctx, work, ["-l", "--time-style=posix-", "old"], {LC_ALL: "C", TZ: "UTC"})?
+  assert empty.err.starts_with("ls: invalid --time-style argument ''\n"), empty.err
 }
 
 test test_ls_invalid_value_uses_failure_status { |ctx|
