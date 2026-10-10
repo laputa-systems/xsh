@@ -1,5 +1,5 @@
 #![allow(clippy::single_call_fn)]
-use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_privileges_type};
+use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_privileges_type, linux_namespace_type};
 
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
@@ -2264,6 +2264,30 @@ fn linux_module() -> ModuleSig {
         ("set_keep_capabilities", sig(vec![param("enabled", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxSetKeepCapabilities)),
         ("set_parent_death_signal", sig(vec![param("signal", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxSetParentDeathSignal)),
         ("set_ptracer", sig(vec![param("pid", Type::Int)], result(Type::Unit), false, RuntimeOp::LinuxSetPtracer)),
+        ("namespaces", sig(vec![default_param("pid", Type::Optional(Box::new(Type::Int)))], result(Type::List(Box::new(linux_namespace_type()))), false, RuntimeOp::LinuxNamespaces)),
+
+        (
+            "run_in_namespaces",
+            sig(
+                vec![
+                    param("command", Type::Command),
+                    default_param("unshare", list_str()),
+                    default_param("join", list_path()),
+                    default_param("map_root_user", Type::Bool),
+                    default_param("propagation", Type::Str),
+                    default_param("mount_proc", Type::Optional(Box::new(Type::Path))),
+                    default_param("fork", Type::Bool),
+                    default_param("root", Type::Optional(Box::new(Type::Path))),
+                    default_param("cwd", Type::Optional(Box::new(Type::Path))),
+                    default_param("uid", Type::Optional(Box::new(Type::Int))),
+                    default_param("gid", Type::Optional(Box::new(Type::Int))),
+                    default_param("drop_groups", Type::Bool),
+                ],
+                Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
+                false,
+                RuntimeOp::LinuxRunInNamespaces,
+            ),
+        ),
 
         (
             "write_device",
@@ -4737,6 +4761,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         | "LinuxStorageCandidate" => super::linux_storage::record_doc(name),
         "LinuxBlockdevInfo" => ("Block device dimensions and read-only state.", "Values reflect device state at query time.", &["linux", "device"]),
         "LinuxPrivileges" => ("The privilege state of the calling thread.", "Capability sets are ascending capability numbers; bounding and ambient cover every capability the kernel defines. securebits names the flags that are set, parent_death_signal is 0 when none is requested, and last_capability is the highest capability number this kernel defines.", &["linux", "privileges", "host-state"]),
+        "LinuxNamespace" => (
+            "Describes one namespace and the lowest-numbered process holding it.",
+            "The record is a point-in-time observation of processes the caller may inspect; ns is the inode that identifies the namespace.",
+            &["linux", "namespace", "record"],
+        ),
         "LinuxModinfo" => (
             "Describes Linux kernel-module metadata.",
             "The record is inspection data and does not load the named module.",

@@ -62,6 +62,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxNetworkRule", linux_network_rule_type()),
         ("LinuxNetworkDump", linux_network_dump_type()),
         ("LinuxLoopDevice", linux_loop_device_type()),
+        ("LinuxNamespace", linux_namespace_type()),
         ("LinuxMemInfo", linux_meminfo_type()),
         ("LinuxSample", linux_sample_type()),
         ("LinuxCpuSample", linux_cpu_sample_type()),
@@ -1257,6 +1258,20 @@ pub fn linux_privileges_type() -> Type {
         ("no_new_privs", Type::Bool),
         ("parent_death_signal", Type::Int),
         ("last_capability", Type::Int),
+pub fn linux_namespace_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("ns", Type::Int),
+        ("type", Type::Str),
+        ("path", Type::Path),
+        ("nprocs", Type::Int),
+        ("pid", Type::Int),
+        ("ppid", Type::Int),
+        ("uid", Type::Int),
+        ("command", Type::Str),
+        ("pns", Type::Int),
+        ("ons", Type::Int),
+        ("netnsid", Type::Optional(Box::new(Type::Int))),
+        ("nsfs", Type::List(Box::new(Type::Path))),
     ]))
 }
 

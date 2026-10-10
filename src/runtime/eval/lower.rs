@@ -587,6 +587,8 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::LinuxBlockdevRereadPartitionTable
             | RuntimeOp::LinuxFstrim
             | RuntimeOp::LinuxFsfreeze
+            | RuntimeOp::LinuxNamespaces
+            | RuntimeOp::LinuxRunInNamespaces
             | RuntimeOp::UnixPollFd
             | RuntimeOp::SetEmpty
             | RuntimeOp::SetFrom

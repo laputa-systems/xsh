@@ -170,6 +170,8 @@ pub enum RuntimeOp {
     LinuxNvmeGetFeature,
     LinuxNvmeSetFeature,
     LinuxStorageCandidates,
+    LinuxNamespaces,
+    LinuxRunInNamespaces,
 
     RegexCaptures,
     RegexReplace,

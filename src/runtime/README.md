@@ -13,6 +13,7 @@ behavior lives in `src/runtime/eval/*`.
 | proc, pure, or call dispatch | `src/runtime/eval/call.rs` |
 | command forms | `src/runtime/eval/command.rs` |
 | `run`, `spawn`, `wait`, captures, argv | `src/runtime/run.rs`, `src/runtime/process.rs` |
+| namespace changes made by a spawned child (`linux.run_in_namespaces`) | `src/runtime/namespace.rs`, `src/runtime/eval/lowered_run/namespaces.rs` |
 | structured streams | `src/runtime/eval/stream.rs` |
 | standard module dispatch needing evaluator state | `src/runtime/eval/modules.rs` |
 | value methods | `src/runtime/eval/methods.rs` |

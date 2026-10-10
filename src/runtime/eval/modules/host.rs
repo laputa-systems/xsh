@@ -232,6 +232,7 @@ fn command_invocation(command: &CommandSpec) -> HostResult<ProcessInvocation> {
         timeout: command.timeout,
         cpu_max: None,
         accepted_exit_codes: None,
+        namespaces: None,
     })
 }
 

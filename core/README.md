@@ -65,6 +65,15 @@ the script header documents. Where util-linux silently skips a request the
 kernel refused (an ambient capability that is not inheritable, adding back a
 capability already dropped from the bounding set), the applet fails with the
 kernel's wording; `+all` stays tolerant and covers only what can still apply.
+`unshare` and `nsenter` run their command through `linux.run_in_namespaces`,
+which makes every namespace change in a forked child (a user namespace needs a
+single-threaded process, and scripts do not run in one), so the command is
+always a child of the applet and the applet reports its status or repeats its
+signal death. `lsns` formats `linux.namespaces`. `unshare` refuses the
+persistent `--mount=FILE` forms, which need a process outside the new
+namespaces to bind the namespace file; `nsenter` adds
+`--preserve-credentials` for entering a user namespace whose `setgroups` is
+denied, the case every unprivileged `unshare --map-root-user` creates.
 
 `system-report` is documented in `core/SYSTEM-REPORT.md`.
 

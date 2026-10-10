@@ -4386,6 +4386,14 @@ Contracts worth knowing without consulting the reference:
   node. Under `test.linux_fake` these functions never touch the descriptor:
   they answer from the `storage_fixture` file (§17) and fail with
   `linux-storage-fake` when no line matches or no fixture is set.
+- `linux.run_in_namespaces` makes its namespace changes in a forked child and
+  never in the caller: scripts run on a thread of a multithreaded process, and
+  the kernel refuses a user namespace to such a process. The command is always
+  that child (or, with `fork: true`, a second child of it, so the command is the
+  first process of a pid namespace the child created or joined; the first
+  child relays its exit status, or repeats a death by signal). `linux.namespaces`
+  lists what processes the caller may inspect hold. The `linux` fake implements
+  neither: both fail with `linux-fake-unsupported`.
 - `unix` entries likewise act on the host when called: `set_hostname`,
   `set_tty_attrs`, `pid1_setup`, process-group spawns and signals, and `exec`
   have no environment gate or dry-run switch. Native tests use

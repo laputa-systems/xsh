@@ -1,0 +1,531 @@
+//! Namespace changes a spawned child makes between fork and exec.
+//!
+//! Scripts run on a worker thread of a multithreaded process, and the kernel
+//! refuses `unshare(CLONE_NEWUSER)` and `setns` into a user namespace to any
+//! process with more than one thread. A forked child has exactly one, so every
+//! namespace change a script asks for is made there, and the command is
+//! executed from the same child. Whatever the child does between fork and exec
+//! must be async-signal-safe: everything it needs is prepared in the parent.
+
+use crate::runtime::value::RunError;
+
+/// A kind of namespace, named as the kernel names it under `/proc/PID/ns`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NamespaceKind {
+    Mount,
+    Uts,
+    Ipc,
+    Net,
+    Pid,
+    User,
+    Cgroup,
+    Time,
+}
+
+impl NamespaceKind {
+    pub const NAMES: [&'static str; 8] = ["mnt", "uts", "ipc", "net", "pid", "user", "cgroup", "time"];
+
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "mnt" => Self::Mount,
+            "uts" => Self::Uts,
+            "ipc" => Self::Ipc,
+            "net" => Self::Net,
+            "pid" => Self::Pid,
+            "user" => Self::User,
+            "cgroup" => Self::Cgroup,
+            "time" => Self::Time,
+            _ => return None,
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn clone_flag(self) -> libc::c_int {
+        // CLONE_NEWTIME is not named by every libc release.
+        const CLONE_NEWTIME: libc::c_int = 0x0000_0080;
+        match self {
+            Self::Mount => libc::CLONE_NEWNS,
+            Self::Uts => libc::CLONE_NEWUTS,
+            Self::Ipc => libc::CLONE_NEWIPC,
+            Self::Net => libc::CLONE_NEWNET,
+            Self::Pid => libc::CLONE_NEWPID,
+            Self::User => libc::CLONE_NEWUSER,
+            Self::Cgroup => libc::CLONE_NEWCGROUP,
+            Self::Time => CLONE_NEWTIME,
+        }
+    }
+}
+
+/// How the mount tree is marked after a new mount namespace is created.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Propagation {
+    #[default]
+    Unchanged,
+    Private,
+    Shared,
+    Slave,
+}
+
+impl Propagation {
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "unchanged" => Self::Unchanged,
+            "private" => Self::Private,
+            "shared" => Self::Shared,
+            "slave" => Self::Slave,
+            _ => return None,
+        })
+    }
+
+    #[cfg(target_os = "linux")]
+    fn mount_flag(self) -> Option<libc::c_ulong> {
+        match self {
+            Self::Unchanged => None,
+            Self::Private => Some(libc::MS_PRIVATE),
+            Self::Shared => Some(libc::MS_SHARED),
+            Self::Slave => Some(libc::MS_SLAVE),
+        }
+    }
+}
+
+/// The ordered namespace work of one child, applied as: unshare the listed
+/// kinds, join the namespace files, map the caller to root, fork so the
+/// command is the first process of a new pid namespace, set mount propagation,
+/// mount a fresh procfs, enter the root and working directories, then change
+/// credentials.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct NamespaceEntry {
+    pub unshare: Vec<NamespaceKind>,
+    /// Namespace files (`/proc/PID/ns/net`), opened before any change so that
+    /// a path resolves in the caller's mount namespace, and entered in order.
+    pub join: Vec<std::path::PathBuf>,
+    pub map_root_user: bool,
+    pub propagation: Propagation,
+    pub mount_proc: Option<std::path::PathBuf>,
+    pub fork: bool,
+    /// Directories opened before any change, like `join`.
+    pub root: Option<std::path::PathBuf>,
+    pub cwd: Option<std::path::PathBuf>,
+    /// Drop the supplementary groups before credentials change.
+    pub drop_groups: bool,
+    pub uid: Option<u32>,
+    pub gid: Option<u32>,
+}
+
+/// The failing child step is carried to the parent inside the OS error
+/// number the spawn reports: the step in the bits above the 12 an errno uses.
+const STEP_SHIFT: u32 = 12;
+const ERRNO_MASK: i32 = (1 << STEP_SHIFT) - 1;
+const STEP_KIND_PREFIX: &str = "namespace-step-";
+/// Kind of the failure to open a file the entry names, before any fork.
+const OPEN_KIND: &str = "namespace-open";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+enum Step {
+    Unshare = 1,
+    Join,
+    SetgroupsFile,
+    UidMap,
+    GidMap,
+    Fork,
+    Propagation,
+    MountProc,
+    RootDirectory,
+    Chroot,
+    WorkingDirectory,
+    Setgroups,
+    Setgid,
+    Setuid,
+}
+
+impl Step {
+    const ALL: [Step; 14] = [
+        Step::Unshare,
+        Step::Join,
+        Step::SetgroupsFile,
+        Step::UidMap,
+        Step::GidMap,
+        Step::Fork,
+        Step::Propagation,
+        Step::MountProc,
+        Step::RootDirectory,
+        Step::Chroot,
+        Step::WorkingDirectory,
+        Step::Setgroups,
+        Step::Setgid,
+        Step::Setuid,
+    ];
+
+    fn from_code(code: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|step| *step as u8 == code)
+    }
+}
+
+impl NamespaceEntry {
+    /// The namespace step failure a completed run reports as an exec failure
+    /// in its status, worded as the util-linux tools word it.
+    pub fn status_failure(&self, status: &crate::runtime::process::ProcessStatus) -> Option<RunError> {
+        status.segments.iter().find_map(|segment| {
+            let kind = segment.error_kind.as_deref()?;
+            let message = segment.error_message.clone().unwrap_or_default();
+            if kind == OPEN_KIND {
+                return Some(RunError::new("spawn", message));
+            }
+            kind.starts_with(STEP_KIND_PREFIX)
+                .then(|| self.describe_failure(RunError::new(kind, message)))
+        })
+    }
+
+    /// The failure a child step reported, worded as the util-linux tools word
+    /// it, or `error` unchanged when it is not a namespace step.
+    pub fn describe_failure(&self, error: RunError) -> RunError {
+        let Some(code) = error
+            .kind
+            .strip_prefix(STEP_KIND_PREFIX)
+            .and_then(|code| code.parse::<u8>().ok())
+            .and_then(Step::from_code)
+        else {
+            return error;
+        };
+        let what = match code {
+            Step::Unshare => "unshare failed".to_string(),
+            Step::Join => "reassociate to namespaces failed".to_string(),
+            Step::SetgroupsFile => "write failed /proc/self/setgroups".to_string(),
+            Step::UidMap => "write failed /proc/self/uid_map".to_string(),
+            Step::GidMap => "write failed /proc/self/gid_map".to_string(),
+            Step::Fork => "fork failed".to_string(),
+            Step::Propagation => "cannot change root filesystem propagation".to_string(),
+            Step::MountProc => format!(
+                "mount {} failed",
+                self.mount_proc
+                    .as_deref()
+                    .unwrap_or_else(|| std::path::Path::new("/proc"))
+                    .display()
+            ),
+            Step::RootDirectory => "change directory by root file descriptor failed".to_string(),
+            Step::Chroot => "chroot failed".to_string(),
+            Step::WorkingDirectory => {
+                "change directory by working directory file descriptor failed".to_string()
+            }
+            Step::Setgroups => "setgroups failed".to_string(),
+            Step::Setgid => "setgid() failed".to_string(),
+            Step::Setuid => "setuid() failed".to_string(),
+        };
+        RunError::new("spawn", format!("{what}: {}", error.message))
+    }
+}
+
+/// The spawn failure a namespace step reported, or `None` when `raw` is an
+/// ordinary OS error number. The step travels in the kind and the real error
+/// text in the message until `NamespaceEntry::describe_failure` words them.
+pub fn step_failure(raw: i32) -> Option<RunError> {
+    let code = raw >> STEP_SHIFT;
+    if raw < 0 || code == 0 {
+        return None;
+    }
+    let step = u8::try_from(code).ok().and_then(Step::from_code)?;
+    let error = std::io::Error::from_raw_os_error(raw & ERRNO_MASK);
+    Some(RunError::new(
+        format!("{STEP_KIND_PREFIX}{}", step as u8),
+        strerror(&error),
+    ))
+}
+
+/// The `strerror` text of an I/O error, without Rust's ` (os error N)`.
+fn strerror(error: &std::io::Error) -> String {
+    let text = error.to_string();
+    match text.find(" (os error ") {
+        Some(at) => text[..at].to_string(),
+        None => text,
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub use linux::prepare;
+#[cfg(not(target_os = "linux"))]
+pub use unsupported::prepare;
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::{ERRNO_MASK, NamespaceEntry, STEP_SHIFT, Step, strerror};
+    use crate::runtime::value::RunError;
+    use std::ffi::CString;
+    use std::io;
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::process::CommandExt;
+    use std::path::Path;
+    use std::process::Command;
+
+    /// Opens what the child needs in the caller's namespaces and arranges for
+    /// the child to apply `entry` between fork and exec.
+    pub fn prepare(entry: &NamespaceEntry, command: &mut Command) -> Result<(), RunError> {
+        let plan = ChildPlan::open(entry)?;
+        // SAFETY: `ChildPlan::apply` calls only async-signal-safe functions and
+        // allocates nothing; every buffer and descriptor it uses was created
+        // here, before the fork.
+        unsafe {
+            command.pre_exec(move || plan.apply());
+        }
+        Ok(())
+    }
+
+    struct ChildPlan {
+        unshare_flags: libc::c_int,
+        join: Vec<OwnedFd>,
+        user_map: Option<UserMap>,
+        fork: bool,
+        propagation: Option<libc::c_ulong>,
+        mount_proc: Option<CString>,
+        root: Option<OwnedFd>,
+        cwd: Option<OwnedFd>,
+        drop_groups: bool,
+        uid: Option<u32>,
+        gid: Option<u32>,
+    }
+
+    struct UserMap {
+        uid: Vec<u8>,
+        gid: Vec<u8>,
+    }
+
+    fn open_error(path: &Path, error: io::Error) -> RunError {
+        RunError::new(
+            super::OPEN_KIND,
+            format!("cannot open {}: {}", path.display(), strerror(&error)),
+        )
+    }
+
+    fn cstring(path: &Path) -> Result<CString, RunError> {
+        CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| RunError::new("spawn", format!("{}: path contains NUL", path.display())))
+    }
+
+    fn open_fd(path: &Path, flags: libc::c_int) -> Result<OwnedFd, RunError> {
+        let c_path = cstring(path)?;
+        // SAFETY: `c_path` is a valid NUL-terminated string; the returned
+        // descriptor is owned by the new OwnedFd.
+        let fd = unsafe { libc::open(c_path.as_ptr(), flags | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return Err(open_error(path, io::Error::last_os_error()));
+        }
+        // SAFETY: `fd` was just opened and nothing else owns it.
+        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+    }
+
+    impl ChildPlan {
+        fn open(entry: &NamespaceEntry) -> Result<Self, RunError> {
+            // The directories open first, then the namespace files, so the
+            // first failure reported is the first one a user asked for.
+            let root = match &entry.root {
+                Some(path) => Some(open_fd(path, libc::O_RDONLY)?),
+                None => None,
+            };
+            let cwd = match &entry.cwd {
+                Some(path) => Some(open_fd(path, libc::O_RDONLY)?),
+                None => None,
+            };
+            let mut join = Vec::with_capacity(entry.join.len());
+            for path in &entry.join {
+                join.push(open_fd(path, libc::O_RDONLY)?);
+            }
+            let mut unshare_flags = 0;
+            for kind in &entry.unshare {
+                unshare_flags |= kind.clone_flag();
+            }
+            // SAFETY: geteuid and getegid cannot fail. They are read before
+            // the user namespace exists, where they still name the caller's
+            // own identity.
+            let user_map = entry.map_root_user.then(|| UserMap {
+                uid: format!("0 {} 1\n", unsafe { libc::geteuid() }).into_bytes(),
+                gid: format!("0 {} 1\n", unsafe { libc::getegid() }).into_bytes(),
+            });
+            let mount_proc = match &entry.mount_proc {
+                Some(path) => Some(cstring(path)?),
+                None => None,
+            };
+            // Propagation applies to a mount namespace this child creates.
+            let propagation = if entry.unshare.contains(&super::NamespaceKind::Mount) {
+                entry.propagation.mount_flag()
+            } else {
+                None
+            };
+            Ok(Self {
+                unshare_flags,
+                join,
+                user_map,
+                fork: entry.fork,
+                propagation,
+                mount_proc,
+                root,
+                cwd,
+                drop_groups: entry.drop_groups,
+                uid: entry.uid,
+                gid: entry.gid,
+            })
+        }
+
+        fn apply(&self) -> io::Result<()> {
+            // SAFETY: each call below is a raw system call or an
+            // async-signal-safe libc wrapper over valid, preallocated data.
+            unsafe {
+                if self.unshare_flags != 0 && libc::unshare(self.unshare_flags) != 0 {
+                    return fail(Step::Unshare);
+                }
+                for fd in &self.join {
+                    if libc::setns(fd.as_raw_fd(), 0) != 0 {
+                        return fail(Step::Join);
+                    }
+                }
+                if let Some(map) = &self.user_map {
+                    write_file(c"/proc/self/setgroups", b"deny", Step::SetgroupsFile)?;
+                    write_file(c"/proc/self/uid_map", &map.uid, Step::UidMap)?;
+                    write_file(c"/proc/self/gid_map", &map.gid, Step::GidMap)?;
+                }
+                if self.fork {
+                    fork_and_relay()?;
+                }
+                if let Some(flag) = self.propagation
+                    && libc::mount(
+                        std::ptr::null(),
+                        c"/".as_ptr(),
+                        std::ptr::null(),
+                        libc::MS_REC | flag,
+                        std::ptr::null(),
+                    ) != 0
+                {
+                    return fail(Step::Propagation);
+                }
+                if let Some(target) = &self.mount_proc
+                    && libc::mount(
+                        c"proc".as_ptr(),
+                        target.as_ptr(),
+                        c"proc".as_ptr(),
+                        libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV,
+                        std::ptr::null(),
+                    ) != 0
+                {
+                    return fail(Step::MountProc);
+                }
+                if let Some(root) = &self.root {
+                    if libc::fchdir(root.as_raw_fd()) != 0 {
+                        return fail(Step::RootDirectory);
+                    }
+                    if libc::chroot(c".".as_ptr()) != 0 {
+                        return fail(Step::Chroot);
+                    }
+                }
+                if let Some(cwd) = &self.cwd
+                    && libc::fchdir(cwd.as_raw_fd()) != 0
+                {
+                    return fail(Step::WorkingDirectory);
+                }
+                if self.drop_groups && libc::setgroups(0, std::ptr::null()) != 0 {
+                    return fail(Step::Setgroups);
+                }
+                if let Some(gid) = self.gid
+                    && libc::setgid(gid) != 0
+                {
+                    return fail(Step::Setgid);
+                }
+                if let Some(uid) = self.uid
+                    && libc::setuid(uid) != 0
+                {
+                    return fail(Step::Setuid);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Reports `step` with the error number of the failed call, in the
+    /// encoding `decode_step_error` reads.
+    fn fail(step: Step) -> io::Result<()> {
+        let errno = io::Error::last_os_error().raw_os_error().unwrap_or(libc::EINVAL);
+        Err(io::Error::from_raw_os_error(
+            ((step as i32) << STEP_SHIFT) | (errno & ERRNO_MASK),
+        ))
+    }
+
+    unsafe fn write_file(path: &std::ffi::CStr, bytes: &[u8], step: Step) -> io::Result<()> {
+        // SAFETY: `path` is NUL-terminated and `bytes` is a valid slice.
+        unsafe {
+            let fd = libc::open(path.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
+            if fd < 0 {
+                return fail(step);
+            }
+            let written = libc::write(fd, bytes.as_ptr().cast(), bytes.len());
+            let kept = io::Error::last_os_error();
+            libc::close(fd);
+            if written < 0 || written as usize != bytes.len() {
+                return Err(io::Error::from_raw_os_error(
+                    ((step as i32) << STEP_SHIFT)
+                        | (kept.raw_os_error().unwrap_or(libc::EIO) & ERRNO_MASK),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Forks once more so the command, not this process, is the first child of
+    /// a pid namespace this process created or joined. The parent half never
+    /// returns: it waits and ends the way the command did, a signal death
+    /// being repeated on itself so the caller sees the same status.
+    unsafe fn fork_and_relay() -> io::Result<()> {
+        // SAFETY: fork has no preconditions; this process is single-threaded.
+        let pid = unsafe { libc::fork() };
+        if pid < 0 {
+            return fail(Step::Fork);
+        }
+        if pid == 0 {
+            return Ok(());
+        }
+        // SAFETY: only raw system calls on this process's own descriptors and
+        // status. The spawn machinery of the caller waits for the exec of the
+        // command by watching a close-on-exec pipe, which this process holds
+        // open until it exits unless every such descriptor is closed here.
+        unsafe {
+            if libc::syscall(libc::SYS_close_range, 3, u32::MAX, 0) != 0 {
+                for fd in 3..4096 {
+                    libc::close(fd);
+                }
+            }
+            let mut status: libc::c_int = 0;
+            loop {
+                let waited = libc::waitpid(pid, &mut status, 0);
+                if waited == pid {
+                    break;
+                }
+                if waited < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                    libc::_exit(1);
+                }
+            }
+            if libc::WIFSIGNALED(status) {
+                let signal = libc::WTERMSIG(status);
+                libc::signal(signal, libc::SIG_DFL);
+                let mut set: libc::sigset_t = std::mem::zeroed();
+                libc::sigemptyset(&mut set);
+                libc::sigaddset(&mut set, signal);
+                libc::sigprocmask(libc::SIG_UNBLOCK, &set, std::ptr::null_mut());
+                libc::kill(libc::getpid(), signal);
+                libc::_exit(128 + signal);
+            }
+            libc::_exit(libc::WEXITSTATUS(status));
+        }
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+mod unsupported {
+    use super::NamespaceEntry;
+    use crate::runtime::value::RunError;
+    use std::process::Command;
+
+    pub fn prepare(_entry: &NamespaceEntry, _command: &mut Command) -> Result<(), RunError> {
+        Err(RunError::new(
+            "unsupported-platform",
+            "namespaces are only available on Linux",
+        ))
+    }
+}
