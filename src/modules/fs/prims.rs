@@ -237,40 +237,68 @@ fn chmod_nofollow(path: &std::path::Path, mode: Mode) -> rustix::io::Result<()> 
     rfs::chmodat(CWD, path, mode, AtFlags::SYMLINK_NOFOLLOW)
 }
 
-fn timespec(ns: Option<i64>, now: bool, field: &str, span: Span) -> Result<Timespec, RuntimeError> {
-    match (ns, now) {
-        (Some(_), true) => Err(RuntimeError::new(
-            "fs-set-times",
-            format!("{field}_ns and {field}_now are mutually exclusive"),
-        )
-        .with_span(span)),
-        (None, true) => Ok(Timespec {
+/// One timestamp's request: the nanosecond count since the epoch, a whole
+/// second count with its own nanosecond part, the kernel's current time, or
+/// nothing (left unchanged). The seconds form exists because the signed
+/// nanosecond count cannot reach years far from 1970 that `utimensat` accepts.
+pub(crate) struct TimeRequest {
+    pub(crate) ns: Option<i64>,
+    pub(crate) sec: Option<i64>,
+    pub(crate) nsec: Option<i64>,
+    pub(crate) now: bool,
+}
+
+fn timespec(request: &TimeRequest, field: &str, span: Span) -> Result<Timespec, RuntimeError> {
+    let fail = |message: String| RuntimeError::new("fs-set-times", message).with_span(span);
+    let TimeRequest { ns, sec, nsec, now } = *request;
+    let sources =
+        usize::from(ns.is_some()) + usize::from(sec.is_some()) + usize::from(now);
+    if sources > 1 {
+        return Err(fail(format!(
+            "{field}_ns, {field}_sec and {field}_now are mutually exclusive"
+        )));
+    }
+    if nsec.is_some() && sec.is_none() {
+        return Err(fail(format!("{field}_nsec requires {field}_sec")));
+    }
+    match (ns, sec, now) {
+        (_, _, true) => Ok(Timespec {
             tv_sec: 0,
             tv_nsec: UTIME_NOW as _,
         }),
-        (None, false) => Ok(Timespec {
-            tv_sec: 0,
-            tv_nsec: UTIME_OMIT as _,
-        }),
-        (Some(ns), false) => Ok(Timespec {
+        (Some(ns), _, _) => Ok(Timespec {
             tv_sec: ns.div_euclid(NANOS) as _,
             tv_nsec: ns.rem_euclid(NANOS) as _,
+        }),
+        (None, Some(sec), _) => {
+            let nsec = nsec.unwrap_or(0);
+            if !(0..NANOS).contains(&nsec) {
+                return Err(fail(format!(
+                    "{field}_nsec must be between 0 and 999999999"
+                )));
+            }
+            Ok(Timespec {
+                tv_sec: sec as _,
+                tv_nsec: nsec as _,
+            })
+        }
+        (None, None, false) => Ok(Timespec {
+            tv_sec: 0,
+            tv_nsec: UTIME_OMIT as _,
         }),
     }
 }
 
 pub(crate) struct SetTimes {
-    pub(crate) atime_ns: Option<i64>,
-    pub(crate) mtime_ns: Option<i64>,
-    pub(crate) atime_now: bool,
-    pub(crate) mtime_now: bool,
+    pub(crate) atime: TimeRequest,
+    pub(crate) mtime: TimeRequest,
     pub(crate) follow_symlinks: bool,
 }
 
 pub(crate) fn set_times(path: PathBuf, times: SetTimes, span: Span) -> Result<(), RuntimeError> {
     let timestamps = Timestamps {
-        last_access: timespec(times.atime_ns, times.atime_now, "atime", span)?,
-        last_modification: timespec(times.mtime_ns, times.mtime_now, "mtime", span)?,
+        last_access: timespec(&times.atime, "atime", span)?,
+        last_modification: timespec(&times.mtime, "mtime", span)?,
     };
     let flags = if times.follow_symlinks {
         AtFlags::empty()

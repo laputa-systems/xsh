@@ -38,6 +38,27 @@ pure normalize_date_displacement(text: Str) -> Str {
   if signed.is_empty() { text } else { f"{signed[1]} {signed[2]} {signed[3]}" }
 }
 
+# Sets the selected timestamps: an explicit instant, or the kernel's current
+# time when none was given; the unselected one is left unchanged.
+proc set_times(target: Path, atime: date_parse.Instant?, mtime: date_parse.Instant?, access: Bool, modify: Bool, follow_symlinks: Bool) [fs] -> Result[Unit, Error] {
+  var atime_sec: Int? = null
+  var atime_nsec: Int? = null
+  var mtime_sec: Int? = null
+  var mtime_nsec: Int? = null
+  if access {
+    if let instant = atime { atime_sec = instant.seconds
+      atime_nsec = instant.nanoseconds }
+  }
+  if modify {
+    if let instant = mtime { mtime_sec = instant.seconds
+      mtime_nsec = instant.nanoseconds }
+  }
+  fs.set_times(target, atime_sec:, atime_nsec:, mtime_sec:, mtime_nsec:,
+    atime_now: access and atime == null,
+    mtime_now: modify and mtime == null,
+    follow_symlinks:)
+}
+
 proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   let prepared = prepare_arguments(argv)
   let opts: TouchOptions = cli.applet(prepared.text, {
@@ -79,14 +100,16 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   }
   if ! access and ! modify { access = true
     modify = true }
-  var atime: Int? = null
-  var mtime: Int? = null
+  # Instants keep seconds apart from nanoseconds: dates such as year 0 are
+  # outside the signed nanosecond range but inside what the kernel accepts.
+  var atime: date_parse.Instant? = null
+  var mtime: date_parse.Instant? = null
   if let reference = opts.reference {
     let reference_bytes = argument_bytes(reference, prepared.raw)
     let reference_path = Path.parse_bytes(reference_bytes)?
     match fs.stat(reference_path, follow_symlinks: ! opts.no_dereference) {
-      Ok(meta) => { atime = meta.atime_ns
-        mtime = meta.mtime_ns }
+      Ok(meta) => { atime = date_parse.instant_from_ns(meta.atime_ns)
+        mtime = date_parse.instant_from_ns(meta.mtime_ns) }
       Err(failure) => { gnu.error(f"failed to get attributes of {gnu.quote_bytes(reference_bytes)}: {gnu.strerror(failure)}")
         exit 1 }
     }
@@ -124,17 +147,17 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     }
   }
   if let text = stamp {
-    let base = date_parse.parse("now")?
+    let base = date_parse.parse_instant("now")?
     let date_input = normalize_date_displacement(text)
-    let access_time = date_parse.parse(date_input, base_ns: atime ?? base)
-    let modify_time = date_parse.parse(date_input, base_ns: mtime ?? base)
+    let access_time = date_parse.parse_instant(date_input, base: atime ?? base)
+    let modify_time = date_parse.parse_instant(date_input, base: mtime ?? base)
     match access_time {
-      Ok(value) => atime = value + (if leap_second { 1000000000 } else { 0 })
+      Ok(value) => atime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
       Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")
         exit 1 }
     }
     match modify_time {
-      Ok(value) => mtime = value + (if leap_second { 1000000000 } else { 0 })
+      Ok(value) => mtime = {seconds: value.seconds + (if leap_second { 1 } else { 0 }), nanoseconds: value.nanoseconds}
       Err(_) => { gnu.error(f"invalid date format {gnu.quote_value(text)}")
         exit 1 }
     }
@@ -146,12 +169,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     # Try timestamps before opening: directories and unwritable owned files
     # can be touched without obtaining a writable descriptor.
     var creating = false
-    var changed = fs.set_times(target,
-      atime_ns: if access { atime } else { null },
-      mtime_ns: if modify { mtime } else { null },
-      atime_now: access and atime == null,
-      mtime_now: modify and mtime == null,
-      follow_symlinks: name == b"-" or ! opts.no_dereference)
+    var changed = set_times(target, atime, mtime, access, modify, name == b"-" or ! opts.no_dereference)
     if let Err(failure) = changed {
       if gnu.errno(failure) == 2 {
         continue when opts.no_create
@@ -163,12 +181,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
             continue
           }
           match target.touch() {
-          Ok(_) => changed = fs.set_times(target,
-            atime_ns: if access { atime } else { null },
-            mtime_ns: if modify { mtime } else { null },
-            atime_now: access and atime == null,
-            mtime_now: modify and mtime == null,
-            follow_symlinks: true)
+          Ok(_) => changed = set_times(target, atime, mtime, access, modify, true)
           Err(create_failure) => changed = Err(create_failure)
           }
         }

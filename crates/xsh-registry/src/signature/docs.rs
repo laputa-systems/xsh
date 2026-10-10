@@ -754,7 +754,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "set_times") => Some((
             "Sets access and modification times with nanosecond precision.",
-            "Each time is set to an explicit nanosecond value, set to the kernel's current time, or left unchanged; symlinks are not followed unless asked.",
+            "Each time is set from atime_ns/mtime_ns (nanoseconds since the epoch), from atime_sec/mtime_sec with an optional atime_nsec/mtime_nsec in [0, 1e9) for instants outside the signed nanosecond range, to the kernel's current time with atime_now/mtime_now, or left unchanged; at most one source per time; symlinks are not followed unless asked.",
             &["filesystem", "timestamps", "metadata"],
         )),
         ("fs", "mknod") => Some((

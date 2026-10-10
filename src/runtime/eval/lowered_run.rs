@@ -5850,13 +5850,21 @@ impl Evaluator {
                     span,
                 ))
             }
-            RuntimeOp::FsSetTimes if (1..=6).contains(&values.len()) => {
+            RuntimeOp::FsSetTimes if (1..=10).contains(&values.len()) => {
                 let operation = "fs.set_times";
                 let times = fs_module::SetTimes {
-                    atime_ns: lowered_optional_int_arg(values.get(1), operation, span)?,
-                    mtime_ns: lowered_optional_int_arg(values.get(2), operation, span)?,
-                    atime_now: lowered_bool_arg_or(values.get(3).cloned(), false, operation, span)?,
-                    mtime_now: lowered_bool_arg_or(values.get(4).cloned(), false, operation, span)?,
+                    atime: fs_module::TimeRequest {
+                        ns: lowered_optional_int_arg(values.get(1), operation, span)?,
+                        sec: lowered_optional_int_arg(values.get(6), operation, span)?,
+                        nsec: lowered_optional_int_arg(values.get(7), operation, span)?,
+                        now: lowered_bool_arg_or(values.get(3).cloned(), false, operation, span)?,
+                    },
+                    mtime: fs_module::TimeRequest {
+                        ns: lowered_optional_int_arg(values.get(2), operation, span)?,
+                        sec: lowered_optional_int_arg(values.get(8), operation, span)?,
+                        nsec: lowered_optional_int_arg(values.get(9), operation, span)?,
+                        now: lowered_bool_arg_or(values.get(4).cloned(), false, operation, span)?,
+                    },
                     follow_symlinks: lowered_bool_arg_or(
                         values.get(5).cloned(),
                         false,
