@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Regenerate or check the sed differential tables.
 
-The expected transcript is produced by GNU sed in the xsh-oracle container; the
-native test reads cases.jsonl, fixtures/ and expected.txt and never needs it.
+The table is cases.py (inputs and arguments). Its expected transcript,
+expected.txt, is produced by GNU sed in the xsh-oracle container through
+dev/compat/oracle.sh; the native test reads cases.jsonl, fixtures/, and
+expected.txt only, so it needs no container at test time.
 
-  regen.py oracle        write expected.txt from the oracle
-  regen.py xsh           run the XSH applet and diff against expected.txt
+  regenerate.py oracle [PATTERN]   rewrite cases.jsonl, fixtures/, expected.txt
+                                   (with PATTERN: print those cases' transcript)
+  regenerate.py xsh [PATTERN]      run core/sed.xsh with $XSH_BIN and list the
+                                   cases that differ from expected.txt
+                                   (VERBOSE=1 shows both transcripts)
+
+PATTERN is a regular expression matched against case names. Cases carrying a
+`skip` reason are recorded from the oracle but not compared.
 """
 import json
 import os

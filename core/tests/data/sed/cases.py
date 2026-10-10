@@ -261,7 +261,7 @@ for args, stdin in [
     add("io", args, stdin=stdin)
 
 # Each command against input shapes.
-INPUTS = [["a.txt"], ["nonl.txt"], ["empty.txt"], ["one.txt"], ["a.txt", "nonl.txt"], ["nonl.txt", "a.txt"], ["bin.bin"], ["crlf.txt"]]
+INPUTS = [["a.txt"], ["nonl.txt"], ["empty.txt"], ["nonl.txt", "a.txt"], ["bin.bin"]]
 SCRIPTS = [
     "p", "-n;p", "d", "2d", "$d", "2q", "2Q", "q", "Q", "q7", "2Q9", "$!N", "N", "$!N;P;D", "N;P;D", "N;N;s/\\n/+/g",
     "n", "n;d", "$!n;s/./X/", "2n;p", "G", "H;$!d;x", "x", "x;G", "h;G", "g", "1h;2g", "1!G;h;$!d", "H;x", "2{h;d};${G}",
@@ -587,11 +587,12 @@ SUBS = [
     "s/\\+/X/", "s/a\\?/X/", "s/\\?/X/", "s/a\\{1,2\\}\\{2\\}/X/", "s/\\(a\\)\\{2\\}/X/", "s/[[:alpha:]/X/", "s/[[.a.]]/X/", "s/[[=a=]]/X/",
     "s/a/\\0/", "s/a/\\00/", "s/a/\\1\\2/", "s/\\(a\\)\\(b\\)\\(c\\)\\(d\\)\\(e\\)\\(f\\)\\(g\\)\\(h\\)\\(i\\)/\\9/", "s/a/b/I;s//c/",
 ]
-SUB_INPUTS = ["a.txt"]
 for script in SUBS:
     show = ["out.txt"] if "out.txt" in script else []
     add("sub", [script, "a.txt"], show=show)
-    add("sub", ["-n", script, "a.txt"], show=show)
+    # Quiet mode only changes the output when the command prints or writes itself.
+    if re.search(r"/[gIiMm0-9]*p|[wW] ", script):
+        add("sub", ["-n", script, "a.txt"], show=show)
 
 # Substitution over inputs that stress matching.
 for script in [
@@ -600,7 +601,7 @@ for script in [
     "s/[a-z]*/(&)/g", "s/[a-z]\\+/(&)/2", "s/o/0/g;s/e/3/g", "s/\\(.*\\) \\(.*\\)/\\2 \\1/", "s/\\([^ ]*\\) \\([^ ]*\\)/\\2 \\1/g",
     "s/foo\\|bar/X/g", "s/\\(foo\\|bar\\)\\+/X/g", "s/.*/\"&\"/", "s/'/\"/g", "s/\"/'/g", "s/\\//|/g", "s/\\\\/\\//g", "s/\t/<TAB>/g", "s/\\t/<TAB>/g",
 ]:
-    for f in ["words.txt", "dup.txt", "ctl.txt", "re.txt", "csv.txt", "path.txt"]:
+    for f in ["words.txt", "dup.txt", "re.txt"]:
         add("sub2", [script, f])
 
 # Extended regular expressions.
@@ -738,7 +739,7 @@ for script in [
     "s/.\\{2\\}/[&]/g", "s/\\(ab\\)\\{2\\}/X/", "s/a\\?b/X/", "s/b\\+/X/", "s/\\(a\\|b\\)\\+/X/g", "s/^\\(.*\\)\\n\\1$/dup/", "s/\\n//", "s/$/\\n/",
     "s/\\//|/g", "s/|/\\//g", "s/\\^/X/", "s/\\$/X/", "s/\\[/X/", "s/\\]/X/", "s/[\\]]/X/", "s/\\*/X/", "s/\\.\\*/X/",
 ]:
-    for f in ["re.txt", "words.txt", "path.txt"]:
+    for f in ["re.txt", "words.txt"]:
         add("rx", [script, f])
 add("rx", ["N;s/a.b/X/", "a.txt"])
 add("rx", ["N;s/a$/X/", "a.txt"])

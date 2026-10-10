@@ -1100,10 +1100,21 @@ pure list_text(text: Bytes, width: Int, delim: Bytes) -> Bytes {
   bytes.concat(parts)
 }
 
-pure contains_byte(input: Bytes, code: Int) -> Bool {
-  for at in range(input.len()) { return true when input.byte_at(at) == code }
-  false
+# Offset of the first CODE byte in INPUT, or -1. Valid UTF-8 is searched as
+# text, which is much faster than stepping through the bytes in the evaluator.
+pure index_of(input: Bytes, code: Int) -> Int {
+  if code < 128 {
+    if let Ok(text) = input.utf8() {
+      if let Ok(raw) = bytes.from_ints([code]) {
+        if let Ok(needle) = raw.utf8() { return text.find(needle) ?? -1 }
+      }
+    }
+  }
+  for at in range(input.len()) { return at when input.byte_at(at) == code }
+  -1
 }
+
+pure contains_byte(input: Bytes, code: Int) -> Bool { index_of(input, code) >= 0 }
 
 # The host matcher works on C strings and cannot see NUL. A subject holding NUL
 # is matched as a copy where each NUL is one control byte absent from both the
@@ -1148,8 +1159,7 @@ pure newline_outside_brackets(pattern: Bytes) -> Bool {
 # First match at or after START. A multiline regex is searched line by line so
 # that `^` and `$` hold at every line boundary; a pattern that spells a newline
 # itself is searched over the whole buffer instead.
-pure find_match(spec: RegexSpec, text: Bytes, start: Int, extended: Bool) -> Result[List[Capture?], Error] {
-  let subject = regex_subject(spec.pattern, text)?
+pure find_match(spec: RegexSpec, subject: Bytes, start: Int, extended: Bool) -> Result[List[Capture?], Error] {
   if !spec.multiline or newline_outside_brackets(bytes.from_text(spec.pattern)) {
     return regex.captures_bytes(spec.pattern, subject, start, extended, spec.ignore_case)
   }
@@ -1195,7 +1205,7 @@ pure address_hit(address: Address, line_no: Int, is_last: Bool, text: Bytes, las
     Last => Ok({matched: is_last, last_regex: last_regex})
     Pattern(choice) => {
       let spec = resolve_regex(choice, last_regex)?
-      let found = find_match(spec, text, 0, extended)?
+      let found = find_match(spec, regex_subject(spec.pattern, text)?, 0, extended)?
       Ok({matched: !found.is_empty(), last_regex: spec})
     }
     Plus(_) => Ok({matched: false, last_regex: last_regex})
@@ -1334,8 +1344,9 @@ pure substitute(spec: RegexSpec, text: Bytes, sub: Substitution, extended: Bool)
   var count = 0
   var changed = false
   var previous_end = -1
+  let subject = regex_subject(spec.pattern, text)?
   while search <= text.len() {
-    let captures = find_match(spec, text, search, extended)?
+    let captures = find_match(spec, subject, search, extended)?
     if captures.is_empty() { break }
     guard let whole = captures[0] else { return Err(SedError.Invalid("missing whole-match capture")) }
     let begin = whole.start
@@ -1633,10 +1644,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
           ended = true
         }
         68 => {
-          var newline = -1
-          for at in range(line.text.len()) {
-            if line.text.byte_at(at) == delim { newline = at; break }
-          }
+          let newline = index_of(line.text, delim)
           autoprint = false
           ended = true
           if newline >= 0 {
@@ -1717,10 +1725,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
         }
         112 => m = {...m, out: emit(m.out, MAIN, in_place, line.text, line.chomped, ctx.delim_bytes)}
         80 => {
-          var newline = -1
-          for at in range(line.text.len()) {
-            if line.text.byte_at(at) == delim { newline = at; break }
-          }
+          let newline = index_of(line.text, delim)
           if newline >= 0 {
             m = {...m, out: emit(m.out, MAIN, in_place, line.text[0..newline], true, ctx.delim_bytes)}
           } else {
@@ -1788,10 +1793,7 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
         98 => pc = command.number
         119 => m = {...m, out: emit(m.out, ctx.targets[index], in_place, line.text, line.chomped, ctx.delim_bytes)}
         87 => {
-          var newline = -1
-          for at in range(line.text.len()) {
-            if line.text.byte_at(at) == delim { newline = at; break }
-          }
+          let newline = index_of(line.text, delim)
           if newline >= 0 {
             m = {...m, out: emit(m.out, ctx.targets[index], in_place, line.text[0..newline], true, ctx.delim_bytes)}
           } else {

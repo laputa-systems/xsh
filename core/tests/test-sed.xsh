@@ -413,16 +413,15 @@ proc expected_transcripts(ctx: TestContext) [fs, error] -> Result[Map[Str]] {
 }
 
 # Run every row whose name starts with PREFIX and report the rows that differ.
-proc check_group(ctx: TestContext, prefix: Str) [fs, process, error] -> Result[List[Str]] {
-  let expected = expected_transcripts(ctx)?
+proc check_group(ctx: TestContext, prefix: Str, expected: Map[Str]) [fs, process, error] -> Result[List[Str]] {
   let scratch = test.temp_dir(ctx, name: "sed-table")?
   let work = fp"{scratch}/work"
   var failures: List[Str] = []
   var ran = 0
   for line in fp"{ctx.core_dir}/tests/data/sed/cases.jsonl".read_text()?.split("\n") {
-    if line == "" { continue }
+    if !line.starts_with(f"{{\"name\": \"{prefix}") { continue }
     let row = json.decode(line)?.require(CaseRow)?
-    if !row.name.starts_with(prefix) or row.skip != "" { continue }
+    if row.skip != "" { continue }
     reset_work(work)
     let actual = transcript(ctx, row, work, scratch)?
     ran += 1
@@ -437,118 +436,70 @@ proc check_group(ctx: TestContext, prefix: Str) [fs, process, error] -> Result[L
   Ok(failures)
 }
 
-test sed_table_options_and_operands { |ctx|
-  let failures = check_group(ctx, "opt-")?
-  assert failures.is_empty(), failures.join("\n")
+# Each test runs a slice of the table; the slices only balance the run time.
+proc expect_groups(ctx: TestContext, prefixes: List[Str]) [fs, process, error] -> Result[Unit] {
+  let expected = expected_transcripts(ctx)?
+  for prefix in prefixes {
+    let failures = check_group(ctx, prefix, expected)?
+    assert failures.is_empty(), failures.join("\n")
+  }
+  Ok()
 }
 
-test sed_table_input_shapes { |ctx|
-  let failures = check_group(ctx, "io-")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_01 { |ctx|
+  expect_groups(ctx, ["cmd-1", "passed-", "sub-2", "opt-info-"])?
 }
 
-test sed_table_commands_over_inputs_a { |ctx|
-  let failures = check_group(ctx, "cmd-0")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_02 { |ctx|
+  expect_groups(ctx, ["cmd-2", "addr-err-", "esc-"])?
 }
 
-test sed_table_commands_over_inputs_b { |ctx|
-  let failures = check_group(ctx, "cmd-1")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_03 { |ctx|
+  expect_groups(ctx, ["syn-1", "tail-", "ere-1", "opt-1"])?
 }
 
-test sed_table_commands_over_inputs_c { |ctx|
-  let failures = check_group(ctx, "cmd-2")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_04 { |ctx|
+  expect_groups(ctx, ["addr-1", "syn-2", "script-"])?
 }
 
-test sed_table_commands_over_inputs_d { |ctx|
-  let failures = check_group(ctx, "cmd-3")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_05 { |ctx|
+  expect_groups(ctx, ["sub-1", "wrap-", "eval-", "queue-"])?
 }
 
-test sed_table_commands_over_inputs_e { |ctx|
-  let failures = check_group(ctx, "cmd-4")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_06 { |ctx|
+  expect_groups(ctx, ["cmd-0", "io-", "exit-"])?
 }
 
-test sed_table_commands_over_inputs_f { |ctx|
-  let failures = check_group(ctx, "cmd-5")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_07 { |ctx|
+  expect_groups(ctx, ["addr-0", "zero-", "rx-1"])?
 }
 
-test sed_table_syntax_and_command_shapes { |ctx|
-  let failures = check_group(ctx, "syn-")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_08 { |ctx|
+  expect_groups(ctx, ["rx-0", "sep-", "loc-"])?
 }
 
-test sed_table_addresses { |ctx|
-  let failures = check_group(ctx, "addr-")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_09 { |ctx|
+  expect_groups(ctx, ["ip-0", "cli-0"])?
 }
 
-test sed_table_substitution_flags_and_replacements { |ctx|
-  let failures = check_group(ctx, "sub-")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_10 { |ctx|
+  expect_groups(ctx, ["syn-0", "cmd-3", "ip-1"])?
 }
 
-test sed_table_substitution_matching { |ctx|
-  let failures = check_group(ctx, "sub2-")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_11 { |ctx|
+  expect_groups(ctx, ["opt-0", "corner-0"])?
 }
 
-test sed_table_extended_and_escapes { |ctx|
-  let failures = check_group(ctx, "ere-")?
-  assert failures.is_empty(), failures.join("\n")
-  let escapes = check_group(ctx, "esc-")?
-  assert escapes.is_empty(), escapes.join("\n")
-  let queue = check_group(ctx, "queue-")?
-  assert queue.is_empty(), queue.join("\n")
+test sed_table_slice_12 { |ctx|
+  expect_groups(ctx, ["sub-0", "addr-2"])?
 }
 
-test sed_table_locale_bytes { |ctx|
-  let failures = check_group(ctx, "loc-")?
-  assert failures.is_empty(), failures.join("\n")
+test sed_table_slice_13 { |ctx|
+  expect_groups(ctx, ["sub2-0", "addr-files-0"])?
 }
 
-test sed_table_in_place { |ctx|
-  let failures = check_group(ctx, "ip-")?
-  assert failures.is_empty(), failures.join("\n")
-}
-
-test sed_table_shell_commands { |ctx|
-  let failures = check_group(ctx, "eval-")?
-  assert failures.is_empty(), failures.join("\n")
-}
-
-test sed_table_extra_cli_and_trailing_newline_shapes { |ctx|
-  let options = check_group(ctx, "cli-")?
-  assert options.is_empty(), options.join("\n")
-  let tail = check_group(ctx, "tail-")?
-  assert tail.is_empty(), tail.join("\n")
-  let zero = check_group(ctx, "zero-")?
-  assert zero.is_empty(), zero.join("\n")
-}
-
-test sed_table_separate_files_and_matching { |ctx|
-  let separate = check_group(ctx, "sep-")?
-  assert separate.is_empty(), separate.join("\n")
-  let matching = check_group(ctx, "rx-")?
-  assert matching.is_empty(), matching.join("\n")
-  let mixed = check_group(ctx, "mix-")?
-  assert mixed.is_empty(), mixed.join("\n")
-}
-
-test sed_table_passed_ranges { |ctx|
-  let failures = check_group(ctx, "passed-")?
-  assert failures.is_empty(), failures.join("\n")
-}
-
-test sed_table_syntax_corners_and_wrapping { |ctx|
-  let corners = check_group(ctx, "corner-")?
-  assert corners.is_empty(), corners.join("\n")
-  let wrapping = check_group(ctx, "wrap-")?
-  assert wrapping.is_empty(), wrapping.join("\n")
+test sed_table_slice_14 { |ctx|
+  expect_groups(ctx, ["ere-0", "mix-0"])?
 }
 
 test sed_refused_options_fail_explicitly { |ctx|
@@ -568,9 +519,3 @@ test sed_version_probe_line_matches_autoconf_check { |ctx|
   assert version.starts_with("GNU sed version ")
 }
 
-test sed_table_exit_statuses_and_scripts { |ctx|
-  let failures = check_group(ctx, "exit-")?
-  assert failures.is_empty(), failures.join("\n")
-  let scripts = check_group(ctx, "script-")?
-  assert scripts.is_empty(), scripts.join("\n")
-}
