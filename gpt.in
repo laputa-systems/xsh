@@ -1,0 +1,4 @@
+label: gpt
+label-id: 11111111-2222-3333-4444-555555555555
+start=2048, size=20480, type=L, name="root fs"
+start=22528, size=40960, type=U, name="efi"
