@@ -330,7 +330,7 @@ proc parse_options(args: List[Str]) [process, env, io] -> Settings {
 # 127 for a missing file, 126 for one that cannot be executed.
 proc unrunnable(command: Str) [fs, process] -> Problem? {
   if "/" in command {
-    return match fs.stat(fp"{command}", follow_symlinks: true) {
+    return match fs.stat(Path.parse_bytes(bytes.from_text(command)) ?? p".", follow_symlinks: true) {
       Ok(found) => if found.kind == "dir" or found.mode.bit_and(0o111) == 0 { {status: 126, reason: "Permission denied"} } else { null }
       Err(failure) => {status: 127, reason: gnu.strerror(failure)}
     }
@@ -340,11 +340,12 @@ proc unrunnable(command: Str) [fs, process] -> Problem? {
 
 # Build the argument vector of one command line from the items of a batch:
 # the items follow the initial arguments, or replace the marker inside them.
-proc build_argv(items: List[Item], command: List[Str], replace: Bool, marker: Bytes, max_chars: Int) [process, env, error] -> Result[List[Path], Error] {
+proc build_argv(items: List[Item], command: List[Str], raw: List[gnu.RawArgument], replace: Bool, marker: Bytes, max_chars: Int) [process, env, error] -> Result[List[Path], Error] {
   var argv: List[Path] = []
   for word in command {
-    let raw = if replace and ! items.is_empty() { substitute(bytes.from_text(word), marker, c_string(items[0].data)) } else { bytes.from_text(word) }
-    argv += [Path.parse_bytes(raw)?]
+    let text = gnu.argument_bytes(word, raw)
+    let joined = if replace and ! items.is_empty() { substitute(text, marker, c_string(items[0].data)) } else { text }
+    argv += [Path.parse_bytes(joined)?]
   }
   if ! replace { for item in items { argv += [Path.parse_bytes(c_string(item.data))?] } }
   var total = 0
@@ -428,14 +429,16 @@ proc require_command(command: Str) [fs, process, env] -> Unit {
   }
 }
 
-proc main(...args: List[Str]) {
-  let cfg = parse_options(args)
+proc main(...argv: List[Bytes]) {
+  let prepared = gnu.prepare_arguments(argv)
+  let raw = prepared.raw
+  let cfg = parse_options(prepared.text)
   let replace = cfg.replace != null
-  let marker = bytes.from_text(cfg.replace ?? "")
+  let marker = gnu.argument_bytes(cfg.replace ?? "", raw)
   let command = cfg.command
   if cfg.eof != "" and cfg.delimiter >= 0 { eprint f"{gnu.prog()}: warning: the -E option has no effect if -0 or -d is used.\n" }
   var initial_size = 0
-  for word in command { initial_size += word.byte_len() + 1 }
+  for word in command { initial_size += gnu.argument_bytes(word, raw).len() + 1 }
   if command.is_empty() { initial_size = 5 }
   if cfg.show_limits {
     var environment_bytes = 0
@@ -460,7 +463,7 @@ proc main(...args: List[Str]) {
   var failure = ""
   var checked = false
   var file_offset = 0
-  let reader: Path? = if cfg.input_file == null { null } else { fp"{cfg.input_file ?? ""}" }
+  let reader: Path? = if cfg.input_file == null { null } else { Path.parse_bytes(gnu.argument_bytes(cfg.input_file ?? "", raw)) ?? p"." }
   let limit = if cfg.max_procs == 0 { 1000000 } else { cfg.max_procs }
   let outcome = try {
     var source_size = -1
@@ -487,7 +490,7 @@ proc main(...args: List[Str]) {
         gnu.error("WARNING: a NUL character occurred in the input.  It cannot be passed through in the argument list.  Did you mean to use the --null option?")
       }
       for item in decoded.items {
-        if cfg.eof != "" and cfg.delimiter < 0 and item.data == bytes.from_text(cfg.eof) { stopped = true; marker_seen = true; break }
+        if cfg.eof != "" and cfg.delimiter < 0 and item.data == gnu.argument_bytes(cfg.eof, raw) { stopped = true; marker_seen = true; break }
         any_input = true
         let length = c_string(item.data).len()
         if length == 0 and initial_size + 1 > cfg.max_chars { gnu.error("cannot fit single argument within argument list size limit"); exit 1 }
@@ -500,7 +503,7 @@ proc main(...args: List[Str]) {
         let too_large = size + length + 1 > cfg.max_chars
         if ! batch.is_empty() and (too_many or too_many_lines or too_large) {
           if too_large and cfg.exit_on_overflow and counted and ! too_many and ! too_many_lines { search.reject("argument list too long")? }
-          let argv = build_argv(batch, command, replace, marker, cfg.max_chars)?
+          let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
           if command.is_empty() {
             var chunks: List[Bytes] = []
             for index in range(batch.len()) { if index > 0 { chunks += [b" "] }; chunks += [c_string(batch[index].data)] }
@@ -535,7 +538,7 @@ proc main(...args: List[Str]) {
       if failure != "" or eof { break }
     }
     if (! stopped or marker_seen) and (! batch.is_empty() or (! any_input and ! cfg.no_run_if_empty and ! replace and failure == "")) {
-      let argv = build_argv(batch, command, replace, marker, cfg.max_chars)?
+      let argv = build_argv(batch, command, raw, replace, marker, cfg.max_chars)?
       if command.is_empty() {
         var chunks: List[Bytes] = []
         for index in range(batch.len()) { if index > 0 { chunks += [b" "] }; chunks += [c_string(batch[index].data)] }

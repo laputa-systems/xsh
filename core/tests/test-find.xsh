@@ -105,3 +105,24 @@ test test_find_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2)? }
 test test_find_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3)? }
 test test_find_matches_recorded_gnu_output_4 { |ctx| check_share(ctx, 4)? }
 test test_find_matches_recorded_gnu_output_5 { |ctx| check_share(ctx, 5)? }
+
+# Operands that are not valid UTF-8 reach the applet as raw bytes: start
+# points, name patterns and -exec arguments are matched and passed unchanged.
+test test_find_accepts_non_utf8_operands { |ctx|
+  let root = test.temp_dir(ctx, name: "find-raw-operands")?
+  let dir = Path.parse_bytes(bytes.concat([root.bytes(), b"/d\xff"]))?
+  dir.mkdir()?
+  Path.parse_bytes(bytes.concat([dir.bytes(), b"/n\xfe.txt"]))?.write("x")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/find.xsh"
+  let pattern = Path.parse_bytes(b"n\xfe*")?
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, p"--", script, p"--", dir, p"-name", pattern, p"-printf", p"%f\\n"], root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  assert status.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == b"n\xfe.txt\n"
+  let exec_plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, p"--", script, p"--", dir, p"-type", p"f", p"-exec", p"printf", p"[%s]", p"{}", p";"], root, {LC_ALL: "C"}, b"", out, err)
+  let exec_status = process.run(exec_plan)?
+  assert exec_status.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == bytes.concat([b"[", dir.bytes(), b"/n\xfe.txt]"])
+}

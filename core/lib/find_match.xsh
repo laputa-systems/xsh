@@ -108,8 +108,8 @@ pure glob_at(pattern: Bytes, text: Bytes, p: Int, t: Int, insensitive: Bool) -> 
 
 ## Whether the shell wildcard pattern matches all of `text`; `*` also matches
 ## `/` and a leading dot, as in fnmatch without FNM_PATHNAME or FNM_PERIOD.
-export pure glob(pattern: Str, text: Bytes, insensitive = false) -> Bool {
-  glob_at(bytes.from_text(pattern), text, 0, 0, insensitive)
+export pure glob_bytes(pattern: Bytes, text: Bytes, insensitive = false) -> Bool {
+  glob_at(pattern, text, 0, 0, insensitive)
 }
 
 ## The last component of a path, keeping a trailing slash out of the name

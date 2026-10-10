@@ -9,20 +9,21 @@ use lib.find_match as match_name
 # other kind carries the fields its predicate needs: `text` the pattern or
 # letter, `compare` the +/-/= sense of a numeric argument (1, -1, 0), `number`
 # and `bound` its operands, `argv` a command or type list, `file` an output
-# file and `segments` a compiled -printf format.
-type Node = {kind: Str, text: Str, flag: Bool, compare: Int, number: Int, bound: Int, left: Int, right: Int, argv: List[Str], file: Str, segments: List[fmt.Segment]}
+# file and `segments` a compiled -printf format. `pattern` holds the raw bytes
+# of a name pattern, which may not be valid UTF-8.
+type Node = {kind: Str, text: Str, pattern: Bytes, flag: Bool, compare: Int, number: Int, bound: Int, left: Int, right: Int, argv: List[Str], file: Str, segments: List[fmt.Segment]}
 
 # Settings for the whole run plus the positional ones captured while parsing:
 # the regex dialect and the day-start origin apply to the tests parsed after
 # them, and `last_token`/`last_test` feed the diagnostics that name them.
-type Options = {follow: Int, minimum: Int, maximum: Int, depth: Bool, device: Bool, warn: Bool, start_ns: Int, day_start_ns: Int, regex_type: Str, last_token: Str, last_test: Str}
+type Options = {follow: Int, minimum: Int, maximum: Int, depth: Bool, device: Bool, warn: Bool, start_ns: Int, day_start_ns: Int, regex_type: Str, last_token: Str, last_test: Str, raw: List[gnu.RawArgument]}
 
 type Parsed = {nodes: List[Node], root: Int, at: Int, opts: Options}
-type Deferred = {node: Int, name: Str, directory: Path}
+type Deferred = {node: Int, name: Bytes, directory: Path}
 type Decision = {matched: Bool, prune: Bool, quit: Bool, failed: Bool, deferred: List[Deferred]}
 type Visit = {quit: Bool, failed: Bool, deferred: List[Deferred]}
 type Ancestor = {identity: Str, path: Path}
-type Run = {nodes: List[Node], root: Int, follow: Int, opts: Options, stat_needed: Bool}
+type Run = {nodes: List[Node], root: Int, follow: Int, opts: Options, stat_needed: Bool, raw: List[gnu.RawArgument]}
 type Count = {compare: Int, number: Int}
 type Stat = {atime_ns: Int, birth_ns: Int?, blksize: Int, blocks_512: Int, ctime_ns: Int, dev: Int, gid: Int, ino: Int, kind: Str, mode: Int, mtime_ns: Int, nlink: Int, rdev: Int, size: Int, uid: Int}
 
@@ -118,7 +119,7 @@ pure plain_number(text: Str) -> Int? {
 }
 
 pure blank_node(kind: Str) -> Node {
-  {kind: kind, text: "", flag: false, compare: 0, number: 0, bound: 0, left: -1, right: -1, argv: [], file: "", segments: []}
+  {kind: kind, text: "", pattern: b"", flag: false, compare: 0, number: 0, bound: 0, left: -1, right: -1, argv: [], file: "", segments: []}
 }
 
 pure with_node(parsed: Parsed, node: Node, at: Int, opts: Options) -> Parsed {
@@ -169,8 +170,8 @@ proc time_reference(text: Str, start_ns: Int) [process, env, error, time] -> Res
 
 # The metadata of a reference file named in an expression. Missing files are
 # an error at parse time, before anything is printed.
-proc stat_reference(name: Str, follow: Bool) [fs, process, env, error] -> Result[fmt.Meta, Error] {
-  match fs.stat(fp"{name}", follow_symlinks: follow) {
+proc stat_reference(name: Str, follow: Bool, raw: List[gnu.RawArgument]) [fs, process, env, error] -> Result[fmt.Meta, Error] {
+  match fs.stat(Path.parse_bytes(gnu.argument_bytes(name, raw))?, follow_symlinks: follow) {
     Ok(found) => Ok(snapshot(found))
     Err(failure) => { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}")?; Ok(snapshot(fs.stat(p".")?)) }
   }
@@ -178,9 +179,9 @@ proc stat_reference(name: Str, follow: Bool) [fs, process, env, error] -> Result
 
 # Create or truncate an output file when the expression is parsed, as GNU
 # find does, so a run that matches nothing still leaves an empty file.
-proc prepare_output(name: Str) [fs, process, env, error] -> Result[Unit, Error] {
+proc prepare_output(name: Str, raw: List[gnu.RawArgument]) [fs, process, env, error] -> Result[Unit, Error] {
   if name in ["/dev/stdout","/dev/stderr"] { return Ok() }
-  if let Err(failure) = fp"{name}".write(b"") { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}")? }
+  if let Err(failure) = Path.parse_bytes(gnu.argument_bytes(name, raw))?.write(b"") { search.reject(f"{gnu.quote(name)}: {gnu.strerror(failure)}")? }
   Ok()
 }
 
@@ -245,7 +246,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     if right == "t" {
       node.number = time_reference(reference, opts.start_ns)?
     } else {
-      let found = stat_reference(reference, opts.follow == 2)?
+      let found = stat_reference(reference, opts.follow == 2, opts.raw)?
       node.number = match right { "a" => found.atime_ns; "c" => found.ctime_ns; _ => found.mtime_ns }
     }
     opts.last_token = token
@@ -268,8 +269,8 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     if at + 1 >= args.len() { search.reject(invalid_argument(args[at], token))? }
     var node = blank_node("fprintf")
     node.file = args[at]
-    node.segments = fmt.compile(bytes.from_text(args[at + 1]))?
-    prepare_output(node.file)?
+    node.segments = fmt.compile(gnu.argument_bytes(args[at + 1], opts.raw))?
+    prepare_output(node.file, opts.raw)?
     opts.last_token = token
     opts.last_test = token
     return Ok(with_node(parsed, node, at + 2, opts))
@@ -286,14 +287,15 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
     "-true" => node.kind = "true"
     "-false" => node.kind = "false"
     "-name" | "-iname" => {
+      node.pattern = gnu.argument_bytes(value, opts.raw)
       node.kind = "name"
       node.flag = token == "-iname"
       if opts.warn and value.find("/") != null {
         eprint f"{gnu.prog()}: warning: '{token}' matches against basenames only, but the given pattern contains a directory separator ('/'), thus the expression will evaluate to false all the time.  Did you mean '{if token == "-iname" { "-iwholename" } else { "-wholename" }}'?"
       }
     }
-    "-path" | "-ipath" | "-wholename" | "-iwholename" => { node.kind = "path"; node.flag = token in ["-ipath","-iwholename"] }
-    "-lname" | "-ilname" => { node.kind = "lname"; node.flag = token == "-ilname" }
+    "-path" | "-ipath" | "-wholename" | "-iwholename" => { node.pattern = gnu.argument_bytes(value, opts.raw); node.kind = "path"; node.flag = token in ["-ipath","-iwholename"] }
+    "-lname" | "-ilname" => { node.pattern = gnu.argument_bytes(value, opts.raw); node.kind = "lname"; node.flag = token == "-ilname" }
     "-regex" | "-iregex" => {
       node.kind = "regex"
       node.flag = token == "-iregex"
@@ -358,7 +360,7 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       node.bound = if opts.day_start_ns != 0 { opts.day_start_ns } else { opts.start_ns }
     }
     "-newer" | "-anewer" | "-cnewer" => {
-      let found = stat_reference(value, opts.follow == 2)?
+      let found = stat_reference(value, opts.follow == 2, opts.raw)?
       node.kind = "newerxy"
       node.text = match token { "-newer" => "mm"; "-anewer" => "am"; _ => "cm" }
       node.number = found.mtime_ns
@@ -406,13 +408,13 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       }
     }
     "-samefile" => {
-      let found = stat_reference(value, opts.follow == 2)?
+      let found = stat_reference(value, opts.follow == 2, opts.raw)?
       node.number = found.ino
       node.bound = found.dev
     }
     "-fstype" => node.kind = "fstype"
-    "-printf" => node.segments = fmt.compile(bytes.from_text(value))?
-    "-fprint" | "-fprint0" | "-fls" => { node.kind = token.byte_slice(1); node.file = value; prepare_output(value)? }
+    "-printf" => node.segments = fmt.compile(gnu.argument_bytes(value, opts.raw))?
+    "-fprint" | "-fprint0" | "-fls" => { node.kind = token.byte_slice(1); node.file = value; prepare_output(value, opts.raw)? }
     "-depth" | "-d" => { opts.depth = true; node.kind = "true" }
     "-mount" | "-xdev" => { opts.device = true; node.kind = "true" }
     "-noleaf" | "-ignore_readdir_race" | "-noignore_readdir_race" => node.kind = "true"
@@ -536,10 +538,10 @@ pure replace_marker(word: Bytes, value: Bytes) -> Bytes {
 # Output goes to the process streams for the /dev/stdout and /dev/stderr
 # names, and is appended to the file otherwise, which several actions may
 # share.
-proc write_output(name: Str, data: Bytes) [fs, io, process, env, error] -> Result[Unit, Error] {
+proc write_output(name: Str, data: Bytes, raw: List[gnu.RawArgument]) [fs, io, process, env, error] -> Result[Unit, Error] {
   if name == "/dev/stdout" { gnu.write_bytes(data); return Ok() }
   if name == "/dev/stderr" { io.write_stderr(data.utf8() ?? "")?; io.flush_stderr()?; return Ok() }
-  let target = fp"{name}"
+  let target = Path.parse_bytes(gnu.argument_bytes(name, raw))?
   let size = match fs.stat(target) { Ok(found) => found.size; Err(_) => 0 }
   let _ = bytes.write_at(target, size, data, create: true)?
   Ok()
@@ -598,12 +600,12 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
   match node.kind {
     "true" => matched = true
     "false" => matched = false
-    "name" => matched = match_name.glob(node.text, match_name.basename(raw), insensitive: node.flag)
-    "path" => matched = match_name.glob(node.text, raw, insensitive: node.flag)
+    "name" => matched = match_name.glob_bytes(node.pattern, match_name.basename(raw), insensitive: node.flag)
+    "path" => matched = match_name.glob_bytes(node.pattern, raw, insensitive: node.flag)
     "lname" => {
       matched = false
       if meta.kind == "symlink" {
-        if let Ok(link) = target.readlink() { matched = match_name.glob(node.text, link.bytes(), insensitive: node.flag) }
+        if let Ok(link) = target.readlink() { matched = match_name.glob_bytes(node.pattern, link.bytes(), insensitive: node.flag) }
       }
     }
     "type" => matched = meta.kind in node.argv
@@ -655,10 +657,10 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     "fstype" => matched = match fs.mount_for(target) { Ok(found) => found.fstype == node.text; Err(_) => false }
     "print" | "print0" => gnu.write_bytes(bytes.concat([raw, if node.kind == "print0" { b"\0" } else { b"\n" }]))
     "printf" => gnu.write_bytes(fmt.render(node.segments, entry)?)
-    "fprint" | "fprint0" => write_output(node.file, bytes.concat([raw, if node.kind == "fprint0" { b"\0" } else { b"\n" }]))?
-    "fprintf" => write_output(node.file, fmt.render(node.segments, entry)?)?
+    "fprint" | "fprint0" => write_output(node.file, bytes.concat([raw, if node.kind == "fprint0" { b"\0" } else { b"\n" }]), plan.raw)?
+    "fprintf" => write_output(node.file, fmt.render(node.segments, entry)?, plan.raw)?
     "ls" => gnu.write_bytes(fmt.ls_line(entry, plan.opts.start_ns)?)
-    "fls" => write_output(node.file, fmt.ls_line(entry, plan.opts.start_ns)?)?
+    "fls" => write_output(node.file, fmt.ls_line(entry, plan.opts.start_ns)?, plan.raw)?
     "prune" => prune = ! plan.opts.depth
     "quit" => quit = true
     "delete" => {
@@ -671,14 +673,14 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     }
     "exec+" | "execdir+" => {
       let in_directory = node.kind == "execdir+"
-      let name = if in_directory { dot_name(raw)?.display() } else { target.display() }
+      let name = if in_directory { dot_name(raw)?.bytes() } else { raw }
       deferred = [{node: index, name: name, directory: if in_directory { target.parent() } else { p"." }}]
     }
     "exec" | "execdir" | "ok" | "okdir" => {
       let in_directory = node.kind in ["execdir","okdir"]
       let value = if in_directory { dot_name(raw)?.bytes() } else { raw }
       var words: List[Path] = []
-      for word in node.argv { words += [Path.parse_bytes(replace_marker(bytes.from_text(word), value))?] }
+      for word in node.argv { words += [Path.parse_bytes(replace_marker(gnu.argument_bytes(word, plan.raw), value))?] }
       var proceed = true
       if node.kind in ["ok","okdir"] {
         io.write_stderr(f"< {node.argv[0]} ... {raw.utf8() ?? gnu.quote_bytes(raw)} > ? ")?
@@ -773,15 +775,19 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
     if node.kind not in kinds { continue }
     var initial: List[Path] = []
     var initial_size = 0
-    for word in node.argv[..node.argv.len() - 1] { initial += [fp"{word}"]; initial_size += word.byte_len() + 1 }
+    for word in node.argv[..node.argv.len() - 1] {
+      let bytes_of_word = gnu.argument_bytes(word, plan.raw)
+      initial += [Path.parse_bytes(bytes_of_word)?]
+      initial_size += bytes_of_word.len() + 1
+    }
     var batch: List[Path] = []
     var directory: Path? = null
     var size = 0
     for item in deferred {
       if item.node != index { continue }
       let cwd: Path? = if node.kind == "execdir+" { item.directory } else { null }
-      let name = fp"{item.name}"
-      let needed = name.bytes().len() + 1
+      let name = Path.parse_bytes(item.name)?
+      let needed = item.name.len() + 1
       if ! batch.is_empty() and (cwd != directory or initial_size + size + needed > BATCH_LIMIT) {
         io.flush_stdout()?
         if ! command_succeeds(initial + batch, directory)? { failed = true }
@@ -800,7 +806,10 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
   Ok(failed)
 }
 
-proc main(...args: List[Str]) {
+proc main(...argv: List[Bytes]) {
+  let prepared = gnu.prepare_arguments(argv)
+  let args = prepared.text
+  let raw = prepared.raw
   var follow = 0
   var at = 0
   let start_ns = time.now() * 1000000
@@ -834,7 +843,7 @@ proc main(...args: List[Str]) {
     let source = args[at + 1]
     at += 2
     last_token = "-files0-from"
-    let listed = if source == "-" { io.stdin_bytes() } else { fp"{source}".read_bytes() }
+    let listed = if source == "-" { io.stdin_bytes() } else { Path.parse_bytes(gnu.argument_bytes(source, raw))?.read_bytes() }
     if let Err(failure) = listed { gnu.cannot_open(source, failure); exit 1 }
     let label = if source == "-" { "(standard input)" } else { source }
     var number = 0
@@ -845,12 +854,15 @@ proc main(...args: List[Str]) {
     }
     if roots.is_empty() { exit if read_failed { 1 } else { 0 } }
   } else {
-    while at < args.len() and ! starts_expression(args[at]) { roots += [fp"{args[at]}"]; at += 1 }
+    while at < args.len() and ! starts_expression(args[at]) {
+      match Path.parse_bytes(gnu.argument_bytes(args[at], raw)) { Ok(entry) => roots += [entry]; Err(failure) => { gnu.error(failure.message); exit 1 } }
+      at += 1
+    }
     if roots.is_empty() { roots = [p"."] }
   }
   var expression_args: List[Str] = args[at..]
   if expression_args.is_empty() { expression_args = ["-true"] }
-  let initial: Options = {follow: follow, minimum: 0, maximum: -1, depth: false, device: false, warn: false, start_ns: start_ns, day_start_ns: 0, regex_type: "emacs", last_token: last_token, last_test: ""}
+  let initial: Options = {follow: follow, minimum: 0, maximum: -1, depth: false, device: false, warn: false, start_ns: start_ns, day_start_ns: 0, regex_type: "emacs", last_token: last_token, last_test: "", raw: raw}
   let outcome = try {
     let parsed = comma_expression(expression_args, {nodes: [], root: -1, at: 0, opts: initial})?
     if parsed.at < expression_args.len() { search.reject("you have too many ')'")? }
@@ -889,7 +901,7 @@ proc main(...args: List[Str]) {
     if node.kind in ["count","size","time","newerxy","perm","empty","samefile","nouser","nogroup","fstype","ls","fls"] { stat_needed = true }
     if node.kind in ["printf","fprintf"] and fmt.needs_stat(node.segments) { stat_needed = true }
   }
-  let plan: Run = {nodes: nodes, root: root, follow: final_opts.follow, opts: final_opts, stat_needed: stat_needed}
+  let plan: Run = {nodes: nodes, root: root, follow: final_opts.follow, opts: final_opts, stat_needed: stat_needed, raw: raw}
   var failed = read_failed
   var deferred: List[Deferred] = []
   for target in roots {

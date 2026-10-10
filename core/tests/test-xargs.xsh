@@ -110,3 +110,18 @@ test test_xargs_matches_recorded_gnu_output_0 { |ctx| check_share(ctx, 0)? }
 test test_xargs_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1)? }
 test test_xargs_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2)? }
 test test_xargs_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3)? }
+
+# A command word and an -a file name that are not valid UTF-8 reach the
+# command unchanged.
+test test_xargs_accepts_non_utf8_command_and_file { |ctx|
+  let root = test.temp_dir(ctx, name: "xargs-raw-operands")?
+  let list = Path.parse_bytes(bytes.concat([root.bytes(), b"/l\xff"]))?
+  list.write("one two\n")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/xargs.xsh"
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, p"--", script, p"-a", list, p"printf", p"[%s]", Path.parse_bytes(b"\xff:")?], root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  assert status.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == b"[\xff:][one][two]"
+}
