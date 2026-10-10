@@ -94,6 +94,18 @@ proc preserve_xattrs(source: Path, target: Path, opts: Options, follow: Bool, ta
   }
 }
 
+# A failure to set an attribute names the destination; validation errors pass through.
+proc preserve_attributes(source: Path, target: Path, opts: Options, follow: Bool, target_link: Bool) {
+  let applied = preserve_xattrs(source, target, opts, follow, target_link)
+  if let Err(failure) = applied {
+    match failure {
+      CopyError.Invalid {..} => return Err(failure)
+      _ => return Err(CopyError.Invalid(message: f"setting attributes for {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}"))
+    }
+  }
+  applied
+}
+
 # Use metadata captured before copying reads a file or walks a directory.
 proc preserve(source: Path, target: Path, opts: Options, follow: Bool, source_meta: FsStat, created = false) {
   let target_link = source_meta.kind == "symlink" or opts.symlink
@@ -104,14 +116,14 @@ proc preserve(source: Path, target: Path, opts: Options, follow: Bool, source_me
     let target_mode = fs.stat(target)?.mode.bit_and(0o7777)
     if target_mode.bit_and(0o200) == 0 {
       target.chmod(target_mode.bit_or(0o200))
-      let attributes = preserve_xattrs(source, target, opts, follow, target_link)
+      let attributes = preserve_attributes(source, target, opts, follow, target_link)
       target.chmod(target_mode)
       attributes?
     } else {
-      preserve_xattrs(source, target, opts, follow, target_link)
+      preserve_attributes(source, target, opts, follow, target_link)?
     }
   } else {
-    preserve_xattrs(source, target, opts, follow, target_link)
+    preserve_attributes(source, target, opts, follow, target_link)?
   }
   if opts.mode and ! target_link {
     target.chmod(source_meta.mode.bit_and(0o7777))
@@ -131,6 +143,14 @@ proc preserve(source: Path, target: Path, opts: Options, follow: Bool, source_me
 proc mkdir_copy(target: Path, source_mode: Int, opts: Options) {
   let parent = fs.open_root(target.parent().resolve()?)?
   defer parent.close()
+  # Without mode preservation the default mode is narrowed by the umask and the
+  # parent's setgid bit is inherited, as mkdir(1) does. Callers must not chmod
+  # such a directory afterwards, because that would drop the inherited bit.
+  if opts.no_mode and ! opts.mode and ! opts.owner {
+    let inherited = fs.stat(target.parent().resolve()?, follow_symlinks: true)?.mode.bit_and(0o2000)
+    parent.mkdir(basename_path(target)?, mode: 0o777.clear_bits(fs.umask()?).bit_or(inherited))
+    return
+  }
   let mode = if opts.mode or opts.owner { 0o700 } else { source_mode.bit_and(0o1777).clear_bits(fs.umask()?).bit_or(0o700) }
   parent.mkdir(basename_path(target)?, mode: mode)
   target.chmod(mode)
@@ -165,10 +185,10 @@ proc prepare_parents(source: Path, target: Path, root: Path, opts: Options) -> R
 proc finish_parents(pairs: List[ParentDirectory], opts: Options) {
   for index in range(pairs.len()) {
     let pair = pairs[pairs.len() - index - 1]
-    if pair.created and ! opts.mode and ! opts.owner {
+    if pair.created and ! opts.mode and ! opts.owner and ! opts.no_mode {
       pair.target.chmod((if opts.no_mode { 0o777 } else { pair.meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?))
     }
-    preserve(pair.source, pair.target, opts, true, pair.meta, created: pair.created)
+    preserve(pair.source, pair.target, opts, true, pair.meta, created: pair.created)?
   }
 }
 
@@ -263,6 +283,9 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     if exists and dest_kind != "dir" {
       invalid(f"cannot overwrite non-directory {gnu.quote_bytes(target.bytes())} with directory {gnu.quote_bytes(source.bytes())}")?
     }
+    if opts.parents and target.basename() == ".." {
+      invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")?
+    }
     if ! exists { mkdir_copy(target, meta.mode, opts) }
     if opts.verbose and ! exists {
       let target_bytes = target.bytes()
@@ -285,8 +308,8 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         }
       }
     }
-    if ! exists and ! opts.mode and ! opts.owner { target.chmod((if opts.no_mode { 0o777 } else { meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?)) }
-    preserve(source, target, opts, follow, meta, created: created)
+    if ! exists and ! opts.mode and ! opts.owner and ! opts.no_mode { target.chmod((if opts.no_mode { 0o777 } else { meta.mode.bit_and(0o1777) }).clear_bits(fs.umask()?)) }
+    preserve(source, target, opts, follow, meta, created: created)?
     copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: meta.kind}]
     return Ok({copies: copies, failed: failed})
   }
@@ -354,7 +377,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       let backup_key = fp"{backup.parent().resolve()?}/{basename_path(backup)?}".normalize()
       let source_key = fp"{source.parent().resolve()?}/{basename_path(source)?}".normalize()
       if backup_key == source_key {
-        invalid(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source; {gnu.quote_bytes(source.bytes())} not copied")?
+        invalid(f"backing up {gnu.quote_bytes(target.bytes())} might destroy source;  {gnu.quote_bytes(source.bytes())} not copied")?
       }
       target.rename(to: backup, overwrite: true)
       created = true
@@ -393,8 +416,10 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     } else if meta.kind == "symlink" {
       target.symlink(to: input.readlink()?)
     } else if meta.kind != "file" and opts.recursive and ! opts.copy_contents {
-      fs.mknod(target, meta.kind, meta.mode.bit_and(0o777),
-        major: fs.dev_major(meta.rdev), minor: fs.dev_minor(meta.rdev))
+      if let Err(failure) = fs.mknod(target, meta.kind, meta.mode.bit_and(0o777),
+        major: fs.dev_major(meta.rdev), minor: fs.dev_minor(meta.rdev)) {
+        invalid(f"cannot create special file {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}")?
+      }
     } else if opts.attributes {
       if ! target.exists()? {
         let made = fs.mknod(target, "file", if opts.mode or opts.owner { 0o600 } else if opts.no_mode { 0o666 } else { meta.mode.bit_and(0o777) })
@@ -456,7 +481,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
         gnu.write_text(f"copy offload: {offload}, reflink: {reflink}, sparse detection: {sparse}\n")
       }
     }
-    preserve(input, target, opts, follow, meta, created: created)
+    preserve(input, target, opts, follow, meta, created: created)?
   }
   copies += [{dev: meta.dev, ino: meta.ino, path: target_key, kind: fs.stat(target)?.kind}]
   if opts.verbose { gnu.write_text(f"{gnu.quote_bytes(source.bytes())} -> {gnu.quote_bytes(target.bytes())}\n") }
@@ -470,16 +495,17 @@ proc report(source: Path, target: Path, failure: Error) {
   }
 }
 
-pure strip_end(text: Str) -> Str {
-  var out = text
-  while out.ends_with("/") and out.byte_len() > 1 { out = out.byte_slice(0, out.byte_len() - 1) }
-  out
+# Operands stay bytes so undecodable names reach the kernel unchanged.
+pure strip_end(raw: Bytes) -> Bytes {
+  var end = raw.len()
+  while end > 1 and raw.byte_at(end - 1) == 47 { end -= 1 }
+  raw[..end]
 }
 
-pure strip_start(text: Str) -> Str {
-  var out = text
-  while out.starts_with("/") { out = out.byte_slice(1) }
-  out
+pure strip_start(raw: Bytes) -> Bytes {
+  var at = 0
+  while at < raw.len() and raw.byte_at(at) == 47 { at += 1 }
+  raw[at..]
 }
 
 proc option_value(value: Str, choices: List[Str], option: Str) -> Str {
@@ -494,7 +520,9 @@ proc option_value(value: Str, choices: List[Str], option: Str) -> Str {
   value
 }
 
-proc main(...argv: List[Str]) {
+proc main(...raw_argv: List[Bytes]) {
+  let prepared = gnu.prepare_arguments(raw_argv)
+  let argv = prepared.text
   var opts: Options = {recursive: false, dereference: "default", overwrite: "always", force: false,
     update: "all", target: null, no_target: false, hardlink: false, symlink: false,
     mode: false, no_mode: false, xattr: "none", context: "none", owner: false, times: false, links: false, parents: false,
@@ -591,7 +619,10 @@ proc main(...argv: List[Str]) {
         "remove-destination" => opts.remove = true
         "b" => opts.backup = e"VERSION_CONTROL" ?? "existing"
         "backup" => opts.backup = value ?? e"VERSION_CONTROL" ?? "existing"
-        "S" | "suffix" => opts.suffix = if val == "" { "~" } else { val }
+        "S" | "suffix" => {
+          opts.suffix = if val == "" { "~" } else { val }
+          if opts.backup == "none" { opts.backup = e"VERSION_CONTROL" ?? "existing" }
+        }
         "sparse" => opts.sparse = option_value(val, ["auto", "always", "never"], "sparse")
         "reflink" => opts.reflink = option_value(value ?? "always", ["auto", "always", "never"], "reflink")
         "v" | "verbose" => opts.verbose = true
@@ -613,20 +644,22 @@ proc main(...argv: List[Str]) {
   if opts.backup in ["none", "off"] { opts.backup = "none" } else if opts.backup in ["simple", "never"] { opts.backup = "simple" } else if ! (opts.backup in ["existing", "nil", "numbered", "t"]) { gnu.usage_error(f"invalid argument {gnu.quote(opts.backup)} for 'backup'") }
   if opts.reflink == "always" and opts.sparse != "auto" { gnu.usage_error("--reflink can be used only with --sparse=auto") }
   if opts.backup != "none" and opts.overwrite == "never" { gnu.usage_error("options --backup and --no-clobber are mutually exclusive") }
+  if opts.backup != "none" and opts.update in ["none", "none-fail"] { gnu.usage_error("--backup is mutually exclusive with -n or --update=none-fail") }
   if opts.no_target and opts.target != null { gnu.usage_error("cannot combine --target-directory (-t) and --no-target-directory (-T)") }
   if operands.is_empty() { gnu.missing_operand() }
-  if opts.target == null and operands.len() == 1 { gnu.usage_error(f"missing destination file operand after {gnu.quote(operands[0])}") }
-  if opts.no_target and operands.len() > 2 { gnu.extra_operand(operands[2]) }
-  let dest_text = opts.target ?? operands[-1]
-  if dest_text == "" { gnu.error("cannot create regular file '': No such file or directory"); exit 1 }
-  let dest = fp"{dest_text}"
+  if opts.target == null and operands.len() == 1 { gnu.usage_error(f"missing destination file operand after {gnu.quote_bytes(gnu.argument_bytes(operands[0], prepared.raw))}") }
+  if opts.no_target and operands.len() > 2 { gnu.usage_error(f"extra operand {gnu.quote_bytes(gnu.argument_bytes(operands[2], prepared.raw))}") }
+  let dest_arg = gnu.argument_bytes(opts.target ?? operands[-1], prepared.raw)
+  if dest_arg == b"" { gnu.error("cannot create regular file '': No such file or directory"); exit 1 }
+  let dest = Path.parse_bytes(dest_arg)?
   let sources = if opts.target == null { operands[..operands.len() - 1] } else { operands }
+  let source_args: List[Bytes] = [gnu.argument_bytes(text, prepared.raw) for text in sources]
   var directory = false
   if ! opts.no_target {
     if let Ok(meta) = fs.stat(dest, follow_symlinks: true) { directory = meta.kind == "dir" }
   }
   if dest.display().ends_with("/") and fs.stat(dest, follow_symlinks: true) is Err(_) and
-    (! opts.recursive or fs.stat(fp"{sources[0]}", follow_symlinks: true)?.kind != "dir") {
+    (! opts.recursive or fs.stat(Path.parse_bytes(source_args[0])?, follow_symlinks: true)?.kind != "dir") {
     gnu.error(f"{gnu.quote_bytes(dest.bytes())} is not a directory")
     exit 1
   }
@@ -634,12 +667,12 @@ proc main(...argv: List[Str]) {
   if (sources.len() > 1 or opts.target != null) and ! directory { gnu.usage_error(f"target {gnu.quote_bytes(dest.bytes())} is not a directory") }
   var saved: List[FileIdentity] = []
   var failed = false
-  for text in sources {
-    if text == "" { gnu.error("cannot stat '': No such file or directory"); failed = true; continue }
-    let source = fp"{if opts.strip { strip_end(text) } else { text }}"
+  for text in source_args {
+    if text == b"" { gnu.error("cannot stat '': No such file or directory"); failed = true; continue }
+    let source = Path.parse_bytes(if opts.strip { strip_end(text) } else { text })?
     var target = if directory { child_path(dest, basename_path(source)?) } else { dest }
     if opts.parents {
-      target = fp"{dest}/{strip_start(text)}"
+      target = Path.parse_bytes(bytes.concat([dest.bytes(), b"/", strip_start(text)]))?
     }
     var parent_pairs: List[ParentDirectory] = []
     if opts.parents {
@@ -655,7 +688,7 @@ proc main(...argv: List[Str]) {
             Ok(result) => { saved = result.copies; failed = failed or result.failed }
             Err(error) => { report(source, target, error); failed = true }
           }
-        } else { gnu.cannot("stat", text, failure); failed = true }
+        } else { gnu.error(f"cannot stat {gnu.quote_bytes(text)}: {gnu.strerror(failure)}"); failed = true }
       }
       Ok(meta) => {
         match copy_node(source, target, opts, true, meta.dev, [], saved) {
