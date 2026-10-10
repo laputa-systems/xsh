@@ -1328,6 +1328,12 @@
       "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
     },
     {
+      "id": "test_tac::test_non_utf8_regex_separator",
+      "utility": "tac",
+      "category": "gnu-semantics",
+      "reason": "expects, under the harness's LC_ALL=C, the output GNU produces in a UTF-8 locale for the class [.\\xe9?]; GNU tac 9.11 (clean Alpine container, LC_ALL=C) treats the byte as a class member and prints d?c.\\xe9b.a., which XSH matches"
+    },
+    {
       "id": "test_tail::diagnostics::test_snippet_points_at_the_unknown_unit",
       "utility": "tail",
       "category": "clap-wording",

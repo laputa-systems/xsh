@@ -10,7 +10,8 @@
 # back to the invoking user, so no root-owned files are left behind.
 #
 # Mounts use the host's own paths, so every path in the environment is valid in
-# the container unchanged. The uutils checkout is read-only; its test crate is
+# the container unchanged. The uutils checkout stays writable because a test
+# installs into its working directory, which is the checkout; its test crate is
 # built into the `xsh-uutils-target` volume, which keeps the (minutes-long) first
 # build across runs. The stage is built inside the container and discarded.
 # cargo-nextest comes from the host (CARGO_NEXTEST_BIN); the image has none.
@@ -49,7 +50,7 @@ exit $status
 exec docker run --rm --init --platform linux/amd64 \
 	-v "$repo:$repo" \
 	-v "$bin_dir:$bin_dir:ro" \
-	-v "$uutils:$uutils:ro" \
+	-v "$uutils:$uutils" \
 	-v "$results:$results" \
 	-v "$scratch:$scratch" \
 	-v xsh-uutils-target:/uutils-target \

@@ -416,8 +416,8 @@
       "native_tests": "core/tests/test-cp.xsh",
       "uutils_test_count": 398,
       "uutils_integration": {
-        "pass": 369,
-        "fail": 2,
+        "pass": 371,
+        "fail": 0,
         "skip": 0,
         "excluded": 15
       },
@@ -461,9 +461,9 @@
       "uutils_test_count": 105,
       "uutils_integration": {
         "pass": 103,
-        "fail": 2,
+        "fail": 0,
         "skip": 0,
-        "excluded": 0
+        "excluded": 2
       },
       "gnu_differential": {
         "pass": 2,
@@ -472,7 +472,10 @@
         "excluded": 0
       },
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_csplit::repeat_everything",
+        "test_csplit::test_line_num_range_with_up_to_match3"
+      ],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
@@ -551,8 +554,8 @@
       "native_tests": "core/tests/test-dd.xsh",
       "uutils_test_count": 155,
       "uutils_integration": {
-        "pass": 148,
-        "fail": 4,
+        "pass": 151,
+        "fail": 1,
         "skip": 0,
         "excluded": 0
       },
@@ -737,8 +740,8 @@
       "native_tests": "core/tests/test-factor.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 23,
-        "fail": 1,
+        "pass": 24,
+        "fail": 0,
         "skip": 0,
         "excluded": 1
       },
@@ -849,8 +852,8 @@
       "native_tests": "core/tests/test-head.xsh",
       "uutils_test_count": 73,
       "uutils_integration": {
-        "pass": 66,
-        "fail": 1,
+        "pass": 67,
+        "fail": 0,
         "skip": 0,
         "excluded": 6
       },
@@ -1403,9 +1406,9 @@
       "uutils_test_count": 50,
       "uutils_integration": {
         "pass": 48,
-        "fail": 1,
+        "fail": 0,
         "skip": 0,
-        "excluded": 1
+        "excluded": 2
       },
       "gnu_differential": {
         "pass": 2,
@@ -1415,7 +1418,8 @@
       },
       "busybox": null,
       "excluded_tests": [
-        "test_ptx::test_failed_write_is_reported"
+        "test_ptx::test_failed_write_is_reported",
+        "test_ptx::test_unicode_padding_alignment"
       ],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
@@ -1806,9 +1810,9 @@
       "uutils_test_count": 33,
       "uutils_integration": {
         "pass": 31,
-        "fail": 1,
+        "fail": 0,
         "skip": 0,
-        "excluded": 1
+        "excluded": 2
       },
       "gnu_differential": {
         "pass": 2,
@@ -1818,7 +1822,8 @@
       },
       "busybox": null,
       "excluded_tests": [
-        "test_tac::test_failed_write_is_reported"
+        "test_tac::test_failed_write_is_reported",
+        "test_tac::test_non_utf8_regex_separator"
       ],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
@@ -1833,9 +1838,9 @@
       "uutils_test_count": 170,
       "uutils_integration": {
         "pass": 149,
-        "fail": 1,
+        "fail": 0,
         "skip": 0,
-        "excluded": 17
+        "excluded": 18
       },
       "gnu_differential": {
         "pass": 9,
@@ -1865,6 +1870,7 @@
         "test_tail::test_follow_name_remove",
         "test_tail::test_follow_name_rename_chain",
         "test_tail::test_follow_name_replaced_by_symlink_is_untailable",
+        "test_tail::test_obsolete_encoding_unix",
         "test_tail::test_retry_descriptor_gives_up_on_untailable",
         "test_tail::test_retry_follow_name_waits_for_creation"
       ],
@@ -1950,8 +1956,8 @@
       "native_tests": "core/tests/test-touch.xsh",
       "uutils_test_count": 66,
       "uutils_integration": {
-        "pass": 61,
-        "fail": 1,
+        "pass": 62,
+        "fail": 0,
         "skip": 0,
         "excluded": 2
       },
@@ -2072,8 +2078,8 @@
       "native_tests": "core/tests/test-tsort.xsh",
       "uutils_test_count": 25,
       "uutils_integration": {
-        "pass": 24,
-        "fail": 1,
+        "pass": 25,
+        "fail": 0,
         "skip": 0,
         "excluded": 0
       },
@@ -2123,13 +2129,15 @@
       "uutils_test_count": 14,
       "uutils_integration": {
         "pass": 13,
-        "fail": 1,
+        "fail": 0,
         "skip": 0,
-        "excluded": 0
+        "excluded": 1
       },
       "gnu_differential": null,
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_uname::test_uname_operating_system"
+      ],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 uname has no matching short forms, so XSH accepts --help and --version without them."
       ]
@@ -2350,8 +2358,8 @@
       "native_tests": "core/tests/test-env.xsh",
       "uutils_test_count": 102,
       "uutils_integration": {
-        "pass": 78,
-        "fail": 4,
+        "pass": 81,
+        "fail": 1,
         "skip": 0,
         "excluded": 18
       },
@@ -2485,13 +2493,15 @@
       "uutils_test_count": 11,
       "uutils_integration": {
         "pass": 10,
-        "fail": 1,
+        "fail": 0,
         "skip": 0,
-        "excluded": 0
+        "excluded": 1
       },
       "gnu_differential": null,
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_more::test_invalid_file_perms"
+      ],
       "known_semantic_gaps": [
         "Single-key paging, Ctrl-C handling and resize redraws remain missing; unix.read_fd and unix.poll_fd now provide the required descriptor operations.",
         "A pipe on standard input is printed in full instead of paged; command input from /dev/tty is not integrated.",
@@ -2529,8 +2539,8 @@
       "native_tests": "core/tests/test-timeout.xsh",
       "uutils_test_count": 33,
       "uutils_integration": {
-        "pass": 25,
-        "fail": 2,
+        "pass": 27,
+        "fail": 0,
         "skip": 0,
         "excluded": 2
       },
@@ -2900,13 +2910,16 @@
       "uutils_test_count": 86,
       "uutils_integration": {
         "pass": 51,
-        "fail": 2,
+        "fail": 0,
         "skip": 0,
-        "excluded": 0
+        "excluded": 2
       },
       "gnu_differential": null,
       "busybox": null,
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_stty::save_and_all",
+        "test_stty::test_stdin_not_tty_fails"
+      ],
       "known_semantic_gaps": [
         "Integer arguments follow the uutils tests' overflow wording (`Value too large for defined data type`); GNU 9.4 on the host prints `Numerical result out of range`. One constant (`OVERFLOW_TEXT`) in core/stty.xsh flips it if the 9.12 source says otherwise.",
         "Fractional speeds (`9600.49`) are accepted as the uutils tests require; GNU 9.4 on the host rejects them as `invalid ispeed`.",

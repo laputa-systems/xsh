@@ -106,25 +106,19 @@
       "applet": true
     },
     "cp": {
-      "pass": 369,
-      "fail": 2,
+      "pass": 371,
+      "fail": 0,
       "skip": 0,
       "excluded": 15,
-      "failing": [
-        "test_cp::test_cp_reflink_always_failure",
-        "test_cp::test_cp_reflink_never"
-      ],
+      "failing": [],
       "applet": true
     },
     "csplit": {
       "pass": 103,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_csplit::repeat_everything",
-        "test_csplit::test_line_num_range_with_up_to_match3"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "cut": {
@@ -144,15 +138,12 @@
       "applet": true
     },
     "dd": {
-      "pass": 148,
-      "fail": 4,
+      "pass": 151,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_dd::test_nocache_eof",
-        "test_dd::test_nocache_eof_fadvise_zero_length",
-        "test_dd::test_nocache_file",
-        "test_dd::test_nocache_stdin_error"
+        "test_dd::test_nocache_eof_fadvise_zero_length"
       ],
       "applet": true
     },
@@ -205,14 +196,11 @@
       "applet": true
     },
     "env": {
-      "pass": 78,
-      "fail": 4,
+      "pass": 81,
+      "fail": 1,
       "skip": 0,
       "excluded": 18,
       "failing": [
-        "test_env::test_env_arg_argv0_overwrite",
-        "test_env::test_env_arg_argv0_overwrite_mixed_with_string_args",
-        "test_env::test_env_overwrite_arg0",
         "test_env::test_env_split_quoted_with_backslash_space"
       ],
       "applet": true
@@ -234,13 +222,11 @@
       "applet": true
     },
     "factor": {
-      "pass": 23,
-      "fail": 1,
+      "pass": 24,
+      "fail": 0,
       "skip": 0,
       "excluded": 1,
-      "failing": [
-        "test_factor::factors_many_primes_of_similar_size_completely"
-      ],
+      "failing": [],
       "applet": true
     },
     "false": {
@@ -276,13 +262,11 @@
       "applet": true
     },
     "head": {
-      "pass": 66,
-      "fail": 1,
+      "pass": 67,
+      "fail": 0,
       "skip": 0,
       "excluded": 6,
-      "failing": [
-        "test_head::test_read_backwards_bytes_sys_kernel_profiling"
-      ],
+      "failing": [],
       "applet": true
     },
     "hostid": {
@@ -415,12 +399,10 @@
     },
     "more": {
       "pass": 10,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_more::test_invalid_file_perms"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "mv": {
@@ -529,12 +511,10 @@
     },
     "ptx": {
       "pass": 48,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 1,
-      "failing": [
-        "test_ptx::test_unicode_padding_alignment"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "pwd": {
@@ -697,13 +677,10 @@
     },
     "stty": {
       "pass": 51,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_stty::save_and_all",
-        "test_stty::test_stdin_not_tty_fails"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "sum": {
@@ -724,22 +701,18 @@
     },
     "tac": {
       "pass": 31,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 1,
-      "failing": [
-        "test_tac::test_non_utf8_regex_separator"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "tail": {
       "pass": 149,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 17,
-      "failing": [
-        "test_tail::test_obsolete_encoding_unix"
-      ],
+      "excluded": 18,
+      "failing": [],
       "applet": true
     },
     "tee": {
@@ -759,24 +732,19 @@
       "applet": true
     },
     "timeout": {
-      "pass": 25,
-      "fail": 2,
+      "pass": 27,
+      "fail": 0,
       "skip": 0,
       "excluded": 2,
-      "failing": [
-        "test_timeout::test_foreground",
-        "test_timeout::test_foreground_signal0_kill_after"
-      ],
+      "failing": [],
       "applet": true
     },
     "touch": {
-      "pass": 61,
-      "fail": 1,
+      "pass": 62,
+      "fail": 0,
       "skip": 0,
       "excluded": 2,
-      "failing": [
-        "test_touch::test_touch_set_date_year_zero"
-      ],
+      "failing": [],
       "applet": true
     },
     "tr": {
@@ -804,13 +772,11 @@
       "applet": true
     },
     "tsort": {
-      "pass": 24,
-      "fail": 1,
+      "pass": 25,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_tsort::test_tsort_non_utf8_paths"
-      ],
+      "failing": [],
       "applet": true
     },
     "tty": {
@@ -823,12 +789,10 @@
     },
     "uname": {
       "pass": 13,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_uname::test_uname_operating_system"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "unexpand": {
@@ -913,9 +877,9 @@
     }
   },
   "totals": {
-    "pass": 5648,
-    "fail": 42,
+    "pass": 5662,
+    "fail": 19,
     "skip": 0,
-    "excluded": 263
+    "excluded": 272
   }
 }

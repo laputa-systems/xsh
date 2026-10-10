@@ -3,32 +3,52 @@
 ## Handoff (2026-10-10, second Claude Code session)
 
 Status: paused, incomplete. `master` is clean. The pinned uutils suite
-(`results/uutils-integration.json`, x86_64 musl, unprivileged user) is **5,648
-passing, 42 failing, 263 excluded** (of 5,953), up 36 passing from 5,612, with no
-regression on any test that passed before. Gains: tail +19, sort +7, ls +6,
-chmod +2, du +2 (incidental).
+(`results/uutils-integration.json`, x86_64 musl, run in the `xsh-test` image
+as UID 1000) is **5,662 passing, 19 failing, 272 excluded** (of 5,953), up 50
+passing from 5,612 at the start of the session, with no regression on any test
+that passed before. Gains: tail +19, sort +7, ls +6, chmod +2, env +3, cp +3,
+timeout +2, dd +3, factor, head, touch, tsort +1 each, du +2 (incidental).
 
-Exclusions grew from 136 to 263: every remaining failure that asserts only
+Exclusions grew from 136 to 272: every failure that asserts only
 uutils-specific text or options (clap usage and help wording, the framed
 snippet renderer, uutils-only options such as `--use-polling`, `id -p`, `cp -g`,
-write-error and quoting wording that GNU prints differently) is excluded by
-exact ID with the evidence in its reason, at the owner's direction. The owner
-also asked to ignore `test_chmod::test_chmod_recursive` (excluded). The native
-`ls` expectations for `no=` styles, clear-to-eol, the dangling-name color and
-`posix-full-iso` in the C locale were kept; the six uutils tests that disagree
-are excluded as `gnu-semantics` (not re-verified against a GNU binary here).
+write-error and quoting wording GNU prints differently) is excluded by exact ID
+with the evidence in its reason, at the owner's direction. Where a GNU oracle
+was needed it was GNU coreutils 9.11 in a throwaway Alpine container (see
+"Docker gate"); that settled the `ls` color and time-style pins, `csplit` x2,
+`stty` x2, `ptx` and the `tac` locale case. `test_chmod_recursive` is excluded
+at the owner's direction.
 
-The 42 remaining failures are not uutils wording: host limits (no locale data,
-no libstdbuf, no `filefrag`, busybox `/bin/sh` dispatching on argv[0], no login
-session for `logname`), native requests (`unix.fadvise` for dd nocache,
-`timeout --foreground` process group, `fs.set_times` seconds form for `touch`
-year 0, FICLONE errno from `fs.copy_file`, relative-path `lstat`, startup
-`PWD`/`SHLVL`/phrase export for `env`), and a few real defects (`csplit` x2,
-`head /sys/kernel/profiling`, `ptx` unicode padding, `tac` non-UTF-8 regex
-separator via a library change, `tsort` non-UTF-8 argv, `factor` timeout,
-`stty --all --save`, `more` lowercase message, `tail` obsolete encoding,
-`uname` operating system on musl). `ledger/requests.md` has the per-test
-evidence.
+The 19 remaining failures, none uutils wording:
+
+- strace without `-f` sees only the main thread, and XSH evaluates on a worker
+  thread (3): `ls::test_no_extra_stat_without_recursion`,
+  `dd::test_nocache_eof_fadvise_zero_length`,
+  `install::test_install_basic_try_reflink`. XSH performs the syscall once;
+  passing needs main-thread evaluation (a stack switch) or an exclusion
+  category for the thread model. Owner decision.
+- Needs glibc locale data the musl image lacks (8 `sort` locale tests) or a
+  logged-in session (`logname` x2; they pass with `CI=true`, which also relaxes
+  unrelated user and group tests).
+- Needs a shipped `libstdbuf` preload library (`stdbuf` x4): a new cdylib crate.
+- `env::test_env_split_quoted_with_backslash_space`: the runtime exports
+  `PWD`, `SHLVL` and the execution-phrase variable to children (language
+  contract).
+- `ls::test_ls_sort_dot_first_utf8_locale`: locale collation, as above.
+
+Contract changes this session (all documented in SPEC, registry docs and native
+tests): `fs.set_times` seconds and nanoseconds parameters; `fs.copy_file` with
+reflink always surfaces the FICLONE errno for non-regular files; `fs.stat`
+passes a relative path to the kernel unchanged; new `unix.fadvise`;
+`process.command_argv` and the command builder take `same_group`; the runtime
+restores the default SIGCHLD action at startup; the shared textio reader reads
+a short regular file to its end.
+
+Image changes: `Dockerfile.test` adds `filefrag`, bash as `/bin/sh`, and a
+searchable `/root`. The full native suite passes in the rebuilt image
+(5,116 passed, 0 failed, 41 skipped). A scratch directory for the docker gate
+must be on a real filesystem, not `/tmp` (a tmpfs there makes
+`df::test_type_option_with_file` fail because `/dev` is tmpfs too).
 
 Not refreshed: BusyBox results (the lane stage lacks the busybox build config,
 so per-lane busybox counts read low without any failure) and the GNU Gate 4
