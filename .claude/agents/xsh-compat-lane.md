@@ -43,6 +43,13 @@ You implement one utility in the XSH compatibility campaign, from a brief.
 - Comments say why, constraints, or non-obvious behavior. Do not cite planning
   documents, branches, milestones, or other implementations.
 - Probe `xsh` only under a wall-clock limit and leave no process running.
+- Contain every side effect. Run probes, fixtures and scratch files only inside
+  a fresh `mktemp -d` directory (not under the home directory, not setgid) or
+  your worktree. Before any mutating command (`chmod`, `touch`, `ln`, `rm`,
+  `mv`, `cp`), `cd` into that directory and use absolute paths; never rely on
+  the working directory a previous command left behind. If you changed
+  anything outside those two places, list the exact paths in your report and
+  do not try to repair it yourself.
 - Commit only after `GATE PASS`, only the two owned files.
 - Report in under 150 words: the gate result line, tests fixed and unresolved,
   `Requests:`, `Language gaps:`, blockers.
