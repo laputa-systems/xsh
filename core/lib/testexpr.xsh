@@ -8,6 +8,9 @@
 ##!
 ##! Each function takes the word list and the index of the first word it may
 ##! read, and returns the truth value with the index of the next unread word.
+##! The `raw` list carries the original bytes of operands that are not UTF-8;
+##! their placeholders in the word list are restored only where GNU prints the
+##! operand's bytes.
 
 use gnu
 
@@ -184,21 +187,24 @@ pure compare_integers(left: Integer, right: Integer) -> Int {
   0
 }
 
-proc integer_operand(text: Str) [process, env] -> Integer {
+# The integer operand at `text`. An invalid one is quoted from its original
+# bytes, so an undecodable operand prints the way GNU prints it.
+proc integer_operand(text: Str, raw: List[gnu.RawArgument]) [process, env] -> Integer {
   let number = parse_integer(text)
 
   if ! number.ok {
-    syntax_error(f"invalid integer {gnu.quote_value(text)}")
+    syntax_error(f"invalid integer {gnu.quote_value_bytes(gnu.argument_bytes(text, raw))}")
   }
 
   number
 }
 
-# The integer an operand stands for; `-l STRING` is the length of STRING.
-proc integer_value(text: Str, length_of: Bool) [process, env] -> Integer {
-  return parse_integer(f"{text.byte_len()}") when length_of
+# The integer an operand stands for; `-l STRING` is the length of the original
+# bytes of STRING.
+proc integer_value(text: Str, length_of: Bool, raw: List[gnu.RawArgument]) [process, env] -> Integer {
+  return parse_integer(f"{gnu.argument_bytes(text, raw).len()}") when length_of
 
-  integer_operand(text)
+  integer_operand(text, raw)
 }
 
 proc identity() [process, error] -> Result[Identity] {
@@ -209,8 +215,8 @@ proc identity() [process, error] -> Result[Identity] {
 
 # Metadata of NAME, following symlinks unless `follow` is false. A missing or
 # dangling name is an error.
-proc stat_name(name: Str, follow: Bool) [fs, error] -> Result[FsEntry] {
-  let target = fp"{name}"
+proc stat_name(name: Bytes, follow: Bool) [fs, error] -> Result[FsEntry] {
+  let target = Path.parse_bytes(name)?
 
   return target.metadata() when ! follow
 
@@ -232,8 +238,8 @@ proc permitted(entry: FsEntry, bit: Int) [process, error] -> Result[Bool] {
   Ok(entry.mode / shift % 8 / bit % 2 == 1)
 }
 
-proc is_terminal(text: Str) [process, env] -> Bool {
-  let fd = integer_operand(text)
+proc is_terminal(text: Str, raw: List[gnu.RawArgument]) [process, env] -> Bool {
+  let fd = integer_operand(text, raw)
 
   return false when fd.negative or fd.digits.byte_len() > 9
 
@@ -245,16 +251,16 @@ proc is_terminal(text: Str) [process, env] -> Bool {
 }
 
 # `-X NAME` file and string tests.
-proc unary(op: Str, operand: Str) [fs, process, env, error] -> Result[Bool] {
+proc unary(op: Str, operand: Str, raw: List[gnu.RawArgument]) [fs, process, env, error] -> Result[Bool] {
   return Ok(operand != "") when op == "-n"
   return Ok(operand == "") when op == "-z"
-  return Ok(is_terminal(operand)) when op == "-t"
+  return Ok(is_terminal(operand, raw)) when op == "-t"
 
   let follow = op != "-h" and op != "-L"
 
   return Ok(false) when operand == ""
 
-  guard let entry = stat_name(operand, follow) else {
+  guard let entry = stat_name(gnu.argument_bytes(operand, raw), follow) else {
     return Ok(false)
   }
 
@@ -285,7 +291,7 @@ proc unary(op: Str, operand: Str) [fs, process, env, error] -> Result[Bool] {
 # The unary test at `at`, selected by the second character of the word like
 # GNU does: an unknown operator is a syntax error even without an operand, and
 # a known one needs the next word.
-proc unary_at(argv: List[Str], at: Int) [fs, process, env, error] -> Result[Eval] {
+proc unary_at(argv: List[Str], raw: List[gnu.RawArgument], at: Int) [fs, process, env, error] -> Result[Eval] {
   let op = argv[at].byte_slice(0, length: 2)
 
   if ! (op in UNARY_OPS) {
@@ -296,7 +302,7 @@ proc unary_at(argv: List[Str], at: Int) [fs, process, env, error] -> Result[Eval
     beyond(argv)
   }
 
-  Ok({value: unary(op, argv[at + 1])?, pos: at + 2})
+  Ok({value: unary(op, argv[at + 1], raw)?, pos: at + 2})
 }
 
 # GNU treats a two-character word starting with `-` as a switch except `-a`
@@ -305,11 +311,26 @@ pure is_switch(word: Str) -> Bool {
   word.byte_len() == 2 and word.starts_with("-")
 }
 
-proc file_compare(op: Str, left: Str, right: Str) [fs, process, env, error] -> Result[Bool] {
-  if op == "-ef" {
-    syntax_error("-ef is not supported: file identity (device and inode) is not exposed by fs.metadata")
+# Whether two names are one file: equal device and inode after following
+# symlinks, so a hard link or a symlink to the same file matches. A name that
+# does not resolve is never the same file as another.
+proc same_file(left: Bytes, right: Bytes) [fs, error] -> Result[Bool] {
+  let left_path = Path.parse_bytes(left)?
+  let right_path = Path.parse_bytes(right)?
+
+  guard let left_entry = fs.stat(left_path, follow_symlinks: true) else {
     return Ok(false)
   }
+
+  guard let right_entry = fs.stat(right_path, follow_symlinks: true) else {
+    return Ok(false)
+  }
+
+  Ok(left_entry.dev == right_entry.dev and left_entry.ino == right_entry.ino)
+}
+
+proc file_compare(op: Str, left: Bytes, right: Bytes) [fs, process, env, error] -> Result[Bool] {
+  return same_file(left, right) when op == "-ef"
 
   var left_time = 0
   var right_time = 0
@@ -335,7 +356,7 @@ proc file_compare(op: Str, left: Str, right: Str) [fs, process, env, error] -> R
 # GNU also reads `OP -l STRING` on the right when two or more words follow OP;
 # the operands stay where the unshifted layout puts them, so `a = -l b` compares
 # `a` with the literal `-l`.
-proc binary(argv: List[Str], at: Int, length_left: Bool) [fs, process, env, error] -> Result[Eval] {
+proc binary(argv: List[Str], raw: List[gnu.RawArgument], at: Int, length_left: Bool) [fs, process, env, error] -> Result[Eval] {
   let op_at = if length_left { at + 2 } else { at + 1 }
   let op = argv[op_at]
   let length_right = op_at < argv.len() - 2 and argv[op_at + 1] == "-l"
@@ -345,8 +366,8 @@ proc binary(argv: List[Str], at: Int, length_left: Bool) [fs, process, env, erro
   let right = argv[op_at + 1]
 
   if op in INTEGER_OPS {
-    let left_number = integer_value(left, length_left)
-    let right_number = integer_value(if length_right { argv[op_at + 2] } else { right }, length_right)
+    let left_number = integer_value(left, length_left, raw)
+    let right_number = integer_value(if length_right { argv[op_at + 2] } else { right }, length_right, raw)
     let order = compare_integers(left_number, right_number)
     let held = if op == "-eq" {
       order == 0
@@ -370,32 +391,34 @@ proc binary(argv: List[Str], at: Int, length_left: Bool) [fs, process, env, erro
       syntax_error(f"{op} does not accept -l")
     }
 
-    return Ok({value: file_compare(op, left, right)?, pos: next})
+    return Ok({value: file_compare(op, gnu.argument_bytes(left, raw), gnu.argument_bytes(right, raw))?, pos: next})
   }
 
-  return Ok({value: left == right, pos: next}) when op == "=" or op == "=="
+  # Equality compares the original bytes so two identical undecodable operands
+  # match. Ordering stays on text because `Bytes` has no ordering operator.
+  return Ok({value: gnu.argument_bytes(left, raw) == gnu.argument_bytes(right, raw), pos: next}) when op == "=" or op == "=="
 
-  return Ok({value: left != right, pos: next}) when op == "!="
+  return Ok({value: gnu.argument_bytes(left, raw) != gnu.argument_bytes(right, raw), pos: next}) when op == "!="
 
   return Ok({value: left < right, pos: next}) when op == "<"
 
   Ok({value: left > right, pos: next})
 }
 
-proc two_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Result[Eval] {
+proc two_arguments(argv: List[Str], raw: List[gnu.RawArgument], at: Int) [fs, process, env, error] -> Result[Eval] {
   return Ok({value: argv[at + 1] == "", pos: at + 2}) when argv[at] == "!"
 
-  return unary_at(argv, at) when is_switch(argv[at])
+  return unary_at(argv, raw, at) when is_switch(argv[at])
 
   beyond(argv)
   Ok({value: false, pos: at})
 }
 
-proc three_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Result[Eval] {
-  return binary(argv, at, false) when is_binop(argv[at + 1])
+proc three_arguments(argv: List[Str], raw: List[gnu.RawArgument], at: Int) [fs, process, env, error] -> Result[Eval] {
+  return binary(argv, raw, at, false) when is_binop(argv[at + 1])
 
   if argv[at] == "!" {
-    let inner = two_arguments(argv, at + 1)?
+    let inner = two_arguments(argv, raw, at + 1)?
 
     return Ok({value: ! inner.value, pos: inner.pos})
   }
@@ -404,7 +427,7 @@ proc three_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Resu
     return Ok({value: argv[at + 1] != "", pos: at + 3})
   }
 
-  return expression(argv, at) when argv[at + 1] == "-a" or argv[at + 1] == "-o"
+  return expression(argv, raw, at) when argv[at + 1] == "-a" or argv[at + 1] == "-o"
 
   syntax_error(f"{gnu.quote_value(argv[at + 1])}: binary operator expected")
   Ok({value: false, pos: at})
@@ -412,31 +435,31 @@ proc three_arguments(argv: List[Str], at: Int) [fs, process, env, error] -> Resu
 
 # GNU classifies the words by count: one to four words never reach the
 # general parser unless they contain a boolean operator.
-proc posixtest(argv: List[Str], at: Int, count: Int) [fs, process, env, error] -> Result[Eval] {
+proc posixtest(argv: List[Str], raw: List[gnu.RawArgument], at: Int, count: Int) [fs, process, env, error] -> Result[Eval] {
   return Ok({value: argv[at] != "", pos: at + 1}) when count == 1
 
-  return two_arguments(argv, at) when count == 2
+  return two_arguments(argv, raw, at) when count == 2
 
-  return three_arguments(argv, at) when count == 3
+  return three_arguments(argv, raw, at) when count == 3
 
   if count == 4 {
     if argv[at] == "!" {
-      let inner = three_arguments(argv, at + 1)?
+      let inner = three_arguments(argv, raw, at + 1)?
 
       return Ok({value: ! inner.value, pos: inner.pos})
     }
 
     if argv[at] == "(" and argv[at + 3] == ")" {
-      let inner = two_arguments(argv, at + 1)?
+      let inner = two_arguments(argv, raw, at + 1)?
 
       return Ok({value: inner.value, pos: inner.pos + 1})
     }
   }
 
-  expression(argv, at)
+  expression(argv, raw, at)
 }
 
-proc term(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval] {
+proc term(argv: List[Str], raw: List[gnu.RawArgument], start: Int) [fs, process, env, error] -> Result[Eval] {
   var at = start
   var negated = false
 
@@ -473,7 +496,14 @@ proc term(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval]
       count += 1
     }
 
-    let inner = posixtest(argv, at, count)?
+    # A right parenthesis can be the right operand of a three-word string
+    # comparison. In `( ( != ) )`, the first `)` is the operand and the next
+    # one closes the group.
+    if count == 2 and is_binop(argv[at + 1]) and at + 3 < argv.len() and argv[at + 3] == ")" {
+      count += 1
+    }
+
+    let inner = posixtest(argv, raw, at, count)?
 
     if inner.pos >= argv.len() {
       syntax_error("')' expected")
@@ -485,11 +515,11 @@ proc term(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval]
 
     result = {value: inner.value, pos: inner.pos + 1}
   } else if argv.len() - at >= 4 and argv[at] == "-l" and is_binop(argv[at + 2]) {
-    result = binary(argv, at, true)?
+    result = binary(argv, raw, at, true)?
   } else if argv.len() - at >= 3 and is_binop(argv[at + 1]) {
-    result = binary(argv, at, false)?
+    result = binary(argv, raw, at, false)?
   } else if is_switch(argv[at]) and argv[at] != "-a" and argv[at] != "-o" {
-    result = unary_at(argv, at)?
+    result = unary_at(argv, raw, at)?
   } else {
     result = {value: argv[at] != "", pos: at + 1}
   }
@@ -497,12 +527,12 @@ proc term(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval]
   Ok({value: negated != result.value, pos: result.pos})
 }
 
-proc conjunction(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval] {
+proc conjunction(argv: List[Str], raw: List[gnu.RawArgument], start: Int) [fs, process, env, error] -> Result[Eval] {
   var at = start
   var value = true
 
   while true {
-    let item = term(argv, at)?
+    let item = term(argv, raw, at)?
 
     value = item.value and value
     at = item.pos
@@ -515,7 +545,7 @@ proc conjunction(argv: List[Str], start: Int) [fs, process, env, error] -> Resul
   Ok({value: value, pos: at})
 }
 
-proc expression(argv: List[Str], start: Int) [fs, process, env, error] -> Result[Eval] {
+proc expression(argv: List[Str], raw: List[gnu.RawArgument], start: Int) [fs, process, env, error] -> Result[Eval] {
   var at = start
   var value = false
 
@@ -524,7 +554,7 @@ proc expression(argv: List[Str], start: Int) [fs, process, env, error] -> Result
   }
 
   while true {
-    let item = conjunction(argv, at)?
+    let item = conjunction(argv, raw, at)?
 
     value = item.value or value
     at = item.pos
@@ -539,36 +569,37 @@ proc expression(argv: List[Str], start: Int) [fs, process, env, error] -> Result
 
 ## Evaluate the words of a `test` command line. Ends the applet with the
 ## exit status: 0 true, 1 false, 2 for a syntax error.
-export proc evaluate(argv: List[Str]) [fs, process, env, error, io] -> Unit {
+export proc evaluate(argv: List[Bytes]) [fs, process, env, error, io] -> Unit {
+  let prepared = gnu.prepare_arguments(argv)
   let bracket = gnu.prog() == "["
-  var words = argv
+  var words = prepared.text
 
   if bracket {
-    if argv.len() == 1 and argv[0] == "--help" {
+    if words.len() == 1 and words[0] == "--help" {
       gnu.help(USAGE)
       return
     }
 
-    if argv.len() == 1 and argv[0] == "--version" {
+    if words.len() == 1 and words[0] == "--version" {
       gnu.version("[")
       return
     }
 
-    if argv.is_empty() or argv[-1] != "]" {
+    if words.is_empty() or words[-1] != "]" {
       syntax_error("missing ']'")
     }
 
-    words = argv[0..argv.len() - 1]
+    words = words[0..words.len() - 1]
   }
 
   if words.is_empty() {
     exit 1
   }
 
-  let outcome = posixtest(words, 0, words.len())?
+  let outcome = posixtest(words, prepared.raw, 0, words.len())?
 
   if outcome.pos != words.len() {
-    syntax_error(f"extra argument {gnu.quote_value(words[outcome.pos])}")
+    syntax_error(f"extra argument {gnu.quote_value_bytes(gnu.argument_bytes(words[outcome.pos], prepared.raw))}")
   }
 
   if ! outcome.value {
