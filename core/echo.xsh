@@ -61,8 +61,7 @@ pure simple_escape(byte: Int) -> Int {
 
 # Expand the backslash escapes GNU echo -e knows. Octal and hex values wrap to
 # one byte, and an unrecognized sequence keeps its backslash.
-proc expand(text: Str) [error] -> Result[Expanded] {
-  let raw = bytes.from_text(text)
+proc expand(raw: Bytes) [error] -> Result[Expanded] {
   let total = raw.len()
   var out: List[Int] = []
   var at = 0
@@ -123,20 +122,22 @@ proc expand(text: Str) [error] -> Result[Expanded] {
 
 # GNU echo's own option scan: leading arguments made only of n, e, and E after
 # one dash are options; the first other argument and everything after it is text.
-proc main(...argv: List[Str]) [process, env, error, io] {
+proc main(...argv: List[Bytes]) [process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
+  let texts = prepared.text
   var posix = false
 
   if let Ok(_) = env.get("POSIXLY_CORRECT") {
     posix = true
   }
 
-  if argv.len() == 1 and ! posix {
-    if argv[0] == "--help" {
+  if texts.len() == 1 and ! posix {
+    if texts[0] == "--help" {
       gnu.help(USAGE)
       return
     }
 
-    if argv[0] == "--version" {
+    if texts[0] == "--version" {
       gnu.version("echo")
       return
     }
@@ -146,9 +147,9 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var newline = true
   var first = 0
 
-  if ! posix or (! argv.is_empty() and argv[0] == "-n") {
-    while first < argv.len() {
-      let word = argv[first]
+  if ! posix or (! texts.is_empty() and texts[0] == "-n") {
+    while first < texts.len() {
+      let word = texts[first]
 
       break when ! word.starts_with("-") or word == "-"
       break when ! rx"^-[neE]+$".matches(word)
@@ -171,10 +172,19 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     }
   }
 
-  let words = argv[first..argv.len()]
+  var words: List[Bytes] = []
+  for text in texts[first..texts.len()] {
+    words += [gnu.argument_bytes(text, prepared.raw)]
+  }
 
   if ! (escapes or posix) {
-    gnu.write_text(words.join(" ") + (if newline { "\n" } else { "" }))
+    var parts: List[Bytes] = []
+    for index in range(words.len()) {
+      if index > 0 { parts += [b" "] }
+      parts += [words[index]]
+    }
+    if newline { parts += [b"\n"] }
+    gnu.write_bytes(bytes.concat(parts))
     return
   }
 
