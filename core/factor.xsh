@@ -809,10 +809,70 @@ pure strip_small_primes(n: List[Int], small: List[Int]) -> Stripped {
   }
 }
 
+# Remainder of `a` by a divisor below 9 * 10^9: rest * BASE + limb stays below
+# 9.000000001 * 10^18, inside Int.
+pure big_rem_small(a: List[Int], divisor: Int) -> Int {
+  var rest = 0
+  var at = a.len() - 1
+
+  while at >= 0 {
+    rest = (rest * BASE + a[at]) % divisor
+    at -= 1
+  }
+
+  rest
+}
+
+# Natural logarithm of a positive magnitude; the top three limbs carry the
+# precision and the lower limbs contribute whole powers of BASE.
+pure big_ln(a: List[Int]) -> Float {
+  let low = if a.len() > 3 { a.len() - 3 } else { 0 }
+  var head = 0.0
+  var at = a.len() - 1
+
+  while at >= low {
+    head = head * 1000000000.0 + a[at].float()
+    at -= 1
+  }
+
+  head.ln() + low.float() * 20.723265836946414
+}
+
+# Half-width of the window scanned at each k-th root. Factors of one size
+# cluster around the geometric mean of the number's factors, so a window of
+# this width holds a clustered factor; wider spreads fall through to rho.
+const CLUSTER_WIDTH = 256
+
+# A divisor of `n` within CLUSTER_WIDTH of some k-th root of `n`, or [] when
+# no root has one. Every prime factor is at least 2048, so at most
+# ln(n) / ln(2048) factors exist. Roots at or above 8.9 * 10^9 are skipped
+# because big_rem_small needs a divisor below 9 * 10^9.
+pure close_factor(n: List[Int]) -> List[Int] {
+  let logarithm = big_ln(n)
+  let most = (logarithm / 7.624618986159398).floor() ?? 0
+
+  for k in range(2, most + 1) {
+    let root = (logarithm / k.float()).exp()
+
+    if root < 8900000000.0 {
+      let estimate = root.floor() ?? 0
+      let low = if estimate - CLUSTER_WIDTH > 2 { estimate - CLUSTER_WIDTH } else { 2 }
+
+      for candidate in range(low, estimate + CLUSTER_WIDTH + 1) {
+        return [candidate] when big_rem_small(n, candidate) == 0
+      }
+    }
+  }
+
+  []
+}
+
 # One nontrivial factor of an odd composite with no factor below 2048, as
 # limbs, or [] when none was found. Small cofactors take Pollard's rho (a long
 # run below 2^50, a short one above) and anything below about 2^72 then takes
 # square forms factorization, whose cost grows with the fourth root of n.
+# Factors of similar size are tried at the k-th roots before rho, because a
+# multiprecision rho step costs about a millisecond, far more than a window scan.
 pure find_factor(n: List[Int]) -> List[Int] {
   if n.len() <= 2 {
     let value = big_to_int(n)
@@ -839,6 +899,10 @@ pure find_factor(n: List[Int]) -> List[Int] {
 
     return big_from_int(found) when found != 0
   }
+
+  let clustered = close_factor(n)
+
+  return clustered when ! clustered.is_empty()
 
   var c = 1
 
