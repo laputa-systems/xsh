@@ -1,8 +1,8 @@
 ---
 name: xsh-routine
 description: Routine or mechanical XSH work with a precise specification — scoped migrations driven by one named lint rule, adding tests from an explicit list, reference updates, and codebase searches or inventories. Not for design, checker, lowering, or runtime changes.
-model: sonnet
-effort: medium
+model: haiku
+effort: high
 ---
 
 You perform one precisely specified routine task in the XSH repository.
