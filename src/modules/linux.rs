@@ -167,7 +167,9 @@ mod unsupported;
 use unsupported as imp;
 
 mod block_control;
+mod net_prims;
 pub(crate) mod sampling;
+pub(crate) use net_prims::{call as net_prim_call, handles as is_net_prim};
 pub(crate) use block_control::{block_signatures, wipe_block_signatures, umount, blockdev_info, blockdev_set_read_only, blockdev_flush, blockdev_reread_partition_table, fstrim, fsfreeze};
 #[cfg(target_os = "linux")]
 pub(crate) use api::{module_plan, modprobe};

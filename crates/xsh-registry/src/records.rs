@@ -1,5 +1,11 @@
 use crate::types::Type;
+mod net_sockets;
 mod sampling;
+pub use net_sockets::{
+    NET_CONSTANTS, linux_accepted_socket_type, linux_control_message_type,
+    linux_net_constants_type, linux_netlink_message_type, linux_received_message_type,
+    linux_socket_address_argument_type, linux_socket_address_type,
+};
 pub use sampling::{linux_sample_type, linux_cpu_sample_type, linux_disk_sample_type, linux_process_sample_type};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -48,7 +54,13 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxInterface", linux_interface_type()),
         ("LinuxInterfaceAddress", linux_interface_address_type()),
         ("LinuxRoute", linux_route_type()),
+        ("LinuxAcceptedSocket", linux_accepted_socket_type()),
+        ("LinuxControlMessage", linux_control_message_type()),
+        ("LinuxNetConstants", linux_net_constants_type()),
         ("LinuxNetlinkAttribute", linux_netlink_attribute_type()),
+        ("LinuxNetlinkMessage", linux_netlink_message_type()),
+        ("LinuxReceivedMessage", linux_received_message_type()),
+        ("LinuxSocketAddress", linux_socket_address_type()),
         ("LinuxNetworkAddress", linux_network_address_type()),
         ("LinuxNetworkIssue", linux_network_issue_type()),
         ("LinuxNetworkLink", linux_network_link_type()),

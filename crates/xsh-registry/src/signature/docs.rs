@@ -1239,6 +1239,81 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("linux", "sample") => Some(("Samples Linux CPU, memory, process and disk counters.", "Cross-file snapshots are not atomic. Times use milliseconds; disk sectors are 512 bytes, paging counters use KiB and swap counters use host pages. PID and start_ticks identify a process. proc_root selects a fixture root; missing or malformed required counters fail.", &["linux", "sampling"])),
         ("linux", "module_plan") => Some(("Resolves kernel module dependencies and options.", "Reads indexes and configuration without running commands. remove chooses reverse dependency removal order; loaded reports current kernel state.", &["linux", "kernel"])),
         ("linux", "umount" | "blockdev_info" | "blockdev_set_read_only" | "blockdev_flush" | "blockdev_reread_partition_table" | "fstrim" | "fsfreeze") => Some(("Controls mounts, filesystems and block devices.", "Host errors retain errno. Mutations require the relevant kernel permissions. fstrim reports discarded bytes; freeze holds filesystem writes until explicitly thawed.", &["linux", "filesystem", "privileged"])),
+        ("linux", "net_constants") => Some((
+            "Returns the named Linux socket, option, netlink, and ioctl numbers.",
+            "A pure table of Int values: AF_*, SOCK_*, IPPROTO_*, SOL_*, SO_*, IP_*, IPV6_*, ICMP_FILTER, TCP_*, MSG_*, SHUT_*, NETLINK_*, NLM_F_*, NLMSG_*, RTM_*, SOCK_DIAG_BY_FAMILY, GENL/CTRL ids, IFF_* and the ioctl requests the ioctl guard admits.",
+            &["linux", "network", "constants"],
+        )),
+        ("linux", "socket") => Some((
+            "Creates a socket and returns its descriptor number.",
+            "The descriptor is close-on-exec and works with unix.read_fd, unix.write_fd, unix.poll_fd and unix.close_fd. kind may add SOCK_NONBLOCK. Failures such as EACCES for an unprivileged raw or ICMP socket keep their errno.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "connect" | "bind") => Some((
+            "Connects or binds a socket to an address.",
+            "The address is a record {family, address, port, scope_id} for inet, inet6, unix and netlink, or raw sockaddr bytes. Nonblocking sockets report EINPROGRESS as an error with its errno. Interruption by a signal is reported, not retried.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "listen") => Some((
+            "Marks a stream socket as accepting connections.",
+            "backlog defaults to 128 and is capped by the kernel.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "accept") => Some((
+            "Accepts one pending connection.",
+            "The new descriptor is close-on-exec; nonblock makes it nonblocking. A nonblocking listener with no pending connection fails with EAGAIN. Interruption is retried.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "sendto") => Some((
+            "Sends one datagram or stream chunk, optionally to an address.",
+            "Returns the byte count sent. MSG_NOSIGNAL is always set so a closed peer reports EPIPE instead of raising SIGPIPE. Interruption is retried.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "recvfrom") => Some((
+            "Receives one datagram or stream chunk with its sender and ancillary messages.",
+            "max_bytes bounds the data; a longer datagram is truncated and flags reports MSG_TRUNC. Up to 1024 bytes of control data are decoded into control messages; MSG_ERRQUEUE reads the IP_RECVERR queue. Descriptors passed with SCM_RIGHTS arrive close-on-exec and are the script's to close. Interruption is retried.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "shutdown") => Some((
+            "Shuts down one or both directions of a connected socket.",
+            "how is SHUT_RD, SHUT_WR or SHUT_RDWR.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "getsockname" | "getpeername") => Some((
+            "Reports the local or the connected peer address of a socket.",
+            "getpeername fails with ENOTCONN on an unconnected socket.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "setsockopt_int" | "getsockopt_int" | "setsockopt_bytes" | "getsockopt_bytes") => Some((
+            "Sets or reads a socket option as an integer or as raw bytes.",
+            "level and option are SOL_*/IPPROTO_* and SO_*, IP_*, IPV6_*, ICMP_FILTER or TCP_* numbers from net_constants. The integer forms use a C int; getsockopt_int fails with EINVAL when the kernel returns another size. The bytes forms are limited to 65536 bytes; getsockopt_bytes returns the length the kernel filled.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "set_socket_timeout") => Some((
+            "Sets the receive or send timeout of a socket in milliseconds.",
+            "option is SO_RCVTIMEO or SO_SNDTIMEO; zero disables the timeout. The kernel struct timeval layout stays inside the host boundary.",
+            &["linux", "network", "socket"],
+        )),
+        ("linux", "netlink_open") => Some((
+            "Opens a close-on-exec netlink socket for a protocol and binds it.",
+            "protocol is a NETLINK_* number; groups is the multicast group bitmask to join, default zero. The kernel assigns the port id.",
+            &["linux", "network", "netlink"],
+        )),
+        ("linux", "netlink_request") => Some((
+            "Sends one netlink request and collects the reply messages.",
+            "Builds the 16-byte header from message_type, flags and payload, with seq 0 meaning a fresh sequence number, and reads until NLMSG_DONE, an acknowledgement, or a non-multipart reply. An NLMSG_ERROR with a negative code fails with that errno; timeout_ms defaults to 5000 and expiry fails with ETIMEDOUT.",
+            &["linux", "network", "netlink"],
+        )),
+        ("linux", "genl_family_id") => Some((
+            "Resolves a generic-netlink family name to its numeric id.",
+            "Opens a private NETLINK_GENERIC socket; an unknown family fails with ENOENT. Use the id as the message type of requests on a NETLINK_GENERIC socket.",
+            &["linux", "network", "netlink"],
+        )),
+        ("linux", "ioctl") => Some((
+            "Issues a guarded ioctl whose argument is a fixed-layout structure.",
+            "Only the SIOCGIF*, SIOCSIF*, SIOCGARP/SIOCSARP/SIOCDARP, SIOCETHTOOL, SIOCGIWNAME, SIOCINQ and SIOCOUTQ requests named by net_constants are admitted; any other number fails with invalid-argument. input is copied into a zeroed struct of the request's size and out_len bytes of it are returned. For SIOCETHTOOL, input is the 16-byte interface name followed by the ethtool structure, which the kernel updates in place.",
+            &["linux", "network", "ioctl"],
+        )),
         ("regex", "captures_bytes") => Some(("Matches POSIX byte captures at an input offset.", "Returns an empty list for no match; a match has ten nullable ranges, index zero for the full match and one through nine for captures. Offsets are absolute byte positions. Basic syntax is default; extended and ignore_case select POSIX flags. Patterns are validated even for empty input; NUL input and GNU word boundary escapes are rejected. A nonzero offset does not create a new beginning-of-line anchor.", &["regex", "bytes"])),
 
         ("unix", "cpu_features") => Some(("Lists supported host CPU features used by hardware-accelerated utilities.", "Feature names are avx512, avx2, pclmul and sse2 on x86; asimd and vmull on little-endian AArch64. Unsupported features are omitted. Android and other targets return an empty list.", &["unix", "cpu"])),

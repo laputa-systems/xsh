@@ -5342,6 +5342,25 @@ let text = notes.replace("DRAFT", with: "FINAL")
   pseudo-terminal pair; descriptors are the script's to close. `unix.read_utmp`
   decodes a utmp or wtmp file (Linux only; a trailing partial record is
   ignored) and `unix.load_average` reads the system load.
+- Network primitives in `linux` move bytes between a script and the kernel;
+  packet and message layouts stay in the script. `linux.socket` returns a
+  close-on-exec descriptor number that `unix.read_fd`, `write_fd`, `poll_fd`,
+  and `close_fd` accept; `connect`, `bind`, `listen`, `accept`, `sendto`,
+  `recvfrom`, `shutdown`, `getsockname`, `getpeername`, the integer and byte
+  `setsockopt`/`getsockopt` forms, and `set_socket_timeout` wrap the system
+  calls and fail with the kernel errno. An address is a record
+  `{family: "inet"|"inet6"|"unix"|"netlink", address, port, scope_id}` or raw
+  `sockaddr` bytes, and a received address carries its `raw` bytes.
+  `recvfrom` returns the datagram with its sender, `msg_flags` (`MSG_TRUNC`,
+  `MSG_CTRUNC`), and ancillary messages, which is how the `IP_RECVERR` queue,
+  TTL, and TOS are read; sends set `MSG_NOSIGNAL`. `linux.netlink_open`,
+  `netlink_request`, and `genl_family_id` send one netlink request and collect
+  the multipart reply as header-parsed message records; a negative
+  `NLMSG_ERROR` code is the errno. `linux.ioctl` admits only the fixed-layout
+  interface, ARP, and ethtool requests named by `linux.net_constants()`, which
+  also names every socket, option, netlink, and ioctl number. Interface
+  configuration needs the kernel's usual capability; nothing in the runtime
+  grants it.
 - `io.flush_stdout()` writes the buffered standard output to the host and
   fails with the write's errno (`EPIPE`, `ENOSPC`); without it, output leaves
   the process at exit and its write errors are not visible. Captured output is
