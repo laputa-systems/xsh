@@ -35,10 +35,9 @@ test test_awk_numeric_strings_and_short_circuit { |ctx|
   assert output == "1\n0 1\n"
 }
 
-test test_awk_rejects_unsupported_getline { |ctx|
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { getline x }"""], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
-  assert result.status != 0
-  assert "unsupported" in result.stderr
+test test_awk_getline_reads_stdin_in_begin { |ctx|
+  let output = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { getline x; print "got", x } { print "rest", $0 }"""], stdin: b"a\nb\n", env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
+  assert output.stdout == "got a\nrest b\n"
 }
 
 test test_awk_array_function_arguments_and_field_increment { |ctx|
@@ -47,10 +46,11 @@ test test_awk_array_function_arguments_and_field_increment { |ctx|
   assert output == "2 3 9\n"
 }
 
-test test_awk_rejects_redirection { |ctx|
-  let result = test.run_script(ctx, fp"{ctx.core_dir}/awk.xsh".read_text()?, args: [r"""BEGIN { print "hello" > "output" }"""], env: {XSH_MODULE_PATH: ctx.core_dir.display()})?
-  assert result.status != 0
-  assert "unsupported" in result.stderr
+test test_awk_redirection_writes_files_and_commands { |ctx|
+  let root = test.temp_dir(ctx, name: "redirect")?
+  let target = fp"{root}/output"
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- -v target=$target r"""BEGIN { print "hello" > target; print "again" >> target; close(target); while ((getline line < target) > 0) print "read", line; print "b" | "sort"; print "a" | "sort" }"""
+  assert output == "read hello\nread again\na\nb\n"
 }
 
 test test_awk_operand_assignments_run_between_files { |ctx|
@@ -136,7 +136,7 @@ test test_awk_argv_file_selection_matrix { |ctx|
       name: "ARGC one selects no input files",
       program: r"""BEGIN { ARGC = 1 } { print "unexpected" } END { print NR, FNR, "[" FILENAME "]" }""",
       files: [first_name, second_name],
-      stdout: "0 0 []\n",
+      stdout: "0 0 [-]\n",
     },
     {
       name: "existing file entries can be reordered",
@@ -204,7 +204,7 @@ test test_awk_argv_file_selection_matrix { |ctx|
 test test_awk_gawk_regex_record_separators_and_rt { |ctx|
   let input = test.temp_file(ctx, name: "records", contents: b"::alpha::beta--omega::")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { RS = "::|--" } { print NR, "[" $0 "]", "[" RT "]" }""" $input
-  assert output == "1 [] [::]\n2 [alpha] [::]\n3 [beta] [--]\n4 [omega] [::]\n5 [] []\n"
+  assert output == "1 [] [::]\n2 [alpha] [::]\n3 [beta] [--]\n4 [omega] [::]\n"
 
   let dotted = test.temp_file(ctx, name: "dotted", contents: b"left.right.")?
   let single = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { RS = "." } { print $0, RT }""" $dotted
@@ -272,5 +272,97 @@ test test_awk_print_redirects_only_to_standard_streams { |ctx|
 
 test test_awk_command_getline_reads_shared_stream { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/awk.xsh" -- r"""BEGIN { "printf 'a b\nc\n'" | getline; print $2; "printf 'a b\nc\n'" | getline x; print x, NR; print ("printf ''" | getline z), z "" }"""
-  assert output == "b\nc 2\n0 \n"
+  assert output == "b\nc 0\n0 \n"
 }
+
+# Differential matrix: each case in tests/data/awk/cases.json records what GNU
+# awk 5.3.2 (default mode, UTF-8 locale) printed for an argument vector, stdin
+# and fixture files. Run only against this applet, so no container is needed.
+# `xsh` holds the output this implementation intentionally gives instead, and
+# `loose` names a channel deliberately left uncompared (regenerate.py documents
+# each deviation). The directory the case ran in is rendered as @DIR@.
+type MatrixCase = {
+  name: Str, args: List[Str], stdin: Str, stdin_b64: Str, files: List[List[Str]], files_b64: List[List[Str]],
+  modes: List[List[Str]], links: List[List[Str]], dirs: List[Str], env: List[List[Str]], stdout: Str, stdout_b64: Str,
+  stderr: Str, stderr_b64: Str, status: Int, xsh: List[List[Str]], loose: List[Str],
+}
+type Observed = {stdout: Bytes, stderr: Bytes, status: Int, root: Str}
+
+proc matrix_cases(ctx: TestContext) [fs, error] -> Result[List[MatrixCase]] {
+  let decoded = json.decode(fp"{ctx.core_dir}/tests/data/awk/cases.json".read_text()?)?
+  Ok(decoded.require(List[MatrixCase])?)
+}
+
+# The value paired with a key in a list of [key, value] pairs.
+pure pair_value(pairs: List[List[Str]], key: Str) -> Str? {
+  for pair in pairs { if pair[0] == key { return pair[1] } }
+  null
+}
+pure expected_bytes(case: MatrixCase, channel: Str) -> Result[Bytes] {
+  let override = pair_value(case.xsh, channel)
+  if override != null { return Ok(bytes.from_text(override ?? "")) }
+  let packed = if channel == "stdout" { case.stdout_b64 } else { case.stderr_b64 }
+  if ! packed.is_empty() { return Ok(packed.base64_decode()?) }
+  Ok(bytes.from_text(if channel == "stdout" { case.stdout } else { case.stderr }))
+}
+
+proc run_case(ctx: TestContext, case: MatrixCase, index: Int) [fs, process, env, error] -> Result[Observed] {
+  let root = test.temp_dir(ctx, name: f"awk-case-{index}")?
+  for pair in case.files { fp"{root}/{pair[0]}".write(pair[1])? }
+  for pair in case.files_b64 { fp"{root}/{pair[0]}".write(pair[1].base64_decode()?)? }
+  for name in case.dirs { fp"{root}/{name}".mkdir()? }
+  for pair in case.links { fp"{root}/{pair[0]}".symlink(to: fp"{pair[1]}")? }
+  for pair in case.modes { fp"{root}/{pair[0]}".chmod(pair[1].parse_int_decimal()?)? }
+  let stdin = if case.stdin_b64.is_empty() { bytes.from_text(case.stdin) } else { case.stdin_b64.base64_decode()? }
+  let arguments = [argument.replace("@DIR@", with: root.display()) for argument in case.args]
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/awk.xsh".display(), "--"] + arguments
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: ""}, stdin, out, err)
+  var overlay: Map[Str] = {}
+  for pair in case.env { overlay = overlay.set(pair[0], pair[1]) }
+  let ran = env (overlay) { process.run(plan) }
+  let finished = ran?
+  let status = finished?
+  Ok({stdout: out.read_bytes()?, stderr: err.read_bytes()?, status: status.exit_code()?, root: root.display()})
+}
+# The directory path is the one volatile value in the output.
+pure normalized(data: Bytes, root: Str) -> Bytes {
+  match data.utf8() {
+    Ok(text) => bytes.from_text(text.replace(root, with: "@DIR@"))
+    Err(_) => data
+  }
+}
+
+proc check_matrix(ctx: TestContext, prefixes: List[Str]) [fs, process, env, error] -> Result[Unit] {
+  var failures: List[Str] = []
+  var index = 0
+  var selected = 0
+  for case in matrix_cases(ctx)? {
+    index += 1
+    var wanted = false
+    for prefix in prefixes { if case.name.starts_with(prefix) { wanted = true } }
+    if ! wanted { continue }
+    selected += 1
+    let seen = run_case(ctx, case, index)?
+    let root = seen.root
+    var problems: List[Str] = []
+    if "stdout" not in case.loose and normalized(seen.stdout, root) != expected_bytes(case, "stdout")? { problems += ["stdout"] }
+    if "stderr" not in case.loose and normalized(seen.stderr, root) != expected_bytes(case, "stderr")? { problems += ["stderr"] }
+    let wanted_status = (pair_value(case.xsh, "status") ?? f"{case.status}").parse_int_decimal()?
+    if seen.status != wanted_status { problems += ["status"] }
+    if ! problems.is_empty() { failures += [f"{case.name}: {problems.join(",")}"] }
+  }
+  assert selected > 0, "no matrix cases selected"
+  assert failures.is_empty(), f"{failures.len()} of {selected} cases differ from the recorded GNU awk output:\n{failures.join("\n")}"
+}
+
+test test_awk_matrix_patterns_and_records { |ctx| check_matrix(ctx, ["pat_", "rs_"])? }
+test test_awk_matrix_fields_and_separators { |ctx| check_matrix(ctx, ["fld_", "fs_"])? }
+test test_awk_matrix_getline { |ctx| check_matrix(ctx, ["get_"])? }
+test test_awk_matrix_printf { |ctx| check_matrix(ctx, ["printf"])? }
+test test_awk_matrix_strings_and_numbers { |ctx| check_matrix(ctx, ["str_", "num_"])? }
+test test_awk_matrix_arrays_and_functions { |ctx| check_matrix(ctx, ["arr_", "fn_"])? }
+test test_awk_matrix_streams_and_processes { |ctx| check_matrix(ctx, ["io_"])? }
+test test_awk_matrix_options_and_uninitialized { |ctx| check_matrix(ctx, ["opt_"])? }
+test test_awk_matrix_grammar_and_regex { |ctx| check_matrix(ctx, ["gram_", "rx_", "rxdyn_"])? }
