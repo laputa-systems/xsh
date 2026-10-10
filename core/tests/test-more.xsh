@@ -139,3 +139,16 @@ test test_more_help_and_version_go_to_stdout { |ctx|
   assert version.status == 0
   assert version.stdout.starts_with("more (XSH core)")
 }
+
+test test_more_non_utf8_operand_is_opened_by_its_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "more-non-utf8")?
+  Path.parse_bytes(bytes.concat([bytes.from_text(f"{root}/"), b"\xff\xfe.txt"]))?.write(b"raw name\n")
+
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, fp"{ctx.core_dir}/more.xsh", Path.parse_bytes(b"\xff\xfe.txt")?]
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", out, err))?
+  assert status.exit_code()? == 0
+  assert err.read_text()? == ""
+  assert out.read_bytes()? == b"raw name\n"
+}

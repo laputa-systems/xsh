@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.textio_a1 as tio
+use lib.text_a2 as text
 
 const USAGE = """Usage: csplit [OPTION]... FILE PATTERN...
 Output pieces of FILE separated by PATTERN(s) to files 'xx00', 'xx01', ...,
@@ -334,9 +335,10 @@ proc write_count(count: Int) [process, env, io] {
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
   let opts: CsplitOptions = cli.applet(
-    argv,
+    prepared.text,
     {
       gnu: {status: 1},
       suffix_format: {form: "-b --suffix-format FORMAT"},
@@ -382,9 +384,9 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   let spec = parse_format(opts.suffix_format ?? f"%0{width}d")
-  let input_name = opts.operands[0]
+  let input_name = gnu.argument_bytes(opts.operands[0], prepared.raw)
 
-  guard let data = gnu.read_operand(input_name) else { |failure|
+  guard let data = text.read_operand_bytes(input_name) else { |failure|
     if gnu.errno(failure) == 21 {
       if ! opts.quiet {
         gnu.write_text("0\n")
@@ -392,7 +394,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
       gnu.error("read error: Is a directory")
     } else {
-      gnu.cannot_open(input_name, failure)
+      text.cannot_open_bytes(input_name, failure)
     }
 
     exit 1

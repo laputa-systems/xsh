@@ -76,12 +76,40 @@ type Input = {name: Str, texts: List[Bytes], fields: List[List[Bytes]], keys: Li
 # unpairable line has been seen (the default check starts then).
 type Flags = {warned: List[Bool], unpairable: Bool}
 
+# LC_ALL overrides LC_COLLATE, which overrides LANG; an unset or empty value is skipped.
+proc collates_in_c() [env] -> Bool {
+  for name in ["LC_ALL", "LC_COLLATE", "LANG"] {
+    let found = env.get_or(name, "") ?? ""
+
+    return found == "C" or found == "POSIX" or found.starts_with("C.") when found != ""
+  }
+
+  true
+}
+
 pure is_blank(value: Int) -> Bool {
   value == 32 or value == 9 or value == 10
 }
 
-# -1, 0 or 1 by unsigned byte order, shorter first.
-pure order(left: Bytes, right: Bytes) -> Int {
+pure alphanumeric_key(text: Str) -> Str {
+  rx"[^0-9A-Za-z]".replace(text, with: "").lower()
+}
+
+# -1, 0 or 1 by unsigned byte order, shorter first. Outside the C collation,
+# UTF-8 keys first compare with punctuation and case ignored, as the usual
+# collations do; byte order breaks the tie, so distinct keys never compare equal.
+# Keys that are not UTF-8 always compare by bytes.
+pure order(left: Bytes, right: Bytes, collate_c: Bool) -> Int {
+  if ! collate_c {
+    if let [Ok(a), Ok(b)] = [left.utf8(), right.utf8()] {
+      let ka = alphanumeric_key(a)
+      let kb = alphanumeric_key(b)
+
+      return -1 when ka < kb
+      return 1 when ka > kb
+    }
+  }
+
   let found = left.compare(right)
 
   return 0 when found.equal
@@ -612,6 +640,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   let checking = if opts.check_order { "always" } else if opts.nocheck_order { "never" } else { "default" }
+  let collate_c = collates_in_c()
   let counts = [inputs[0].texts.len(), inputs[1].texts.len()]
   let ks = [inputs[0].keys, inputs[1].keys]
   let ts = [inputs[0].texts, inputs[1].texts]
@@ -660,7 +689,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     if idx < counts[side] {
       let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-      if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+      if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx], collate_c) > 0 {
         flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
       }
 
@@ -670,7 +699,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   }
 
   while head[0] >= 0 and head[1] >= 0 {
-    let step = order(ks[0][head[0]], ks[1][head[1]])
+    let step = order(ks[0][head[0]], ks[1][head[1]], collate_c)
 
     if step != 0 {
       let side = if step < 0 { 0 } else { 1 }
@@ -690,7 +719,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if idx < counts[side] {
         let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx], collate_c) > 0 {
           flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
         }
 
@@ -717,13 +746,13 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         let idx = next[side]
         let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx], collate_c) > 0 {
           flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
         }
 
         next[side] = idx + 1
 
-        if order(ks[side][idx], ks[side][head[side]]) == 0 {
+        if order(ks[side][idx], ks[side][head[side]], collate_c) == 0 {
           groups[side] += [idx]
         } else {
           ahead[side] = idx
@@ -761,7 +790,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       if idx < counts[side] {
         let watch = checking == "always" or (checking == "default" and flags.unpairable)
 
-        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx]) > 0 {
+        if watch and idx > start[side] and ! flags.warned[side] and order(ks[side][idx - 1], ks[side][idx], collate_c) > 0 {
           flags = disorder(flags, side, ts[side][idx], names[side], idx + 1, checking)
         }
 
