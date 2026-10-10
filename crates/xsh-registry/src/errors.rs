@@ -151,7 +151,11 @@ pub struct ErrorFamily {
 }
 
 pub fn builtin_error_families() -> Vec<ErrorFamily> {
-    vec![process_error_family(), assertion_error_family()]
+    vec![
+        process_error_family(),
+        net_error_family(),
+        assertion_error_family(),
+    ]
 }
 
 pub fn process_error_family() -> ErrorFamily {
@@ -244,6 +248,104 @@ pub const PROCESS_ERROR_VARIANTS: &[ErrorVariant] = &[
     },
     ErrorVariant {
         name: "Unknown",
+        facets: &[],
+    },
+];
+
+/// The failures of the `net` module. A network failure is a variant, so a
+/// caller branches on what went wrong instead of on message text: `Dns` for a
+/// name that does not resolve, `Connect` for a refused or unreachable peer,
+/// `ConnectTimeout` and `Timeout` for the phase that ran out of time,
+/// `Certificate` for a peer certificate that was rejected and `Tls` for any
+/// other handshake failure, `TrustStore` for an unusable CA file,
+/// `EmptyReply` for a connection closed before a response, `Status` for a
+/// response the request asked to treat as a failure (`status` carries its
+/// code), `Redirect` for a redirect that was not followed, `Unsupported` for
+/// a scheme or method the module does not send, `Write` for a failure on the
+/// destination file, `Io` for a failure on an established connection, and
+/// `Other` for the rest, such as a request refused before it was sent.
+pub fn net_error_family() -> ErrorFamily {
+    ErrorFamily {
+        name: "NetError",
+        fields: vec![
+            ErrorField {
+                name: "message",
+                ty: Type::Str,
+            },
+            ErrorField {
+                name: "status",
+                ty: Type::Optional(Box::new(Type::Int)),
+            },
+        ],
+        variants: NET_ERROR_VARIANTS,
+    }
+}
+
+/// The facets a `NetError` variant implements. Fails loudly on a name outside
+/// the family because runtime variant names come from a closed table.
+pub fn net_error_facets(variant: &str) -> &'static [ErrorFacet] {
+    NET_ERROR_VARIANTS
+        .iter()
+        .find(|candidate| candidate.name == variant)
+        .unwrap_or_else(|| panic!("`{variant}` is not a NetError variant"))
+        .facets
+}
+
+pub const NET_ERROR_VARIANTS: &[ErrorVariant] = &[
+    ErrorVariant {
+        name: "Dns",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "Connect",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "ConnectTimeout",
+        facets: &[ErrorFacet::Timeout],
+    },
+    ErrorVariant {
+        name: "Timeout",
+        facets: &[ErrorFacet::Timeout],
+    },
+    ErrorVariant {
+        name: "Tls",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "Certificate",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "TrustStore",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "EmptyReply",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "Status",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "Redirect",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "Unsupported",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "Write",
+        facets: &[ErrorFacet::HostIo],
+    },
+    ErrorVariant {
+        name: "Io",
+        facets: &[],
+    },
+    ErrorVariant {
+        name: "Other",
         facets: &[],
     },
 ];

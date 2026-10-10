@@ -5,13 +5,28 @@ use super::{
 };
 use crate::modules::net::{
     self, NetAgentKey, NetCallOptions, NetDownload, NetOperation, NetProtocol, NetRequest,
-    NetUpload,
+    NetUpload, RedirectLimit,
 };
 use crate::runtime::value::{RecordMap, RuntimeError};
 use crate::source::Span;
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
+
+/// Reads `redirect_limit`, which selects what a request does with a redirect
+/// it will not follow. Absent means `error`, the behavior before the option
+/// existed.
+fn record_redirect_limit(record: &RecordMap, span: Span) -> Result<RedirectLimit, RuntimeError> {
+    match record_str(record, "redirect_limit", Some("error"), span)?.as_str() {
+        "error" => Ok(RedirectLimit::Error),
+        "return" => Ok(RedirectLimit::Return),
+        other => Err(RuntimeError::new(
+            "range-error",
+            format!("redirect_limit must be `error` or `return`, found `{other}`"),
+        )
+        .with_span(span)),
+    }
+}
 
 impl Evaluator {
     pub(in crate::runtime::eval) fn net_agent(
@@ -84,6 +99,7 @@ impl Evaluator {
             headers_timeout: record_duration(&record, "headers_timeout", span)?,
             body_idle_timeout: record_duration(&record, "body_idle_timeout", span)?,
             redirects: record_nonnegative_usize(&record, "redirects", 3, span)?,
+            redirect_limit: record_redirect_limit(&record, span)?,
             fail_status: record_bool(&record, "fail_status", false, span)?,
             max_body_bytes: record_positive_u64(&record, "max_body_bytes", 10 * 1024 * 1024, span)?,
         })
@@ -106,6 +122,7 @@ impl Evaluator {
             headers_timeout: record_duration(&record, "headers_timeout", span)?,
             body_idle_timeout: record_duration(&record, "body_idle_timeout", span)?,
             redirects: record_nonnegative_usize(&record, "redirects", 3, span)?,
+            redirect_limit: record_redirect_limit(&record, span)?,
             fail_status: record_bool(&record, "fail_status", false, span)?,
             max_body_bytes: record_optional_positive_u64(&record, "max_body_bytes", span)?,
             atomic: record_bool(&record, "atomic", true, span)?,
@@ -131,6 +148,7 @@ impl Evaluator {
             headers_timeout: record_duration(&record, "headers_timeout", span)?,
             body_idle_timeout: record_duration(&record, "body_idle_timeout", span)?,
             redirects: record_nonnegative_usize(&record, "redirects", 3, span)?,
+            redirect_limit: record_redirect_limit(&record, span)?,
             fail_status: record_bool(&record, "fail_status", false, span)?,
             max_body_bytes: record_positive_u64(&record, "max_body_bytes", 10 * 1024 * 1024, span)?,
         })

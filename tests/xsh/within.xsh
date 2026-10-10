@@ -402,6 +402,8 @@ test test_within_passes_a_mocked_network_call_through { |ctx|
     bytes: 2,
     headers: [{name: "content-type", value: "text/plain"}],
     url: "https://example.test/",
+    effective_url: "https://example.test/",
+    redirect_count: 0,
     body: b"ok",
   }
   test.mock(ctx, "net.request", {url: "https://example.test/"}, Ok(response))

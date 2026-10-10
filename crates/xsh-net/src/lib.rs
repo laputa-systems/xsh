@@ -42,6 +42,8 @@ pub use runtime::{
 pub struct NetError {
     pub kind: String,
     pub message: String,
+    /// The HTTP status of a `net-status` failure.
+    pub status: Option<u16>,
 }
 
 impl NetError {
@@ -49,6 +51,15 @@ impl NetError {
         Self {
             kind: kind.into(),
             message: message.into(),
+            status: None,
+        }
+    }
+
+    /// A response whose status the request asked to treat as a failure.
+    fn http_status(status: u16) -> Self {
+        Self {
+            status: Some(status),
+            ..Self::new("net-status", format!("HTTP status {status}"))
         }
     }
 
@@ -721,6 +732,18 @@ impl Default for NetPoolOptions {
     }
 }
 
+/// What a request does with a redirect response it will not follow: one that
+/// arrives after `redirects` redirects were followed, or one with no
+/// `Location` header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RedirectLimit {
+    /// Fail with `net-redirect`. This is the default.
+    Error,
+    /// Return the redirect response itself, with its `Location` header, as the
+    /// result of the request.
+    Return,
+}
+
 #[derive(Clone, Debug)]
 pub struct NetRequest {
     pub method: String,
@@ -734,6 +757,7 @@ pub struct NetRequest {
     pub headers_timeout: Option<Duration>,
     pub body_idle_timeout: Option<Duration>,
     pub redirects: usize,
+    pub redirect_limit: RedirectLimit,
     pub fail_status: bool,
     pub max_body_bytes: u64,
 }
@@ -750,6 +774,7 @@ pub struct NetDownload {
     pub headers_timeout: Option<Duration>,
     pub body_idle_timeout: Option<Duration>,
     pub redirects: usize,
+    pub redirect_limit: RedirectLimit,
     pub fail_status: bool,
     pub max_body_bytes: Option<u64>,
     pub atomic: bool,
@@ -769,6 +794,7 @@ pub struct NetUpload {
     pub headers_timeout: Option<Duration>,
     pub body_idle_timeout: Option<Duration>,
     pub redirects: usize,
+    pub redirect_limit: RedirectLimit,
     pub fail_status: bool,
     pub max_body_bytes: u64,
 }
@@ -799,7 +825,13 @@ pub struct NetResponse {
     pub reason: String,
     pub bytes: i64,
     pub headers: Vec<NetHeader>,
+    /// The URL the request was submitted with.
     pub url: String,
+    /// The URL the response came from: the last URL requested after
+    /// following redirects.
+    pub effective_url: String,
+    /// How many redirects were followed to reach the response.
+    pub redirect_count: i64,
     pub body: Option<Vec<u8>>,
 }
 
@@ -1011,6 +1043,11 @@ fn connect_is_pending(error: &io::Error) -> bool {
         )
 }
 
+/// Maps a transport failure to a machine-readable kind. A failure our own
+/// connector produced keeps the kind it chose; the rest is classified by what
+/// h12tiny reports. A TLS failure is `net-certificate` only when the peer's
+/// certificate was rejected, so a caller can tell an untrusted server from a
+/// server that does not speak TLS.
 fn h12_error(error: H12Error) -> NetError {
     let mut source: Option<&(dyn std::error::Error + 'static)> = Some(&error);
     while let Some(error) = source {
@@ -1026,16 +1063,38 @@ fn h12_error(error: H12Error) -> NetError {
         H12ErrorKind::ConnectTimeout => "net-connect-timeout",
         H12ErrorKind::TlsTimeout => "net-tls-timeout",
         H12ErrorKind::HeadersTimeout => "net-headers-timeout",
+        H12ErrorKind::Tls if is_certificate_failure(&error) => "net-certificate",
         H12ErrorKind::Tls | H12ErrorKind::Alpn => "net-tls",
-        H12ErrorKind::Connect
-        | H12ErrorKind::Handshake
-        | H12ErrorKind::SendRequest
-        | H12ErrorKind::Canceled => "net-io",
+        H12ErrorKind::Connect => "net-connect",
+        H12ErrorKind::SendRequest => "net-empty-reply",
+        H12ErrorKind::Handshake | H12ErrorKind::Canceled => "net-io",
         H12ErrorKind::UnsupportedMethod | H12ErrorKind::UnsupportedVersion => "net-request",
         H12ErrorKind::ProtocolUnavailable => "net-protocol",
         _ => "net-io",
     };
     NetError::new(kind, error.to_string())
+}
+
+/// Whether a TLS failure is the peer's certificate being rejected. The
+/// handshake error reaches us as an `io::Error` wrapping the rustls error, and
+/// `io::Error::source` skips that wrapper, so the wrapped error is inspected
+/// explicitly.
+fn is_certificate_failure(error: &(dyn std::error::Error + 'static)) -> bool {
+    let mut source = Some(error);
+    while let Some(error) = source {
+        if let Some(rustls::Error::InvalidCertificate(_)) = error.downcast_ref::<rustls::Error>() {
+            return true;
+        }
+        if let Some(inner) = error
+            .downcast_ref::<io::Error>()
+            .and_then(io::Error::get_ref)
+            && is_certificate_failure(inner)
+        {
+            return true;
+        }
+        source = error.source();
+    }
+    false
 }
 
 fn h12_request(request: &HttpRequest) -> NetResult<Request<Full<Bytes>>> {
@@ -1136,6 +1195,8 @@ async fn h12_collect_response(
         reason,
         headers,
         body: bytes,
+        effective_url: String::new(),
+        redirects: 0,
     })
 }
 
@@ -1189,40 +1250,118 @@ fn response_header_name(name: &str) -> String {
         .join("-")
 }
 
+/// The outcome of looking at one response while following redirects.
+enum RedirectStep {
+    /// The response is the result of the request.
+    Final,
+    /// A redirect the request may not follow, handed back under
+    /// `RedirectLimit::Return`.
+    Returned,
+    /// Request this URL next.
+    Follow(UrlParts),
+}
+
+/// Decides what a response means for a request that follows up to
+/// `config.redirects` redirects, `followed` of which are already behind it.
+fn redirect_step(
+    status: u16,
+    location: Option<&str>,
+    base: &UrlParts,
+    followed: usize,
+    config: &RequestConfig,
+) -> NetResult<RedirectStep> {
+    if !is_redirect(status) {
+        return Ok(RedirectStep::Final);
+    }
+    let returns = config.redirect_limit == RedirectLimit::Return;
+    let Some(location) = location else {
+        if returns {
+            return Ok(RedirectStep::Returned);
+        }
+        return Err(NetError::new(
+            "net-redirect",
+            "redirect missing Location header",
+        ));
+    };
+    if followed >= config.redirects {
+        if returns {
+            return Ok(RedirectStep::Returned);
+        }
+        return Err(NetError::new("net-redirect", "too many redirects"));
+    }
+    Ok(RedirectStep::Follow(redirect_url(base, location)?))
+}
+
+fn location_header(response: &Response<Incoming>) -> Option<String> {
+    response
+        .headers()
+        .get("location")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string)
+}
+
+/// Turns a followed redirect into the next request. A 301 or 302 answer to a
+/// POST, and a 303 answer to anything but HEAD, is requested with GET and no
+/// body, as curl does; 307 and 308 repeat the method and body. Credentials and
+/// an explicit Host header are dropped when the target is another origin, so
+/// they cannot leak to or misname a different server.
+fn follow_redirect(request: &mut HttpRequest, status: u16, target: UrlParts) {
+    let rewrite = match status {
+        301 | 302 => request.method == "POST",
+        303 => request.method != "HEAD" && request.method != "GET",
+        _ => false,
+    };
+    if rewrite {
+        request.method = "GET".to_string();
+        request.body.clear();
+        request.headers.retain(|header| {
+            !["content-length", "content-type", "content-encoding", "transfer-encoding"]
+                .iter()
+                .any(|name| header.name.eq_ignore_ascii_case(name))
+        });
+    }
+    let same_origin = request.url.scheme == target.scheme
+        && request.url.host == target.host
+        && request.url.port == target.port;
+    if !same_origin {
+        request.headers.retain(|header| {
+            !["host", "authorization", "proxy-authorization", "cookie"]
+                .iter()
+                .any(|name| header.name.eq_ignore_ascii_case(name))
+        });
+    }
+    request.url = target;
+}
+
 async fn h12_request_with_redirects(
     client: &H12Client<Full<Bytes>>,
     mut request: HttpRequest,
     config: &RequestConfig,
     max_body_bytes: u64,
 ) -> NetResult<HttpResponse> {
-    for _ in 0..=config.redirects {
+    let mut followed = 0_usize;
+    loop {
         let response = h12_send(client, &request, config).await?;
         let status = response.status().as_u16();
-        if !is_redirect(status) {
-            let response = h12_collect_response(response, max_body_bytes, config).await?;
-            if config.fail_status && !(200..300).contains(&response.status) {
-                return Err(NetError::new(
-                    "net-status",
-                    format!("HTTP status {}", response.status),
-                ));
-            }
-            return Ok(response);
+        let location = location_header(&response);
+        let step = redirect_step(status, location.as_deref(), &request.url, followed, config)?;
+        if let RedirectStep::Follow(target) = step {
+            h12_discard_response(response, config).await?;
+            follow_redirect(&mut request, status, target);
+            followed += 1;
+            continue;
         }
-        let location = response
-            .headers()
-            .get("location")
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
-        let Some(location) = location else {
-            return Err(NetError::new(
-                "net-redirect",
-                "redirect missing Location header",
-            ));
-        };
-        h12_discard_response(response, config).await?;
-        request.url = redirect_url(&request.url, &location)?;
+        let mut response = h12_collect_response(response, max_body_bytes, config).await?;
+        if config.fail_status
+            && matches!(step, RedirectStep::Final)
+            && !(200..300).contains(&response.status)
+        {
+            return Err(NetError::http_status(response.status));
+        }
+        response.effective_url = request.url.absolute();
+        response.redirects = followed;
+        return Ok(response);
     }
-    Err(NetError::new("net-redirect", "too many redirects"))
 }
 
 async fn h12_response_record(
@@ -1289,6 +1428,8 @@ async fn h12_write_download_response(
         bytes: bytes as i64,
         headers,
         url: String::new(),
+        effective_url: String::new(),
+        redirect_count: 0,
         body: None,
     })
 }
@@ -1302,32 +1443,34 @@ async fn h12_download_with_redirects(
     output: PathBuf,
 ) -> NetResult<NetResponse> {
     let mut request = request;
-    for _ in 0..=config.redirects {
+    let mut followed = 0_usize;
+    loop {
         let response = h12_send(client, &request, config).await?;
         let status = response.status().as_u16();
-        if is_redirect(status) {
-            let location = response
-                .headers()
-                .get("location")
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_string);
-            let Some(location) = location else {
+        let location = location_header(&response);
+        let step = match redirect_step(status, location.as_deref(), &request.url, followed, config)
+        {
+            Ok(step) => step,
+            Err(error) => {
                 let output = output.clone();
                 let _ = runtime
                     .run_file(move || remove_download_output(&output))
                     .await;
-                return Err(NetError::new(
-                    "net-redirect",
-                    "redirect missing Location header",
-                ));
-            };
+                return Err(error);
+            }
+        };
+        if let RedirectStep::Follow(target) = step {
             h12_discard_response(response, config).await?;
-            request.url = redirect_url(&request.url, &location)?;
+            follow_redirect(&mut request, status, target);
+            followed += 1;
             continue;
         }
-        if config.fail_status && !(200..300).contains(&status) {
+        if config.fail_status
+            && matches!(step, RedirectStep::Final)
+            && !(200..300).contains(&status)
+        {
             h12_discard_response(response, config).await?;
-            return Err(NetError::new("net-status", format!("HTTP status {status}")));
+            return Err(NetError::http_status(status));
         }
         let result = h12_write_download_response(
             runtime,
@@ -1358,13 +1501,11 @@ async fn h12_download_with_redirects(
         }
         return Ok(NetResponse {
             url: download.url.clone(),
+            effective_url: request.url.absolute(),
+            redirect_count: followed as i64,
             ..response
         });
     }
-    let _ = runtime
-        .run_file(move || remove_download_output(&output))
-        .await;
-    Err(NetError::new("net-redirect", "too many redirects"))
 }
 
 async fn async_with_timeout<T>(
@@ -1448,6 +1589,7 @@ async fn run_download(
         headers_timeout: download.headers_timeout,
         body_idle_timeout: download.body_idle_timeout,
         redirects: download.redirects,
+        redirect_limit: download.redirect_limit,
         fail_status: download.fail_status,
         max_body_bytes: download.max_body_bytes.unwrap_or(u64::MAX),
     };
@@ -1491,6 +1633,7 @@ async fn run_upload(
             headers_timeout: upload.headers_timeout,
             body_idle_timeout: upload.body_idle_timeout,
             redirects: upload.redirects,
+            redirect_limit: upload.redirect_limit,
             fail_status: upload.fail_status,
             max_body_bytes: upload.max_body_bytes,
         };
@@ -1626,6 +1769,7 @@ fn request_config(request: &NetRequest, accepted_at: Instant) -> RequestConfig {
         headers_timeout: request.headers_timeout,
         body_idle_timeout: request.body_idle_timeout,
         redirects: request.redirects,
+        redirect_limit: request.redirect_limit,
         fail_status: request.fail_status,
     }
 }
@@ -1647,6 +1791,8 @@ fn response_record(
         bytes,
         headers,
         url: url.to_string(),
+        effective_url: response.effective_url,
+        redirect_count: response.redirects as i64,
         body: include_body.then_some(body),
     })
 }
@@ -1798,6 +1944,9 @@ fn collect_system_certificates_from_dir(
     }
 }
 
+/// Classifies an I/O failure while establishing a connection. Anything that is
+/// not a timeout, a name-resolution failure or a TLS problem is a failure to
+/// connect: refused, unreachable, or no route.
 fn net_transport_error(error: io::Error) -> NetError {
     let message = error.to_string();
     let kind = if matches!(
@@ -1819,7 +1968,7 @@ fn net_transport_error(error: io::Error) -> NetError {
     } else if message.contains("invalid URL") || message.contains("invalid uri") {
         "net-url"
     } else {
-        "net-io"
+        "net-connect"
     };
     NetError::new(kind, message)
 }
@@ -1875,6 +2024,7 @@ struct RequestConfig {
     headers_timeout: Option<Duration>,
     body_idle_timeout: Option<Duration>,
     redirects: usize,
+    redirect_limit: RedirectLimit,
     fail_status: bool,
 }
 
@@ -1898,6 +2048,8 @@ struct HttpResponse {
     reason: String,
     headers: Vec<NetHeader>,
     body: Vec<u8>,
+    effective_url: String,
+    redirects: usize,
 }
 
 #[derive(Clone, Debug)]

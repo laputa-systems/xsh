@@ -298,7 +298,7 @@ impl Evaluator {
                             Ok(())
                         }
                         Err(error) => {
-                            Err(RuntimeError::new(error.kind, error.message).with_span(method_span))
+                            Err(net::runtime_error(error, method_span))
                         }
                     };
                     (result, Some(operation.metrics().into()))
@@ -360,8 +360,7 @@ impl Evaluator {
                                 );
                                 Ok(())
                             }
-                            Err(error) => Err(RuntimeError::new(error.kind, error.message)
-                                .with_span(live.start_span)),
+                            Err(error) => Err(net::runtime_error(error, live.start_span)),
                         };
                         (cleanup, Some(operation.metrics().into()))
                     }
@@ -422,8 +421,7 @@ impl Evaluator {
                                     );
                                     Ok(())
                                 }
-                                Err(error) => Err(RuntimeError::new(error.kind, error.message)
-                                    .with_span(method_span)),
+                                Err(error) => Err(net::runtime_error(error, method_span)),
                             };
                         (cleanup, Some(operation.metrics().into()))
                     }
@@ -507,12 +505,10 @@ impl Evaluator {
             }
             match operation
                 .try_receive(Duration::from_millis(25))
-                .map_err(|error| {
-                    RuntimeError::new(error.kind, error.message).with_span(start_span)
-                })? {
+                .map_err(|error| net::runtime_error(error, start_span))? {
                 Some(Ok(response)) => return Ok(net::response_value(response)),
                 Some(Err(error)) => {
-                    return Err(RuntimeError::new(error.kind, error.message).with_span(start_span));
+                    return Err(net::runtime_error(error, start_span));
                 }
                 None => {}
             }

@@ -408,6 +408,8 @@ pub fn net_response_type(include_body: bool) -> Type {
             Type::List(Box::new(net_header_type())),
         ),
         ("url".to_string(), Type::Str),
+        ("effective_url".to_string(), Type::Str),
+        ("redirect_count".to_string(), Type::Int),
     ]);
     if include_body {
         fields.insert("body".to_string(), Type::Bytes);

@@ -3,9 +3,8 @@
 ##! One request description, one executor over the net module, and one
 ##! classification of its failures, so both applets agree on what a refused
 ##! connection, a timeout or a certificate problem is and differ only in how
-##! they word it. The net module reports failures as messages without a
-##! machine-readable kind, so classification matches the message text and is
-##! the single place that depends on it.
+##! they word it. Classification reads the net module's `NetError` variant; the
+##! message only carries wording.
 
 ## Why a transfer failed, independent of any applet's wording.
 export error TransferFailure {
@@ -28,7 +27,9 @@ export error TransferFailure {
 export type Header = {name: Str, value: Str}
 
 ## A request the applets build from their options. `redirects` is the number of
-## redirects the engine may follow; `method` must be one the net module sends
+## redirects the engine may follow; `return_redirects` hands a redirect it will
+## not follow back as the reply instead of failing, so a caller can follow hop
+## by hop with `redirect_request`. `method` must be one the net module sends
 ## (GET, HEAD, POST, PUT, PATCH, DELETE).
 export type Request = {
   method: Str,
@@ -39,13 +40,16 @@ export type Request = {
   connect_timeout: Duration?,
   idle_timeout: Duration?,
   redirects: Int,
+  return_redirects: Bool,
   verify: Bool,
   cacert: Path?,
   fail_status: Bool,
 }
 
 ## The final response of a transfer. `body` is empty for a download to a file.
-export type Reply = {status: Int, reason: Str, headers: List[Header], bytes: Int, body: Bytes}
+## `url` is the URL the response came from after redirects and `redirects` how
+## many the engine followed to reach it.
+export type Reply = {status: Int, reason: Str, headers: List[Header], bytes: Int, body: Bytes, url: Str, redirects: Int}
 
 # Responses are held in memory when they are not downloaded to a file, so the
 # cap only has to exceed anything a script would pipe through stdout.
@@ -55,27 +59,29 @@ const BUFFERED_LIMIT = 1099511627776
 # field at a time, so an unset limit is a limit no transfer reaches.
 const NO_LIMIT = 8760h
 
-## Map a net failure message to its cause. With verification disabled a TLS
-## failure can only be a handshake problem; with it enabled the engine does not
-## separate a bad certificate from other handshake failures, and a bad
-## certificate is by far the usual reason.
-export pure classify(message: Str, verify: Bool) -> TransferFailure {
-  let text = message.lower()
-  if text.starts_with("http status ") {
-    return TransferFailure.Status(code: text.byte_slice(12).parse_int() ?? 0)
+## Map a net failure to its cause from its `NetError` variant. The message only
+## carries the wording of the failure.
+export pure classify(failure: Error) -> TransferFailure {
+  let message = failure.message
+  match failure {
+    NetError.Status {status} => TransferFailure.Status(code: status ?? 0)
+    NetError.Dns => TransferFailure.Dns(message)
+    NetError.ConnectTimeout => TransferFailure.ConnectTimeout(message)
+    NetError.Timeout => TransferFailure.Timeout(message)
+    NetError.Connect => TransferFailure.Connect(message)
+    NetError.TrustStore => TransferFailure.TrustStore(message)
+    NetError.Certificate => TransferFailure.Certificate(message)
+    NetError.Tls => TransferFailure.Handshake(message)
+    NetError.EmptyReply => TransferFailure.EmptyReply(message)
+    NetError.Redirect => TransferFailure.Redirects(message)
+    NetError.Unsupported => TransferFailure.Scheme(message)
+    NetError.Write => TransferFailure.Write(message)
+    else => TransferFailure.Other(message)
   }
-  return TransferFailure.Dns(message) when text.find("lookup address") != null or text.find("name does not resolve") != null or text.find("no addresses found") != null or text.find("name resolution") != null
-  return TransferFailure.ConnectTimeout(message) when text.find("connection establishment timed out") != null or text.find("dns resolution timed out") != null
-  return TransferFailure.Timeout(message) when text.find("timed out") != null
-  return TransferFailure.Connect(message) when text.find("connection refused") != null or text.find("no route to host") != null or text.find("network is unreachable") != null or text.find("host is unreachable") != null
-  return TransferFailure.TrustStore(message) when text.find("no certificates found") != null
-  return TransferFailure.Certificate(message) when text.find("certificate validation failed") != null and verify
-  return TransferFailure.Handshake(message) when text.find("tls negotiation") != null
-  return TransferFailure.EmptyReply(message) when text.find("request dispatch failed") != null
-  return TransferFailure.Redirects(message) when text.find("too many redirects") != null
-  return TransferFailure.Scheme(message) when text.find("scheme must be") != null or text.find("unsupported http method") != null
-  return TransferFailure.Write(message) when text.find("os error") != null and text.find("connection") == null
-  TransferFailure.Other(message)
+}
+
+pure redirect_limit(request: Request) -> Str {
+  if request.return_redirects { "return" } else { "error" }
 }
 
 pure header_records(headers: List[Header]) -> List[Record] {
@@ -86,6 +92,8 @@ pure reply_from(raw: Record, body: Bytes) -> Reply {
   {
     status: raw.status.require(Int) ?? 0,
     reason: raw.reason.require(Str) ?? "",
+    url: raw.effective_url.require(Str) ?? "",
+    redirects: raw.redirect_count.require(Int) ?? 0,
     headers: [
       {name: header.name.require(Str) ?? "", value: header.value.require(Str) ?? ""}
       for header in raw.headers.require(List[Record]) ?? []
@@ -105,7 +113,7 @@ proc buffered(request: Request) [net, error] -> Result[Record, Error] {
       method: request.method, url: request.url, headers: headers, body: request.body,
       timeout: total, connect_timeout: connect, dns_timeout: connect,
       headers_timeout: idle, body_idle_timeout: idle,
-      redirects: request.redirects, fail_status: request.fail_status,
+      redirects: request.redirects, redirect_limit: redirect_limit(request), fail_status: request.fail_status,
       tls_verify: request.verify, ca_certificate: anchor, max_body_bytes: BUFFERED_LIMIT,
     })
   }
@@ -113,7 +121,7 @@ proc buffered(request: Request) [net, error] -> Result[Record, Error] {
     method: request.method, url: request.url, headers: headers, body: request.body,
     timeout: total, connect_timeout: connect, dns_timeout: connect,
       headers_timeout: idle, body_idle_timeout: idle,
-    redirects: request.redirects, fail_status: request.fail_status,
+    redirects: request.redirects, redirect_limit: redirect_limit(request), fail_status: request.fail_status,
     tls_verify: request.verify, max_body_bytes: BUFFERED_LIMIT,
   })
 }
@@ -128,7 +136,7 @@ proc to_file(request: Request, dest: Path) [net, error] -> Result[Record, Error]
       url: request.url, headers: headers, dest: dest, overwrite: true, atomic: false,
       timeout: total, connect_timeout: connect, dns_timeout: connect,
       headers_timeout: idle, body_idle_timeout: idle,
-      redirects: request.redirects, fail_status: request.fail_status,
+      redirects: request.redirects, redirect_limit: redirect_limit(request), fail_status: request.fail_status,
       tls_verify: request.verify, ca_certificate: anchor,
     })
   }
@@ -136,7 +144,7 @@ proc to_file(request: Request, dest: Path) [net, error] -> Result[Record, Error]
     url: request.url, headers: headers, dest: dest, overwrite: true, atomic: false,
     timeout: total, connect_timeout: connect, dns_timeout: connect,
       headers_timeout: idle, body_idle_timeout: idle,
-    redirects: request.redirects, fail_status: request.fail_status,
+    redirects: request.redirects, redirect_limit: redirect_limit(request), fail_status: request.fail_status,
     tls_verify: request.verify,
   })
 }
@@ -145,7 +153,7 @@ proc to_file(request: Request, dest: Path) [net, error] -> Result[Record, Error]
 export proc fetch(request: Request) [net, error] -> Result[Reply, TransferFailure] {
   match buffered(request) {
     Ok(raw) => Ok(reply_from(raw, raw.body.require(Bytes) ?? b""))
-    Err(failure) => Err(classify(failure.message, request.verify))
+    Err(failure) => Err(classify(failure))
   }
 }
 
@@ -154,7 +162,7 @@ export proc fetch(request: Request) [net, error] -> Result[Reply, TransferFailur
 export proc fetch_to(request: Request, dest: Path) [net, error] -> Result[Reply, TransferFailure] {
   match to_file(request, dest) {
     Ok(raw) => Ok(reply_from(raw, b""))
-    Err(failure) => Err(classify(failure.message, request.verify))
+    Err(failure) => Err(classify(failure))
   }
 }
 
@@ -295,4 +303,54 @@ export pure seconds_text(millis: Int) -> Str {
   let fraction = millis % 1000
   let pad = if fraction < 10 { "00" } else if fraction < 100 { "0" } else { "" }
   f"{whole}.{pad}{fraction}"
+}
+
+## The absolute URL a `Location` value names relative to the URL it answered.
+export pure resolve_location(base: Str, location: Str) -> Str {
+  if url_scheme(location) != null { return location }
+
+  let scheme = url_scheme(base) ?? "http"
+  if location.starts_with("//") { return f"{scheme}:{location}" }
+  if location.starts_with("/") { return f"{scheme}://{authority(base)}{location}" }
+
+  let route = url_path(base)
+  let directory = route.byte_slice(0, route.byte_len() - url_file_name(base).byte_len())
+  f"{scheme}://{authority(base)}{directory}{location}"
+}
+
+# Whether two URLs name the same scheme, host and port.
+pure same_origin(left: Str, right: Str) -> Bool {
+  url_scheme(left) == url_scheme(right) and url_host(left) == url_host(right) and url_port(left) == url_port(right)
+}
+
+## The request that follows a redirect `reply` to `request`, or null when the
+## reply is not a redirect that names a `Location`. It applies the net module's
+## own redirect policy for callers that follow hop by hop: a 301 or 302 answer
+## to POST and a 303 answer to anything but GET and HEAD are repeated as GET
+## without a body, 307 and 308 repeat the method and body, and credentials and
+## an explicit Host header are dropped when the target is another origin.
+export pure redirect_request(request: Request, reply: Reply) -> Request? {
+  return null unless reply.status in [301, 302, 303, 307, 308]
+
+  let location = header_value(reply.headers, "location")
+  return null when location == null
+
+  let target = resolve_location(request.url, location ?? "")
+  let rewrite = (reply.status in [301, 302] and request.method == "POST") or (reply.status == 303 and request.method not in ["GET", "HEAD"])
+  var headers = request.headers
+  var method = request.method
+  var body = request.body
+  if rewrite {
+    method = "GET"
+    body = b""
+    for name in ["content-length", "content-type", "content-encoding", "transfer-encoding"] {
+      headers = without_header(headers, name)
+    }
+  }
+  if !same_origin(request.url, target) {
+    for name in ["host", "authorization", "proxy-authorization", "cookie"] {
+      headers = without_header(headers, name)
+    }
+  }
+  {...request, method: method, url: target, headers: headers, body: body}
 }

@@ -450,8 +450,8 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     log(options, f"{raw_url}: Unsupported scheme '{scheme ?? ""}'.\n")
     return {status: EXIT_GENERIC, bytes: 0, millis: 0, saved: false}
   }
-  let host = http_transfer.url_host(url)
-  let port = http_transfer.url_port(url)
+  var host = http_transfer.url_host(url)
+  var port = http_transfer.url_port(url)
 
   var target: Target = {path: null, label: "", stdout: false}
   if let named = options.output {
@@ -524,7 +524,10 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     let _ = fp"{directory}".mkdir(parents: true)
   }
 
+  # Redirects are followed here, one hop at a time, so each hop is announced
+  # the way wget does and a failure on a later hop is reported against it.
   var attempt = 1
+  var hops = 0
   while true {
     let started = time.now()
     let tag = if attempt > 1 { f"(try:{attempt:>2})  " } else { "" }
@@ -559,7 +562,8 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
       timeout: null,
       connect_timeout: options.timeout,
       idle_timeout: options.timeout,
-      redirects: options.max_redirect,
+      redirects: 0,
+      return_redirects: true,
       verify: options.verify,
       cacert: options.ca_certificate,
       fail_status: false,
@@ -573,7 +577,7 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
     let elapsed = time.now() - started
     match result {
       Err(failure) => {
-        let plan = failure_plan(failure, host, options.max_redirect)
+        let plan = failure_plan(failure, host)
         log_verbose(options, plan.line)
         if !plan.retry or (options.tries != 0 and attempt >= options.tries) {
           if plan.retry { log_verbose(options, "Giving up.\n\n") }
@@ -593,6 +597,22 @@ proc retrieve(options: Options, raw_url: Str) [net, fs, process, env, io, error,
           for header in reply.headers { log_verbose(options, f"  {header.name}: {header.value}\n") }
         } else {
           log_verbose(options, f"HTTP request sent, awaiting response... {reply.status} {reply.reason}\n")
+        }
+        if let next = http_transfer.redirect_request(request, reply) {
+          log_verbose(options, f"Location: {http_transfer.header_value(reply.headers, "location") ?? ""} [following]\n")
+          if hops >= options.max_redirect {
+            log_verbose(options, f"{options.max_redirect} redirections exceeded.\n")
+            return {status: EXIT_SERVER, bytes: 0, millis: 0, saved: false}
+          }
+          hops += 1
+          attempt = 1
+          url = next.url
+          method = next.method
+          headers = next.headers
+          body = next.body
+          host = http_transfer.url_host(url)
+          port = http_transfer.url_port(url)
+          continue
         }
         if reply.status == 401 and options.user == null {
           log_verbose(options, "\nUsername/Password Authentication Failed.\n")
@@ -713,7 +733,7 @@ pure spider_summary(total: Int?, kind: Str?) -> Str {
 }
 
 # What completes the connect and response line for each cause of failure.
-pure failure_plan(failure: http_transfer.TransferFailure, host: Str, redirects: Int) -> Plan {
+pure failure_plan(failure: http_transfer.TransferFailure, host: Str) -> Plan {
   match failure {
     http_transfer.TransferFailure.Dns => {status: EXIT_NETWORK, line: f"failed: Name does not resolve.\nwget: unable to resolve host address '{host}'\n", retry: false}
     http_transfer.TransferFailure.Connect => {status: EXIT_NETWORK, line: "failed: Connection refused.\n", retry: false}
@@ -727,7 +747,7 @@ pure failure_plan(failure: http_transfer.TransferFailure, host: Str, redirects: 
     }
     http_transfer.TransferFailure.Handshake => {status: EXIT_TLS, line: "connected.\nUnable to establish SSL connection.\n", retry: false}
     http_transfer.TransferFailure.TrustStore => {status: EXIT_TLS, line: "failed: Cannot read the CA certificate file.\n", retry: false}
-    http_transfer.TransferFailure.Redirects => {status: EXIT_SERVER, line: f"connected.\nHTTP request sent, awaiting response... \n{redirects} redirections exceeded.\n", retry: false}
+    http_transfer.TransferFailure.Redirects {message} => {status: EXIT_SERVER, line: f"{message}.\n", retry: false}
     http_transfer.TransferFailure.Write {message} => {status: EXIT_IO, line: f"{message}\n", retry: false}
     http_transfer.TransferFailure.Scheme {message} => {status: EXIT_GENERIC, line: f"{message}\n", retry: false}
     http_transfer.TransferFailure.Status {code} => {status: EXIT_SERVER, line: f"ERROR {code}.\n", retry: false}
