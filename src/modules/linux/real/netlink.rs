@@ -1,4 +1,4 @@
-use crate::runtime::value::{RecordMap, RuntimeError, Value};
+use crate::runtime::value::{RecordMap, RuntimeError, StreamValue, Value};
 use crate::source::Span;
 use rustix::net::netlink::SocketAddrNetlink;
 use rustix::net::{
@@ -374,6 +374,21 @@ struct NetworkIssue {
     error_kind: String,
 }
 
+impl NetworkIssue {
+    fn to_io_error(&self) -> io::Error {
+        match self.errno {
+            Some(errno) => io::Error::from_raw_os_error(errno),
+            None => io::Error::other(format!("netlink {} dump: {}", self.object, self.message)),
+        }
+    }
+
+    fn into_error(&self, kind: &str, span: Span) -> Value {
+        Value::err(Value::Error(Box::new(
+            RuntimeError::host(kind, &self.to_io_error()).with_span(span),
+        )))
+    }
+}
+
 #[derive(Debug)]
 enum DumpError {
     Malformed(&'static str),
@@ -451,6 +466,14 @@ impl Snapshot {
         let mut snapshot = Self::default();
         snapshot.add_error(object, error);
         snapshot
+    }
+
+    /// The first failure among the named objects. Interface and route readers
+    /// fail on any of these instead of reporting a silently partial list.
+    fn blocking_issue(&self, objects: &[&str]) -> Option<&NetworkIssue> {
+        self.issues
+            .iter()
+            .find(|issue| objects.contains(&issue.object.as_str()))
     }
 
     fn add_error(&mut self, object: &str, error: DumpError) {
@@ -537,10 +560,236 @@ impl DumpKind {
 }
 
 pub(crate) fn network_dump(_span: Span) -> Result<Value, RuntimeError> {
-    Ok(Value::ok(snapshot_value(collect_snapshot())))
+    Ok(Value::ok(snapshot_value(collect_snapshot(&ALL_DUMPS))))
 }
 
-fn collect_snapshot() -> Snapshot {
+const ALL_DUMPS: [DumpKind; 4] = [
+    DumpKind::Links,
+    DumpKind::Addresses,
+    DumpKind::Routes,
+    DumpKind::Rules,
+];
+
+/// Network interfaces of the caller's network namespace, from route netlink.
+/// Sysfs and `/proc/net` are mount- or process-scoped views and would list the
+/// namespace of whoever mounted them, not the one the caller lives in.
+pub(crate) fn interfaces(span: Span) -> Result<Value, RuntimeError> {
+    let snapshot = collect_snapshot(&[DumpKind::Links, DumpKind::Addresses]);
+    if let Some(issue) = snapshot.blocking_issue(&["socket", "link", "address"]) {
+        return Ok(issue.into_error("linux-interfaces", span));
+    }
+    Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+        "linux.interfaces",
+        interface_records(&snapshot),
+    ))))
+}
+
+/// Main-table routes of the caller's network namespace, from route netlink.
+pub(crate) fn routes(span: Span) -> Result<Value, RuntimeError> {
+    let snapshot = collect_snapshot(&[DumpKind::Links, DumpKind::Routes]);
+    if let Some(issue) = snapshot.blocking_issue(&["socket", "link", "route"]) {
+        return Ok(issue.into_error("linux-routes", span));
+    }
+    Ok(Value::ok(Value::stream(StreamValue::from_values_live(
+        "linux.routes",
+        route_records(&snapshot),
+    ))))
+}
+
+/// The six-byte hardware address of `interface` in the caller's network
+/// namespace, for building link-layer frames.
+pub(crate) fn interface_hardware_address(interface: &str) -> io::Result<[u8; 6]> {
+    let snapshot = collect_snapshot(&[DumpKind::Links]);
+    if let Some(issue) = snapshot.blocking_issue(&["socket", "link"]) {
+        return Err(issue.to_io_error());
+    }
+    let link = snapshot
+        .links
+        .iter()
+        .find(|link| link.name.as_deref().and_then(|name| text_bytes(name).ok()).as_deref() == Some(interface))
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("no interface named {interface}"),
+            )
+        })?;
+    link.address
+        .as_deref()
+        .and_then(|address| <[u8; 6]>::try_from(address).ok())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("interface {interface} has no six-byte hardware address"),
+            )
+        })
+}
+
+const RT_TABLE_MAIN: u32 = 254;
+const RTM_F_CLONED: u32 = 0x200;
+const RTN_BLACKHOLE: u8 = 6;
+const RTN_PROHIBIT: u8 = 8;
+const RTF_UP: &str = "UP";
+
+fn interface_records(snapshot: &Snapshot) -> Vec<Value> {
+    let mut records: Vec<(String, Value)> = snapshot
+        .links
+        .iter()
+        .map(|link| {
+            let name = link_name(link);
+            let addresses = snapshot
+                .addresses
+                .iter()
+                .filter(|address| u32::try_from(link.ifindex) == Ok(address.ifindex))
+                .filter_map(|address| {
+                    let bytes = address.local.as_ref().or(address.address.as_ref())?;
+                    let text = ip_text(address.family, bytes)?;
+                    Some(record([
+                        ("family", str_value(family_name(address.family))),
+                        ("addr", str_value(text)),
+                        ("prefix_len", Value::Int(i64::from(address.prefix_length))),
+                    ]))
+                })
+                .collect();
+            let mac = link.address.as_deref().map_or_else(String::new, |bytes| {
+                bytes
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<Vec<_>>()
+                    .join(":")
+            });
+            let value = record([
+                ("name", str_value(name.clone())),
+                (
+                    "flags",
+                    Value::List(
+                        link_flag_names(link.flags)
+                            .into_iter()
+                            .map(str_value)
+                            .collect(),
+                    ),
+                ),
+                ("mtu", Value::Int(i64::from(link.mtu.unwrap_or(0)))),
+                ("mac", str_value(mac)),
+                ("addresses", Value::List(addresses)),
+            ]);
+            (name, value)
+        })
+        .collect();
+    records.sort_by(|left, right| left.0.cmp(&right.0));
+    records.into_iter().map(|(_, value)| value).collect()
+}
+
+fn route_records(snapshot: &Snapshot) -> Vec<Value> {
+    let names: std::collections::HashMap<u32, String> = snapshot
+        .links
+        .iter()
+        .filter_map(|link| Some((u32::try_from(link.ifindex).ok()?, link_name(link))))
+        .collect();
+    let device = |ifindex: Option<u32>| {
+        ifindex
+            .and_then(|index| names.get(&index).cloned())
+            .unwrap_or_else(|| "*".to_owned())
+    };
+    let mut records = Vec::new();
+    for route in &snapshot.routes {
+        let family = i32::from(route.family);
+        if !matches!(family, libc::AF_INET | libc::AF_INET6)
+            || route.table != RT_TABLE_MAIN
+            || route.flags & RTM_F_CLONED != 0
+        {
+            continue;
+        }
+        let unspecified = if family == libc::AF_INET {
+            "0.0.0.0"
+        } else {
+            "::"
+        };
+        let destination = if route.destination_length == 0 {
+            "default".to_owned()
+        } else {
+            let address = route
+                .destination
+                .as_deref()
+                .and_then(|bytes| ip_text(route.family, bytes))
+                .unwrap_or_else(|| unspecified.to_owned());
+            format!("{address}/{}", route.destination_length)
+        };
+        let host_length = if family == libc::AF_INET { 32 } else { 128 };
+        let hops: Vec<(Option<&[u8]>, Option<u32>)> = if route.nexthops.is_empty() {
+            vec![(route.gateway.as_deref(), route.output_ifindex)]
+        } else {
+            route
+                .nexthops
+                .iter()
+                .map(|hop| (hop.gateway.as_deref(), u32::try_from(hop.ifindex).ok()))
+                .collect()
+        };
+        for (gateway, ifindex) in hops {
+            let mut flags = vec![RTF_UP];
+            if gateway.is_some() {
+                flags.push("GATEWAY");
+            }
+            if route.destination_length == host_length {
+                flags.push("HOST");
+            }
+            if (RTN_BLACKHOLE..=RTN_PROHIBIT).contains(&route.route_type) {
+                flags.push("REJECT");
+            }
+            records.push(record([
+                ("family", str_value(family_name(route.family))),
+                ("dst", str_value(destination.clone())),
+                (
+                    "prefix_len",
+                    Value::Int(i64::from(route.destination_length)),
+                ),
+                (
+                    "gateway",
+                    str_value(
+                        gateway
+                            .and_then(|bytes| ip_text(route.family, bytes))
+                            .unwrap_or_else(|| unspecified.to_owned()),
+                    ),
+                ),
+                ("dev", str_value(device(ifindex))),
+                ("metric", Value::Int(i64::from(route.priority.unwrap_or(0)))),
+                (
+                    "flags",
+                    Value::List(flags.into_iter().map(str_value).collect()),
+                ),
+            ]));
+        }
+    }
+    records
+}
+
+fn link_name(link: &Link) -> String {
+    link.name
+        .as_deref()
+        .map(|bytes| {
+            let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+            String::from_utf8_lossy(&bytes[..end]).into_owned()
+        })
+        .unwrap_or_default()
+}
+
+fn link_flag_names(flags: u32) -> Vec<&'static str> {
+    [
+        (libc::IFF_UP, "UP"),
+        (libc::IFF_BROADCAST, "BROADCAST"),
+        (libc::IFF_LOOPBACK, "LOOPBACK"),
+        (libc::IFF_RUNNING, "RUNNING"),
+        (libc::IFF_MULTICAST, "MULTICAST"),
+        (libc::IFF_PROMISC, "PROMISC"),
+        (libc::IFF_NOARP, "NOARP"),
+        (libc::IFF_POINTOPOINT, "POINTOPOINT"),
+    ]
+    .into_iter()
+    .filter(|(bit, _)| flags & (*bit as u32) != 0)
+    .map(|(_, name)| name)
+    .collect()
+}
+
+fn collect_snapshot(kinds: &[DumpKind]) -> Snapshot {
     let socket = match socket_with(
         AddressFamily::NETLINK,
         SocketType::RAW,
@@ -562,15 +811,7 @@ fn collect_snapshot() -> Snapshot {
         Err(error) => return Snapshot::failed(DumpError::Io(io::Error::from(error)), "socket"),
     };
     let mut snapshot = Snapshot::default();
-    for (sequence, kind) in [
-        DumpKind::Links,
-        DumpKind::Addresses,
-        DumpKind::Routes,
-        DumpKind::Rules,
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    for (sequence, kind) in kinds.iter().copied().enumerate() {
         let sequence = u32::try_from(sequence + 1).expect("four netlink requests fit in u32");
         match collect_dump(&socket, sequence, local.pid(), kind) {
             Ok(messages) => {
@@ -596,6 +837,14 @@ fn collect_dump(
         }
     }
     Err(DumpError::Interrupted)
+}
+
+/// Truncates `duration` to whole microseconds. Socket timeouts are timevals:
+/// rustix rounds a sub-microsecond tail up without carrying into the seconds,
+/// so a remainder such as 2.9999995 s becomes `{2 s, 1_000_000 us}`, which the
+/// kernel rejects with EDOM.
+fn whole_microseconds(duration: Duration) -> Duration {
+    Duration::from_micros(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX))
 }
 
 fn collect_dump_attempt(
@@ -648,7 +897,7 @@ fn collect_dump_attempt_recorded(
     );
     let mut buffer = vec![0_u8; MAX_DATAGRAM_BYTES];
     while !accumulator.complete {
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = whole_microseconds(deadline.saturating_duration_since(Instant::now()));
         if remaining.is_zero() {
             return Err(DumpError::Io(io::Error::new(
                 io::ErrorKind::TimedOut,
@@ -1243,6 +1492,112 @@ mod tests {
     use std::fmt::Write as _;
     use std::io::{Read, Write};
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
+    fn text_field(record: &Value, field: &str) -> String {
+        let Value::Record(record) = record else {
+            panic!("record expected");
+        };
+        match record.get(field) {
+            Some(Value::Str(text)) => text.to_string(),
+            other => panic!("text field {field} expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn routes_keep_network_byte_order_for_non_palindromic_addresses() {
+        let snapshot = Snapshot {
+            links: vec![Link {
+                ifindex: 7,
+                name: Some(b"docker0\0".to_vec()),
+                ..Link::default()
+            }],
+            routes: vec![
+                Route {
+                    family: libc::AF_INET as u8,
+                    table: RT_TABLE_MAIN,
+                    gateway: Some(vec![172, 17, 0, 1]),
+                    output_ifindex: Some(7),
+                    priority: Some(100),
+                    ..Route::default()
+                },
+                Route {
+                    family: libc::AF_INET as u8,
+                    destination_length: 16,
+                    table: RT_TABLE_MAIN,
+                    destination: Some(vec![172, 17, 0, 0]),
+                    output_ifindex: Some(7),
+                    ..Route::default()
+                },
+                Route {
+                    family: libc::AF_INET as u8,
+                    destination_length: 8,
+                    table: 255,
+                    destination: Some(vec![127, 0, 0, 0]),
+                    ..Route::default()
+                },
+            ],
+            ..Snapshot::default()
+        };
+        let records = route_records(&snapshot);
+        assert_eq!(records.len(), 2, "only main-table routes are listed");
+        assert_eq!(text_field(&records[0], "dst"), "default");
+        assert_eq!(text_field(&records[0], "gateway"), "172.17.0.1");
+        assert_eq!(text_field(&records[0], "dev"), "docker0");
+        assert_eq!(text_field(&records[1], "dst"), "172.17.0.0/16");
+        assert_eq!(text_field(&records[1], "gateway"), "0.0.0.0");
+    }
+
+    #[test]
+    fn interfaces_pair_addresses_by_index_and_sort_by_name() {
+        let snapshot = Snapshot {
+            links: vec![
+                Link {
+                    ifindex: 3,
+                    name: Some(b"eth0\0".to_vec()),
+                    flags: libc::IFF_UP as u32 | libc::IFF_BROADCAST as u32,
+                    mtu: Some(1500),
+                    address: Some(vec![0x02, 0, 0, 0xab, 0xcd, 0x01]),
+                    ..Link::default()
+                },
+                Link {
+                    ifindex: 1,
+                    name: Some(b"lo\0".to_vec()),
+                    flags: libc::IFF_LOOPBACK as u32,
+                    mtu: Some(65536),
+                    address: Some(vec![0; 6]),
+                    ..Link::default()
+                },
+            ],
+            addresses: vec![Address {
+                ifindex: 3,
+                family: libc::AF_INET as u8,
+                prefix_length: 24,
+                local: Some(vec![192, 0, 2, 10]),
+                address: Some(vec![192, 0, 2, 99]),
+                ..Address::default()
+            }],
+            ..Snapshot::default()
+        };
+        let records = interface_records(&snapshot);
+        assert_eq!(text_field(&records[0], "name"), "eth0");
+        assert_eq!(text_field(&records[0], "mac"), "02:00:00:ab:cd:01");
+        assert_eq!(text_field(&records[1], "name"), "lo");
+        let Value::Record(eth0) = &records[0] else {
+            panic!("record expected");
+        };
+        let Some(Value::List(addresses)) = eth0.get("addresses") else {
+            panic!("addresses expected");
+        };
+        assert_eq!(addresses.len(), 1);
+        assert_eq!(text_field(&addresses[0], "addr"), "192.0.2.10");
+    }
+
+    #[test]
+    fn receive_timeout_never_rounds_up_into_an_invalid_timeval() {
+        let tail = whole_microseconds(Duration::new(2, 999_999_500));
+        assert_eq!(tail, Duration::new(2, 999_999_000));
+        assert_eq!(whole_microseconds(Duration::from_nanos(900)), Duration::ZERO);
+    }
 
     const RAW_REPLY_MAGIC: &[u8; 8] = b"XSHNL001";
     const RAW_REPLY_MAX_BYTES: usize = 4 * MAX_DUMP_BYTES + 4 * MAX_DUMP_DATAGRAMS * 4 + 256;

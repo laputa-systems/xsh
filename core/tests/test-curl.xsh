@@ -160,6 +160,21 @@ proc curl(ctx: TestContext, args: List[Str], input = b"", dir: Path? = null, tim
   Ok({status: status.shell_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?, dir: root})
 }
 
+# Like `curl`, with a system trust store that holds nothing: the certificate
+# file does not exist and the certificate directory is empty. An image without
+# a CA bundle looks like this.
+proc curl_without_trust_store(ctx: TestContext, args: List[Str]) [fs, process, error] -> Result[Ran] {
+  let root = test.temp_dir(ctx, name: "curl")?
+  let store = test.temp_dir(ctx, name: "curl-empty-store")?
+  let out = fp"{test.temp_dir(ctx, name: "curl-out")?}/stdout"
+  let err = fp"{test.temp_dir(ctx, name: "curl-err")?}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/curl.xsh".display()].extend(args)
+  let environment = {LC_ALL: "C", XSH_EXECUTION_PHRASE: "", SSL_CERT_FILE: f"{store}/absent.pem", SSL_CERT_DIR: f"{store}"}
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, environment, b"", out, err, timeout: 20s)
+  let status = process.run(plan)?
+  Ok({status: status.shell_code()?, stdout: out.read_bytes()?.utf8() ?? "", stderr: err.read_text()?, dir: root})
+}
+
 # The progress meter's second-to-last and last lines are timing dependent, so
 # compare them by shape.
 const METER_HEAD = "  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current\n                                 Dload  Upload  Total   Spent   Left   Speed\n"
@@ -800,4 +815,32 @@ test test_curl_tls_verification { |ctx|
 
   let bad = curl(ctx, ["-sS", "--cacert", f"{fp"{tls.ca.parent()}/leaf.key"}", tls.url])?
   assert bad.status == 77, bad.stderr
+}
+
+test test_curl_plain_http_needs_no_trust_store { |ctx|
+  let server = start_server(ctx)?
+  guard let fixture = server else { test.skip(SKIP); return }
+  defer fixture.handle.cancel(kill_after: 100ms)
+
+  let result = curl_without_trust_store(ctx, ["-sS", f"{fixture.base}/ok"])?
+  assert result.status == 0, result.stderr
+  assert result.stdout == "hello\n"
+  assert result.stderr == ""
+}
+
+test test_curl_https_with_an_empty_trust_store_fails_unless_told_otherwise { |ctx|
+  let started = start_tls_server(ctx)?
+  guard let tls = started else { test.skip("requires openssl and perl for the TLS fixture"); return }
+  defer tls.handle.cancel(kill_after: 100ms)
+
+  let distrusted = curl_without_trust_store(ctx, ["-sS", tls.url])?
+  assert distrusted.status != 0, "an empty trust store must not verify a server"
+
+  let insecure = curl_without_trust_store(ctx, ["-sSk", "-o", "/dev/null", "-w", "%{http_code}", tls.url])?
+  assert insecure.status == 0, insecure.stderr
+  assert insecure.stdout == "200"
+
+  let pinned = curl_without_trust_store(ctx, ["-sS", "--cacert", f"{tls.ca}", "-o", "/dev/null", "-w", "%{http_code}", tls.url])?
+  assert pinned.status == 0, pinned.stderr
+  assert pinned.stdout == "200"
 }

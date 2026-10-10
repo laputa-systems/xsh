@@ -43,6 +43,7 @@ impl Evaluator {
             pool: options.pool.clone(),
             tls_verify: options.tls_verify,
             ca_certificate: options.ca_certificate.clone(),
+            system_ca_file: options.system_ca_file.clone(),
             max_idle_per_host: pool.max_idle_per_host,
             idle_timeout: pool.idle_timeout,
         };
@@ -72,12 +73,13 @@ impl Evaluator {
         let tls_verify = record_bool(record, "tls_verify", true, span)?;
         let ca_certificate = match record.get("ca_certificate") {
             Some(value) => Some(self.host_path(&value_to_path(value, "ca_certificate", span)?)),
-            None => self.ssl_cert_file_from_env(),
+            None => None,
         };
         Ok(NetCallOptions {
             pool,
             tls_verify,
             ca_certificate,
+            system_ca_file: self.ssl_cert_file_from_env(),
         })
     }
 

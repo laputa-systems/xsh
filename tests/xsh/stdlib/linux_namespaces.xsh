@@ -115,6 +115,40 @@ for row in rows {{
   assert out.read_text()? == "1\n"
 }
 
+# `linux.interfaces`, `linux.routes`, and `ip` describe the network namespace
+# of the calling process. Sysfs is a mount-scoped view of the namespace that
+# mounted it, so a reader built on it would list the host's devices here.
+test test_linux_network_state_follows_the_network_namespace { |ctx|
+  guard require_user_namespaces() else { return }
+  let root = test.temp_dir(ctx, name: "ns-net-state")?
+  let helper = test.temp_file(ctx, name: "net-state.xsh", contents: bytes.from_text("""for iface in linux.interfaces()? |> sort-by .name {
+  print f"interface {iface.name} {iface.flags.join(",")} {iface.addresses.len()}"
+}
+for route in linux.routes()? {
+  print f"route {route.dst}"
+}
+"""))?
+  let out = fp"{root}/out"
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, helper], root, {}, b"", out)
+  let status = linux.run_in_namespaces(plan, unshare: ["user", "net"], map_root_user: true)?
+  assert status.exited_with(0), out.read_text()?
+  # A new namespace holds only a down loopback device, plus the fallback
+  # tunnel devices that loaded tunnel modules create in every namespace.
+  let fallback = ["tunl0", "gre0", "gretap0", "erspan0", "ip_vti0", "ip6_vti0", "sit0", "ip6tnl0", "ip6gre0"]
+  var inner: List[Str] = []
+  for line in out.read_text()?.lines() {
+    let fields = line.split(" ")
+    assert fields[0] == "interface", line
+    inner += [fields[1]]
+    if fields[1] == "lo" {
+      assert fields[2] == "LOOPBACK", f"the new loopback must be down: {line}"
+    } else {
+      assert fields[1] in fallback, f"{fields[1]} is not a device a new namespace creates"
+    }
+  }
+  assert "lo" in inner
+}
+
 test test_linux_run_in_namespaces_maps_the_caller_to_root { |ctx|
   guard require_user_namespaces() else { return }
   let ran = probe(ctx, "id -u; cat /proc/self/uid_map | tr -s ' '", ["user"])?
