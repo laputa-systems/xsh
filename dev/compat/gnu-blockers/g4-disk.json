@@ -1,0 +1,54 @@
+{
+  "tests/dd/no-allocate.sh": {
+    "class": "XSH-GAP",
+    "note": "get_min_ulimit_v_ probes ulimit -v 5000..50000 KB and needs `timeout 10 dd if=f of=f2 status=none` to succeed at one of them, otherwise the test SKIPs. XSH dd does not start under 50000 KB (aborts with 'memory allocation of 90112 bytes failed'; under 40000 KB it segfaults), and at 60000 KB the evaluation worker thread cannot be spawned. basename starts at 50000 KB, so the cost is the runtime plus the size of the compiled dd applet, not allocation in dd.xsh. Needs a runtime with a smaller address-space footprint; the later allocation-failure checks cannot run until then."
+  },
+  "tests/dd/nocache_eof.sh": {
+    "class": "XSH-GAP",
+    "note": "The test runs strace without -f. XSH evaluates applets on a worker thread, so fadvise64 is invisible to the main-thread trace (with -f the call appears as fadvise64(3, 0, 0, POSIX_FADV_DONTNEED)). Needs the runtime to run applets on the process main thread, or strace-visible syscalls. A second, real difference remains in dd.xsh: it always advises the whole file to EOF, while GNU (src/dd.c invalidate_cache) advises only the range read and advises to EOF only when the transfer reached EOF or count=0; `skip=10 count=300` and `bs=1M count=1` must not advise to EOF."
+  },
+  "tests/dd/skip-seek-past-file.sh": {
+    "class": "FIXED",
+    "note": "Two dd.xsh differences from GNU. (1) skip=/seek= of exactly 9223372036854775807 was rejected as 'Value too large'; amount() clamps overflow to that value, so only text that is not exactly that number is an overflow. (2) status=none did not silence 'cannot skip to specified offset' for stdin or the regular-file fast path; GNU checks status_level first. With status=none the test takes the branch that expects exit 0 and no output. Native: test_dd_status_none_silences_skip_past_input."
+  },
+  "tests/dd/sparse.sh": {
+    "class": "FIXED",
+    "note": "dd.xsh gaps: (1) oflag=append was rejected; it now opens the output with O_APPEND, and standard output through a new /dev/stdout descriptor because XSH cannot set O_APPEND on fd 1. (2) conv=sparse,notrunc wrote NUL blocks instead of seeking over them. (3) sparse decisions were made per 64 KiB piece instead of per output block, so a zero run inside a larger output block became a hole. (4) a chunk limit recomputed from the current position split a pending block. (5) the trailing extension shrank files under notrunc. Native: test_dd_oflag_append_extends_a_regular_output, test_dd_oflag_append_on_standard_output, test_dd_sparse_notrunc_skips_nul_blocks_in_place, test_dd_sparse_zero_run_inside_a_larger_output_block_is_written. Limitation: a non-append sparse write to standard output does not create holes (no seek-relative primitive)."
+  },
+  "tests/dd/stats.sh": {
+    "class": "XSH-GAP",
+    "note": "The SIGINFO/USR1 loop passes (the test sets trap '' first). The failing step is status=progress, which needs periodic 'N byte copied' lines while a read is blocked (`{ sleep 1; echo 1; } | dd bs=1 status=progress`). XSH has no timers, signals or interruptible reads, so the progress reporter cannot be written in XSH. Printing a line after each read would not match GNU's timing and was not added."
+  },
+  "tests/dd/stderr.sh": {
+    "class": "XSH-GAP",
+    "note": "The /dev/full case now exits 1: status lines go through io.write_stderr with a checked flush (native: test_dd_failed_status_write_ends_the_run). The closed-stderr case (`: | dd 2>&-` must exit 1) cannot be observed: writes to fd 2 succeed when the caller closed it, so the process start supplies a descriptor before the applet runs. Needs runtime support that keeps closed standard descriptors visible to scripts."
+  },
+  "tests/df/df-output.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "Six checks use `grep -q \"cannot be used with\" out2` (clap wording) after `df -i|-P|-T` with `--output`. Real GNU prints `df: options -i and --output are mutually exclusive` (oracle, GNU 9.11; src/df.c msg_mut_excl), and the test's own unused exp file contains that form. XSH prints `options --output and -i, -P or -T are mutually exclusive`, which is also not GNU's wording; left unchanged because the test expects clap text. All other checks in the script pass with XSH after the df fixes. Requests: wording-conflict."
+  },
+  "tests/df/sync.sh": {
+    "class": "XSH-GAP",
+    "note": "The test runs strace without -f and greps for sync() followed by statfs/fstatfs. XSH's df --sync performs sync() then statfs() on the worker thread, so the main-thread trace is empty. With -f the order is correct (sync(), then statfs). Same runtime requirement as tests/dd/nocache_eof.sh."
+  },
+  "tests/du/2g.sh": {
+    "class": "FIXED",
+    "note": "The test SKIPs when `df -k --output=avail . | tail -n1` is not all digits. XSH printed the heading 'Available' (GNU uses 'Avail' in --output mode) and a leading space before the first column (GNU joins columns with one space). Both fixed in df.xsh; the probe now yields digits and du -k reports 2097152 for a 2 GiB file. Native: test_df_output_columns_are_separated_without_a_leading_space."
+  },
+  "tests/du/bigtime.sh": {
+    "class": "ENV",
+    "note": "The test SKIPs before du runs: none of ./, /tmp or /dev/shm keeps `touch -d @9223372036854775807` (ls shows 'Apr 11 2262' on the host; host touch is busybox and rejects the value). The oracle's tmpfs bind keeps the timestamp, so the precondition depends on the filesystem and tools in this environment, not on XSH."
+  },
+  "tests/du/files0-from.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "The real file is tests/du/files0-from.pl. Its f-extra-arg case expects two ERR lines with no `Try 'du --help' for more information.` line; GNU du.c calls usage(EXIT_FAILURE), which prints that line (oracle confirms). XSH now prints GNU's three lines: `du: extra operand 'no-such'`, the unprefixed `file operands cannot be combined with --files0-from`, and the Try line; the test still fails on the Try line. missing1 now matches GNU (`du: cannot open 'missing' for reading: No such file or directory`); it was `du: missing: read error: ...`. Native: test_du_files0_from_reports_gnu_open_and_operand_errors. Requests: wording-conflict."
+  },
+  "tests/du/threshold.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "The only failing check is the bare `--threshold` case. The test expects clap text `error: a value is required for '--threshold <SIZE>' but none was supplied`. Real GNU prints `du: option '--threshold' requires an argument` and `Try 'du --help' for more information.` (oracle). du.xsh (main, the `argv[-1] == \"--threshold\"` branch) still prints the clap text; that is not GNU wording, but no native test pins it and changing it does not make this test pass, so it is left alone. Requests: wording-conflict."
+  },
+  "tests/du/two-args.sh": {
+    "class": "FIXED",
+    "note": "`du ..` failed with 'cannot access '..': Cross-device link'. du opened the operand's parent and looked up '..' beneath that descriptor, which the lookup rejects (EXDEV). An operand named '..' is now its own anchor, with '.' as the entry. Native: test_du_dotdot_operand_is_its_own_anchor."
+  }
+}

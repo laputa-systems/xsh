@@ -338,6 +338,75 @@ test test_dd_skip_past_input_warns_without_failing { |ctx|
   assert result.stderr == "dd: 'standard input': cannot skip to specified offset\n0+0 records in\n0+0 records out\n"
 }
 
+test test_dd_status_none_silences_skip_past_input { |ctx|
+  let quiet = invoke(ctx, ["bs=1", "skip=5", "count=0", "status=none"], b"abcd")?
+  assert quiet.status == 0, quiet.stderr
+  assert quiet.stderr == ""
+  let largest = invoke(ctx, ["bs=1", "skip=9223372036854775807", "count=0", "status=none"], b"abcd")?
+  assert "invalid number" not in largest.stderr, largest.stderr
+  assert largest.status == 0, largest.stderr
+}
+
+test test_dd_oflag_append_extends_a_regular_output { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-append")?
+  let file = fp"{root}/file"
+  file.write("x")
+  let result = invoke(ctx, ["status=none", f"of={file}", "conv=notrunc", "oflag=append"], b"ab")?
+  assert result.status == 0, result.stderr
+  assert file.read_text()? == "xab"
+}
+
+test test_dd_oflag_append_on_standard_output { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-append-stdout")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display(), "status=none", "oflag=append"]
+  # The shell writes first, so standard output already has data when dd starts.
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout"].extend(argv), root, {LC_ALL: "C"}, b"ab", out, err, timeout: 3s)
+  let status = process.run(plan)?
+  assert status.exited_with(0), err.read_text()?
+  assert out.read_text()? == "xab"
+  let converted_out = fp"{root}/converted"
+  let converted = process.command_argv(p"/bin/sh", ["sh", "-c", "printf x; exec \"$@\"", "dd-append-stdout"].extend(argv).extend(["conv=ucase"]), root, {LC_ALL: "C"}, b"ab", converted_out, err, timeout: 3s)
+  assert process.run(converted)?.exited_with(0), err.read_text()?
+  assert converted_out.read_text()? == "xAB"
+}
+
+test test_dd_sparse_notrunc_skips_nul_blocks_in_place { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-sparse-notrunc")?
+  let input = fp"{root}/input"
+  let output = fp"{root}/output"
+  input.write(b"a\0\0b")
+  output.write(b"____")
+  let result = invoke(ctx, ["status=none", "bs=1", f"if={input}", f"of={output}", "conv=sparse,notrunc"])?
+  assert result.status == 0, result.stderr
+  assert output.read_bytes()? == b"a__b"
+}
+
+test test_dd_sparse_zero_run_inside_a_larger_output_block_is_written { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-sparse-block")?
+  let input = fp"{root}/input"
+  let output = fp"{root}/output"
+  let data = bytes.concat([bytes.zero(1048576)?, b"tail"])
+  input.write(data)
+
+  let result = invoke(ctx, ["status=none", "ibs=1M", "obs=2M", f"if={input}", f"of={output}", "conv=sparse"])?
+  assert result.status == 0, result.stderr
+  assert output.read_bytes()? == data
+  let meta = output.metadata()?
+  assert meta.blocks_512 * 512 >= 1048576, "a zero run that is part of a larger output block is written, not made a hole"
+}
+
+test test_dd_failed_status_write_ends_the_run { |ctx|
+  let root = test.temp_dir(ctx, name: "dd-status-full")?
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/dd.xsh".display()]
+  let plan = process.command_argv(p"/bin/sh", ["sh", "-c", "exec \"$@\" 2>/dev/full", "dd-status-full"].extend(argv), root, {LC_ALL: "C"}, b"ab", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+  assert status.exited_with(1)
+}
+
 test test_dd_zero_count_skips_an_input_fifo { |ctx|
   let root = test.temp_dir(ctx, name: "dd-skip-fifo")?
   let fifo = fp"{root}/fifo"

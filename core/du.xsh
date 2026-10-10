@@ -343,8 +343,11 @@ proc disk_usage(root: FsRoot, entry: Path, name: Str, policy: Policy, depth: Int
 proc disk_usage_operand(target: Path, policy: Policy, links: Map[Bool]) [fs, process, env, io, time, error] -> Usage {
   let name = target.display()
   let component = target.basename()
-  let entry = if component == "/" { p"." } else { fp"{component}" }
-  match fs.open_root(target.parent()) {
+  # The operand's parent is the anchor for a lookup beneath it, and a lookup of ".."
+  # escapes that anchor, so an operand named ".." is its own anchor.
+  let anchor = if component == ".." { target } else { target.parent() }
+  let entry = if component == "/" or component == ".." { p"." } else { fp"{component}" }
+  match fs.open_root(anchor) {
     Ok(root) => {
       defer root.close()
       disk_usage(root, entry, name, policy, 0, 0, links, [])
@@ -454,8 +457,21 @@ proc main(...argv: List[Str]) [fs, process, env, io, time, error] {
   }
   var targets = opts.targets
   if let list = opts.files0 {
-    if ! targets.is_empty() { gnu.error("file operands cannot be combined with --files0-from")
-      exit 1 }
+    # GNU reports the first operand, then the conflict without the program prefix.
+    if ! targets.is_empty() {
+      gnu.error(f"extra operand {gnu.quote(targets[0])}")
+      eprint "file operands cannot be combined with --files0-from"
+      gnu.try_help()
+      exit 1
+    }
+    # GNU opens the list before reading, so a missing list is an open failure and
+    # a directory (which opens) fails later as a read error.
+    if list != "-" {
+      if let Err(failure) = fs.stat(fp"{list}", follow_symlinks: true) {
+        gnu.cannot_open(list, failure)
+        exit 1
+      }
+    }
     guard let data = gnu.read_operand(list) else { |failure|
       gnu.error(f"{gnu.quote_maybe(list)}: read error: {gnu.strerror(failure)}")
       exit 1
