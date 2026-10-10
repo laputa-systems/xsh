@@ -748,7 +748,8 @@ pure first_set(ops: List[Int], xs: List[Int], ys: List[Int], sets: List[CharSet]
   table
 }
 
-## Compile one pattern. The result's `error` message uses GNU wording.
+## Compile one pattern. A malformed pattern is an error whose message is
+## GNU grep's wording; the warnings GNU prints for the pattern are returned.
 export pure compile_one(pattern: Bytes, ere: Bool, icase: Bool, utf8: Bool) -> Result[Compiled, Error] {
   let parsed = parse(pattern, ere, icase, utf8)
   if parsed.error != "" { search.reject(parsed.error)? }
@@ -994,7 +995,8 @@ pure explore(program: Program, chars: List[Int], from: Int, single: Bool) -> Lis
   []
 }
 
-## A set of patterns searched together with GNU `-w` / `-x` semantics.
+## A set of compiled patterns searched together under GNU `-w` / `-x`
+## semantics, plus the flags that choose the cheapest search path.
 export type Matcher = {programs: List[Program], utf8: Bool, word: Bool, whole: Bool, literal_only: Bool, ascii_only: Bool, literal_words: Bool, empty_only: Bool}
 
 ## Combine compiled patterns into a matcher.

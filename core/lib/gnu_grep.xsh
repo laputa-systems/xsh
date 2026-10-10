@@ -336,7 +336,6 @@ proc apply_option(opts: Options, key: Str, value: Bytes?, digits_context: Int?) 
         exit 1
       }
       o.directories = text
-      if text == "recurse" { o.dereference = false }
     }
     "D" => {
       if text not in ["read", "skip"] { die("unknown devices method") }
