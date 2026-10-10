@@ -13,6 +13,7 @@ With no FILE, or when FILE is -, read standard input.
 
   -c, --bytes=[+]NUM       output the last NUM bytes; or use -c +NUM to
                              output starting with byte NUM of each file
+      --debug       indicate which --follow implementation is used
   -f, --follow[={name|descriptor}]
                            output appended data as the file grows;
                              an absent option argument means 'descriptor'
@@ -51,6 +52,7 @@ type TailOptions = {
   quiet: Bool,
   verbose: Bool,
   zero: Bool,
+  debug: Bool,
   help: Bool,
   version: Bool,
   files: List[Str],
@@ -75,6 +77,8 @@ type NameStep = {file: NameFile, last: Str, keep: Bool, failed: Bool, dir_remove
 # Where output begins: `data` holds the whole input for sources that are read
 # at once, and `start` is an offset into it (or into the file when chunked).
 type Plan = {data: Bytes, start: Int}
+# A FIFO operand that --pid follows once every operand's initial output is written.
+type PidFifo = {label: Str, path: Path}
 
 const FOLLOW_MODES = ["descriptor", "name"]
 
@@ -585,6 +589,25 @@ proc follow_names(files: List[NameFile], headers: Bool, retrying: Bool, pid: Int
   failed
 }
 
+# How an operand is classed for the --debug report. GNU chooses the follow
+# implementation from all operands together. Standard input that is a pipe is
+# never followed, so it returns "pipe" and is left out of that choice.
+proc classify_operand(name: Str, source: tio.Source) [fs] -> Str {
+  if name == "-" {
+    # An unstattable standard input cannot be watched, so it counts as unwatchable.
+    guard let entry = fs.stat(fp"/dev/fd/0", follow_symlinks: true) else {
+      return "unwatchable"
+    }
+
+    return "pipe" when entry.kind == "fifo"
+    return if entry.kind == "char" { "device" } else { "unwatchable" }
+  }
+
+  return "watchable" when source.kind == 1 or source.kind == 8
+  return "device" when source.kind == 2 or source.kind == 6
+  "unwatchable"
+}
+
 proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   # GNU's hidden `---disable-inotify` selects polling instead of inotify. This applet
   # always polls, so the flag only silences the inotify-specific reports. The cli form
@@ -627,6 +650,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       quiet: {form: "-q --quiet --silent", default: false, conflicts: ["verbose"]},
       verbose: {form: "-v --verbose", default: false, conflicts: ["quiet"]},
       zero: {form: "-z --zero-terminated", default: false},
+      debug: {form: "--debug", default: false},
       help: {form: "--help", default: false, stop: true},
       version: {form: "--version", default: false, stop: true},
       files: {form: "...FILE"},
@@ -719,6 +743,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   var waiting: List[Str] = []
   var name_files: List[NameFile] = []
   var follow_files: List[FollowFile] = []
+  var follow_classes: List[Str] = []
+  var pid_fifos: List[PidFifo] = []
 
   for name in operands {
     let label = if name == "-" { "standard input" } else { name }
@@ -726,6 +752,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     guard let source = tio.open_source(name) else { |failure|
       gnu.cannot_open(name, failure)
       failed = true
+      follow_classes += ["unwatchable"]
 
       # A missing operand may appear later under --retry and then gets a banner. That
       # banner starts with a blank line, as GNU writes it. NUL cannot occur in a file
@@ -743,19 +770,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       continue
     }
 
-    if following and opts.pid != "" and source.kind == 1 {
-      let interval = if let sleep_interval = opts.sleep { proc_launch.interval(sleep_interval) ?? 1s } else { 1s }
-      guard let data = followed_fifo_data(source.path, spec, opts.zero, pid, interval) else { |failure|
-        gnu.error_reading(label, failure)
-        failed = true
-        continue
-      }
+    let operand_class = classify_operand(name, source)
+    if operand_class != "pipe" {
+      follow_classes += [operand_class]
+    }
 
-      if headers {
-        write_banner(label, last)
-        last = label
-      }
-      gnu.write_bytes(data)
+    if following and opts.pid != "" and source.kind == 1 {
+      pid_fifos += [{label: label, path: source.path}]
       continue
     }
 
@@ -790,6 +811,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
         gnu.cannot_open(name, failure)
       }
 
+      follow_classes += ["unwatchable"]
       failed = true
       continue
     }
@@ -826,6 +848,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     if following and follow_mode == "descriptor" and (source.kind == 8 or source.kind == 2) {
       guard let fd = unix.open_fd(source.path) else { |failure|
         gnu.error_reading(label, failure)
+        follow_classes += ["unwatchable"]
         failed = true
         continue
       }
@@ -837,6 +860,38 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     } else if following and name == "-" and tio.standard_file(0) != "" {
       growing += [name]
     }
+  }
+
+  # The report follows the initial output of every operand, as GNU orders it, and
+  # precedes any follow. Standard input that is a pipe yields no class, so a
+  # command that follows nothing reports nothing.
+  if following and opts.debug and ! follow_classes.is_empty() {
+    # A lone character device is read without polling. Any operand that cannot be
+    # watched, and --disable-inotify, select polling; otherwise inotify is used.
+    let implementation = if operands.len() == 1 and follow_classes == ["device"] and follow_mode == "descriptor" and pid == 0 {
+      "blocking"
+    } else if ! inotify or "device" in follow_classes or "unwatchable" in follow_classes {
+      "polling"
+    } else {
+      "notification"
+    }
+
+    gnu.error(f"using {implementation} mode")
+  }
+
+  for fifo in pid_fifos {
+    let interval = if let sleep_interval = opts.sleep { proc_launch.interval(sleep_interval) ?? 1s } else { 1s }
+    guard let data = followed_fifo_data(fifo.path, spec, opts.zero, pid, interval) else { |failure|
+      gnu.error_reading(fifo.label, failure)
+      failed = true
+      continue
+    }
+
+    if headers {
+      write_banner(fifo.label, last)
+      last = fifo.label
+    }
+    gnu.write_bytes(data)
   }
 
   if following and follow_mode == "descriptor" and (! follow_files.is_empty() or ! waiting.is_empty()) {
