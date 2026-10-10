@@ -181,18 +181,32 @@ pure integer_parse(text: Str, auto_base: Bool) -> IntegerParse {
   var found = false
   var at = 0
   var overflow = false
+  # The value accumulates toward the sign's limit, so -2^63 is representable
+  # even though +2^63 is not.
+  let limit = if sign < 0 { -9223372036854775807 - 1 } else { 9223372036854775807 }
+  let cutoff = limit / base
+  let cutlim = if sign < 0 { -(limit % base) } else { limit % base }
 
   while at < body.byte_len() {
     let digit = digit_value(body.byte_slice(at, length: 1))
     if digit == null or (digit ?? 99) >= base { break }
     found = true
     let next_digit = digit ?? 0
-    if value > (9223372036854775807 - next_digit) / base { overflow = true } else { value = value * base + next_digit }
+    if ! overflow {
+      if (sign < 0 and (value < cutoff or (value == cutoff and next_digit > cutlim))) or (sign > 0 and (value > cutoff or (value == cutoff and next_digit > cutlim))) {
+        overflow = true
+        value = limit
+      } else if sign < 0 {
+        value = value * base - next_digit
+      } else {
+        value = value * base + next_digit
+      }
+    }
     at += 1
   }
 
   let tail = if found { body.byte_slice(at) } else { body }
-  if ! found { {value: 0, issue: "expected a numeric value", warning: null} } else if overflow { {value: if sign < 0 { -9223372036854775807 - 1 } else { 9223372036854775807 }, issue: "Numerical result out of range", warning: null} } else if tail != "" { {value: sign * value, issue: "value not completely converted", warning: null} } else { {value: sign * value, issue: null, warning: null} }
+  if ! found { {value: 0, issue: "expected a numeric value", warning: null} } else if overflow { {value: limit, issue: "Numerical result out of range", warning: null} } else if tail != "" { {value: value, issue: "value not completely converted", warning: null} } else { {value: value, issue: null, warning: null} }
 }
 
 pure float_parse(text: Str) -> FloatParse {
@@ -281,7 +295,7 @@ pure float_parse(text: Str) -> FloatParse {
     if digit >= 49 and digit <= 57 { nonzero_mantissa = true }
   }
   let out_of_range = value.format() in ["Infinity", "-Infinity"] or (value.abs() == 0.0 and nonzero_mantissa)
-  let issue: Str? = if trimmed.byte_slice(at) != "" { "value not completely converted" } else if out_of_range { "Result not representable" } else { null }
+  let issue: Str? = if trimmed.byte_slice(at) != "" { "value not completely converted" } else if out_of_range { "Numerical result out of range" } else { null }
   {value: value, issue: issue}
 }
 
@@ -446,6 +460,74 @@ pure float_is_nan(value: Float) -> Bool {
 
 pure float_is_infinite(value: Float) -> Bool {
   value.format() in ["Infinity", "-Infinity"]
+}
+
+pure zero_text(count: Int) -> Str {
+  return "" when count <= 0
+  bytes.concat([b"0" for _ in range(count)]).utf8() ?? ""
+}
+
+pure increment_decimal(digits: Str) -> Str {
+  var out = ""
+  var carry = 1
+  var index = digits.byte_len() - 1
+  while index >= 0 {
+    let value = (digits.byte_at(index) ?? 48) - 48 + carry
+    carry = value / 10
+    out = f"{value % 10}{out}"
+    index -= 1
+  }
+  if carry > 0 { out = f"1{out}" }
+  out
+}
+
+# Formats a plain decimal literal from its own digits, rounding half to even.
+# A double holds about 17 significant digits, so beyond that precision the
+# binary value would show digits the literal never contained. Returns the
+# magnitude without a sign, or null for anything that is not a plain decimal
+# literal (hex, inf, nan, surrounding blanks), which keeps the binary path and
+# its diagnostics.
+pure exact_decimal_text(text: Str, places: Int) -> Str? {
+  return null when ! rx"^[+-]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][+-]?[0-9]+)?$".matches(text)
+  var unsigned = text
+  if unsigned.starts_with("-") or unsigned.starts_with("+") { unsigned = unsigned.byte_slice(1) }
+  var exponent = 0
+  let exponent_at = unsigned.find("e") ?? unsigned.find("E") ?? unsigned.byte_len()
+  if exponent_at < unsigned.byte_len() {
+    exponent = integer_prefix(unsigned.byte_slice(exponent_at + 1), false)
+    unsigned = unsigned.byte_slice(0, exponent_at)
+  }
+  return null when exponent > 100000 or exponent < -100000
+  let dot_at = unsigned.find(".")
+  let whole = if let at = dot_at { unsigned.byte_slice(0, at) } else { unsigned }
+  let fraction = if let at = dot_at { unsigned.byte_slice(at + 1) } else { "" }
+
+  var digits = f"{whole}{fraction}"
+  var point = whole.byte_len() + exponent
+  if point < 0 {
+    digits = f"{zero_text(-point)}{digits}"
+    point = 0
+  }
+  if point > digits.byte_len() { digits = f"{digits}{zero_text(point - digits.byte_len())}" }
+
+  var integer = digits.byte_slice(0, point)
+  if integer == "" { integer = "0" }
+  var kept_fraction = digits.byte_slice(point)
+  if kept_fraction.byte_len() > places {
+    let dropped = (kept_fraction.byte_at(places) ?? 48) - 48
+    let rest_nonzero = kept_fraction.byte_slice(places + 1).replace("0", with: "") != ""
+    let kept = f"{integer}{kept_fraction.byte_slice(0, places)}"
+    let last_odd = ((kept.byte_at(kept.byte_len() - 1) ?? 48) - 48) % 2 == 1
+    let round_up = dropped > 5 or (dropped == 5 and (rest_nonzero or last_odd))
+    let rounded = if round_up { increment_decimal(kept) } else { kept }
+    integer = rounded.byte_slice(0, rounded.byte_len() - places)
+    kept_fraction = rounded.byte_slice(rounded.byte_len() - places)
+  } else {
+    kept_fraction = f"{kept_fraction}{zero_text(places - kept_fraction.byte_len())}"
+  }
+
+  while integer.byte_len() > 1 and integer.starts_with("0") { integer = integer.byte_slice(1) }
+  f"{integer}{if places > 0 { "." + kept_fraction } else { "" }}"
 }
 
 pure scan_escape(text: Bytes, slash: Int, zero_prefix: Bool = false) -> Result[Escape] {
@@ -686,7 +768,10 @@ proc conversion_text(spec: PrintfSpec, argument: PrintfArgument, width: Int, pre
     if let issue = parsed.issue { gnu.error(f"{gnu.quote_value(argument.text)}: {issue}") }
     let number = parsed.value
     let requested_precision = precision ?? 6
-    let body = if spec.conversion in ["f", "F"] and requested_precision > 100 and ! float_is_nan(number) and ! float_is_infinite(number) {
+    let exact = if spec.conversion in ["f", "F"] and requested_precision > 17 and ! float_is_nan(number) and ! float_is_infinite(number) { exact_decimal_text(argument.text, requested_precision) } else { null }
+    let body = if let digits = exact {
+      digits
+    } else if spec.conversion in ["f", "F"] and requested_precision > 100 and ! float_is_nan(number) and ! float_is_infinite(number) {
       number.format_number(spec.conversion, requested_precision)?
     } else {
       float_conversion(number, spec.conversion, precision)
@@ -789,7 +874,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
         let width_text = if index < values.len() { values[index].text } else { "0" }
         let parsed_width = integer_parse(width_text, true)
         if parsed_width.issue == "Numerical result out of range" {
-          gnu.error(f"{gnu.quote_value(width_text)}: Result not representable")
+          gnu.error(f"{gnu.quote_value(width_text)}: Numerical result out of range")
           failed = true
         } else if let issue = parsed_width.issue {
           gnu.error(f"{gnu.quote_value(width_text)}: {issue}")
@@ -817,7 +902,7 @@ proc render_pass(fmt: Bytes, values: List[PrintfArgument], first_argument: Int, 
         let precision_argument = if index < values.len() { values[index].text } else { "-1" }
         let parsed_precision = integer_parse(precision_argument, true)
         if parsed_precision.issue == "Numerical result out of range" {
-          gnu.error(f"{gnu.quote_value(precision_argument)}: Result not representable")
+          gnu.error(f"{gnu.quote_value(precision_argument)}: Numerical result out of range")
           failed = true
         } else if let issue = parsed_precision.issue {
           gnu.error(f"{gnu.quote_value(precision_argument)}: {issue}")
