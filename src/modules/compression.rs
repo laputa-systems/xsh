@@ -230,12 +230,12 @@ fn transform_io(request: TransformRequest<'_>, span: Span) -> io::Result<()> {
     if request.pass_through && (!request.decode || request.test || request.destination.is_some()) {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "pass-through requires decoding to stdout without integrity testing"));
     }
-    let compression = parse(request.format, span)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.message.to_string()))?;
-    if compression == Compression::Auto {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "explicit compression format required"));
-    }
-    let level = if compression == Compression::Zstd {
+    let formats = parse_formats(request.format, request.decode, span)?;
+    let compression = formats[0];
+    // The level only shapes encoding, so a detected format has no level to check.
+    let level = if formats.len() > 1 {
+        0
+    } else if compression == Compression::Zstd {
         if !(-131072..=22).contains(&request.level) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "zstd level must be between -131072 and 22"));
         }
@@ -281,7 +281,7 @@ fn transform_io(request: TransformRequest<'_>, span: Span) -> io::Result<()> {
         Box::new(io::stdout().lock())
     };
     let original_time = if request.decode {
-        decode(input, output, compression, request.pass_through)?
+        decode(input, output, &formats, request.pass_through)?
     } else {
         let header = if request.metadata && compression == Compression::Gz {
             use std::os::unix::ffi::OsStrExt;
@@ -313,29 +313,95 @@ fn transform_io(request: TransformRequest<'_>, span: Span) -> io::Result<()> {
     Ok(())
 }
 
-fn decode<R: Read + Send + 'static, W: Write>(mut input: R, output: W, compression: Compression, pass_through: bool) -> io::Result<Option<u32>> {
+// Candidate formats for one transform. A single name is that format; "auto"
+// detects among every decodable format and a comma-separated list detects among
+// the named ones. Detection only makes sense when decoding, because encoding has
+// no input to inspect.
+fn parse_formats(value: &str, decode: bool, span: Span) -> io::Result<Vec<Compression>> {
+    let invalid = |message: String| io::Error::new(io::ErrorKind::InvalidInput, message);
+    let formats = if value == "auto" {
+        vec![Compression::Gz, Compression::Bz2, Compression::Xz, Compression::Lzma, Compression::Zstd]
+    } else {
+        let mut formats = Vec::new();
+        for name in value.split(',') {
+            match parse(name, span).map_err(|error| invalid(error.message.to_string()))? {
+                Compression::Auto => return Err(invalid("explicit compression format required".to_string())),
+                format => formats.push(format),
+            }
+        }
+        formats
+    };
+    if formats.len() > 1 && !decode {
+        return Err(invalid("explicit compression format required".to_string()));
+    }
+    Ok(formats)
+}
+
+// How many leading bytes decide the format: the raw lzma header is the longest
+// signature.
+const SNIFF_LEN: usize = 13;
+
+// Raw lzma streams have no magic, so the 13-byte header is checked for
+// plausibility: a properties byte in range and an uncompressed size that is
+// unknown (all ones) or below 2^38. `detected` additionally requires the
+// dictionary size to be 2^n or 2^n + 2^(n-1) (or all ones), the rule xz applies
+// when it chooses the format itself; a caller that named lzma explicitly gets
+// the lenient check.
+fn lzma_header(header: &[u8], detected: bool) -> bool {
+    if header.len() < SNIFF_LEN || header[0] >= 225 {
+        return false;
+    }
+    let dictionary = u32::from_le_bytes([header[1], header[2], header[3], header[4]]);
+    // 2^n + 2^(n-1) is three times a power of two.
+    let standard_size = dictionary.is_power_of_two() || (dictionary % 3 == 0 && (dictionary / 3).is_power_of_two());
+    if detected && dictionary != u32::MAX && !standard_size {
+        return false;
+    }
+    let size = u64::from_le_bytes(header[5..13].try_into().expect("eight size bytes"));
+    size == u64::MAX || size < 1 << 38
+}
+
+fn recognizes(compression: Compression, header: &[u8], detected: bool) -> bool {
+    match compression {
+        Compression::Gz => header.starts_with(&[0x1f, 0x8b]),
+        Compression::Bz2 => header.starts_with(b"BZh"),
+        Compression::Xz => header.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0]),
+        Compression::Lzma => lzma_header(header, detected),
+        Compression::Zstd => zstd_header(header),
+        Compression::Auto => false,
+    }
+}
+
+// Decodes `input`, choosing the codec from its first bytes when several formats
+// are candidates. The peeked bytes are replayed in front of the stream, so a
+// pipe or standard input is read once. Input that matches no candidate is copied
+// through when `pass_through` is set (xz -dcf); otherwise a single named format
+// is handed to its codec, which reports what is wrong, and several candidates
+// are rejected as unrecognized.
+fn decode<R: Read + Send + 'static, W: Write>(mut input: R, output: W, formats: &[Compression], pass_through: bool) -> io::Result<Option<u32>> {
     let mut writer = BufWriter::with_capacity(BUFFER_SIZE, output);
+    let detected = formats.len() > 1;
     let mut prefix = Vec::new();
-    if pass_through {
-        let size = match compression { Compression::Gz => 2, Compression::Bz2 => 3, Compression::Xz => 6, Compression::Lzma => 13, Compression::Zstd => 4, Compression::Auto => 0 };
-        input.by_ref().take(size).read_to_end(&mut prefix)?;
-        let packed = match compression {
-            Compression::Gz => prefix.starts_with(&[0x1f, 0x8b]),
-            Compression::Bz2 => prefix.starts_with(b"BZh"),
-            Compression::Xz => prefix.starts_with(&[0xfd, b'7', b'z', b'X', b'Z', 0]),
-            Compression::Lzma => prefix.len() == 13 && prefix[0] < 225,
-            Compression::Zstd => zstd_header(&prefix),
-            Compression::Auto => false,
-        };
-        if !packed {
-            writer.write_all(&prefix)?;
-            io::copy(&mut input, &mut writer)?;
-            writer.flush()?;
-            return Ok(None);
+    let mut chosen = formats[0];
+    if detected || pass_through {
+        input.by_ref().take(SNIFF_LEN as u64).read_to_end(&mut prefix)?;
+        match formats.iter().find(|format| recognizes(**format, &prefix, detected)) {
+            Some(format) => chosen = *format,
+            None if pass_through => {
+                writer.write_all(&prefix)?;
+                io::copy(&mut input, &mut writer)?;
+                writer.flush()?;
+                return Ok(None);
+            }
+            None if detected && prefix.starts_with(b"LZIP") => {
+                return Err(io::Error::new(io::ErrorKind::Unsupported, "lzip streams are not supported"));
+            }
+            None if detected => return Err(io::Error::new(io::ErrorKind::InvalidData, "File format not recognized")),
+            None => {}
         }
     }
     let reader = BufReader::with_capacity(BUFFER_SIZE, io::Cursor::new(prefix).chain(input));
-    let (mut reader, mtime) = decoded_reader(reader, compression)?;
+    let (mut reader, mtime) = decoded_reader(reader, chosen)?;
     io::copy(&mut reader, &mut writer)?;
     writer.flush()?;
     Ok(mtime)

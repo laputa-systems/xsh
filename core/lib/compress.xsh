@@ -58,51 +58,6 @@ pure decoded_name(name: Str, format: Str) -> Str? {
   null
 }
 
-# Whether `header` (the first 13 bytes) could begin a raw lzma stream: the
-# properties byte is in range, the dictionary size is 2^n or 2^n + 2^(n-1), and
-# the uncompressed size is unknown (all ones) or below 2^38. `strict` false
-# drops the dictionary-size rule, the leniency xz applies when the caller names
-# the lzma format explicitly instead of letting it detect the format.
-pure looks_like_lzma(header: Bytes, strict: Bool) -> Bool {
-  if header.len() < 13 or (header.byte_at(0) ?? 255) >= 225 { return false }
-  var dict = 0
-  var scale = 1
-  for at in range(1, 5) {
-    dict += (header.byte_at(at) ?? 0) * scale
-    scale *= 256
-  }
-  var dict_ok = ! strict or dict == 4294967295
-  var power = 1
-  for _ in range(0, 32) {
-    if dict == power or dict == power + power / 2 { dict_ok = true }
-    power *= 2
-  }
-  if ! dict_ok { return false }
-  var unknown = true
-  for at in range(5, 13) { if (header.byte_at(at) ?? 0) != 255 { unknown = false } }
-  let high_zero = (header.byte_at(9) ?? 0) < 64 and (header.byte_at(10) ?? 0) == 0 and (header.byte_at(11) ?? 0) == 0 and (header.byte_at(12) ?? 0) == 0
-  unknown or high_zero
-}
-
-# Pick the codec for decoding a file operand by its content, as xz does: `xz -d`
-# also reads .lzma files, and a forced `lzma -dcf` copies input that is not an
-# lzma stream through unchanged. Standard input cannot be inspected without
-# consuming it, so it keeps the format the applet was invoked as.
-proc sniffed_format(format: Str, source: Path?, decode: Bool, passing_through: Bool) [fs, error] -> Result[Str] {
-  guard let file = source else { return Ok(format) }
-  if ! decode or format not in ["xz", "lzma"] { return Ok(format) }
-  let info = fs.stat(file)?
-  if info.kind != "file" { return Ok(format) }
-  let header = bytes.read_at(file, 0, if info.size < 13 { info.size } else { 13 }, regular: true)?
-  if header.len() >= 6 and header[0..6] == b"\xfd7zXZ\0" { return Ok(format) }
-  if format == "xz" {
-    return Ok(if looks_like_lzma(header, true) { "lzma" } else { "xz" })
-  }
-  # A non-lzma file under forced stdout decoding is handed to the xz codec's
-  # pass-through, which copies anything that lacks the xz magic.
-  Ok(if passing_through and ! looks_like_lzma(header, false) { "xz" } else { format })
-}
-
 pure combined_status(current: Int, incoming: Int, format: Str) -> Int {
   if format == "bz2" {
     if incoming > current { incoming } else { current }
@@ -629,14 +584,9 @@ export proc execute(argv: List[Str], format: Str, decoding: Bool, cat: Bool) [fs
       continue
     }
     let passing_through = force and decode and to_stdout and ! testing
-    let codec = match sniffed_format(format, source, decode, passing_through) {
-      Ok(chosen) => chosen
-      Err(failure) => {
-        if ! quiet { gnu.name_error(name, failure) }
-        status = combined_status(status, 1, format)
-        continue
-      }
-    }
+    # xz also reads .lzma content, so a decoding xz applet lets the codec pick
+    # between the two from the stream itself; every other applet names its format.
+    let codec = if decode and format == "xz" { "xz,lzma" } else { format }
     match compression.transform(source, destination, codec, decode: decode, level: level, test: testing, metadata: metadata, overwrite: force, pass_through: passing_through) {
       Ok(_) => {
         if destination != null and ! keep {
