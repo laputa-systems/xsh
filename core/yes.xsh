@@ -28,6 +28,24 @@ pure repeated(line: Bytes, count: Int) -> Bytes {
   bytes.concat([out, out.slice(0, length: (count - copies) * line.len())])
 }
 
+# GNU yes names the stream in its write diagnostic, so a full or failed stdout
+# reads `yes: standard output: STRERROR` rather than the generic `write error`.
+proc write_chunk(chunk: Bytes) [process, env, io] {
+  if let Err(failure) = io.write_stdout_bytes(chunk) {
+    stdout_failed(failure)
+  }
+  if let Err(failure) = io.flush_stdout() {
+    stdout_failed(failure)
+  }
+}
+
+proc stdout_failed(failure: Error) [process, env] -> Unit {
+  exit 141 when gnu.errno(failure) == 32
+
+  gnu.error(f"standard output: {gnu.strerror(failure)}")
+  exit 1
+}
+
 proc main(...argv: List[Bytes]) [process, env, error, io] {
   # The xsh host leaves SIGPIPE ignored, so a closed reader would surface as
   # EPIPE and end with status 141 rather than the signal death GNU yes has.
@@ -72,6 +90,6 @@ proc main(...argv: List[Bytes]) [process, env, error, io] {
   # Keep writes bounded so a closed pipe can stop the producer before it
   # accumulates output in memory.
   while true {
-    gnu.write_bytes(chunk)
+    write_chunk(chunk)
   }
 }

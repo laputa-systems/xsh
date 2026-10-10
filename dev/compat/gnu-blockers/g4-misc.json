@@ -1,0 +1,30 @@
+{
+  "tests/misc/kill.sh": {
+    "class": "XSH-GAP",
+    "note": "Fixed in core/kill.xsh: 'kill -L' lists like '-l'; '-l' with '-t' exits 1 ('cannot combine -l and -t'); a negative pid after a signal ('kill -TERM -1234') is an operand, not an option. Still failing on two steps that contradict existing native tests, so nothing was changed for them and a decision is needed: (a) 'kill -l -l' must exit 1, but test_kill_list_converts_between_names_and_numbers requires 'kill -l --list INT KILL' to list; (b) 'kill -0 -1' must succeed (signal 0 probes every process, the same kernel call as process.kill_group(1, \"0\")), but test_kill_every_process_is_refused_not_signaled requires 'kill -s 0 -- -1' to be refused."
+  },
+  "tests/misc/yes.sh": {
+    "class": "FIXED",
+    "note": "A failed write to stdout now reports 'yes: standard output: STRERROR' (core/yes.xsh write_chunk), as GNU yes does, instead of the generic 'write error' wording. Pinned by test_yes_write_errors_name_standard_output. The whole GNU script passes against the staged applets with ENOSPC set to 'No space left on device' in the harness environment."
+  },
+  "tests/misc/dircolors.pl": {
+    "class": "FIXED",
+    "note": "core/dircolors.xsh now prints 'invalid line;  missing second token' (two spaces), accepts any unambiguous abbreviation of a long option ('--print-ls' is --print-ls-colors; aliases of one option such as --csh and --c-shell are not ambiguous, as in getopt_long), and uses the GNU wording for the --print-database / --print-ls-colors and shell-syntax clashes. Pinned by test_dircolors_long_options_abbreviate_and_clash and test_dircolors_missing_second_token_names_the_line. The perl harness does not load in this tree (tests/Coreutils.pm line 285 is a syntax error), so each case was checked by hand against the oracle."
+  },
+  "tests/misc/xstrtol.pl": {
+    "class": "FIXED",
+    "note": "core/pr.xsh: a malformed or overflowing --pages number reports \"invalid --pages argument 'VALUE'\" with the whole option value, as the 9.12 expectations require (inval-suffix, too-big, simply-inval, inv-pg-range). Zero and reversed ranges keep \"invalid page range\". Pinned by test_pr_malformed_page_numbers_name_the_pages_argument. The oracle (coreutils 9.11) words some inputs differently (for example '9x' gives 'invalid page range'); the 9.12 test expectations were followed. Checked by hand because the perl harness does not load in this tree."
+  },
+  "tests/pr/pr-tests.pl": {
+    "class": "XSH-GAP",
+    "note": "The simply-inval step is the xstrtol.pl case above and is FIXED there. The pr-tests.pl script fails on uutils too (dev/compat/results/gnu-uutils.json), with output mismatches (cases such as 1e and 3Paa) that are unrelated to invalid-number diagnostics; not investigated in this lane."
+  },
+  "tests/misc/coreutils.sh": {
+    "class": "FIXED",
+    "note": "New core/coreutils.xsh multicall front end. 'coreutils PROG ARGS' and '--coreutils-prog=PROG' exec the applet beside it with the operands forwarded as raw bytes; 'coreutils' alone prints the Try line and exits 1; an unknown program prints \"coreutils: unknown program 'NAME'\" (no Try line, because the test compares stderr exactly) and exits 1; a link named blah dispatches by its own name. The front end imports nothing because a link resolves 'use' beside itself, so a linked name outside the applet directory could not load lib.gnu. stage.py installs it without change. The whole GNU script passes against the staged applets. Pinned by core/tests/test-coreutils.xsh."
+  },
+  "tests/ls/hyperlink.sh": {
+    "class": "XSH-GAP",
+    "note": "encode() pipes the non-UTF-8 name invalidutf8\\351 through sort, and core/sort.xsh reads stdin with io.stdin_text(), which fails with 'invalid utf-8 sequence'. core/sort.xsh is not owned by this lane. Needed: core/sort.xsh reads standard input as bytes and sorts byte-wise, with a native test in its own lane."
+  }
+}

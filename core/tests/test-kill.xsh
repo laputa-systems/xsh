@@ -118,6 +118,16 @@ test test_kill_negative_operand_signals_a_process_group { |ctx|
   assert status.signal_number()? == 15
 }
 
+test test_kill_negative_pid_needs_no_separator { |ctx|
+  let child = spawn run sleep 30 ?
+  let result = kill_run(ctx, ["-TERM", f"-{child.pid}"])?
+  assert result.status == 0, result.stderr
+  assert result.stderr == ""
+
+  let status = wait child?
+  assert status.signal_number()? == 15
+}
+
 test test_kill_reports_each_bad_operand_and_continues { |ctx|
   let child = spawn run sleep 30 ?
   let result = kill_run(ctx, ["abc", "999999999", f"{child.pid}", "1x", "99999999999"])?
@@ -183,6 +193,22 @@ test test_kill_signal_conflicts_with_listing { |ctx|
     assert result.status == 1, args.join(" ")
     assert result.stderr == "kill: cannot combine signal with -l or -t\nTry 'kill --help' for more information.\n", result.stderr
   }
+}
+
+test test_kill_list_and_table_are_exclusive { |ctx|
+  for args in [["-l", "-t"], ["-t", "--list"]] {
+    let result = kill_run(ctx, args)?
+    assert result.status == 1, args.join(" ")
+    assert result.stderr == "kill: cannot combine -l and -t\nTry 'kill --help' for more information.\n", result.stderr
+  }
+}
+
+test test_kill_capital_l_lists_like_lowercase { |ctx|
+  let lower = kill_run(ctx, ["-l"])?
+  let upper = kill_run(ctx, ["-L"])?
+  assert upper.status == 0, upper.stderr
+  assert upper.stdout == lower.stdout
+  assert upper.stdout.starts_with("EXIT\n")
 }
 
 test test_kill_list_prints_one_name_per_line_from_exit { |ctx|
