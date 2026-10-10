@@ -1820,12 +1820,17 @@ pure glob_matches(globs: List[Glob], name: Str) -> Bool {
   false
 }
 
-# Use the default color palette only when the selected terminal advertises
-# color support; an explicit LS_COLORS value supplies its own palette.
+# Whether the terminal advertises color support. An unset TERM counts as capable,
+# and an empty TERM is capable only when COLORTERM is unset, so an environment
+# that clears TERM still gets color while an explicitly blank pair does not.
 proc terminal_has_color() [process, env] -> Bool {
   return true when (env_text("COLORTERM") ?? "") != ""
 
-  let term = env_text("TERM") ?? ""
+  let term_value = env_text("TERM")
+  return true when term_value == null
+  return env_text("COLORTERM") == null when term_value == ""
+
+  let term = term_value ?? ""
   let patterns = [
     "Eterm",
     "ansi",
@@ -3043,7 +3048,11 @@ proc list_all(ctx: Ctx, operands: List[Str]) [fs, process, env, error, io] -> In
     }
 
     if ctx.format == "long" or cfg.size {
-      let line = bytes.from_text(f"{indent}total {human_readable(total, 512, ctx.block_size, ctx.human)}\n")
+      # A `no` style puts its sequence before the first output line, the total
+      # line included, and that sequence counts towards the dired offsets.
+      let lead = norm_text(ctx, used)
+      used = used or lead != ""
+      let line = bytes.from_text(f"{lead}{indent}total {human_readable(total, 512, ctx.block_size, ctx.human)}\n")
       out += [line]
       pos += line.len()
     }
@@ -3248,12 +3257,14 @@ proc build_ctx(cfg0: Cfg, tty: Bool) [fs, process, env, time, io] -> Ctx {
   var colors: Colors = Colors(ok: true, ind: DEFAULT_COLORS, exts: [], referent: false, unknown: [])
   var color = cfg.color == "always"
 
+  if color and ! terminal_has_color() {
+    color = false
+  }
+
   if color {
     let spec = env_text("LS_COLORS") ?? ""
 
-    if spec == "" {
-      color = terminal_has_color()
-    } else {
+    if spec != "" {
       colors = ls_color_parse(spec)
 
       for label in colors.unknown {
