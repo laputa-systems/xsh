@@ -73,6 +73,14 @@ test test_tail_obsolete_forms_name_the_first_argument { |ctx|
   assert plus.stderr == "tail: cannot open '+cl' for reading: No such file or directory\n", plus.stderr
 }
 
+test test_tail_accepts_gnu_hidden_disable_inotify_option { |ctx|
+  let root = test.temp_dir(ctx, name: "tail")?
+  fp"{root}/n20".write(numbers(1, 20))
+
+  assert tail_run(ctx, root, ["---disable-inotify", "-n", "2", "n20"])?.stdout == numbers(19, 20)
+  assert tail_run(ctx, root, ["-n", "2", "---disable-inotify"], numbers(1, 20))?.stdout == numbers(19, 20)
+}
+
 test test_tail_obsolete_unit_options_default_to_ten_units { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
   let content = bytes.concat([b"x" for _ in range(5122)])
@@ -283,6 +291,68 @@ test test_tail_follows_descriptor_appends_and_zero_count { |ctx|
   }
 }
 
+test test_tail_follow_descriptor_reports_truncation_and_reads_from_start { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-descriptor-truncation")?
+  let log = fp"{root}/log"
+  log.write(b"1\n2\n3\n4\n5\n")
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let writer = spawn run sh -c "sleep 0.2; printf 'hi\\n' > \"$1\"" sh $log.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "-s.02", "log"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == "1\n2\n3\n4\n5\nhi\n"
+  assert stderr.read_text()? == "tail: log: file truncated\n", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
+test test_tail_descriptor_retry_waits_for_a_missing_file { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-descriptor-retry")?
+  let log = fp"{root}/log"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let writer = spawn run sh -c "sleep 0.2; printf 'one\\n' > \"$1\"; sleep 0.2; printf 'two\\n' >> \"$1\"" sh $log.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "--retry", "-s.02", "log"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == "one\ntwo\n"
+  assert stderr.read_text()? == "tail: warning: --retry only effective for the initial open\ntail: cannot open 'log' for reading: No such file or directory\ntail: 'log' has appeared;  following new file\n", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
+test test_tail_follow_name_banners_for_names_created_after_failed_opens { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-name-created-later")?
+  let first = fp"{root}/log1"
+  let second = fp"{root}/log2"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let writer = spawn run sh -c "sleep 0.2; printf 'ping\\n' > \"$1\"; sleep 0.2; printf 'pong\\n' > \"$2\"" sh $first.display() $second.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log1", "log2"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == "\n==> log1 <==\nping\n\n==> log2 <==\npong\n", stdout.read_text()?
+  assert stderr.read_text()? == "tail: cannot open 'log1' for reading: No such file or directory\ntail: cannot open 'log2' for reading: No such file or directory\ntail: 'log1' has appeared;  following new file\ntail: 'log2' has appeared;  following new file\n", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
 test test_tail_validates_follow_options { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
 
@@ -334,6 +404,49 @@ test test_tail_follow_name_switches_banners_between_files { |ctx|
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
   assert stdout.read_text()? == "==> log <==\ninitial\n\n==> other <==\nother initial\nother appended\n\n==> log <==\nlog appended\n"
   assert stderr.read_text()? == ""
+}
+
+type RemovalCase = {name: Str, extra: List[Str], stderr: Str}
+
+# The directory holding a followed name is removed and recreated. GNU's inotify
+# backend reports the removal once and then polls; with --disable-inotify it
+# reports nothing beyond the polling messages.
+test test_tail_follow_name_reports_removed_directory_once { |ctx|
+  let cases: List[RemovalCase] = [
+    {
+      name: "tail-dir-removal",
+      extra: [],
+      stderr: "tail: 'd/f' has become inaccessible: No such file or directory\ntail: directory containing watched file was removed\ntail: inotify cannot be used, reverting to polling\ntail: 'd/f' has appeared;  following new file\n",
+    },
+    {
+      name: "tail-dir-removal-polling",
+      extra: ["---disable-inotify"],
+      stderr: "tail: 'd/f' has become inaccessible: No such file or directory\ntail: 'd/f' has appeared;  following new file\n",
+    },
+  ]
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+
+  for case in cases {
+    let root = test.temp_dir(ctx, name: case.name)?
+    let dir = fp"{root}/d"
+    let file = fp"{dir}/f"
+    dir.mkdir()?
+    file.write(b"foo\n")
+    let writer = spawn run sh -c "sleep 0.2; rm -f \"$1\"; sleep 0.2; rmdir \"$2\"; sleep 0.2; mkdir \"$2\"; printf 'bar\\n' > \"$1\"" sh $file.display() $dir.display() ?
+    defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+    let stdout = fp"{root}/stdout"
+    let stderr = fp"{root}/stderr"
+    let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.5", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "--max-unchanged-stats=1", "d/f", @case.extra]
+    let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 4s)
+    let status = process.run(plan)?
+
+    assert status.exit_code()? == 124, f"exit={status.exit_code()?} stderr={stderr.read_text()?}"
+    assert stdout.read_text()? == "foo\nbar\n", case.name
+    assert stderr.read_text()? == case.stderr, f"{case.name}: {stderr.read_text()?}"
+    assert (wait writer?).exited_with(0)
+  }
 }
 
 test test_tail_warns_that_retry_is_only_effective_for_the_initial_open { |ctx|
