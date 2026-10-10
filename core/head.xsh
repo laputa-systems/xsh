@@ -88,6 +88,23 @@ proc source_for(name: Bytes) [fs, error] -> Result[tio.Source, Error] {
   Ok({name: target.display(), path: target, mode: mode, kind: kind, size: entry.size})
 }
 
+# A regular file can report a stat size larger than the bytes it yields (sysfs
+# attributes report 4096), so a full-count read near its real end fails. Such a
+# file is read to its end instead, as a read(2) loop would see it.
+# Removal: drop this wrapper once the shared textio read_chunk treats a short
+# regular-file read as end of input.
+proc read_source(source: tio.Source, offset: Int, count: Int) [fs, error, io] -> Result[Bytes, Error] {
+  match tio.read_chunk(source, offset, count) {
+    Ok(data) => Ok(data)
+    Err(failure) => if source.mode == "file" and failure.message.find("failed to fill") != null {
+      let whole = source.path.read_bytes()?
+      Ok(if offset >= whole.len() { b"" } else { whole[offset..] })
+    } else {
+      Err(failure)
+    }
+  }
+}
+
 proc report_cannot_open(name: Bytes, failure: Error) [process, env] {
   if let Ok(text) = name.utf8() {
     gnu.cannot_open(text, failure)
@@ -226,7 +243,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
       } else {
         tio.CHUNK
       }
-      let step = if wants { tio.read_chunk(source, offset, count) } else { Ok(b"") }
+      let step = if wants { read_source(source, offset, count) } else { Ok(b"") }
 
       guard let chunk = step else { |failure|
         if offset == 0 and ! tio.is_directory(failure) {
