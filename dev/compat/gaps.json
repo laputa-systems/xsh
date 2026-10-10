@@ -11,13 +11,13 @@
       "Uutils adds -L as an alias for -t/--table and generates -h and -V; XSH exposes the table option only as -t/--table and omits the generated short help/version forms."
     ],
     "mkdir": [
-      "Uutils accepts --context and -Z for security labels, which XSH explicitly rejects because security labels are unavailable; the generated -h and -V forms are also absent."
+      "Uutils adds generated -h/-V; XSH accepts -Z/--context as GNU does without SELinux (silent, or a warning for a value)."
     ],
     "mkfifo": [
-      "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+      "Uutils adds generated -h/-V; XSH accepts -Z/--context as GNU does without SELinux (silent, or a warning for a value)."
     ],
     "mknod": [
-      "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+      "Uutils adds generated -h/-V; XSH accepts -Z/--context as GNU does without SELinux (silent, or a warning for a value)."
     ],
     "mktemp": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
@@ -50,7 +50,7 @@
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 hostid has no matching short forms, so XSH accepts --help and --version without them."
     ],
     "install": [
-      "Uutils adds security-label options (-Z, --context, --preserve-context, --unprivileged), -P, and generated -h/-V; XSH omits these uutils-only forms."
+      "Uutils adds -P, --unprivileged and generated -h/-V; XSH accepts -Z/--context/--preserve-context as GNU does without SELinux (silent, or a warning for a value)."
     ],
     "fold": [
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; GNU 9.12 fold has no matching short forms, so XSH accepts --help and --version without them."
@@ -206,7 +206,7 @@
       "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
     ],
     "mv": [
-      "Uutils adds -Z/--context, -g, and generated -h/-V; XSH omits these uutils-only forms and shares the backup and update options with pinned uutils."
+      "Uutils adds -g and generated -h/-V; XSH accepts -Z/--context as GNU does and shares the backup and update options with pinned uutils."
     ],
     "pr": [
       "Zero-valued `--width`, `--columns`, `--length`, and `--page-width` diagnostics use GNU's xstrtol wording; pinned uutils tests expect clap wording. For `--pages=0`, GNU reports `invalid page range '0'` while uutils expects `invalid --pages argument '0'`.",

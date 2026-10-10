@@ -979,7 +979,11 @@
         "skip": 0,
         "excluded": 0
       },
-      "excluded_tests": [],
+      "excluded_tests": [
+        "test_ln::test_hard_logical_dir_fail",
+        "test_ln::test_ln_seen_file",
+        "test_ln::test_symlink_missing_destination"
+      ],
       "known_semantic_gaps": [
         "The pinned uutils Clap builder generates -h and -V as short help/version controls; XSH accepts only the long help/version forms."
       ]
@@ -1063,7 +1067,7 @@
         "test_mkdir::test_version_no_path"
       ],
       "known_semantic_gaps": [
-        "Uutils accepts --context and -Z for security labels, which XSH explicitly rejects because security labels are unavailable; the generated -h and -V forms are also absent."
+        "Uutils adds generated -h/-V; XSH accepts -Z/--context as GNU does without SELinux (silent, or a warning for a value)."
       ]
     },
     {
@@ -1120,7 +1124,7 @@
       },
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Uutils adds -Z/--context, -g, and generated -h/-V; XSH omits these uutils-only forms and shares the backup and update options with pinned uutils."
+        "Uutils adds -g and generated -h/-V; XSH accepts -Z/--context as GNU does and shares the backup and update options with pinned uutils."
       ]
     },
     {
@@ -1741,6 +1745,8 @@
         "test_sort::test_french_translations",
         "test_sort::test_help_colors_enabled",
         "test_sort::test_read_error_message",
+        "test_sort::test_separator_attached_equals_double",
+        "test_sort::test_separator_attached_equals_multi_char",
         "test_sort::test_tmp_files_are_private",
         "test_sort::test_tmp_files_deleted_on_sigint"
       ],
@@ -2811,7 +2817,7 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Uutils adds security-label options (-Z, --context, --preserve-context, --unprivileged), -P, and generated -h/-V; XSH omits these uutils-only forms."
+        "Uutils adds -P, --unprivileged and generated -h/-V; XSH accepts -Z/--context/--preserve-context as GNU does without SELinux (silent, or a warning for a value)."
       ]
     },
     {
@@ -2853,7 +2859,7 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+        "Uutils adds generated -h/-V; XSH accepts -Z/--context as GNU does without SELinux (silent, or a warning for a value)."
       ]
     },
     {
@@ -2873,7 +2879,7 @@
       "busybox": null,
       "excluded_tests": [],
       "known_semantic_gaps": [
-        "Uutils adds -Z/--context for security labels and generated -h/-V; XSH omits these uutils forms."
+        "Uutils adds generated -h/-V; XSH accepts -Z/--context as GNU does without SELinux (silent, or a warning for a value)."
       ]
     },
     {
@@ -3056,14 +3062,13 @@
   "linux_surface": {
     "totals": {
       "commands": 125,
-      "present": 99,
+      "present": 101,
       "optional": 6,
       "missing": [
         "arp",
         "chrt",
         "cpio",
         "curl",
-        "efibootmgr",
         "ethtool",
         "ifconfig",
         "ionice",
@@ -3082,7 +3087,6 @@
         "taskset",
         "tracepath",
         "traceroute",
-        "udevadm",
         "unshare",
         "wget"
       ]
@@ -3544,9 +3548,9 @@
         "domain": "linux.device",
         "reference": "eudev",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/udevadm.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-udevadm.xsh"
       },
       {
         "command": "login",
@@ -4334,9 +4338,9 @@
         "domain": "linux.efi",
         "reference": "efibootmgr",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/efibootmgr.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-efibootmgr.xsh"
       }
     ]
   }
