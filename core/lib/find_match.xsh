@@ -59,7 +59,7 @@ pure bracket_matches(pattern: Bytes, open: Int, end: Int, byte: Int, insensitive
       var close = at + 2
       while close + 1 < end and ! (pattern.byte_at(close) == 58 and pattern.byte_at(close + 1) == 93) { close += 1 }
       if close + 1 < end {
-        let name = (pattern[at + 2..close]).utf8() ?? ""
+        let name = pattern[at + 2..close].utf8() ?? ""
         if in_class(name, byte) or (insensitive and (in_class(name, fold(byte, true)) or ((name == "upper" or name == "lower") and in_class("alpha", byte)))) { found = true }
         at = close + 2
         first = false

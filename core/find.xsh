@@ -151,7 +151,7 @@ pure whole_pattern(pattern: Str, flavor: Str) -> Str {
 }
 
 pure snapshot(found: Stat) -> fmt.Meta {
-  {kind: found.kind, size: found.size, uid: found.uid, gid: found.gid, ino: found.ino, dev: found.dev, nlink: found.nlink, mode: found.mode, atime_ns: found.atime_ns, mtime_ns: found.mtime_ns, ctime_ns: found.ctime_ns, blocks_512: found.blocks_512}
+  {kind: found.kind, size: found.size, uid: found.uid, gid: found.gid, ino: found.ino, dev: found.dev, nlink: found.nlink, mode: found.mode, atime_ns: found.atime_ns, mtime_ns: found.mtime_ns, ctime_ns: found.ctime_ns, birth_ns: found.birth_ns, blocks_512: found.blocks_512}
 }
 
 # A date argument as nanoseconds since the epoch, saturating for years the
@@ -247,7 +247,8 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       node.number = time_reference(reference, opts.start_ns)?
     } else {
       let found = stat_reference(reference, opts.follow == 2, opts.raw)?
-      node.number = match right { "a" => found.atime_ns; "c" => found.ctime_ns; _ => found.mtime_ns }
+      if right == "B" and found.birth_ns == null { search.reject(f"{gnu.quote(reference)}: the birth time is not available")? }
+      node.number = match right { "a" => found.atime_ns; "c" => found.ctime_ns; "B" => found.birth_ns ?? 0; _ => found.mtime_ns }
     }
     opts.last_token = token
     opts.last_test = token
@@ -626,8 +627,9 @@ proc evaluate(target: Path, meta: fmt.Meta, depth: Int, start: Path, plan: Run, 
     "size" => matched = compare_number((meta.size + node.bound - 1) / node.bound, node.compare, node.number)
     "time" => matched = time_test(node, meta)
     "newerxy" => {
-      let stamp = match node.text.byte_slice(0, 1) { "a" => meta.atime_ns; "c" => meta.ctime_ns; _ => meta.mtime_ns }
-      matched = stamp > node.number
+      let side = node.text.byte_slice(0, 1)
+      let stamp = match side { "a" => meta.atime_ns; "c" => meta.ctime_ns; "B" => meta.birth_ns ?? -9223372036854775807; _ => meta.mtime_ns }
+      matched = stamp > node.number and (side != "B" or meta.birth_ns != null)
     }
     "perm" => {
       let mode = if meta.kind == "dir" { node.bound } else { node.number }
@@ -724,7 +726,8 @@ proc visit(target: Path, depth: Int, hint: Str, ancestors: List[Ancestor], devic
   # that cannot be searched, as GNU find does.
   let known = hint in ["file","dir","symlink","fifo","socket","block","char"]
   let lazy = depth > 0 and ! plan.stat_needed and known and (plan.follow != 2 or (hint != "symlink" and hint != "dir"))
-  let meta = if lazy { {kind: hint, size: 0, uid: 0, gid: 0, ino: 0, dev: 0, nlink: 0, mode: 0, atime_ns: 0, mtime_ns: 0, ctime_ns: 0, blocks_512: 0} } else { stat_entry(target, depth, plan.follow)? }
+  var meta: fmt.Meta = {kind: hint, size: 0, uid: 0, gid: 0, ino: 0, dev: 0, nlink: 0, mode: 0, atime_ns: 0, mtime_ns: 0, ctime_ns: 0, birth_ns: null, blocks_512: 0}
+  if ! lazy { meta = stat_entry(target, depth, plan.follow)? }
   let identity = f"{meta.dev}:{meta.ino}"
   if meta.kind == "dir" and ! lazy {
     for ancestor in ancestors {
@@ -806,8 +809,8 @@ proc run_batches(plan: Run, deferred: List[Deferred], kinds: List[Str]) [fs, io,
   Ok(failed)
 }
 
-proc main(...argv: List[Bytes]) {
-  let prepared = gnu.prepare_arguments(argv)
+proc main(...operands: List[Bytes]) {
+  let prepared = gnu.prepare_arguments(operands)
   let args = prepared.text
   let raw = prepared.raw
   var follow = 0

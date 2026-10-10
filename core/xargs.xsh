@@ -429,8 +429,8 @@ proc require_command(command: Str) [fs, process, env] -> Unit {
   }
 }
 
-proc main(...argv: List[Bytes]) {
-  let prepared = gnu.prepare_arguments(argv)
+proc main(...operands: List[Bytes]) {
+  let prepared = gnu.prepare_arguments(operands)
   let raw = prepared.raw
   let cfg = parse_options(prepared.text)
   let replace = cfg.replace != null

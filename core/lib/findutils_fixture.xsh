@@ -71,9 +71,9 @@ export proc build(root: Path, name: Str = "tree") [fs, time, error] {
   fp"{tree}/stick".chmod(0o1777)?
   fp"{tree}/sizes".mkdir()?
   for size in [1, 511, 512, 513, 1024, 1025, 2049] {
-    let name = fp"{tree}/sizes/n{size}"
-    name.write(bytes.zero(size) ?? b"")?
-    fs.set_times(name, atime_ns: T, mtime_ns: T)?
+    let sized = fp"{tree}/sizes/n{size}"
+    sized.write(bytes.zero(size) ?? b"")?
+    fs.set_times(sized, atime_ns: T, mtime_ns: T)?
   }
   fp"{tree}/chain/l1/l2/l3".mkdir(parents: true)?
   put(fp"{tree}/chain/l1/l2/l3/leaf", "l", 0o644, T)?

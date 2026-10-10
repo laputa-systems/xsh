@@ -10,7 +10,7 @@ const NANOS = 1000000000
 
 ## Metadata of a visited entry as the traversal observed it: through the
 ## symlink when the traversal follows links, otherwise the link itself.
-export type Meta = {kind: Str, size: Int, uid: Int, gid: Int, ino: Int, dev: Int, nlink: Int, mode: Int, atime_ns: Int, mtime_ns: Int, ctime_ns: Int, blocks_512: Int}
+export type Meta = {kind: Str, size: Int, uid: Int, gid: Int, ino: Int, dev: Int, nlink: Int, mode: Int, atime_ns: Int, mtime_ns: Int, ctime_ns: Int, birth_ns: Int?, blocks_512: Int}
 
 ## A visited entry: its path as built from the starting point, the starting
 ## point it was reached from, and its depth below that point.
@@ -128,12 +128,12 @@ export proc compile(format: Bytes) [process, env, error] -> Result[List[Segment]
     let spec = (bytes.from_ints([format.byte_at(at) ?? 0]) ?? b"").utf8() ?? "?"
     at += 1
     var sub = ""
-    if spec in ["A", "C", "T"] {
+    if spec in ["A", "B", "C", "T"] {
       if at >= format.len() { search.reject(f"error: %{spec} at end of format string")? }
       sub = (bytes.from_ints([format.byte_at(at) ?? 0]) ?? b"").utf8() ?? "?"
       at += 1
     }
-    if spec not in ["a", "A", "b", "c", "C", "d", "D", "f", "F", "g", "G", "h", "H", "i", "k", "l", "m", "M", "n", "p", "P", "s", "S", "t", "T", "u", "U", "y", "Y"] {
+    if spec not in ["a", "A", "b", "B", "c", "C", "d", "D", "f", "F", "g", "G", "h", "H", "i", "k", "l", "m", "M", "n", "p", "P", "s", "S", "t", "T", "u", "U", "y", "Y"] {
       eprint f"{gnu.prog()}: warning: unrecognized format directive `%{spec}'"
       text += [format[start..at]]
       continue
@@ -200,7 +200,7 @@ pure two(value: Int) -> Str { if value < 10 { f"0{value}" } else { f"{value}" } 
 
 # Whole-second part of a nanosecond timestamp, rounding toward negative infinity.
 pure seconds_of(ns: Int) -> Int {
-  if ns >= 0 { ns / NANOS } else { 0 - ((0 - ns + NANOS - 1) / NANOS) }
+  if ns >= 0 { ns / NANOS } else { 0 - (0 - ns + NANOS - 1) / NANOS }
 }
 
 pure nanos_of(ns: Int) -> Int {
@@ -310,6 +310,7 @@ proc directive_text(entry: Entry, segment: Segment) [fs, time, error] -> Result[
     "t" => Ok(pad_text(bytes.from_text(ctime_field(meta.mtime_ns)?), flags, width, precision))
     "A" => Ok(pad_text(bytes.from_text(time_field(meta.atime_ns, segment.sub)?), flags, width, precision))
     "C" => Ok(pad_text(bytes.from_text(time_field(meta.ctime_ns, segment.sub)?), flags, width, precision))
+    "B" => Ok(pad_text(if meta.birth_ns == null { b"" } else { bytes.from_text(time_field(meta.birth_ns ?? 0, segment.sub)?) }, flags, width, precision))
     _ => Ok(pad_text(bytes.from_text(time_field(meta.mtime_ns, segment.sub)?), flags, width, precision))
   }
 }
