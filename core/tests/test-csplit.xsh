@@ -210,3 +210,15 @@ test test_csplit_matches_gnu_current_line_rules { |ctx|
   assert spare.status == 0, "a line number one past the end is not out of range when the matched line is suppressed"
   assert spare.stdout == b"51\n0\n"
 }
+
+test test_csplit_non_utf8_operand_names_the_file_by_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "csplit-non-utf8")?
+  let name = Path.parse_bytes(b"\xff\xfe")?
+  Path.parse_bytes(bytes.concat([bytes.from_text(f"{root}/"), b"\xff\xfe"]))?.write(b"line1\nline2\nline3\nline4\nline5\n")
+
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, fp"{ctx.core_dir}/csplit.xsh", name, "3"]
+  let status = process.run(process.command_argv(ctx.xsh_bin, words, root, {LC_ALL: "C"}, b"", fp"{root}/.out", fp"{root}/.err"))?
+  assert status.exit_code()? == 0
+  assert piece(root, "xx00")? == b"line1\nline2\n"
+  assert piece(root, "xx01")? == b"line3\nline4\nline5\n"
+}

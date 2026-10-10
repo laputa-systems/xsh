@@ -155,3 +155,20 @@ test test_join_non_utf8_file_names { |ctx|
   assert absent.stderr.ends_with(": No such file or directory\n"), absent.stderr
   assert absent.stderr.find("gnu-raw-argument") == null, "the argument marker is not shown"
 }
+
+test test_join_check_order_follows_the_collation { |ctx|
+  let root = test.temp_dir(ctx, name: "join-collation")?
+  fp"{root}/f1".write("abc:d 2\nab:d  1\n")
+  fp"{root}/f2".write("abc:d y\nab:d  x\n")
+  let out = fp"{root}/.out"
+  let err = fp"{root}/.err"
+  let words: List[Union[Str, Path]] = [ctx.xsh_bin, fp"{ctx.core_dir}/join.xsh", "--check-order", "f1", "f2"]
+
+  let collated = process.run(process.command_argv(ctx.xsh_bin, words, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "en_US.UTF-8"}, b"", out, err))?
+  assert collated.exit_code()? == 0
+  assert out.read_bytes()? == b"abc:d 2 y\nab:d 1 x\n"
+
+  let plain = process.run(process.command_argv(ctx.xsh_bin, words, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", out, err))?
+  assert plain.exit_code()? == 1
+  assert err.read_text()? == "join: f1:2: is not sorted: ab:d  1\n"
+}

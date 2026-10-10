@@ -385,39 +385,45 @@ proc dump(opts: MoreOptions, source: Source, show_header: Bool) [process, env, i
   gnu.write_bytes(screen.text)
 }
 
-proc load(name: Str) [fs, process, env, error, io] -> Source? {
-  if name == "-" {
+# The name shown in headers and prompts: the text of a UTF-8 name, or its quoted escapes.
+proc display_name(name: Bytes) [env] -> Str {
+  name.utf8() ?? gnu.quote_bytes(name, always: false)
+}
+
+proc load(name: Bytes) [fs, process, env, error, io] -> Source? {
+  if name == b"-" {
     let data = io.stdin_bytes()?
     return {label: ":", lines: data.lines(), size: data.len()}
   }
 
-  let file = fp"{name}"
+  let file = Path.parse_bytes(name)?
 
   match fs.stat(file) {
     Ok(info) => {
       if info.kind == "dir" {
-        gnu.error(f"{gnu.quote(name)} is a directory.")
+        gnu.error(f"{gnu.quote_bytes(name)} is a directory.")
         return null
       }
     }
     Err(failure) => {
-      gnu.cannot("open", name, failure)
+      gnu.error(f"cannot open {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
       return null
     }
   }
 
   match file.read_bytes() {
-    Ok(data) => {label: name, lines: data.lines(), size: data.len()}
+    Ok(data) => {label: display_name(name), lines: data.lines(), size: data.len()}
     Err(failure) => {
-      gnu.cannot("open", name, failure)
+      gnu.error(f"cannot open {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
       null
     }
   }
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
   let opts: MoreOptions = cli.applet(
-    argv,
+    prepared.text,
     {
       gnu: {status: 1},
       silent: {form: "-d --silent", default: false},
@@ -453,7 +459,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let _ = count_option(opts.number, "--number")
   let _ = count_option(opts.from_line, "--from-line")
 
-  let names = if opts.files.is_empty() { ["-"] } else { opts.files }
+  let names: List[Bytes] = if opts.files.is_empty() { [b"-"] } else { [gnu.argument_bytes(file, prepared.raw) for file in opts.files] }
   let stdin_terminal = unix.isatty(0)
 
   if opts.files.is_empty() and stdin_terminal {
@@ -473,7 +479,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     }
 
     if paging {
-      let next_name: Str? = if index + 1 < names.len() { names[index + 1] } else { null }
+      let next_name: Str? = if index + 1 < names.len() { display_name(names[index + 1]) } else { null }
       let outcome = page(opts, source, next_name, geometry, several, index + 1 == names.len())
 
       break when outcome.quit
