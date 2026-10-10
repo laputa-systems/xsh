@@ -2232,7 +2232,7 @@ fn json_module() -> ModuleSig {
 fn linux_module() -> ModuleSig {
     let list_str = || Type::List(Box::new(Type::Str));
     let list_path = || Type::List(Box::new(Type::Path));
-    module_sig(vec![
+    let mut entries = vec![
         ("block_signatures", sig(vec![param("path", Type::Path)], result(Type::List(Box::new(Type::Record(btree_map(vec![("offset", Type::UInt), ("type", Type::Str), ("kind", Type::Str), ("magic", Type::Bytes)]))))), false, RuntimeOp::LinuxBlockSignatures)),
         ("wipe_block_signatures", sig(vec![param("path", Type::Path), param("offsets", Type::List(Box::new(Type::UInt)))], result(Type::Unit), false, RuntimeOp::LinuxWipeBlockSignatures)),
         ("file_project", sig(vec![param("path", Type::Path)], result(Type::Int), false, RuntimeOp::LinuxFileProject)),
@@ -2901,7 +2901,9 @@ fn linux_module() -> ModuleSig {
                 RuntimeOp::LinuxReboot,
             ),
         ),
-    ])
+    ];
+    entries.extend(super::linux_storage::entries());
+    module_sig(entries)
 }
 
 fn path_module() -> ModuleSig {
@@ -4731,6 +4733,8 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             &["linux", "sampling"],
         ),
         "LinuxModulePlan" => ("One resolved kernel module operation.", "Planning reads module indexes and configuration without executing commands or loading modules.", &["linux", "kernel"]),
+        "LinuxSgIo" | "LinuxAtaResult" | "LinuxAtaSmartStatus" | "LinuxNvmeCommand"
+        | "LinuxStorageCandidate" => super::linux_storage::record_doc(name),
         "LinuxBlockdevInfo" => ("Block device dimensions and read-only state.", "Values reflect device state at query time.", &["linux", "device"]),
         "LinuxPrivileges" => ("The privilege state of the calling thread.", "Capability sets are ascending capability numbers; bounding and ambient cover every capability the kernel defines. securebits names the flags that are set, parent_death_signal is 0 when none is requested, and last_capability is the highest capability number this kernel defines.", &["linux", "privileges", "host-state"]),
         "LinuxModinfo" => (
