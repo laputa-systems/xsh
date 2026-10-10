@@ -1,4 +1,4 @@
-##! Command lines compared against GNU xargs. See regen.xsh for the flags; the
+##! Command lines compared against GNU xargs. The flags are described at Case in core/lib/findutils_fixture.xsh; the
 ##! paths are relative to the directory holding the fixture trees.
 use core.lib.findutils_fixture as fixture
 
@@ -234,6 +234,12 @@ export pure all() -> List[fixture.Case] {
     ci("fz_t_apostrophe_and_dollar", "", b"a$b\\'c\n", ["-t", "-I", "{}", "echo", "{}"]),
     ci("fz_t_apostrophe_space", "", b"a b\\'c\n", ["-t", "-I", "{}", "echo", "{}"]),
     ci("fz_vt_ff_in_word", "", b"a\x0bb c\x0cd\n", ["printf", "[%s]"]),
+    ci("exit_child_127", "", b"a\n", ["sh", "-c", "exit 127", "x"]),
+    ci("exit_child_126", "", b"a\n", ["sh", "-c", "exit 126", "x"]),
+    ci("exit_child_200", "", b"a\n", ["sh", "-c", "exit 200", "x"]),
+    ci("exit_child_125", "", b"a\n", ["sh", "-c", "exit 125", "x"]),
+    ci("exit_child_254", "", b"a b\n", ["-n", "1", "sh", "-c", "exit 254", "x"]),
+    ci("exit_child_mixed_then_ok", "", b"a b c\n", ["-n", "1", "sh", "-c", "case \$1 in a) exit 3;; esac", "x"]),
     ci("large_seq", "", b"@seq:20000", ["-n", "5000", "sh", "-c", "echo \$#", "x"]),
     ci("large_s_batches", "", b"@seq:3000", ["-s", "4096", "sh", "-c", "echo \$#", "x"]),
     ci("large_one_arg_each", "", b"@seq:50", ["-n", "1", "echo"]),

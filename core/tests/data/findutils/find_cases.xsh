@@ -1,4 +1,4 @@
-##! Command lines compared against GNU find. See regen.xsh for the flags; the
+##! Command lines compared against GNU find. The flags are described at Case in core/lib/findutils_fixture.xsh; the
 ##! paths are relative to the directory holding the fixture trees.
 use core.lib.findutils_fixture as fixture
 
