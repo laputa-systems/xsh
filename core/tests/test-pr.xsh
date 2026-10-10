@@ -9,9 +9,9 @@ test test_pr_headerless_numbering { |ctx|
 test test_pr_across_and_partial_columns { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -a -2 -s: $input
-  assert output == "a:b\nc\n"
+  assert output == "a                                  :b                                  \nc                                  \n"
   let compact_columns = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -W3 -t2 $input
-  assert compact_columns == "a c\nb\n"
+  assert compact_columns == "a\tc\nb\n"
 }
 
 test test_pr_pages_with_literal_date_format { |ctx|
@@ -36,15 +36,15 @@ test test_pr_number_field_clips_digits_and_counted_columns_align { |ctx|
   let digits = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -n:1 -N10 $input
   assert digits == "0:a\n1:b\n2:c\n3:d\n"
   let columns = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -n:1 -w20 $input
-  assert columns == "1:a\t  3:c\n2:b\t  4:d\n"
+  assert columns == "1:a      \t3:c      \n2:b      \t4:d      \n"
 }
 
 test test_pr_numbered_offset_and_joined_columns { |ctx|
   let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\nd\n")?
   let offset = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -n -o7 -w20 $input
-  assert offset == "       \t   1   a     3\t c\n       \t   2   b     4\t d\n"
+  assert offset == "           1\ta\t           3\tc\n           2\tb\t           4\td\n"
   let joined = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -J $input
-  assert joined == "a\tc\nb\td\n"
+  assert joined == "ac\nbd\n"
 }
 
 test test_pr_rejects_across_merge_and_warns_for_unavailable_page { |ctx|
@@ -96,14 +96,18 @@ test test_pr_merge_numbering_reserves_one_page_prefix { |ctx|
   let first = test.temp_file(ctx, name: "first", contents: b"a\n")?
   let second = test.temp_file(ctx, name: "second", contents: b"b\n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -m -n -w20 $first $second
-  assert output == "    1\ta     b\n"
+  var expected = "    1\ta\tb        \n"
+  for _ in range(65) { expected += "         \t         \n" }
+  assert output == expected
 }
 
 test test_pr_merge_preserves_positions_after_a_file_ends { |ctx|
   let first = test.temp_file(ctx, name: "first", contents: b"a\nb\n")?
   let second = test.temp_file(ctx, name: "second", contents: b"x  \n")?
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -m -n -w20 $first $second
-  assert output == "    1\ta     x\n    2\tb     \n"
+  var expected = "    1\ta\tx        \n    2\tb\t         \n"
+  for _ in range(64) { expected += "         \t         \n" }
+  assert output == expected
 }
 
 test test_pr_page_range_errors_match_gnu { |ctx|
@@ -169,4 +173,40 @@ test test_pr_zero_page_dimensions_report_range_error { |ctx|
   let page_width = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -W0 2> $error
   assert page_width.exited_with(1)
   assert error.read_text()? == "pr: '-W PAGE_WIDTH' invalid number of characters: '0': Result not representable\n"
+}
+
+test test_pr_columns_pad_every_cell_and_separate_with_tab { |ctx|
+  let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\nc\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -2 -w 20 $input
+  assert output == "a        \tc        \nb        \n"
+}
+
+test test_pr_offset_indents_every_column { |ctx|
+  let input = test.temp_file(ctx, name: "lines", contents: b"a\nb\n")?
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -t -o 2 -2 -w 20 $input
+  assert output == "  a        \t  b        \n"
+}
+
+test test_pr_quiet_suppresses_invalid_page_range_message { |ctx|
+  let input = test.temp_file(ctx, name: "lines", contents: b"a\n")?
+  let error = test.temp_path(ctx, name: "error")
+  let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- --pages=20:5 -r $input 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == ""
+}
+
+test test_pr_expand_tab_overflow_message_has_no_overflow_note { |ctx|
+  let input = test.temp_file(ctx, name: "lines", contents: b"a\n")?
+  let error = test.temp_path(ctx, name: "error")
+  let status = run.status env LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- -e2147483648 $input 2> $error
+  assert status.exited_with(1)
+  assert error.read_text()? == "pr: '-e' extra characters or invalid number in the argument: '2147483648'\nTry 'pr --help' for more information.\n"
+}
+
+test test_pr_posix_date_format_needs_posixly_correct_and_posix_time { |ctx|
+  let input = test.temp_file(ctx, name: "lines", contents: b"a\n")?
+  let posix = run.text env POSIXLY_CORRECT=1 LC_ALL=POSIX ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- $input
+  assert rx"^[A-Z][a-z]{2} [ 0-9][0-9] [0-9]{2}:[0-9]{2} [0-9]{4} .*Page 1$".matches(posix.lines()[2])
+  let plain = run.text env LC_TIME=POSIX ${ctx.xsh_bin} fp"{ctx.core_dir}/pr.xsh" -- $input
+  assert rx"^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2} .*Page 1$".matches(plain.lines()[2])
 }
