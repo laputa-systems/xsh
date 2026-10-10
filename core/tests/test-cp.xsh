@@ -104,6 +104,24 @@ test test_cp_update_and_no_clobber_continue_recursing { |ctx|
   assert fp"{dest}/a".read_text()? == "new"
 }
 
+test test_cp_update_older_hard_links_to_skipped_destination_with_preserve_links { |ctx|
+  let root = test.temp_dir(ctx, name: "cp-update-links")?
+  let source = fp"{root}/source"
+  let dest = fp"{root}/dest"
+  source.mkdir()
+  dest.mkdir()
+  fp"{source}/a".write("shared")
+  fs.link(fp"{source}/a", fp"{source}/b")
+  fs.set_times(fp"{source}/a", mtime_ns: 1000000000)
+  fp"{dest}/a".write("newer")
+  fs.set_times(fp"{dest}/a", mtime_ns: 2000000000)
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -ru fp"{source}/." $dest
+  assert fs.stat(fp"{dest}/b")?.ino != fs.stat(fp"{dest}/a")?.ino, "without --preserve=links the second name is an independent copy"
+  fp"{dest}/b".remove()
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -ru --preserve=links fp"{source}/." $dest
+  assert fs.stat(fp"{dest}/b")?.ino == fs.stat(fp"{dest}/a")?.ino
+}
+
 test test_cp_force_keeps_existing_inode_and_remove_destination_replaces_it { |ctx|
   let root = test.temp_dir(ctx, name: "cp-inodes")?
   let source = fp"{root}/source"
@@ -485,6 +503,19 @@ test test_cp_special_file_creation_failure_names_the_file { |ctx|
   locked.chmod(0o755)
   assert result.status.exited_with(1)
   assert result.stderr.find(f"cp: cannot create special file '{locked}/copy': ") != null, result.stderr
+}
+
+test test_cp_recursive_fifo_replaces_existing_destination_file { |ctx|
+  if system.uname()?.sysname != "Linux" { test.skip("mkfifo fixture is Linux-specific") }
+  let root = test.temp_dir(ctx, name: "cp-fifo-replace")?
+  let source = fp"{root}/fifo"
+  fs.mknod(source, "fifo", 0o600)
+  let dest = fp"{root}/dest"
+  dest.write("old")
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R $source $dest
+  assert fs.stat(dest)?.kind == "fifo"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -R -f $source $dest
+  assert fs.stat(dest)?.kind == "fifo"
 }
 
 test test_cp_undecodable_operands_reach_the_kernel_unchanged { |ctx|
