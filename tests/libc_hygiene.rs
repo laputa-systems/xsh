@@ -100,6 +100,19 @@ const ALLOW: &[(&str, &str)] = &[
         "STDERR_FILENO",
         "integer fd constant — rustix stdio::stderr() returns a BorrowedFd",
     ),
+    // `libc::unshare` and `libc::setns` run in the pre-exec child that applies
+    // namespace changes. rustix reaches both only through `rustix::thread`
+    // (`unshare_unsafe`, `move_into_link_name_space`), a module behind the
+    // `thread` cargo feature, which the manifest's rustix dependency does not
+    // enable. Drop these entries when it does.
+    (
+        "unshare",
+        "rustix::thread::unshare_unsafe needs rustix's `thread` feature, not enabled",
+    ),
+    (
+        "setns",
+        "rustix::thread::move_into_link_name_space needs rustix's `thread` feature, not enabled",
+    ),
 ];
 
 // ─────────────────────────── target discovery ──────────────────────────────
