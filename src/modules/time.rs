@@ -54,12 +54,9 @@ const NANOS_PER_SECOND: i64 = 1_000_000_000;
 const FORMAT_LIMIT: usize = 65_536;
 
 pub(crate) fn clock_resolution() -> Result<i64, String> {
-    let mut resolution: libc::timespec = unsafe { std::mem::zeroed() };
-    if unsafe { libc::clock_getres(libc::CLOCK_REALTIME, &mut resolution) } != 0 {
-        return Err(std::io::Error::last_os_error().to_string());
-    }
-    (resolution.tv_sec as i64).checked_mul(NANOS_PER_SECOND)
-        .and_then(|seconds| seconds.checked_add(resolution.tv_nsec as i64))
+    let resolution = rustix::time::clock_getres(rustix::time::ClockId::Realtime);
+    resolution.tv_sec.checked_mul(NANOS_PER_SECOND)
+        .and_then(|seconds| seconds.checked_add(i64::from(resolution.tv_nsec)))
         .ok_or_else(|| "clock resolution out of range".into())
 }
 

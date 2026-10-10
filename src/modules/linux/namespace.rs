@@ -195,11 +195,12 @@ mod imp {
     }
 
     fn open_namespace(path: &std::path::Path) -> Option<OwnedFd> {
-        let path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
-        // SAFETY: `path` is a valid NUL-terminated string.
-        let fd = unsafe { libc::open(path.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC) };
-        // SAFETY: a nonnegative descriptor was just opened and is not shared.
-        (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd) })
+        rustix::fs::open(
+            path,
+            rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::CLOEXEC,
+            rustix::fs::Mode::empty(),
+        )
+        .ok()
     }
 
     /// The inode of the namespace `request` relates `fd` to, or 0 when there
@@ -213,32 +214,21 @@ mod imp {
         }
         // SAFETY: the kernel returned a descriptor this call now owns.
         let related = unsafe { OwnedFd::from_raw_fd(related) };
-        let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
-        // SAFETY: `status` is a valid out buffer for fstat.
-        if unsafe { libc::fstat(related.as_raw_fd(), status.as_mut_ptr()) } != 0 {
-            return 0;
-        }
-        // SAFETY: fstat succeeded and initialised the buffer.
-        unsafe { status.assume_init() }.st_ino
+        rustix::fs::fstat(&related).map_or(0, |status| status.st_ino)
     }
 
     /// The identifier the network subsystem assigned to a network namespace
     /// as seen from this one, or `None` when none is assigned or the kernel
     /// cannot report one.
     fn network_namespace_id(fd: &OwnedFd) -> Option<i64> {
-        // SAFETY: plain socket creation; the descriptor is owned below.
-        let socket = unsafe {
-            libc::socket(
-                libc::AF_NETLINK,
-                libc::SOCK_RAW | libc::SOCK_CLOEXEC,
-                libc::NETLINK_ROUTE,
-            )
-        };
-        if socket < 0 {
-            return None;
-        }
-        // SAFETY: `socket` was just created and nothing else owns it.
-        let socket = unsafe { OwnedFd::from_raw_fd(socket) };
+        let socket = rustix::net::socket_with(
+            rustix::net::AddressFamily::NETLINK,
+            rustix::net::SocketType::RAW,
+            rustix::net::SocketFlags::CLOEXEC,
+            // Protocol 0 is NETLINK_ROUTE.
+            None,
+        )
+        .ok()?;
 
         let mut request = Vec::with_capacity(28);
         request.extend_from_slice(&28u32.to_ne_bytes());
@@ -250,22 +240,14 @@ mod imp {
         request.extend_from_slice(&8u16.to_ne_bytes());
         request.extend_from_slice(&NETNSA_FD.to_ne_bytes());
         request.extend_from_slice(&(fd.as_raw_fd() as u32).to_ne_bytes());
-        // SAFETY: `request` is a valid buffer of the length passed.
-        let sent = unsafe {
-            libc::send(socket.as_raw_fd(), request.as_ptr().cast(), request.len(), 0)
-        };
-        if sent < 0 {
-            return None;
-        }
+        rustix::net::send(&socket, &request, rustix::net::SendFlags::empty()).ok()?;
         let mut reply = [0u8; 256];
-        // SAFETY: `reply` is a valid buffer of the length passed.
-        let received = unsafe {
-            libc::recv(socket.as_raw_fd(), reply.as_mut_ptr().cast(), reply.len(), 0)
-        };
+        let (received, _) =
+            rustix::net::recv(&socket, &mut reply[..], rustix::net::RecvFlags::empty()).ok()?;
         if received < 16 {
             return None;
         }
-        let reply = &reply[..received as usize];
+        let reply = &reply[..received];
         let message_type = u16::from_ne_bytes([reply[4], reply[5]]);
         if message_type == NLMSG_ERROR || message_type != RTM_NEWNSID {
             return None;

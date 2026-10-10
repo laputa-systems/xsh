@@ -6,7 +6,8 @@ use crate::runtime::value::{RuntimeError, Value};
 use crate::source::Span;
 use std::fs::OpenOptions;
 use std::io;
-use std::os::fd::{AsRawFd, IntoRawFd};
+use rustix::io as rio;
+use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::os::unix::fs::OpenOptionsExt;
 
 pub(crate) fn handles(op: RuntimeOp) -> bool {
@@ -42,16 +43,24 @@ fn descriptor(fd: i64, kind: &str, span: Span) -> Result<libc::c_int, RuntimeErr
 /// Descriptor replacement must survive exec, including when open allocated
 /// the target descriptor itself or source and target were already equal.
 fn duplicate(source: libc::c_int, target: libc::c_int, kind: &str, span: Span) -> Result<(), RuntimeError> {
-    if unsafe { libc::dup2(source, target) } == -1 {
-        return Err(host_error(kind, io::Error::last_os_error(), span));
+    // SAFETY: both numbers are descriptors this process addresses by value;
+    // the kernel rejects one that is not open.
+    let source_fd = unsafe { BorrowedFd::borrow_raw(source) };
+    if source != target {
+        // dup2 takes the replaced descriptor as an owner so that it can be
+        // closed and reopened in one step. The target stays the script's own
+        // descriptor, so ownership is released again on every path.
+        // SAFETY: the target may not be open yet; it is never closed by drop.
+        let mut replaced = unsafe { OwnedFd::from_raw_fd(target) };
+        let duplicated = rio::dup2(source_fd, &mut replaced);
+        let _ = replaced.into_raw_fd();
+        duplicated.map_err(|error| host_error(kind, io::Error::from(error), span))?;
+        return Ok(());
     }
-    if source == target {
-        let flags = unsafe { libc::fcntl(target, libc::F_GETFD) };
-        if flags == -1 || unsafe { libc::fcntl(target, libc::F_SETFD, flags & !libc::FD_CLOEXEC) } == -1 {
-            return Err(host_error(kind, io::Error::last_os_error(), span));
-        }
-    }
-    Ok(())
+    // dup2 onto itself leaves the close-on-exec flag alone, so it is cleared.
+    let cleared = rio::fcntl_getfd(source_fd)
+        .and_then(|flags| rio::fcntl_setfd(source_fd, flags - rio::FdFlags::CLOEXEC));
+    cleared.map_err(|error| host_error(kind, io::Error::from(error), span))
 }
 
 fn redirect_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
