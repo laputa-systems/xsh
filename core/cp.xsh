@@ -229,6 +229,19 @@ proc inside(source: Path, target: Path) -> Bool {
   false
 }
 
+# Replaces TARGET with a hard link to the first earlier copy of the same source
+# inode; returns false when the source has no earlier copy.
+proc link_to_earlier_copy(target: Path, meta: FsStat, copies: List[FileIdentity]) -> Result[Bool] {
+  for previous in copies {
+    if previous.dev == meta.dev and previous.ino == meta.ino {
+      if target.exists()? { target.remove() }
+      fs.link(previous.path, target)
+      return Ok(true)
+    }
+  }
+  Ok(false)
+}
+
 proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   root_dev: Int, ancestors: List[FileIdentity], saved: List[FileIdentity]) -> Result[Outcome] {
   let follow = opts.dereference == "all" or (command_line and opts.dereference == "command") or
@@ -328,7 +341,14 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     if opts.update == "none-fail" { invalid(f"not replacing {gnu.quote_bytes(target.bytes())}")? }
     if opts.update == "older" {
       if let Ok(dest) = fs.stat(target, follow_symlinks: true) {
-        return Ok({copies: copies, failed: false}) when dest.mtime_ns >= meta.mtime_ns
+        if dest.mtime_ns >= meta.mtime_ns {
+          # A skipped destination still stands for its source, so a later hard link
+          # to that source is made to it, replacing a newer separate file.
+          if opts.links and ! opts.symlink and ! opts.hardlink {
+            let _ = link_to_earlier_copy(target, meta, copies)?
+          }
+          return Ok({copies: copies + [{dev: meta.dev, ino: meta.ino, path: target_key, kind: dest.kind}], failed: false})
+        }
       }
     }
     var remove_readonly = false
@@ -391,7 +411,10 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
       target.rename(to: backup, overwrite: true)
       created = true
       if source_key == target_key { input = backup }
-    } else if remove_readonly or opts.remove or opts.symlink or (! follow and meta.kind == "symlink") or opts.hardlink {
+    } else if remove_readonly or opts.remove or opts.symlink or (! follow and meta.kind == "symlink") or opts.hardlink or
+      (! follow and meta.kind != "file" and ! opts.attributes) {
+      # A special file cannot be created over an existing non-directory, so a
+      # non-dereferenced special source replaces the destination first.
       target.remove()
       created = true
       if opts.verbose { gnu.write_text(f"removed {gnu.quote_bytes(target.bytes())}\n") }
@@ -405,14 +428,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   }
   var linked = false
   if opts.links and ! opts.symlink and ! opts.hardlink {
-    for previous in copies {
-      if previous.dev == meta.dev and previous.ino == meta.ino {
-        if target.exists()? { target.remove() }
-        fs.link(previous.path, target)
-        linked = true
-        break
-      }
-    }
+    linked = link_to_earlier_copy(target, meta, copies)?
   }
   if ! linked {
     if opts.symlink {

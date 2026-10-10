@@ -1,0 +1,30 @@
+{
+  "tests/cp/fail-perm.sh": {
+    "class": "UUTILS-PATCH",
+    "note": "uutils build-gnu.sh (lines 220-221) rewrites the upstream expectations before the test runs. Patched expected lines: 'cp: not writing through dangling symlink 'symlink'' (upstream: 'cp: cannot stat 'symlink': Permission denied') and ''symlink' is not a directory' (upstream: 'cp: target directory 'symlink': Permission denied'). Real GNU (oracle coreutils 9.11) prints: 'cp: cannot stat 'symlink': Permission denied' for 'cp F symlink' and '--no-target-directory', and 'cp: target directory 'symlink': Permission denied' for '--target-directory=symlink'. XSH prints \"cannot copy 'F' to 'symlink': Permission denied\" and \"target 'symlink' is not a directory\" plus a usage hint; the first two differ from GNU wording but no GNU-correct change makes the patched expectation pass, so nothing was changed."
+  },
+  "tests/cp/link-heap.sh": {
+    "class": "XSH-GAP",
+    "note": "The test probes the smallest 'ulimit -v' (5000 to 50000 KB) under which 'cp -al' runs, and skips when none works. The static XSH release binary cannot start under that limit: under 'ulimit -v 45000' it aborts with 'memory allocation of 632 bytes failed', and under 60000 it panics (exit 101) during 'cp -al'. Needs a runtime whose startup address-space footprint fits under about 50 MB (Rust runtime/allocator, not core/cp.xsh). The test also builds 20000 files, so it is expensive even when it runs."
+  },
+  "tests/cp/nfs-removal-race.sh": {
+    "class": "ENV",
+    "note": "The test interposes stat with LD_PRELOAD and skips with 'LD_PRELOAD was ineffective?' when no marker file appears. The XSH release binary is a static-pie musl executable (file reports 'static-pie linked'), so the dynamic loader never runs LD_PRELOAD and stat cannot be intercepted. Needs a dynamically linked cp that honours LD_PRELOAD, which the static musl target does not provide."
+  },
+  "tests/cp/non-utf8-name.sh": {
+    "class": "XSH-GAP",
+    "note": "The test skips at its first step: 'mkdir \"$(bad_unicode)\" target' exits 2 with 'xsh: argument 2 is not valid UTF-8' because core/mkdir.xsh (not owned by this lane) takes List[Str] argv. core/cp.xsh already takes raw Bytes argv and copies such a directory correctly (checked by hand with 'cp -r NAME/. target' using the bad_unicode bytes). Needed: core/mkdir.xsh (ls rejects the same names with the same message) to take List[Bytes] argv through gnu.prepare_arguments as core/cp.xsh does."
+  },
+  "tests/cp/preserve-link.sh": {
+    "class": "FIXED",
+    "note": "With --update=older, a source whose destination was newer was skipped without being recorded, so later hard links to that source were copied instead of linked, and a newer separate destination was never replaced by a link. GNU (copy.c, update branch) records the skipped destination and, under --preserve=links, replaces the destination with a hard link to the earlier copy. Fixed in core/cp.xsh (skip path and link_to_earlier_copy). Pinned by test_cp_update_older_hard_links_to_skipped_destination_with_preserve_links; the test script's loop passes by hand in both iterations."
+  },
+  "tests/cp/sparse.sh": {
+    "class": "XSH-GAP",
+    "note": "Setup fails before cp runs: core/dd.xsh rejects 'oflag=append' with 'native descriptor support required' (exit 99). Every cp step passes by hand: --reflink=never --sparse=always copies with matching block counts, the --sparse/--reflink conflicts exit 1, and the 128-pattern transition loop matches cmp when its append is replaced by shell appends. Needed: an O_APPEND output option for dd (core/dd.xsh owner); a Rust descriptor boundary if the fs API has no append open mode."
+  },
+  "tests/cp/special-f.sh": {
+    "class": "FIXED",
+    "note": "'cp -R fifo e' with e an existing regular file failed with 'cannot create special file: File exists'. GNU (copy.c, data_copy_required branch) unlinks a non-regular destination when the source is not dereferenced, then creates the special file; --attributes-only skips this. Fixed in core/cp.xsh. Pinned by test_cp_recursive_fifo_replaces_existing_destination_file, which covers both the plain and -f runs."
+  }
+}
