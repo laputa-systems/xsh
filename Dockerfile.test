@@ -87,3 +87,11 @@ RUN for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do \
 RUN apk add --no-cache python3 \
     && addgroup -g 1000 compat \
     && adduser -D -u 1000 -G compat -h /home/compat compat
+# Compatibility tests that overwrite argv[0] run `sh`, and BusyBox's sh dispatches
+# on its own argv[0]; bash does not. filefrag backs the cp reflink checks.
+# Unprivileged test children search PATH, which includes root's cargo bin
+# directory: without search permission on /root a missing program reports
+# "found but not executable" (126) instead of "not found" (127).
+RUN apk add --no-cache e2fsprogs-extra \
+    && ln -sf /bin/bash /bin/sh \
+    && chmod 711 /root

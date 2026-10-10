@@ -632,6 +632,12 @@
       "reason": "accepts a non-UTF-8 template by lossy conversion in the test's own assertion; GNU mktemp treats the template as raw bytes, which XSH matches"
     },
     {
+      "id": "test_more::test_invalid_file_perms",
+      "utility": "more",
+      "category": "gnu-semantics",
+      "reason": "expects a lower-case 'permission denied' from uutils' own message; util-linux more prints the C library's 'Permission denied', which XSH matches"
+    },
+    {
       "id": "test_nl::test_invalid_join_blank_lines",
       "utility": "nl",
       "category": "clap-wording",
@@ -1382,6 +1388,12 @@
       "reason": "uses the uutils-only `--use-polling` option, which GNU tail rejects; XSH follows GNU"
     },
     {
+      "id": "test_tail::test_obsolete_encoding_unix",
+      "utility": "tail",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'bad argument encoding' diagnostic and exit 1 for a non-UTF-8 obsolete -N argument; GNU tail treats the argument bytes as ordinary option text, so there is no such error"
+    },
+    {
       "id": "test_tail::test_retry_descriptor_gives_up_on_untailable",
       "utility": "tail",
       "category": "uutils-extension",
@@ -1536,6 +1548,12 @@
       "utility": "tty",
       "category": "gnu-semantics",
       "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
+    },
+    {
+      "id": "test_uname::test_uname_operating_system",
+      "utility": "uname",
+      "category": "gnu-semantics",
+      "reason": "the expected string depends on the libc the test crate is built for (Linux on musl, GNU/Linux on glibc); GNU uname -o always prints GNU/Linux on Linux, which XSH matches"
     },
     {
       "id": "test_uniq::uniq_basic_dedup_cases",

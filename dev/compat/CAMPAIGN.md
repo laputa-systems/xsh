@@ -42,6 +42,60 @@ must stay in a `mktemp -d` directory (now in `.claude/agents/xsh-compat-lane.md`
 `system-report` collector extraction is separate and unfinished (see
 `dev/compat/requests.md`, "From `sysreport-extract`").
 
+## Planned: native port and harness retirement (adopted 2026-10-10)
+
+End state: the compatibility harness is removed from the tree and XSH is
+verified by its own native tests alone, so performance work needs no Rust test
+crate, nextest, Docker, or pinned upstream checkouts. It starts only after
+parity (every remaining failure either fixed or excluded with evidence); until
+then the harness keeps driving fixes.
+
+Rules:
+
+- **Scope is every assertion that encodes GNU or BusyBox behavior**, not every
+  upstream test. Excluded IDs and harness-internal tests (`uutils-internal`,
+  framed-snippet and `-h` alias tests) are not ported.
+- **Completeness is mechanical.** A manifest maps each upstream ID that passes
+  at the freeze commit (uutils, GNU, BusyBox) to the native test that covers
+  it, or to an explicit reason it stays a Rust integration test. A ratchet
+  fails on any unmapped passing ID. The port is done when the ratchet is clean.
+- **Independence.** Inputs and expected bytes, status and diagnostics come from
+  the upstream test, never from XSH's own output; each native test records its
+  origin ID. A ported test should also pass against the image's real GNU
+  coreutils or BusyBox where one exists, which shows it pins that behavior and
+  not an XSH quirk. Where the two disagree, the native test is wrong.
+- **Boundary tests stay Rust.** PTYs, strace injection (`getrandom`, FICLONE),
+  rlimits, privilege and exact process lifecycles remain Rust integration
+  tests, as `AGENTS.md` already requires.
+- **Native tests follow the usual homes:** `tests/xsh/stdlib/*.xsh` or the
+  nearest native test module, written as idiomatic XSH with `test.run_script`,
+  temp resources and mocks.
+- **Licensing.** uutils is MIT. The GNU and BusyBox tests are GPL: write our own
+  behavioral tests citing origin IDs and do not copy their script text. The
+  owner confirms this reading before the GNU and BusyBox ports start.
+- **Archive, then remove.** Tag the last commit that contains the harness
+  (`compat-harness-final`) so a new uutils or GNU release can be re-run later.
+  Then delete `dev/compat` and its results.
+- **Couplings to resolve first.** `test-compat-stage.xsh` and the image's
+  Python 3 depend on `dev/compat/stage.py`; `check_kernel_reads.py` and
+  `check_ignored_options.py` are repository invariants and move to `xsht`
+  checks; `docs/TESTING.md`, `dev/coreutils-parity.json` and the generated
+  docs that name the harness change in the same lane.
+
+Order: freeze commit and manifest generator; one Haiku lane per utility
+(`core/tests/test-U.xsh`, gate = every mapped ID present and passing); GNU and
+BusyBox groups after the license decision; ratchet; retirement lane.
+
+## Docker gate (2026-10-10)
+
+`dev/compat/run-uutils-docker.sh` runs `run-uutils.sh` inside the
+`Dockerfile.test` image (`xsh-test`) as root with each test dropped to UID/GID
+1000, cargo-nextest taken from the host, the uutils test crate built into the
+`xsh-uutils-target` volume, and host-side files chowned back. `lane.py gate`
+uses it when `XSH_COMPAT_DOCKER=1`. The image is Alpine/musl like the host, so
+it does not add locale data, `libstdbuf`, a login session or `GNU/Linux` from
+`uname -o`; it adds isolation, `setpriv`, and root-only fixtures.
+
 ## Handoff (2026-10-10, first Claude Code session)
 
 Status: paused, incomplete. `master` is clean. The pinned uutils suite

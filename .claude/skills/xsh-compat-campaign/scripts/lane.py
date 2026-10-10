@@ -331,7 +331,11 @@ def gate(util: str, committed: bool) -> int:
             env_suite["BUSYBOX_SOURCE_ROOT"] = str(BUSYBOX_SOURCE_ROOT)
         # A report from an earlier run must never stand in for this one.
         (scratch / info["report"]).unlink(missing_ok=True)
-        run = subprocess.run([info["runner"], *names], cwd=wt, env=env_suite, capture_output=True, text=True,
+        runner = info["runner"]
+        # XSH_COMPAT_DOCKER=1 runs the uutils suite in the Dockerfile.test image (same interface).
+        if suite == "uutils" and os.environ.get("XSH_COMPAT_DOCKER") == "1":
+            runner = "dev/compat/run-uutils-docker.sh"
+        run = subprocess.run([runner, *names], cwd=wt, env=env_suite, capture_output=True, text=True,
                              stdin=subprocess.DEVNULL)
         (scratch / f"run-{suite}.log").write_text(run.stdout + run.stderr)
         # Runners exit nonzero when tests fail; only a missing report is a harness failure.
