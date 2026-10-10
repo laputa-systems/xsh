@@ -127,7 +127,9 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
       current.row_words = true; current.trailing_space = false; current.quote = byte; current.started = true
       continue
     }
-    let blank = byte == 32 or byte == 9
+    # Between words the vertical whitespace characters separate as well; inside
+    # a word only blank and tab do, and \f \v \r stay part of it.
+    let blank = byte == 32 or byte == 9 or (! current.started and (byte == 11 or byte == 12 or byte == 13))
     if (blank and ! replace) or byte == 10 {
       if current.started { items += [{data: current.word, line: current.word_line}] }
       current.word = b""; current.started = false

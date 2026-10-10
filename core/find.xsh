@@ -230,8 +230,9 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
   }
   if token == ")" { search.reject("invalid expression; I was expecting to find a ')' somewhere but did not see one.")? }
   if is_binary_operator(token) { search.reject(f"invalid expression; you have used a binary operator '{token}' with nothing before it.")? }
-  if token == "--help" { gnu.help(HELP); exit 0 }
-  if token == "--version" { gnu.version("find"); exit 0 }
+  if token in ["--help","-help"] { gnu.help(HELP); exit 0 }
+  if token in ["--version","-version"] { gnu.version("find"); exit 0 }
+  if token == "-context" { search.reject("invalid predicate -context: SELinux is not enabled.")? }
   if token.starts_with("-newer") and token.byte_len() == 8 {
     let left = token.byte_slice(6, 1)
     let right = token.byte_slice(7, 1)
@@ -336,8 +337,8 @@ proc primary(args: List[Str], parsed: Parsed) [fs, io, process, env, error, time
       var digits = value
       var unit = 512
       let last = value.byte_slice(value.byte_len() - 1)
-      if last in ["b","c","w","k","M","G","T","P"] {
-        unit = match last { "b" => 512; "c" => 1; "w" => 2; "k" => 1024; "M" => 1048576; "G" => 1073741824; "T" => 1099511627776; _ => 1125899906842624 }
+      if last in ["b","c","w","k","M","G"] {
+        unit = match last { "b" => 512; "c" => 1; "w" => 2; "k" => 1024; "M" => 1048576; _ => 1073741824 }
         digits = value.byte_slice(0, value.byte_len() - 1)
       } else if (last.parse_int() ?? -1) < 0 { search.reject(f"invalid -size type `{last}'")? }
       let counted = signed_number(digits)
