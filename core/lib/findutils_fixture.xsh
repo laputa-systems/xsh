@@ -139,7 +139,9 @@ export proc restore(root: Path) [fs, error] {
 }
 
 ## One command line of a corpus. `flags` selects how the harness runs it:
-## `r` recreates the time-relative entries first, `s` and `z` compare newline- or NUL-separated records as sorted sets, `t`
+## `n` skips the case for a privileged user, who is not refused by file
+## permissions and owns what the fixture builds as root, `r` recreates the
+## time-relative entries first, `s` and `z` compare newline- or NUL-separated records as sorted sets, `t`
 ## runs inside the tree, `d` rebuilds `scratch` first and appends what the
 ## command left behind, `l` blanks the volatile columns of `-ls` lines, `u`
 ## expects the invoking user's ids where the stored output has `@UID@` and
@@ -352,6 +354,7 @@ export proc run_corpus(xsh_bin: Path, script: Path, corpus: Path, root: Path, wo
     if position % parts != part { continue }
     let stored = json.decode(line)?.require(Stored)?
     let c: Case = {name: stored.name, flags: stored.flags, input: stored_bytes(stored.input, stored.input_hex), args: stored.args}
+    if "n" in c.flags and identity.euid == 0 { continue }
     let seen = invoke(xsh_bin, script, root, work, c)?
     let status = stored.status
     let expected_out = stored_bytes(resolve_ids(stored.stdout, identity.uid, identity.gid), stored.stdout_hex)
