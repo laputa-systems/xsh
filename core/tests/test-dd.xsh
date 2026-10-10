@@ -261,6 +261,23 @@ test test_dd_block_conversion_reports_partial_output_when_limited { |ctx|
   assert output.metadata()?.size == 204800
 }
 
+test test_dd_iflag_directory_requires_a_directory_input { |ctx|
+  let piped = invoke(ctx, ["iflag=directory", "count=0"], b"")?
+  assert piped.status == 1
+  assert piped.stderr == "dd: setting flags for 'standard input': Not a directory\n", piped.stderr
+
+  let root = test.temp_dir(ctx, name: "dd-iflag-directory")?
+  let file = fp"{root}/plain"
+  file.write(b"abc")
+  let regular = invoke(ctx, ["iflag=directory", "count=0", f"if={file}"])?
+  assert regular.status == 1
+  assert regular.stderr == f"dd: failed to open '{file}': Not a directory\n", regular.stderr
+
+  let directory = invoke(ctx, ["iflag=directory", "count=0", f"if={root}"])?
+  assert directory.status == 0, directory.stderr
+  assert directory.stdout == b""
+}
+
 test test_dd_skip_past_input_warns_without_failing { |ctx|
   let result = invoke(ctx, ["bs=1", "skip=5", "count=0", "status=noxfer"], b"abcd")?
   assert result.status == 0, result.stderr
