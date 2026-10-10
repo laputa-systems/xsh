@@ -5,16 +5,16 @@
 
 type Ran = {status: Int, stdout: Bytes, stderr: Bytes}
 
-# One recorded case: arguments, optional stdin fixture, expected status and the
-# stored stream lines.
-type Recorded = {id: Str, args: List[Str], stdin: Str, status: Int, out: List[Str], err: List[Str]}
+# One recorded case: arguments, optional stdin fixture, locale, expected status
+# and the stored stream lines.
+type Recorded = {id: Str, args: List[Str], stdin: Str, locale: Str, status: Int, out: List[Str], err: List[Str]}
 
-proc invoke(ctx: TestContext, args: List[Str], input = b"", cwd: Path? = null, label = "cmp-capture") [fs, process, error] -> Result[Ran] {
+proc invoke(ctx: TestContext, args: List[Str], input = b"", cwd: Path? = null, label = "cmp-capture", locale = "C") [fs, process, error] -> Result[Ran] {
   let root = test.temp_dir(ctx, name: label)?
   let out = fp"{root}/out"
   let err = fp"{root}/err"
   let script = fp"{ctx.core_dir}/cmp.xsh"
-  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), cwd ?? root, {LC_ALL: "C", TZ: "UTC", TERM: "xterm"}, input, out, err)
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin.display(), script.display(), "--"].extend(args), cwd ?? root, {LC_ALL: locale, TZ: "UTC", TERM: "xterm"}, input, out, err)
   let status = process.run(plan)?
   Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_bytes()?})
 }
@@ -67,12 +67,14 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
       let fields = line.byte_slice(1).split("\t")
       var arguments: List[Str] = []
       for field in fields[1..] { arguments += [decode(field).utf8() ?? ""] }
-      current = {id: fields[0], args: arguments, stdin: "", status: 0, out: [], err: []}
+      current = {id: fields[0], args: arguments, stdin: "", locale: "C", status: 0, out: [], err: []}
       continue
     }
-    let found = current ?? {id: "", args: [], stdin: "", status: 0, out: [], err: []}
+    let found = current ?? {id: "", args: [], stdin: "", locale: "C", status: 0, out: [], err: []}
     if line.starts_with("in ") {
       current = {...found, stdin: line.byte_slice(3)}
+    } else if line.starts_with("lc ") {
+      current = {...found, locale: line.byte_slice(3)}
     } else if line.starts_with("status ") {
       current = {...found, status: line.byte_slice(7).parse_int() ?? 0}
     } else if line.starts_with("o:") or line.starts_with("O:") {
@@ -87,7 +89,7 @@ proc load(table: Path) [fs, error] -> Result[List[Recorded]] {
 
 proc check(ctx: TestContext, root: Path, entry: Recorded) [fs, process, error] -> Str {
   let input = if entry.stdin == "" { b"" } else { fp"{root}/{entry.stdin}".read_bytes() ?? b"" }
-  let result = invoke(ctx, entry.args, input, cwd: root, label: f"cmp-{entry.id}")
+  let result = invoke(ctx, entry.args, input, cwd: root, label: f"cmp-{entry.id}", locale: entry.locale)
   if let Err(failure) = result { return f"{entry.id}: could not run: {failure.message}" }
   let ran = result ?? {status: -1, stdout: b"", stderr: b""}
   let expected_out = joined(entry.out, "o:")

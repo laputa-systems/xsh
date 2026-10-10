@@ -56,6 +56,14 @@ proc trouble(message: Str) [process, env] -> Unit {
   exit 2
 }
 
+# A name quoted the way GNU `quote` does in the current locale. In a UTF-8
+# locale the curly quotes need no escape for an apostrophe inside the name.
+proc locale_quote(name: Str) [env] -> Str {
+  let quoted = gnu.quote_value(name)
+  if quoted.starts_with("\u{2018}") { return quoted.replace("\\'", with: "'") }
+  quoted
+}
+
 # The options that carry values or exclusions, in the order typed.
 pure option_events(argv: List[Str]) -> List[Event] {
   var events: List[Event] = []
@@ -208,7 +216,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   for word in argv {
     if word != "--" { last = word }
   }
-  if opts.files.is_empty() { trouble(f"missing operand after {gnu.quote(last)}") }
+  if opts.files.is_empty() { trouble(f"missing operand after {gnu.quote_value(last)}") }
   let left = opts.files[0]
   let right = opts.files.get(1) ?? "-"
   if opts.files.len() > 2 {
@@ -221,7 +229,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
     if count == null { trouble(f"invalid --ignore-initial value {gnu.quote_value(opts.files[3])}") }
     skip_second = count ?? 0
   }
-  if opts.files.len() > 4 { trouble(f"extra operand {gnu.quote(opts.files[4])}") }
+  if opts.files.len() > 4 { trouble(f"extra operand {gnu.quote_value(opts.files[4])}") }
 
   # Open phase: a missing or unreadable file ends the run at the first one.
   var sources: List[tio.Source] = []
@@ -325,16 +333,16 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
       let shorter = if a.len() < b.len() { left } else { right }
       let total = offset + shared
       if total == 0 {
-        gnu.error(f"EOF on {gnu.quote(shorter)} which is empty")
+        gnu.error(f"EOF on {locale_quote(shorter)} which is empty")
       } else if listed {
-        gnu.error(f"EOF on {gnu.quote(shorter)} after byte {total}")
+        gnu.error(f"EOF on {locale_quote(shorter)} after byte {total}")
       } else {
         let seen = lines + diffutils.newline_count(head_a)
         let closed = if shared > 0 { head_a.ends_with(b"\n") } else { ended_line }
         if closed {
-          gnu.error(f"EOF on {gnu.quote(shorter)} after byte {total}, line {seen}")
+          gnu.error(f"EOF on {locale_quote(shorter)} after byte {total}, line {seen}")
         } else {
-          gnu.error(f"EOF on {gnu.quote(shorter)} after byte {total}, in line {seen + 1}")
+          gnu.error(f"EOF on {locale_quote(shorter)} after byte {total}, in line {seen + 1}")
         }
       }
       exit 1

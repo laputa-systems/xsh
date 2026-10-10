@@ -4,6 +4,49 @@
 # 'lc LOCALE' sets LC_ALL (C by default);
 # 'scrub' drops header timestamps; 'status N'; 'o:'/'e:' are stdout and
 # stderr lines, 'O:'/'E:' a final line without a newline; '\\' and '\xHH' escapes.
+@cmp_596	-n	1b	t1	t2
+status 2
+e:cmp: invalid --bytes value '1b'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_549	-i	:	t1	t2
+status 2
+e:cmp: invalid --ignore-initial value ':'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_358	-l	-i	1:2	tab1	tab2
+status 1
+o:\x201  11 143
+o:\x202 142  12
+o:\x203  12  40
+o:\x204  11  40
+o:\x205 151  40
+o:\x206 156  40
+o:\x207 144  40
+o:\x208 145  40
+o:\x209 156  40
+o:10 164  40
+o:11  12 151
+o:13 157 144
+o:14  40 145
+o:15 164 156
+o:16 141 164
+o:17 142  12
+o:18  12 156
+o:19  61 157
+o:20  62  40
+o:21  63 164
+o:22  64 141
+o:23  65 142
+o:24  66  12
+o:25  67  61
+o:26  70  62
+o:27  11  63
+o:28 170  64
+o:29  12  65
+o:30 161  66
+o:31  11  67
+o:32 167  70
+o:34 145 171
+e:cmp: EOF on 'tab1' after byte 35
 @cmp_377	-n	2	-l	empty	t1
 status 1
 e:cmp: EOF on 'empty' which is empty
@@ -76,19 +119,21 @@ e:cmp: EOF on '-' which is empty
 @cmp_141	-n	100	nonl1	nonl3
 status 1
 o:nonl1 nonl3 differ: char 3, line 2
-@cmp_576	/dev/null	t1
+@cmp_587	-n	1G	t1	t2
 status 1
-e:cmp: EOF on '/dev/null' which is empty
-@cmp_596	-n	1b	t1	t2
-status 2
-e:cmp: invalid --bytes value '1b'
-e:cmp: Try 'cmp --help' for more information.
+o:t1 t2 differ: char 3, line 2
+@cmp_607	it's	t1
+lc C.UTF-8
+status 1
+e:cmp: EOF on \xe2\x80\x98it's\xe2\x80\x99 after byte 2, line 1
 @cmp_018	-b	t1	empty
 status 1
 e:cmp: EOF on 'empty' which is empty
-@cmp_590	-n	1GB	t1	t2
-status 1
-o:t1 t2 differ: char 3, line 2
+@cmp_601	t1	t2	caf\xc3\xa9	x	y
+lc C
+status 2
+e:cmp: invalid --ignore-initial value 'caf\\303\\251'
+e:cmp: Try 'cmp --help' for more information.
 @cmp_078	-bl	t1	empty
 status 1
 e:cmp: EOF on 'empty' which is empty
@@ -118,6 +163,9 @@ status 1
 o:t1 t2 differ: char 1, line 1
 @cmp_380	-n	2	-l	nonl1	nonl2
 status 0
+@cmp_566	--b=3	t1	t2
+status 1
+o:t1 t2 differ: char 3, line 2
 @cmp_027	-b	one	two
 status 1
 e:cmp: EOF on 'one' after byte 5, line 1
@@ -162,6 +210,9 @@ e:cmp: EOF on 't1' after byte 16
 status 2
 e:cmp: invalid --bytes value 'x'
 e:cmp: Try 'cmp --help' for more information.
+@cmp_554	nonexist	nonexist2
+status 2
+e:cmp: nonexist: No such file or directory
 @cmp_064	-lb	empty	empty
 status 0
 @cmp_346	-l	-i	1:2	t1	t1
@@ -216,6 +267,10 @@ status 0
 status 0
 @cmp_226	--ignore-initial=1	t1	t1
 status 0
+@cmp_540	-x	t1	t2
+status 2
+e:cmp: invalid option -- 'x'
+e:cmp: Try 'cmp --help' for more information.
 @cmp_360	-s	-n	2	t1	t2
 status 0
 @cmp_188	-i	1:2	bin1	bin2
@@ -379,77 +434,74 @@ e:cmp: invalid --ignore-initial value 'x'
 e:cmp: Try 'cmp --help' for more information.
 @cmp_133	-n	1	tab1	tab2
 status 0
-@cmp_563	-V
-status 2
-e:cmp: invalid option -- 'V'
-e:cmp: Try 'cmp --help' for more information.
+@cmp_574	-l	--	t1	t2
+status 1
+o:\x203 142 102
+o:21 153 113
+e:cmp: EOF on 't1' after byte 24
 @cmp_270	--verbose	t1	t2
 status 1
 o:\x203 142 102
 o:21 153 113
 e:cmp: EOF on 't1' after byte 24
-@cmp_494	nonl1	nonl2	0	1
+@cmp_252	--ignore-initial=1:3	one	two
 status 1
-o:nonl1 nonl2 differ: char 1, line 1
-@cmp_126	-n	1	nonl1	nonl3
+o:one two differ: char 1, line 1
+@cmp_347	-l	-i	1:2	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_197	-i	100	empty	t1
 status 0
-@cmp_173	-i	2:1	bin1	bin2
+@cmp_546	-i
+status 2
+e:cmp: option requires an argument -- 'i'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_571	-s	-b	t1	t2
 status 1
-o:bin1 bin2 differ: char 1, line 1
-@cmp_268	--print-bytes	tab1	tab2
+@cmp_501	-l	nonl1	nonl2	x
+status 2
+e:cmp: invalid --ignore-initial value 'x'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_412	-i	1K	crlf1	lf1
+status 0
+@cmp_506	nonl1	nonl2	0x10
 status 1
-o:tab1 tab2 differ: byte 3, line 1 is 142 b 143 c
-@cmp_098	-n	3	bin1	bin2
-status 1
-o:bin1 bin2 differ: char 3, line 1
-@cmp_180	-i	1:2	t1	t2
-status 1
-o:t1 t2 differ: char 1, line 1
-@cmp_254	--ignore-initial=1:3	case1	case2
-status 1
-o:case1 case2 differ: char 1, line 1
-@cmp_250	--ignore-initial=1:3	utf1	utf2
-status 1
-o:utf1 utf2 differ: char 1, line 1
-@cmp_206	-i	100	long1	long2
-status 1
-o:long1 long2 differ: char 101, line 1
-@cmp_253	--ignore-initial=1:3	tab1	tab2
-status 1
-o:tab1 tab2 differ: char 1, line 1
+e:cmp: EOF on 'nonl1' which is empty
 @cmp_041	-l	long1	long2
 status 1
 o:201 101 102
 o:509  12 132
 e:cmp: EOF on 'long1' after byte 509
-@cmp_533	-b	-	-
-in t1
-status 0
+@cmp_541	--bogus	t1	t2
+status 2
+e:cmp: unrecognized option '--bogus'
+e:cmp: Try 'cmp --help' for more information.
 @cmp_012	one	two
 status 1
 e:cmp: EOF on 'one' after byte 5, line 1
 @cmp_438	-n	1kB	t1	empty
 status 1
 e:cmp: EOF on 'empty' which is empty
-@cmp_566	--b=3	t1	t2
+@cmp_577	t1	/dev/null
 status 1
-o:t1 t2 differ: char 3, line 2
+e:cmp: EOF on '/dev/null' which is empty
 @cmp_234	--ignore-initial=1	latin1	latin2
 status 1
 o:latin1 latin2 differ: char 3, line 1
 @cmp_407	-i	1K	empty	t1
 status 0
-@cmp_588	-n	1M	t1	t2
+@cmp_599	t1	caf\xc3\xa9
+lc C
 status 1
-o:t1 t2 differ: char 3, line 2
-@cmp_513	-	empty
-in t1
-status 1
-e:cmp: EOF on 'empty' which is empty
-@cmp_536	-b	t1
-in t2
-status 1
-o:t1 - differ: byte 3, line 2 is 142 b 102 B
+o:t1 caf\xc3\xa9 differ: char 1, line 1
+@cmp_594	-n	1c	t1	t2
+status 2
+e:cmp: invalid --bytes value '1c'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_544	-n	-1	t1	t2
+status 2
+e:cmp: invalid --bytes value '-1'
+e:cmp: Try 'cmp --help' for more information.
 @cmp_030	-l	t1	t2
 status 1
 o:\x203 142 102
@@ -461,9 +513,9 @@ o:4 351 350
 @cmp_005	nonl1	nonl2
 status 1
 e:cmp: EOF on 'nonl1' after byte 3, in line 2
-@cmp_542	-n
+@cmp_551	-i	:2	t1	t2
 status 2
-e:cmp: option requires an argument -- 'n'
+e:cmp: invalid --ignore-initial value ':2'
 e:cmp: Try 'cmp --help' for more information.
 @cmp_104	-n	3	case1	case2
 status 1
@@ -478,12 +530,9 @@ o:3  12 ^J   142 b
 o:4 142 b     12 ^J
 o:5  15 ^M   143 c
 e:cmp: EOF on 'lf1' after byte 6
-@cmp_522	-l	t1
-in t2
-status 1
-o:\x203 142 102
-o:21 153 113
-e:cmp: EOF on 't1' after byte 24
+@cmp_530	-s	t1
+in t1
+status 0
 @cmp_095	-n	3	nonl1	nonl2
 status 0
 @cmp_061	-lb	t1	t1
@@ -496,14 +545,13 @@ o:case1 case2 differ: char 6, line 1
 @cmp_148	-n	100	tab1	tab2
 status 1
 o:tab1 tab2 differ: char 3, line 1
-@cmp_554	nonexist	nonexist2
-status 2
-e:cmp: nonexist: No such file or directory
+@cmp_126	-n	1	nonl1	nonl3
+status 0
 @cmp_414	-i	1K	latin1	latin2
 status 0
-@cmp_545	-n	1x	t1	t2
+@cmp_593	-n	1B	t1	t2
 status 2
-e:cmp: invalid --bytes value '1x'
+e:cmp: invalid --bytes value '1B'
 e:cmp: Try 'cmp --help' for more information.
 @cmp_456	t1	t2	2	0
 status 1
@@ -522,10 +570,9 @@ status 0
 @cmp_011	long1	long2
 status 1
 o:long1 long2 differ: char 201, line 1
-@cmp_484	one	two	1	2	3
-status 2
-e:cmp: extra operand '3'
-e:cmp: Try 'cmp --help' for more information.
+@cmp_494	nonl1	nonl2	0	1
+status 1
+o:nonl1 nonl2 differ: char 1, line 1
 @cmp_259	--print-bytes	empty	empty
 status 0
 @cmp_365	-s	-n	2	nonl1	nonl2
@@ -533,14 +580,9 @@ status 0
 @cmp_167	-i	2:1	empty	t1
 status 1
 e:cmp: EOF on 'empty' which is empty
-@cmp_540	-x	t1	t2
-status 2
-e:cmp: invalid option -- 'x'
-e:cmp: Try 'cmp --help' for more information.
-@cmp_541	--bogus	t1	t2
-status 2
-e:cmp: unrecognized option '--bogus'
-e:cmp: Try 'cmp --help' for more information.
+@cmp_447	-n	1kB	one	two
+status 1
+e:cmp: EOF on 'one' after byte 5, line 1
 @cmp_560	--help
 status 0
 o:Usage: cmp [OPTION]... FILE1 [FILE2 [SKIP1 [SKIP2]]]
@@ -570,6 +612,10 @@ o:
 o:Report bugs to: bug-diffutils@gnu.org
 o:GNU diffutils home page: <https://www.gnu.org/software/diffutils/>
 o:General help using GNU software: <https://www.gnu.org/gethelp/>
+@cmp_563	-V
+status 2
+e:cmp: invalid option -- 'V'
+e:cmp: Try 'cmp --help' for more information.
 @cmp_564	--hel
 status 0
 o:Usage: cmp [OPTION]... FILE1 [FILE2 [SKIP1 [SKIP2]]]
@@ -613,6 +659,3 @@ o:t1 t2 differ: char 2, line 2
 status 2
 e:cmp: options -l and -s are incompatible
 e:cmp: Try 'cmp --help' for more information.
-@cmp_573	--	t1	t2
-status 1
-o:t1 t2 differ: char 3, line 2

@@ -900,7 +900,7 @@ proc merged_templates(events: List[FormatEvent]) [process, env] -> diffrender.Te
       let current = if is_group { groups[slot] } else { line[slot] }
       let text = texts[position]
       if current != null and current != text {
-        gnu.error(f"conflicting {event.name} option value {gnu.quote_value(text)}")
+        gnu.error(f"conflicting {event.name} option value {locale_quote(text)}")
         eprint f"{gnu.prog()}: Try '{gnu.phrase()} --help' for more information."
         exit 2
       }
@@ -915,6 +915,14 @@ proc merged_templates(events: List[FormatEvent]) [process, env] -> diffrender.Te
   {old_group: old_group, new_group: new_group, changed_group: changed_group, unchanged_group: groups[3] ?? "%=", old_line: line[0] ?? "%l\n", new_line: line[1] ?? "%l\n", unchanged_line: line[2] ?? "%l\n"}
 }
 
+# A value quoted the way GNU `quote` does in the current locale. In a UTF-8
+# locale the curly quotes need no escape for an apostrophe inside the value.
+proc locale_quote(text: Str) [env] -> Str {
+  let quoted = gnu.quote_value(text)
+  if quoted.starts_with("\u{2018}") { return quoted.replace("\\'", with: "'") }
+  quoted
+}
+
 # GNU diff words its usage hint with the program prefix, unlike other GNU
 # tools, and exits with status 2.
 proc usage_trouble(message: Str) [process, env] -> Unit {
@@ -926,7 +934,7 @@ proc usage_trouble(message: Str) [process, env] -> Unit {
 # A count option, or the usage error GNU gives for a bad value.
 proc count_option(text: Str, what: Str, minimum: Int) [process, env] -> Int {
   let value = parse_count(text)
-  if value == null or (value ?? 0) < minimum { usage_trouble(f"invalid {what} {gnu.quote_value(text)}") }
+  if value == null or (value ?? 0) < minimum { usage_trouble(f"invalid {what} {locale_quote(text)}") }
   value ?? 0
 }
 
@@ -1043,7 +1051,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
       let term = env.get_or("TERM", "") ?? ""
       colored = unix.isatty(1) and term != "" and term != "dumb"
     } else if choice != "never" {
-      usage_trouble(f"invalid color {gnu.quote_value(choice)}")
+      usage_trouble(f"invalid color {locale_quote(choice)}")
     }
   }
   var palette = ["0", "1", "32", "31", "36"]
@@ -1135,9 +1143,9 @@ proc main(...argv: List[Str]) [fs, io, process, env, error, time] {
         if word != "--" { last = word }
       }
       if opts.files.len() == 1 { last = opts.files[0] }
-      usage_trouble(f"missing operand after {gnu.quote(last)}")
+      usage_trouble(f"missing operand after {locale_quote(last)}")
     }
-    if opts.files.len() > 2 { usage_trouble(f"extra operand {gnu.quote(opts.files[2])}") }
+    if opts.files.len() > 2 { usage_trouble(f"extra operand {locale_quote(opts.files[2])}") }
     pairs += [[opts.files[0], opts.files[1]]]
   }
   var status = 0
