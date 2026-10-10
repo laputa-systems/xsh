@@ -296,94 +296,83 @@ pure format_allowed(allowed: Str, kind: Str) -> Bool {
   allowed == "any" or allowed == kind
 }
 
+# What a scan has gathered about the patch it is looking for.
+type Header = {old_name: HeaderName, new_name: HeaderName, index_name: Str, git: GitHeader, prereq: Str}
+
+pure found(kind: Str, start: Int, body: Int, header: Header, cr: Bool) -> Scan {
+  {kind: kind, start: start, body: body, old_name: header.old_name, new_name: header.new_name, index_name: header.index_name, git: header.git, prereq: header.prereq, cr_header: cr}
+}
+
+# The extended header lines of a Git diff after its `diff --git` line, and
+# the index of the first line past them.
+type GitRead = {info: GitHeader, next: Int}
+
+pure read_git_header(lines: List[Bytes], at: Int) -> GitRead {
+  var info = NO_GIT
+  let names = git_names(body_text(lines[at]).byte_slice(11))
+  info.present = true
+  info.old_path = names.old
+  info.new_path = names.new
+  var j = at + 1
+  while j < lines.len() {
+    let line = body_text(lines[j])
+    if line.starts_with("old mode ") { info.old_mode = line.byte_slice(9).trim() } else if line.starts_with("new mode ") { info.new_mode = line.byte_slice(9).trim() } else if line.starts_with("new file mode ") { info.new_file_mode = line.byte_slice(14).trim() } else if line.starts_with("deleted file mode ") { info.deleted_file_mode = line.byte_slice(18).trim() } else if line.starts_with("rename from ") { info.rename_from = line.byte_slice(12) } else if line.starts_with("rename to ") { info.rename_to = line.byte_slice(10) } else if line.starts_with("copy from ") { info.copy_from = line.byte_slice(10) } else if line.starts_with("copy to ") { info.copy_to = line.byte_slice(8) } else if line.starts_with("GIT binary patch") or line.starts_with("Binary files ") { info.binary = true } else if !(line.starts_with("similarity index ") or line.starts_with("dissimilarity index ") or line.starts_with("index ")) { break }
+    j += 1
+  }
+  {info: info, next: j}
+}
+
 ## Find the next file patch at or after line `from`. `allowed` restricts the
-## recognized format. The Git header is parsed whether or not a hunk follows.
+## recognized format. A Git header is recognized whether or not hunks follow
+## it, so renames and mode changes are patches of their own.
 export pure scan(lines: List[Bytes], from: Int, allowed: Str) -> Scan {
-  var old_name = NO_NAME
-  var new_name = NO_NAME
-  var index_name = ""
-  var prereq = ""
-  var git = NO_GIT
-  var cr_header = false
+  var header: Header = {old_name: NO_NAME, new_name: NO_NAME, index_name: "", git: NO_GIT, prereq: ""}
   var start = from
   var i = from
   let total = lines.len()
-  var normal_candidate = -1
   var ed_candidate = -1
-  var pending_stars = -1
   while i < total {
-    let line = lines[i]
-    let text = body_text(line)
-    let crlf = line.ends_with(b"\r\n")
-    if text.starts_with("Index: ") and index_name == "" {
-      let fetched = fetch_name(text.byte_slice(7))
-      index_name = fetched.name
-      i += 1
-      continue
-    }
-    if text.starts_with("Prereq: ") {
-      prereq = text.byte_slice(8).trim()
-      i += 1
-      continue
-    }
-    if text.starts_with("diff --git ") and format_allowed(allowed, "unified") {
-      var info = NO_GIT
-      let names = git_names(text.byte_slice(11))
-      info.present = true
-      info.old_path = names.old
-      info.new_path = names.new
-      var j = i + 1
-      while j < total {
-        let extended = body_text(lines[j])
-        if extended.starts_with("old mode ") { info.old_mode = extended.byte_slice(9).trim() } else if extended.starts_with("new mode ") { info.new_mode = extended.byte_slice(9).trim() } else if extended.starts_with("new file mode ") { info.new_file_mode = extended.byte_slice(14).trim() } else if extended.starts_with("deleted file mode ") { info.deleted_file_mode = extended.byte_slice(18).trim() } else if extended.starts_with("rename from ") { info.rename_from = extended.byte_slice(12) } else if extended.starts_with("rename to ") { info.rename_to = extended.byte_slice(10) } else if extended.starts_with("copy from ") { info.copy_from = extended.byte_slice(10) } else if extended.starts_with("copy to ") { info.copy_to = extended.byte_slice(8) } else if extended.starts_with("similarity index ") or extended.starts_with("dissimilarity index ") or extended.starts_with("index ") { } else if extended.starts_with("GIT binary patch") or extended.starts_with("Binary files ") { info.binary = true } else { break }
-        j += 1
-      }
-      git = info
-      old_name = NO_NAME
-      new_name = NO_NAME
+    let text = body_text(lines[i])
+    let crlf = lines[i].ends_with(b"\r\n")
+    let next_text = if i + 1 < total { body_text(lines[i + 1]) } else { "" }
+    if text.starts_with("Index: ") and header.index_name == "" {
+      header.index_name = fetch_name(text.byte_slice(7)).name
+    } else if text.starts_with("Prereq: ") {
+      header.prereq = text.byte_slice(8).trim()
+    } else if text.starts_with("diff --git ") and format_allowed(allowed, "unified") {
+      let read = read_git_header(lines, i)
+      header.git = read.info
+      header.old_name = NO_NAME
+      header.new_name = NO_NAME
       start = i
       # A patch with hunks continues with its `---` and `+++` lines.
-      if j + 1 < total and body_text(lines[j]).starts_with("--- ") and body_text(lines[j + 1]).starts_with("+++ ") {
-        i = j
+      if read.next + 1 < total and body_text(lines[read.next]).starts_with("--- ") and body_text(lines[read.next + 1]).starts_with("+++ ") {
+        i = read.next
         continue
       }
-      # A header that carries no hunks (rename, mode change, new empty file).
-      return {kind: "git", start: start, body: j, old_name: NO_NAME, new_name: NO_NAME, index_name: index_name, git: git, prereq: prereq, cr_header: crlf}
-    }
-    if text.starts_with("--- ") and i + 1 < total and body_text(lines[i + 1]).starts_with("+++ ") and format_allowed(allowed, "unified") {
-      # A unified header; the hunk start must follow directly.
-      if i + 2 < total and body_text(lines[i + 2]).starts_with("@@ -") {
-        old_name = fetch_name(text.byte_slice(4))
-        new_name = fetch_name(body_text(lines[i + 1]).byte_slice(4))
-        return {kind: "unified", start: start, body: i + 2, old_name: old_name, new_name: new_name, index_name: index_name, git: git, prereq: prereq, cr_header: crlf or lines[i + 1].ends_with(b"\r\n")}
-      }
-    }
-    if text.starts_with("*** ") and i + 3 < total and body_text(lines[i + 1]).starts_with("--- ") and body_text(lines[i + 2]).starts_with("***************") and format_allowed(allowed, "context") {
-      old_name = fetch_name(text.byte_slice(4))
-      new_name = fetch_name(body_text(lines[i + 1]).byte_slice(4))
-      return {kind: "context", start: start, body: i + 2, old_name: old_name, new_name: new_name, index_name: index_name, git: git, prereq: prereq, cr_header: crlf}
-    }
-    if text.starts_with("@@ -") and format_allowed(allowed, "unified") {
-      return {kind: "unified", start: start, body: i, old_name: old_name, new_name: new_name, index_name: index_name, git: git, prereq: prereq, cr_header: crlf}
-    }
-    if text.starts_with("***************") and i + 1 < total and CONTEXT_RANGE_RE.matches(body_text(lines[i + 1])) and format_allowed(allowed, "context") {
-      return {kind: "context", start: start, body: i, old_name: old_name, new_name: new_name, index_name: index_name, git: git, prereq: prereq, cr_header: crlf}
-    }
-    if NORMAL_RE.matches(text) and format_allowed(allowed, "normal") and i + 1 < total {
-      let next = body_text(lines[i + 1])
-      if next.starts_with("< ") or next.starts_with("> ") or next == "<" or next == ">" {
-        return {kind: "normal", start: start, body: i, old_name: old_name, new_name: new_name, index_name: index_name, git: git, prereq: prereq, cr_header: crlf}
-      }
-    }
-    if ED_RE.matches(text) and format_allowed(allowed, "ed") and ed_candidate < 0 {
+      return found("git", start, read.next, header, crlf)
+    } else if text.starts_with("--- ") and next_text.starts_with("+++ ") and i + 2 < total and body_text(lines[i + 2]).starts_with("@@ -") and format_allowed(allowed, "unified") {
+      header.old_name = fetch_name(text.byte_slice(4))
+      header.new_name = fetch_name(next_text.byte_slice(4))
+      return found("unified", start, i + 2, header, crlf or lines[i + 1].ends_with(b"\r\n"))
+    } else if text.starts_with("*** ") and next_text.starts_with("--- ") and i + 3 < total and body_text(lines[i + 2]).starts_with("***************") and format_allowed(allowed, "context") {
+      header.old_name = fetch_name(text.byte_slice(4))
+      header.new_name = fetch_name(next_text.byte_slice(4))
+      return found("context", start, i + 2, header, crlf)
+    } else if text.starts_with("@@ -") and format_allowed(allowed, "unified") {
+      return found("unified", start, i, header, crlf)
+    } else if text.starts_with("***************") and CONTEXT_RANGE_RE.matches(next_text) and format_allowed(allowed, "context") {
+      return found("context", start, i, header, crlf)
+    } else if NORMAL_RE.matches(text) and format_allowed(allowed, "normal") and (next_text.starts_with("< ") or next_text.starts_with("> ") or next_text == "<" or next_text == ">") {
+      return found("normal", start, i, header, crlf)
+    } else if ED_RE.matches(text) and format_allowed(allowed, "ed") and ed_candidate < 0 {
       ed_candidate = i
     }
     i += 1
   }
-  if ed_candidate >= 0 {
-    return {kind: "ed", start: from, body: ed_candidate, old_name: old_name, new_name: new_name, index_name: index_name, git: git, prereq: prereq, cr_header: false}
-  }
-  {kind: "none", start: from, body: total, old_name: NO_NAME, new_name: NO_NAME, index_name: "", git: NO_GIT, prereq: "", cr_header: false}
+  # An ed script has no header of its own; it is whatever command line came first.
+  if ed_candidate >= 0 { return found("ed", from, ed_candidate, header, false) }
+  found("none", from, total, {old_name: NO_NAME, new_name: NO_NAME, index_name: "", git: NO_GIT, prereq: ""}, false)
 }
 
 pure finish(hunk: Hunk) -> Hunk {
@@ -683,110 +672,4 @@ export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   hunk.old_start = old_start
   hunk.new_start = new_start
   {hunk: hunk, next: i, bad_line: 0, bad_text: b"", truncated: false, partial: false}
-}
-
-## Result of running an ed script: the new content, or the text of the first
-## command that could not be carried out.
-export type EdResult = {output: List[Bytes], failed: Str, next: Int}
-
-const ED_ADDRESS_RE = rx"^(\.|\$|\d+)?(?:,(\.|\$|\d+))?\s*([a-zA-Z=]?)(.*)$"
-
-pure ed_address(text: Str, current: Int, last: Int) -> Int {
-  if text == "." { return current }
-  if text == "$" { return last }
-  text.parse_int() ?? -1
-}
-
-pure with_newline(text: Bytes) -> Bytes {
-  if text.ends_with(b"\n") { text } else { bytes.concat([text, b"\n"]) }
-}
-
-## Apply an ed script that starts at `lines[at]` to `input` the way `ed -`
-## does: commands run in order against the whole buffer, and text for `a`,
-## `i`, and `c` ends at a line holding a single dot.
-export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult {
-  var buffer = input
-  var current = buffer.len()
-  var i = at
-  while i < lines.len() {
-    let text = body_text(lines[i])
-    # GNU patch hands the editor only the commands that start with a digit
-    # (and the text that follows them); anything else is dropped.
-    if !rx"^[0-9]".matches(text) {
-      i += 1
-      continue
-    }
-    let c = ED_ADDRESS_RE.captures(text)
-    if c.is_empty() { return {output: buffer, failed: text, next: i} }
-    let command = c[3]
-    let size = buffer.len()
-    var first = if c[1] == "" { current } else { ed_address(c[1], current, size) }
-    var last = if c[2] == "" { first } else { ed_address(c[2], current, size) }
-    if c[1] == "" and c[2] == "" and command != "" { first = current; last = current }
-    i += 1
-    if command == "a" or command == "i" or command == "c" {
-      var added: List[Bytes] = []
-      var closed = false
-      while i < lines.len() {
-        let body = body_text(lines[i])
-        i += 1
-        if body == "." { closed = true; break }
-        added += [with_newline(lines[i - 1])]
-      }
-      if !closed { return {output: buffer, failed: text, next: i} }
-      if command == "a" {
-        if first < 0 or first > size { return {output: buffer, failed: text, next: i} }
-        buffer = bytes_list_splice(buffer, first, first, added)
-        current = first + added.len()
-      } else if command == "i" {
-        let at_line = if first < 1 { 1 } else { first }
-        if at_line > size + 1 { return {output: buffer, failed: text, next: i} }
-        buffer = bytes_list_splice(buffer, at_line - 1, at_line - 1, added)
-        current = at_line - 1 + added.len()
-      } else {
-        if first < 1 or last > size or last < first { return {output: buffer, failed: text, next: i} }
-        buffer = bytes_list_splice(buffer, first - 1, last, added)
-        current = first - 1 + added.len()
-      }
-    } else if command == "d" {
-      if first < 1 or last > size or last < first { return {output: buffer, failed: text, next: i} }
-      buffer = bytes_list_splice(buffer, first - 1, last, [])
-      current = if first - 1 < buffer.len() { first } else { buffer.len() }
-    } else if command == "s" {
-      let parts = c[4].split(c[4].byte_slice(0, length: 1))
-      if parts.len() < 3 or first < 1 or last > size { return {output: buffer, failed: text, next: i} }
-      let pattern = regex.compile(parts[1])
-      let compiled = match pattern {
-        Ok(value) => value
-        Err(_) => { return {output: buffer, failed: text, next: i} }
-      }
-      let global = parts.len() > 3 and parts[3] == "g"
-      for index in range(first - 1, last) {
-        let line = body_text(buffer[index])
-        let found = compiled.find(line)
-        var replaced = line
-        if !found.is_empty() {
-          if global { replaced = compiled.replace(line, with: parts[2]) } else {
-            replaced = line.byte_slice(0, found[0].start) + parts[2] + line.byte_slice(found[0].end)
-          }
-        }
-        buffer[index] = bytes.from_text(replaced + "\n")
-      }
-      current = last
-    } else if command == "w" or command == "q" or command == "p" or command == "" {
-      # Writing and quitting are implicit; nothing else in an ed script
-      # changes the buffer.
-    } else {
-      return {output: buffer, failed: text, next: i}
-    }
-  }
-  {output: buffer, failed: "", next: i}
-}
-
-pure bytes_list_splice(list: List[Bytes], from: Int, to: Int, middle: List[Bytes]) -> List[Bytes] {
-  var output: List[Bytes] = []
-  for index in range(from) { output += [list[index]] }
-  output += middle
-  for index in range(to, list.len()) { output += [list[index]] }
-  output
 }

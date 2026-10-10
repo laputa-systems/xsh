@@ -1,0 +1,8 @@
+diff --git a/newf b/newf
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/newf
+@@ -0,0 +1,2 @@
++hello
++world

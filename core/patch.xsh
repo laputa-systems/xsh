@@ -2,6 +2,9 @@
 use lib.gnu
 use lib.patch_parse
 use lib.patch_apply
+use lib.patch_reject
+use lib.patch_options
+use lib.patch_ed
 
 type Options = {
   backup: Bool,
@@ -227,156 +230,10 @@ proc read_input(name: Str) [fs, error] -> Result[Bytes, Error] {
   fp"{name}".read_bytes()
 }
 
-# A unified range: the line count is omitted for one line, and an empty range
-# names the line before it.
-pure range_text(first: Int, count: Int) -> Str {
-  if count == 1 { f"{first}" } else if count == 0 { f"{first - 1},0" } else { f"{first},{count}" }
-}
-
-# A body line as GNU patch writes it into a reject file: the line bytes
-# exactly as read, so a line that had no terminator runs into the next one.
-pure line_text(kind: Str, line: Bytes) -> Bytes {
-  bytes.concat([bytes.from_text(kind), line])
-}
-
-# One failed hunk as unified-diff text.
-pure unified_reject(hunk: patch_parse.Hunk) -> Bytes {
-  var parts: List[Bytes] = [bytes.from_text(f"@@ -{range_text(hunk.old_first, hunk.old_count)} +{range_text(hunk.new_first, hunk.new_count)} @@"), hunk.function, b"\n"]
-  for index in range(hunk.kinds.len()) {
-    let kind = hunk.kinds[index]
-    parts += [line_text(if kind == 0 { " " } else if kind == 1 { "-" } else { "+" }, hunk.texts[index])]
-  }
-  bytes.concat(parts)
-}
-
-pure context_range(first: Int, count: Int) -> Str {
-  if count == 0 { return f"{first - 1}" }
-  if count == 1 { return f"{first}" }
-  f"{first},{first + count - 1}"
-}
-
-# One failed hunk as context-diff text. A hunk read from a normal diff has no
-# context lines and prints the bare ranges GNU patch prints for such hunks.
-pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool) -> Bytes {
-  var old_lines: List[Bytes] = []
-  var new_lines: List[Bytes] = []
-  let kinds = hunk.kinds
-  # Within one change group, removed and added lines show as changed (`!`)
-  # when the group has both, otherwise as `-` or `+`.
-  var marks: List[Str] = []
-  var index = 0
-  while index < kinds.len() {
-    if kinds[index] == 0 {
-      marks += [" "]
-      index += 1
-      continue
-    }
-    var end = index
-    var removed = 0
-    var added = 0
-    while end < kinds.len() and kinds[end] != 0 {
-      if kinds[end] == 1 { removed += 1 } else { added += 1 }
-      end += 1
-    }
-    for k in range(end - index) {
-      if removed > 0 and added > 0 and !from_normal { marks += ["!"] } else if kinds[index + k] == 1 { marks += ["-"] } else { marks += ["+"] }
-    }
-    index = end
-  }
-  for at in range(kinds.len()) {
-    let mark = marks[at]
-    let text = hunk.texts[at]
-    let note = b""
-    if kinds[at] != 2 {
-      old_lines += [bytes.concat([bytes.from_text(if mark == "!" { "! " } else if mark == "-" { "- " } else { "  " }), text, note])]
-    }
-    if kinds[at] != 1 {
-      new_lines += [bytes.concat([bytes.from_text(if mark == "!" { "! " } else if mark == "+" { "+ " } else { "  " }), text, note])]
-    }
-  }
-  var parts: List[Bytes] = [bytes.from_text("***************"), hunk.function, b"\n"]
-  let old_range = if from_normal and hunk.old_count == 0 { "0" } else { context_range(hunk.old_first, hunk.old_count) }
-  let new_range = if from_normal and hunk.new_count == 0 { "0" } else { context_range(hunk.new_first, hunk.new_count) }
-  let old_tail = if from_normal { "" } else { " ****" }
-  let new_tail = if from_normal { " -----" } else { " ----" }
-  parts += [bytes.from_text(f"*** {old_range}{old_tail}\n")]
-  parts += old_lines
-  parts += [bytes.from_text(f"--- {new_range}{new_tail}\n")]
-  parts += new_lines
-  bytes.concat(parts)
-}
-
-# The order GNU patch declares its long options in. getopt lists the
-# candidates of an ambiguous abbreviation in this order.
-const LONG_OPTION_ORDER = ["backup", "prefix", "context", "directory", "ifdef", "ed", "remove-empty-files", "force", "fuzz", "get", "input", "ignore-whitespace", "normal", "forward", "output", "strip", "reject-file", "reverse", "quiet", "silent", "batch", "set-time", "unified", "version", "version-control", "debug", "basename-prefix", "suffix", "set-utc", "dry-run", "verbose", "binary", "help", "backup-if-mismatch", "no-backup-if-mismatch", "posix", "quoting-style", "reject-format", "read-only", "follow-symlinks", "merge"]
-
-# Reorder the candidates in an `is ambiguous; possibilities:` message.
-pure reorder_candidates(message: Str) -> Str {
-  let marker = "; possibilities: "
-  let at = message.find(marker) ?? -1
-  if at < 0 { return message }
-  let head = message.byte_slice(0, at + marker.byte_len())
-  var names: List[Str] = []
-  for part in message.byte_slice(at + marker.byte_len()).split(" ") {
-    if part != "" { names += [part] }
-  }
-  var ordered: List[Str] = []
-  for known in LONG_OPTION_ORDER {
-    for name in names { if name == f"'--{known}'" { ordered += [name] } }
-  }
-  for name in names { if !(name in ordered) { ordered += [name] } }
-  head + ordered.join(" ")
-}
-
-# Resolve a `-V` argument to none, simple, existing, or numbered; abbreviations
-# are accepted when they name one style. Anything else is "".
-pure version_style(text: Str) -> Str {
-  let table = [
-    {name: "none", style: "none"}, {name: "off", style: "none"},
-    {name: "simple", style: "simple"}, {name: "never", style: "simple"},
-    {name: "existing", style: "existing"}, {name: "nil", style: "existing"},
-    {name: "numbered", style: "numbered"}, {name: "t", style: "numbered"},
-  ]
-  for entry in table { if entry.name == text { return entry.style } }
-  var found = ""
-  for entry in table {
-    if text != "" and entry.name.starts_with(text) {
-      if found != "" and found != entry.style { return "" }
-      found = entry.style
-    }
-  }
-  found
-}
-
-# The last of the format switches wins, as with getopt processing in order.
-pure chosen_format(argv: List[Str]) -> Str {
-  var format = "any"
-  for argument in argv {
-    if argument == "--" { break }
-    if argument.starts_with("--") {
-      let name = argument.byte_slice(2).split("=")[0]
-      if name != "" {
-        for long in ["unified", "context", "normal", "ed"] {
-          if long.starts_with(name) and (name == long or (name.byte_len() > 1 and name != "no")) {
-            format = if long == "unified" { "unified" } else if long == "context" { "context" } else if long == "normal" { "normal" } else { "ed" }
-          }
-        }
-      }
-    } else if argument.starts_with("-") and argument != "-" {
-      for letter in argument.byte_slice(1) {
-        if letter == "u" { format = "unified" } else if letter == "c" { format = "context" } else if letter == "n" { format = "normal" } else if letter == "e" { format = "ed" }
-        # Letters that take a value end the cluster.
-        if letter in ["p", "F", "d", "D", "i", "o", "r", "B", "Y", "z", "V", "g", "x"] { break }
-      }
-    }
-  }
-  format
-}
-
 # GNU patch prints its own prefix before the usage hint, which the option
 # parser's message lacks.
 proc usage_failure(message: Str) [process, env, io] {
-  let first = reorder_candidates(message.split("\n")[0])
+  let first = patch_options.reorder_candidates(message.split("\n")[0])
   if first != "" { eprint $first }
   eprint f"{gnu.prog()}: Try '{gnu.prog()} --help' for more information."
   exit 2
@@ -446,7 +303,7 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   if opts.fuzz.starts_with("-") { fatal(f"fuzz factor {opts.fuzz} is negative") }
   let max_fuzz = opts.fuzz.parse_int() ?? 2147483647
   if let style = opts.version_control {
-    if version_style(style) == "" {
+    if patch_options.version_style(style) == "" {
       eprint f"{gnu.prog()}: invalid argument '{style}' for '--version-control or -V option'"
       eprint "Valid arguments are:\n  - 'none', 'off'\n  - 'simple', 'never'\n  - 'existing', 'nil'\n  - 'numbered', 't'"
       exit 2
@@ -498,7 +355,7 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
   }
   let lines = patch_parse.split_lines(patch_bytes)
   if lines.is_empty() { return }
-  let allowed = chosen_format(opts_argv)
+  let allowed = patch_options.chosen_format(opts_argv)
   var named: Str? = null
   if opts.files.len() > 0 { named = opts.files[0] }
   var position = 0
@@ -655,16 +512,32 @@ proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sca
     say("Cannot rename file without two valid file names\n")
     return {status: 1, next: skip_hunks(lines, scan).next}
   }
+  if action == "copied" and opts.reverse {
+    # Undoing a copy leaves the original in place: the file it was copied
+    # from is patched where it stands.
+    if !file_exists(git.copy_from) {
+      say("Cannot copy file without two valid file names\n")
+      return {status: 1, next: skip_hunks(lines, scan).next}
+    }
+    chosen = git.copy_from
+    source = ""
+    action = ""
+  }
   let old_missing = (old_raw.present and (old_raw.name == "/dev/null" or patch_parse.is_epoch(old_raw.stamp))) or (git.present and git.new_file_mode != "")
   let new_missing = (new_raw.present and (new_raw.name == "/dev/null" or patch_parse.is_epoch(new_raw.stamp))) or (git.present and git.deleted_file_mode != "")
-  let target: Target = {read: if source != "" { source } else { chosen }, write: chosen, action: action, mode: git_mode(git)}
+  let target: Target = {read: if source != "" { source } else { chosen }, write: chosen, action: action, mode: git_mode(git, opts.reverse)}
   apply_file(opts, strip, max_fuzz, lines, scan, target, {creating: creating or (git.present and git.new_file_mode != ""), deleting: deleting or (git.present and git.deleted_file_mode != ""), old_missing: old_missing, new_missing: new_missing})
 }
 
-# The permission bits a Git header asks for, or -1 when it names none.
-pure git_mode(git: patch_parse.GitHeader) -> Int {
+# The mode a Git header asks for, or -1 when it names none. A reversed
+# patch asks for the mode the file had before.
+pure git_mode(git: patch_parse.GitHeader, reverse: Bool) -> Int {
   var text = ""
-  if git.new_file_mode != "" { text = git.new_file_mode } else if git.new_mode != "" { text = git.new_mode }
+  if reverse {
+    if git.deleted_file_mode != "" { text = git.deleted_file_mode } else if git.old_mode != "" { text = git.old_mode }
+  } else {
+    if git.new_file_mode != "" { text = git.new_file_mode } else if git.new_mode != "" { text = git.new_mode }
+  }
   if text == "" { return -1 }
   var value = 0
   for digit in text { value = value * 8 + (digit.parse_int() ?? 0) }
@@ -842,7 +715,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
   var outcome: Outcome = {output: [], rejected: [], total: 0, mismatch: false, skipped: false, next: 0, fatal_line: 0, fatal_text: b"", partial: false, reversed: false}
   if scan.kind == "ed" and blocked == "" {
     # The ed script runs against the whole file; nothing can be rejected.
-    let edited = patch_parse.run_ed(lines, scan.body, input_lines)
+    let edited = patch_ed.run_ed(lines, scan.body, input_lines)
     if edited.failed != "" {
       eprint f"{gnu.prog()}: **** /bin/ed FAILED"
       exit 2
@@ -873,7 +746,21 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
       let mismatch_backup = mismatched and !opts.no_backup_if_mismatch and (opts.backup_if_mismatch or !posix)
       if opts.output == null and (opts.backup or mismatch_backup) {
         let says_missing = facts.old_missing or facts.new_missing or facts.creating or facts.deleting
-        make_backup(opts, name, exists, original, original_mode, says_missing)?
+        if target.action != "" and target.read != target.write {
+          # A renamed or copied file backs up its destination (empty when it
+          # is new); a renamed file also backs up the source it removes.
+          let destination_exists = file_exists(target.write)
+          var destination_original = b""
+          var destination_mode = -1
+          if destination_exists {
+            destination_original = fp"{target.write}".read_bytes()?
+            destination_mode = fs.stat(fp"{target.write}", follow_symlinks: true)?.mode % 4096
+          }
+          make_backup(opts, target.write, destination_exists, destination_original, destination_mode, true)?
+          if target.action == "renamed" { make_backup(opts, name, exists, original, original_mode, says_missing)? }
+        } else {
+          make_backup(opts, name, exists, original, original_mode, says_missing)?
+        }
       }
       if content.len() == 0 and (opts.remove_empty or removes) {
         if exists and opts.output == null { remove_file(name)? }
@@ -898,6 +785,8 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
         }
         if target.mode >= 0 and !symlink and opts.output == null {
           fp"{outname}".chmod(without_bits(target.mode % 4096, fs.umask()?))?
+        } else if target.action != "" and original_mode >= 0 and target.write != target.read {
+          fp"{outname}".chmod(original_mode)?
         }
         if target.action == "renamed" and target.read != target.write and opts.output == null and failed == 0 {
           remove_file(target.read)?
@@ -978,9 +867,9 @@ proc highest_numbered(target: Str) [fs, error] -> Int {
 # environment, then prefixes and suffix. A prefix without an explicit suffix
 # names the backup by the prefix alone.
 proc backup_name(opts: Options, name: Str) [fs, env, error] -> Str {
-  var style = version_style(opts.version_control ?? "")
-  if style == "" { style = version_style(env.get_or("PATCH_VERSION_CONTROL", "") ?? "") }
-  if style == "" { style = version_style(env.get_or("VERSION_CONTROL", "") ?? "") }
+  var style = patch_options.version_style(opts.version_control ?? "")
+  if style == "" { style = patch_options.version_style(env.get_or("PATCH_VERSION_CONTROL", "") ?? "") }
+  if style == "" { style = patch_options.version_style(env.get_or("VERSION_CONTROL", "") ?? "") }
   let affixed = opts.prefix != null or opts.basename_prefix != null
   let stem = f"{opts.prefix ?? ""}{dirname_of(name)}{opts.basename_prefix ?? ""}{basename_of(name)}"
   let suffix = opts.suffix ?? (if affixed { "" } else { ".orig" })
@@ -1018,10 +907,10 @@ proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reje
   }
   if as_context {
     parts += [bytes.from_text(f"*** {header_old}\n--- {header_new}\n")]
-    for hunk in outcome.rejected { parts += [context_reject(hunk, scan.kind == "normal")] }
+    for hunk in outcome.rejected { parts += [patch_reject.context_reject(hunk, scan.kind == "normal")] }
   } else {
     parts += [bytes.from_text(f"--- {header_old}\n+++ {header_new}\n")]
-    for hunk in outcome.rejected { parts += [unified_reject(hunk)] }
+    for hunk in outcome.rejected { parts += [patch_reject.unified_reject(hunk)] }
   }
   fp"{reject_name}".write(bytes.concat(parts))
 }

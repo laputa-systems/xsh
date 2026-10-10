@@ -1,0 +1,2 @@
+patching file a
+Not deleting file a as content differs from patch
