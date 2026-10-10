@@ -1,6 +1,7 @@
 pub(crate) mod cgroup;
 pub mod eval;
 pub(crate) mod map;
+pub mod namespace;
 pub mod process;
 pub mod run;
 pub(crate) mod signal;

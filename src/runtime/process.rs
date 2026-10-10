@@ -541,6 +541,8 @@ pub struct ProcessInvocation {
     pub timeout: Option<Duration>,
     pub cpu_max: Option<i64>,
     pub accepted_exit_codes: Option<AcceptedExitCodes>,
+    /// Namespace changes the child makes before it executes the command.
+    pub namespaces: Option<crate::runtime::namespace::NamespaceEntry>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2191,6 +2193,9 @@ fn command_with_stdio(
     }
     configure_process_group(&mut command, group);
     apply_redirections(&mut command, &invocation.redirections)?;
+    if let Some(entry) = &invocation.namespaces {
+        crate::runtime::namespace::prepare(entry, &mut command)?;
+    }
     Ok(command)
 }
 
@@ -2225,6 +2230,9 @@ fn command_with_managed_stdio(
     {
         validate_input_sources(&invocation.redirections)?;
         command.stdin(Stdio::piped());
+    }
+    if let Some(entry) = &invocation.namespaces {
+        crate::runtime::namespace::prepare(entry, &mut command)?;
     }
     Ok(command)
 }
@@ -2698,6 +2706,12 @@ fn os_string_from_bytes(bytes: &[u8]) -> OsString {
 }
 
 fn map_spawn_error(error: io::Error) -> RunError {
+    if let Some(failure) = error
+        .raw_os_error()
+        .and_then(crate::runtime::namespace::step_failure)
+    {
+        return failure;
+    }
     match error.raw_os_error() {
         Some(libc::ENOEXEC) => RunError::new("exec-format", "executable format error"),
         Some(libc::EACCES) => RunError::new("permission-denied", "permission denied"),
@@ -2805,6 +2819,7 @@ mod tests {
             timeout: None,
             cpu_max: None,
             accepted_exit_codes: None,
+            namespaces: None,
         };
 
         let output = run_capture_with_stderr(&invocation).expect("capture redirected process");
@@ -2845,6 +2860,7 @@ mod tests {
                 timeout: None,
                 cpu_max: None,
                 accepted_exit_codes: None,
+                namespaces: None,
             };
             run_capture_with_stderr(&invocation).expect("capture process")
         };
@@ -2878,6 +2894,7 @@ mod tests {
             timeout: None,
             cpu_max: None,
             accepted_exit_codes: None,
+            namespaces: None,
         };
         let options = SpawnManagedOptions {
             stdin: ManagedStdio::Null,

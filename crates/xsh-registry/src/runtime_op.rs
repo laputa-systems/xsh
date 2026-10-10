@@ -142,6 +142,8 @@ pub enum RuntimeOp {
     LinuxBlockdevRereadPartitionTable,
     LinuxFstrim,
     LinuxFsfreeze,
+    LinuxNamespaces,
+    LinuxRunInNamespaces,
 
     RegexCaptures,
     RegexReplace,

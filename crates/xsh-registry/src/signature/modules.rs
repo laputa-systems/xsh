@@ -1,5 +1,5 @@
 #![allow(clippy::single_call_fn)]
-use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type};
+use crate::records::{linux_sample_type, linux_module_plan_type, linux_blockdev_info_type, linux_namespace_type};
 
 use super::methods::{bytes_copy_type, cli_token_type};
 use super::streams::fs_entry_stream;
@@ -2254,6 +2254,31 @@ fn linux_module() -> ModuleSig {
         ("fstrim", sig(vec![param("path", Type::Path), default_param("offset", Type::UInt), default_param("length", Type::Optional(Box::new(Type::UInt))), default_param("minlen", Type::UInt)], result(Type::UInt), false, RuntimeOp::LinuxFstrim)),
 
         ("fsfreeze", sig(vec![param("path", Type::Path), param("freeze", Type::Bool)], result(Type::Unit), false, RuntimeOp::LinuxFsfreeze)),
+
+        ("namespaces", sig(vec![default_param("pid", Type::Optional(Box::new(Type::Int)))], result(Type::List(Box::new(linux_namespace_type()))), false, RuntimeOp::LinuxNamespaces)),
+
+        (
+            "run_in_namespaces",
+            sig(
+                vec![
+                    param("command", Type::Command),
+                    default_param("unshare", list_str()),
+                    default_param("join", list_path()),
+                    default_param("map_root_user", Type::Bool),
+                    default_param("propagation", Type::Str),
+                    default_param("mount_proc", Type::Optional(Box::new(Type::Path))),
+                    default_param("fork", Type::Bool),
+                    default_param("root", Type::Optional(Box::new(Type::Path))),
+                    default_param("cwd", Type::Optional(Box::new(Type::Path))),
+                    default_param("uid", Type::Optional(Box::new(Type::Int))),
+                    default_param("gid", Type::Optional(Box::new(Type::Int))),
+                    default_param("drop_groups", Type::Bool),
+                ],
+                Type::Result(Box::new(Type::Status), Box::new(Type::ProcessError)),
+                false,
+                RuntimeOp::LinuxRunInNamespaces,
+            ),
+        ),
 
         (
             "write_device",
@@ -4622,6 +4647,11 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "LinuxModulePlan" => ("One resolved kernel module operation.", "Planning reads module indexes and configuration without executing commands or loading modules.", &["linux", "kernel"]),
         "LinuxBlockdevInfo" => ("Block device dimensions and read-only state.", "Values reflect device state at query time.", &["linux", "device"]),
+        "LinuxNamespace" => (
+            "Describes one namespace and the lowest-numbered process holding it.",
+            "The record is a point-in-time observation of processes the caller may inspect; ns is the inode that identifies the namespace.",
+            &["linux", "namespace", "record"],
+        ),
         "LinuxModinfo" => (
             "Describes Linux kernel-module metadata.",
             "The record is inspection data and does not load the named module.",

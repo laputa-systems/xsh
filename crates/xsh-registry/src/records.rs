@@ -57,6 +57,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxNetworkRule", linux_network_rule_type()),
         ("LinuxNetworkDump", linux_network_dump_type()),
         ("LinuxLoopDevice", linux_loop_device_type()),
+        ("LinuxNamespace", linux_namespace_type()),
         ("LinuxMemInfo", linux_meminfo_type()),
         ("LinuxSample", linux_sample_type()),
         ("LinuxCpuSample", linux_cpu_sample_type()),
@@ -1203,6 +1204,23 @@ pub fn group_record_type() -> Type {
 
 pub fn linux_module_plan_type() -> Type {
     Type::Record(name_type_map(vec![("name", Type::Str), ("filename", Type::Path), ("params", Type::Str), ("loaded", Type::Bool)]))
+}
+
+pub fn linux_namespace_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("ns", Type::Int),
+        ("type", Type::Str),
+        ("path", Type::Path),
+        ("nprocs", Type::Int),
+        ("pid", Type::Int),
+        ("ppid", Type::Int),
+        ("uid", Type::Int),
+        ("command", Type::Str),
+        ("pns", Type::Int),
+        ("ons", Type::Int),
+        ("netnsid", Type::Optional(Box::new(Type::Int))),
+        ("nsfs", Type::List(Box::new(Type::Path))),
+    ]))
 }
 
 pub fn linux_blockdev_info_type() -> Type {

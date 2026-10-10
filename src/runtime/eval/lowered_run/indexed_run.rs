@@ -2297,6 +2297,7 @@ impl Evaluator {
             timeout,
             cpu_max,
             accepted_exit_codes,
+            namespaces: None,
         }))
     }
 

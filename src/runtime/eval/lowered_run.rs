@@ -57,6 +57,7 @@ use tempfile::TempDir;
 use xsh_root::Root;
 
 pub(in crate::runtime::eval) mod indexed_run;
+mod namespaces;
 
 #[cfg(feature = "native-tests")]
 use super::display_value;
@@ -8024,6 +8025,7 @@ impl Evaluator {
                         timeout: None,
                         cpu_max: None,
                         accepted_exit_codes: None,
+                        namespaces: None,
                     };
                     match resolve_executable(&invocation)
                         .map_err(|error| run_error_to_runtime(error, span))
@@ -8065,47 +8067,23 @@ impl Evaluator {
                     span,
                 )?;
                 let invocation = self.invocation_from_command_plan(&plan, span)?;
-                self.trace_process_run_start(span, &invocation);
-                let outcome = if self.capture_process_output {
-                    run_capture_with_stderr_policy(&invocation, self).map(|output| {
-                        self.stdout.extend_from_slice(&output.stdout);
-                        self.stderr.extend_from_slice(&output.stderr);
-                        output.end
-                    })
-                } else {
-                    run_inherit_with_policy(&invocation, self)
-                };
-                match outcome {
-                    Ok(end) => {
-                        let status = end.status.clone().expect("completed process has status");
-                        self.last_status = Some(status.clone());
-                        self.trace_process_run_end(span, &end);
-                        lowered_result_ok(LoweredValue::Status(Box::new(status)))
-                    }
-                    Err(error) => {
-                        let error = error.with_span(span);
-                        let end = ProcessEnd {
-                            pid: None,
-                            status: error.status.as_deref().cloned(),
-                            error: Some(error.clone()),
-                        };
-                        if let Some(status) = &end.status {
-                            self.last_status = Some(status.clone());
-                        }
-                        self.trace_process_run_end(span, &end);
-                        if self.signal_state.shutdown_complete
-                            && self.signal_state.shutdown_status.is_some()
-                        {
-                            let status = end
-                                .status
-                                .clone()
-                                .unwrap_or_else(|| ProcessStatus::signaled(libc::SIGTERM));
-                            lowered_result_ok(LoweredValue::Status(Box::new(status)))
-                        } else {
-                            LoweredValue::ResultErr(Box::new(Value::RunError(Box::new(error))))
-                        }
-                    }
-                }
+                self.run_process_invocation(invocation, span)
+            }
+            RuntimeOp::LinuxRunInNamespaces | RuntimeOp::LinuxNamespaces
+                if self.linux_fake_active() =>
+            {
+                lowered_result_err_value(
+                    RuntimeError::new(
+                        "linux-fake-unsupported",
+                        "namespace operations have no Linux fake implementation",
+                    )
+                    .with_span(span),
+                )
+            }
+            RuntimeOp::LinuxRunInNamespaces => self.eval_run_in_namespaces(values, span)?,
+            RuntimeOp::LinuxNamespaces => {
+                let pid = lowered_optional_int_arg(values.get(0), "linux.namespaces", span)?;
+                lowered_runtime_result(linux_module::namespaces(pid, span), span)?
             }
             RuntimeOp::ProcessSpawn if values.len() == 1 => {
                 let plan = lowered_command_arg(
