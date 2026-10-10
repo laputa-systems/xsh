@@ -249,6 +249,130 @@ test test_tail_pid_follow_does_not_block_on_fifo_open { |ctx|
   assert stderr.read_text()? == ""
 }
 
+test test_tail_reads_a_regular_file_shorter_than_its_stat_size { |ctx|
+  let attribute = p"/sys/kernel/profiling"
+  if ! attribute.exists() {
+    test.skip("/sys/kernel/profiling is not available")
+  }
+
+  let root = test.temp_dir(ctx, name: "tail-sysfs")?
+  let content = attribute.read_bytes()?
+  assert tail_run(ctx, root, ["-n", "1", "/sys/kernel/profiling"])?.stdout == content
+  assert tail_run(ctx, root, ["-c", "1", "/sys/kernel/profiling"])?.stdout == content[content.len() - 1..]
+  assert tail_run(ctx, root, ["-c", "2", "/sys/kernel/profiling"])?.stdout == content
+}
+
+test test_tail_reports_an_unreadable_empty_file_at_open { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-unreadable-empty")?
+  let empty = fp"{root}/empty"
+  empty.write(b"")
+  empty.chmod(0o000)
+  if fs.access(empty, read: true)? {
+    test.skip("the file stays readable for this user")
+  }
+
+  let result = tail_run(ctx, root, ["empty"])?
+  assert result.status == 1
+  assert result.stdout == b""
+  assert result.stderr == "tail: cannot open 'empty' for reading: Permission denied\n", result.stderr
+}
+
+test test_tail_follow_name_keeps_an_unreadable_file_waiting_silently { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-unreadable")?
+  let log = fp"{root}/log"
+  log.write(b"one\n")
+  log.chmod(0o000)
+  if fs.access(log, read: true)? {
+    test.skip("the file stays readable for this user")
+  }
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let writer = spawn run sh -c "until grep -q 'cannot open' \"$2\" 2>/dev/null; do sleep 0.05; done; chmod 644 \"$1\"; printf 'two\\n' >> \"$1\"" sh log.display() stderr.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == "one\ntwo\n", stdout.read_text()?
+  assert stderr.read_text()? == "tail: cannot open 'log' for reading: Permission denied\ntail: 'log' has appeared;  following new file\n", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
+test test_tail_diagnostics_precede_the_output_they_introduce { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-diagnostic-order")?
+  let out = fp"{root}/out"
+  # The file appears only after tail has reported it missing, so the order does not depend on startup time.
+  let writer = spawn run sh -c "until grep -q 'cannot open' \"$1\" 2>/dev/null; do sleep 0.05; done; printf 'X\\n' > \"$2\"" sh out.display() fp"{root}/log".display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let args: List[Union[Str, Path]] = [
+    "sh",
+    "-c",
+    "cd \"$1\" && \"$2\" \"$3\" -k .1 1.2 \"$2\" \"$4\" -F -s.02 log > \"$5\" 2>&1; echo \"status=$?\"",
+    "sh",
+    root,
+    ctx.xsh_bin,
+    timeout,
+    tail,
+    out,
+  ]
+  let reported = run.text @args
+
+  assert reported == "status=124\n", reported
+  assert out.read_text()? == "tail: cannot open 'log' for reading: No such file or directory\ntail: 'log' has appeared;  following new file\nX\n", out.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
+test test_tail_follows_a_fifo_operand_as_it_is_written { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-fifo-follow")?
+  let fifo = fp"{root}/fifo"
+  fs.mkfifo(fifo, 0o600)
+  let writer = spawn run sh -c "sleep 0.2; printf 'one\\n' > \"$1\"; sleep 0.3; printf 'two\\n' > \"$1\"" sh fifo.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "-s.02", "fifo"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == "one\ntwo\n", stdout.read_text()?
+  assert stderr.read_text()? == "", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
+test test_tail_follows_standard_input_redirected_from_a_regular_file { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-stdin-follow")?
+  let log = fp"{root}/log"
+  log.write(b"1\n2\n3\n4\n5\n")
+  let writer = spawn run sh -c "sleep 0.2; printf 'hi\\n' >> \"$1\"" sh log.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let shell = p"/bin/sh"
+  let argv = [shell.display(), "-c", "exec \"$0\" \"$1\" -k .1 1.2 \"$0\" \"$2\" -f -s.02 < \"$3\"", ctx.xsh_bin.display(), timeout.display(), tail.display(), log.display()]
+  let plan = process.command_argv(shell, argv, root, {LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == "1\n2\n3\n4\n5\nhi\n", stdout.read_text()?
+  assert stderr.read_text()? == "", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
 test test_tail_follow_with_a_dead_pid_exits_after_initial_output { |ctx|
   let root = test.temp_dir(ctx, name: "tail")?
   fp"{root}/log".write(b"1\n2\n")
@@ -329,6 +453,26 @@ test test_tail_descriptor_retry_waits_for_a_missing_file { |ctx|
   assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
   assert stdout.read_text()? == "one\ntwo\n"
   assert stderr.read_text()? == "tail: warning: --retry only effective for the initial open\ntail: cannot open 'log' for reading: No such file or directory\ntail: 'log' has appeared;  following new file\n", stderr.read_text()?
+  assert (wait writer?).exited_with(0)
+}
+
+test test_tail_descriptor_retry_gives_up_when_the_name_becomes_a_directory { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-descriptor-directory")?
+  let log = fp"{root}/log"
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let writer = spawn run sh -c "until grep -q 'cannot open' \"$2\" 2>/dev/null; do sleep 0.05; done; mkdir \"$1\"" sh log.display() stderr.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", "1.2", ctx.xsh_bin.display(), tail.display(), "-f", "--retry", "-s.02", "log"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 3s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == ""
+  assert stderr.read_text()? == "tail: warning: --retry only effective for the initial open\ntail: cannot open 'log' for reading: No such file or directory\ntail: 'log' has been replaced with an untailable file; giving up on this name\ntail: no files remaining\n", stderr.read_text()?
   assert (wait writer?).exited_with(0)
 }
 
