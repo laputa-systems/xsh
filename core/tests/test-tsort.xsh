@@ -61,6 +61,31 @@ test test_tsort_reports_and_breaks_loops { |ctx|
   assert named.stderr == "tsort: f: input contains a loop:\ntsort: s\ntsort: t\n", named.stderr
 }
 
+test test_tsort_accepts_non_utf8_file_path_operands { |ctx|
+  let root = test.temp_dir(ctx, name: "tsort-raw-path")?
+  let file = Path.parse_bytes(bytes.concat([root.bytes(), b"/file\xff\xfe"]))?
+  file.write(b"a b\nb c\n")
+  let output = fp"{root}/out"
+  let error = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/tsort.xsh"
+  let argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), file]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 0, error.read_text()?
+  assert output.read_bytes()? == b"a\nb\nc\n"
+  assert error.read_text()? == ""
+
+  let missing = Path.parse_bytes(bytes.concat([root.bytes(), b"/missing\xff"]))?
+  let missing_argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display(), missing]
+  let missing_plan = process.command_argv(ctx.xsh_bin, missing_argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", output, error)
+  let missing_status = process.run(missing_plan)?
+
+  assert missing_status.exit_code()? == 1
+  assert output.read_bytes()? == b""
+  assert error.read_text()?.starts_with("tsort: "), error.read_text()?
+}
+
 test test_tsort_binary_tokens_and_errors { |ctx|
   let root = test.temp_dir(ctx, name: "tsort")?
 

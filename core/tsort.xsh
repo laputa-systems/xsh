@@ -116,9 +116,17 @@ pure find_loop(top: List[List[Int]], done: List[Bool], order: List[Int]) -> List
   []
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+# Operands are raw bytes so a file name that is not UTF-8 can still be opened.
+proc read_input(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
+  return io.stdin_bytes() when name == b"-"
+
+  Path.parse_bytes(name)?.read_bytes()
+}
+
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
   let opts: TsortOptions = cli.applet(
-    argv,
+    prepared.text,
     {
       gnu: {status: 1},
       help: {form: "-h --help", default: false, stop: true},
@@ -139,17 +147,19 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.files.len() > 1 {
-    gnu.error(f"extra operand {gnu.quote(opts.files[1])}\nTry 'tsort --help' for more information.")
+    let extra = gnu.argument_bytes(opts.files[1], prepared.raw)
+
+    gnu.error(f"extra operand {gnu.quote_bytes(extra, always: true)}\nTry 'tsort --help' for more information.")
     exit 1
   }
 
-  let name = opts.files.get(0) ?? "-"
+  let name = gnu.argument_bytes(opts.files.get(0) ?? "-", prepared.raw)
 
-  guard let data = gnu.read_operand(name) else { |failure|
+  guard let data = read_input(name) else { |failure|
     if gnu.errno(failure) == 21 {
-      gnu.error(f"{gnu.quote_maybe(name)}: read error: Is a directory")
+      gnu.error(f"{gnu.quote_bytes(name, always: false)}: read error: Is a directory")
     } else {
-      gnu.name_error(name, failure)
+      gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
     }
 
     exit 1
@@ -158,7 +168,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let tokens = tokenize(data)
 
   if tokens.len() % 2 == 1 {
-    gnu.error(f"{gnu.quote_maybe(name)}: input contains an odd number of tokens")
+    gnu.error(f"{gnu.quote_bytes(name, always: false)}: input contains an odd number of tokens")
     exit 1
   }
 
@@ -219,7 +229,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   while remaining > 0 {
     if head >= queue.len() {
-      gnu.error(f"{gnu.quote_maybe(name)}: input contains a loop:")
+      gnu.error(f"{gnu.quote_bytes(name, always: false)}: input contains a loop:")
       looped = true
 
       if remaining > LARGE_GRAPH {
