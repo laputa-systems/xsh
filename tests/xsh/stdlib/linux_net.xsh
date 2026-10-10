@@ -512,3 +512,100 @@ test test_ioctl_is_guarded {
   defer unix.close_fd(devnull)
   assert errno_of(linux.ioctl(devnull, c.SIOCGIFFLAGS, ifname("lo")?, 40)) == 25
 }
+
+# Reports the one open_files row of descriptor `fd`.
+proc descriptor_row(pid: Int, fd: Int) [process, error] -> Result[LinuxOpenFile] {
+  let rows = linux.open_files(pid)? |> where .fd == fd |> collect
+  assert rows.len() == 1, f"descriptor {fd} must have exactly one row"
+  Ok(rows[0])
+}
+
+test test_open_files_describes_each_socket_and_a_locked_file_by_its_own_type { |ctx|
+  guard system.uname()?.sysname == "Linux" else {
+    test.skip("linux.open_files reads live Linux process descriptors")
+    return
+  }
+  let c = linux.net_constants()
+  let pid = process.current_pid()?
+
+  # A connection that closed on this side first leaves a TIME_WAIT row with
+  # inode 0 in the TCP table; no descriptor may be matched to it.
+  let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
+  defer unix.close_fd(listener)
+  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})?
+  linux.listen(listener, 4)?
+  let tcp_address = linux.getsockname(listener)?
+  let first = linux.socket(c.AF_INET, c.SOCK_STREAM)?
+  linux.connect(first, tcp_address)?
+  let first_peer = linux.accept(listener)?
+  unix.close_fd(first_peer.fd)?
+  unix.close_fd(first)?
+
+  let client = linux.socket(c.AF_INET, c.SOCK_STREAM)?
+  defer unix.close_fd(client)
+  linux.connect(client, tcp_address)?
+  let accepted = linux.accept(listener)?
+  defer unix.close_fd(accepted.fd)
+  let client_address = linux.getsockname(client)?
+
+  let datagram = loopback_udp()?
+  defer unix.close_fd(datagram)
+  let datagram_address = linux.getsockname(datagram)?
+
+  let unix_name = f"@xsh-open-files-{pid}"
+  let local_server = linux.socket(c.AF_UNIX, c.SOCK_STREAM)?
+  defer unix.close_fd(local_server)
+  linux.bind(local_server, {family: "unix", address: unix_name})?
+  linux.listen(local_server)?
+
+  let netlink = linux.netlink_open(c.NETLINK_ROUTE)?
+  defer unix.close_fd(netlink)
+
+  let root = test.temp_dir(ctx, name: "open-files-lock")?
+  let locked = fp"{root}/locked.txt"
+  locked.write("held")
+  let lock = fs.lock(locked)?
+  defer fs.unlock(lock)
+
+  let listener_row = descriptor_row(pid, listener)?
+  assert listener_row.type == "socket" and listener_row.protocol == "tcp"
+  assert listener_row.local == f"127.0.0.1:{tcp_address.port}"
+  assert listener_row.remote == "0.0.0.0:0"
+
+  let client_row = descriptor_row(pid, client)?
+  assert client_row.type == "socket" and client_row.protocol == "tcp"
+  assert client_row.local == f"127.0.0.1:{client_address.port}"
+  assert client_row.remote == f"127.0.0.1:{tcp_address.port}"
+
+  let accepted_row = descriptor_row(pid, accepted.fd)?
+  assert accepted_row.type == "socket" and accepted_row.protocol == "tcp"
+  assert accepted_row.local == f"127.0.0.1:{tcp_address.port}"
+  assert accepted_row.remote == f"127.0.0.1:{client_address.port}"
+  assert listener_row.inode != client_row.inode
+  assert client_row.inode != accepted_row.inode
+
+  let datagram_row = descriptor_row(pid, datagram)?
+  assert datagram_row.type == "socket" and datagram_row.protocol == "udp"
+  assert datagram_row.local == f"127.0.0.1:{datagram_address.port}"
+
+  let unix_row = descriptor_row(pid, local_server)?
+  assert unix_row.type == "socket" and unix_row.protocol == "unix"
+  assert unix_row.local == unix_name and unix_row.remote == ""
+
+  let netlink_row = descriptor_row(pid, netlink)?
+  assert netlink_row.type == "socket" and netlink_row.protocol == "netlink"
+
+  let files = linux.open_files(pid)? |> where .path == locked |> collect
+  assert files.len() == 1, "the locked regular file must have one row"
+  let locked_row = files[0]
+  assert locked_row.type == "file"
+  assert locked_row.protocol == "" and locked_row.local == "" and locked_row.remote == ""
+  assert locked_row.inode == fs.stat(locked)?.ino
+
+  # No descriptor other than a socket may carry socket attributes.
+  for row in linux.open_files(pid)? {
+    if row.type != "socket" {
+      assert row.protocol == "" and row.local == "" and row.remote == "", f"fd {row.fd} is {row.type}"
+    }
+  }
+}
