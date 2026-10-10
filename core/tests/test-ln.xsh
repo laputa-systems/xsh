@@ -580,3 +580,43 @@ test test_ln_too_long_destination_reports_access_only_when_replacing { |ctx|
     assert plain.stderr.starts_with(f"ln: failed to create symbolic link '{long}': "), plain.stderr
   }
 }
+
+test test_ln_symbolic_replaces_a_link_to_the_source { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  cd root {
+    p"file1".write("one")
+    p"file2".symlink(to: p"file1")?
+    run.text ${ctx.xsh_bin} $script -- -srf p"file1" p"file2"
+    assert p"file2".readlink()? == p"file1"
+
+    p"link".symlink(to: p"a")?
+    p"a".write("two")
+    p"b".write("three")
+    run.text ${ctx.xsh_bin} $script -- -sf p"b" p"link"
+    assert p"link".readlink()? == p"b"
+    run.text ${ctx.xsh_bin} $script -- -sf p"a" p"link"
+    assert p"link".readlink()? == p"a"
+  }
+}
+
+test test_ln_symbolic_same_file_only_for_the_same_entry { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  cd root {
+    p"a".write("data")
+    fs.link(p"a", p"hard")
+    p"sl".symlink(to: p"a")?
+    run.text ${ctx.xsh_bin} $script -- -sf p"a" p"hard"
+    assert p"hard".readlink()? == p"a"
+    run.text ${ctx.xsh_bin} $script -- -sf p"sl" p"sl"
+    assert p"sl".readlink()? == p"sl"
+
+    p"a".write("data")
+    let refused = run.capture --text ${ctx.xsh_bin} $script -- -sf p"./a" p"a"
+    assert refused.status.exited_with(1)
+    assert refused.stderr == "ln: './a' and 'a' are the same file\n", refused.stderr
+    assert fs.stat(p"a")?.kind == "file"
+    assert p"a".read_text()? == "data"
+  }
+}

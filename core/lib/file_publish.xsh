@@ -50,24 +50,21 @@ export proc overwrite(argv: List[Str], fallback: Str, no_clobber = true) -> Resu
   selected
 }
 
-## Compare the files two names resolve to, following symbolic links. A name that
-## cannot be resolved names no file, so it is never the same file as another name.
-export proc same_file(source: Path, dest: Path) -> Result[Bool, Error] {
-  let a = match fs.stat(source, follow_symlinks: true) {
-    Ok(meta) => meta
+## A symbolic link names its target without being it, so a regular source names
+## the destination's own directory entry only when the two are the same entry. A
+## source that is itself a symbolic link is never refused, and neither is a name
+## that cannot be resolved.
+export proc same_symlink_entry(source: Path, dest: Path) -> Result[Bool, Error] {
+  match fs.stat(source, follow_symlinks: false) {
+    Ok(meta) => {
+      return false when meta.kind == "symlink"
+    }
     Err(failure) => {
       return false when unresolved(failure)
       return Err(failure)
     }
   }
-  let b = match fs.stat(dest, follow_symlinks: true) {
-    Ok(meta) => meta
-    Err(failure) => {
-      return false when unresolved(failure)
-      return Err(failure)
-    }
-  }
-  a.dev == b.dev and a.ino == b.ino
+  same_entry(source, dest)
 }
 
 # ENOENT, ENOTDIR, ENAMETOOLONG, and ELOOP: the name does not lead to a file.

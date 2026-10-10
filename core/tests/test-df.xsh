@@ -200,3 +200,41 @@ test test_df_output_columns_are_separated_without_a_leading_space { |ctx|
   assert rx"^[0-9]+$".matches(lines[1].trim()), lines[1]
   assert lines[1].byte_len() == lines[0].byte_len(), "the value is right-aligned to the heading's column width"
 }
+
+test test_df_human_columns_are_five_wide_with_right_aligned_headings { |ctx|
+  let root = test.temp_dir(ctx, name: "df-human-width")?
+  let used = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -h --output=used $root
+  assert used.status.exited_with(0), used.stderr
+  let used_lines = used.stdout.lines().collect()
+  assert used_lines[0] == " Used", used_lines[0]
+  assert used_lines[1].byte_len() == 5, used_lines[1]
+
+  let pair = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -H --output=size,used $root
+  assert pair.status.exited_with(0), pair.stderr
+  let pair_lines = pair.stdout.lines().collect()
+  assert pair_lines[0] == " Size  Used", pair_lines[0]
+  assert pair_lines[1].byte_len() == 11, pair_lines[1]
+}
+
+test test_df_human_inode_counts_scale_like_block_counts { |ctx|
+  let root = test.temp_dir(ctx, name: "df-human-inodes")?
+  let raw = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -B1 --output=itotal $root
+  assert raw.status.exited_with(0), raw.stderr
+  let files = raw.stdout.lines().collect()[1].trim().parse_int()?
+  let human = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -h --output=itotal $root
+  assert human.status.exited_with(0), human.stderr
+  let value = human.stdout.lines().collect()[1].trim()
+  if files >= 1024 {
+    assert rx"^[0-9.]+[KMGTPEZY]$".matches(value), f"{files} inodes shown as {value}"
+  } else {
+    assert value == f"{files}", value
+  }
+}
+
+test test_df_source_column_is_at_least_fourteen_wide { |ctx|
+  let root = test.temp_dir(ctx, name: "df-source-width")?
+  let output = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- --output=source,size -B1 $root
+  assert output.status.exited_with(0), output.stderr
+  let header = output.stdout.lines().collect()[0]
+  assert header.starts_with("Filesystem     "), header
+}

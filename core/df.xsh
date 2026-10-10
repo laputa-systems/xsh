@@ -22,13 +22,24 @@ pure percent(used: Int, available: Int) -> Str {
   f"{used / denominator * 100 + fraction}%"
 }
 
+# Inode counts share the human-readable selection with block counts but never
+# scale by a block size, so they are rendered with a unit size of one.
 pure row(mount: Mount, counts: Counters, units: disk.Units) -> Map[Str] {
+  let inodes: disk.Units = {block: 1, human: units.human, label: ""}
   {
     source: mount.source, fstype: mount.kind, target: mount.target.display(), file: mount.file,
     size: disk.amount(counts.size, units), used: disk.amount(counts.used, units), avail: disk.amount(counts.avail, units),
-    pcent: percent(counts.used, counts.avail), itotal: f"{counts.files}", iused: f"{counts.iused}",
-    iavail: f"{counts.ifree}", ipcent: percent(counts.iused, counts.ifree),
+    pcent: percent(counts.used, counts.avail), itotal: disk.amount(counts.files, inodes), iused: disk.amount(counts.iused, inodes),
+    iavail: disk.amount(counts.ifree, inodes), ipcent: percent(counts.iused, counts.ifree),
   }
+}
+
+# GNU never narrows a column below these widths, so short values still pad to them.
+pure minimum_width(field: Str) -> Int {
+  return 14 when field == "source"
+  return 4 when field in ["fstype", "pcent", "ipcent"]
+  return 5 when field in ["size", "used", "avail", "itotal", "iused", "iavail"]
+  0
 }
 
 pure left_column(field: Str) -> Bool { field in ["source", "fstype", "target", "file"] }
@@ -233,7 +244,8 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
   }
   var widths: List[Int] = []
   for column in columns {
-    var width = headings[column].count_chars()
+    var width = minimum_width(column)
+    if headings[column].count_chars() > width { width = headings[column].count_chars() }
     for data in table { if data[column].count_chars() > width { width = data[column].count_chars() } }
     widths += [width]
   }

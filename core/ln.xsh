@@ -55,11 +55,11 @@ proc relative_link(target: Path, base: Path) -> Result[Path] {
   Path.parse_bytes(text)
 }
 
-# A symbolic link is refused only when both names resolve to one file, so a
-# dangling or looping destination can be replaced by a link to itself. A hard link
-# is refused when the two directory entries are the same name.
+# A symbolic link is refused only when a regular source names the destination
+# entry itself; another name for the same inode, or a link source, is replaced
+# as GNU does. A hard link is refused when the two directory entries are the same name.
 proc same_destination(source: Path, target: Path, symbolic: Bool) -> Result[Bool] {
-  if symbolic { files.same_file(source, target) } else { files.same_entry(source, target) }
+  if symbolic { files.same_symlink_entry(source, target) } else { files.same_entry(source, target) }
 }
 
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
