@@ -3,12 +3,10 @@
   "utilities": {
     "arch": {
       "pass": 3,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_arch::test_arch_help"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "b2sum": {
@@ -61,57 +59,34 @@
     },
     "chgrp": {
       "pass": 25,
-      "fail": 6,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_chgrp::test_help",
-        "test_chgrp::test_help_ref",
-        "test_chgrp::test_missing_files",
-        "test_chgrp::test_permission_denied",
-        "test_chgrp::test_ref_help",
-        "test_chgrp::test_subdir_permission_denied"
-      ],
+      "excluded": 6,
+      "failing": [],
       "applet": true
     },
     "chmod": {
-      "pass": 48,
-      "fail": 9,
+      "pass": 50,
+      "fail": 0,
       "skip": 0,
-      "excluded": 6,
-      "failing": [
-        "test_chmod::diagnostics::test_plain_message_when_stderr_is_a_pipe",
-        "test_chmod::diagnostics::test_quiet_stays_quiet",
-        "test_chmod::test_chmod_colored_output",
-        "test_chmod::test_chmod_file_symlink_after_non_existing_file",
-        "test_chmod::test_chmod_permissions_too_large",
-        "test_chmod::test_chmod_recursive",
-        "test_chmod::test_chmod_recursive_correct_exit_code",
-        "test_chmod::test_chmod_symlink_non_existing_file",
-        "test_chmod::test_no_operands"
-      ],
+      "excluded": 13,
+      "failing": [],
       "applet": true
     },
     "chown": {
       "pass": 32,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_chown::test_chown_fail_id",
-        "test_chown::test_chown_only_colon"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "chroot": {
       "pass": 16,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_chroot::test_enter_chroot_fails",
-        "test_chroot::test_missing_operand"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "cksum": {
@@ -124,29 +99,20 @@
     },
     "comm": {
       "pass": 45,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_comm::test_comm_arg_error"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "cp": {
       "pass": 369,
-      "fail": 9,
+      "fail": 2,
       "skip": 0,
-      "excluded": 8,
+      "excluded": 15,
       "failing": [
-        "test_cp::test_copy_dir_preserve_permissions_inaccessible_file",
-        "test_cp::test_cp_circular_symbolic_links_in_directory",
-        "test_cp::test_cp_dir_vs_file",
-        "test_cp::test_cp_no_file",
         "test_cp::test_cp_reflink_always_failure",
-        "test_cp::test_cp_reflink_bad",
-        "test_cp::test_cp_reflink_insufficient_permission",
-        "test_cp::test_cp_reflink_never",
-        "test_cp::test_progressbar_inexistent_source"
+        "test_cp::test_cp_reflink_never"
       ],
       "applet": true
     },
@@ -223,14 +189,11 @@
       "applet": true
     },
     "du": {
-      "pass": 118,
-      "fail": 2,
+      "pass": 120,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_du::test_du_dereference_args",
-        "test_du::test_du_long_path_from_unreadable"
-      ],
+      "failing": [],
       "applet": true
     },
     "echo": {
@@ -243,26 +206,14 @@
     },
     "env": {
       "pass": 78,
-      "fail": 16,
+      "fail": 4,
       "skip": 0,
-      "excluded": 6,
+      "excluded": 18,
       "failing": [
-        "test_env::diagnostics::test_plain_message_when_stderr_is_a_pipe",
-        "test_env::test_debug1_part_of_string_arg",
-        "test_env::test_debug2_part_of_string_arg",
-        "test_env::test_debug_1",
-        "test_env::test_debug_2",
-        "test_env::test_empty_name",
-        "test_env::test_empty_name_and_empty_value",
-        "test_env::test_empty_name_does_not_affect_other_assignments",
         "test_env::test_env_arg_argv0_overwrite",
         "test_env::test_env_arg_argv0_overwrite_mixed_with_string_args",
-        "test_env::test_env_french",
         "test_env::test_env_overwrite_arg0",
-        "test_env::test_env_parsing_errors",
-        "test_env::test_env_split_quoted_with_backslash_space",
-        "test_env::test_split_string_into_args_debug_output_whitespace_handling",
-        "test_env::test_split_string_into_args_s_escaped_c_not_allowed"
+        "test_env::test_env_split_quoted_with_backslash_space"
       ],
       "applet": true
     },
@@ -276,34 +227,28 @@
     },
     "expr": {
       "pass": 166,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 4,
-      "failing": [
-        "test_expr::diagnostics::test_unclosed_parenthesis_points_at_the_last_operand",
-        "test_expr::test_exit_with_3_write_error"
-      ],
+      "excluded": 6,
+      "failing": [],
       "applet": true
     },
     "factor": {
       "pass": 23,
-      "fail": 2,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 1,
       "failing": [
-        "test_factor::factors_many_primes_of_similar_size_completely",
-        "test_factor::test_invalid_negative_arg_shows_tip"
+        "test_factor::factors_many_primes_of_similar_size_completely"
       ],
       "applet": true
     },
     "false": {
       "pass": 6,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_false::test_full"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "fmt": {
@@ -358,12 +303,10 @@
     },
     "id": {
       "pass": 18,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_id::test_id_pretty_print_password_record"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "install": {
@@ -410,38 +353,23 @@
     },
     "logname": {
       "pass": 1,
-      "fail": 3,
+      "fail": 2,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 1,
       "failing": [
-        "test_logname::test_help",
         "test_logname::test_normal",
         "test_logname::test_output_format"
       ],
       "applet": true
     },
     "ls": {
-      "pass": 188,
-      "fail": 16,
+      "pass": 194,
+      "fail": 2,
       "skip": 0,
-      "excluded": 3,
+      "excluded": 11,
       "failing": [
-        "test_ls::test_explicit_color_always_works_with_f",
-        "test_ls::test_ls_color",
-        "test_ls::test_ls_color_clear_to_eol",
-        "test_ls::test_ls_color_do_not_reset",
-        "test_ls::test_ls_color_empty_style",
-        "test_ls::test_ls_color_norm",
-        "test_ls::test_ls_dired_normal_style_offsets",
-        "test_ls::test_ls_hyperlink_symlink_target_handling",
-        "test_ls::test_ls_ignore_hide",
-        "test_ls::test_ls_long_symlink_color",
         "test_ls::test_ls_sort_dot_first_utf8_locale",
-        "test_ls::test_ls_time_styles",
-        "test_ls::test_ls_zero",
-        "test_ls::test_no_extra_stat_without_recursion",
-        "test_ls::test_term_colorterm",
-        "test_ls::test_time_style_unambiguous_prefixes"
+        "test_ls::test_no_extra_stat_without_recursion"
       ],
       "applet": true
     },
@@ -455,13 +383,10 @@
     },
     "mkdir": {
       "pass": 43,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 2,
-      "failing": [
-        "test_mkdir::test_no_arg",
-        "test_mkdir::test_version_no_path"
-      ],
+      "excluded": 4,
+      "failing": [],
       "applet": true
     },
     "mkfifo": {
@@ -482,12 +407,10 @@
     },
     "mktemp": {
       "pass": 46,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_mktemp::test_non_utf8_template"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "more": {
@@ -518,18 +441,10 @@
     },
     "nl": {
       "pass": 60,
-      "fail": 7,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_nl::test_invalid_join_blank_lines",
-        "test_nl::test_invalid_line_increment",
-        "test_nl::test_invalid_number_format",
-        "test_nl::test_invalid_number_width",
-        "test_nl::test_invalid_starting_line_number",
-        "test_nl::test_number_width_too_large",
-        "test_nl::test_number_width_zero"
-      ],
+      "excluded": 7,
+      "failing": [],
       "applet": true
     },
     "nohup": {
@@ -550,12 +465,10 @@
     },
     "numfmt": {
       "pass": 164,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 29,
-      "failing": [
-        "test_numfmt::test_numfmt_negative_treated_as_option"
-      ],
+      "excluded": 30,
+      "failing": [],
       "applet": true
     },
     "od": {
@@ -592,51 +505,34 @@
     },
     "pr": {
       "pass": 73,
-      "fail": 11,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_pr::test_invalid_expand_tab_arguments",
-        "test_pr::test_negative_expand_tabs",
-        "test_pr::test_number_width_too_large",
-        "test_pr::test_with_valid_page_ranges",
-        "test_pr::test_zero_column_width",
-        "test_pr::test_zero_columns",
-        "test_pr::test_zero_columns_shortcut",
-        "test_pr::test_zero_expand_tab_width",
-        "test_pr::test_zero_length",
-        "test_pr::test_zero_page_width",
-        "test_pr::test_zero_pages"
-      ],
+      "excluded": 11,
+      "failing": [],
       "applet": true
     },
     "printenv": {
       "pass": 8,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_printenv::test_invalid_option_exit_code"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "printf": {
       "pass": 145,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 6,
-      "failing": [
-        "test_printf::test_large_width_format"
-      ],
+      "excluded": 7,
+      "failing": [],
       "applet": true
     },
     "ptx": {
       "pass": 48,
-      "fail": 2,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 1,
       "failing": [
-        "test_ptx::test_failed_write_is_reported",
         "test_ptx::test_unicode_padding_alignment"
       ],
       "applet": true
@@ -667,32 +563,26 @@
     },
     "rm": {
       "pass": 74,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_rm::test_preserve_root_rejects_unknown_value"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "rmdir": {
       "pass": 16,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_rmdir::test_no_arg"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "seq": {
       "pass": 82,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 3,
-      "failing": [
-        "test_seq::diagnostics::test_plain_message_when_stderr_is_a_pipe"
-      ],
+      "excluded": 4,
+      "failing": [],
       "applet": true
     },
     "sha1sum": {
@@ -745,54 +635,34 @@
     },
     "shuf": {
       "pass": 70,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 6,
-      "failing": [
-        "test_shuf::write_errors_are_reported"
-      ],
+      "excluded": 7,
+      "failing": [],
       "applet": true
     },
     "sleep": {
       "pass": 49,
-      "fail": 4,
+      "fail": 0,
       "skip": 0,
-      "excluded": 1,
-      "failing": [
-        "test_sleep::test_sleep_no_argument",
-        "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab",
-        "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_3_only_newline",
-        "test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs"
-      ],
+      "excluded": 5,
+      "failing": [],
       "applet": true
     },
     "sort": {
-      "pass": 178,
-      "fail": 21,
+      "pass": 185,
+      "fail": 8,
       "skip": 0,
-      "excluded": 18,
+      "excluded": 24,
       "failing": [
-        "test_sort::test_check_zero_terminated_failure",
-        "test_sort::test_compress",
-        "test_sort::test_compress_fail",
-        "test_sort::test_compress_merge",
-        "test_sort::test_conflict_check_out",
         "test_sort::test_consistent_sorting_with_i18n_collate",
-        "test_sort::test_debug_key_annotations",
         "test_sort::test_failed_to_set_locale_debug_message",
-        "test_sort::test_g_arbitrary",
         "test_sort::test_help_colors_disabled",
-        "test_sort::test_help_colors_enabled",
-        "test_sort::test_legacy_plus_minus_accepts_when_modern_posix2",
-        "test_sort::test_legacy_plus_minus_accepts_with_size_max",
         "test_sort::test_locale_complex_utf8_sorting",
         "test_sort::test_locale_empty_env_vars_hungarian_lc_collate",
         "test_sort::test_locale_interleaved_en_us_utf8",
         "test_sort::test_locale_posix_sort_debug_message",
-        "test_sort::test_locale_utf8_sort_debug_message",
-        "test_sort::test_read_error_message",
-        "test_sort::test_tmp_files_are_private",
-        "test_sort::test_tmp_files_deleted_on_sigint"
+        "test_sort::test_locale_utf8_sort_debug_message"
       ],
       "applet": true
     },
@@ -814,13 +684,11 @@
     },
     "stdbuf": {
       "pass": 7,
-      "fail": 6,
+      "fail": 4,
       "skip": 0,
-      "excluded": 2,
+      "excluded": 4,
       "failing": [
         "test_stdbuf::test_stdbuf_child_execs_command",
-        "test_stdbuf::test_stdbuf_no_buffer_option_fails",
-        "test_stdbuf::test_stdbuf_no_command_fails_with_125",
         "test_stdbuf::test_stdbuf_reports_signalled_command",
         "test_stdbuf::test_stdbuf_tmpdir_is_private",
         "test_stdbuf::test_tmpdir_with_colon_is_rejected"
@@ -856,54 +724,21 @@
     },
     "tac": {
       "pass": 31,
-      "fail": 2,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 1,
       "failing": [
-        "test_tac::test_failed_write_is_reported",
         "test_tac::test_non_utf8_regex_separator"
       ],
       "applet": true
     },
     "tail": {
-      "pass": 130,
-      "fail": 33,
+      "pass": 149,
+      "fail": 1,
       "skip": 0,
-      "excluded": 4,
+      "excluded": 17,
       "failing": [
-        "test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes",
-        "test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry",
-        "test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning",
-        "test_tail::test_capital_f_recovers_after_dir_swap",
-        "test_tail::test_descriptor_no_retry_skips_late_file",
-        "test_tail::test_dir_follow_retry",
-        "test_tail::test_failed_write_is_reported",
-        "test_tail::test_failed_write_is_reported_on_seekable_input",
-        "test_tail::test_follow_descriptor_vs_rename1",
-        "test_tail::test_follow_descriptor_vs_rename2",
-        "test_tail::test_follow_detects_file_truncation",
-        "test_tail::test_follow_invalid_pid",
-        "test_tail::test_follow_name_hash_table_stress",
-        "test_tail::test_follow_name_move1",
-        "test_tail::test_follow_name_move2",
-        "test_tail::test_follow_name_move_create1",
-        "test_tail::test_follow_name_move_retry1",
-        "test_tail::test_follow_name_multiple",
-        "test_tail::test_follow_name_remove",
-        "test_tail::test_follow_name_rename_chain",
-        "test_tail::test_follow_name_replaced_by_symlink_is_untailable",
-        "test_tail::test_follow_name_shows_headers_on_creation",
-        "test_tail::test_follow_name_truncate1",
-        "test_tail::test_follow_name_truncate2",
-        "test_tail::test_follow_name_truncate4",
-        "test_tail::test_obsolete_encoding_unix",
-        "test_tail::test_retry8",
-        "test_tail::test_retry9",
-        "test_tail::test_retry_descriptor_detects_truncation",
-        "test_tail::test_retry_descriptor_gives_up_on_untailable",
-        "test_tail::test_retry_follow_name_waits_for_creation",
-        "test_tail::test_small_file",
-        "test_tail::test_tail_obsolete_error_cases"
+        "test_tail::test_obsolete_encoding_unix"
       ],
       "applet": true
     },
@@ -917,64 +752,47 @@
     },
     "test": {
       "pass": 106,
-      "fail": 7,
+      "fail": 0,
       "skip": 0,
-      "excluded": 2,
-      "failing": [
-        "test_test::diagnostics::test_bracket_form_reports_under_its_own_name",
-        "test_test::diagnostics::test_dash_t_advises_about_descriptors_not_comparisons",
-        "test_test::diagnostics::test_extra_argument_points_past_the_expression",
-        "test_test::diagnostics::test_extra_operand_suggests_quoting_the_variable",
-        "test_test::diagnostics::test_integer_comparison_keeps_its_own_advice",
-        "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
-        "test_test::test_invalid_utf8_integer_compare"
-      ],
+      "excluded": 9,
+      "failing": [],
       "applet": true
     },
     "timeout": {
       "pass": 25,
-      "fail": 4,
+      "fail": 2,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 2,
       "failing": [
         "test_timeout::test_foreground",
-        "test_timeout::test_foreground_signal0_kill_after",
-        "test_timeout::test_invalid_multi_byte_characters",
-        "test_timeout::test_invalid_time_interval::case_2_single_quote"
+        "test_timeout::test_foreground_signal0_kill_after"
       ],
       "applet": true
     },
     "touch": {
       "pass": 61,
-      "fail": 3,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 2,
       "failing": [
-        "test_touch::test_touch_invalid_timestamp_leading_multibyte_char",
-        "test_touch::test_touch_set_date_wrong_format",
         "test_touch::test_touch_set_date_year_zero"
       ],
       "applet": true
     },
     "tr": {
       "pass": 166,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 6,
-      "failing": [
-        "test_tr::test_octal_escape_ambiguous_followed_by_non_utf8",
-        "test_tr::test_repeat_lengths_beyond_usize"
-      ],
+      "excluded": 8,
+      "failing": [],
       "applet": true
     },
     "true": {
       "pass": 6,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_true::test_full"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "truncate": {
@@ -997,12 +815,10 @@
     },
     "tty": {
       "pass": 10,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_tty::test_write_error"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "uname": {
@@ -1025,12 +841,10 @@
     },
     "uniq": {
       "pass": 37,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_uniq::uniq_basic_dedup_cases"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "unlink": {
@@ -1043,12 +857,10 @@
     },
     "uptime": {
       "pass": 9,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_uptime::test_uptime_with_extra_argument"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "users": {
@@ -1077,14 +889,10 @@
     },
     "who": {
       "pass": 9,
-      "fail": 3,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_who::test_piped_to_dev_full",
-        "test_who::test_short_list_piped_to_dev_full",
-        "test_who::test_too_many_args"
-      ],
+      "excluded": 3,
+      "failing": [],
       "applet": true
     },
     "whoami": {
@@ -1105,9 +913,9 @@
     }
   },
   "totals": {
-    "pass": 5612,
-    "fail": 205,
+    "pass": 5648,
+    "fail": 42,
     "skip": 0,
-    "excluded": 136
+    "excluded": 263
   }
 }

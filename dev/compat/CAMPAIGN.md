@@ -1,6 +1,48 @@
 # XSH Core Compatibility Campaign
 
-## Handoff (2026-10-10, Claude Code session)
+## Handoff (2026-10-10, second Claude Code session)
+
+Status: paused, incomplete. `master` is clean. The pinned uutils suite
+(`results/uutils-integration.json`, x86_64 musl, unprivileged user) is **5,648
+passing, 42 failing, 263 excluded** (of 5,953), up 36 passing from 5,612, with no
+regression on any test that passed before. Gains: tail +19, sort +7, ls +6,
+chmod +2, du +2 (incidental).
+
+Exclusions grew from 136 to 263: every remaining failure that asserts only
+uutils-specific text or options (clap usage and help wording, the framed
+snippet renderer, uutils-only options such as `--use-polling`, `id -p`, `cp -g`,
+write-error and quoting wording that GNU prints differently) is excluded by
+exact ID with the evidence in its reason, at the owner's direction. The owner
+also asked to ignore `test_chmod::test_chmod_recursive` (excluded). The native
+`ls` expectations for `no=` styles, clear-to-eol, the dangling-name color and
+`posix-full-iso` in the C locale were kept; the six uutils tests that disagree
+are excluded as `gnu-semantics` (not re-verified against a GNU binary here).
+
+The 42 remaining failures are not uutils wording: host limits (no locale data,
+no libstdbuf, no `filefrag`, busybox `/bin/sh` dispatching on argv[0], no login
+session for `logname`), native requests (`unix.fadvise` for dd nocache,
+`timeout --foreground` process group, `fs.set_times` seconds form for `touch`
+year 0, FICLONE errno from `fs.copy_file`, relative-path `lstat`, startup
+`PWD`/`SHLVL`/phrase export for `env`), and a few real defects (`csplit` x2,
+`head /sys/kernel/profiling`, `ptx` unicode padding, `tac` non-UTF-8 regex
+separator via a library change, `tsort` non-UTF-8 argv, `factor` timeout,
+`stty --all --save`, `more` lowercase message, `tail` obsolete encoding,
+`uname` operating system on musl). `ledger/requests.md` has the per-test
+evidence.
+
+Not refreshed: BusyBox results (the lane stage lacks the busybox build config,
+so per-lane busybox counts read low without any failure) and the GNU Gate 4
+differential.
+
+Open: `wip/bb-misc`, `wip/lang-diag`, `ext/bb-patch`, `ext/shuf-random-seed`,
+`wording/*` branches remain parked; `wip/sort2` and `wip/tail2` are merged by
+cherry-pick and can be deleted. Home-directory side effects of a lane probe
+(`/home/josh/d` mode, `f`, `dl`, `fl`) are for the owner to repair. Lane probes
+must stay in a `mktemp -d` directory (now in `.claude/agents/xsh-compat-lane.md`).
+`system-report` collector extraction is separate and unfinished (see
+`dev/compat/requests.md`, "From `sysreport-extract`").
+
+## Handoff (2026-10-10, first Claude Code session)
 
 Status: paused, incomplete. `master` is clean. The pinned uutils suite
 (`results/uutils-integration.json`, native x86_64 musl, unprivileged user) is
