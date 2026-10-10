@@ -3,7 +3,7 @@ use lib.gnu
 use lib.bytes_enc_dd as charset
 use lib.textio_a1 as tio
 
-type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, bs: Int}
+type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, input_directory: Bool, bs: Int}
 type BlockOutput = {data: Bytes, padding: Int, pad_byte: Int}
 type Converted = {data: Bytes, blocks: List[BlockOutput], truncated: Int}
 
@@ -64,7 +64,7 @@ pure assignment_separator(arg: Bytes) -> Int? {
 }
 
 proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
-  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, bs: 0}
+  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, input_directory: false, bs: 0}
   for arg_index in range(argv.len()) {
     let raw_arg = argv[arg_index]
     let separator = assignment_separator(raw_arg)
@@ -113,7 +113,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
             render_operand_error(argv, arg_index, f"invalid conversion: {gnu.quote(flag)}", start, flag.byte_len(), "not a known conversion", "conv= is one of ascii, ebcdic, ibm, lcase, ucase, block, unblock, swab, sync, noerror, sparse, excl, nocreat, notrunc, fdatasync or fsync", true, 1)
           }
         } else {
-          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
+          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
             var start = key.byte_len() + 1
             for list_flag in text.split(",") {
               if list_flag == flag { break }
@@ -425,6 +425,28 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   Ok({complete: complete, partial: partial, written: written, failure: failure})
 }
 
+## iflag=directory has no XSH open flag. Checking the file type before any read
+## gives the outcome of GNU's O_DIRECTORY open. Standard input is inspected
+## through /dev/stdin because the descriptor is already open.
+proc require_directory_input(input: Path?) [fs, process, env, error, io] {
+  let target = input ?? p"/dev/stdin"
+  guard let meta = fs.stat(target, follow_symlinks: true) else { |failure|
+    if let input_path = input {
+      gnu.error(f"failed to open {quoted_path(input_path)}: {gnu.strerror(failure)}")
+    } else {
+      gnu.error(f"setting flags for 'standard input': {gnu.strerror(failure)}")
+    }
+    exit 1
+  }
+  return when meta.kind == "dir"
+  if let input_path = input {
+    gnu.error(f"failed to open {quoted_path(input_path)}: Not a directory")
+  } else {
+    gnu.error("setting flags for 'standard input': Not a directory")
+  }
+  exit 1
+}
+
 proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock oflag=seek_bytes\nNative descriptor flags are not supported."); return }
   if b"--version" in argv { gnu.version("dd"); return }
@@ -447,6 +469,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     if output.bytes().is_empty() { gnu.error("failed to open '': No such file or directory"); exit 1 }
     if "nocreat" in opts.conv and ! output.exists() { gnu.error(f"failed to open {quoted_path(output)}: No such file or directory"); exit 1 }
   }
+  if opts.input_directory { require_directory_input(opts.input) }
   let plain = [flag for flag in opts.conv if ! (flag in ["notrunc", "nocreat", "sparse"])].is_empty()
   if plain {
     guard let copied = plain_copy(opts, skip, seek, limit) else { |failure| gnu.error(gnu.strerror(failure)); exit 1 }
