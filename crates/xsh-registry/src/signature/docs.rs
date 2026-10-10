@@ -1305,6 +1305,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Names the process allowed to trace the calling process under the Yama policy.",
             "pid is a process ID, 0 for none, or -1 for any process. A host without Yama, or a process ID that does not exist, fails with EINVAL.",
             &["linux", "privileges"],
+        )),
         ("linux", "namespaces") => Some((
             "Lists the namespaces held by running processes.",
             "One record per namespace, ordered by inode number. ns is the inode and type the /proc/PID/ns name (mnt, uts, ipc, net, pid, user, cgroup, time); path, pid, ppid, uid and command describe the lowest-numbered process holding it that the caller may inspect, and nprocs counts every such process. pns is the parent pid or user namespace and ons the owning user namespace, 0 when there is none or the caller cannot see it. netnsid is the network subsystem's ID of a net namespace as seen from the caller, null when none is assigned. nsfs lists the mount points where the namespace file is bound. Processes the caller may not inspect are left out. pid limits the list to the namespaces of that process while nprocs still counts every process; a pid that does not exist lists nothing. The command is the argument vector joined by spaces, or the process name in brackets when it has none, decoded lossily.",

@@ -1258,6 +1258,9 @@ pub fn linux_privileges_type() -> Type {
         ("no_new_privs", Type::Bool),
         ("parent_death_signal", Type::Int),
         ("last_capability", Type::Int),
+    ]))
+}
+
 pub fn linux_namespace_type() -> Type {
     Type::Record(name_type_map(vec![
         ("ns", Type::Int),
