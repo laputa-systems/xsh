@@ -79,8 +79,8 @@ test test_id_named_users { |ctx|
   assert missing.stderr == "id: 'no_such_user_xsh': no such user\n", missing.stderr
 
   let groups = applet_run(ctx, ["root"])?
-  assert groups.status == 1
-  assert "not supported yet" in groups.stderr
+  assert groups.status == 0, groups.stderr
+  assert groups.stdout.starts_with("uid=0(root) gid=0(root) groups=0(root)"), groups.stdout
 }
 
 test test_id_option_combinations_are_validated_in_gnu_order { |ctx|
@@ -106,4 +106,22 @@ test test_id_help_version_and_errors { |ctx|
   let bad = applet_run(ctx, ["--definitely-invalid"])?
   assert bad.status == 1
   assert bad.stderr == "id: unrecognized option '--definitely-invalid'\nTry 'id --help' for more information.\n", bad.stderr
+}
+
+# A leading "+" makes the operand a numeric ID even when it could be a name, and
+# group lists for a named account come from the account database.
+test test_id_plus_prefix_is_numeric_and_named_group_lists_work { |ctx|
+  let script = fp"{ctx.core_dir}/id.xsh"
+  let uid = unix.id()?.uid
+  let account = run.text ${ctx.xsh_bin} $script -- -un
+  let name = account.trim()
+  let numeric = f"+{uid}"
+  let by_name = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- -G $name
+  assert by_name.status.exited_with(0), by_name.stderr
+  let by_plus = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- -G $numeric
+  assert by_plus.status.exited_with(0), by_plus.stderr
+  assert by_name.stdout == by_plus.stdout, by_name.stdout
+  let no_user = run.capture --text LC_ALL=C ${ctx.xsh_bin} $script -- "+"
+  assert no_user.status.exited_with(1)
+  assert no_user.stderr == "id: '+': no such user\n", no_user.stderr
 }

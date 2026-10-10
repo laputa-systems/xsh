@@ -158,10 +158,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   # A refused change is a warning when it is about privilege: the command
-  # still runs, at the niceness it already had.
+  # still runs, at the niceness it already had. If the warning cannot be
+  # written, the command does not run.
   if let Err(failure) = process.nice(adjustment) {
     if (failure.errno ?? 0) == 1 or (failure.errno ?? 0) == 13 {
       gnu.error(f"warning: setpriority: {failure_text(failure)}")
+      if io.flush_stderr() is Err(_) { exit 125 }
     } else {
       gnu.error(f"cannot set niceness: {failure_text(failure)}")
       exit 125

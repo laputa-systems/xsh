@@ -208,7 +208,11 @@ proc change_owner(target: Path, ids: Owner, filter: Owner?, opts: Options, group
   let name = f"{target}"
   let before = fs.stat(target, follow_symlinks: opts.dereference)
   if let Err(failure) = before {
-    if ! opts.quiet { gnu.cannot_access(name, failure) }
+    # A link that exists but whose referent cannot be followed is reported as a
+    # dereference failure; a name that does not exist is an access failure.
+    if ! opts.quiet {
+      if opts.dereference and fs.stat(target, follow_symlinks: false) is Ok(_) { gnu.cannot("dereference", name, failure) } else { gnu.cannot_access(name, failure) }
+    }
     if opts.verbosity == "verbose" {
       let noun = if group_only and ids.gid != null { "group" } else { "ownership" }
       gnu.write_text(f"failed to change {noun} of {gnu.quote(name)} to {owner_label(ids, group_only)}\n")

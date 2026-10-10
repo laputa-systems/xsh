@@ -46,17 +46,22 @@ type IdOptions = {
 type Found = {uid: Int, gid: Int, name: Str}
 
 # The user an operand names: a login name, or a numeric ID without an entry
-# under that name. Null when there is no such user.
+# under that name. A leading "+" skips the name lookup, so the rest must be a
+# numeric ID. Null when there is no such user.
 proc find_user(spec: Str) [fs] -> Found? {
   return null when spec == ""
 
-  if let Ok(found) = user.lookup(spec) {
-    return {uid: found.uid, gid: found.gid, name: found.name}
+  let numeric_only = spec.starts_with("+")
+  if ! numeric_only {
+    if let Ok(found) = user.lookup(spec) {
+      return {uid: found.uid, gid: found.gid, name: found.name}
+    }
   }
 
-  return null when ! rx"^[0-9]+$".matches(spec)
+  let digits = if numeric_only { spec.byte_slice(1) } else { spec }
+  return null when ! rx"^[0-9]+$".matches(digits)
 
-  guard let found = user.by_uid(spec.parse_int() ?? -1) else {
+  guard let found = user.by_uid(digits.parse_int() ?? -1) else {
     return null
   }
 
@@ -138,12 +143,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         continue
       }
 
-      if ! opts.user and ! opts.group {
-        idtools.unsupported_user_groups(target)
-      }
-
       named = found.name
-      who = {ruid: found.uid, euid: found.uid, rgid: found.gid, egid: found.gid, groups: []}
+      who = idtools.account_ids(found.name)?
     }
 
     if opts.user {

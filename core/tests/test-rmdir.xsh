@@ -52,3 +52,32 @@ test test_rmdir_trailing_slash_symlink_diagnostic { |ctx|
   assert directory.exists()?
   assert fs.stat(link)?.kind == "symlink"
 }
+
+# A retained sibling keeps the walk from climbing past the test root.
+test test_rmdir_parents_walks_the_operand_text_with_trailing_slashes { |ctx|
+  let root = test.temp_dir(ctx, name: "rmdir-slash-walk")?
+  let dir = fp"{root}/a/b"
+  dir.mkdir()
+  fp"{root}/keep".write("keep")
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/rmdir.xsh".display(), "-p", "--ignore-fail-on-non-empty", "a/b/"],
+    root, {LC_ALL: "C"}, b"", out, err))?
+  assert status.exited_with(0), err.read_text()?
+  assert err.read_text()? == ""
+  assert ! fp"{root}/a".exists()?
+  assert fp"{root}/keep".exists()?
+}
+
+test test_rmdir_parent_failure_uses_gnu_directory_wording { |ctx|
+  let root = test.temp_dir(ctx, name: "rmdir-parent-wording")?
+  let parent = fp"{root}/parent"
+  let nested = fp"{parent}/nested"
+  nested.mkdir()
+  fp"{parent}/retained".write("retained")
+  let failed = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/rmdir.xsh" -- -p $nested
+  assert failed.status.exited_with(1)
+  assert failed.stderr == f"rmdir: failed to remove directory '{parent}': Directory not empty\n", failed.stderr
+  assert ! nested.exists()?
+}

@@ -244,3 +244,19 @@ test test_chmod_recursive_preserves_non_utf8_child_names { |ctx|
   assert result.status == 0, result.stderr
   assert fs.stat(child)?.mode.bit_and(0o7777) == 0o700
 }
+
+# A clause with no class and a run of octal digits sets or edits the whole mode;
+# a class in front of the digits makes the clause invalid.
+test test_chmod_clause_octal_mode_covers_the_whole_mode { |ctx|
+  let root = test.temp_dir(ctx, name: "chmod-clause-octal")?
+  let dir = fp"{root}/dir"
+  dir.mkdir()
+  dir.chmod(0o755)
+  let edited = perm_run(ctx, ["=7777,-5022", dir])?
+  assert edited.status == 0, edited.stderr
+  assert dir.metadata()?.mode.bit_and(0o7777) == 0o2755
+  let invalid = perm_run(ctx, ["u=7777", dir])?
+  assert invalid.status == 1
+  assert dir.metadata()?.mode.bit_and(0o7777) == 0o2755
+  assert "invalid mode: 'u=7777'" in invalid.stderr, invalid.stderr
+}

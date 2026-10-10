@@ -73,11 +73,17 @@ proc report_progress(name: Bytes, opts: RmOptions) [process, env, io, error] -> 
   io.flush_stderr()
 }
 
+# Errors that prove the operand is absent; -f ignores them. These are the
+# errno values GNU rm treats as nonexistent: ENOENT, ENOTDIR, EINVAL, EILSEQ.
+pure nonexistent_errno(code: Int) -> Bool {
+  code in [2, 20, 22, 84]
+}
+
 # Classify with lstat: a symbolic link to a directory is removed as a link,
 # and recursive traversal never crosses into its referent.
 proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, interactive: Bool, automatic: Bool, presume_input_tty: Bool) [fs, process, env, error, io] -> Removal {
   guard let meta = fs.stat(target) else { |failure|
-    return {ok: true, removed: true, write_error: null} when opts.force and gnu.errno(failure) == 2
+    return {ok: true, removed: true, write_error: null} when opts.force and nonexistent_errno(gnu.errno(failure))
     gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
     return {ok: false, removed: false, write_error: null}
   }
@@ -169,7 +175,7 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
       }
     }
     Err(failure) => {
-      if ! (opts.force and gnu.errno(failure) == 2) {
+      if ! (opts.force and nonexistent_errno(gnu.errno(failure))) {
         gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
         success = false
       }
@@ -255,10 +261,11 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
   let preserve_root = ! opts.no_preserve_root
   let force = opts.force
   var prompt_mode = if opts.interactive_always { 2 } else if opts.interactive_once { 1 } else { 0 }
-  let automatic = ! force and ! opts.interactive_always and ! opts.interactive_once and opts.interactive == null
   if let choice = opts.interactive {
     if choice in ["never", "no", "none"] { prompt_mode = 0 } else if choice == "once" { prompt_mode = 1 } else if choice in ["always", "yes"] { prompt_mode = 2 } else { gnu.usage_error(f"invalid argument {gnu.quote_value(choice)} for 'interactive'") }
   }
+  # GNU's default and -I modes both prompt for write-protected files when stdin is a terminal.
+  let automatic = ! force and (prompt_mode == 1 or (prompt_mode == 0 and opts.interactive == null))
   let targets: List[Bytes] = collect { for target in opts.targets { yield argument_bytes(target, prepared.raw) } }
   if targets.is_empty() {
     return when force

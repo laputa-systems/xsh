@@ -211,3 +211,16 @@ test test_nice_nonexecutable_path_match_is_126 { |ctx|
   assert out.read_text()? == ""
   assert err.read_text()? == "nice: 'blocked': Permission denied\n"
 }
+
+# The privilege warning must be written; when it cannot be, the command is not run.
+test test_nice_failed_advisory_write_stops_the_command { |ctx|
+  if unix.id()?.euid == 0 { test.skip("an unprivileged user is needed for a refused niceness change") }
+  if ! p"/dev/full".exists() { test.skip("/dev/full is not available") }
+  let root = test.temp_dir(ctx, name: "nice-full")?
+  let out = fp"{root}/stdout"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), fp"{ctx.core_dir}/nice.xsh".display(), "-n", "-1", "nice"],
+    root, {LC_ALL: "C"}, b"", out, p"/dev/full"))?
+  assert status.exited_with(125)
+  assert out.read_text()? == ""
+}

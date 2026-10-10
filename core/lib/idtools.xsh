@@ -106,10 +106,3 @@ export proc print_group_list(who: Process, use_names: Bool, delimiter: Str) [fs,
 
   ok
 }
-
-## End the applet: `id USER` does not list another user's groups yet. `groups`
-## lists them through `account_ids`; `id` has not been moved onto it.
-export proc unsupported_user_groups(name: Str) [process, env] -> Unit {
-  gnu.error(f"cannot list the groups of {gnu.quote(name)}: not supported yet for id")
-  exit 1
-}
