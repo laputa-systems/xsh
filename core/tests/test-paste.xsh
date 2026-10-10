@@ -71,6 +71,19 @@ test test_paste_accepts_non_utf8_paths_and_delimiters { |ctx|
   assert output.read_bytes()? == b"1\xada\n"
 }
 
+test test_paste_non_utf8_delimiter_in_a_gb18030_locale { |ctx|
+  let root = test.temp_dir(ctx, name: "paste-non-utf8-delimiter")?
+  let left = fp"{root}/f1"
+  let right = fp"{root}/f2"
+  left.write("1\n2\n")
+  right.write("a\nb\n")
+  let output = test.temp_path(ctx, name: "output")
+  let command = "delimiter=$(printf '\\242\\343'); exec \"$1\" \"$2\" -- -d \"$delimiter\" \"$3\" \"$4\" > \"$5\""
+  let status = run.status env LC_ALL=zh_CN.gb18030 sh -c $command sh ${ctx.xsh_bin} fp"{ctx.core_dir}/paste.xsh" $left $right $output
+  assert status.exited_with(0)
+  assert output.read_bytes()? == b"1\xa2\xe3a\n2\xa2\xe3b\n"
+}
+
 test test_paste_trailing_backslash_diagnostic_matches_gnu { |ctx|
   let err = test.temp_path(ctx, name: "paste.err")
   let status = run.status ${ctx.xsh_bin} fp"{ctx.core_dir}/paste.xsh" -- -d "\\" 2> $err

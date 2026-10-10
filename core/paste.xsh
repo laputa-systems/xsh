@@ -13,8 +13,31 @@ proc diagnostic_delimiters(data: Bytes) -> Str {
   data.utf8() ?? gnu.quote_bytes(data, always: false)
 }
 
+# The first of LC_ALL, LC_CTYPE, and LANG that is set and non-empty names the character set.
+proc gb18030_locale() [env] -> Bool {
+  for name in ["LC_ALL", "LC_CTYPE", "LANG"] {
+    let value = env.get(name) ?? ""
+    if value != "" { return "gb18030" in value.lower() }
+  }
+  false
+}
+
+# GB18030 two-byte characters are not valid UTF-8, so a GB18030 locale must size them
+# as one delimiter unit or a multi-byte delimiter is split across columns.
+pure gb18030_pair(data: Bytes, at: Int) -> Bool {
+  let lead = data.byte_at(at) ?? 0
+  let trail = data.byte_at(at + 1) ?? 0
+  lead >= 129 and lead <= 254 and trail >= 64 and trail <= 254 and trail != 127
+}
+
+pure delimiter_unit_size(data: Bytes, at: Int, gb18030: Bool) -> Int {
+  if gb18030 and gb18030_pair(data, at) { return 2 }
+  text.character(data, at).size
+}
+
 proc delimiters(data: Bytes) -> List[Bytes] {
   var at = 0
+  let gb18030 = gb18030_locale()
   collect {
     while at < data.len() {
       let value = data.byte_at(at) ?? 0
@@ -26,14 +49,14 @@ proc delimiters(data: Bytes) -> List[Bytes] {
           let byte = if escaped == 97 { 7 } else if escaped == 98 { 8 } else if escaped == 102 { 12 } else if escaped == 110 { 10 } else if escaped == 114 { 13 } else if escaped == 116 { 9 } else { 11 }
           yield bytes.from_ints([byte])?
         } else {
-          let unit = text.character(data, at)
-          yield data[at..at + unit.size]
-          at += unit.size - 1
+          let size = delimiter_unit_size(data, at, gb18030)
+          yield data[at..at + size]
+          at += size - 1
         }
       } else {
-        let unit = text.character(data, at)
-        yield data[at..at + unit.size]
-        at += unit.size - 1
+        let size = delimiter_unit_size(data, at, gb18030)
+        yield data[at..at + size]
+        at += size - 1
       }
       at += 1
     }
