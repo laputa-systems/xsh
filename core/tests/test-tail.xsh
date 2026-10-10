@@ -313,3 +313,54 @@ test test_tail_getopt_diagnostics_and_help { |ctx|
   assert "Usage: tail [OPTION]... [FILE]..." in tail_run(ctx, root, ["--help"])?.stdout as Str
   assert tail_run(ctx, root, ["--version"])?.stdout.starts_with(b"tail")
 }
+
+test test_tail_follow_name_switches_banners_between_files { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-follow-name")?
+  let log = fp"{root}/log"
+  let other = fp"{root}/other"
+  log.write(b"initial\n")
+  other.write(b"other initial\n")
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let writer = spawn run sh -c "sleep 0.1; printf 'other appended\\n' >> \"$2\"; sleep 0.1; printf 'log appended\\n' >> \"$1\"" sh $log.display() $other.display() ?
+  defer writer.cancel(signal: "KILL", kill_after: 0ms)?
+
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), timeout.display(), "-k", ".1", ".5", ctx.xsh_bin.display(), tail.display(), "-F", "-s.02", "log", "other"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124, f"stderr={stderr.read_text()?}"
+  assert stdout.read_text()? == "==> log <==\ninitial\n\n==> other <==\nother initial\nother appended\n\n==> log <==\nlog appended\n"
+  assert stderr.read_text()? == ""
+}
+
+test test_tail_warns_that_retry_is_only_effective_for_the_initial_open { |ctx|
+  let root = test.temp_dir(ctx, name: "tail-retry-warning")?
+  fp"{root}/log".write(b"x\n")
+  let timeout = fp"{ctx.core_dir}/timeout.xsh"
+  let tail = fp"{ctx.core_dir}/tail.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), timeout.display(), ".3", ctx.xsh_bin.display(), tail.display(), "--follow=descriptor", "--retry", "log"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", stdout, stderr, timeout: 2s)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 124
+  assert stdout.read_text()? == "x\n"
+  assert stderr.read_text()? == "tail: warning: --retry only effective for the initial open\n", stderr.read_text()?
+}
+
+test test_tail_warning_write_failure_exits_with_status_one { |ctx|
+  if ! p"/dev/full".exists() {
+    test.skip("/dev/full is not available")
+  }
+
+  let root = test.temp_dir(ctx, name: "tail-warning-full")?
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tail.xsh".display(), "--pid=0", "/dev/null"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", fp"{root}/stdout", p"/dev/full")
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+}

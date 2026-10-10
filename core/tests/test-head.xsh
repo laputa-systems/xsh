@@ -138,3 +138,40 @@ test test_head_accepts_non_utf8_file_path_arguments { |ctx|
   assert output.read_bytes()? == b"one\ntwo\nthree\n"
   assert error.read_text()? == ""
 }
+
+test test_head_reports_a_failed_standard_output_write { |ctx|
+  if ! p"/dev/full".exists() {
+    test.skip("/dev/full is not available")
+  }
+
+  let root = test.temp_dir(ctx, name: "head")?
+  let stderr = fp"{root}/.err"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-n1"]
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"x\ny\n", p"/dev/full", stderr)
+  let status = process.run(plan)?
+
+  assert status.exit_code()? == 1
+  assert stderr.read_text()? == "head: error writing 'standard output': No space left on device\n", stderr.read_text()?
+}
+
+test test_head_leaves_unread_standard_input_for_the_next_reader { |ctx|
+  let root = test.temp_dir(ctx, name: "head")?
+  let input = fp"{root}/input"
+  input.write(b"abc\ndef\n")
+  let script = fp"{ctx.core_dir}/head.xsh"
+  let args: List[Union[Str, Path]] = ["sh", "-c", "exec 3<\"$3\"; \"$1\" \"$2\" -c 2 <&3; cat <&3", "sh", ctx.xsh_bin, script, input]
+
+  let output = run.text @args
+  assert output == "abc\ndef\n"
+}
+
+test test_head_elided_standard_input_is_rewound_to_the_unprinted_tail { |ctx|
+  let root = test.temp_dir(ctx, name: "head")?
+  let input = fp"{root}/input"
+  input.write(b"x\ny\nz\n")
+  let script = fp"{ctx.core_dir}/head.xsh"
+  let args: List[Union[Str, Path]] = ["sh", "-c", "exec 3<\"$3\"; \"$1\" \"$2\" -n -1 <&3; cat <&3", "sh", ctx.xsh_bin, script, input]
+
+  let output = run.text @args
+  assert output == "x\ny\nz\n"
+}

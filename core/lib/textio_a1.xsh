@@ -118,6 +118,14 @@ export proc standard_file(fd: Int) [fs, error] -> Str {
   target.display()
 }
 
+## The byte offset of standard input, which each read advances. It is only
+## meaningful when `standard_file(0)` is not empty.
+export proc stdin_offset() [fs, error] -> Result[Int, Error] {
+  let info = fd_info(0)?
+
+  Ok(info.pos)
+}
+
 ## GNU `cat` refuses to copy a nonempty regular file onto itself when reading
 ## would reach bytes the output wrote: the input offset is not past the output
 ## offset (or, for an appending output, not at the end of the file). Both
