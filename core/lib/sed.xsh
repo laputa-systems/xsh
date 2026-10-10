@@ -10,7 +10,8 @@ enum Primitive {
   Delete, DeleteFirst, Print, PrintFirst, Store, AppendHold, Load,
   AppendPattern, Exchange, Next, AppendNext, Quit, QuitQuiet, Number, Clear
 }
-type Substitution = {regex: RegexChoice, replacement: Bytes, global: Bool, occurrence: Int, print: Bool}
+enum DelimitedKind { RegexText, ReplacementText, LiteralText }
+type Substitution = {regex: RegexChoice, replacement: Bytes, global: Bool, occurrence: Int, print: Bool, write: Str?}
 enum TextKind { AppendText, InsertText, ChangeText }
 type TextCommand = {kind: TextKind, text: Bytes}
 enum BranchKind { Always, OnSubstitution, WithoutSubstitution }
@@ -18,17 +19,22 @@ type BranchCommand = {kind: BranchKind, label: Str}
 type Translation = {from: Bytes, to: Bytes}
 enum Action {
   Simple(Primitive), Text(TextCommand), Branch(BranchCommand), Label(Str),
-  BlockEnd(Int), End, Substitute(Substitution), Translate(Translation)
+  BlockEnd(Int), End, Substitute(Substitution), Translate(Translation), Write(Str)
 }
 type EditCommand = {first: Address?, last: Address?, invert: Bool, action: Action}
 type Program = {commands: List[EditCommand], labels: Map[Int], extended: Bool, quiet: Bool}
 type BytesScan = {value: Bytes, next: Int}
+type NameScan = {value: Str, next: Int}
 type NumberScan = {value: Int, next: Int}
 type RegexScan = {value: RegexChoice, previous: RegexSpec}
 type AddressScan = {value: Address?, next: Int, previous: RegexSpec?}
 type EditRecord = {text: Bytes, newline: Bool}
 type Output = {parts: List[Bytes], separated: Bool}
-type Selection = {selected: Bool, ending: Bool, active: Int?, previous: RegexSpec?}
+type WriteFile = {name: Str, output: Output}
+type Execution = {stdout: Bytes, files: List[WriteFile]}
+# Closed marks a numeric-start range that has finished; it never reopens.
+enum RangeState { Waiting, Open(Int), Closed }
+type Selection = {selected: Bool, ending: Bool, range: RangeState, previous: RegexSpec?}
 type AddressMatch = {matched: Bool, previous: RegexSpec?}
 type Replacement = {text: Bytes, changed: Bool}
 type Capture = {start: Int, end: Int}
@@ -66,15 +72,32 @@ pure control(byte: Int) -> Int? {
   }
 }
 
-pure delimited(input: Bytes, start: Int, delimiter: Int, replacement: Bool) -> Result[BytesScan, Error] {
+# Index of the `]` that closes a bracket expression whose body starts at OPENED, or -1
+# when none does. A `]` directly after the opening `[` or `[^` is a member, not the close.
+pure bracket_close(input: Bytes, opened: Int) -> Int {
+  var at = opened
+  if input.byte_at(at) == 94 { at += 1 }
+  if input.byte_at(at) == 93 { at += 1 }
+  while at < input.len() and input.byte_at(at) != 93 { at += 1 }
+  if at < input.len() { at } else { -1 }
+}
+
+# Regex fields let the delimiter appear literally inside a bracket expression, so
+# `s@[@]@@` and `s [^ .]* x g` treat the delimiter as a bracket member.
+pure delimited(input: Bytes, start: Int, delimiter: Int, kind: DelimitedKind) -> Result[BytesScan, Error] {
   var at = start
   var out: List[Bytes] = []
+  var bracket_end = -1
   while at < input.len() {
     let ch = input.byte_at(at) ?? -1
     at += 1
-    if ch == delimiter { return Ok({value: bytes.concat(out), next: at}) }
+    if ch == delimiter and at - 1 > bracket_end { return Ok({value: bytes.concat(out), next: at}) }
     if ch == 10 { return Err(SedError.Invalid("unterminated delimited expression")) }
-    if ch != 92 { out += [input[at - 1..at]]; continue }
+    if ch != 92 {
+      if kind == .RegexText and ch == 91 and at - 1 > bracket_end { bracket_end = bracket_close(input, at) }
+      out += [input[at - 1..at]]
+      continue
+    }
     if at == input.len() { return Err(SedError.Invalid("unterminated escape")) }
     let next = input.byte_at(at) ?? -1
     at += 1
@@ -92,17 +115,17 @@ pure delimited(input: Bytes, start: Int, delimiter: Int, replacement: Bool) -> R
       }
       if digits > 0 {
         let byte = value % 256
-        if replacement and byte in [38, 92] { out += [b"\\"] }
+        if kind == .ReplacementText and byte in [38, 92] { out += [b"\\"] }
         out += [bytes.from_ints([byte])?]
         continue
       }
     }
     if next == delimiter {
-      if replacement and next in [38, 92] { out += [b"\\"] }
+      if kind == .ReplacementText and next in [38, 92] { out += [b"\\"] }
       out += [input[at - 1..at]]
     } else if next == 10 {
       out += [b"\n"]
-    } else if !replacement and control(next) != null {
+    } else if kind != .ReplacementText and control(next) != null {
       out += [bytes.from_ints([control(next) ?? 0])?]
     } else {
       out += [b"\\", input[at - 1..at]]
@@ -160,7 +183,7 @@ pure address(input: Bytes, start: Int, second: Bool, previous: RegexSpec?, exten
     let delimiter = if ch == 47 { 47 } else { input.byte_at(at) ?? -1 }
     if delimiter < 0 { return Err(SedError.Invalid("missing address delimiter")) }
     if ch == 92 { at += 1 }
-    let found = delimited(input, at, delimiter, false)?
+    let found = delimited(input, at, delimiter, .RegexText)?
     at = found.next
     let insensitive = input.byte_at(at) == 73
     if insensitive { at += 1 }
@@ -175,6 +198,16 @@ pure tail(input: Bytes, start: Int) -> Result[BytesScan, Error] {
   var at = begin
   while at < input.len() and (input.byte_at(at) ?? -1) not in [59, 10, 125] { at += 1 }
   Ok({value: input[begin..at], next: at})
+}
+
+# A file name runs to the end of its line, so `;` and `}` are part of the name.
+pure file_name(input: Bytes, start: Int) -> Result[NameScan, Error] {
+  let begin = space(input, start)
+  var at = begin
+  while at < input.len() and input.byte_at(at) != 10 { at += 1 }
+  let name = input[begin..at].utf8()?
+  if name == "" { return Err(SedError.Invalid("missing filename in r/R/w/W commands")) }
+  Ok({value: name, next: at})
 }
 
 pure validate_replacement(replacement: Bytes, groups: Int) -> Result[Unit, Error] {
@@ -258,13 +291,14 @@ pure parse(script: Str, quiet: Bool, extended: Bool) -> Result[Program, Error] {
       let delimiter = input.byte_at(at) ?? -1
       if delimiter < 0 { return Err(SedError.Invalid("missing substitution delimiter")) }
       if delimiter in [10, 92] { return Err(SedError.Invalid("invalid substitution delimiter")) }
-      let pattern = delimited(input, at + 1, delimiter, false)?
-      let replacement = delimited(input, pattern.next, delimiter, true)?
+      let pattern = delimited(input, at + 1, delimiter, .RegexText)?
+      let replacement = delimited(input, pattern.next, delimiter, .ReplacementText)?
       at = replacement.next
       var global = false
       var print_match = false
       var occurrence = 0
       var insensitive = false
+      var write_file: Str? = null
       while at < input.len() {
         let flag = input.byte_at(at) ?? -1
         if flag == 103 and !global { global = true; at += 1 } else if flag == 112 and !print_match { print_match = true; at += 1 } else if flag in [73, 105] and !insensitive { insensitive = true; at += 1 } else if flag >= 48 and flag <= 57 and occurrence == 0 {
@@ -272,20 +306,30 @@ pure parse(script: Str, quiet: Bool, extended: Bool) -> Result[Program, Error] {
           occurrence = found.value
           at = found.next
           if occurrence == 0 { return Err(SedError.Invalid("substitution occurrence must be positive")) }
+        } else if flag == 119 {
+          # The w flag takes the rest of the line as its file name and ends the command.
+          let found = file_name(input, at + 1)?
+          write_file = found.value
+          at = found.next
+          break
         } else if flag in [32, 9, 59, 10, 125] { break } else { return Err(SedError.Invalid(f"unsupported substitution flag '{input[at..at + 1].utf8()?}'")) }
       }
       let compiled = make_regex(pattern.value, previous, extended, insensitive)?
       previous = compiled.previous
       validate_replacement(replacement.value, compiled.previous.groups)?
-      action = .Substitute({regex: compiled.value, replacement: replacement.value, global: global, occurrence: occurrence, print: print_match})
+      action = .Substitute({regex: compiled.value, replacement: replacement.value, global: global, occurrence: occurrence, print: print_match, write: write_file})
     } else if op == 121 {
       let delimiter = input.byte_at(at) ?? -1
       if delimiter < 0 { return Err(SedError.Invalid("missing transliteration delimiter")) }
-      let from = delimited(input, at + 1, delimiter, false)?
-      let to = delimited(input, from.next, delimiter, false)?
+      let from = delimited(input, at + 1, delimiter, .LiteralText)?
+      let to = delimited(input, from.next, delimiter, .LiteralText)?
       at = to.next
       if from.value.len() != to.value.len() { return Err(SedError.Invalid("transliteration lists have different lengths")) }
       action = .Translate({from: from.value, to: to.value})
+    } else if op == 119 {
+      let found = file_name(input, at)?
+      at = found.next
+      action = .Write(found.value)
     } else if op in [97, 105, 99] {
       at = space(input, at)
       if input.byte_at(at) == 92 {
@@ -298,7 +342,8 @@ pure parse(script: Str, quiet: Bool, extended: Bool) -> Result[Program, Error] {
         at += 1
         if ch == 92 {
           if at == input.len() { return Err(SedError.Invalid("unterminated text escape")) }
-          text += [if input.byte_at(at) == 110 { b"\n" } else { input[at..at + 1] }]
+          let escaped = control(input.byte_at(at) ?? -1)
+          if escaped == null { text += [input[at..at + 1]] } else { text += [bytes.from_ints([escaped ?? 0])?] }
           at += 1
         } else { text += [input[at - 1..at]] }
       }
@@ -368,46 +413,62 @@ pure address_matches(address: Address, line: Int, total: Int, pattern: Bytes, st
     Relative(value) => Ok({matched: line >= start + value, previous: previous})
     PatternAddress(choice) => {
       let spec = resolve(choice, previous)?
-      let captures = regex.captures_bytes(spec.pattern, pattern, extended: extended, ignore_case: spec.insensitive)?
+      let captures = regex.captures_bytes(spec.pattern, regex_subject(spec.pattern, pattern)?, extended: extended, ignore_case: spec.insensitive)?
       Ok({matched: !captures.is_empty(), previous: spec})
     }
   }
 }
 
 # Range state belongs to each command and is updated before address inversion.
-pure select(command: EditCommand, active: Int?, line: Int, total: Int, pattern: Bytes, previous: RegexSpec?, extended: Bool) -> Result[Selection, Error] {
+pure select(command: EditCommand, range: RangeState, line: Int, total: Int, pattern: Bytes, previous: RegexSpec?, extended: Bool) -> Result[Selection, Error] {
   var saved = previous
-  guard let first = command.first else { return Ok({selected: true, ending: false, active: active, previous: saved}) }
+  guard let first = command.first else { return Ok({selected: true, ending: false, range: range, previous: saved}) }
   guard let last = command.last else {
     let found = address_matches(first, line, total, pattern, 0, saved, extended)?
-    return Ok({selected: found.matched, ending: false, active: active, previous: found.previous})
+    return Ok({selected: found.matched, ending: false, range: range, previous: found.previous})
   }
-  let already = active != null
-  var begins = already or (first == .Line(0) and line == 1)
-  if !begins {
-    let found = address_matches(first, line, total, pattern, 0, saved, extended)?
-    begins = found.matched
-    saved = found.previous
+  var already = false
+  var begun = line
+  var begins = false
+  # A numeric start opens its range at the first line at or past it, once: a start line
+  # consumed earlier in the cycle (by N or d) still opens the range.
+  match range {
+    Open(start) => {
+      already = true
+      begun = start
+      begins = true
+    }
+    _ => {
+      match first {
+        Line(value) => begins = range == .Waiting and line >= value
+        _ => {
+          let found = address_matches(first, line, total, pattern, 0, saved, extended)?
+          begins = found.matched
+          saved = found.previous
+        }
+      }
+    }
   }
-  if !begins { return Ok({selected: false, ending: false, active: active, previous: saved}) }
-  let start = active ?? line
+  if !begins { return Ok({selected: false, ending: false, range: range, previous: saved}) }
   var ending = false
   match last {
     Line(value) => ending = line >= value
     PatternAddress(_) => {
       if already or first == .Line(0) {
-        let found = address_matches(last, line, total, pattern, start, saved, extended)?
+        let found = address_matches(last, line, total, pattern, begun, saved, extended)?
         ending = found.matched
         saved = found.previous
       }
     }
     _ => {
-      let found = address_matches(last, line, total, pattern, start, saved, extended)?
+      let found = address_matches(last, line, total, pattern, begun, saved, extended)?
       ending = found.matched
       saved = found.previous
     }
   }
-  Ok({selected: true, ending: ending, active: if ending { null } else { start }, previous: saved})
+  var next: RangeState = .Open(begun)
+  if ending { next = match first { Line(_) => .Closed, _ => .Waiting } }
+  Ok({selected: true, ending: ending, range: next, previous: saved})
 }
 
 # Every print advances the output record boundary, even if its bytes are empty.
@@ -419,6 +480,32 @@ pure emit(output: Output, text: Bytes, newline: Bool) -> Output {
   {parts: parts, separated: newline or text.byte_at(text.len() - 1) == 10}
 }
 
+# The POSIX matcher works on C strings and cannot see NUL. A text with NUL bytes is matched
+# as a copy in which each NUL is one control byte absent from both the pattern and the
+# text; the copy keeps every offset, so captures are still read from the original bytes.
+pure contains_byte(input: Bytes, code: Int) -> Bool {
+  for at in range(input.len()) { return true when input.byte_at(at) == code }
+  false
+}
+
+pure regex_subject(pattern: Str, text: Bytes) -> Result[Bytes, Error] {
+  if !contains_byte(text, 0) { return Ok(text) }
+  let pattern_bytes = bytes.from_text(pattern)
+  var stand_in = -1
+  for code in range(1, 32) {
+    if code != 10 and !contains_byte(pattern_bytes, code) and !contains_byte(text, code) {
+      stand_in = code
+      break
+    }
+  }
+  if stand_in < 0 { return Err(SedError.Invalid("no control byte is free to stand in for NUL")) }
+  var out: List[Bytes] = []
+  for at in range(text.len()) {
+    out += [if text.byte_at(at) == 0 { bytes.from_ints([stand_in])? } else { text[at..at + 1] }]
+  }
+  Ok(bytes.concat(out))
+}
+
 pure replace(spec: RegexSpec, text: Bytes, substitution: Substitution, extended: Bool) -> Result[Replacement, Error] {
   var out: List[Bytes] = []
   var search = 0
@@ -426,8 +513,9 @@ pure replace(spec: RegexSpec, text: Bytes, substitution: Substitution, extended:
   var count = 0
   var changed = false
   var previous_end: Int? = null
+  let subject = regex_subject(spec.pattern, text)?
   while search <= text.len() {
-    let captures: List[Capture?] = regex.captures_bytes(spec.pattern, text, offset: search, extended: extended, ignore_case: spec.insensitive)?
+    let captures: List[Capture?] = regex.captures_bytes(spec.pattern, subject, offset: search, extended: extended, ignore_case: spec.insensitive)?
     if captures.is_empty() { break }
     guard let whole = captures[0] else { return Err(SedError.Invalid("missing whole-match capture")) }
     let begin = whole.start
@@ -498,9 +586,41 @@ pure translate(text: Bytes, translation: Translation) -> Bytes {
   bytes.concat(out)
 }
 
-pure execute(program: Program, inputs: List[Bytes]) -> Result[Bytes, Error] {
+# GNU sed names /dev/stdout as the output stream itself, so it is never a file to create.
+pure is_stdout(name: Str) -> Bool { name == "/dev/stdout" }
+
+# Creates an empty output entry for NAME so the file exists even when no record is written to it.
+pure ensure_file(files: List[WriteFile], name: Str) -> List[WriteFile] {
+  if is_stdout(name) { return files }
+  for file in files {
+    if file.name == name { return files }
+  }
+  var out = files
+  out += [{name: name, output: {parts: [], separated: true}}]
+  out
+}
+
+pure write_to(files: List[WriteFile], name: Str, text: Bytes, newline: Bool) -> List[WriteFile] {
+  var out: List[WriteFile] = []
+  for file in files {
+    if file.name == name { out += [{name: name, output: emit(file.output, text, newline)}] } else { out += [file] }
+  }
+  out
+}
+
+pure execute(program: Program, inputs: List[Bytes]) -> Result[Execution, Error] {
   let lines = records(inputs)
-  var active: List[Int?] = [null for command in program.commands]
+  var ranges: List[RangeState] = [.Waiting for command in program.commands]
+  var files: List[WriteFile] = []
+  for command in program.commands {
+    match command.action {
+      Write(name) => files = ensure_file(files, name)
+      Substitute(substitution) => {
+        if let name = substitution.write { files = ensure_file(files, name) }
+      }
+      _ => {}
+    }
+  }
   var hold: EditRecord = {text: b"", newline: true}
   var output: Output = {parts: [], separated: true}
   var record = 0
@@ -516,8 +636,8 @@ pure execute(program: Program, inputs: List[Bytes]) -> Result[Bytes, Error] {
       let index = pc
       let command = program.commands[index]
       pc += 1
-      let selection = select(command, active[index], record + 1, lines.len(), pattern.text, previous, program.extended)?
-      active[index] = selection.active
+      let selection = select(command, ranges[index], record + 1, lines.len(), pattern.text, previous, program.extended)?
+      ranges[index] = selection.range
       previous = selection.previous
       if selection.selected == command.invert {
         match command.action { BlockEnd(end) => pc = end + 1, _ => {} }
@@ -531,6 +651,14 @@ pure execute(program: Program, inputs: List[Bytes]) -> Result[Bytes, Error] {
           pattern = {...pattern, text: replaced.text}
           substituted = substituted or replaced.changed
           if replaced.changed and substitution.print { output = emit(output, pattern.text, pattern.newline) }
+          if replaced.changed {
+            if let target = substitution.write {
+              if is_stdout(target) { output = emit(output, pattern.text, pattern.newline) } else { files = write_to(files, target, pattern.text, pattern.newline) }
+            }
+          }
+        }
+        Write(target) => {
+          if is_stdout(target) { output = emit(output, pattern.text, pattern.newline) } else { files = write_to(files, target, pattern.text, pattern.newline) }
         }
         Translate(translation) => pattern = {...pattern, text: translate(pattern.text, translation)}
         Text(text) => {
@@ -591,14 +719,27 @@ pure execute(program: Program, inputs: List[Bytes]) -> Result[Bytes, Error] {
     if quit { break }
     record += 1
   }
-  Ok(bytes.concat(output.parts))
+  Ok({stdout: bytes.concat(output.parts), files: files})
+}
+
+# Write the files named by w commands once the run has finished, with the records directed to each.
+proc write_files(files: List[WriteFile]) [error, fs, process, env] {
+  for file in files {
+    if let Err(failure) = fp"{file.name}".write(bytes.concat(file.output.parts)) {
+      gnu.cannot_open(file.name, failure, mode: "writing")
+      exit 4
+    }
+  }
 }
 
 ## Execute an editing program; report syntax or matching failures as sed diagnostics.
-export proc edit(script: Str, inputs: List[Bytes], quiet: Bool, extended: Bool) [process] -> Bytes {
+export proc edit(script: Str, inputs: List[Bytes], quiet: Bool, extended: Bool) [error, fs, process, env] -> Bytes {
   let result = try { execute(parse(script, quiet, extended)?, inputs)? }
   match result {
-    Ok(output) => output
+    Ok(execution) => {
+      write_files(execution.files)
+      execution.stdout
+    }
     Err(failure) => { gnu.error(failure.message); exit 1 }
   }
 }

@@ -220,3 +220,85 @@ test sed_text_commands_join_escaped_lines { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/sed.xsh" -- -f $script $file
   assert output == "a\nfirst\nsecond\nb\n"
 }
+
+test sed_bracket_expression_holds_the_delimiter { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"one@two\n")?
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let bracketed = run.text ${ctx.xsh_bin} $app -- "s@[@]@@" $file
+  assert bracketed == "onetwo\n"
+  let spaced = test.temp_file(ctx, name: "spaced", contents: b" a.b\n")?
+  let members = run.text ${ctx.xsh_bin} $app -- "s [^ .]* x g" $spaced
+  assert members == "x x.x\n"
+}
+
+test sed_text_commands_expand_control_escapes { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"line1\n")?
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let appended = run.bytes ${ctx.xsh_bin} $app -- "1a a\\tb\\rc\\nd" $file
+  assert appended == b"line1\na\tb\rc\nd\n"
+  let inserted = run.bytes ${ctx.xsh_bin} $app -- "1i x\\ty" $file
+  assert inserted == b"x\ty\nline1\n"
+}
+
+test sed_numeric_range_opens_once_past_a_consumed_start_line { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"first\nsecond\nthird\nfourth\n")?
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let skipped = run.text ${ctx.xsh_bin} $app -- -n "1d;1,3p" $file
+  assert skipped == "second\nthird\n"
+  let reversed = run.text ${ctx.xsh_bin} $app -- -n "2d;2,1p" $file
+  assert reversed == "third\n"
+  let numbers = test.temp_file(ctx, name: "numbers", contents: b"1\n2\n3\n4\n5\n")?
+  let closed = run.text ${ctx.xsh_bin} $app -- -n "2,3p" $numbers
+  assert closed == "2\n3\n", "a finished numeric range does not reopen"
+}
+
+test sed_write_command_writes_selected_records { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\n")?
+  let out = fp"{file}.out"
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let script = "/[ac]/w " + out.display()
+  let output = run.text ${ctx.xsh_bin} $app -- -n $script $file
+  assert output == ""
+  assert out.read_text()? == "a\nc\n"
+  let stdout_copy = run.text ${ctx.xsh_bin} $app -- "1w /dev/stdout" $file
+  assert stdout_copy == "a\na\nb\nc\n"
+}
+
+test sed_substitute_write_flag_writes_changed_records { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"qwe\nasd\n")?
+  let out = fp"{file}.out"
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let script = "s/qwe/ZZZ/w " + out.display()
+  let output = run.text ${ctx.xsh_bin} $app -- $script $file
+  assert output == "ZZZ\nasd\n"
+  assert out.read_text()? == "ZZZ\n"
+}
+
+test sed_write_commands_sharing_a_file_append_in_order { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"a\nb\nc\n")?
+  let out = fp"{file}.out"
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let first = "/a/w " + out.display()
+  let second = "/c/w " + out.display()
+  let output = run.text ${ctx.xsh_bin} $app -- -n -e $first -e $second $file
+  assert output == ""
+  assert out.read_text()? == "a\nc\n"
+  let unmatched = "/zzz/w " + out.display()
+  let quiet = run.text ${ctx.xsh_bin} $app -- -n $unmatched $file
+  assert quiet == ""
+  assert out.read_text()? == "", "a write file is created even when no record is written"
+}
+
+test sed_nul_bytes_are_ordinary_text_for_regexes { |ctx|
+  let file = test.temp_file(ctx, name: "input", contents: b"\0woo\0woo\0")?
+  let app = fp"{ctx.core_dir}/sed.xsh"
+  let first = run.bytes ${ctx.xsh_bin} $app -- "s/woo/bang/" $file
+  assert first == b"\0bang\0woo\0"
+  let every = run.bytes ${ctx.xsh_bin} $app -- "s/woo/bang/g" $file
+  assert every == b"\0bang\0bang\0"
+  let anchored = run.bytes ${ctx.xsh_bin} $app -- -n "/^woo/p" $file
+  assert anchored == b"", "a NUL ends the text the anchor can match at the start of"
+  let dots = test.temp_file(ctx, name: "dots", contents: b"\0a\0")?
+  let any = run.bytes ${ctx.xsh_bin} $app -- "s/./X/g" $dots
+  assert any == b"XXX"
+}
