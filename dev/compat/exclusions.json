@@ -314,6 +314,12 @@
       "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
     },
     {
+      "id": "test_dd::test_nocache_eof_fadvise_zero_length",
+      "utility": "dd",
+      "category": "thread-model",
+      "reason": "runs strace without -f and expects the posix_fadvise call on the main thread; XSH issues it (length 0) from its evaluation thread, which the untraced thread model hides from strace"
+    },
+    {
       "id": "test_dir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
       "utility": "dir",
       "category": "clap-wording",
@@ -530,6 +536,12 @@
       "reason": "asserts the uutils-only `-p`/`-P` options of id, which GNU id does not have; XSH follows GNU"
     },
     {
+      "id": "test_install::test_install_basic_try_reflink",
+      "utility": "install",
+      "category": "thread-model",
+      "reason": "runs strace without -f and expects the FICLONE ioctl on the main thread; XSH issues it from its evaluation thread, which the untraced thread model hides from strace"
+    },
+    {
       "id": "test_join::diagnostics::test_snippet_points_at_the_failing_field_of_a_list",
       "utility": "join",
       "category": "clap-wording",
@@ -624,6 +636,12 @@
       "utility": "ls",
       "category": "gnu-semantics",
       "reason": "expects posix-full-iso to differ from the locale style in the C locale; GNU ls 9.11 prints identical output for both, which XSH matches"
+    },
+    {
+      "id": "test_ls::test_no_extra_stat_without_recursion",
+      "utility": "ls",
+      "category": "thread-model",
+      "reason": "runs strace without -f and counts lstat calls on the main thread; XSH performs the single lstat on its evaluation thread, so the trace shows none, while the program does exactly one lstat of the operand"
     },
     {
       "id": "test_ls::test_time_style_unambiguous_prefixes",
