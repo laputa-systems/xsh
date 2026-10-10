@@ -393,9 +393,62 @@ test test_ls_symlink_dereference_options { |ctx|
   assert ls_in(ctx, work, ["-d", "ln"])?.text == "ln\n"
   assert ls_in(ctx, work, ["-lLd", "-og", "--time-style=+T", "ln"])?.text.starts_with("drwx")
 
-  let dangling = ls_in(ctx, work, ["-L"])?
-  assert dangling.status == 1, dangling.err
-  assert dangling.err == "ls: cannot access 'dangling': No such file or directory\n", dangling.err
+  # A plain listing never looks up targets, so a dangling link is only a name.
+  let plain = ls_in(ctx, work, ["-L"])?
+  assert plain.status == 0, plain.err
+  assert plain.text == "dangling\nln\nreal\n", plain.text
+
+  # Classifying needs the target's type, so the dangling link is reported.
+  let classified = ls_in(ctx, work, ["-FL"])?
+  assert classified.status == 1, classified.err
+  assert classified.err == "ls: cannot access 'dangling': No such file or directory\n", classified.err
+  assert classified.text == "dangling@\nln/\nreal/\n", classified.text
+}
+
+test test_ls_command_line_loop_is_listed_as_the_link { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/loop".symlink(to: p"loop")
+
+  # A command-line symlink that cannot be traversed is shown as itself, and only
+  # the explicit dereference options make it an error.
+  let plain = ls_in(ctx, work, ["loop"])?
+  assert plain.status == 0 and plain.text == "loop\n", plain.err
+  assert ls_in(ctx, work, ["-l", "-og", "--time-style=+T", "loop"])?.text == "lrwxrwxrwx 1 4 T loop -> loop\n"
+  assert ls_in(ctx, work, ["-H", "loop"])?.status == 2
+  assert ls_in(ctx, work, ["-L", "loop"])?.status == 2
+  assert ls_in(ctx, work, ["-L"])?.text == "loop\n", "a listed loop needs no lookup when only names are shown"
+}
+
+test test_ls_group_directories_first_counts_symlinks_to_directories { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/dir/b".mkdir()
+  fp"{work}/dir/a".write("")
+  fp"{work}/dir/bl".symlink(to: p"b")
+
+  assert ls_in(ctx, work, ["--group", "dir"])?.text == "b\nbl\na\n", "a link to a directory groups with the directories"
+  assert ls_in(ctx, work, ["--group-directories-first", "-d", "dir/a", "dir/b", "dir/bl"])?.text == "dir/b\ndir/bl\ndir/a\n"
+}
+
+test test_ls_version_sort_puts_tilde_backups_before_their_base { |ctx|
+  let work = sandbox(ctx)?
+  for name in ["zz", "zz~", "a", "a~"] {
+    fp"{work}/{name}".write("")
+  }
+
+  assert ls_in(ctx, work, ["-v"])?.text == "a~\na\nzz~\nzz\n"
+}
+
+test test_ls_indicator_takes_types_from_the_directory_read { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/c/d".mkdir()
+  fp"{work}/c".chmod(0o600)
+  fs.mkfifo(fp"{work}/fifo", 0o644)
+
+  # Without search permission on c, its entries cannot be statted, but their
+  # types come from the directory read and need no stat.
+  assert ls_in(ctx, work, ["-p", "c"])?.text == "d/\n", "a directory's type comes from the directory read"
+  assert ls_in(ctx, work, ["-F", "c"])?.text == "d/\n", "classifying a directory needs no stat either"
+  assert ls_in(ctx, work, ["--file-type"])?.text == "c/\nfifo|\n", "a fifo is read as other and then statted"
 }
 
 test test_ls_recursive_stops_at_directory_cycles { |ctx|
@@ -716,6 +769,52 @@ test test_ls_hyperlink_wraps_names_in_osc_8 { |ctx|
   assert "\u{1b}]8;;file://" in result.text, result.text
   assert "/sp%20ace\u{1b}\\sp ace\u{1b}]8;;\u{1b}\\" in result.text, result.text
   assert ls_in(ctx, work, ["--hyperlink=never"])?.text == "sp ace\n"
+}
+
+test test_ls_hyperlink_names_the_canonical_location { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/testdir".mkdir()
+  fp"{work}/testdir/inner".write("")
+  fp"{work}/testdirl".symlink(to: p"testdir")
+
+  # Entries and headers of a symlinked operand link to the directory they resolve to.
+  let text = ls_in(ctx, work, ["--hyperlink", "testdirl", "testdir"])?.text
+  assert "/testdir\u{1b}\\testdirl\u{1b}]8;;\u{1b}\\:" in text, text
+  assert "/testdir/inner\u{1b}\\inner\u{1b}]8;;\u{1b}\\" in text, text
+}
+
+test test_ls_c_maybe_quotes_commas_without_escaping { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/com,ma".write("")
+
+  assert ls_in(ctx, work, ["-m", "--quoting-style=c-maybe", "com,ma"])?.text == "\"com,ma\"\n"
+  assert ls_in(ctx, work, ["-m", "--quoting-style=escape", "com,ma"])?.text == "com\\,ma\n"
+}
+
+test test_ls_width_is_an_inclusive_maximum { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/a".write("")
+  fp"{work}/aa".write("")
+  fp"{work}/b".write("")
+  fp"{work}/c".write("")
+
+  assert ls_in(ctx, work, ["-w4", "-x", "a", "b"])?.text == "a  b\n", "a line of exactly the width fits"
+  assert ls_in(ctx, work, ["-w5", "-x", "aa", "b", "c"])?.text == "aa  b\nc\n"
+  assert ls_in(ctx, work, ["-w5", "-C", "aa", "b", "c"])?.text == "aa  c\nb\n"
+  assert ls_in(ctx, work, ["-w0", "-x", "a", "b"])?.text == "a  b\n", "a zero width is unlimited"
+}
+
+test test_ls_quoted_name_padding_stays_outside_the_color_sequence { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/d".mkdir()
+  fp"{work}/d/a b".write("")
+  fp"{work}/d/c.foo".write("")
+  let vars = {LC_ALL: "C", TZ: "UTC", TERM: "xterm", LS_COLORS: "*.foo=31;42"}
+
+  # Alignment is only applied in long format and in width-limited columns.
+  assert ls_in(ctx, work, ["-1", "--color=always", "--quoting-style=shell-escape", "d"], vars)?.text == "'a b'\n\u{1b}[0m\u{1b}[31;42mc.foo\u{1b}[0m\n"
+  assert ls_in(ctx, work, ["-x", "-w40", "--color=always", "--quoting-style=shell-escape", "d"], vars)?.text == "'a b'   \u{1b}[0m\u{1b}[31;42mc.foo\u{1b}[0m\n"
+  assert ls_in(ctx, work, ["-x", "-w0", "--color=always", "--quoting-style=shell-escape", "d"], vars)?.text == "'a b'  \u{1b}[0m\u{1b}[31;42mc.foo\u{1b}[0m\n"
 }
 
 test test_ls_help_and_version_go_to_stdout { |ctx|
