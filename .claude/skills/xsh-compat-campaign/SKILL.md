@@ -65,6 +65,13 @@ Park a rejected-but-passing lane as `wording/U` (keep the branch, remove the
 worktree) so the owner can reverse the policy later, and list the test IDs in
 `.work/claude-campaign/requests.md` as exclusion candidates for batch close.
 
+**Which oracle wins.** For applets that exist in GNU coreutils, GNU behavior
+and wording win over both the uutils and the BusyBox suites; a BusyBox test that
+needs non-GNU behavior is a known divergence, not a target. For applets outside
+coreutils (awk, sed, tar, patch, diff, the gzip family, grep, xargs, tree, ...)
+the pinned BusyBox suite is the contract, and BusyBox wording is correct there.
+Say which class an applet is in when writing its brief.
+
 ## Tooling
 
 `scripts/lane.py` (next to this file), always run from the primary checkout:

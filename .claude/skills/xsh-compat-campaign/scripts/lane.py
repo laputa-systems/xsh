@@ -50,6 +50,16 @@ XSH_BIN = Path(os.environ.get("XSH_BIN", MASTER / "target/x86_64-unknown-linux-m
 XSHT = XSH_BIN.parent / "xsht"
 DEFAULT_DONOR = "origin/campaign-utils"
 RESULTS_PATH = "dev/compat/results/uutils-integration.json"
+# Each suite has a runner, the report file the runner writes into COMPAT_RESULTS_DIR, and the
+# committed baseline. A lane is gated on every suite that knows its utilities, so a fix for one
+# suite cannot regress another.
+SUITES = {
+    "uutils": {"runner": "dev/compat/run-uutils.sh", "report": "uutils-integration.json",
+               "baseline": "dev/compat/results/uutils-integration.json"},
+    "busybox": {"runner": "dev/compat/run-busybox.sh", "report": "busybox.json",
+                "baseline": "dev/compat/results/busybox.json"},
+}
+BUSYBOX_SOURCE_ROOT = MASTER / ".work" / "upstream" / "busybox"
 # uutils renders argument errors as framed source snippets. Matching them changes
 # the user-visible diagnostic contract (master follows GNU wording), so those
 # tests are not lane targets until that decision is made.
@@ -99,9 +109,9 @@ def is_owned(lane: str, path: str) -> bool:
     return path in files or any(f.endswith("/") and path.startswith(f) for f in files)
 
 
-def results_at(rev: str) -> dict:
+def results_at(rev: str, suite: str = "uutils") -> dict:
     """Per-utility results committed at REV, or {} when REV has none (a branch that never ran the suite)."""
-    text = git("show", f"{rev}:{RESULTS_PATH}", cwd=MASTER, check=False)
+    text = git("show", f"{rev}:{SUITES[suite]['baseline']}", cwd=MASTER, check=False)
     return json.loads(text)["utilities"] if text else {}
 
 
@@ -110,17 +120,17 @@ def excluded_at(rev: str) -> set[str]:
     return {t["id"] for t in data["tests"]}
 
 
-def targets(utils: list[str], donor: str | None) -> list[str]:
-    """uutils test IDs the lane should fix: failing on master, passing on the donor when one is given."""
-    skip = excluded_at("master")
+def targets(utils: list[str], donor: str | None, suite: str = "uutils") -> list[str]:
+    """Test IDs the lane should fix: failing on master, passing on the donor when one is given."""
+    skip = excluded_at("master") if suite == "uutils" else set()
     out: list[str] = []
     for util in utils:
-        base = results_at("master").get(util)
+        base = results_at("master", suite).get(util)
         if base is None:
-            sys.exit(f"{util}: no master baseline entry")
+            sys.exit(f"{util}: no master baseline entry in {suite}")
         failing = [t for t in base["failing"] if t not in skip and not SNIPPET_TESTS.search(t)]
         if donor:
-            other = results_at(donor).get(util)
+            other = results_at(donor, suite).get(util)
             if other is None:
                 continue
             failing = [t for t in failing if t not in set(other["failing"])]
@@ -149,10 +159,17 @@ def plan(donor: str) -> None:
 def brief(util: str, donor: str | None) -> str:
     info = spec(util)
     utils = info["utils"]
-    fix = targets(utils, None)
-    proven = targets(utils, donor) if donor else []
+    suite = info.get("suite", "uutils")
+    fix = targets(utils, None, suite)
+    proven = targets(utils, donor, suite) if donor else []
     fix = proven + [t for t in fix if t not in set(proven)]
     files = sorted(owned(util))
+    if suite == "busybox":
+        spec_text = (f"the BusyBox tests under {BUSYBOX_SOURCE_ROOT}/ (find the testsuite directory for each applet: "
+                     f"testsuite/<applet>.tests or testsuite/<applet>/); each test is a name, a command and its expected "
+                     f"output. They are read-only. Also the GNU manual behavior for the applet.")
+    else:
+        spec_text = " and ".join(f"{UUTILS_ROOT}/src/uu/{u}/ with {UUTILS_ROOT}/tests/by-util/test_{u}.rs" for u in utils)
     native = bool(info.get("native"))
     target_dir = LANES_ROOT / "_targets" / util
     cargo_rule = "" if native else "cargo, "
@@ -200,13 +217,13 @@ You own exactly (use absolute paths under the worktree):
 Never edit anything else (other core/lib/*, dev/*, src/*, crates/*, docs/*, results, gaps.json).
 Anything you need elsewhere goes in your report under Requests: with the exact symbol or file.
 
-Goal: make these uutils tests pass ({len(fix)} total; all currently fail on master).
+Goal: make these {suite} tests pass ({len(fix)} total; all currently fail on master).
 Some tests may be impossible for a host reason (a permission or group the unprivileged test user lacks):
 if a test fails identically on an untouched copy, say so under Requests: as `host-conflict` and move on.
 {shown}{more}
 Every uutils test that passes on master today must keep passing; the gate reports regressions by ID.{watch_note}
 {donor_block}
-Specification: {" and ".join(f"{UUTILS_ROOT}/src/uu/{u}/ with {UUTILS_ROOT}/tests/by-util/test_{u}.rs" for u in utils)}
+Specification: {spec_text}
 (read-only; never copy wholesale). GNU wording wins over clap wording. Tests in
 dev/compat/exclusions.json are deliberately out of scope.
 
@@ -243,7 +260,7 @@ Report (under 150 words): gate result line, tests fixed vs unresolved, Requests:
 
 
 def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[str], watch: list[str],
-        native: bool = False) -> None:
+        native: bool = False, suite: str = "uutils") -> None:
     if utils and len(lanes) != 1:
         sys.exit("--utils describes exactly one lane")
     for util in lanes:
@@ -252,7 +269,7 @@ def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[
             sys.exit(f"{wt} already exists")
         (SCRATCH / util).mkdir(parents=True, exist_ok=True)
         (SCRATCH / util / "lane.json").write_text(json.dumps(
-            {"utils": utils or [util], "own": own, "watch": watch, "donor": donor, "native": native}))
+            {"utils": utils or [util], "own": own, "watch": watch, "donor": donor, "native": native, "suite": suite}))
         git("worktree", "add", "-b", f"claude/{util}", str(wt), "master", cwd=MASTER)
         text = brief(util, donor)
         (SCRATCH / util / "brief.txt").write_text(text)
@@ -290,46 +307,52 @@ def gate(util: str, committed: bool) -> int:
         if not (wt / f"core/tests/test-{name}.xsh").exists():
             continue
         native = subprocess.run([str(XSHT), "test", f"core/tests/test-{name}.xsh"], cwd=wt, env=env,
-                                capture_output=True, text=True, timeout=600)
+                                capture_output=True, text=True, timeout=600, stdin=subprocess.DEVNULL)
         if native.returncode != 0:
             fail.append(f"native test {name} failed:\n" + "\n".join(native.stdout.splitlines()[-15:]))
 
-    # A report from an earlier run must never stand in for this one.
-    (scratch / "uutils-integration.json").unlink(missing_ok=True)
-    slice_run = subprocess.run(["dev/compat/run-uutils.sh", *utils, *watched], cwd=wt, env=env,
-                               capture_output=True, text=True)
-    (scratch / "run.log").write_text(slice_run.stdout + slice_run.stderr)
-    if slice_run.returncode != 0:
-        fail.append(f"uutils slice harness failed ({slice_run.returncode}); see {scratch}/run.log")
-    try:
-        report = json.loads((scratch / "uutils-integration.json").read_text())["utilities"]
-    except FileNotFoundError:
-        fail.append(f"uutils slice produced no report; see {scratch}/run.log")
-        report = {}
-
+    skip = excluded_at("master")
+    primary = spec(util).get("suite", "uutils")
+    targets_file = SCRATCH / util / "targets.txt"
+    target_ids = targets_file.read_text().splitlines() if targets_file.exists() else []
     lines = []
     gained = False
-    skip = excluded_at("master")
-    targets_file = SCRATCH / util / "targets.txt"
-    target_ids = targets_file.read_text().split() if targets_file.exists() else []
-    for name in utils + watched:
-        base = results_at("master").get(name)
-        if base is None:
-            continue  # a watched applet outside the uutils suite has no baseline to regress from
-        new_entry = report.get(name)
-        if new_entry is None:
-            fail.append(f"no report entry for {name}")
+    for suite, info in SUITES.items():
+        base_all = results_at("master", suite)
+        names = [n for n in utils + watched if n in base_all]
+        if not names:
             continue
-        regressed = sorted(set(new_entry["failing"]) - set(base["failing"]) - skip)
-        fixed = sorted(set(base["failing"]) - set(new_entry["failing"]))
-        gained = gained or bool(fixed)
-        lines.append(f"uutils {name}: {base['pass']} -> {new_entry['pass']} pass, "
-                     f"{len(fixed)} fixed, {len(regressed)} regressed")
-        if regressed:
-            fail.append(f"regressed in {name}: " + ", ".join(regressed))
-        remaining = [t for t in target_ids if t in new_entry["failing"]] if name in utils else []
-        if remaining:
-            lines.append(f"still failing from the target list ({len(remaining)}): " + ", ".join(remaining[:20]))
+        env_suite = dict(env)
+        if suite == "busybox":
+            env_suite["BUSYBOX_SOURCE_ROOT"] = str(BUSYBOX_SOURCE_ROOT)
+        # A report from an earlier run must never stand in for this one.
+        (scratch / info["report"]).unlink(missing_ok=True)
+        run = subprocess.run([info["runner"], *names], cwd=wt, env=env_suite, capture_output=True, text=True,
+                             stdin=subprocess.DEVNULL)
+        (scratch / f"run-{suite}.log").write_text(run.stdout + run.stderr)
+        # Runners exit nonzero when tests fail; only a missing report is a harness failure.
+        try:
+            report = json.loads((scratch / info["report"]).read_text())["utilities"]
+        except FileNotFoundError:
+            fail.append(f"{suite} slice produced no report; see {scratch}/run-{suite}.log")
+            continue
+        for name in names:
+            base, new_entry = base_all[name], report.get(name)
+            if new_entry is None:
+                fail.append(f"no {suite} report entry for {name}")
+                continue
+            ignored = skip if suite == "uutils" else set()
+            regressed = sorted(set(new_entry["failing"]) - set(base["failing"]) - ignored)
+            fixed = sorted(set(base["failing"]) - set(new_entry["failing"]))
+            gained = gained or bool(fixed)
+            lines.append(f"{suite} {name}: {base['pass']} -> {new_entry['pass']} pass, "
+                         f"{len(fixed)} fixed, {len(regressed)} regressed")
+            if regressed:
+                fail.append(f"regressed in {suite} {name}: " + ", ".join(regressed))
+            remaining = [t for t in target_ids if t in new_entry["failing"]] \
+                if name in utils and suite == primary else []
+            if remaining:
+                lines.append(f"still failing from the target list ({len(remaining)}): " + ", ".join(remaining[:20]))
     summary = "\n".join(lines)
     if not gained and not fail:
         summary += "\n(no gain)"
@@ -353,7 +376,7 @@ def accept(lanes: list[str], note: str | None) -> int:
             print(f"{lane}: gate failed, not merged")
             return 1
         summary = "; ".join(l for l in gate_out.stdout.splitlines()
-                            if l.startswith("uutils "))
+                            if l.startswith(("uutils ", "busybox ")) and "regressed" in l)
         message = f"{lane}: {note + ' ' if note else ''}({summary})\n\nCo-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
         git("merge", "--no-ff", "-q", f"claude/{lane}", "-m", message, cwd=MASTER)
         drop([lane], False)
@@ -383,6 +406,7 @@ def main() -> int:
             p.add_argument("--own", nargs="+", default=[])
             p.add_argument("--watch", nargs="+", default=[])
             p.add_argument("--native", action="store_true")
+            p.add_argument("--suite", choices=list(SUITES), default="uutils")
     p = sub.add_parser("gate")
     p.add_argument("util")
     p.add_argument("--committed", action="store_true")
@@ -396,7 +420,7 @@ def main() -> int:
     if args.cmd == "plan":
         plan(args.donor)
     elif args.cmd == "new":
-        new(args.utils, args.donor, args.members, args.own, args.watch, args.native)
+        new(args.utils, args.donor, args.members, args.own, args.watch, args.native, args.suite)
     elif args.cmd == "brief":
         print(brief(args.utils[0], args.donor))
     elif args.cmd == "gate":
