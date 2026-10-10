@@ -2,7 +2,18 @@
 use lib.gnu
 error AppletError = Usage : Usage
 
-type MkdirOptions = {parents: Bool, mode: Str?, verbose: Bool, help: Bool, version: Bool, directories: List[Str]}
+type MkdirOptions = {parents: Bool, mode: Str?, verbose: Bool, default_context: Bool, context: List[Str], help: Bool, version: Bool, directories: List[Str]}
+
+# --context takes an optional value, so a bare --context is recorded with this
+# sentinel. No argv element can contain NUL, so it never equals a real value.
+const NO_CONTEXT_VALUE = "\0"
+
+# libselinux reports SELinux when the kernel lists selinuxfs. Labelling created
+# directories is not implemented, so a label request is only GNU's silent or
+# warning no-op on kernels without SELinux; on SELinux kernels it must fail.
+proc selinux_enabled() -> Result[Bool] {
+  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
+}
 
 pure parse_mode(spec: Str, umask: Int) -> Result[Int] {
   if rx"^[0-7]+$".matches(spec) {
@@ -93,20 +104,37 @@ proc create_directory(target: Path, parents: Bool, mode: Int?, verbose: Bool, pa
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: MkdirOptions = cli.applet(argv, {
-    gnu: {status: 1, unsupported: {"--context": "security labels are not available", "-Z": "security labels are not available"}},
+    gnu: {status: 1},
     parents: {form: "-p --parents", default: false},
     mode: {form: "-m --mode MODE"},
     verbose: {form: "-v --verbose", default: false},
+    default_context: {form: "-Z", default: false},
+    context: {form: "--context[=CONTEXT]", repeated: true, optional_default: NO_CONTEXT_VALUE},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     directories: {form: "...DIRECTORY"},
   })?
+  var valued_contexts = 0
+  for value in opts.context {
+    if value != NO_CONTEXT_VALUE { valued_contexts += 1 }
+  }
+  let labelled = opts.default_context or valued_contexts > 0
+  let selinux = labelled and selinux_enabled()?
+  if valued_contexts > 0 and !selinux {
+    for _ in range(valued_contexts) {
+      gnu.error("warning: ignoring --context; it requires an SELinux/SMACK-enabled kernel")
+    }
+  }
   if opts.help {
     gnu.help("Usage: mkdir [OPTION]... DIRECTORY...\nCreate directories.\n  -p, --parents  create missing parents\n  -m, --mode=MODE  set permission bits\n  -v, --verbose  report created directories\n")
     return
   }
   if opts.version { gnu.version("mkdir")
     return }
+  if selinux {
+    gnu.error("--context (-Z) is not supported on SELinux-enabled systems")
+    exit 1
+  }
   if opts.directories.is_empty() { gnu.missing_operand() }
   let umask = fs.umask()?
   var mode: Int? = null
