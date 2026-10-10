@@ -139,6 +139,19 @@ test test_sort_general_numeric_stable_equal_values { |ctx|
   assert stderr.read_bytes()?.is_empty()
 }
 
+test test_sort_general_numeric_orders_past_double_precision { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-general-precision")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-g"], root,
+    {LC_ALL: "C"}, b"10.000000000000004\n10\n1.0000000000000002e1\n-10.000000000000004\n-10\n", stdout, stderr))?
+  assert result.exit_code()? == 0
+  assert stdout.read_bytes()? == b"-10.000000000000004\n-10\n10\n1.0000000000000002e1\n10.000000000000004\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
 test test_sort_general_numeric_invalid_values_precede_nan_and_numbers { |ctx|
   let root = test.temp_dir(ctx, name: "sort-general-invalid")?
   let script = fp"{ctx.core_dir}/sort.xsh"
@@ -1036,6 +1049,19 @@ test test_sort_debug_shows_every_tab_as_a_marker { |ctx|
   assert stdout.read_text()? == ">b\n__\nA>chr10\n_______\n"
 }
 
+test test_sort_debug_underline_ignores_nul_bytes { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-debug-nul")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"\0\ta\n")?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-s", "-k2b,2", "--debug", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_bytes()? == b"\0>a\n _\n"
+}
+
 test test_sort_blank_debug_annotations_skip_leading_blanks { |ctx|
   let root = test.temp_dir(ctx, name: "sort-blank-debug")?
   let script = fp"{ctx.core_dir}/sort.xsh"
@@ -1191,4 +1217,127 @@ test test_sort_reports_output_open_failure { |ctx|
   assert result.exit_code()? == 2
   assert stderr.read_text()? == f"sort: open failed: {output}: No such file or directory\n"
   assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_compress_program_wraps_every_spilled_run { |ctx|
+  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  let root = test.temp_dir(ctx, name: "sort-compress-spill")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let calls = fp"{root}/calls"
+  let temp = test.temp_dir(ctx, name: "sort-compress-spill-tmp")?
+  let compressor = fp"{root}/compress"
+  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls.display()}\ncat\n", mode: 0o755)
+  let numbers = collect { for n in range(1, 20001) { yield f"{20001 - n}" } }
+  let input = test.temp_file(ctx, name: "input", contents: bytes.from_text(numbers.join("\n") + "\n"))?
+  let expected = collect { for n in range(1, 20001) { yield f"{n}" } }
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "10", "-T", temp.display(),
+      "--compress-program", compressor.display(), input.display()],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == expected.join("\n") + "\n"
+  assert stderr.read_bytes()?.is_empty()
+  let log = calls.read_text()?
+  assert "-d\n" in log, "spilled runs are read back through the decompress mode"
+  assert log.lines().len() > 2, "each spilled run is written through the compress program"
+}
+
+test test_sort_compress_program_wraps_batched_merge_runs { |ctx|
+  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  let root = test.temp_dir(ctx, name: "sort-compress-merge")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let calls = fp"{root}/calls"
+  let temp = test.temp_dir(ctx, name: "sort-compress-merge-tmp")?
+  let compressor = fp"{root}/compress"
+  compressor.write(f"#!/bin/sh\necho \"$*\" >> {calls.display()}\ncat\n", mode: 0o755)
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  let third = fp"{root}/third"
+  first.write("1\n4\n")
+  second.write("2\n5\n")
+  third.write("3\n6\n")
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-m", "--batch-size=2", "-T", temp.display(),
+      "--compress-program", compressor.display(), first.display(), second.display(), third.display()],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == "1\n2\n3\n4\n5\n6\n"
+  assert stderr.read_bytes()?.is_empty()
+  assert "-d\n" in calls.read_text()?, "intermediate merge runs are read back through the decompress mode"
+}
+
+test test_sort_compress_program_missing_is_reported_and_sorting_continues { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-compress-missing")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let temp = test.temp_dir(ctx, name: "sort-compress-missing-tmp")?
+  let numbers = collect { for n in range(1, 20001) { yield f"{20001 - n}" } }
+  let input = test.temp_file(ctx, name: "input", contents: bytes.from_text(numbers.join("\n") + "\n"))?
+  let expected = collect { for n in range(1, 20001) { yield f"{n}" } }
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "10", "-T", temp.display(),
+      "--compress-program", "sort-no-such-compress-program", input.display()],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stderr.read_text()? == "sort: could not run compress program 'sort-no-such-compress-program': No such file or directory\n"
+  assert stdout.read_text()? == expected.join("\n") + "\n"
+}
+
+test test_sort_compress_program_failure_stops_the_sort { |ctx|
+  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  let root = test.temp_dir(ctx, name: "sort-compress-failure")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let temp = test.temp_dir(ctx, name: "sort-compress-failure-tmp")?
+  let compressor = fp"{root}/compress"
+  compressor.write("#!/bin/sh\nexit 3\n", mode: 0o755)
+  let numbers = collect { for n in range(1, 20001) { yield f"{20001 - n}" } }
+  let input = test.temp_file(ctx, name: "input", contents: bytes.from_text(numbers.join("\n") + "\n"))?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-n", "-S", "10", "-T", temp.display(),
+      "--compress-program", compressor.display(), input.display()],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 2
+  assert stderr.read_text()?.ends_with("terminated abnormally\n")
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_legacy_plus_key_is_read_unless_posix2_forbids_it { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-legacy-key")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"1 c\n2 a\n3 b\n")?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "+1", "-2", input.display()], root,
+    {LC_ALL: "C", _POSIX2_VERSION: "200809"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == "2 a\n3 b\n1 c\n"
+  assert stderr.read_bytes()?.is_empty()
+
+  let withdrawn = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "+1", input.display()], root,
+    {LC_ALL: "C", _POSIX2_VERSION: "200112"}, b"", stdout, stderr))?
+  assert withdrawn.exit_code()? == 2
+  assert stderr.read_text()? == f"sort: cannot read: +1: No such file or directory\n"
+}
+
+test test_sort_legacy_plus_key_saturates_oversized_positions { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-legacy-saturate")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"bb\naa\n")?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "+0.18446744073709551615R", input.display()], root,
+    {LC_ALL: "C", _POSIX2_VERSION: "200809"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == "aa\nbb\n"
+  assert stderr.read_bytes()?.is_empty()
 }
