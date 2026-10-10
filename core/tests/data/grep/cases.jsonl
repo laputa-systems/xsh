@@ -1,0 +1,517 @@
+{"id": "basic-L", "group": "basic", "cmd": "grep", "args": ["-L", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "basic-Lc", "group": "basic", "cmd": "grep", "args": ["-Lc", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "basic-empty-x", "group": "basic", "cmd": "grep", "args": ["-x", "", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-i", "group": "basic", "cmd": "grep", "args": ["-i", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-wi", "group": "basic", "cmd": "grep", "args": ["-wi", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-e-empty-and", "group": "basic", "cmd": "grep", "args": ["-e", "", "-e", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-w-multi", "group": "basic", "cmd": "grep", "args": ["-w", "-e", "apple", "-e", "sauce", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-oi", "group": "basic", "cmd": "grep", "args": ["-oi", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-l", "group": "basic", "cmd": "grep", "args": ["-l", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-m1", "group": "basic", "cmd": "grep", "args": ["-m1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-w-retry", "group": "basic", "cmd": "grep", "args": ["-w", "cat", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-xi", "group": "basic", "cmd": "grep", "args": ["-xi", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-c", "group": "basic", "cmd": "grep", "args": ["-c", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-v", "group": "basic", "cmd": "grep", "args": ["-v", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-T", "group": "basic", "cmd": "grep", "args": ["-T", "-n", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-Hc", "group": "basic", "cmd": "grep", "args": ["-Hc", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-ov", "group": "basic", "cmd": "grep", "args": ["-ov", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-A-after-match", "group": "basic", "cmd": "grep", "args": ["-A", "1", "-m", "1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-lv", "group": "basic", "cmd": "grep", "args": ["-lv", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-empty-w", "group": "basic", "cmd": "grep", "args": ["-w", "", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-w-underscore", "group": "basic", "cmd": "grep", "args": ["-w", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-w-sub", "group": "basic", "cmd": "grep", "args": ["-w", "app", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-H", "group": "basic", "cmd": "grep", "args": ["-H", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-cm1", "group": "basic", "cmd": "grep", "args": ["-c", "-m1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-lc", "group": "basic", "cmd": "grep", "args": ["-lc", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-w", "group": "basic", "cmd": "grep", "args": ["-w", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-b", "group": "basic", "cmd": "grep", "args": ["-b", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-e-multi-o", "group": "basic", "cmd": "grep", "args": ["-o", "-e", "an", "-e", "ban", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-ow", "group": "basic", "cmd": "grep", "args": ["-ow", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "basic-h", "group": "basic", "cmd": "grep", "args": ["-h", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-016", "group": "bre", "cmd": "grep", "args": ["a\\{,2\\}b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-067", "group": "bre", "cmd": "grep", "args": ["\\{1\\}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-082", "group": "bre", "cmd": "grep", "args": ["[:alpha:]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-024", "group": "bre", "cmd": "grep", "args": ["\\(*a\\)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-012", "group": "bre", "cmd": "grep", "args": ["\\(a\\)\\1", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-050", "group": "bre", "cmd": "grep", "args": ["\\Bor", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-053", "group": "bre", "cmd": "grep", "args": ["\\s", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-023", "group": "bre", "cmd": "grep", "args": ["*a", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-058", "group": "bre", "cmd": "grep", "args": ["abc\\'", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-079", "group": "bre", "cmd": "grep", "args": ["\\1", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-059", "group": "bre", "cmd": "grep", "args": ["a\\.c\\|\\<x\\>", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-081", "group": "bre", "cmd": "grep", "args": ["a\\{99999\\}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-004", "group": "bre", "cmd": "grep", "args": ["^abc$", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-015", "group": "bre", "cmd": "grep", "args": ["a\\{1,\\}b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-039", "group": "bre", "cmd": "grep", "args": ["[[:digit:]]\\+", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-056", "group": "bre", "cmd": "grep", "args": ["\\<w", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-093", "group": "bre", "cmd": "grep", "args": ["\\d", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-080", "group": "bre", "cmd": "grep", "args": ["[[:alpha:]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-049", "group": "bre", "cmd": "grep", "args": ["the\\>", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-027", "group": "bre", "cmd": "grep", "args": ["a|b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-022", "group": "bre", "cmd": "grep", "args": ["\\(a\\|x\\)\\{2\\}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-033", "group": "bre", "cmd": "grep", "args": ["[^abc]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-048", "group": "bre", "cmd": "grep", "args": ["\\<the", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-089", "group": "bre", "cmd": "grep", "args": ["\\^", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-092", "group": "bre", "cmd": "grep", "args": ["\\]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-010", "group": "bre", "cmd": "grep", "args": ["\\(ab\\)c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-040", "group": "bre", "cmd": "grep", "args": ["[[:space:]]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-021", "group": "bre", "cmd": "grep", "args": ["a\\?c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-085", "group": "bre", "cmd": "grep", "args": ["\\t", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-073", "group": "bre", "cmd": "grep", "args": ["[a", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-037", "group": "bre", "cmd": "grep", "args": ["[a-]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-032", "group": "bre", "cmd": "grep", "args": ["[abc]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-083", "group": "bre", "cmd": "grep", "args": ["[[:alpha:]-z]", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-001", "group": "bre", "cmd": "grep", "args": ["a\\.c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-020", "group": "bre", "cmd": "grep", "args": ["a\\+c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-060", "group": "bre", "cmd": "grep", "args": ["x\\{2\\}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-000", "group": "bre", "cmd": "grep", "args": ["a.c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-018", "group": "bre", "cmd": "grep", "args": ["ab\\{2\\}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-071", "group": "bre", "cmd": "grep", "args": ["\\)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bre-028", "group": "bre", "cmd": "grep", "args": ["(ab)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-022", "group": "ere", "cmd": "grep", "args": ["-E", "+a", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-029", "group": "ere", "cmd": "grep", "args": ["-E", "a{", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-047", "group": "ere", "cmd": "grep", "args": ["-E", "(a)\\2", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-048", "group": "ere", "cmd": "grep", "args": ["-E", "()\\1", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-072", "group": "ere", "cmd": "grep", "args": ["-E", "[[:alpha:]]{3}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-027", "group": "ere", "cmd": "grep", "args": ["-E", "a{1,2", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-034", "group": "ere", "cmd": "grep", "args": ["-E", "^(abc|x)$", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-035", "group": "ere", "cmd": "grep", "args": ["-E", "(^a)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-024", "group": "ere", "cmd": "grep", "args": ["-E", "?a", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-040", "group": "ere", "cmd": "grep", "args": ["-E", "^*", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-054", "group": "ere", "cmd": "grep", "args": ["-E", "\\S+$", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-030", "group": "ere", "cmd": "grep", "args": ["-E", "{", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-068", "group": "ere", "cmd": "grep", "args": ["-E", "\\{", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-037", "group": "ere", "cmd": "grep", "args": ["-E", "a^b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-065", "group": "ere", "cmd": "grep", "args": ["-E", "(ab|a)(bc|c)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-070", "group": "ere", "cmd": "grep", "args": ["-E", "a\\|b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-049", "group": "ere", "cmd": "grep", "args": ["-E", "\\bthe\\b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-078", "group": "ere", "cmd": "grep", "args": ["-E", "\\d", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-075", "group": "ere", "cmd": "grep", "args": ["-E", "a{32768}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-066", "group": "ere", "cmd": "grep", "args": ["-E", "\\.", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-059", "group": "ere", "cmd": "grep", "args": ["-E", "(a|b)(c|d)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-015", "group": "ere", "cmd": "grep", "args": ["-E", "ab{2}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-077", "group": "ere", "cmd": "grep", "args": ["-E", "(?:a)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-028", "group": "ere", "cmd": "grep", "args": ["-E", "a{x}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-003", "group": "ere", "cmd": "grep", "args": ["-E", "a|", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-043", "group": "ere", "cmd": "grep", "args": ["-E", "a)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-031", "group": "ere", "cmd": "grep", "args": ["-E", "}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-057", "group": "ere", "cmd": "grep", "args": ["-E", "a|^x", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-005", "group": "ere", "cmd": "grep", "args": ["-E", "()", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-076", "group": "ere", "cmd": "grep", "args": ["-E", "[a", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-073", "group": "ere", "cmd": "grep", "args": ["-E", "a{00001}", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-058", "group": "ere", "cmd": "grep", "args": ["-E", "x$|a", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-006", "group": "ere", "cmd": "grep", "args": ["-E", "(|a)", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-004", "group": "ere", "cmd": "grep", "args": ["-E", "|a", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-013", "group": "ere", "cmd": "grep", "args": ["-E", "a{1,}b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ere-055", "group": "ere", "cmd": "grep", "args": ["-E", "[[:upper:]]+", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-019", "group": "rxo", "cmd": "grep", "args": ["-F", "a.c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-015", "group": "rxo", "cmd": "grep", "args": ["-cE", "x*", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-020", "group": "rxo", "cmd": "grep", "args": ["-F", "a|b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-010", "group": "rxo", "cmd": "grep", "args": ["-oFi", "the", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-036", "group": "rxo", "cmd": "grep", "args": ["-wc", "[a-z]*", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-056", "group": "rxo", "cmd": "grep", "args": ["-F", "-E", "a+c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-049", "group": "rxo", "cmd": "grep", "args": ["-io", "t.", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-006", "group": "rxo", "cmd": "grep", "args": ["-onE", "\\w+", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-048", "group": "rxo", "cmd": "grep", "args": ["-iw", "THE", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-007", "group": "rxo", "cmd": "grep", "args": ["-oE", "^a|c$", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-042", "group": "rxo", "cmd": "grep", "args": ["-i", "[a-z]*", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-023", "group": "rxo", "cmd": "grep", "args": ["-Fw", "x", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-026", "group": "rxo", "cmd": "grep", "args": ["-Fi", "UPPER", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-055", "group": "rxo", "cmd": "grep", "args": ["-G", "-E", "a+c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-016", "group": "rxo", "cmd": "grep", "args": ["-oE", "(x)(x)?", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-051", "group": "rxo", "cmd": "grep", "args": ["--no-ignore-case", "-i", "UPPER", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-057", "group": "rxo", "cmd": "grep", "args": ["-E", "-F", "a+c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-022", "group": "rxo", "cmd": "grep", "args": ["-Fx", "x", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-031", "group": "rxo", "cmd": "grep", "args": ["-Fw", "-e", "foo", "-e", "bar", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-032", "group": "rxo", "cmd": "grep", "args": ["-w", "x*", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-000", "group": "rxo", "cmd": "grep", "args": ["-oE", "a|ab|abc", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-037", "group": "rxo", "cmd": "grep", "args": ["-x", "x*", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-054", "group": "rxo", "cmd": "grep", "args": ["-E", "-G", "a+c", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-018", "group": "rxo", "cmd": "grep", "args": ["-cow", "x", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-047", "group": "rxo", "cmd": "grep", "args": ["-iF", "the end", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rxo-052", "group": "rxo", "cmd": "grep", "args": ["-i", "--no-ignore-case", "UPPER", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-c", "group": "in", "cmd": "grep", "args": ["-c", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nuldata-c", "group": "in", "cmd": "grep", "args": ["-c", "o", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-long-b", "group": "in", "cmd": "grep", "args": ["-b", "needle", "long"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-utf8-c", "group": "in", "cmd": "grep", "args": ["-c", "a", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-miss-L", "group": "in", "cmd": "grep", "args": ["-L", "zzzz", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "in-latin1-U", "group": "in", "cmd": "grep", "args": ["-U", "ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-crlf-b", "group": "in", "cmd": "grep", "args": ["-b", "e$", "crlf"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nuldata-miss-c", "group": "in", "cmd": "grep", "args": ["-c", "zzzz", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nuldata-miss-L", "group": "in", "cmd": "grep", "args": ["-L", "zzzz", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "in-crlf-v", "group": "in", "cmd": "grep", "args": ["-v", "e$", "crlf"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-zn", "group": "in", "cmd": "grep", "args": ["-zn", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-cv", "group": "in", "cmd": "grep", "args": ["-cv", "ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-utf8-cv", "group": "in", "cmd": "grep", "args": ["-cv", "a", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nonl-v", "group": "in", "cmd": "grep", "args": ["-v", "t", "nonl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-q", "group": "in", "cmd": "grep", "args": ["-q", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-long-v", "group": "in", "cmd": "grep", "args": ["-v", "needle", "long"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nonl-z", "group": "in", "cmd": "grep", "args": ["-z", "t", "nonl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nonl-miss-c", "group": "in", "cmd": "grep", "args": ["-c", "zzzz", "nonl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-empty-miss", "group": "in", "cmd": "grep", "args": ["zzzz", "empty"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-l", "group": "in", "cmd": "grep", "args": ["-l", "ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-zc", "group": "in", "cmd": "grep", "args": ["-zc", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-utf8-an", "group": "in", "cmd": "grep", "args": ["-an", "a", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-an", "group": "in", "cmd": "grep", "args": ["-an", "ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-z", "group": "in", "cmd": "grep", "args": ["-z", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-x", "group": "in", "cmd": "grep", "args": ["-x", "ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nuldata-H", "group": "in", "cmd": "grep", "args": ["-H", "o", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nonl-l", "group": "in", "cmd": "grep", "args": ["-l", "t", "nonl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-empty-plain", "group": "in", "cmd": "grep", "args": ["a", "empty"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-utf8-o", "group": "in", "cmd": "grep", "args": ["-o", "a", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-cv", "group": "in", "cmd": "grep", "args": ["-cv", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-utf8-x", "group": "in", "cmd": "grep", "args": ["-x", "a", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nonl-miss", "group": "in", "cmd": "grep", "args": ["zzzz", "nonl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-plain", "group": "in", "cmd": "grep", "args": ["ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-zv", "group": "in", "cmd": "grep", "args": ["-zv", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-miss", "group": "in", "cmd": "grep", "args": ["zzzz", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-crlf-miss", "group": "in", "cmd": "grep", "args": ["zzzz", "crlf"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-v", "group": "in", "cmd": "grep", "args": ["-v", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nonl-o", "group": "in", "cmd": "grep", "args": ["-o", "t", "nonl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-utf8-miss-c", "group": "in", "cmd": "grep", "args": ["-c", "zzzz", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-nuldata-plain", "group": "in", "cmd": "grep", "args": ["o", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-U", "group": "in", "cmd": "grep", "args": ["-U", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-n", "group": "in", "cmd": "grep", "args": ["-n", "ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-bin-miss-v", "group": "in", "cmd": "grep", "args": ["-v", "zzzz", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-latin1-ao", "group": "in", "cmd": "grep", "args": ["-ao", "ve", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-utf8-zv", "group": "in", "cmd": "grep", "args": ["-zv", "a", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "in-empty-miss-L", "group": "in", "cmd": "grep", "args": ["-L", "zzzz", "empty"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "bin-count-multi", "group": "bin", "cmd": "grep", "args": ["-c", "text", "bin", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-latin1-utf8", "group": "bin", "cmd": "grep", "args": ["caf", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-latin1-utf8-v", "group": "bin", "cmd": "grep", "args": ["-v", "zzz", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-latin1-utf8-plain", "group": "bin", "cmd": "grep", "args": ["plain", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-latin1-C-dot", "group": "bin", "cmd": "grep", "args": ["-c", ".", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-latin1-C", "group": "bin", "cmd": "grep", "args": ["plain", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-count-v", "group": "bin", "cmd": "grep", "args": ["-vc", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-stdin-label", "group": "bin", "cmd": "grep", "args": ["--label=in", "-H", "text"], "stdin": "bin", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-latin1-utf8-dot", "group": "bin", "cmd": "grep", "args": ["-c", ".", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-ob", "group": "bin", "cmd": "grep", "args": ["-ob", "bin", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-text-o", "group": "bin", "cmd": "grep", "args": ["-ao", "bin", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-o", "group": "bin", "cmd": "grep", "args": ["-o", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-binary-files-abbrev", "group": "bin", "cmd": "grep", "args": ["--binary-files=tex", "t", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-dir-ra", "group": "bin", "cmd": "grep", "args": ["-ra", "needle", "d/blob.bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "bin-l-multi", "group": "bin", "cmd": "grep", "args": ["-l", "text", "bin", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-after-match", "group": "bin", "cmd": "grep", "args": ["-n", "more", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-latin1-utf8-count", "group": "bin", "cmd": "grep", "args": ["-c", "plain", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-binary-files-bad", "group": "bin", "cmd": "grep", "args": ["--binary-files=nope", "x", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-invert", "group": "bin", "cmd": "grep", "args": ["-v", "zzzz", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "bin-utf8-C", "group": "bin", "cmd": "grep", "args": ["-c", "caf.", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-i-upper", "group": "loc", "cmd": "grep", "args": ["-i", "école", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-class-alpha", "group": "loc", "cmd": "grep", "args": ["-o", "[[:alpha:]]*", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-bracket", "group": "loc", "cmd": "grep", "args": ["-o", "[é]", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-cjk", "group": "loc", "cmd": "grep", "args": ["-o", "日.", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-fixed-i", "group": "loc", "cmd": "grep", "args": ["-iF", "ÉCOLE", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-latin1-fixed", "group": "loc", "cmd": "grep", "args": ["-F", "ve", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-dot-c", "group": "loc", "cmd": "grep", "args": ["-c", "^....$", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-fixed-i", "group": "loc", "cmd": "grep", "args": ["-iF", "ÉCOLE", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-word", "group": "loc", "cmd": "grep", "args": ["-w", "caf", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-i-upper", "group": "loc", "cmd": "grep", "args": ["-i", "école", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-negbracket", "group": "loc", "cmd": "grep", "args": ["-o", "caf[^a-z]", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-star", "group": "loc", "cmd": "grep", "args": ["-o", "[a-z]*", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-ob", "group": "loc", "cmd": "grep", "args": ["-ob", "[^a-z]", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-dot-o", "group": "loc", "cmd": "grep", "args": ["-o", ".", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-bytes", "group": "loc", "cmd": "grep", "args": ["-c", "Ã", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-wchars", "group": "loc", "cmd": "grep", "args": ["-o", "\\w*", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-word", "group": "loc", "cmd": "grep", "args": ["-w", "caf", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-latin1-dot", "group": "loc", "cmd": "grep", "args": ["-o", "caf.", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-latin1-dot", "group": "loc", "cmd": "grep", "args": ["-o", "caf.", "latin1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-bytes", "group": "loc", "cmd": "grep", "args": ["-c", "Ã", "utf8"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-ere-len5", "group": "loc", "cmd": "grep", "args": ["-E", "^.{5}$", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-class-upper", "group": "loc", "cmd": "grep", "args": ["-c", "[[:upper:]]", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-cutf8-latin1-a", "group": "loc", "cmd": "grep", "args": ["-a", "-o", "na.ve", "latin1"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "loc-c-ob", "group": "loc", "cmd": "grep", "args": ["-ob", "[^a-z]", "utf8"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-A0", "group": "ctx", "cmd": "grep", "args": ["-A0", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-m1-A2", "group": "ctx", "cmd": "grep", "args": ["-m1", "-A2", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-o-C1", "group": "ctx", "cmd": "grep", "args": ["-o", "-C1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-A2", "group": "ctx", "cmd": "grep", "args": ["-A2", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-adjacent", "group": "ctx", "cmd": "grep", "args": ["-A1", "-n", "l0[34]", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-C2", "group": "ctx", "cmd": "grep", "args": ["-C2", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-num0", "group": "ctx", "cmd": "grep", "args": ["-0", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-multi-n", "group": "ctx", "cmd": "grep", "args": ["-nC1", "hit", "ctx", "text", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-stdin", "group": "ctx", "cmd": "grep", "args": ["-A1", "hit", "-"], "stdin": "ctx", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-multi", "group": "ctx", "cmd": "grep", "args": ["-C1", "hit", "ctx", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-C0", "group": "ctx", "cmd": "grep", "args": ["-C0", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-num1-n", "group": "ctx", "cmd": "grep", "args": ["-1", "-n", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-m1-B1", "group": "ctx", "cmd": "grep", "args": ["-m1", "-B1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-HT-C1", "group": "ctx", "cmd": "grep", "args": ["-HnT", "-C1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-multi-B", "group": "ctx", "cmd": "grep", "args": ["-B1", "-H", "abc", "a1", "a2", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-C-long", "group": "ctx", "cmd": "grep", "args": ["--context=1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-sep-order2", "group": "ctx", "cmd": "grep", "args": ["--group-separator=Y", "--no-group-separator", "-C1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-on-A1", "group": "ctx", "cmd": "grep", "args": ["-on", "-A1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-c-A1", "group": "ctx", "cmd": "grep", "args": ["-c", "-A1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-overlap", "group": "ctx", "cmd": "grep", "args": ["-C3", "-n", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-B2", "group": "ctx", "cmd": "grep", "args": ["-B2", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-A3-num1", "group": "ctx", "cmd": "grep", "args": ["-A3", "-1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-nb-C1", "group": "ctx", "cmd": "grep", "args": ["-nb", "-C1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-num-Cbad", "group": "ctx", "cmd": "grep", "args": ["-C", "1x", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-nosep", "group": "ctx", "cmd": "grep", "args": ["-C1", "--no-group-separator", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-q-A1", "group": "ctx", "cmd": "grep", "args": ["-q", "-A1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-H-C1", "group": "ctx", "cmd": "grep", "args": ["-H", "-C1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-multi-A", "group": "ctx", "cmd": "grep", "args": ["-A1", "abc", "a1", "a2", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-A1B2", "group": "ctx", "cmd": "grep", "args": ["-A1", "-B2", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-B-long", "group": "ctx", "cmd": "grep", "args": ["--before-context=1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-sep-order", "group": "ctx", "cmd": "grep", "args": ["--no-group-separator", "--group-separator=Y", "-C1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-T-C1", "group": "ctx", "cmd": "grep", "args": ["-nT", "-C1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-C-longsep", "group": "ctx", "cmd": "grep", "args": ["--context", "1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "ctx-A-empty", "group": "ctx", "cmd": "grep", "args": ["-A", "", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-ZL", "group": "files", "cmd": "grep", "args": ["-LZ", "zzz", "a1", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "files-dir-c", "group": "files", "cmd": "grep", "args": ["-c", "abc", "d", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-dir-recurse", "group": "files", "cmd": "grep", "args": ["-d", "recurse", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "files-stdin-label-c", "group": "files", "cmd": "grep", "args": ["--label=NAME", "-c", "abc", "-", "a2"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-label-L", "group": "files", "cmd": "grep", "args": ["--label=NAME", "-L", "zzz", "-", "a2"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "files-dir", "group": "files", "cmd": "grep", "args": ["abc", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-m1", "group": "files", "cmd": "grep", "args": ["-m1", "abc", "a1", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-dir-plus", "group": "files", "cmd": "grep", "args": ["abc", "d", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-c", "group": "files", "cmd": "grep", "args": ["-c", "abc", "a1", "a2", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-s-nomatch", "group": "files", "cmd": "grep", "args": ["-s", "zzzzz", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-L", "group": "files", "cmd": "grep", "args": ["-L", "zzz"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "files-three-n", "group": "files", "cmd": "grep", "args": ["-n", "abc", "a1", "a2", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing", "group": "files", "cmd": "grep", "args": ["abc", "a1", "nofile", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-H", "group": "files", "cmd": "grep", "args": ["-H", "abc", "-"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-l", "group": "files", "cmd": "grep", "args": ["-l", "abc", "a1", "a2", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-L", "group": "files", "cmd": "grep", "args": ["-L", "abc", "a1", "a2", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "files-symlink-H", "group": "files", "cmd": "grep", "args": ["-H", "apple", "lnk"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-L-all", "group": "files", "cmd": "grep", "args": ["-L", "a", "a1", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "files-h", "group": "files", "cmd": "grep", "args": ["-h", "abc", "a1", "a2", "a3"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-dir-l", "group": "files", "cmd": "grep", "args": ["-l", "abc", "d", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-dir-q", "group": "files", "cmd": "grep", "args": ["-q", "abc", "d", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-nomatch-L", "group": "files", "cmd": "grep", "args": ["-L", "zzzz", "a1", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "files-missing-L", "group": "files", "cmd": "grep", "args": ["-L", "abc", "nofile", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "files-stdin-nonl", "group": "files", "cmd": "grep", "args": ["-c", "t"], "stdin": "nonl", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-l", "group": "files", "cmd": "grep", "args": ["-l", "abc", "nofile", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-dev-read", "group": "files", "cmd": "grep", "args": ["-D", "read", "abc", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-l", "group": "files", "cmd": "grep", "args": ["-l", "abc"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-two", "group": "files", "cmd": "grep", "args": ["abc", "nofile", "nofile2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-Zc", "group": "files", "cmd": "grep", "args": ["-cZ", "abc", "a1", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-devnull", "group": "files", "cmd": "grep", "args": ["x", "/dev/null"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-h", "group": "files", "cmd": "grep", "args": ["-h", "abc", "a1", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-q-nomatch", "group": "files", "cmd": "grep", "args": ["-q", "zzzzz", "nofile", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-only", "group": "files", "cmd": "grep", "args": ["abc", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-v", "group": "files", "cmd": "grep", "args": ["-v", "abc", "nofile", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-empty", "group": "files", "cmd": "grep", "args": ["-c", "abc"], "stdin": "empty", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-missing-c", "group": "files", "cmd": "grep", "args": ["-c", "abc", "a1", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-label", "group": "files", "cmd": "grep", "args": ["--label=NAME", "-H", "abc"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-dir-read", "group": "files", "cmd": "grep", "args": ["-d", "read", "abc", "d", "a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-Z", "group": "files", "cmd": "grep", "args": ["-lZ", "abc"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "files-stdin-default", "group": "files", "cmd": "grep", "args": ["abc"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "rec-r-file", "group": "rec", "cmd": "grep", "args": ["-r", "needle", "d/a.txt"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-slashes", "group": "rec", "cmd": "grep", "args": ["-r", "needle", "d//sub//"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-Rl-dl", "group": "rec", "cmd": "grep", "args": ["-Rl", "needle", "dl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-Z", "group": "rec", "cmd": "grep", "args": ["-rlZ", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-nooperand-R", "group": "rec", "cmd": "grep", "args": ["-R", "-l", "needle"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-from-missing", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude-from=nofile", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-dir-glob", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude-dir=s*", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-include-nomatch", "group": "rec", "cmd": "grep", "args": ["-r", "--include=*.nope", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-from", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude-from=excl", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-file-and-dir", "group": "rec", "cmd": "grep", "args": ["-r", "needle", "d/a.txt", "d/sub"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-nooperand", "group": "rec", "cmd": "grep", "args": ["-r", "needle"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-nooperand-h", "group": "rec", "cmd": "grep", "args": ["-rh", "real"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-Rs-dl", "group": "rec", "cmd": "grep", "args": ["-Rsl", "needle", "dl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-dir", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude-dir=sub", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-R", "group": "rec", "cmd": "grep", "args": ["-R", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-two", "group": "rec", "cmd": "grep", "args": ["-r", "needle", "d/sub", "d/skip"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-rH-file", "group": "rec", "cmd": "grep", "args": ["-rH", "needle", "d/a.txt"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-A1", "group": "rec", "cmd": "grep", "args": ["-rA1", "plain", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-path-glob", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude=d/*.txt", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-rh", "group": "rec", "cmd": "grep", "args": ["-rh", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-file-path", "group": "rec", "cmd": "grep", "args": ["--exclude=a*", "abc", "./a1"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-ra", "group": "rec", "cmd": "grep", "args": ["-ra", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-d-recurse-R", "group": "rec", "cmd": "grep", "args": ["-d", "recurse", "-R", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-rn", "group": "rec", "cmd": "grep", "args": ["-rn", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-d-skip", "group": "rec", "cmd": "grep", "args": ["-r", "-d", "skip", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-file-op", "group": "rec", "cmd": "grep", "args": ["--exclude=a1", "abc", "a1", "a2"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-nooperand-c-d", "group": "rec", "cmd": "grep", "args": ["-rc", "needle", "--include=*.txt"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-all", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude=*", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-exclude-dir-slash", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude-dir=sub/", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-rs", "group": "rec", "cmd": "grep", "args": ["-rs", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-rL", "group": "rec", "cmd": "grep", "args": ["-rL", "plain", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": true}
+{"id": "rec-r-exclude-dir-dot", "group": "rec", "cmd": "grep", "args": ["-r", "--exclude-dir=.", "needle", "."], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-o", "group": "rec", "cmd": "grep", "args": ["-ro", "needle", "d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "rec-r-dotslash", "group": "rec", "cmd": "grep", "args": ["-r", "needle", "./d"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "color-T", "group": "color", "cmd": "grep", "args": ["--color=always", "-nHT", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-sep", "group": "color", "cmd": "grep", "args": ["--color=always", "-C0", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-if-tty", "group": "color", "cmd": "grep", "args": ["--color=if-tty", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-c", "group": "color", "cmd": "grep", "args": ["--color=always", "-c", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-force", "group": "color", "cmd": "grep", "args": ["--color=force", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-bad", "group": "color", "cmd": "grep", "args": ["--color=bogus", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-L", "group": "color", "cmd": "grep", "args": ["--color=always", "-L", "zzz", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "color-plain", "group": "color", "cmd": "grep", "args": ["--color=always", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-w", "group": "color", "cmd": "grep", "args": ["--color=always", "-w", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-ow", "group": "color", "cmd": "grep", "args": ["--color=always", "-ow", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-v", "group": "color", "cmd": "grep", "args": ["--color=always", "-v", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-b", "group": "color", "cmd": "grep", "args": ["--color=always", "-b", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-nHb", "group": "color", "cmd": "grep", "args": ["--color=always", "-nHb", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-H", "group": "color", "cmd": "grep", "args": ["--color=always", "-H", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-o", "group": "color", "cmd": "grep", "args": ["--color=always", "-o", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-empty-match", "group": "color", "cmd": "grep", "args": ["--color=always", "x*", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-auto", "group": "color", "cmd": "grep", "args": ["--color=auto", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "color-stdin", "group": "color", "cmd": "grep", "args": ["--color=always", "-H", "abc"], "stdin": "a1", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-00", "group": "colors", "cmd": "grep", "args": ["--color=always", "-nHb", "apple", "text"], "stdin": "", "lc": "C", "colors": "mt=01;32", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-03", "group": "colors", "cmd": "grep", "args": ["--color=always", "-nHb", "apple", "text"], "stdin": "", "lc": "C", "colors": "sl=1", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-07", "group": "colors", "cmd": "grep", "args": ["--color=always", "-nHb", "apple", "text"], "stdin": "", "lc": "C", "colors": "rv", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-grep-color", "group": "colors", "cmd": "grep", "args": ["--color=always", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "1;32", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-v-02", "group": "colors", "cmd": "grep", "args": ["--color=always", "-vnH", "apple", "text"], "stdin": "", "lc": "C", "colors": "mc=01;32", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-v-06", "group": "colors", "cmd": "grep", "args": ["--color=always", "-vnH", "apple", "text"], "stdin": "", "lc": "C", "colors": "sl=1:cx=2:rv", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-11", "group": "colors", "cmd": "grep", "args": ["--color=always", "-nHb", "apple", "text"], "stdin": "", "lc": "C", "colors": "bn=36", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-v-00", "group": "colors", "cmd": "grep", "args": ["--color=always", "-vnH", "apple", "text"], "stdin": "", "lc": "C", "colors": "mt=01;32", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-v-16", "group": "colors", "cmd": "grep", "args": ["--color=always", "-vnH", "apple", "text"], "stdin": "", "lc": "C", "colors": "ne:ms=4", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-ctx-06", "group": "colors", "cmd": "grep", "args": ["--color=always", "-C1", "-nH", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "sl=1:cx=2:rv", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-09", "group": "colors", "cmd": "grep", "args": ["--color=always", "-nHb", "apple", "text"], "stdin": "", "lc": "C", "colors": "fn=34", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-17", "group": "colors", "cmd": "grep", "args": ["--color=always", "-nHb", "apple", "text"], "stdin": "", "lc": "C", "colors": "sl=1:ne", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-ctx-15", "group": "colors", "cmd": "grep", "args": ["--color=always", "-C1", "-nH", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "mt=", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-v-rv", "group": "colors", "cmd": "grep", "args": ["--color=always", "-vnH", "-A1", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "sl=1:cx=2:rv", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-ctx-00", "group": "colors", "cmd": "grep", "args": ["--color=always", "-C1", "-nH", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "mt=01;32", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-ctx-09", "group": "colors", "cmd": "grep", "args": ["--color=always", "-C1", "-nH", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "fn=34", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-ctx-21", "group": "colors", "cmd": "grep", "args": ["--color=always", "-C1", "-nH", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "mt=1;35:ms=4", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "colors-v-08", "group": "colors", "cmd": "grep", "args": ["--color=always", "-vnH", "apple", "text"], "stdin": "", "lc": "C", "colors": "ne", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-none", "group": "opt", "cmd": "grep", "args": [], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-help", "group": "opt", "cmd": "grep", "args": ["--help"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-ambig", "group": "opt", "cmd": "grep", "args": ["--no", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-bin", "group": "opt", "cmd": "grep", "args": ["--bin=text", "x", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-posixly", "group": "opt", "cmd": "grep", "args": ["apple", "text", "-n"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": true, "sort": false, "lstatus": false}
+{"id": "opt-m-neg", "group": "opt", "cmd": "grep", "args": ["-m", "-1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-files-without-long", "group": "opt", "cmd": "grep", "args": ["--files-without-match", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "opt-f-stdin", "group": "opt", "cmd": "grep", "args": ["-f", "-", "text"], "stdin": "pats", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-recursive-long", "group": "opt", "cmd": "grep", "args": ["--recursive", "needle", "d/sub"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "opt-deref-long", "group": "opt", "cmd": "grep", "args": ["--dereference-recursive", "needle", "d/dirlink"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": true, "lstatus": false}
+{"id": "opt-long-abbrev-re", "group": "opt", "cmd": "grep", "args": ["--re", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-with-long", "group": "opt", "cmd": "grep", "args": ["--with-filename", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-E", "group": "opt", "cmd": "grep", "args": ["-E", "-f", "pats_two", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-nul", "group": "opt", "cmd": "grep", "args": ["-f", "bin", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-dir", "group": "opt", "cmd": "grep", "args": ["-f", "d", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-no-nl", "group": "opt", "cmd": "grep", "args": ["-f", "nonl", "nonl"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-no-messages-long", "group": "opt", "cmd": "grep", "args": ["--no-messages", "x", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-long", "group": "opt", "cmd": "grep", "args": ["-c", "-f", "long", "long"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-m-neg2", "group": "opt", "cmd": "grep", "args": ["-m-1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-m-big", "group": "opt", "cmd": "grep", "args": ["-m", "99999999999999999999", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-line-amb", "group": "opt", "cmd": "grep", "args": ["--line", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-E-only", "group": "opt", "cmd": "grep", "args": ["-E"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-line-long", "group": "opt", "cmd": "grep", "args": ["--line-regexp", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-m-space", "group": "opt", "cmd": "grep", "args": ["-m", " 1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-no-file-pattern-only", "group": "opt", "cmd": "grep", "args": ["apple"], "stdin": "text", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-quiet-long", "group": "opt", "cmd": "grep", "args": ["--quiet", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-x", "group": "opt", "cmd": "grep", "args": ["-x", "-f", "pats", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-m-1x", "group": "opt", "cmd": "grep", "args": ["-m", "1x", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-max2", "group": "opt", "cmd": "grep", "args": ["--max-c=1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-short-cluster-e-attached", "group": "opt", "cmd": "grep", "args": ["-eapple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-posixly-ok", "group": "opt", "cmd": "grep", "args": ["-n", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": true, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-max", "group": "opt", "cmd": "grep", "args": ["--max=1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-empty-v", "group": "opt", "cmd": "grep", "args": ["-vf", "pats_empty", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-unknown-long-val", "group": "opt", "cmd": "grep", "args": ["--bogus=1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-m-bad", "group": "opt", "cmd": "grep", "args": ["-m", "x", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-null-data-long", "group": "opt", "cmd": "grep", "args": ["--null-data", "one", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-short-missing-arg-f", "group": "opt", "cmd": "grep", "args": ["-f"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-pats", "group": "opt", "cmd": "grep", "args": ["-f", "pats", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-line", "group": "opt", "cmd": "grep", "args": ["--line-n", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-X-fgrep", "group": "opt", "cmd": "grep", "args": ["-X", "fgrep", "a.b", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-context-attached-bad", "group": "opt", "cmd": "grep", "args": ["-Cx", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-blank2", "group": "opt", "cmd": "grep", "args": ["-c", "-f", "pats_blank2", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-help-after", "group": "opt", "cmd": "grep", "args": ["apple", "--help", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-num-cluster2", "group": "opt", "cmd": "grep", "args": ["-2n", "hit", "ctx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-after-operand", "group": "opt", "cmd": "grep", "args": ["apple", "text", "-n"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-files2", "group": "opt", "cmd": "grep", "args": ["--files-without", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "opt-short-missing-arg", "group": "opt", "cmd": "grep", "args": ["-e"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-X-egrep", "group": "opt", "cmd": "grep", "args": ["-X", "egrep", "a|b", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-f-o", "group": "opt", "cmd": "grep", "args": ["-o", "-f", "pats_two", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-i-y", "group": "opt", "cmd": "grep", "args": ["-y", "APPLE", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-short-cluster-m", "group": "opt", "cmd": "grep", "args": ["-m1n", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-text-long", "group": "opt", "cmd": "grep", "args": ["--text", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-arg-sep-max", "group": "opt", "cmd": "grep", "args": ["--max-count", "1", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-exclude-dir-missing", "group": "opt", "cmd": "grep", "args": ["--exclude-dir"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-long-abbrev-with", "group": "opt", "cmd": "grep", "args": ["--with", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-X-grep", "group": "opt", "cmd": "grep", "args": ["-X", "grep", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-unix-byte", "group": "opt", "cmd": "grep", "args": ["--unix-byte-offsets", "-b", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-file-long-sep", "group": "opt", "cmd": "grep", "args": ["--file", "pats", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-short-cluster-e", "group": "opt", "cmd": "grep", "args": ["-ie", "APPLE", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-X-bad", "group": "opt", "cmd": "grep", "args": ["-X", "bogus", "a", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-word-long", "group": "opt", "cmd": "grep", "args": ["--word-regexp", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "opt-no-filename-long", "group": "opt", "cmd": "grep", "args": ["--no-filename", "apple", "a1", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-L-match", "group": "exit", "cmd": "grep", "args": ["-L", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "exit-L-nomatch", "group": "exit", "cmd": "grep", "args": ["-L", "zzz", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "exit-m0-L", "group": "exit", "cmd": "grep", "args": ["-m0", "-L", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": true}
+{"id": "exit-m0-c", "group": "exit", "cmd": "grep", "args": ["-m0", "-c", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-q-nomatch-error", "group": "exit", "cmd": "grep", "args": ["-q", "zzz", "text", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-m0-l", "group": "exit", "cmd": "grep", "args": ["-m0", "-l", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-m0", "group": "exit", "cmd": "grep", "args": ["-m0", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-error-bad-regex-s", "group": "exit", "cmd": "grep", "args": ["-s", "-E", "(", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-c-match", "group": "exit", "cmd": "grep", "args": ["-c", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-v-all", "group": "exit", "cmd": "grep", "args": ["-v", "", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-error-bad-regex", "group": "exit", "cmd": "grep", "args": ["(", "-E", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-v-none", "group": "exit", "cmd": "grep", "args": ["-v", "a", "empty"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-error-missing-file", "group": "exit", "cmd": "grep", "args": ["apple", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-match-then-error", "group": "exit", "cmd": "grep", "args": ["apple", "text", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-m0-q", "group": "exit", "cmd": "grep", "args": ["-m0", "-q", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-nomatch", "group": "exit", "cmd": "grep", "args": ["zzz", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-error-then-match", "group": "exit", "cmd": "grep", "args": ["apple", "nofile", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "exit-error-bad-regex-q", "group": "exit", "cmd": "grep", "args": ["-q", "-E", "(", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-newline-pat", "group": "z", "cmd": "grep", "args": ["-zc", "two\nfour", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-empty", "group": "z", "cmd": "grep", "args": ["-z", "a", "empty"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-v", "group": "z", "cmd": "grep", "args": ["-zv", "one", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-o", "group": "z", "cmd": "grep", "args": ["-zo", "o.", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-basic", "group": "z", "cmd": "grep", "args": ["-z", "one", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-text", "group": "z", "cmd": "grep", "args": ["-z", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-x", "group": "z", "cmd": "grep", "args": ["-zx", "four", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-bin", "group": "z", "cmd": "grep", "args": ["-z", "-c", "text", "bin"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-caret", "group": "z", "cmd": "grep", "args": ["-z", "^t", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-text-x", "group": "z", "cmd": "grep", "args": ["-zx", "apple", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-c", "group": "z", "cmd": "grep", "args": ["-zc", "o", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "z-dollar", "group": "z", "cmd": "grep", "args": ["-zc", "e$", "nuldata"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "egrep-bad", "group": "egrep", "cmd": "egrep", "args": ["(", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "egrep-error", "group": "egrep", "cmd": "egrep", "args": ["apple", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "egrep-plain", "group": "egrep", "cmd": "egrep", "args": ["a", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "egrep-group", "group": "egrep", "cmd": "egrep", "args": ["(an){2}", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "egrep-nomatch", "group": "egrep", "cmd": "egrep", "args": ["zzz", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fgrep-E-override", "group": "fgrep", "cmd": "fgrep", "args": ["-E", "a|b", "rx"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fgrep-dot", "group": "fgrep", "cmd": "fgrep", "args": ["a.b", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fgrep-help", "group": "fgrep", "cmd": "fgrep", "args": ["--help"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fgrep-G-override", "group": "fgrep", "cmd": "fgrep", "args": ["-G", "a\\.b", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fgrep-newline", "group": "fgrep", "cmd": "fgrep", "args": ["apple\nbanana", "text"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fgrep-error", "group": "fgrep", "cmd": "fgrep", "args": ["apple", "nofile"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0033", "group": "fz", "cmd": "grep", "args": ["-o", "[[:lower:]]", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0073", "group": "fz", "cmd": "grep", "args": ["-ion", "-E", "[[:upper:]]", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0214", "group": "fz", "cmd": "grep", "args": ["-ion", "[[:upper:]]\\>", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0281", "group": "fz", "cmd": "grep", "args": ["-ion", "-E", "[[:lower:]] ", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fv0062", "group": "fz", "cmd": "grep", "args": ["-owF", "-e", "é", "-e", "a", "-e", "é", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fv0120", "group": "fz", "cmd": "grep", "args": ["-owF", "-e", "é", "-e", "é", "-e", "a", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fv0147", "group": "fz", "cmd": "grep", "args": ["-owF", "-e", "é", "-e", " y", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0474", "group": "fz", "cmd": "grep", "args": ["-iw", "-o", "-E", "--", ".\\*?", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0518", "group": "fz", "cmd": "grep", "args": ["-ob", "-E", "--", "\\**(^(z\\*a)*|\\<x+([ab]*a*\\*$)[b-c]a+|(1 )+c(z).{0,1}\\>)*_+\\1", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0527", "group": "fz", "cmd": "grep", "args": ["-wn", "-E", "--", "[^[:alpha:]]{0,1}|([[:digit:]]+[[:alpha:]]+)\\b\\*x\\1", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0565", "group": "fz", "cmd": "grep", "args": ["-ow", "-E", "--", " ? *1[[:alpha:]]|.{0,2}", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-w-empty-star", "group": "fz", "cmd": "grep", "args": ["-w", "-n", "\\(HE\\)* *", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0273", "group": "fz", "cmd": "grep", "args": ["-n", "^.[[:alpha:]]", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1644", "group": "fz", "cmd": "grep", "args": ["-ox", "-E", "--", "aa[^[:digit:]]+.", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0816", "group": "fz", "cmd": "grep", "args": ["-iw", "-o", "--", "a\\?", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0376", "group": "fz", "cmd": "grep", "args": ["-c", "-E", "--", "\\<[[:alpha:]]*(c*(.+|[[:space:]]a 1|[^0-9])1|(\\* [[:digit:]])[[:alpha:]]z\\>)", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0587", "group": "fz", "cmd": "grep", "args": ["-c", "-E", ".\\wé ", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0604", "group": "fz", "cmd": "grep", "args": ["-c", "-i", "-E", "--", "^[ab]*1*", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1658", "group": "fz", "cmd": "grep", "args": ["-iw", "-o", "--", ".\\+c*\\*", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1666", "group": "fz", "cmd": "grep", "args": ["-n", "--", "^.\\|a\\+\\(1\\(x\\?\\*\\{0,1\\}a\\{2\\}\\W\\?\\| \\{1,2\\} *c \\|^a*.[ab]\\?.\\)\\w\\+_\\)\\|\\( \\+\\(za\\{0,1\\}\\>\\| *a\\+_\\?a*\\)x\\).\\+\\(.a\\).", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1568", "group": "fz", "cmd": "grep", "args": ["-c", "-i", "-E", "--", "[^ab]|.(\\.{1}_{0,1}(1b*.|\\<1|^a*[a-cx])?[a-cx]+\\>|(.\\>|\\<x\\s*).*){0,2}a?", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0055", "group": "fz", "cmd": "grep", "args": ["-c", "日*本.\\w", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fv0228", "group": "fz", "cmd": "grep", "args": ["-owF", "-e", "р", "-e", "р Ми", "-e", "Мир", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1554", "group": "fz", "cmd": "grep", "args": ["-c", "--", "^z[[:upper:]]1\\{2,\\}\\(^\\(\\*\\?\\)\\?x.\\)\\+", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1275", "group": "fz", "cmd": "grep", "args": ["-ow", "-E", "--", ".[^[:alpha:]]*b?((_*|\\<c?[[:digit:]]*x*)*.+c\\w$){1,2}\\>", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0235", "group": "fz", "cmd": "grep", "args": ["-n", "p", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fv0013", "group": "fz", "cmd": "grep", "args": ["-owF", "-e", "sp  ", "-e", "p ", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fv0295", "group": "fz", "cmd": "grep", "args": ["-iobF", "-e", "日本", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fv0235", "group": "fz", "cmd": "grep", "args": ["-cF", "-e", "é y", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0617", "group": "fz", "cmd": "grep", "args": ["-n", "[^р]", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1734", "group": "fz", "cmd": "grep", "args": ["-wc", "-E", "--", ".|(.\\*+ {2}[^[:alpha:]]|\\< | )\\s1\\1", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0645", "group": "fz", "cmd": "grep", "args": ["-ow", "^.", "fu"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0641", "group": "fz", "cmd": "grep", "args": ["-c", "\\<[tx]", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0400", "group": "fz", "cmd": "grep", "args": ["-n", "-E", "[éx]", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0918", "group": "fz", "cmd": "grep", "args": ["-ox", "-E", "--", "1((1a))..$|.+_*\\1", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0142", "group": "fz", "cmd": "grep", "args": ["-io", "-E", "c*[[:alpha:]]d*", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0250", "group": "fz", "cmd": "grep", "args": ["-on", "-E", "--", "x*", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0791", "group": "fz", "cmd": "grep", "args": ["-ox", "-E", "-e", ".+[^a-cx](b[ab] _*)?", "-e", "(^1\\S1|a ?)*a1{2,}b| (b.[[:digit:]]1)c*.|_ ?$", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0210", "group": "fz", "cmd": "grep", "args": ["-io", "u\\+[[:alpha:]]", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0087", "group": "fz", "cmd": "grep", "args": ["-c", "--", "\\(\\< c*a\\?\\|x\\+\\(1\\)\\?x1\\+\\>\\|.z\\(\\b_z*\\)\\)[^a-cx]\\{0,2\\}", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fu0575", "group": "fz", "cmd": "grep", "args": ["-ion", ".ç.\\we", "fu"], "stdin": "", "lc": "C.UTF-8", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1826", "group": "fz", "cmd": "grep", "args": ["-x", "-E", "--", "((_*x?a\\W$)_$)[^[:digit:]]*x((\\<\\*|\\<a\\S1[[:alpha:]]|a\\w)1.)+$|1*a[^[:alpha:]].|czza{2,}\\1", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1344", "group": "fz", "cmd": "grep", "args": ["-c", "-i", "--", ".\\{1,2\\}\\(\\(^b\\*\\{2\\}a\\+\\)\\?\\).", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0589", "group": "fz", "cmd": "grep", "args": ["-c", "-i", "-E", "--", ".[ab]+_+", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1258", "group": "fz", "cmd": "grep", "args": ["-v", "-c", "-E", "--", ".|\\<.", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0759", "group": "fz", "cmd": "grep", "args": ["-wc", "-E", "--", "(^ )z*_a\\>", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw1773", "group": "fz", "cmd": "grep", "args": ["-ob", "-E", "--", "^.{1,2}", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}
+{"id": "fz-fw0665", "group": "fz", "cmd": "grep", "args": ["-ob", "--", ".\\|\\(b *_\\| \\.\\?[a-cx]*x\\+\\)\\(^c \\{0,2\\}\\(. *ax\\)z\\)\\?z$", "fy"], "stdin": "", "lc": "C", "colors": "", "color": "", "posixly": false, "sort": false, "lstatus": false}

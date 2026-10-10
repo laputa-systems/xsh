@@ -1,0 +1,2068 @@
+@ basic-L
+rc 0
+out 
+err 
+@ basic-Lc
+rc 0
+out 
+err 
+@ basic-empty-x
+rc 0
+out \n
+err 
+@ basic-i
+rc 0
+out apple\nApple pie\ncherry apple\napple_sauce\n
+err 
+@ basic-wi
+rc 0
+out apple\nApple pie\ncherry apple\n
+err 
+@ basic-e-empty-and
+rc 0
+out apple\nbanana\nApple pie\ncherry apple\n\napple_sauce\nbanana split\nthe cat sat\na.b\naxb\n
+err 
+@ basic-w-multi
+rc 0
+out apple\ncherry apple\n
+err 
+@ basic-oi
+rc 0
+out apple\nApple\napple\napple\n
+err 
+@ basic-l
+rc 0
+out text\n
+err 
+@ basic-m1
+rc 0
+out apple\n
+err 
+@ basic-w-retry
+rc 0
+out the cat sat\n
+err 
+@ basic-xi
+rc 0
+out apple\n
+err 
+@ basic-c
+rc 0
+out 3\n
+err 
+@ basic-v
+rc 0
+out banana\nApple pie\n\nbanana split\nthe cat sat\na.b\naxb\n
+err 
+@ basic-T
+rc 0
+out  1:\tapple\n 4:\tcherry apple\n 6:\tapple_sauce\n
+err 
+@ basic-Hc
+rc 0
+out text:3\n
+err 
+@ basic-ov
+rc 0
+out 
+err 
+@ basic-A-after-match
+rc 0
+out apple\nbanana\n
+err 
+@ basic-lv
+rc 0
+out text\n
+err 
+@ basic-empty-w
+rc 0
+out \n
+err 
+@ basic-w-underscore
+rc 0
+out apple\ncherry apple\n
+err 
+@ basic-w-sub
+rc 1
+out 
+err 
+@ basic-H
+rc 0
+out text:apple\ntext:cherry apple\ntext:apple_sauce\n
+err 
+@ basic-cm1
+rc 0
+out 1\n
+err 
+@ basic-lc
+rc 0
+out text\n
+err 
+@ basic-w
+rc 0
+out apple\ncherry apple\n
+err 
+@ basic-b
+rc 0
+out 0:apple\n23:cherry apple\n37:apple_sauce\n
+err 
+@ basic-e-multi-o
+rc 0
+out ban\nan\nban\nan\n
+err 
+@ basic-ow
+rc 0
+out apple\napple\n
+err 
+@ basic-h
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ bre-016
+rc 0
+out abc\naabbcc\nabcabc\na|b\n(ab)\nab{2}\na b\nfoo-bar\ntab\there\n
+err 
+@ bre-067
+rc 1
+out 
+err grep: warning: stray \\ before {\n
+@ bre-082
+rc 2
+out 
+err grep: character class syntax is [[:space:]], not [:space:]\n
+@ bre-024
+rc 1
+out 
+err 
+@ bre-012
+rc 0
+out aabbcc\n
+err 
+@ bre-050
+rc 0
+out word wordy sword\n
+err 
+@ bre-053
+rc 0
+out a b\nword wordy sword\nthe end\nTHE END\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ bre-023
+rc 1
+out 
+err 
+@ bre-058
+rc 0
+out abc\nabcabc\n
+err 
+@ bre-079
+rc 2
+out 
+err grep: Invalid back reference\n
+@ bre-059
+rc 0
+out a.c\nx\n
+err 
+@ bre-081
+rc 2
+out 
+err grep: Regular expression too big\n
+@ bre-004
+rc 0
+out abc\n
+err 
+@ bre-015
+rc 0
+out abc\naabbcc\nabcabc\n(ab)\nab{2}\ntab\there\n
+err 
+@ bre-039
+rc 0
+out a{2}\nab{2}\n123 456\n
+err 
+@ bre-056
+rc 0
+out word wordy sword\nends with space \n
+err 
+@ bre-093
+rc 0
+out word wordy sword\nthe end\n  indented\nends with space \n
+err grep: warning: stray \\ before d\n
+@ bre-080
+rc 2
+out 
+err grep: Unmatched [, [^, [:, [., or [=\n
+@ bre-049
+rc 0
+out the end\n
+err 
+@ bre-027
+rc 0
+out a|b\n
+err 
+@ bre-022
+rc 0
+out aabbcc\nxx\nxxx\n
+err 
+@ bre-033
+rc 0
+out a.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ bre-048
+rc 0
+out the end\n
+err 
+@ bre-089
+rc 1
+out 
+err 
+@ bre-092
+rc 1
+out 
+err 
+@ bre-010
+rc 0
+out abc\nabcabc\n
+err 
+@ bre-040
+rc 0
+out a b\nword wordy sword\nthe end\nTHE END\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ bre-021
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\nends with space \n
+err 
+@ bre-085
+rc 0
+out the end\ntab\there\n  indented\nends with space \n
+err grep: warning: stray \\ before t\n
+@ bre-073
+rc 2
+out 
+err grep: Unmatched [, [^, [:, [., or [=\n
+@ bre-037
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nfoo-bar\ntab\there\nends with space \n
+err 
+@ bre-032
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nfoo-bar\ntab\there\nends with space \n
+err 
+@ bre-083
+rc 2
+out 
+err grep: Invalid range end\n
+@ bre-001
+rc 0
+out a.c\n
+err 
+@ bre-020
+rc 0
+out ends with space \n
+err 
+@ bre-060
+rc 0
+out xx\nxxx\n
+err 
+@ bre-000
+rc 0
+out abc\nabcabc\na.c\na+c\n
+err 
+@ bre-018
+rc 0
+out aabbcc\n
+err 
+@ bre-071
+rc 2
+out 
+err grep: Unmatched ) or \\)\n
+@ bre-028
+rc 0
+out (ab)\n
+err 
+@ ere-022
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nfoo-bar\ntab\there\nends with space \n
+err grep: warning: + at start of expression\n
+@ ere-029
+rc 0
+out a{2}\n
+err 
+@ ere-047
+rc 2
+out 
+err grep: Invalid back reference\n
+@ ere-048
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ ere-072
+rc 0
+out abc\naabbcc\nabcabc\nword wordy sword\nfoo-bar\nthe end\nTHE END\nxxx\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ ere-027
+rc 1
+out 
+err 
+@ ere-034
+rc 0
+out abc\nx\n
+err 
+@ ere-035
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\na{2}\nab{2}\na b\n
+err 
+@ ere-024
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nfoo-bar\ntab\there\nends with space \n
+err grep: warning: ? at start of expression\n
+@ ere-040
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err grep: warning: * at start of expression\n
+@ ere-054
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nUPPER lower\n
+err 
+@ ere-030
+rc 0
+out a{2}\nab{2}\n
+err 
+@ ere-068
+rc 0
+out a{2}\nab{2}\n
+err 
+@ ere-037
+rc 1
+out 
+err 
+@ ere-065
+rc 0
+out abc\naabbcc\nabcabc\nends with space \n
+err 
+@ ere-070
+rc 0
+out a|b\n
+err 
+@ ere-049
+rc 0
+out the end\n
+err 
+@ ere-078
+rc 0
+out word wordy sword\nthe end\n  indented\nends with space \n
+err grep: warning: stray \\ before d\n
+@ ere-075
+rc 2
+out 
+err grep: Regular expression too big\n
+@ ere-066
+rc 0
+out a.c\n
+err 
+@ ere-059
+rc 0
+out abc\naabbcc\nabcabc\nends with space \n
+err 
+@ ere-015
+rc 0
+out aabbcc\n
+err 
+@ ere-077
+rc 1
+out 
+err grep: warning: ? at start of expression\n
+@ ere-028
+rc 1
+out 
+err 
+@ ere-003
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ ere-043
+rc 1
+out 
+err 
+@ ere-031
+rc 0
+out a{2}\nab{2}\n
+err 
+@ ere-057
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nfoo-bar\nx\nxx\nxxx\ntab\there\nends with space \n
+err 
+@ ere-005
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ ere-076
+rc 2
+out 
+err grep: Unmatched [, [^, [:, [., or [=\n
+@ ere-073
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nfoo-bar\ntab\there\nends with space \n
+err 
+@ ere-058
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nfoo-bar\nx\nxx\nxxx\ntab\there\nends with space \n
+err 
+@ ere-006
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ ere-004
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ ere-013
+rc 0
+out abc\naabbcc\nabcabc\n(ab)\nab{2}\ntab\there\n
+err 
+@ ere-055
+rc 0
+out THE END\nUPPER lower\n
+err 
+@ rxo-019
+rc 0
+out a.c\n
+err 
+@ rxo-015
+rc 0
+out 22\n
+err 
+@ rxo-020
+rc 0
+out a|b\n
+err 
+@ rxo-010
+rc 0
+out the\nTHE\n
+err 
+@ rxo-036
+rc 0
+out 20\n
+err 
+@ rxo-056
+rc 2
+out 
+err grep: conflicting matchers specified\n
+@ rxo-049
+rc 0
+out th\nTH\nta\nte\nth\n
+err 
+@ rxo-006
+rc 0
+out 1:abc\n2:aabbcc\n3:abcabc\n4:a\n4:c\n5:a\n5:c\n6:a\n6:b\n7:ab\n8:a\n8:2\n9:ab\n9:2\n10:a\n10:b\n11:word\n11:wordy\n11:sword\n12:foo\n12:bar\n13:the\n13:end\n14:THE\n14:END\n15:x\n16:xx\n17:xxx\n18:123\n18:456\n19:tab\n19:here\n20:indented\n21:ends\n21:with\n21:space\n22:UPPER\n22:lower\n
+err 
+@ rxo-048
+rc 0
+out the end\nTHE END\n
+err 
+@ rxo-007
+rc 0
+out a\nc\na\nc\na\nc\na\nc\na\nc\na\na\na\na\n
+err 
+@ rxo-042
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\nx\nxx\nxxx\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ rxo-023
+rc 0
+out x\n
+err 
+@ rxo-026
+rc 0
+out UPPER lower\n
+err 
+@ rxo-055
+rc 2
+out 
+err grep: conflicting matchers specified\n
+@ rxo-016
+rc 0
+out x\nxx\nxx\nx\n
+err 
+@ rxo-051
+rc 0
+out UPPER lower\n
+err 
+@ rxo-057
+rc 2
+out 
+err grep: conflicting matchers specified\n
+@ rxo-022
+rc 0
+out x\n
+err 
+@ rxo-031
+rc 0
+out foo-bar\n
+err 
+@ rxo-032
+rc 0
+out (ab)\na{2}\nab{2}\nx\nxx\nxxx\n  indented\nends with space \n
+err 
+@ rxo-000
+rc 0
+out abc\na\nab\nabc\nabc\na\na\na\nab\na\nab\na\na\nab\na\n
+err 
+@ rxo-037
+rc 0
+out x\nxx\nxxx\n
+err 
+@ rxo-054
+rc 2
+out 
+err grep: conflicting matchers specified\n
+@ rxo-018
+rc 0
+out 1\n
+err 
+@ rxo-047
+rc 0
+out the end\nTHE END\n
+err 
+@ rxo-052
+rc 0
+out UPPER lower\n
+err 
+@ in-bin-c
+rc 0
+out 2\n
+err 
+@ in-nuldata-c
+rc 0
+out 3\n
+err 
+@ in-long-b
+rc 0
+out 0:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaneedlebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n
+err 
+@ in-utf8-c
+rc 0
+out 3\n
+err 
+@ in-latin1-miss-L
+rc 1
+out latin1\n
+err 
+@ in-latin1-U
+rc 0
+out na\xefve\n
+err 
+@ in-crlf-b
+rc 1
+out 
+err 
+@ in-nuldata-miss-c
+rc 1
+out 0\n
+err 
+@ in-nuldata-miss-L
+rc 1
+out nuldata\n
+err 
+@ in-crlf-v
+rc 0
+out one\r\ntwo\r\nthree\r\n
+err 
+@ in-bin-zn
+rc 0
+out 1:text\02:bin\nmore text\nnull\0
+err 
+@ in-latin1-cv
+rc 0
+out 2\n
+err 
+@ in-utf8-cv
+rc 0
+out 2\n
+err 
+@ in-nonl-v
+rc 0
+out one\n
+err 
+@ in-bin-q
+rc 0
+out 
+err 
+@ in-long-v
+rc 0
+out short\n
+err 
+@ in-nonl-z
+rc 0
+out one\ntwo\nthree\0
+err 
+@ in-nonl-miss-c
+rc 1
+out 0\n
+err 
+@ in-empty-miss
+rc 1
+out 
+err 
+@ in-latin1-l
+rc 0
+out latin1\n
+err 
+@ in-bin-zc
+rc 0
+out 2\n
+err 
+@ in-utf8-an
+rc 0
+out 1:caf\xc3\xa9\n2:na\xc3\xafve\n4:plain\n
+err 
+@ in-latin1-an
+rc 0
+out 2:na\xefve\n
+err 
+@ in-bin-z
+rc 0
+out text\0bin\nmore text\nnull\0
+err 
+@ in-latin1-x
+rc 1
+out 
+err 
+@ in-nuldata-H
+rc 0
+out 
+err grep: nuldata: binary file matches\n
+@ in-nonl-l
+rc 0
+out nonl\n
+err 
+@ in-empty-plain
+rc 1
+out 
+err 
+@ in-utf8-o
+rc 0
+out a\na\na\n
+err 
+@ in-bin-cv
+rc 0
+out 3\n
+err 
+@ in-utf8-x
+rc 1
+out 
+err 
+@ in-nonl-miss
+rc 1
+out 
+err 
+@ in-latin1-plain
+rc 0
+out na\xefve\n
+err 
+@ in-bin-zv
+rc 0
+out \n\0
+err 
+@ in-latin1-miss
+rc 1
+out 
+err 
+@ in-crlf-miss
+rc 1
+out 
+err 
+@ in-bin-v
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ in-nonl-o
+rc 0
+out t\nt\n
+err 
+@ in-utf8-miss-c
+rc 1
+out 0\n
+err 
+@ in-nuldata-plain
+rc 0
+out 
+err grep: nuldata: binary file matches\n
+@ in-bin-U
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ in-latin1-n
+rc 0
+out 2:na\xefve\n
+err 
+@ in-bin-miss-v
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ in-latin1-ao
+rc 0
+out ve\n
+err 
+@ in-utf8-zv
+rc 1
+out 
+err 
+@ in-empty-miss-L
+rc 1
+out empty\n
+err 
+@ bin-count-multi
+rc 0
+out bin:2\ntext:0\n
+err 
+@ bin-latin1-utf8
+rc 0
+out 
+err grep: latin1: binary file matches\n
+@ bin-latin1-utf8-v
+rc 0
+out plain\n
+err grep: latin1: binary file matches\n
+@ bin-latin1-utf8-plain
+rc 0
+out plain\n
+err 
+@ bin-latin1-C-dot
+rc 0
+out 3\n
+err 
+@ bin-latin1-C
+rc 0
+out plain\n
+err 
+@ bin-count-v
+rc 0
+out 3\n
+err 
+@ bin-stdin-label
+rc 0
+out 
+err grep: in: binary file matches\n
+@ bin-latin1-utf8-dot
+rc 0
+out 3\n
+err 
+@ bin-ob
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ bin-text-o
+rc 0
+out bin\n
+err 
+@ bin-o
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ bin-binary-files-abbrev
+rc 2
+out 
+err grep: unknown binary-files type\n
+@ bin-dir-ra
+rc 0
+out needle\0bin\n
+err 
+@ bin-l-multi
+rc 0
+out bin\n
+err 
+@ bin-after-match
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ bin-latin1-utf8-count
+rc 0
+out 1\n
+err 
+@ bin-binary-files-bad
+rc 2
+out 
+err grep: unknown binary-files type\n
+@ bin-invert
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ bin-utf8-C
+rc 0
+out 1\n
+err 
+@ loc-cutf8-i-upper
+rc 0
+out \xc3\x89COLE\n
+err 
+@ loc-cutf8-class-alpha
+rc 0
+out caf\xc3\xa9\nna\xc3\xafve\n\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\nplain\n\xc3\x89COLE\n
+err 
+@ loc-cutf8-bracket
+rc 0
+out \xc3\xa9\n
+err 
+@ loc-cutf8-cjk
+rc 0
+out \xe6\x97\xa5\xe6\x9c\xac\n
+err 
+@ loc-c-fixed-i
+rc 0
+out \xc3\x89COLE\n
+err 
+@ loc-cutf8-latin1-fixed
+rc 0
+out 
+err grep: latin1: binary file matches\n
+@ loc-cutf8-dot-c
+rc 0
+out 1\n
+err 
+@ loc-cutf8-fixed-i
+rc 0
+out \xc3\x89COLE\n
+err 
+@ loc-c-word
+rc 0
+out caf\xc3\xa9\n
+err 
+@ loc-c-i-upper
+rc 1
+out 
+err 
+@ loc-c-negbracket
+rc 0
+out caf\xc3\n
+err 
+@ loc-cutf8-star
+rc 0
+out caf\nna\nve\nplain\n
+err 
+@ loc-cutf8-ob
+rc 0
+out 3:\xc3\xa9\n8:\xc3\xaf\n13:\xe6\x97\xa5\n16:\xe6\x9c\xac\n19:\xe8\xaa\x9e\n29:\xc3\x89\n31:C\n32:O\n33:L\n34:E\n
+err 
+@ loc-c-dot-o
+rc 0
+out c\na\nf\n\xc3\n\xa9\nn\na\n\xc3\n\xaf\nv\ne\n\xe6\n\x97\n\xa5\n\xe6\n\x9c\n\xac\n\xe8\n\xaa\n\x9e\np\nl\na\ni\nn\n\xc3\n\x89\nC\nO\nL\nE\n
+err 
+@ loc-c-bytes
+rc 1
+out 0\n
+err 
+@ loc-c-wchars
+rc 0
+out caf\nna\nve\nplain\nCOLE\n
+err 
+@ loc-cutf8-word
+rc 1
+out 
+err 
+@ loc-cutf8-latin1-dot
+rc 1
+out 
+err 
+@ loc-c-latin1-dot
+rc 0
+out caf\xe9\n
+err 
+@ loc-cutf8-bytes
+rc 1
+out 0\n
+err 
+@ loc-c-ere-len5
+rc 0
+out caf\xc3\xa9\nplain\n
+err 
+@ loc-c-class-upper
+rc 0
+out 1\n
+err 
+@ loc-cutf8-latin1-a
+rc 1
+out 
+err 
+@ loc-c-ob
+rc 0
+out 3:\xc3\n4:\xa9\n8:\xc3\n9:\xaf\n13:\xe6\n14:\x97\n15:\xa5\n16:\xe6\n17:\x9c\n18:\xac\n19:\xe8\n20:\xaa\n21:\x9e\n29:\xc3\n30:\x89\n31:C\n32:O\n33:L\n34:E\n
+err 
+@ ctx-A0
+rc 0
+out l03 hit\nl04 hit\n--\nl10 hit\n--\nl18 hit\n
+err 
+@ ctx-m1-A2
+rc 0
+out l03 hit\nl04 hit\nl05\n
+err 
+@ ctx-o-C1
+rc 0
+out hit\nhit\n--\nhit\n--\nhit\n
+err 
+@ ctx-A2
+rc 0
+out l03 hit\nl04 hit\nl05\nl06\n--\nl10 hit\nl11\nl12\n--\nl18 hit\nl19\nl20\n
+err 
+@ ctx-adjacent
+rc 0
+out 3:l03 hit\n4:l04 hit\n5-l05\n
+err 
+@ ctx-C2
+rc 0
+out l01\nl02\nl03 hit\nl04 hit\nl05\nl06\n--\nl08\nl09\nl10 hit\nl11\nl12\n--\nl16\nl17\nl18 hit\nl19\nl20\n
+err 
+@ ctx-num0
+rc 0
+out l03 hit\nl04 hit\n--\nl10 hit\n--\nl18 hit\n
+err 
+@ ctx-multi-n
+rc 0
+out ctx-2-l02\nctx:3:l03 hit\nctx:4:l04 hit\nctx-5-l05\n--\nctx-9-l09\nctx:10:l10 hit\nctx-11-l11\n--\nctx-17-l17\nctx:18:l18 hit\nctx-19-l19\n--\nctx-2-l02\nctx:3:l03 hit\nctx:4:l04 hit\nctx-5-l05\n--\nctx-9-l09\nctx:10:l10 hit\nctx-11-l11\n--\nctx-17-l17\nctx:18:l18 hit\nctx-19-l19\n
+err 
+@ ctx-stdin
+rc 0
+out l03 hit\nl04 hit\nl05\n--\nl10 hit\nl11\n--\nl18 hit\nl19\n
+err 
+@ ctx-multi
+rc 0
+out ctx-l02\nctx:l03 hit\nctx:l04 hit\nctx-l05\n--\nctx-l09\nctx:l10 hit\nctx-l11\n--\nctx-l17\nctx:l18 hit\nctx-l19\n--\nctx-l02\nctx:l03 hit\nctx:l04 hit\nctx-l05\n--\nctx-l09\nctx:l10 hit\nctx-l11\n--\nctx-l17\nctx:l18 hit\nctx-l19\n
+err 
+@ ctx-C0
+rc 0
+out l03 hit\nl04 hit\n--\nl10 hit\n--\nl18 hit\n
+err 
+@ ctx-num1-n
+rc 0
+out 2-l02\n3:l03 hit\n4:l04 hit\n5-l05\n--\n9-l09\n10:l10 hit\n11-l11\n--\n17-l17\n18:l18 hit\n19-l19\n
+err 
+@ ctx-m1-B1
+rc 0
+out l02\nl03 hit\n
+err 
+@ ctx-HT-C1
+rc 0
+out ctx- 2-\tl02\nctx: 3:\tl03 hit\nctx: 4:\tl04 hit\nctx- 5-\tl05\n--\nctx- 9-\tl09\nctx:10:\tl10 hit\nctx-11-\tl11\n--\nctx-17-\tl17\nctx:18:\tl18 hit\nctx-19-\tl19\n
+err 
+@ ctx-multi-B
+rc 0
+out a1:abc\n--\na3-zzz\na3:abc abc\n
+err 
+@ ctx-C-long
+rc 0
+out l02\nl03 hit\nl04 hit\nl05\n--\nl09\nl10 hit\nl11\n--\nl17\nl18 hit\nl19\n
+err 
+@ ctx-sep-order2
+rc 0
+out l02\nl03 hit\nl04 hit\nl05\nl09\nl10 hit\nl11\nl17\nl18 hit\nl19\n
+err 
+@ ctx-on-A1
+rc 0
+out 3:hit\n4:hit\n--\n10:hit\n--\n18:hit\n
+err 
+@ ctx-c-A1
+rc 0
+out 4\n
+err 
+@ ctx-overlap
+rc 0
+out 1-l01\n2-l02\n3:l03 hit\n4:l04 hit\n5-l05\n6-l06\n7-l07\n8-l08\n9-l09\n10:l10 hit\n11-l11\n12-l12\n13-l13\n--\n15-l15\n16-l16\n17-l17\n18:l18 hit\n19-l19\n20-l20\n
+err 
+@ ctx-B2
+rc 0
+out l01\nl02\nl03 hit\nl04 hit\n--\nl08\nl09\nl10 hit\n--\nl16\nl17\nl18 hit\n
+err 
+@ ctx-A3-num1
+rc 0
+out l02\nl03 hit\nl04 hit\nl05\nl06\nl07\n--\nl09\nl10 hit\nl11\nl12\nl13\n--\nl17\nl18 hit\nl19\nl20\n
+err 
+@ ctx-nb-C1
+rc 0
+out 2-4-l02\n3:8:l03 hit\n4:16:l04 hit\n5-24-l05\n--\n9-40-l09\n10:44:l10 hit\n11-52-l11\n--\n17-76-l17\n18:80:l18 hit\n19-88-l19\n
+err 
+@ ctx-num-Cbad
+rc 2
+out 
+err grep: 1x: invalid context length argument\n
+@ ctx-nosep
+rc 0
+out l02\nl03 hit\nl04 hit\nl05\nl09\nl10 hit\nl11\nl17\nl18 hit\nl19\n
+err 
+@ ctx-q-A1
+rc 0
+out 
+err 
+@ ctx-H-C1
+rc 0
+out ctx-l02\nctx:l03 hit\nctx:l04 hit\nctx-l05\n--\nctx-l09\nctx:l10 hit\nctx-l11\n--\nctx-l17\nctx:l18 hit\nctx-l19\n
+err 
+@ ctx-multi-A
+rc 0
+out a1:abc\n--\na3:abc abc\n
+err 
+@ ctx-A1B2
+rc 0
+out l01\nl02\nl03 hit\nl04 hit\nl05\n--\nl08\nl09\nl10 hit\nl11\n--\nl16\nl17\nl18 hit\nl19\n
+err 
+@ ctx-B-long
+rc 0
+out l02\nl03 hit\nl04 hit\n--\nl09\nl10 hit\n--\nl17\nl18 hit\n
+err 
+@ ctx-sep-order
+rc 0
+out l02\nl03 hit\nl04 hit\nl05\nY\nl09\nl10 hit\nl11\nY\nl17\nl18 hit\nl19\n
+err 
+@ ctx-T-C1
+rc 0
+out  2-\tl02\n 3:\tl03 hit\n 4:\tl04 hit\n 5-\tl05\n--\n 9-\tl09\n10:\tl10 hit\n11-\tl11\n--\n17-\tl17\n18:\tl18 hit\n19-\tl19\n
+err 
+@ ctx-C-longsep
+rc 0
+out l02\nl03 hit\nl04 hit\nl05\n--\nl09\nl10 hit\nl11\n--\nl17\nl18 hit\nl19\n
+err 
+@ ctx-A-empty
+rc 2
+out 
+err grep: : invalid context length argument\n
+@ files-ZL
+rc 1
+out a1\0a2\0
+err 
+@ files-dir-c
+rc 2
+out d:0\na1:1\n
+err grep: d: Is a directory\n
+@ files-dir-recurse
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ files-stdin-label-c
+rc 0
+out NAME:1\na2:0\n
+err 
+@ files-stdin-label-L
+rc 1
+out NAME\na2\n
+err 
+@ files-dir
+rc 2
+out 
+err grep: d: Is a directory\n
+@ files-m1
+rc 0
+out a1:abc\na3:abc abc\n
+err 
+@ files-dir-plus
+rc 2
+out a1:abc\n
+err grep: d: Is a directory\n
+@ files-c
+rc 0
+out a1:1\na2:0\na3:1\n
+err 
+@ files-missing-s-nomatch
+rc 2
+out 
+err 
+@ files-stdin-L
+rc 1
+out (standard input)\n
+err 
+@ files-three-n
+rc 0
+out a1:1:abc\na3:2:abc abc\n
+err 
+@ files-missing
+rc 2
+out a1:abc\n
+err grep: nofile: No such file or directory\n
+@ files-stdin-H
+rc 0
+out (standard input):abc\n
+err 
+@ files-l
+rc 0
+out a1\na3\n
+err 
+@ files-L
+rc 0
+out a2\n
+err 
+@ files-symlink-H
+rc 0
+out lnk:apple\nlnk:cherry apple\nlnk:apple_sauce\n
+err 
+@ files-L-all
+rc 0
+out 
+err 
+@ files-h
+rc 0
+out abc\nabc abc\n
+err 
+@ files-dir-l
+rc 2
+out a1\n
+err grep: d: Is a directory\n
+@ files-dir-q
+rc 0
+out 
+err grep: d: Is a directory\n
+@ files-nomatch-L
+rc 1
+out a1\na2\n
+err 
+@ files-missing-L
+rc 2
+out a2\n
+err grep: nofile: No such file or directory\n
+@ files-stdin-nonl
+rc 0
+out 2\n
+err 
+@ files-missing-l
+rc 2
+out a1\n
+err grep: nofile: No such file or directory\n
+@ files-dev-read
+rc 0
+out abc\n
+err 
+@ files-stdin-l
+rc 0
+out (standard input)\n
+err 
+@ files-missing-two
+rc 2
+out 
+err grep: nofile: No such file or directory\ngrep: nofile2: No such file or directory\n
+@ files-Zc
+rc 0
+out a1\01\na2\00\n
+err 
+@ files-devnull
+rc 1
+out 
+err 
+@ files-missing-h
+rc 2
+out abc\n
+err grep: nofile: No such file or directory\n
+@ files-missing-q-nomatch
+rc 2
+out 
+err grep: nofile: No such file or directory\n
+@ files-missing-only
+rc 2
+out 
+err grep: nofile: No such file or directory\n
+@ files-missing-v
+rc 2
+out a2:abd\na2:xyz\n
+err grep: nofile: No such file or directory\n
+@ files-stdin-empty
+rc 1
+out 0\n
+err 
+@ files-missing-c
+rc 2
+out a1:1\n
+err grep: nofile: No such file or directory\n
+@ files-stdin-label
+rc 0
+out NAME:abc\n
+err 
+@ files-dir-read
+rc 2
+out a1:abc\n
+err grep: d: Is a directory\n
+@ files-stdin-Z
+rc 0
+out (standard input)\0
+err 
+@ files-stdin-default
+rc 0
+out abc\n
+err 
+@ rec-r-file
+rc 0
+out needle one\n
+err 
+@ rec-r-slashes
+rc 0
+out d//sub/deeper/e.txt:needle deep\nd//sub/c.txt:needle sub\n
+err 
+@ rec-Rl-dl
+rc 0
+out dl/real/f\ndl/alias/f\n
+err grep: dl/real/up: warning: recursive directory loop\ngrep: dl/alias/up: warning: recursive directory loop\n
+@ rec-r-Z
+rc 0
+out d/sub/deeper/e.txt\0d/sub/c.txt\0d/skip/s.txt\0d/blob.bin\0d/b.log\0d/a.txt\0d/.hidden\0
+err 
+@ rec-nooperand-R
+rc 2
+out long\ndl/real/f\ndl/alias/f\nd/sub/deeper/e.txt\nd/sub/c.txt\nd/skip/s.txt\nd/link\nd/dirlink/deeper/e.txt\nd/dirlink/c.txt\nd/blob.bin\nd/b.log\nd/a.txt\nd/.hidden\n
+err grep: dl/real/up: warning: recursive directory loop\ngrep: dl/alias/up: warning: recursive directory loop\ngrep: d/broken: No such file or directory\n
+@ rec-r-exclude-from-missing
+rc 2
+out 
+err grep: nofile: No such file or directory\n
+@ rec-r-exclude-dir-glob
+rc 0
+out d/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-r-include-nomatch
+rc 1
+out 
+err 
+@ rec-r-exclude-from
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-r-file-and-dir
+rc 0
+out d/a.txt:needle one\nd/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\n
+err 
+@ rec-nooperand
+rc 0
+out long:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaneedlebbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\ndl/real/f:needle real\nd/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-nooperand-h
+rc 0
+out needle real\n
+err 
+@ rec-Rs-dl
+rc 0
+out dl/real/f\ndl/alias/f\n
+err 
+@ rec-r-exclude-dir
+rc 0
+out d/skip/s.txt:needle skip\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-R
+rc 2
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/link:needle one\nd/dirlink/deeper/e.txt:needle deep\nd/dirlink/c.txt:needle sub\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/broken: No such file or directory\ngrep: d/blob.bin: binary file matches\n
+@ rec-r-two
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\n
+err 
+@ rec-rH-file
+rc 0
+out d/a.txt:needle one\n
+err 
+@ rec-r-A1
+rc 0
+out d/a.txt:plain\n
+err 
+@ rec-r-exclude-path-glob
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-rh
+rc 0
+out needle deep\nneedle sub\nneedle skip\nneedle log\nneedle one\nneedle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-r-exclude-file-path
+rc 1
+out 
+err 
+@ rec-ra
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/blob.bin:needle\0bin\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err 
+@ rec-d-recurse-R
+rc 2
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/link:needle one\nd/dirlink/deeper/e.txt:needle deep\nd/dirlink/c.txt:needle sub\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/broken: No such file or directory\ngrep: d/blob.bin: binary file matches\n
+@ rec-rn
+rc 0
+out d/sub/deeper/e.txt:1:needle deep\nd/sub/c.txt:1:needle sub\nd/skip/s.txt:1:needle skip\nd/b.log:1:needle log\nd/a.txt:1:needle one\nd/.hidden:1:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-r-d-skip
+rc 1
+out 
+err 
+@ rec-r-exclude-file-op
+rc 1
+out 
+err 
+@ rec-nooperand-c-d
+rc 0
+out d/sub/deeper/e.txt:1\nd/sub/c.txt:1\nd/skip/s.txt:1\nd/a.txt:1\n
+err 
+@ rec-r-exclude-all
+rc 1
+out 
+err 
+@ rec-r-exclude-dir-slash
+rc 0
+out d/skip/s.txt:needle skip\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-rs
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\nd/skip/s.txt:needle skip\nd/b.log:needle log\nd/a.txt:needle one\nd/.hidden:needle hidden\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-rL
+rc 0
+out d/sub/deeper/e.txt\nd/sub/c.txt\nd/skip/s.txt\nd/blob.bin\nd/b.log\nd/.hidden\n
+err 
+@ rec-r-exclude-dir-dot
+rc 1
+out 
+err 
+@ rec-r-o
+rc 0
+out d/sub/deeper/e.txt:needle\nd/sub/c.txt:needle\nd/skip/s.txt:needle\nd/b.log:needle\nd/a.txt:needle\nd/.hidden:needle\n
+err grep: d/blob.bin: binary file matches\n
+@ rec-r-dotslash
+rc 0
+out ./d/sub/deeper/e.txt:needle deep\n./d/sub/c.txt:needle sub\n./d/skip/s.txt:needle skip\n./d/b.log:needle log\n./d/a.txt:needle one\n./d/.hidden:needle hidden\n
+err grep: ./d/blob.bin: binary file matches\n
+@ color-T
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K 1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\t\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K 4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\tcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K 6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\t\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ color-sep
+rc 0
+out l03 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\nl04 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[36m\x1b[K--\x1b[m\x1b[K\nl10 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[36m\x1b[K--\x1b[m\x1b[K\nl18 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n
+err 
+@ color-if-tty
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ color-c
+rc 0
+out 3\n
+err 
+@ color-force
+rc 0
+out \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\ncherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ color-bad
+rc 0
+out Usage: grep [OPTION]... PATTERNS [FILE]...\nSearch for PATTERNS in each FILE.\nExample: grep -i 'hello world' menu.h main.c\nPATTERNS can contain multiple patterns separated by newlines.\n\nPattern selection and interpretation:\n  -E, --extended-regexp     PATTERNS are extended regular expressions\n  -F, --fixed-strings       PATTERNS are strings\n  -G, --basic-regexp        PATTERNS are basic regular expressions\n  -P, --perl-regexp         PATTERNS are Perl regular expressions\n  -e, --regexp=PATTERNS     use PATTERNS for matching\n  -f, --file=FILE           take PATTERNS from FILE\n  -i, --ignore-case         ignore case distinctions in patterns and data\n      --no-ignore-case      do not ignore case distinctions (default)\n  -w, --word-regexp         match only whole words\n  -x, --line-regexp         match only whole lines\n  -z, --null-data           a data line ends in 0 byte, not newline\n\nMiscellaneous:\n  -s, --no-messages         suppress error messages\n  -v, --invert-match        select non-matching lines\n  -V, --version             display version information and exit\n      --help                display this help text and exit\n\nOutput control:\n  -m, --max-count=NUM       stop after NUM selected lines\n  -b, --byte-offset         print the byte offset with output lines\n  -n, --line-number         print line number with output lines\n      --line-buffered       flush output on every line\n  -H, --with-filename       print file name with output lines\n  -h, --no-filename         suppress the file name prefix on output\n      --label=LABEL         use LABEL as the standard input file name prefix\n  -o, --only-matching       show only nonempty parts of lines that match\n  -q, --quiet, --silent     suppress all normal output\n      --binary-files=TYPE   assume that binary files are TYPE;\n                            TYPE is 'binary', 'text', or 'without-match'\n  -a, --text                equivalent to --binary-files=text\n  -I                        equivalent to --binary-files=without-match\n  -d, --directories=ACTION  how to handle directories;\n                            ACTION is 'read', 'recurse', or 'skip'\n  -D, --devices=ACTION      how to handle devices, FIFOs and sockets;\n                            ACTION is 'read' or 'skip'\n  -r, --recursive           like --directories=recurse\n  -R, --dereference-recursive  likewise, but follow all symlinks\n      --include=GLOB        search only files that match GLOB (a file pattern)\n      --exclude=GLOB        skip files that match GLOB\n      --exclude-from=FILE   skip files that match any file pattern from FILE\n      --exclude-dir=GLOB    skip directories that match GLOB\n  -L, --files-without-match  print only names of FILEs with no selected lines\n  -l, --files-with-matches  print only names of FILEs with selected lines\n  -c, --count               print only a count of selected lines per FILE\n  -T, --initial-tab         make tabs line up (if needed)\n  -Z, --null                print 0 byte after FILE name\n\nContext control:\n  -B, --before-context=NUM  print NUM lines of leading context\n  -A, --after-context=NUM   print NUM lines of trailing context\n  -C, --context=NUM         print NUM lines of output context\n  -NUM                      same as --context=NUM\n      --group-separator=SEP  print SEP on line between matches with context\n      --no-group-separator  do not print separator for matches with context\n      --color[=WHEN],\n      --colour[=WHEN]       use markers to highlight the matching strings;\n                            WHEN is 'always', 'never', or 'auto'\n  -U, --binary              do not strip CR characters at EOL (MSDOS/Windows)\n\nWhen FILE is '-', read standard input.  If no FILE is given, read standard\ninput, but with -r, recursively search the working directory instead.  With\nfewer than two FILEs, assume -h.  Exit status is 0 if any line is selected,\n1 otherwise; if any error occurs and -q is not given, the exit status is 2.\n\nReport bugs to: bug-grep@gnu.org\nGNU grep home page: <https://www.gnu.org/software/grep/>\nGeneral help using GNU software: <https://www.gnu.org/gethelp/>\n
+err 
+@ color-L
+rc 1
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\n
+err 
+@ color-plain
+rc 0
+out \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\ncherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ color-w
+rc 0
+out \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\ncherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n
+err 
+@ color-ow
+rc 0
+out \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n
+err 
+@ color-v
+rc 0
+out banana\nApple pie\n\nbanana split\nthe cat sat\na.b\naxb\n
+err 
+@ color-b
+rc 0
+out \x1b[32m\x1b[K0\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[32m\x1b[K23\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[32m\x1b[K37\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ color-nHb
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K0\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K23\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K37\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ color-H
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ color-o
+rc 0
+out \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n
+err 
+@ color-empty-match
+rc 0
+out abc\naabbcc\nabcabc\na.c\na+c\na|b\n(ab)\na{2}\nab{2}\na b\nword wordy sword\nfoo-bar\nthe end\nTHE END\n\x1b[01;31m\x1b[Kx\x1b[m\x1b[K\n\x1b[01;31m\x1b[Kxx\x1b[m\x1b[K\n\x1b[01;31m\x1b[Kxxx\x1b[m\x1b[K\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\n
+err 
+@ color-auto
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ color-stdin
+rc 0
+out \x1b[35m\x1b[K(standard input)\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kabc\x1b[m\x1b[K\n
+err 
+@ colors-00
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K0\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;32m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K23\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kcherry \x1b[01;32m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K37\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;32m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ colors-03
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K0\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[1m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K23\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[1m\x1b[Kcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K37\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[1m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\x1b[1m\x1b[K_sauce\x1b[m\x1b[K\n
+err 
+@ colors-07
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K0\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K23\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K37\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ colors-grep-color
+rc 0
+out \x1b[1;32m\x1b[Kapple\x1b[m\x1b[K\ncherry \x1b[1;32m\x1b[Kapple\x1b[m\x1b[K\n\x1b[1;32m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err grep: warning: GREP_COLOR='1;32' is deprecated; use GREP_COLORS='mt=1;32'\n
+@ colors-v-02
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kbanana\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[KApple pie\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K7\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kbanana split\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K8\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kthe cat sat\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Ka.b\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kaxb\n
+err 
+@ colors-v-06
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kbanana\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[KApple pie\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K7\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kbanana split\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K8\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kthe cat sat\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Ka.b\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kaxb\x1b[m\x1b[K\n
+err 
+@ colors-11
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[36m\x1b[K0\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[36m\x1b[K23\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[36m\x1b[K37\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ colors-v-00
+rc 0
+out \x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kbanana\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[KApple pie\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K7\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kbanana split\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K8\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kthe cat sat\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Ka.b\n\x1b[35m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kaxb\n
+err 
+@ colors-v-16
+rc 0
+out \x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m2\x1b[m\x1b[36m:\x1b[mbanana\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m3\x1b[m\x1b[36m:\x1b[mApple pie\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m5\x1b[m\x1b[36m:\x1b[m\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m7\x1b[m\x1b[36m:\x1b[mbanana split\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m8\x1b[m\x1b[36m:\x1b[mthe cat sat\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m9\x1b[m\x1b[36m:\x1b[ma.b\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m10\x1b[m\x1b[36m:\x1b[maxb\n
+err 
+@ colors-ctx-06
+rc 0
+out \x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[2m\x1b[Kl02\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[1m\x1b[Kl03 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[1m\x1b[Kl04 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[2m\x1b[Kl05\x1b[m\x1b[K\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[2m\x1b[Kl09\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[1m\x1b[Kl10 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K11\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[2m\x1b[Kl11\x1b[m\x1b[K\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K17\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[2m\x1b[Kl17\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K18\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[1m\x1b[Kl18 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K19\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[2m\x1b[Kl19\x1b[m\x1b[K\n
+err 
+@ colors-09
+rc 0
+out \x1b[34m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K0\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[34m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K23\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kcherry \x1b[01;31m\x1b[Kapple\x1b[m\x1b[K\n\x1b[34m\x1b[Ktext\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K37\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[01;31m\x1b[Kapple\x1b[m\x1b[K_sauce\n
+err 
+@ colors-17
+rc 0
+out \x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m1\x1b[m\x1b[36m:\x1b[m\x1b[32m0\x1b[m\x1b[36m:\x1b[m\x1b[1m\x1b[01;31mapple\x1b[m\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m4\x1b[m\x1b[36m:\x1b[m\x1b[32m23\x1b[m\x1b[36m:\x1b[m\x1b[1mcherry \x1b[01;31mapple\x1b[m\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m6\x1b[m\x1b[36m:\x1b[m\x1b[32m37\x1b[m\x1b[36m:\x1b[m\x1b[1m\x1b[01;31mapple\x1b[m\x1b[1m_sauce\x1b[m\n
+err 
+@ colors-ctx-15
+rc 0
+out \x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl02\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl03 hit\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl04 hit\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl05\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl09\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl10 hit\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K11\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl11\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K17\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl17\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K18\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl18 hit\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K19\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl19\n
+err 
+@ colors-v-rv
+rc 0
+out \x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K1\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl01\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl02\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[1m\x1b[Kl03 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl05\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K6\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl06\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K7\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl07\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K8\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl08\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl09\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[1m\x1b[Kl10 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K11\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl11\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K12\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl12\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K13\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl13\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K14\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl14\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K15\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl15\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K16\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl16\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K17\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl17\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K18\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[1m\x1b[Kl18 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K19\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl19\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K20\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[2m\x1b[Kl20\x1b[m\x1b[K\n
+err 
+@ colors-ctx-00
+rc 0
+out \x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl02\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl03 \x1b[01;32m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl04 \x1b[01;32m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl05\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl09\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl10 \x1b[01;32m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K11\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl11\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K17\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl17\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K18\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl18 \x1b[01;32m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K19\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl19\n
+err 
+@ colors-ctx-09
+rc 0
+out \x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl02\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl03 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl04 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl05\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl09\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl10 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K11\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl11\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K17\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl17\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K18\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl18 \x1b[01;31m\x1b[Khit\x1b[m\x1b[K\n\x1b[34m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K19\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl19\n
+err 
+@ colors-ctx-21
+rc 0
+out \x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K2\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl02\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K3\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl03 \x1b[4m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K4\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl04 \x1b[4m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K5\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl05\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K9\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl09\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K10\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl10 \x1b[4m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K11\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl11\n\x1b[36m\x1b[K--\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K17\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl17\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[K\x1b[32m\x1b[K18\x1b[m\x1b[K\x1b[36m\x1b[K:\x1b[m\x1b[Kl18 \x1b[4m\x1b[Khit\x1b[m\x1b[K\n\x1b[35m\x1b[Kctx\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[K\x1b[32m\x1b[K19\x1b[m\x1b[K\x1b[36m\x1b[K-\x1b[m\x1b[Kl19\n
+err 
+@ colors-v-08
+rc 0
+out \x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m2\x1b[m\x1b[36m:\x1b[mbanana\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m3\x1b[m\x1b[36m:\x1b[mApple pie\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m5\x1b[m\x1b[36m:\x1b[m\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m7\x1b[m\x1b[36m:\x1b[mbanana split\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m8\x1b[m\x1b[36m:\x1b[mthe cat sat\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m9\x1b[m\x1b[36m:\x1b[ma.b\n\x1b[35mtext\x1b[m\x1b[36m:\x1b[m\x1b[32m10\x1b[m\x1b[36m:\x1b[maxb\n
+err 
+@ opt-none
+rc 2
+out 
+err Usage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-help
+rc 0
+out Usage: grep [OPTION]... PATTERNS [FILE]...\nSearch for PATTERNS in each FILE.\nExample: grep -i 'hello world' menu.h main.c\nPATTERNS can contain multiple patterns separated by newlines.\n\nPattern selection and interpretation:\n  -E, --extended-regexp     PATTERNS are extended regular expressions\n  -F, --fixed-strings       PATTERNS are strings\n  -G, --basic-regexp        PATTERNS are basic regular expressions\n  -P, --perl-regexp         PATTERNS are Perl regular expressions\n  -e, --regexp=PATTERNS     use PATTERNS for matching\n  -f, --file=FILE           take PATTERNS from FILE\n  -i, --ignore-case         ignore case distinctions in patterns and data\n      --no-ignore-case      do not ignore case distinctions (default)\n  -w, --word-regexp         match only whole words\n  -x, --line-regexp         match only whole lines\n  -z, --null-data           a data line ends in 0 byte, not newline\n\nMiscellaneous:\n  -s, --no-messages         suppress error messages\n  -v, --invert-match        select non-matching lines\n  -V, --version             display version information and exit\n      --help                display this help text and exit\n\nOutput control:\n  -m, --max-count=NUM       stop after NUM selected lines\n  -b, --byte-offset         print the byte offset with output lines\n  -n, --line-number         print line number with output lines\n      --line-buffered       flush output on every line\n  -H, --with-filename       print file name with output lines\n  -h, --no-filename         suppress the file name prefix on output\n      --label=LABEL         use LABEL as the standard input file name prefix\n  -o, --only-matching       show only nonempty parts of lines that match\n  -q, --quiet, --silent     suppress all normal output\n      --binary-files=TYPE   assume that binary files are TYPE;\n                            TYPE is 'binary', 'text', or 'without-match'\n  -a, --text                equivalent to --binary-files=text\n  -I                        equivalent to --binary-files=without-match\n  -d, --directories=ACTION  how to handle directories;\n                            ACTION is 'read', 'recurse', or 'skip'\n  -D, --devices=ACTION      how to handle devices, FIFOs and sockets;\n                            ACTION is 'read' or 'skip'\n  -r, --recursive           like --directories=recurse\n  -R, --dereference-recursive  likewise, but follow all symlinks\n      --include=GLOB        search only files that match GLOB (a file pattern)\n      --exclude=GLOB        skip files that match GLOB\n      --exclude-from=FILE   skip files that match any file pattern from FILE\n      --exclude-dir=GLOB    skip directories that match GLOB\n  -L, --files-without-match  print only names of FILEs with no selected lines\n  -l, --files-with-matches  print only names of FILEs with selected lines\n  -c, --count               print only a count of selected lines per FILE\n  -T, --initial-tab         make tabs line up (if needed)\n  -Z, --null                print 0 byte after FILE name\n\nContext control:\n  -B, --before-context=NUM  print NUM lines of leading context\n  -A, --after-context=NUM   print NUM lines of trailing context\n  -C, --context=NUM         print NUM lines of output context\n  -NUM                      same as --context=NUM\n      --group-separator=SEP  print SEP on line between matches with context\n      --no-group-separator  do not print separator for matches with context\n      --color[=WHEN],\n      --colour[=WHEN]       use markers to highlight the matching strings;\n                            WHEN is 'always', 'never', or 'auto'\n  -U, --binary              do not strip CR characters at EOL (MSDOS/Windows)\n\nWhen FILE is '-', read standard input.  If no FILE is given, read standard\ninput, but with -r, recursively search the working directory instead.  With\nfewer than two FILEs, assume -h.  Exit status is 0 if any line is selected,\n1 otherwise; if any error occurs and -q is not given, the exit status is 2.\n\nReport bugs to: bug-grep@gnu.org\nGNU grep home page: <https://www.gnu.org/software/grep/>\nGeneral help using GNU software: <https://www.gnu.org/gethelp/>\n
+err 
+@ opt-long-abbrev-ambig
+rc 2
+out 
+err grep: option '--no' is ambiguous; possibilities: '--no-ignore-case' '--no-filename' '--no-group-separator' '--no-messages'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-long-abbrev-bin
+rc 2
+out 
+err grep: option '--bin=text' is ambiguous; possibilities: '--binary-files' '--binary'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-posixly
+rc 2
+out text:apple\ntext:cherry apple\ntext:apple_sauce\n
+err grep: -n: No such file or directory\n
+@ opt-m-neg
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ opt-files-without-long
+rc 0
+out 
+err 
+@ opt-f-stdin
+rc 0
+out apple\nbanana\ncherry apple\napple_sauce\nbanana split\n
+err 
+@ opt-recursive-long
+rc 0
+out d/sub/deeper/e.txt:needle deep\nd/sub/c.txt:needle sub\n
+err 
+@ opt-deref-long
+rc 0
+out d/dirlink/deeper/e.txt:needle deep\nd/dirlink/c.txt:needle sub\n
+err 
+@ opt-long-abbrev-re
+rc 2
+out 
+err grep: option '--re' is ambiguous; possibilities: '--recursive' '--regexp'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-with-long
+rc 0
+out text:apple\ntext:cherry apple\ntext:apple_sauce\n
+err 
+@ opt-f-E
+rc 0
+out apple\nbanana\ncherry apple\napple_sauce\nbanana split\n
+err 
+@ opt-f-nul
+rc 0
+out 
+err grep: bin: binary file matches\n
+@ opt-f-dir
+rc 2
+out 
+err grep: d: Is a directory\n
+@ opt-f-no-nl
+rc 0
+out one\ntwo\nthree\n
+err 
+@ opt-no-messages-long
+rc 2
+out 
+err 
+@ opt-f-long
+rc 0
+out 2\n
+err 
+@ opt-m-neg2
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ opt-m-big
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ opt-long-abbrev-line-amb
+rc 2
+out 
+err grep: option '--line' is ambiguous; possibilities: '--line-buffered' '--line-number' '--line-regexp'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-E-only
+rc 2
+out 
+err Usage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-line-long
+rc 0
+out apple\n
+err 
+@ opt-m-space
+rc 0
+out apple\n
+err 
+@ opt-no-file-pattern-only
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ opt-quiet-long
+rc 0
+out 
+err 
+@ opt-f-x
+rc 0
+out apple\nbanana\n
+err 
+@ opt-m-1x
+rc 2
+out 
+err grep: invalid max count\n
+@ opt-long-abbrev-max2
+rc 0
+out apple\n
+err 
+@ opt-short-cluster-e-attached
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ opt-posixly-ok
+rc 0
+out 1:apple\n4:cherry apple\n6:apple_sauce\n
+err 
+@ opt-long-abbrev-max
+rc 0
+out apple\n
+err 
+@ opt-f-empty-v
+rc 0
+out apple\nbanana\nApple pie\ncherry apple\n\napple_sauce\nbanana split\nthe cat sat\na.b\naxb\n
+err 
+@ opt-unknown-long-val
+rc 2
+out 
+err grep: unrecognized option '--bogus=1'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-m-bad
+rc 2
+out 
+err grep: invalid max count\n
+@ opt-null-data-long
+rc 0
+out one\0
+err 
+@ opt-short-missing-arg-f
+rc 2
+out 
+err grep: option requires an argument -- 'f'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-f-pats
+rc 0
+out apple\nbanana\ncherry apple\napple_sauce\nbanana split\n
+err 
+@ opt-long-abbrev-line
+rc 0
+out 1:apple\n4:cherry apple\n6:apple_sauce\n
+err 
+@ opt-X-fgrep
+rc 0
+out a.b\n
+err 
+@ opt-context-attached-bad
+rc 2
+out 
+err grep: x: invalid context length argument\n
+@ opt-f-blank2
+rc 0
+out 10\n
+err 
+@ opt-help-after
+rc 0
+out Usage: grep [OPTION]... PATTERNS [FILE]...\nSearch for PATTERNS in each FILE.\nExample: grep -i 'hello world' menu.h main.c\nPATTERNS can contain multiple patterns separated by newlines.\n\nPattern selection and interpretation:\n  -E, --extended-regexp     PATTERNS are extended regular expressions\n  -F, --fixed-strings       PATTERNS are strings\n  -G, --basic-regexp        PATTERNS are basic regular expressions\n  -P, --perl-regexp         PATTERNS are Perl regular expressions\n  -e, --regexp=PATTERNS     use PATTERNS for matching\n  -f, --file=FILE           take PATTERNS from FILE\n  -i, --ignore-case         ignore case distinctions in patterns and data\n      --no-ignore-case      do not ignore case distinctions (default)\n  -w, --word-regexp         match only whole words\n  -x, --line-regexp         match only whole lines\n  -z, --null-data           a data line ends in 0 byte, not newline\n\nMiscellaneous:\n  -s, --no-messages         suppress error messages\n  -v, --invert-match        select non-matching lines\n  -V, --version             display version information and exit\n      --help                display this help text and exit\n\nOutput control:\n  -m, --max-count=NUM       stop after NUM selected lines\n  -b, --byte-offset         print the byte offset with output lines\n  -n, --line-number         print line number with output lines\n      --line-buffered       flush output on every line\n  -H, --with-filename       print file name with output lines\n  -h, --no-filename         suppress the file name prefix on output\n      --label=LABEL         use LABEL as the standard input file name prefix\n  -o, --only-matching       show only nonempty parts of lines that match\n  -q, --quiet, --silent     suppress all normal output\n      --binary-files=TYPE   assume that binary files are TYPE;\n                            TYPE is 'binary', 'text', or 'without-match'\n  -a, --text                equivalent to --binary-files=text\n  -I                        equivalent to --binary-files=without-match\n  -d, --directories=ACTION  how to handle directories;\n                            ACTION is 'read', 'recurse', or 'skip'\n  -D, --devices=ACTION      how to handle devices, FIFOs and sockets;\n                            ACTION is 'read' or 'skip'\n  -r, --recursive           like --directories=recurse\n  -R, --dereference-recursive  likewise, but follow all symlinks\n      --include=GLOB        search only files that match GLOB (a file pattern)\n      --exclude=GLOB        skip files that match GLOB\n      --exclude-from=FILE   skip files that match any file pattern from FILE\n      --exclude-dir=GLOB    skip directories that match GLOB\n  -L, --files-without-match  print only names of FILEs with no selected lines\n  -l, --files-with-matches  print only names of FILEs with selected lines\n  -c, --count               print only a count of selected lines per FILE\n  -T, --initial-tab         make tabs line up (if needed)\n  -Z, --null                print 0 byte after FILE name\n\nContext control:\n  -B, --before-context=NUM  print NUM lines of leading context\n  -A, --after-context=NUM   print NUM lines of trailing context\n  -C, --context=NUM         print NUM lines of output context\n  -NUM                      same as --context=NUM\n      --group-separator=SEP  print SEP on line between matches with context\n      --no-group-separator  do not print separator for matches with context\n      --color[=WHEN],\n      --colour[=WHEN]       use markers to highlight the matching strings;\n                            WHEN is 'always', 'never', or 'auto'\n  -U, --binary              do not strip CR characters at EOL (MSDOS/Windows)\n\nWhen FILE is '-', read standard input.  If no FILE is given, read standard\ninput, but with -r, recursively search the working directory instead.  With\nfewer than two FILEs, assume -h.  Exit status is 0 if any line is selected,\n1 otherwise; if any error occurs and -q is not given, the exit status is 2.\n\nReport bugs to: bug-grep@gnu.org\nGNU grep home page: <https://www.gnu.org/software/grep/>\nGeneral help using GNU software: <https://www.gnu.org/gethelp/>\n
+err 
+@ opt-num-cluster2
+rc 0
+out 1-l01\n2-l02\n3:l03 hit\n4:l04 hit\n5-l05\n6-l06\n--\n8-l08\n9-l09\n10:l10 hit\n11-l11\n12-l12\n--\n16-l16\n17-l17\n18:l18 hit\n19-l19\n20-l20\n
+err 
+@ opt-after-operand
+rc 0
+out 1:apple\n4:cherry apple\n6:apple_sauce\n
+err 
+@ opt-long-abbrev-files2
+rc 0
+out 
+err 
+@ opt-short-missing-arg
+rc 2
+out 
+err grep: option requires an argument -- 'e'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-X-egrep
+rc 0
+out apple\nbanana\ncherry apple\napple_sauce\nbanana split\nthe cat sat\na.b\naxb\n
+err 
+@ opt-f-o
+rc 0
+out ap\nan\nan\nap\nap\nan\nan\n
+err 
+@ opt-i-y
+rc 0
+out apple\nApple pie\ncherry apple\napple_sauce\n
+err 
+@ opt-short-cluster-m
+rc 2
+out 
+err grep: invalid max count\n
+@ opt-text-long
+rc 0
+out text\0bin\nmore text\n
+err 
+@ opt-long-arg-sep-max
+rc 0
+out apple\n
+err 
+@ opt-exclude-dir-missing
+rc 2
+out 
+err grep: option '--exclude-dir' requires an argument\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-long-abbrev-with
+rc 0
+out text:apple\ntext:cherry apple\ntext:apple_sauce\n
+err 
+@ opt-X-grep
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ opt-unix-byte
+rc 2
+out 
+err grep: unrecognized option '--unix-byte-offsets'\nUsage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n
+@ opt-file-long-sep
+rc 0
+out apple\nbanana\ncherry apple\napple_sauce\nbanana split\n
+err 
+@ opt-short-cluster-e
+rc 0
+out apple\nApple pie\ncherry apple\napple_sauce\n
+err 
+@ opt-X-bad
+rc 2
+out 
+err grep: invalid matcher bogus\n
+@ opt-word-long
+rc 0
+out apple\ncherry apple\n
+err 
+@ opt-no-filename-long
+rc 0
+out apple\ncherry apple\napple_sauce\n
+err 
+@ exit-L-match
+rc 0
+out 
+err 
+@ exit-L-nomatch
+rc 1
+out text\n
+err 
+@ exit-m0-L
+rc 1
+out text\n
+err 
+@ exit-m0-c
+rc 1
+out 
+err 
+@ exit-q-nomatch-error
+rc 2
+out 
+err grep: nofile: No such file or directory\n
+@ exit-m0-l
+rc 1
+out 
+err 
+@ exit-m0
+rc 1
+out 
+err 
+@ exit-error-bad-regex-s
+rc 2
+out 
+err grep: Unmatched ( or \\(\n
+@ exit-c-match
+rc 0
+out 3\n
+err 
+@ exit-v-all
+rc 1
+out 
+err 
+@ exit-error-bad-regex
+rc 2
+out 
+err grep: Unmatched ( or \\(\n
+@ exit-v-none
+rc 1
+out 
+err 
+@ exit-error-missing-file
+rc 2
+out 
+err grep: nofile: No such file or directory\n
+@ exit-match-then-error
+rc 2
+out text:apple\ntext:cherry apple\ntext:apple_sauce\n
+err grep: nofile: No such file or directory\n
+@ exit-m0-q
+rc 1
+out 
+err 
+@ exit-nomatch
+rc 1
+out 
+err 
+@ exit-error-then-match
+rc 2
+out text:apple\ntext:cherry apple\ntext:apple_sauce\n
+err grep: nofile: No such file or directory\n
+@ exit-error-bad-regex-q
+rc 2
+out 
+err grep: Unmatched ( or \\(\n
+@ z-newline-pat
+rc 0
+out 2\n
+err 
+@ z-empty
+rc 1
+out 
+err 
+@ z-v
+rc 0
+out two\nthree\0four\0
+err 
+@ z-o
+rc 0
+out on\0o\n\0ou\0
+err 
+@ z-basic
+rc 0
+out one\0
+err 
+@ z-text
+rc 0
+out apple\nbanana\nApple pie\ncherry apple\n\napple_sauce\nbanana split\nthe cat sat\na.b\naxb\n\0
+err 
+@ z-x
+rc 0
+out four\0
+err 
+@ z-bin
+rc 0
+out 2\n
+err 
+@ z-caret
+rc 0
+out two\nthree\0
+err 
+@ z-text-x
+rc 1
+out 
+err 
+@ z-c
+rc 0
+out 3\n
+err 
+@ z-dollar
+rc 0
+out 2\n
+err 
+@ egrep-bad
+rc 2
+out 
+err egrep: warning: egrep is obsolescent; using grep -E\ngrep: Unmatched ( or \\(\n
+@ egrep-error
+rc 2
+out 
+err egrep: warning: egrep is obsolescent; using grep -E\ngrep: nofile: No such file or directory\n
+@ egrep-plain
+rc 0
+out apple\nbanana\ncherry apple\napple_sauce\nbanana split\nthe cat sat\na.b\naxb\n
+err egrep: warning: egrep is obsolescent; using grep -E\n
+@ egrep-group
+rc 0
+out banana\nbanana split\n
+err egrep: warning: egrep is obsolescent; using grep -E\n
+@ egrep-nomatch
+rc 1
+out 
+err egrep: warning: egrep is obsolescent; using grep -E\n
+@ fgrep-E-override
+rc 2
+out 
+err fgrep: warning: fgrep is obsolescent; using grep -F\ngrep: conflicting matchers specified\n
+@ fgrep-dot
+rc 0
+out a.b\n
+err fgrep: warning: fgrep is obsolescent; using grep -F\n
+@ fgrep-help
+rc 0
+out Usage: grep [OPTION]... PATTERNS [FILE]...\nSearch for PATTERNS in each FILE.\nExample: grep -i 'hello world' menu.h main.c\nPATTERNS can contain multiple patterns separated by newlines.\n\nPattern selection and interpretation:\n  -E, --extended-regexp     PATTERNS are extended regular expressions\n  -F, --fixed-strings       PATTERNS are strings\n  -G, --basic-regexp        PATTERNS are basic regular expressions\n  -P, --perl-regexp         PATTERNS are Perl regular expressions\n  -e, --regexp=PATTERNS     use PATTERNS for matching\n  -f, --file=FILE           take PATTERNS from FILE\n  -i, --ignore-case         ignore case distinctions in patterns and data\n      --no-ignore-case      do not ignore case distinctions (default)\n  -w, --word-regexp         match only whole words\n  -x, --line-regexp         match only whole lines\n  -z, --null-data           a data line ends in 0 byte, not newline\n\nMiscellaneous:\n  -s, --no-messages         suppress error messages\n  -v, --invert-match        select non-matching lines\n  -V, --version             display version information and exit\n      --help                display this help text and exit\n\nOutput control:\n  -m, --max-count=NUM       stop after NUM selected lines\n  -b, --byte-offset         print the byte offset with output lines\n  -n, --line-number         print line number with output lines\n      --line-buffered       flush output on every line\n  -H, --with-filename       print file name with output lines\n  -h, --no-filename         suppress the file name prefix on output\n      --label=LABEL         use LABEL as the standard input file name prefix\n  -o, --only-matching       show only nonempty parts of lines that match\n  -q, --quiet, --silent     suppress all normal output\n      --binary-files=TYPE   assume that binary files are TYPE;\n                            TYPE is 'binary', 'text', or 'without-match'\n  -a, --text                equivalent to --binary-files=text\n  -I                        equivalent to --binary-files=without-match\n  -d, --directories=ACTION  how to handle directories;\n                            ACTION is 'read', 'recurse', or 'skip'\n  -D, --devices=ACTION      how to handle devices, FIFOs and sockets;\n                            ACTION is 'read' or 'skip'\n  -r, --recursive           like --directories=recurse\n  -R, --dereference-recursive  likewise, but follow all symlinks\n      --include=GLOB        search only files that match GLOB (a file pattern)\n      --exclude=GLOB        skip files that match GLOB\n      --exclude-from=FILE   skip files that match any file pattern from FILE\n      --exclude-dir=GLOB    skip directories that match GLOB\n  -L, --files-without-match  print only names of FILEs with no selected lines\n  -l, --files-with-matches  print only names of FILEs with selected lines\n  -c, --count               print only a count of selected lines per FILE\n  -T, --initial-tab         make tabs line up (if needed)\n  -Z, --null                print 0 byte after FILE name\n\nContext control:\n  -B, --before-context=NUM  print NUM lines of leading context\n  -A, --after-context=NUM   print NUM lines of trailing context\n  -C, --context=NUM         print NUM lines of output context\n  -NUM                      same as --context=NUM\n      --group-separator=SEP  print SEP on line between matches with context\n      --no-group-separator  do not print separator for matches with context\n      --color[=WHEN],\n      --colour[=WHEN]       use markers to highlight the matching strings;\n                            WHEN is 'always', 'never', or 'auto'\n  -U, --binary              do not strip CR characters at EOL (MSDOS/Windows)\n\nWhen FILE is '-', read standard input.  If no FILE is given, read standard\ninput, but with -r, recursively search the working directory instead.  With\nfewer than two FILEs, assume -h.  Exit status is 0 if any line is selected,\n1 otherwise; if any error occurs and -q is not given, the exit status is 2.\n\nReport bugs to: bug-grep@gnu.org\nGNU grep home page: <https://www.gnu.org/software/grep/>\nGeneral help using GNU software: <https://www.gnu.org/gethelp/>\n
+err fgrep: warning: fgrep is obsolescent; using grep -F\n
+@ fgrep-G-override
+rc 2
+out 
+err fgrep: warning: fgrep is obsolescent; using grep -F\ngrep: conflicting matchers specified\n
+@ fgrep-newline
+rc 0
+out apple\nbanana\ncherry apple\napple_sauce\nbanana split\n
+err fgrep: warning: fgrep is obsolescent; using grep -F\n
+@ fgrep-error
+rc 2
+out 
+err fgrep: warning: fgrep is obsolescent; using grep -F\ngrep: nofile: No such file or directory\n
+@ fz-fu0033
+rc 0
+out c\na\nf\n\xc3\xa9\na\nu\nl\na\ni\nt\nn\na\n\xc3\xaf\nv\ne\nf\na\n\xc3\xa7\na\nd\ne\nt\ne\nx\nt\n\xc3\xa9\nc\no\nl\ne\ns\nt\nr\na\n\xc3\x9f\ne\n\xc3\xb1\na\nn\nd\n\xc3\xba\na\nn\nd\n\xc3\xba\n\xc3\xbc\nb\ne\nr\n\xc3\xbc\nb\ne\nr\na\nb\nc\nd\ne\nf\nr\n\xc3\xa9\ns\nu\nm\n\xc3\xa9\nr\n\xc3\xa9\ns\nu\nm\n\xc3\xa9\na\n\xc3\xa9\n\xc3\xa9\na\nx\n\xc3\xa9\ny\nm\ne\ng\na\n\xcf\x89\nm\ne\ng\na\n\xd0\xbc\n\xd0\xb8\n\xd1\x80\n\xd0\xb8\n\xd1\x80\na\nb\nc\nd\nt\na\nb\ns\ne\np\ns\np\nm\ni\nx\ne\nd\n\xc3\xbc\nn\n\xc3\xaf\n
+err 
+@ fz-fu0073
+rc 0
+out 1:c\n1:a\n1:f\n1:\xc3\xa9\n1:a\n1:u\n1:l\n1:a\n1:i\n1:t\n2:n\n2:a\n2:\xc3\xaf\n2:v\n2:e\n2:f\n2:a\n2:\xc3\xa7\n2:a\n2:d\n2:e\n3:\xe6\x97\xa5\n3:\xe6\x9c\xac\n3:\xe8\xaa\x9e\n3:t\n3:e\n3:x\n3:t\n4:\xc3\x89\n4:C\n4:O\n4:L\n4:E\n4:\xc3\xa9\n4:c\n4:o\n4:l\n4:e\n5:s\n5:t\n5:r\n5:a\n5:\xc3\x9f\n5:e\n5:S\n5:T\n5:R\n5:A\n5:S\n5:S\n5:E\n6:\xc3\xb1\n6:a\n6:n\n6:d\n6:\xc3\xba\n6:\xc3\x91\n6:a\n6:n\n6:d\n6:\xc3\xba\n7:\xc3\xbc\n7:b\n7:e\n7:r\n7:\xc3\xbc\n7:b\n7:e\n7:r\n8:a\n8:b\n8:c\n8:\xc3\x80\n8:\xc3\x89\n8:\xc3\x8e\n8:d\n8:e\n8:f\n9:r\n9:\xc3\xa9\n9:s\n9:u\n9:m\n9:\xc3\xa9\n9:r\n9:\xc3\xa9\n9:s\n9:u\n9:m\n9:\xc3\xa9\n10:\xe6\x97\xa5\n10:\xe6\x9c\xac\n10:\xe6\x97\xa5\n10:\xe6\x9c\xac\n11:a\n11:\xc3\xa9\n12:\xc3\xa9\n12:a\n13:x\n13:\xc3\xa9\n13:y\n14:\xce\xa9\n14:m\n14:e\n14:g\n14:a\n14:\xcf\x89\n14:m\n14:e\n14:g\n14:a\n15:\xd0\xbc\n15:\xd0\xb8\n15:\xd1\x80\n15:\xd0\x9c\n15:\xd0\xb8\n15:\xd1\x80\n16:a\n16:b\n16:c\n16:d\n17:t\n17:a\n17:b\n17:s\n17:e\n17:p\n18:s\n18:p\n19:m\n19:i\n19:x\n19:e\n19:d\n19:\xc3\xbc\n19:n\n19:\xc3\xaf\n
+err 
+@ fz-fu0214
+rc 0
+out 1:\xc3\xa9\n1:u\n1:t\n2:e\n2:e\n3:\xe8\xaa\x9e\n3:t\n4:E\n4:e\n5:e\n5:E\n6:\xc3\xba\n6:\xc3\xba\n7:r\n7:r\n8:c\n8:\xc3\x8e\n8:f\n9:\xc3\xa9\n9:\xc3\xa9\n10:\xe6\x9c\xac\n11:\xc3\xa9\n12:a\n13:x\n13:\xc3\xa9\n13:y\n14:a\n14:a\n15:\xd1\x80\n15:\xd1\x80\n16:a\n16:c\n16:d\n17:b\n17:p\n18:p\n19:d\n19:\xc3\xaf\n
+err 
+@ fz-fu0281
+rc 0
+out 1:\xc3\xa9 \n1:u \n2:e \n3:\xe8\xaa\x9e \n4:E \n5:e \n6:\xc3\xba \n7:r \n8:c \n8:\xc3\x8e \n9:\xc3\xa9 \n13:x \n13:\xc3\xa9 \n14:a \n15:\xd1\x80 \n16:c \n18:p \n19:d \n
+err 
+@ fz-fv0062
+rc 0
+out a\n\xc3\xa9\na\n\xc3\xa9\na\n
+err 
+@ fz-fv0120
+rc 0
+out a\n\xc3\xa9\na\n\xc3\xa9\na\n
+err 
+@ fz-fv0147
+rc 0
+out \xc3\xa9\n y\n
+err 
+@ fz-fw0474
+rc 0
+out a\nc\na\nc\na\nb\na\n2\n2\na\nb\nx\n \na\nb\nx\nq\nb\nc\n \na\nb\n \nz\na\nc\n
+err 
+@ fz-fw0518
+rc 0
+out 190:__\n
+err 
+@ fz-fw0527
+rc 0
+out 7:(ab)\n8:a{2}\n9:ab{2}\n20:  indented\n21:ends with space \n23:\n32:[x]\n34:dollar$\n35:star*\n36:q?\n49:  a  b  \n
+err 
+@ fz-fw0565
+rc 0
+out a\nc\na\nc\na\nb\nab\na\n2}\nab\n2}\na\nb\nx\nxx\n \n__\na\nb\n[x\nq?\nb\nc\nzz\nzz\nab\nab\nab\na1\nb2\nc3\n \n a\n b\n \nz\na\nc\n
+err 
+@ fz-w-empty-star
+rc 0
+out 7:(ab)\n8:a{2}\n9:ab{2}\n20:  indented\n21:ends with space \n23:\n32:[x]\n33:^caret\n34:dollar$\n35:star*\n36:q?\n39:Hello, World\n49:  a  b  \n
+err 
+@ fz-fu0273
+rc 0
+out 1:caf\xc3\xa9 au lait\n2:na\xc3\xafve fa\xc3\xa7ade\n3:\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e text\n4:\xc3\x89COLE \xc3\xa9cole\n5:stra\xc3\x9fe STRASSE\n6:\xc3\xb1and\xc3\xba \xc3\x91and\xc3\xba\n7:\xc3\xbcber \xc3\xbcber\n8:abc \xc3\x80\xc3\x89\xc3\x8e def\n9:r\xc3\xa9sum\xc3\xa9 r\xc3\xa9sum\xc3\xa9\n10:\xe6\x97\xa5\xe6\x9c\xac\xe6\x97\xa5\xe6\x9c\xac\n11:a\xc3\xa9\n12:\xc3\xa9a\n14:\xce\xa9mega \xcf\x89mega\n15:\xd0\xbc\xd0\xb8\xd1\x80 \xd0\x9c\xd0\xb8\xd1\x80\n17:tab\tsep\n19:mixed 123 \xc3\xbcn\xc3\xaf\n
+err 
+@ fz-fw1644
+rc 0
+out aabbcc\naaa bbb ccc\n
+err 
+@ fz-fw0816
+rc 0
+out a\na\na\na\na\na\na\na\n
+err 
+@ fz-fw0376
+rc 0
+out 2\n
+err 
+@ fz-fu0587
+rc 0
+out 2\n
+err 
+@ fz-fw0604
+rc 0
+out 53\n
+err 
+@ fz-fw1658
+rc 0
+out star*\n
+err 
+@ fz-fw1666
+rc 0
+out 1:abc\n2:aabbcc\n3:abcabc\n4:a.c\n5:a+c\n6:a|b\n7:(ab)\n8:a{2}\n9:ab{2}\n10:a b\n11:word wordy sword\n12:foo-bar\n13:the end\n14:THE END\n15:x\n16:xx\n17:xxx\n18:123 456\n19:tab\there\n20:  indented\n21:ends with space \n22:UPPER lower\n24:aaa\n25:bbb\n26:abab\n27:baab\n28:ca_t cat\n29:a1b2\n30:__\n31:a\\b\n32:[x]\n33:^caret\n34:dollar$\n35:star*\n36:q?\n37:b-c\n38:zz zz\n39:Hello, World\n40:hello hello\n41:abcdefabcdef\n42:aXbXc\n43:one two three\n44:abcabc abc\n45:aaa bbb ccc\n46:ab ab ab\n47:xyz xyz\n48:a1 b2 c3\n49:  a  b  \n50:abab\n51:cbacba\n52:x_y z\n53:a.b*c\n
+err 
+@ fz-fw1568
+rc 0
+out 52\n
+err 
+@ fz-fu0055
+rc 0
+out 1\n
+err 
+@ fz-fv0228
+rc 0
+out \xd1\x80 \xd0\x9c\xd0\xb8\n\xd1\x80\n
+err 
+@ fz-fw1554
+rc 1
+out 0\n
+err 
+@ fz-fw1275
+rc 0
+out aabbcc\naaa bbb ccc\na1 b2 c3\n
+err 
+@ fz-fu0235
+rc 0
+out 17:tab\tsep\n18:  sp  \n
+err 
+@ fz-fv0013
+rc 0
+out sp  \n
+err 
+@ fz-fv0295
+rc 0
+out 29:\xe6\x97\xa5\xe6\x9c\xac\n135:\xe6\x97\xa5\xe6\x9c\xac\n141:\xe6\x97\xa5\xe6\x9c\xac\n
+err 
+@ fz-fv0235
+rc 0
+out 1\n
+err 
+@ fz-fu0617
+rc 0
+out 1:caf\xc3\xa9 au lait\n2:na\xc3\xafve fa\xc3\xa7ade\n3:\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e text\n4:\xc3\x89COLE \xc3\xa9cole\n5:stra\xc3\x9fe STRASSE\n6:\xc3\xb1and\xc3\xba \xc3\x91and\xc3\xba\n7:\xc3\xbcber \xc3\xbcber\n8:abc \xc3\x80\xc3\x89\xc3\x8e def\n9:r\xc3\xa9sum\xc3\xa9 r\xc3\xa9sum\xc3\xa9\n10:\xe6\x97\xa5\xe6\x9c\xac\xe6\x97\xa5\xe6\x9c\xac\n11:a\xc3\xa9\n12:\xc3\xa9a\n13:x \xc3\xa9 y\n14:\xce\xa9mega \xcf\x89mega\n15:\xd0\xbc\xd0\xb8\xd1\x80 \xd0\x9c\xd0\xb8\xd1\x80\n16:a-b_c d\n17:tab\tsep\n18:  sp  \n19:mixed 123 \xc3\xbcn\xc3\xaf\n
+err 
+@ fz-fw1734
+rc 0
+out 15\n
+err 
+@ fz-fu0645
+rc 0
+out \xe6\n\xc3\n\xc3\n\xc3\nr\n\xe6\na\n\xc3\nx\n\xce\n\xd0\na\n \n
+err 
+@ fz-fu0641
+rc 0
+out 3\n
+err 
+@ fz-fu0400
+rc 0
+out 1:caf\xc3\xa9 au lait\n3:\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e text\n4:\xc3\x89COLE \xc3\xa9cole\n9:r\xc3\xa9sum\xc3\xa9 r\xc3\xa9sum\xc3\xa9\n11:a\xc3\xa9\n12:\xc3\xa9a\n13:x \xc3\xa9 y\n19:mixed 123 \xc3\xbcn\xc3\xaf\n
+err 
+@ fz-fw0918
+rc 2
+out 
+err grep: Invalid back reference\n
+@ fz-fu0142
+rc 0
+out ca\nf\n\xc3\xa9\na\nu\nl\na\ni\nt\nn\na\n\xc3\xaf\nv\ne\nf\na\n\xc3\xa7\nad\ne\n\xe6\x97\xa5\n\xe6\x9c\xac\n\xe8\xaa\x9e\nt\ne\nx\nt\n\xc3\x89\nCO\nL\nE\n\xc3\xa9\nco\nl\ne\ns\nt\nr\na\n\xc3\x9f\ne\nS\nT\nR\nA\nS\nS\nE\n\xc3\xb1\na\nnd\n\xc3\xba\n\xc3\x91\na\nnd\n\xc3\xba\n\xc3\xbc\nb\ne\nr\n\xc3\xbc\nb\ne\nr\na\nb\nc\n\xc3\x80\n\xc3\x89\n\xc3\x8e\nd\ne\nf\nr\n\xc3\xa9\ns\nu\nm\n\xc3\xa9\nr\n\xc3\xa9\ns\nu\nm\n\xc3\xa9\n\xe6\x97\xa5\n\xe6\x9c\xac\n\xe6\x97\xa5\n\xe6\x9c\xac\na\n\xc3\xa9\n\xc3\xa9\na\nx\n\xc3\xa9\ny\n\xce\xa9\nm\ne\ng\na\n\xcf\x89\nm\ne\ng\na\n\xd0\xbc\n\xd0\xb8\n\xd1\x80\n\xd0\x9c\n\xd0\xb8\n\xd1\x80\na\nb\nc\nd\nt\na\nb\ns\ne\np\ns\np\nm\ni\nx\ned\n\xc3\xbc\nn\n\xc3\xaf\n
+err 
+@ fz-fw0250
+rc 0
+out 15:x\n16:xx\n17:xxx\n32:x\n47:x\n47:x\n52:x\n
+err 
+@ fz-fw0791
+rc 0
+out (ab)\na{2}\nab{2}\nword wordy sword\nfoo-bar\nthe end\nTHE END\n123 456\ntab\there\n  indented\nends with space \nUPPER lower\nca_t cat\na1b2\n__\n[x]\n^caret\ndollar$\nstar*\nq?\nzz zz\nHello, World\nhello hello\nabcdefabcdef\none two three\nxyz xyz\na1 b2 c3\n  a  b  \nx_y z\n
+err 
+@ fz-fu0210
+rc 0
+out um\num\n
+err 
+@ fz-fw0087
+rc 1
+out 0\n
+err 
+@ fz-fu0575
+rc 0
+out 2:a\xc3\xa7ade\n
+err 
+@ fz-fw1826
+rc 2
+out 
+err grep: Invalid back reference\n
+@ fz-fw1344
+rc 0
+out 51\n
+err 
+@ fz-fw0589
+rc 0
+out 1\n
+err 
+@ fz-fw1258
+rc 0
+out 1\n
+err 
+@ fz-fw0759
+rc 1
+out 0\n
+err 
+@ fz-fw1773
+rc 0
+out 0:ab\n4:aa\n11:ab\n18:a.\n22:a+\n26:a|\n30:(a\n35:a{\n40:ab\n46:a \n50:wo\n67:fo\n75:th\n83:TH\n91:x\n93:xx\n96:xx\n100:12\n108:ta\n117:  \n128:en\n145:UP\n158:aa\n162:bb\n166:ab\n171:ba\n176:ca\n185:a1\n190:__\n193:a\\\n197:[x\n201:^c\n208:do\n216:st\n222:q?\n225:b-\n229:zz\n235:He\n248:he\n260:ab\n273:aX\n279:on\n293:ab\n304:aa\n316:ab\n325:xy\n333:a1\n342:  \n351:ab\n356:cb\n363:x_\n369:a.\n
+err 
+@ fz-fw0665
+rc 0
+out 0:a\n1:b\n2:c\n4:a\n5:a\n6:b\n7:b\n8:c\n9:c\n11:a\n12:b\n13:c\n14:a\n15:b\n16:c\n18:a\n19:.\n20:c\n22:a\n23:+\n24:c\n26:a\n27:|\n28:b\n30:(\n31:a\n32:b\n33:)\n35:a\n36:{\n37:2\n38:}\n40:a\n41:b\n42:{\n43:2\n44:}\n46:a\n47: \n48:b\n50:w\n51:o\n52:r\n53:d\n54: \n55:w\n56:o\n57:r\n58:d\n59:y\n60: \n61:s\n62:w\n63:o\n64:r\n65:d\n67:f\n68:o\n69:o\n70:-\n71:b\n72:a\n73:r\n75:t\n76:h\n77:e\n78: \n79:e\n80:n\n81:d\n83:T\n84:H\n85:E\n86: \n87:E\n88:N\n89:D\n91:x\n93:x\n94:x\n96:x\n97:x\n98:x\n100:1\n101:2\n102:3\n103: \n104:4\n105:5\n106:6\n108:t\n109:a\n110:b\n111:\t\n112:h\n113:e\n114:r\n115:e\n117: \n118: \n119:i\n120:n\n121:d\n122:e\n123:n\n124:t\n125:e\n126:d\n128:e\n129:n\n130:d\n131:s\n132: \n133:w\n134:i\n135:t\n136:h\n137: \n138:s\n139:p\n140:a\n141:c\n142:e\n143: \n145:U\n146:P\n147:P\n148:E\n149:R\n150: \n151:l\n152:o\n153:w\n154:e\n155:r\n158:a\n159:a\n160:a\n162:b\n163:b\n164:b\n166:a\n167:b\n168:a\n169:b\n171:b\n172:a\n173:a\n174:b\n176:c\n177:a\n178:_\n179:t\n180: \n181:c\n182:a\n183:t\n185:a\n186:1\n187:b\n188:2\n190:_\n191:_\n193:a\n194:\\\n195:b\n197:[\n198:x\n199:]\n201:^\n202:c\n203:a\n204:r\n205:e\n206:t\n208:d\n209:o\n210:l\n211:l\n212:a\n213:r\n214:$\n216:s\n217:t\n218:a\n219:r\n220:*\n222:q\n223:?\n225:b\n226:-\n227:c\n229:z\n230:z\n231: \n232:z\n233:z\n235:H\n236:e\n237:l\n238:l\n239:o\n240:,\n241: \n242:W\n243:o\n244:r\n245:l\n246:d\n248:h\n249:e\n250:l\n251:l\n252:o\n253: \n254:h\n255:e\n256:l\n257:l\n258:o\n260:a\n261:b\n262:c\n263:d\n264:e\n265:f\n266:a\n267:b\n268:c\n269:d\n270:e\n271:f\n273:a\n274:X\n275:b\n276:X\n277:c\n279:o\n280:n\n281:e\n282: \n283:t\n284:w\n285:o\n286: \n287:t\n288:h\n289:r\n290:e\n291:e\n293:a\n294:b\n295:c\n296:a\n297:b\n298:c\n299: \n300:a\n301:b\n302:c\n304:a\n305:a\n306:a\n307: \n308:b\n309:b\n310:b\n311: \n312:c\n313:c\n314:c\n316:a\n317:b\n318: \n319:a\n320:b\n321: \n322:a\n323:b\n325:x\n326:y\n327:z\n328: \n329:x\n330:y\n331:z\n333:a\n334:1\n335: \n336:b\n337:2\n338: \n339:c\n340:3\n342: \n343: \n344:a\n345: \n346: \n347:b\n348: \n349: \n351:a\n352:b\n353:a\n354:b\n356:c\n357:b\n358:a\n359:c\n360:b\n361:a\n363:x\n364:_\n365:y\n366: \n367:z\n369:a\n370:.\n371:b\n372:*\n373:c\n
+err 
