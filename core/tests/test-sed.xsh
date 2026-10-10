@@ -539,6 +539,18 @@ test sed_table_separate_files_and_matching { |ctx|
   assert mixed.is_empty(), mixed.join("\n")
 }
 
+test sed_table_passed_ranges { |ctx|
+  let failures = check_group(ctx, "passed-")?
+  assert failures.is_empty(), failures.join("\n")
+}
+
+test sed_table_syntax_corners_and_wrapping { |ctx|
+  let corners = check_group(ctx, "corner-")?
+  assert corners.is_empty(), corners.join("\n")
+  let wrapping = check_group(ctx, "wrap-")?
+  assert wrapping.is_empty(), wrapping.join("\n")
+}
+
 test sed_refused_options_fail_explicitly { |ctx|
   let file = test.temp_file(ctx, name: "input", contents: b"a\n")?
   let app = fp"{ctx.core_dir}/sed.xsh"

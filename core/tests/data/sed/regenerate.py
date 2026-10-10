@@ -51,7 +51,7 @@ def q(s):
 
 
 # The same script drives both implementations: only the `sed` found on PATH differs.
-def run_script(cases):
+def run_script(cases, guard=""):
     lines = ['fx=$1; out=$2; export LC_ALL=C', 'mkdir -p "$out"']
     for i, case in enumerate(cases):
         n = case["name"]
@@ -62,7 +62,7 @@ def run_script(cases):
         stdin = case.get("stdin")
         redirect = "< " + q(stdin) if stdin else "< /dev/null"
         env = "".join("%s=%s " % (k, q(v)) for k, v in case.get("env", {}).items())
-        cmd = "env %s sed %s" % (env, " ".join(q(a) for a in case["args"]))
+        cmd = "%senv %s sed %s" % (guard, env, " ".join(q(a) for a in case["args"]))
         lines.append('%s %s > "$out/%d.o" 2> "$out/%d.e"; echo $? > "$out/%d.s"' % (cmd, redirect, i, i, i))
         for k, f in enumerate(case.get("show", [])):
             base = '"$out/%d.f%d"' % (i, k)
@@ -106,7 +106,7 @@ def run_oracle(work, cases):
     mnt = os.path.join(work, "mnt")
     write_fixtures(os.path.join(mnt, "fx"))
     with open(os.path.join(mnt, "run.sh"), "w") as f:
-        f.write(run_script(cases))
+        f.write(run_script(cases, guard="timeout 10 "))
     subprocess.check_call(["chmod", "-R", "a+rwX", mnt])
     subprocess.check_call(
         [os.path.join(REPO, "dev/compat/oracle.sh"), "--mount", mnt, "--rw", "--", "sh", "/fixture/run.sh", "/fixture/fx", "/fixture/out"]

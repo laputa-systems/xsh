@@ -847,6 +847,71 @@ for args in [
 ]:
     add("eval", args)
 
+# Syntax corners: terminators, blocks, labels, numbers, and whitespace.
+for args in [
+    ["01p", "n.txt"], ["1,03p", "n.txt"], ["s/1/X/02", "n.txt"], ["-n", "2 ~ 3p", "n.txt"], ["-n", "2,4 ! p", "n.txt"], ["-n", "$ p", "n.txt"],
+    ["-n", "/1/ , /3/ p", "n.txt"], ["-n", "/1/I p", "n.txt"], ["-n", "/1/ I p", "n.txt"], ["-n", "/1/,+ 1p", "n.txt"], ["-n", "1,+1 p", "n.txt"],
+    ["-n", "{p}", "one.txt"], ["{s/o/0/}", "one.txt"], ["{y/o/0/}", "one.txt"], ["-n", "{=}", "one.txt"], ["-n", "{l}", "one.txt"], ["{n}", "a.txt"],
+    ["{q}", "a.txt"], ["{b}", "a.txt"], ["{bx};s/a/X/;:x", "a.txt"], ["{b x};s/a/X/;:x", "a.txt"], ["{t};s/a/X/", "a.txt"], ["s/a/X/;{t};s/e/Y/", "a.txt"],
+    ["$!{N;b};s/\\n/+/", "a.txt"], ["{{p}}", "one.txt"], ["{ { p } }", "one.txt"], ["{p;};p", "one.txt"], ["{p}\n{p}", "one.txt"], ["{p} ; {p}", "one.txt"],
+    ["p\n\np", "one.txt"], ["p ; ; p", "one.txt"], ["; p", "one.txt"], ["\np", "one.txt"], ["p\n", "one.txt"], ["p\r\n", "one.txt"], ["p;\r", "one.txt"],
+    ["s/o/0/;p # note", "one.txt"], ["{p # note\n}", "one.txt"], ["s/a/b/ # note", "a.txt"], ["y/a/b/ # note", "a.txt"], ["a text # still text", "one.txt"],
+    ["s/a//", "a.txt"], ["s/a/\\//", "a.txt"], ["s/a/\\&/", "a.txt"], ["s/a/\\\\&/", "a.txt"], ["s/\\(a\\)\\(b\\)\\?/<\\2>/", "a.txt"], ["s/a/\\n/;P;D", "a.txt"],
+    ["y/\\n/X/", "a.txt"], ["N;y/\\n/X/", "a.txt"], ["s/l/L/;s//M/", "a.txt"], ["/a/s//X/g", "a.txt"], ["/a/,/b/s//X/", "a.txt"],
+    ["99999999999p", "n.txt"], ["-n", "99999999999999999999p", "n.txt"], ["s/a/b/99999999999", "a.txt"], ["-n", "1~99999999999p", "n.txt"],
+    ["-n", "w /dev/null", "a.txt"], ["w /dev/null", "a.txt"], ["-n", "w a.txt", "a.txt"], ["r d", "one.txt"], ["r noaccess.txt", "one.txt"], ["R d", "one.txt"],
+    ["R noaccess.txt", "one.txt"], ["r ./rfile.txt", "one.txt"], ["r rfile.txt;p", "one.txt"], ["w out.txt}", "one.txt"], ["1{r rfile.txt\n}", "one.txt"],
+    ["1{w out.txt\n}", "one.txt"],
+]:
+    show = ["out.txt", "out.txt}", "a.txt"] if any("w " in a for a in args) else []
+    add("corner", args, show=show)
+
+# `l` wrapping around multi-character escapes, and symlinks in other directories.
+for width in ["2", "3", "4", "5", "6", "7", "8", "10"]:
+    add("wrap", ["-n", "-l", width, "l", "ctl.txt"])
+    add("wrap", ["-n", "-l", width, "l", "bin.bin"])
+    add("wrap", ["-n", "-l", width, "l", "latin1.txt"])
+add("wrap", ["-n", "l 1;l 2;l 3", "one.txt"])
+add("wrap", ["-n", "l 100", "long.txt"])
+add("wrap", ["-n", "l 70", "long.txt"])
+add("wrap", ["-n", "l 71", "long.txt"])
+add("wrap", ["-n", "l", "crlf.txt"])
+add("wrap", ["-s", "-n", "l", "ctl.txt", "bin.bin"])
+add("ip", ["-i", "--follow-symlinks", "s/i/I/", "d/lnk"], show=["d/lnk", "a.txt", "d/f.txt"], setup=["ln -s ../a.txt d/lnk"])
+add("ip", ["-i", "s/a/X/", "d/lnk"], show=["d/lnk", "a.txt"], setup=["ln -s ../a.txt d/lnk"])
+add("ip", ["-i.bak", "--follow-symlinks", "s/a/X/", "d/lnk"], show=["d/lnk", "a.txt", "a.txt.bak", "d/lnk.bak", "d/a.txt.bak"], setup=["ln -s ../a.txt d/lnk"])
+add("ip", ["-i", "-n", "$p", "a.txt", "empty.txt", "one.txt"], show=["a.txt", "empty.txt", "one.txt"])
+add("ip", ["-i", "1d", "empty.txt", "a.txt"], show=["empty.txt", "a.txt"])
+add("ip", ["-i", "=", "nonl.txt"], show=["nonl.txt"])
+add("ip", ["-i", "G", "nonl.txt"], show=["nonl.txt"])
+add("ip", ["-i", "$d", "nonl.txt"], show=["nonl.txt"])
+add("ip", ["-i", "$a end", "nonl.txt", "onenl.txt"], show=["nonl.txt", "onenl.txt"])
+add("ip", ["-n", "-i", "$!N;P;D", "a.txt", "n.txt"], show=["a.txt", "n.txt"])
+add("ip", ["-i", "-e", "1{h;d}", "-e", "$G", "a.txt", "n.txt"], show=["a.txt", "n.txt"])
+add("ip", ["-i", "-s", "-n", "$p", "a.txt", "n.txt"], show=["a.txt", "n.txt"])
+add("ip", ["-i", "s/^/> /", "crlf.txt"], show=["crlf.txt"])
+add("ip", ["-i", "s/a/X/", "bin.bin"], show=["bin.bin"])
+add("ip", ["-i", "-z", "s/^/>/", "bin.bin"], show=["bin.bin"])
+add("ip", ["-i", "w out.txt", "a.txt", "one.txt"], show=["out.txt", "a.txt", "one.txt"])
+add("ip", ["-i", "R rfile.txt", "a.txt", "one.txt"], show=["a.txt", "one.txt"])
+add("ip", ["-i", "q", "a.txt", "one.txt"], show=["a.txt", "one.txt"])
+add("ip", ["-i", "Q", "a.txt", "one.txt"], show=["a.txt", "one.txt"])
+
+# Ranges whose start line was consumed before the range command ran, and
+# `+N` / `~N` ends passed after lines were consumed by n or N.
+for script in ["1d;1,+1p", "1d;1,+0p", "2d;2,+1p", "2d;2,~2p", "2d;2,~4p", "1d;1,~3p", "2d;2,4p", "3d;2,4p", "2d;2,2p", "2,4d;2,6p",
+               "1,3d;2,5p", "$!d;1,3p", "1,4d;3,6p", "1,5d;2,3p", "2,+1s/^/R/;2n", "2,~3s/^/R/;2n", "2,3s/^/R/;2n", "/2/,+1s/^/R/;2n",
+               "/2/,3s/^/R/;2n", "/2/,/3/s/^/R/;2n", "2,/3/s/^/R/;2n", "/2/,~3s/^/R/;2n", "2,+1s/^/R/;2{N;N;N}", "2,3p;2n;3n", "/3/,+1p;/3/n"]:
+    add("passed", ["-n", script, "n.txt"])
+    add("passed", [script, "n.txt"])
+add("passed", ["-n", "1{N;N;d};1p;2,3p;3p;4p", "multi.txt"])
+add("passed", ["1{N;N;d};1p;2,3p;3p;4p", "multi.txt"])
+add("zero", ["-z", "-n", "s/$/</Mgp", "nonl.txt"])
+add("zero", ["-z", "-n", "s/^/>/Mgp", "nonl.txt"])
+add("zero", ["-z", "-n", "s/^./X/Mgp", "nonl.txt"])
+add("zero", ["-z", "-n", "l 5", "nonl.txt"])
+add("zero", ["-z", "-n", "/b/Mp", "nonl.txt", "a.txt"])
+
 # Exit statuses and diagnostics that depend on runtime state.
 for args, stdin in [
     (["q"], "a.txt"),
@@ -893,9 +958,11 @@ for args in [
     add("script", args, stdin="s_p.sed" if args[-2:-1] == ["-"] else None, show=["out.txt"] if "s_w.sed" in args else [])
 
 
-# GNU 4.10 selects nothing for `2d;2,1p` once line 2 is consumed; the pinned
-# BusyBox suite ("sed 2d;2,1p (gnu compat)") requires the third line.
-BUSYBOX_CONFLICTS = {"addr-215", "addr-216"}
+# GNU 4.10 selects only the lines up to the end line when a numeric start was
+# consumed by an earlier command (`2d;2,1p` selects nothing at line 3); the
+# pinned BusyBox suite ("sed 2d;2,1p (gnu compat)", "sed with N skipping lines
+# past ranges on next cmds") requires a once-only match on the first line past.
+BUSYBOX_CONFLICTS = {"addr-215", "addr-216", "passed-017", "passed-018", "passed-023", "passed-024", "passed-027", "passed-028", "passed-051", "passed-052"}
 
 
 def _skip(case):

@@ -75,14 +75,13 @@ proc read_script_file(name: Str) [fs, io, error, process, env] -> Bytes {
     }
   }
   match fp"{name}".read_bytes() {
-    Ok(data) => { return data }
+    Ok(data) => data
     Err(failure) => {
       if gnu.errno(failure) == 21 { return b"" }
       gnu.error(f"couldn't open file {name}: {gnu.strerror(failure)}")
       exit 4
     }
   }
-  b""
 }
 
 # C `atoi`: the leading decimal digits of TEXT, 0 when there are none.

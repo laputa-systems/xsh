@@ -31,7 +31,7 @@ type Instruction = {first: Address?, last: Address?, invert: Bool, op: Int, text
 export type Chunk = {text: Bytes, file: Str?, number: Int}
 type OpenBlock = {index: Int, where: Str}
 ## Parser state between chunks; `compile` returns it and `link` consumes it.
-export type Parser = {commands: List[Instruction], blocks: List[OpenBlock], labels: Map[Int], pending: Int, first: Bool, quiet: Bool}
+export type Parser = {commands: List[Instruction], blocks: List[OpenBlock], labels: Map[Int], pending: Int, first: Bool, quiet: Bool, opened: List[Str]}
 ## A compiled script: its commands and whether `#n` forced quiet mode.
 export type Program = {commands: List[Instruction], quiet: Bool}
 ## Option state that changes how a script is compiled or run.
@@ -70,7 +70,8 @@ pure read_integer(text: Bytes, start: Int) -> NumberScan {
   var at = start
   var value = 0
   while is_digit(at_byte(text, at)) {
-    value = value * 10 + (at_byte(text, at) - 48)
+    # GNU wraps an overlong number silently; saturating keeps it far past any line.
+    if value < 400000000000000000 { value = value * 10 + (at_byte(text, at) - 48) }
     at += 1
   }
   {value: value, next: at}
@@ -483,8 +484,10 @@ pure compile_regex(source: Bytes, extended: Bool, ignore_case: Bool, multiline: 
   Ok(.Explicit({pattern: pattern, ignore_case: ignore_case, multiline: multiline, groups: group_count(source, extended), buffer_start: anchors.start, buffer_end: anchors.end}))
 }
 
-# Parse one address starting at the first byte, or report that there is none.
-pure parse_address(chunk: Chunk, start: Int, extended: Bool) -> Result[AddressScan, Error] {
+# Parse one address starting at the first byte, or report that there is none. In
+# NUL-delimited mode GNU's M flag changes only which bytes `.` and lists match,
+# never where `^` and `$` hold, so the line-by-line emulation is not applied.
+pure parse_address(chunk: Chunk, start: Int, options: Options) -> Result[AddressScan, Error] {
   let text = chunk.text
   var at = start
   let byte = at_byte(text, at)
@@ -511,7 +514,7 @@ pure parse_address(chunk: Chunk, start: Int, extended: Bool) -> Result[AddressSc
       if ignore_case or multiline { return Err(complain(chunk, at, "cannot specify modifiers on empty regexp")) }
       return Ok({found: true, address: .Pattern(.Previous), next: at})
     }
-    let spec = match compile_regex(normal, extended, ignore_case, multiline) {
+    let spec = match compile_regex(normal, options.extended, ignore_case, multiline and !options.null_data) {
       Ok(value) => value
       Err(failure) => { return Err(complain(chunk, at, failure.message)) }
     }
@@ -693,13 +696,29 @@ pure translate_operand(text: Bytes) -> List[Int] {
   out
 }
 
-pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser, Error] {
+# GNU creates (or truncates) a `w` file the moment its command is read, so the
+# file exists even when a later syntax error stops the run, and an unwritable
+# name is reported before anything after it is looked at.
+proc open_output(opened: List[Str], name: Str) [fs, io, error, process, env] -> List[Str] {
+  if name in ["/dev/stdout", "/dev/stderr"] or name in opened { return opened }
+  match fp"{name}".write(b"") {
+    Err(failure) => {
+      gnu.error(f"couldn't open file {name}: {gnu.strerror(failure)}")
+      exit 4
+    }
+    Ok(_) => {}
+  }
+  opened + [name]
+}
+
+proc parse_chunk(state: Parser, chunk: Chunk, options: Options) [fs, io, error, process, env] -> Result[Parser, Error] {
   let text = chunk.text
   var commands = state.commands
   var blocks = state.blocks
   var labels = state.labels
   var pending = state.pending
   var quiet = state.quiet
+  var opened = state.opened
   var at = 0
   if pending >= 0 {
     let scan = read_text(chunk, 0)?
@@ -714,7 +733,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
     while at < text.len() and (at_byte(text, at) == 59 or is_space(at_byte(text, at))) { at += 1 }
     if at >= text.len() { break }
     var command = blank_command(0)
-    let first_scan = parse_address(chunk, at, options.extended)?
+    let first_scan = parse_address(chunk, at, options)?
     at = first_scan.next
     if first_scan.found {
       if let address = first_scan.address {
@@ -727,7 +746,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
       command = {...command, first: first_scan.address}
       at = skip_blanks(text, at)
       if at_byte(text, at) == 44 {
-        let last_scan = parse_address(chunk, skip_blanks(text, at + 1), options.extended)?
+        let last_scan = parse_address(chunk, skip_blanks(text, at + 1), options)?
         if !last_scan.found { return Err(complain(chunk, consumed_through(text, last_scan.next), "unexpected ','")) }
         command = {...command, last: last_scan.address}
         at = skip_blanks(text, last_scan.next)
@@ -821,6 +840,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
       let operand = read_file_name(text, at)
       at = operand.next
       if operand.name == "" { return Err(complain(chunk, at, "missing filename in r/R/w/W commands")) }
+      if op in [119, 87] { opened = open_output(opened, operand.name) }
       commands += [{...command, name: operand.name}]
       continue
     }
@@ -888,6 +908,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
           let operand = read_file_name(text, at)
           at = operand.next
           if operand.name == "" { return Err(complain(chunk, at, "missing filename in r/R/w/W commands")) }
+          opened = open_output(opened, operand.name)
           write = operand.name
           done = true
         } else if is_digit(flag) {
@@ -918,7 +939,7 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
       if pattern_text.is_empty() {
         if ignore_case or multiline { return Err(complain(chunk, at, "cannot specify modifiers on empty regexp")) }
       } else {
-        choice = match compile_regex(pattern_text, options.extended, ignore_case, multiline) {
+        choice = match compile_regex(pattern_text, options.extended, ignore_case, multiline and !options.null_data) {
           Ok(value) => value
           Err(failure) => { return Err(complain(chunk, at, failure.message)) }
         }
@@ -958,13 +979,13 @@ pure parse_chunk(state: Parser, chunk: Chunk, options: Options) -> Result[Parser
     }
     return Err(complain(chunk, at, f"unknown command: '{text[at - 1..at].utf8() ?? "?"}'"))
   }
-  Ok({commands: commands, blocks: blocks, labels: labels, pending: pending, first: false, quiet: quiet})
+  Ok({commands: commands, blocks: blocks, labels: labels, pending: pending, first: false, quiet: quiet, opened: opened})
 }
 
 ## Compile `-e` and `-f` chunks into a program. Syntax failures carry GNU's
 ## location prefix.
-export pure compile(chunks: List[Chunk], options: Options) -> Result[Parser, Error] {
-  var state: Parser = {commands: [], blocks: [], labels: {}, pending: -1, first: true, quiet: false}
+export proc compile(chunks: List[Chunk], options: Options) [fs, io, error, process, env] -> Result[Parser, Error] {
+  var state: Parser = {commands: [], blocks: [], labels: {}, pending: -1, first: true, quiet: false, opened: []}
   for chunk in chunks { state = parse_chunk(state, chunk, options)? }
   if !state.blocks.is_empty() {
     return Err(SedError.Invalid(f"{state.blocks[0].where}: unmatched '{{'"))
@@ -1069,7 +1090,7 @@ pure list_text(text: Bytes, width: Int, delim: Bytes) -> Bytes {
     var piece = text[index..index + 1]
     if byte == 92 { piece = b"\\\\" } else if byte == 7 { piece = b"\\a" } else if byte == 8 { piece = b"\\b" } else if byte == 12 { piece = b"\\f" } else if byte == 10 { piece = b"\\n" } else if byte == 13 { piece = b"\\r" } else if byte == 9 { piece = b"\\t" } else if byte == 11 { piece = b"\\v" } else if byte < 32 or byte > 126 { piece = bytes.from_text(octal(byte)) }
     if width > 0 and column + piece.len() > width - 1 {
-      parts += [b"\\\n"]
+      parts += [b"\\", delim]
       column = 0
     }
     parts += [piece]
@@ -1191,7 +1212,9 @@ pure after_range(first: Address) -> RangeState {
 
 # GNU's match_address_p: whether COMMAND applies to this line, and the range
 # state it leaves behind. A numeric start opens its range at the first line at
-# or past it; a numeric end at or before the start line selects one line.
+# or past it; a numeric end at or before the start line selects one line. A
+# line-number end stops matching once passed, but a `+N` or `~N` end still
+# matches the first line seen past it (lines may have been consumed by n or N).
 pure select(command: Instruction, state: RangeState, end: Int, line_no: Int, is_last: Bool, text: Bytes, last_regex: RegexSpec?, extended: Bool) -> Result[Selection, Error] {
   var saved = last_regex
   guard let first = command.first else { return Ok({matched: true, state: state, end: end, last_regex: saved}) }
@@ -1208,14 +1231,8 @@ pure select(command: Instruction, state: RangeState, end: Int, line_no: Int, is_
         closes = line_no >= end
         matched = line_no <= end
       }
-      Plus(_) => {
-        closes = line_no >= end
-        matched = line_no <= end
-      }
-      Multiple(_) => {
-        closes = line_no >= end
-        matched = line_no <= end
-      }
+      Plus(_) => closes = line_no >= end
+      Multiple(_) => closes = line_no >= end
       _ => {
         let found = address_hit(last, line_no, is_last, text, saved, extended)?
         closes = found.matched
@@ -1252,6 +1269,11 @@ pure select(command: Instruction, state: RangeState, end: Int, line_no: Int, is_
     }
     _ => {}
   }
+  # A numeric start already passed (its line was consumed by n, N, or d) fires
+  # once on the first line past it when the end line is also behind. GNU 4.10
+  # selects only the lines up to the end line; the pinned BusyBox suite
+  # ("sed with N skipping lines past ranges on next cmds", "sed 2d;2,1p")
+  # requires the once-only match.
   if single { return Ok({matched: true, state: after_range(first), end: end, last_regex: saved}) }
   Ok({matched: true, state: .Active, end: stop, last_regex: saved})
 }
@@ -1385,7 +1407,6 @@ proc open_next(cursor: Cursor, name: Str, delim: Int) [fs, io, error, process, e
       return {cursor: {...next, bad: next.bad + 1}, records: []}
     }
   }
-  {cursor: next, records: []}
 }
 
 # Whether the current file is exhausted while another input remains to open.
@@ -1439,7 +1460,15 @@ proc flush_queue(m: Machine, queue: List[QueueItem], ctx: Context) [fs, io, erro
       if item.name == "/dev/stdin" {
         data = io.stdin_bytes() ?? b""
       } else {
-        data = fp"{item.name}".read_bytes() ?? b""
+        match fp"{item.name}".read_bytes() {
+          Ok(content) => data = content
+          Err(failure) => {
+            if gnu.errno(failure) == 21 {
+              gnu.error(f"read error on {item.name}: Is a directory")
+              shutdown({...m, out: out}, ctx, 4)
+            }
+          }
+        }
       }
       out = emit_raw(out, MAIN, ctx.in_place, data, ctx.delim_bytes)
     } else {
@@ -1449,7 +1478,7 @@ proc flush_queue(m: Machine, queue: List[QueueItem], ctx: Context) [fs, io, erro
   {...m, out: out}
 }
 
-type ReadLine = {machine: Machine, data: Bytes}
+type ReadLine = {machine: Machine, data: Bytes, failed: Bool}
 
 # a/i/c text always ends in a newline; `i` and `c` write it as the record
 # delimiter, so `-z` output stays NUL separated.
@@ -1478,18 +1507,27 @@ proc read_line_from(m: Machine, name: Str, delim: Int) [fs, io, env] -> ReadLine
   var roffset = m.roffset
   if name not in rdata {
     var data: Bytes = b""
-    if name == "/dev/stdin" { data = io.stdin_bytes() ?? b"" } else { data = fp"{name}".read_bytes() ?? b"" }
+    if name == "/dev/stdin" {
+      data = io.stdin_bytes() ?? b""
+    } else {
+      match fp"{name}".read_bytes() {
+        Ok(content) => data = content
+        Err(failure) => {
+          if gnu.errno(failure) == 21 { return {machine: m, data: b"", failed: true} }
+        }
+      }
+    }
     rdata = rdata.set(name, data)
     roffset = roffset.set(name, 0)
   }
   let data = rdata[name]
   let offset = roffset[name]
-  if offset >= data.len() { return {machine: {...m, rdata: rdata, roffset: roffset}, data: b""} }
+  if offset >= data.len() { return {machine: {...m, rdata: rdata, roffset: roffset}, data: b"", failed: false} }
   var end = offset
   while end < data.len() and data.byte_at(end) != delim { end += 1 }
   let stop = if end < data.len() { end + 1 } else { end }
   roffset = roffset.set(name, stop)
-  {machine: {...m, rdata: rdata, roffset: roffset}, data: data[offset..stop]}
+  {machine: {...m, rdata: rdata, roffset: roffset}, data: data[offset..stop], failed: false}
 }
 
 # A run-time error from the matcher or a missing previous regex.
@@ -1706,6 +1744,10 @@ proc run_stream(machine: Machine, names: List[Str], ctx: Context) [fs, io, error
         114 => queue += [{kind: 1, data: b"", name: command.name}]
         82 => {
           let read = read_line_from(m, command.name, delim)
+          if read.failed {
+            gnu.error(f"read error on {command.name}: Is a directory")
+            shutdown(m, ctx, 4)
+          }
           m = read.machine
           if !read.data.is_empty() { queue += [{kind: 2, data: read.data, name: ""}] }
         }
@@ -1783,18 +1825,7 @@ proc follow_link(name: Str) [fs] -> Result[Str, Str] {
     match fp"{current}".readlink() {
       Ok(target) => {
         let text = target.display()
-        if text.starts_with("/") { current = text } else {
-          let slash = current.find("/")
-          var directory = ""
-          var cursor = 0
-          while true {
-            let found = current.byte_slice(cursor).find("/") ?? -1
-            if found < 0 { break }
-            cursor += found + 1
-          }
-          directory = current.byte_slice(0, cursor)
-          current = f"{directory}{text}"
-        }
+        current = if text.starts_with("/") { text } else { f"{parent_prefix(current)}{text}" }
       }
       Err(failure) => {
         if gnu.errno(failure) == 22 { return Ok(current) }
@@ -1806,15 +1837,21 @@ proc follow_link(name: Str) [fs] -> Result[Str, Str] {
   Err(f"couldn't readlink {current}: Too many levels of symbolic links")
 }
 
-# The directory part of NAME for diagnostics (`./` when there is none).
-pure directory_of(name: Str) -> Str {
+# NAME up to and including its last `/`, or the empty string.
+pure parent_prefix(name: Str) -> Str {
   var cursor = 0
   while true {
     let found = name.byte_slice(cursor).find("/") ?? -1
     if found < 0 { break }
     cursor += found + 1
   }
-  if cursor == 0 { "./" } else { name.byte_slice(0, cursor) }
+  name.byte_slice(0, cursor)
+}
+
+# The directory part of NAME for diagnostics (`./` when there is none).
+pure directory_of(name: Str) -> Str {
+  let prefix = parent_prefix(name)
+  if prefix == "" { "./" } else { prefix }
 }
 
 # Replace TARGET with OUTPUT keeping its permission bits, first renaming the
@@ -1888,19 +1925,10 @@ export proc execute(program: Program, options: Options, in_place: InPlace, names
       targets += [FIRST_FILE + found]
     }
   }
-  for name in file_names {
-    match fp"{name}".write(b"") {
-      Err(failure) => {
-        gnu.error(f"couldn't open file {name}: {gnu.strerror(failure)}")
-        exit 4
-      }
-      Ok(_) => {}
-    }
-  }
   let ctx: Context = {program: program, options: options, in_place: in_place.enabled, delim: delim, delim_bytes: bytes.from_ints([delim]) ?? b"\n", targets: targets, file_names: file_names}
-  var bufs: List[List[Bytes]] = []
-  var missing: List[Bool] = []
-  for slot in range(FIRST_FILE + file_names.len()) {
+  var bufs: List[List[Bytes]] = [[]]
+  var missing: List[Bool] = [false]
+  while bufs.len() < FIRST_FILE + file_names.len() {
     bufs += [[]]
     missing += [false]
   }
