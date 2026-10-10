@@ -2,7 +2,7 @@
 use lib.gnu
 use lib.fs_misc
 
-type Options = {mode: Str?, help: Bool, version: Bool, paths: List[Str]}
+type Options = {mode: Str?, security_context: Bool, context: List[Str], help: Bool, version: Bool, paths: List[Str]}
 type ModeSource = {index: Int, start: Int}
 
 pure mode_source(argv: List[Str]) -> ModeSource {
@@ -46,12 +46,20 @@ proc mode_error(argv: List[Str], mode: Str) [env, process, error] {
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let opts: Options = cli.applet(argv, {
-    gnu: {status: 1, unsupported: {"-Z": "security labels require a native security context API", "--context": "security labels require a native security context API"}},
+    gnu: {status: 1},
     mode: {form: "-m --mode MODE"},
+    # Without SELinux or SMACK there is no label to set, so -Z and a bare --context change nothing.
+    # argv cannot carry NUL, so the bare --context value is NUL and is distinct from --context=.
+    security_context: {form: "-Z", default: false},
+    context: {form: "--context[=CTX]", repeated: true, optional_default: "\0"},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     paths: {form: "...NAME"},
   })?
+  for context in opts.context {
+    # GNU reports each explicit label while parsing, so these lines precede any later diagnostic.
+    if context != "\0" { gnu.error("warning: ignoring --context; it requires an SELinux/SMACK-enabled kernel") }
+  }
   if opts.help { gnu.help("Usage: mkfifo [OPTION]... NAME...\nCreate named pipes.\n  -m, --mode=MODE  set permission bits\n"); return }
   if opts.version { gnu.version("mkfifo"); return }
   if opts.paths.is_empty() { gnu.missing_operand() }
