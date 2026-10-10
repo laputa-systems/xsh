@@ -609,3 +609,20 @@ test test_open_files_describes_each_socket_and_a_locked_file_by_its_own_type { |
     }
   }
 }
+
+test test_netlink_dump_status_in_the_done_message_becomes_errno {
+  let c = linux.net_constants()
+  let nl = linux.netlink_open(c.NETLINK_SOCK_DIAG)?
+  defer unix.close_fd(nl)
+  # No diag handler exists for protocol 253, so the kernel ends the dump with
+  # NLMSG_DONE carrying -ENOENT instead of an NLMSG_ERROR or any data.
+  # struct inet_diag_req_v2: family, protocol, ext, pad, states, 48-byte sockid.
+  let request = bytes.concat([bytes.from_ints([c.AF_INET, 253, 0, 0])?, bytes.pack_le(4294967295, 4)?, bytes.zero(48)?])
+  let dumped = linux.netlink_request(nl, c.SOCK_DIAG_BY_FAMILY, c.NLM_F_REQUEST.bit_or(c.NLM_F_DUMP), request)
+  assert errno_of(dumped) == 2
+  test.error_kind(dumped, "linux-netlink-request")
+
+  # An empty dump that completes cleanly stays a success.
+  let tcp = bytes.concat([bytes.from_ints([c.AF_INET, 6, 0, 0])?, bytes.pack_le(0, 4)?, bytes.zero(48)?])
+  assert linux.netlink_request(nl, c.SOCK_DIAG_BY_FAMILY, c.NLM_F_REQUEST.bit_or(c.NLM_F_DUMP), tcp)?.len() == 0
+}
