@@ -3,7 +3,8 @@
 # stderr and exit status GNU produced on the files under `data/diff/fixtures`,
 # so the suite needs no GNU diff at test time. File times are pinned: a fixture
 # whose name ends in 2 has one fixed modification time and every other file has
-# another, so timestamps in unified and context headers are reproducible.
+# another, so timestamps in unified and context headers are reproducible. A few
+# names with a space or a non-ASCII letter are created at run time.
 
 type Ran = {status: Int, stdout: Bytes, stderr: Bytes}
 
@@ -29,6 +30,11 @@ proc invoke(ctx: TestContext, args: List[Str], input = b"", cwd: Path? = null, l
 proc fixtures(ctx: TestContext, name: Str) [fs, error] -> Result[Path] {
   let root = test.temp_dir(ctx, name: name)?
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/diff/fixtures", fp"{root}/fx")?
+  # Names with a space or a non-ASCII letter are created here instead of being
+  # stored, because path lists handled by tooling split on spaces.
+  fp"{root}/fx/d1/with space".write("a b\n")?
+  fp"{root}/fx/d2/with space".write("a c\n")?
+  fp"{root}/fx/caf\u{e9}".write("x\n")?
   for entry in fs.walk(fp"{root}/fx", hidden: true)? {
     if entry.kind == "file" {
       fs.set_times(entry.path, mtime_ns: if entry.name.ends_with("2") { TIME_SECOND } else { TIME_FIRST })?

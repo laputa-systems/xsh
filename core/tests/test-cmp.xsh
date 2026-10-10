@@ -103,6 +103,8 @@ proc check(ctx: TestContext, root: Path, entry: Recorded) [fs, process, error] -
 test test_cmp_recorded_cases_match_gnu_cmp { |ctx|
   let root = test.temp_dir(ctx, name: "cmp-recorded")?
   let _ = fs.copy_tree(fp"{ctx.core_dir}/tests/data/cmp/fixtures", fp"{root}/fx")?
+  # A non-ASCII name is created here instead of being stored.
+  fp"{root}/fx/caf\u{e9}".write("x\n")?
   let all = load(fp"{ctx.core_dir}/tests/data/cmp/cases.txt")?
   assert !all.is_empty()
   let verdicts = all |> par-map(jobs: 8) { |item| check(ctx, fp"{root}/fx", item) } |> collect()
