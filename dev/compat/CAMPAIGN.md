@@ -4,7 +4,7 @@
 
 Status: paused, incomplete. `master` is clean. The pinned uutils suite
 (`results/uutils-integration.json`, native x86_64 musl, unprivileged user) is
-**5,612 / 5,941 passing** with 12 excluded, up 98 from 5,514 and from 5,491 at the
+**5,612 passing, 205 failing, 136 excluded** (of 5,953), up 121 passing from 5,491 at the
 start of this session, with no regression on any test that passed before. The
 BusyBox results file was **not** refreshed (its runner hit a root-owned
 `.work/tmp`); the lane gates recorded awk +16, sed +15, tar +15, diff +7,
@@ -26,9 +26,11 @@ install and chgrp failures).
 Open items, with the evidence in `ledger/` (`requests.md`, `language-gaps.md`,
 `native-review.md`):
 
-- Exclusions proposed, none applied (owner approval needed): wording-only uutils
-  and clap text (nl, tr, tty, expr, uniq, chroot, rm preserve-root, version lines,
-  `-d=` spellings, `--random-seed`); the list is in `ledger/requests.md`.
+- 124 exclusions were added (exact IDs, categories clap-wording, help-text,
+  uutils-extension, gnu-semantics): framed diagnostic snippets, clap localization
+  and colors, uutils version lines, `-d=,` / `-c=N` spellings, `--random-seed`,
+  tail inotify/polling flags. The remaining 205 failures are real work, host limits
+  (no libstdbuf, no en_US locale, busybox sh) or native requests; see `ledger/`.
 - Parked branches: `wip/bb-misc`, `wip/sort2`, `wip/tail2`, `wip/lang-diag`
   (ungated), `ext/bb-patch` (gate passes but drops git rename/copy/delete support),
   `ext/shuf-random-seed`, `wording/{nl,tr,uniq,expr}`.
@@ -37,7 +39,9 @@ Open items, with the evidence in `ledger/` (`requests.md`, `language-gaps.md`,
   panic (regex-lite keeps `std` by decision; `test_shuf::test_getrandom_fail`).
 - After parity: move policy out of Rust (`compression.transform`, `linux.module_plan`,
   `block_signatures`, `time.format` policy, speed-only `bytes.squeeze` and friends).
-- Not mine, still present: worktrees `../xsh-resume-lanes/{cp,cp-wave4}`,
+- The Codex worktrees and `campaign/*`, `lane/*` branches are deleted. About 4,500
+  root-owned build files remain under `../xsh-resume-lanes`; remove with
+  `sudo rm -rf ../xsh-resume-lanes`. `../xsh-resume-results` is untouched.
   `.work/worktrees/text-b2-wave4`, branch `lane/native-unix-support`.
 
 

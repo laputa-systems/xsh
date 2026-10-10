@@ -21,22 +21,18 @@
     },
     "base32": {
       "pass": 15,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_base32::test_version"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "base64": {
       "pass": 23,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_base64::test_version"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "basename": {
@@ -49,12 +45,10 @@
     },
     "basenc": {
       "pass": 37,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_basenc::test_version"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "cat": {
@@ -82,18 +76,12 @@
     },
     "chmod": {
       "pass": 48,
-      "fail": 15,
+      "fail": 9,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 6,
       "failing": [
         "test_chmod::diagnostics::test_plain_message_when_stderr_is_a_pipe",
         "test_chmod::diagnostics::test_quiet_stays_quiet",
-        "test_chmod::diagnostics::test_snippet_marks_a_clause_with_no_operator",
-        "test_chmod::diagnostics::test_snippet_points_at_the_bad_operator",
-        "test_chmod::diagnostics::test_snippet_points_at_the_mode_not_a_file_with_the_same_name",
-        "test_chmod::diagnostics::test_snippet_points_into_a_negative_mode",
-        "test_chmod::diagnostics::test_snippet_points_into_the_right_negative_mode",
-        "test_chmod::diagnostics::test_snippet_points_into_the_second_clause",
         "test_chmod::test_chmod_colored_output",
         "test_chmod::test_chmod_file_symlink_after_non_existing_file",
         "test_chmod::test_chmod_permissions_too_large",
@@ -175,16 +163,10 @@
     },
     "cut": {
       "pass": 77,
-      "fail": 5,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_cut::diagnostics::test_snippet_finds_fields_merged_value",
-        "test_cut::diagnostics::test_snippet_ignores_a_file_named_like_the_list",
-        "test_cut::diagnostics::test_snippet_points_at_the_bound_that_is_not_a_number",
-        "test_cut::diagnostics::test_snippet_points_at_the_inverted_range",
-        "test_cut::diagnostics::test_snippet_points_at_the_zero_bound"
-      ],
+      "excluded": 5,
+      "failing": [],
       "applet": true
     },
     "date": {
@@ -218,13 +200,10 @@
     },
     "dir": {
       "pass": 10,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_dir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
-        "test_dir::test_version"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "dircolors": {
@@ -256,26 +235,19 @@
     },
     "echo": {
       "pass": 64,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_echo::full_version_argument"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "env": {
       "pass": 78,
-      "fail": 22,
+      "fail": 16,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 6,
       "failing": [
         "test_env::diagnostics::test_plain_message_when_stderr_is_a_pipe",
-        "test_env::diagnostics::test_snippet_follows_the_string_when_it_is_glued_to_the_option",
-        "test_env::diagnostics::test_snippet_points_at_the_invalid_escape",
-        "test_env::diagnostics::test_snippet_points_at_the_unterminated_quote",
-        "test_env::diagnostics::test_snippet_points_at_the_whole_variable_reference",
-        "test_env::diagnostics::test_snippet_points_into_the_right_argument",
         "test_env::test_debug1_part_of_string_arg",
         "test_env::test_debug2_part_of_string_arg",
         "test_env::test_debug_1",
@@ -289,7 +261,6 @@
         "test_env::test_env_overwrite_arg0",
         "test_env::test_env_parsing_errors",
         "test_env::test_env_split_quoted_with_backslash_space",
-        "test_env::test_env_version",
         "test_env::test_split_string_into_args_debug_output_whitespace_handling",
         "test_env::test_split_string_into_args_s_escaped_c_not_allowed"
       ],
@@ -305,14 +276,10 @@
     },
     "expr": {
       "pass": 166,
-      "fail": 6,
+      "fail": 2,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 4,
       "failing": [
-        "test_expr::diagnostics::test_snippet_points_at_the_dangling_operator",
-        "test_expr::diagnostics::test_snippet_points_at_the_non_integer_operand",
-        "test_expr::diagnostics::test_snippet_points_at_the_operand_that_failed_not_its_twin",
-        "test_expr::diagnostics::test_snippet_points_at_the_unexpected_argument",
         "test_expr::diagnostics::test_unclosed_parenthesis_points_at_the_last_operand",
         "test_expr::test_exit_with_3_write_error"
       ],
@@ -365,16 +332,10 @@
     },
     "head": {
       "pass": 66,
-      "fail": 7,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 6,
       "failing": [
-        "test_head::diagnostics::test_snippet_points_at_the_unknown_unit",
-        "test_head::diagnostics::test_snippet_preserves_obsolete_option_spelling",
-        "test_head::diagnostics::test_snippet_underlines_a_size_with_no_number",
-        "test_head::test_all_but_last_bytes_huge_count_does_not_panic",
-        "test_head::test_all_but_last_lines_huge_count_does_not_panic",
-        "test_head::test_head_invalid_num",
         "test_head::test_read_backwards_bytes_sys_kernel_profiling"
       ],
       "applet": true
@@ -417,13 +378,10 @@
     },
     "join": {
       "pass": 44,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_join::diagnostics::test_snippet_points_at_the_failing_field_of_a_list",
-        "test_join::diagnostics::test_snippet_points_inside_a_glued_short_option"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "kill": {
@@ -464,14 +422,11 @@
     },
     "ls": {
       "pass": 188,
-      "fail": 19,
+      "fail": 16,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 3,
       "failing": [
-        "test_ls::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
-        "test_ls::diagnostics::test_snippet_underlines_a_zero_block_size",
         "test_ls::test_explicit_color_always_works_with_f",
-        "test_ls::test_localized_possible_values",
         "test_ls::test_ls_color",
         "test_ls::test_ls_color_clear_to_eol",
         "test_ls::test_ls_color_do_not_reset",
@@ -500,12 +455,10 @@
     },
     "mkdir": {
       "pass": 43,
-      "fail": 4,
+      "fail": 2,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 2,
       "failing": [
-        "test_mkdir::diagnostics::test_snippet_points_at_the_bad_operator",
-        "test_mkdir::diagnostics::test_snippet_points_into_the_second_clause",
         "test_mkdir::test_no_arg",
         "test_mkdir::test_version_no_path"
       ],
@@ -581,12 +534,10 @@
     },
     "nohup": {
       "pass": 12,
-      "fail": 1,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_nohup::test_nohup_help_and_version"
-      ],
+      "excluded": 1,
+      "failing": [],
       "applet": true
     },
     "nproc": {
@@ -599,53 +550,20 @@
     },
     "numfmt": {
       "pass": 164,
-      "fail": 30,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 29,
       "failing": [
-        "test_numfmt::diagnostics::test_snippet_blames_the_suffix_not_the_zero_in_a_unit_size",
-        "test_numfmt::diagnostics::test_snippet_ignores_an_option_value_with_the_number_text",
-        "test_numfmt::diagnostics::test_snippet_ignores_another_option_with_the_same_value",
-        "test_numfmt::diagnostics::test_snippet_leaves_the_suffix_out_of_the_bad_conversion",
-        "test_numfmt::diagnostics::test_snippet_marks_a_format_without_a_directive",
-        "test_numfmt::diagnostics::test_snippet_marks_a_whitespace_only_number",
-        "test_numfmt::diagnostics::test_snippet_marks_an_input_that_is_not_a_number",
-        "test_numfmt::diagnostics::test_snippet_names_no_conversion_when_the_format_has_none",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_bad_directive",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_i_a_unit_does_not_take",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_stray_percent",
-        "test_numfmt::diagnostics::test_snippet_points_at_the_suffix_of_a_bad_number",
-        "test_numfmt::diagnostics::test_snippet_says_a_unit_size_cannot_be_zero",
-        "test_numfmt::diagnostics::test_snippet_says_auto_belongs_to_from",
-        "test_numfmt::diagnostics::test_snippet_says_nothing_about_suffixes_without_a_number",
-        "test_numfmt::diagnostics::test_snippet_says_why_a_zero_padding_is_refused",
-        "test_numfmt::diagnostics::test_snippet_underlines_a_header_count",
-        "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit",
-        "test_numfmt::diagnostics::test_snippet_underlines_an_unknown_unit_size",
-        "test_numfmt::diagnostics::test_snippet_underlines_the_oversized_precision",
-        "test_numfmt::field_diagnostics::test_snippet_points_at_the_inverted_field_range",
-        "test_numfmt::field_diagnostics::test_snippet_points_at_the_zero_field",
-        "test_numfmt::test_delimiter_from_si",
-        "test_numfmt::test_delimiter_preserves_leading_whitespace_in_unselected_fields",
-        "test_numfmt::test_delimiter_skips_leading_whitespace",
-        "test_numfmt::test_delimiter_to_si",
-        "test_numfmt::test_delimiter_with_padding",
-        "test_numfmt::test_delimiter_with_padding_and_fields",
-        "test_numfmt::test_numfmt_negative_treated_as_option",
-        "test_numfmt::test_transform_with_suffix_and_delimiter"
+        "test_numfmt::test_numfmt_negative_treated_as_option"
       ],
       "applet": true
     },
     "od": {
       "pass": 77,
-      "fail": 3,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_od::diagnostics::test_snippet_points_at_the_unknown_unit_of_read_bytes",
-        "test_od::diagnostics::test_snippet_points_inside_a_width_value",
-        "test_od::diagnostics::test_snippet_underlines_a_hexadecimal_offset_that_does_not_parse"
-      ],
+      "excluded": 3,
+      "failing": [],
       "applet": true
     },
     "paste": {
@@ -704,16 +622,10 @@
     },
     "printf": {
       "pass": 145,
-      "fail": 7,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 6,
       "failing": [
-        "test_printf::diagnostics::test_snippet_keeps_an_operand_that_draws_like_the_report",
-        "test_printf::diagnostics::test_snippet_points_at_a_format_that_looks_like_an_option",
-        "test_printf::diagnostics::test_snippet_points_at_the_bad_code_point",
-        "test_printf::diagnostics::test_snippet_points_at_the_bad_spec",
-        "test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape",
-        "test_printf::diagnostics::test_snippet_points_inside_a_quoted_format",
         "test_printf::test_large_width_format"
       ],
       "applet": true
@@ -775,14 +687,11 @@
     },
     "seq": {
       "pass": 82,
-      "fail": 4,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 3,
       "failing": [
-        "test_seq::diagnostics::test_plain_message_when_stderr_is_a_pipe",
-        "test_seq::diagnostics::test_snippet_points_at_the_failing_conversion",
-        "test_seq::diagnostics::test_snippet_points_inside_a_glued_short_option",
-        "test_seq::diagnostics::test_snippet_underlines_a_format_with_no_directive"
+        "test_seq::diagnostics::test_plain_message_when_stderr_is_a_pipe"
       ],
       "applet": true
     },
@@ -836,16 +745,10 @@
     },
     "shuf": {
       "pass": 70,
-      "fail": 7,
+      "fail": 1,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 6,
       "failing": [
-        "test_shuf::test_range_permute_no_overflow_0_max",
-        "test_shuf::test_seed_args_no_repeat",
-        "test_shuf::test_seed_args_repeat",
-        "test_shuf::test_seed_long_range_no_repeat",
-        "test_shuf::test_seed_range_no_repeat",
-        "test_shuf::test_seed_range_repeat",
         "test_shuf::write_errors_are_reported"
       ],
       "applet": true
@@ -865,36 +768,18 @@
     },
     "sort": {
       "pass": 178,
-      "fail": 39,
+      "fail": 21,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 18,
       "failing": [
-        "test_sort::diagnostics::test_snippet_ignores_a_file_that_ends_like_the_key",
-        "test_sort::diagnostics::test_snippet_ignores_the_program_name_as_a_key",
-        "test_sort::diagnostics::test_snippet_points_at_a_missing_number",
-        "test_sort::diagnostics::test_snippet_points_at_a_zero_character_offset",
-        "test_sort::diagnostics::test_snippet_points_at_the_stray_character",
-        "test_sort::diagnostics::test_snippet_points_at_the_unknown_unit_of_a_buffer_size",
-        "test_sort::diagnostics::test_snippet_points_inside_a_detached_key",
-        "test_sort::diagnostics::test_snippet_reports_contradicting_ordering_options",
-        "test_sort::test_argument_suggestion",
-        "test_sort::test_argument_suggestion_colors_enabled",
         "test_sort::test_check_zero_terminated_failure",
-        "test_sort::test_clap_localization_help_message",
-        "test_sort::test_clap_localization_invalid_value",
-        "test_sort::test_clap_localization_missing_required_argument",
-        "test_sort::test_clap_localization_unknown_argument",
-        "test_sort::test_color_environment_variables",
         "test_sort::test_compress",
         "test_sort::test_compress_fail",
         "test_sort::test_compress_merge",
         "test_sort::test_conflict_check_out",
         "test_sort::test_consistent_sorting_with_i18n_collate",
         "test_sort::test_debug_key_annotations",
-        "test_sort::test_error_colors_disabled",
-        "test_sort::test_error_colors_enabled",
         "test_sort::test_failed_to_set_locale_debug_message",
-        "test_sort::test_french_translations",
         "test_sort::test_g_arbitrary",
         "test_sort::test_help_colors_disabled",
         "test_sort::test_help_colors_enabled",
@@ -913,13 +798,10 @@
     },
     "split": {
       "pass": 131,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_split::diagnostics::test_snippet_points_at_the_unknown_unit",
-        "test_split::diagnostics::test_snippet_points_inside_a_line_bytes_value"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "stat": {
@@ -932,12 +814,10 @@
     },
     "stdbuf": {
       "pass": 7,
-      "fail": 8,
+      "fail": 6,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 2,
       "failing": [
-        "test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit",
-        "test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value",
         "test_stdbuf::test_stdbuf_child_execs_command",
         "test_stdbuf::test_stdbuf_no_buffer_option_fails",
         "test_stdbuf::test_stdbuf_no_command_fails_with_125",
@@ -987,17 +867,14 @@
     },
     "tail": {
       "pass": 130,
-      "fail": 37,
+      "fail": 33,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 4,
       "failing": [
-        "test_tail::diagnostics::test_snippet_points_at_the_unknown_unit",
         "test_tail::test_args_sleep_interval_when_illegal_argument_then_usage_error::case_03_space_in_primes",
         "test_tail::test_args_when_directory_given_shorthand_big_f_together_with_retry",
         "test_tail::test_args_when_settings_check_warnings_follow_indefinitely_then_warning",
         "test_tail::test_capital_f_recovers_after_dir_swap",
-        "test_tail::test_debug_flag_with_inotify",
-        "test_tail::test_debug_flag_with_polling",
         "test_tail::test_descriptor_no_retry_skips_late_file",
         "test_tail::test_dir_follow_retry",
         "test_tail::test_failed_write_is_reported",
@@ -1005,7 +882,6 @@
         "test_tail::test_follow_descriptor_vs_rename1",
         "test_tail::test_follow_descriptor_vs_rename2",
         "test_tail::test_follow_detects_file_truncation",
-        "test_tail::test_follow_inotify_only_regular",
         "test_tail::test_follow_invalid_pid",
         "test_tail::test_follow_name_hash_table_stress",
         "test_tail::test_follow_name_move1",
@@ -1041,9 +917,9 @@
     },
     "test": {
       "pass": 106,
-      "fail": 9,
+      "fail": 7,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 2,
       "failing": [
         "test_test::diagnostics::test_bracket_form_reports_under_its_own_name",
         "test_test::diagnostics::test_dash_t_advises_about_descriptors_not_comparisons",
@@ -1051,8 +927,6 @@
         "test_test::diagnostics::test_extra_operand_suggests_quoting_the_variable",
         "test_test::diagnostics::test_integer_comparison_keeps_its_own_advice",
         "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
-        "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
-        "test_test::test_bracket_syntax_version",
         "test_test::test_invalid_utf8_integer_compare"
       ],
       "applet": true
@@ -1084,16 +958,10 @@
     },
     "tr": {
       "pass": 166,
-      "fail": 8,
+      "fail": 2,
       "skip": 0,
-      "excluded": 0,
+      "excluded": 6,
       "failing": [
-        "test_tr::diagnostics::test_snippet_ignores_the_program_name_as_a_set",
-        "test_tr::diagnostics::test_snippet_points_at_the_backwards_range",
-        "test_tr::diagnostics::test_snippet_points_at_the_misspelled_class",
-        "test_tr::diagnostics::test_snippet_points_at_the_repeat_count",
-        "test_tr::diagnostics::test_snippet_points_into_the_second_set",
-        "test_tr::diagnostics::test_snippet_underlines_the_whole_set_when_the_set_is_at_fault",
         "test_tr::test_octal_escape_ambiguous_followed_by_non_utf8",
         "test_tr::test_repeat_lengths_beyond_usize"
       ],
@@ -1193,13 +1061,10 @@
     },
     "vdir": {
       "pass": 10,
-      "fail": 2,
+      "fail": 0,
       "skip": 0,
-      "excluded": 0,
-      "failing": [
-        "test_vdir::diagnostics::test_snippet_points_at_the_unknown_unit_of_block_size",
-        "test_vdir::test_version"
-      ],
+      "excluded": 2,
+      "failing": [],
       "applet": true
     },
     "wc": {
@@ -1241,8 +1106,8 @@
   },
   "totals": {
     "pass": 5612,
-    "fail": 329,
+    "fail": 205,
     "skip": 0,
-    "excluded": 12
+    "excluded": 136
   }
 }
