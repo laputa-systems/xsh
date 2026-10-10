@@ -214,7 +214,7 @@ proc grep_file(target: Path?, label: Bytes, show_name: Bool, opts: GrepOptions) 
   if opts.limit == 0 {
     if opts.count and opts.list == 0 and ! opts.quiet { grep_write(bytes.concat([if show_name { bytes.concat([label,b":"]) } else { b"" },b"0\n"])) }
     if opts.list == -1 { grep_write(bytes.concat([label,if opts.null_names { b"\0" } else { b"\n" }])) }
-    return Ok(false)
+    return Ok(opts.list == -1)
   }
   while true {
     let chunk = if target == null { io.stdin_read(65536)? } else if source_size == -2 {
@@ -306,7 +306,8 @@ proc grep_file(target: Path?, label: Bytes, show_name: Bool, opts: GrepOptions) 
   }
   if opts.count and opts.list == 0 and ! opts.quiet { grep_write(bytes.concat([if show_name { bytes.concat([label,b":"]) } else { b"" },bytes.from_text(f"{selected}\n")])) }
   if opts.list == -1 and selected == 0 { grep_write(bytes.concat([label,if opts.null_names { b"\0" } else { b"\n" }])) }
-  Ok(selected > 0)
+  # With -L the status reports whether the file was listed, the inverse of selection.
+  Ok(if opts.list == -1 { selected == 0 } else { selected > 0 })
 }
 
 ## Search byte records using POSIX basic/extended or literal matching.

@@ -114,3 +114,16 @@ test test_grep_recursive_symlink_policy_and_loop_error { |ctx|
   assert followed.stdout.split("\n").len() == 3
   assert followed.stderr != ""
 }
+
+test test_grep_files_without_match_exit_status { |ctx|
+  let root = test.temp_dir(ctx, name: "grep-files-without-match")?
+  let file = fp"{root}/input"
+  file.write("asd\n")
+  let listed = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- -L qwe $file
+  assert listed.status.exited_with(0)
+  assert listed.stdout == f"{file}\n"
+  file.write("qwe\n")
+  let matched = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/grep.xsh" -- -L qwe $file
+  assert matched.status.exited_with(1)
+  assert matched.stdout == ""
+}
