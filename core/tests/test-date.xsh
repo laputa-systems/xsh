@@ -191,3 +191,71 @@ test test_date_grammar_relative_dst_gap_matches_host_calendar { |ctx|
   assert output.success, output.stderr
   assert output.stdout == "2024-03-10 01:30:00 -0500\n2024-03-10 01:30:00 -0500\n"
 }
+
+type RawRan = {status: Int, stdout: Bytes, stderr: Str}
+
+# Passes each argument as given: a Path carries operand bytes that are not UTF-8,
+# which a Str argument cannot represent.
+proc date_raw_run(ctx: TestContext, args: List[Union[Str, Path]]) [fs, process, error] -> Result[RawRan] {
+  let root = test.temp_dir(ctx, name: "date-raw")?
+  let out = fp"{root}/stdout"
+  let err = fp"{root}/stderr"
+  let script = fp"{ctx.core_dir}/date.xsh"
+  var argv: List[Union[Str, Path]] = [ctx.xsh_bin.display(), script.display()]
+  for arg in args { argv += [arg] }
+  let plan = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", XSH_EXECUTION_PHRASE: ""}, b"", out, err)
+  let status = process.run(plan)?
+  Ok({status: status.exit_code()?, stdout: out.read_bytes()?, stderr: err.read_text()?})
+}
+
+test test_date_non_utf8_operands_are_octal_escaped { |ctx|
+  let invalid_date: List[Union[Str, Path]] = ["-d", Path.parse_bytes(b"gr\xf6n")?]
+  let bad_date = date_raw_run(ctx, invalid_date)?
+  assert bad_date.status == 1
+  assert bad_date.stdout == b""
+  assert bad_date.stderr == "date: invalid date 'gr\\366n'\n"
+
+  let extra: List[Union[Str, Path]] = ["+%Y", Path.parse_bytes(b"\xf1ao")?]
+  let extra_result = date_raw_run(ctx, extra)?
+  assert extra_result.status == 1
+  assert extra_result.stderr.starts_with("date: extra operand '\\361ao'\n"), extra_result.stderr
+
+  let lacking: List[Union[Str, Path]] = ["-d", "2031-07-23", Path.parse_bytes(b"%Y\xd8")?]
+  let lacking_result = date_raw_run(ctx, lacking)?
+  assert lacking_result.status == 1
+  assert lacking_result.stderr.starts_with("date: the argument %Y\\330 lacks a leading '+';\n"), lacking_result.stderr
+}
+
+test test_date_format_passes_non_utf8_bytes_through { |ctx|
+  let gb18030: List[Union[Str, Path]] = ["-u", "-d", "2031-07-23T04:05:06", Path.parse_bytes(b"+%Y\xc4\xea%-m\xd4\xc2%-d\xc8\xd5")?]
+  let legacy = date_raw_run(ctx, gb18030)?
+  assert legacy.status == 0, legacy.stderr
+  assert legacy.stdout == b"2031\xc4\xea7\xd4\xc223\xc8\xd5\n"
+
+  let percent: List[Union[Str, Path]] = ["-u", "-d", "2031-07-23T04:05:06", Path.parse_bytes(b"+w%\xd0z")?]
+  let percent_result = date_raw_run(ctx, percent)?
+  assert percent_result.status == 0, percent_result.stderr
+  assert percent_result.stdout == b"w%\xd0z\n"
+
+  let literal: List[Union[Str, Path]] = ["-u", "-d", "2031-07-23T04:05:06", Path.parse_bytes(b"+\xc5[%Y]\xa7%%\xe4")?]
+  let literal_result = date_raw_run(ctx, literal)?
+  assert literal_result.status == 0, literal_result.stderr
+  assert literal_result.stdout == b"\xc5[2031]\xa7%\xe4\n"
+}
+
+test test_date_file_and_reference_accept_non_utf8_paths { |ctx|
+  let root = test.temp_dir(ctx, name: "date-raw-paths")?
+  let dates = Path.parse_bytes(bytes.concat([root.bytes(), b"/dates\xff"]))?
+  dates.write("2005-01-01\n")
+  let from_file: List[Union[Str, Path]] = ["-u", "--file", dates, "+%Y"]
+  let file_result = date_raw_run(ctx, from_file)?
+  assert file_result.status == 0, file_result.stderr
+  assert file_result.stdout == b"2005\n"
+
+  let reference = Path.parse_bytes(bytes.concat([root.bytes(), b"/reference\xfe"]))?
+  reference.write("x")
+  let from_reference: List[Union[Str, Path]] = ["-u", "--reference", reference, "+%s"]
+  let reference_result = date_raw_run(ctx, from_reference)?
+  assert reference_result.status == 0, reference_result.stderr
+  assert reference_result.stdout == bytes.from_text(f"{fs.stat(reference)?.mtime_ns / 1000000000}\n")
+}

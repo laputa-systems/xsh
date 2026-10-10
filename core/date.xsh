@@ -71,7 +71,63 @@ proc format_nanoseconds(epoch_ns: Int, flags: Str, width_text: Str, utc: Bool) [
   Ok(output)
 }
 
-proc format_date(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[Str] {
+# Width of the valid UTF-8 sequence starting at AT, or 0 when the bytes there do
+# not form one.
+pure utf8_char_width(raw: Bytes, at: Int) -> Int {
+  let lead = raw.byte_at(at) ?? 0
+  return 1 when lead < 128
+
+  let width = if lead >= 194 and lead <= 223 { 2 } else if lead >= 224 and lead <= 239 { 3 } else if lead >= 240 and lead <= 244 { 4 } else { 0 }
+  return 0 when width == 0 or at + width > raw.len()
+
+  if let Ok(_) = raw[at..at + width].utf8() { return width }
+
+  0
+}
+
+# Each valid UTF-8 run is formatted as text. An undecodable byte is copied
+# unchanged, so a `%` before it prints literally and the byte is never read as a
+# conversion.
+proc format_date(epoch_ns: Int, format: Bytes, utc: Bool) [time, error] -> Result[Bytes] {
+  var pieces: List[Bytes] = []
+  var piece_start = 0
+  var at = 0
+  while at < format.len() {
+    let width = utf8_char_width(format, at)
+    if width == 0 {
+      if piece_start < at { pieces += [bytes.from_text(format_text(epoch_ns, format[piece_start..at].utf8()?, utc:)?)] }
+      pieces += [format[at..at + 1]]
+      at += 1
+      piece_start = at
+    } else {
+      at += width
+    }
+  }
+  if piece_start < format.len() { pieces += [bytes.from_text(format_text(epoch_ns, format[piece_start..format.len()].utf8()?, utc:)?)] }
+  Ok(bytes.concat(pieces))
+}
+
+# Operands that are not UTF-8 print with octal escapes for every byte outside
+# printable ASCII, as GNU date shows them in diagnostics.
+pure display_bytes(raw: Bytes) -> Str {
+  if let Ok(text) = raw.utf8() { return text }
+
+  var out = ""
+  for at in range(raw.len()) {
+    let byte = raw.byte_at(at) ?? 0
+    out = if byte >= 32 and byte < 127 { f"{out}{raw[at..at + 1].utf8() ?? ""}" } else { f"{out}\\{byte / 64}{byte / 8 % 8}{byte % 8}" }
+  }
+  out
+}
+
+proc reject_extra_operand(raw: Bytes) [process, env] -> Unit {
+  match raw.utf8() {
+    Ok(text) => gnu.extra_operand(text)
+    Err(_) => gnu.usage_error(f"extra operand {gnu.quote_value_bytes(raw)}")
+  }
+}
+
+proc format_text(epoch_ns: Int, format: Str, utc: Bool) [time, error] -> Result[Str] {
   # The shared formatter enforces width and output limits before date adjusts %N padding.
   let formatted = time.format(epoch_ns, format, utc:)?
   if format.find("N") == null { return Ok(formatted) }
@@ -133,7 +189,17 @@ pure has_explicit_time(input: Str) -> Bool {
 }
 
 # Date-only inputs inherit midnight; epoch timestamps already identify a complete instant.
-proc emit_date(text: Str, format: Str, utc: Bool, debug: Bool) [time, process, env, io, error] -> Bool {
+proc emit_date(raw: Bytes, format: Bytes, utc: Bool, debug: Bool) [time, process, env, io, error] -> Bool {
+  # A date with undecodable bytes cannot match any date syntax, so it is reported
+  # with octal escapes instead of being parsed.
+  var text = ""
+  match raw.utf8() {
+    Ok(value) => text = value
+    Err(_) => {
+      gnu.error(f"invalid date {gnu.quote_value_bytes(raw)}")
+      return false
+    }
+  }
   match parse_date(text, utc:) {
     Ok(epoch) => {
       if debug {
@@ -146,7 +212,7 @@ proc emit_date(text: Str, format: Str, utc: Bool, debug: Bool) [time, process, e
         }
       }
       match format_date(epoch, format, utc:) {
-        Ok(output) => { gnu.write_text(f"{output}\n"); return true }
+        Ok(output) => { gnu.write_bytes(bytes.concat([output, b"\n"])); return true }
         Err(failure) => gnu.error(failure.message)
       }
     }
@@ -155,9 +221,10 @@ proc emit_date(text: Str, format: Str, utc: Bool, debug: Bool) [time, process, e
   false
 }
 
-proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
+proc main(...raw: List[Bytes]) [time, process, env, io, fs, error] {
+  let prepared = gnu.prepare_arguments(raw)
   var argv: List[Str] = []
-  for item in raw {
+  for item in prepared.text {
     if item.starts_with("-") and ! item.starts_with("--") and item.byte_len() > 2 {
       var rest = item.byte_slice(1)
       while rest != "" {
@@ -167,12 +234,12 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
     } else { argv += [item] }
   }
   var utc = false
-  var date = "now"
-  var file = ""
-  var reference = ""
+  var date: Bytes = b"now"
+  var file: Bytes = b""
+  var reference: Bytes = b""
   var setting = false
   var set_option = false
-  var format = "%a %b %e %H:%M:%S %Z %Y"
+  var format: Bytes = b"%a %b %e %H:%M:%S %Z %Y"
   var specified_format = false
   var source = ""
   var resolution = false
@@ -191,7 +258,7 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
     if ! operands and arg == "--version" { gnu.version("date"); return }
     if ! operands and arg == "--debug" { debug = true; continue }
     if ! operands and (arg == "-u" or arg == "--utc" or arg == "--universal" or arg == "--uct" or arg == "--uni" or arg == "--u") { utc = true; continue }
-    if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822" or arg == "--rfc-e") { format = "%a, %d %b %Y %H:%M:%S %z"; continue }
+    if ! operands and (arg == "-R" or arg == "--rfc-email" or arg == "--rfc-822" or arg == "--rfc-2822" or arg == "--rfc-e") { format = b"%a, %d %b %Y %H:%M:%S %z"; continue }
     if ! operands and arg == "--resolution" { resolution = true; continue }
     if ! operands and (arg.starts_with("-I") or arg.starts_with("--iso-8601") or arg == "--i" or arg.starts_with("--i=") or arg.starts_with("--rfc-3339") or arg.starts_with("--rfc-3=")) {
       var spec = "date"
@@ -200,11 +267,11 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
       if spec == "" { spec = "date" }
       let separator = if rfc { " " } else { "T" }
       match spec {
-        "date" => format = "%Y-%m-%d"
-        "hour" | "hours" => format = f"%Y-%m-%d{separator}%H%:z"
-        "minute" | "minutes" => format = f"%Y-%m-%d{separator}%H:%M%:z"
-        "second" | "seconds" => format = f"%Y-%m-%d{separator}%H:%M:%S%:z"
-        "ns" => { let decimal = if rfc { "." } else { "," }; format = f"%Y-%m-%d{separator}%H:%M:%S{decimal}%N%:z" }
+        "date" => format = b"%Y-%m-%d"
+        "hour" | "hours" => format = bytes.from_text(f"%Y-%m-%d{separator}%H%:z")
+        "minute" | "minutes" => format = bytes.from_text(f"%Y-%m-%d{separator}%H:%M%:z")
+        "second" | "seconds" => format = bytes.from_text(f"%Y-%m-%d{separator}%H:%M:%S%:z")
+        "ns" => { let decimal = if rfc { "." } else { "," }; format = bytes.from_text(f"%Y-%m-%d{separator}%H:%M:%S{decimal}%N%:z") }
         else => gnu.usage_error(f"invalid argument {gnu.quote(spec)}")
       }
       continue
@@ -218,56 +285,63 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
       let kind = if arg.starts_with("-f") or arg.starts_with("--file") { "file" } else if arg.starts_with("-r") or arg.starts_with("--reference") { "reference" } else if arg.starts_with("-s") or arg.starts_with("--set") { "set" } else { "date" }
       if source != "" and source != kind { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
       source = kind
-      if arg.starts_with("-f") or arg.starts_with("--file") { file = value } else if arg.starts_with("-r") or arg.starts_with("--reference") { reference = value } else { date = value; setting = arg.starts_with("-s") or arg.starts_with("--set"); set_option = setting }
+      let operand = gnu.argument_bytes(value, prepared.raw)
+      if arg.starts_with("-f") or arg.starts_with("--file") { file = operand } else if arg.starts_with("-r") or arg.starts_with("--reference") { reference = operand } else { date = operand; setting = arg.starts_with("-s") or arg.starts_with("--set"); set_option = setting }
       continue
     }
-    if arg.starts_with("+") {
-      if specified_format { gnu.extra_operand(arg) }
-      format = arg.byte_slice(1); specified_format = true
+    let operand = gnu.argument_bytes(arg, prepared.raw)
+    if operand.byte_at(0) == 43 {
+      if specified_format { reject_extra_operand(operand) }
+      format = operand[1..operand.len()]; specified_format = true
     } else if ! operands and arg.starts_with("-") and arg != "-" { gnu.usage_error(f"unexpected argument {gnu.quote(arg)}") } else {
+      # A format operand takes the place of the date, so a second non-format operand is extra.
+      if date_operand or (specified_format and source == "") { reject_extra_operand(operand) }
       if source != "" {
-        if date_operand { gnu.extra_operand(arg) }
-        gnu.error(f"the argument {arg} lacks a leading '+';\nwhen using an option to specify date(s), any non-option\nargument must be a format string beginning with '+'")
+        gnu.error(f"the argument {display_bytes(operand)} lacks a leading '+';\nwhen using an option to specify date(s), any non-option\nargument must be a format string beginning with '+'")
         exit 1
       }
-      source = "set"; date = arg; setting = true; date_operand = true
+      source = "set"; date = operand; setting = true; date_operand = true
     }
   }
   if resolution {
     if source != "" { gnu.usage_error("the options to specify dates for printing are mutually exclusive") }
     let nanos = time.clock_resolution()?
-    if specified_format or format != "%a %b %e %H:%M:%S %Z %Y" { gnu.write_text(f"{format_date(nanos, format, utc:)?}\n") } else { gnu.write_text(f"{nanos / 1000000000}.{format_date(nanos % 1000000000, "%N", utc: true)?}\n") }
+    if specified_format or format != b"%a %b %e %H:%M:%S %Z %Y" { gnu.write_bytes(bytes.concat([format_date(nanos, format, utc:)?, b"\n"])) } else { gnu.write_text(f"{nanos / 1000000000}.{format_text(nanos % 1000000000, "%N", utc: true)?}\n") }
     return
   }
   if source == "reference" {
-    match fs.stat(fp"{reference}", follow_symlinks: true) {
-      Ok(meta) => { gnu.write_text(f"{format_date(meta.mtime_ns, format, utc:)?}\n"); return }
-      Err(failure) => { gnu.name_error(reference, failure); exit 1 }
+    match fs.stat(Path.parse_bytes(reference)?, follow_symlinks: true) {
+      Ok(meta) => { gnu.write_bytes(bytes.concat([format_date(meta.mtime_ns, format, utc:)?, b"\n"])); return }
+      Err(failure) => { gnu.error(f"{gnu.quote_bytes(reference, always: false)}: {gnu.strerror(failure)}"); exit 1 }
     }
   }
   if source == "file" {
-    if file != "-" and (fp"{file}".is_dir() ?? false) { gnu.error(f"expected file, got directory {gnu.quote(file)}"); exit 1 }
+    let from_stdin = file == b"-"
+    if ! from_stdin and (Path.parse_bytes(file)?.is_dir() ?? false) { gnu.error(f"expected file, got directory {gnu.quote_bytes(file)}"); exit 1 }
     var contents = b""
-    match gnu.read_operand(file) {
+    let read = if from_stdin { io.stdin_bytes() } else { Path.parse_bytes(file)?.read_bytes() }
+    match read {
       Ok(data) => contents = data
-      Err(failure) => { gnu.name_error(file, failure); exit 1 }
+      Err(failure) => { gnu.error(f"{gnu.quote_bytes(file, always: false)}: {gnu.strerror(failure)}"); exit 1 }
     }
     var success = true
     for raw_line in contents.lines() {
       var end = 0
       while end < raw_line.len() and raw_line.byte_at(end) != 0 { end += 1 }
       let line = raw_line[0..end]
-      match line.utf8() {
-        Ok(text) => { if ! emit_date(text, format, utc, debug) { success = false } }
-        Err(failure) => { gnu.error(f"invalid date {gnu.quote_value_bytes(line)}"); success = false }
-      }
+      if ! emit_date(line, format, utc, debug) { success = false }
     }
     if ! success { exit 1 }
     return
   }
   if setting {
-    if date_operand and date == "" { gnu.error(f"invalid date {gnu.quote(date)}"); exit 1 }
-    let parsed = if set_option { parse_date(date, utc:) } else { date_parse.parse(date, utc:) }
+    if date_operand and date.len() == 0 { gnu.error(f"invalid date {gnu.quote_bytes(date)}"); exit 1 }
+    var text = ""
+    match date.utf8() {
+      Ok(value) => text = value
+      Err(_) => { gnu.error(f"invalid date {gnu.quote_value_bytes(date)}"); exit 1 }
+    }
+    let parsed = if set_option { parse_date(text, utc:) } else { date_parse.parse(text, utc:) }
     match parsed {
       Ok(epoch) => {
         if let Err(failure) = linux.set_system_clock(epoch / 1000000) {
@@ -276,7 +350,7 @@ proc main(...raw: List[Str]) [time, process, env, io, fs, error] {
           exit 1
         }
       }
-      Err(failure) => { gnu.error(f"invalid date {gnu.quote(date)}"); exit 1 }
+      Err(failure) => { gnu.error(f"invalid date {gnu.quote(text)}"); exit 1 }
     }
   }
   if ! emit_date(date, format, utc, debug and source == "date") { exit 1 }
