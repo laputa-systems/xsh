@@ -1,0 +1,10 @@
+# Gate 8 clean image: nothing but the static XSH interpreter, the staged core
+# applets and their library modules, an account database, and the smoke script.
+# There is deliberately no base image, no shell and no package database, so a
+# workflow can only succeed through XSH applets. rootfs.tar is written by
+# build_rootfs.py (see run-smoke.sh); building from this file alone fails.
+FROM scratch
+ADD rootfs.tar /
+ENV PATH=/usr/bin HOME=/tmp TMPDIR=/tmp LC_ALL=C TZ=UTC
+WORKDIR /tmp
+ENTRYPOINT ["/bin/xsh", "--", "/smoke/smoke.xsh"]

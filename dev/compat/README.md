@@ -95,6 +95,7 @@ differential requires identical test selections on both sides.
 | `python3 dev/compat/check_ignored_options.py` | Gate 6 ratchet over discard buckets in `core/*.xsh` |
 | `python3 dev/compat/check_exclusions.py` | validates `exclusions.json`: exact IDs, closed category list, a reason each (and existence in the pinned tree with `UUTILS_ROOT`) |
 | `python3 dev/compat/check_kernel_reads.py` | Gate 9 ratchet: no `/proc`/`/sys` literal in a top-level applet |
+| `dev/compat/smoke/run-smoke.sh [--xsh PATH] [--userns] [--root] [--keep]` | Gate 8: build the clean `FROM scratch` image from the static musl `xsh` and the staged applets, then run `smoke.xsh` in it |
 
 ## Data files
 
@@ -111,6 +112,60 @@ differential requires identical test selections on both sides.
 | `gnu-patches.json` | `gnu-patch-classify` lane | classification of uutils' GNU test patches |
 | `ignored-options-baseline.json` | integrator | remaining legacy discard buckets (shrink-only) |
 | `results/` | generated | suite outputs |
+
+## Gate 8: clean-image smoke
+
+`dev/compat/smoke/` proves the applets work as ordinary programs on a system
+that has nothing else. `Dockerfile.smoke` starts `FROM scratch`: the image holds
+the static musl `xsh` at `/bin/xsh`, the staged applets and their `lib/`
+directory in `/usr/bin` (shebang `#!/bin/xsh --`), a two-account
+`passwd`/`group`, a sticky `/tmp`, and `/smoke/smoke.xsh`. There is no shell, no
+BusyBox, and no coreutils, util-linux, procps, findutils, grep, sed, gawk,
+diffutils or kmod, so a workflow can only pass through XSH applets.
+
+```sh
+export XSH_BIN=$PWD/target/x86_64-unknown-linux-musl/release/xsh
+dev/compat/smoke/run-smoke.sh              # unprivileged: uid 1000, default Docker caps
+dev/compat/smoke/run-smoke.sh --userns     # + CAP_SYS_ADMIN and seccomp=unconfined
+```
+
+`run-smoke.sh` runs `stage.py` (against a private copy of the interpreter),
+`build_rootfs.py` rewrites each shebang to `/bin/xsh` and packs the root
+filesystem as a tar, and `docker build` / `docker run` use a `mktemp -d`
+context; the image and container are removed on exit (`--keep` retains the
+image). Nothing is written to the repository or `target/`. The interpreter must
+be a static x86-64 ELF (`x86_64-unknown-linux-musl` release build): a
+dynamically linked `xsh` cannot start in the image and the script refuses it.
+The container's exit status is the script's, non-zero when any workflow failed.
+
+`smoke.xsh` runs these workflows with `PATH=/usr/bin`, each reported as `PASS`,
+`FAIL` or `SKIP` with a reason:
+
+| Workflow | Exercises |
+|---|---|
+| `clean-image` | `/bin` holds only `xsh`; `/usr/bin` and `/usr/bin/lib` equal the staged manifest; no ELF or foreign interpreter anywhere; `which sh` finds nothing |
+| `startup-sweep` | every applet and alias runs `--help` (statuses only where the reference tool answers an unknown `--help` the same way); `halt`, `poweroff`, `reboot`, `switch_root`, `pivot_root`, `login`, `getty`, `su` and `passwd` are not run |
+| `files` | `mkdir cp mv ln readlink stat chmod find xargs rm touch cat ls` |
+| `archives-tar` | `tar` with gzip, xz and bzip2, and `tar` piped through `zstd`; listing, extraction and symlinks compared by content |
+| `archives-cpio` | `find . \| cpio -o -H newc`, `cpio -t`, `cpio -i -d -m` of an initramfs-shaped tree |
+| `checksums` | published `md5sum sha1sum sha256sum b2sum cksum` vectors; `sha256sum -c` and `b2sum -c`, including a tampered file |
+| `text-pipelines` | `grep sed awk cut tr wc head tail sort uniq`, a three-process pipeline, `diff -u`, `patch`, `cmp` |
+| `text-diff-recursive` | `diff -r` and `-ru` over directories |
+| `compression` | `gzip bzip2 xz zstd lzma` and their `un*`/`*cat` forms round-trip a file |
+| `processes-signals` | `ps pgrep kill timeout nice taskset` against a spawned `sleep` |
+| `net-ping`, `net-curl-loopback`, `net-nc`, `net-ss`, `net-ethtool`, `net-iw`, `net-ip`, `net-ifconfig-route-arp` | loopback `ping`; `curl` against a response served from the script's own socket; an `nc` listener and client; `ss` listing a listening socket; `ethtool lo`; `iw dev`; `ip addr`/`ip route` checked against `/proc/net/route` |
+| `kernel-inspection`, `kernel-lsblk`, `kernel-dmesg` | `uname lscpu nproc free findmnt lsmod lsblk dmesg` |
+| `disk-partition-fat` | `truncate`, `sfdisk`, `fdisk -l`, `blkid`, `wipefs` on a DOS image; `mkfs.fat`, `fsck.fat`, `fatlabel`, `blkid`, `wipefs` on a FAT16 image |
+| `smart-cli`, `smart-nvme-device`, `nvme` | `smartctl` banner, scan and open failure; `nvme list` shape. Device pages are a `SKIP`: the fake-device seam is only reachable from the in-process test harness and a container has no SMART device |
+| `namespaces` | `unshare -U -r`, `-n`, `nsenter -U`, `setpriv --dump`, `prlimit`, `lsns`; a `SKIP` unless `--userns` |
+| `efi-boot-entries` | `efibootmgr` list, `-t`, `-o` and `-B` over a synthetic `EFIVARFS_PATH` directory |
+
+A workflow whose applet is not installed is `SKIP` with `<applet>: not yet
+merged`. Comparisons inside a workflow are collected, so one wrong line does not
+hide the others; a command that must succeed ends its workflow at once. The
+asserted text is the reference tool's (GNU, util-linux, iproute2, smartmontools
+output taken from `dev/compat/oracle.sh`), so a `FAIL` names an applet
+divergence; it is not adjusted to pass.
 
 ## Status
 
