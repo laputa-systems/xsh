@@ -81,8 +81,10 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
   var items: List[Item] = []
   var nul = false
   var skip_until = 0
-  for at in range(data.len()) {
-    if at < skip_until { continue }
+  var at = -1
+  while at + 1 < data.len() {
+    at += 1
+    if at < skip_until { at = skip_until - 1; continue }
     let byte = data.byte_at(at) ?? 0
     if delimiter >= 0 {
       if byte == delimiter {
@@ -357,6 +359,16 @@ proc start(argv: List[Path], inherit_stdin: Bool, use_tty: Bool, slot_var: Str?,
   Ok(handle)
 }
 
+# Show the command line on standard error (-t) and, for -p, ask whether to
+# run it. Returns whether the command should run.
+proc announce(argv: List[Path], interactive: Bool) [io, process, env, error] -> Result[Bool, Error] {
+  var texts: List[Str] = []
+  for word in argv { texts += [gnu.quote_bytes(word.bytes(), always: false)] }
+  if interactive { return ask(texts.join(" ")) }
+  eprint texts.join(" ")
+  Ok(true)
+}
+
 # Read the answer to a -p prompt from the terminal.
 proc ask(command_line: Str) [io, process, env, error] -> Result[Bool, Error] {
   io.write_stderr(command_line)?
@@ -465,10 +477,8 @@ proc main(...args: List[Str]) {
             gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
           } else {
             if ! checked { checked = true; require_command(command[0]) }
-            var texts: List[Str] = []
-            for word in argv { texts += [gnu.quote_bytes(word.bytes(), always: false)] }
             var proceed = true
-            if cfg.interactive { proceed = ask(texts.join(" "))? } else if cfg.trace { eprint texts.join(" ") }
+            if cfg.trace { proceed = announce(argv, cfg.interactive)? }
             if proceed {
               var slot = 0
               while slot in slots { slot += 1 }
@@ -502,10 +512,8 @@ proc main(...args: List[Str]) {
         gnu.write_bytes(bytes.concat(chunks + [b"\n"]))
       } else {
         if ! checked { checked = true; require_command(command[0]) }
-        var texts: List[Str] = []
-        for word in argv { texts += [gnu.quote_bytes(word.bytes(), always: false)] }
         var proceed = true
-        if cfg.interactive { proceed = ask(texts.join(" "))? } else if cfg.trace { eprint texts.join(" ") }
+        if cfg.trace { proceed = announce(argv, cfg.interactive)? }
         if proceed {
           var slot = 0
           while slot in slots { slot += 1 }
