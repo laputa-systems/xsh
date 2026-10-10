@@ -1,6 +1,20 @@
 #!/bin/xsh
 use lib.gnu
 
+# cpio: copy files to and from archives (copy-out -o, copy-in -i and -t, and
+# pass-through -p).
+#
+# Formats: newc, crc, odc, bin, hpodc and hpbin are written and read, and the
+# format of an archive being read is detected from its first header. tar and
+# ustar are not supported and are refused explicitly. Remote archives, multiple
+# volumes and tape media (-M, --rsh-command) are refused for the same reason.
+#
+# The behavior follows GNU cpio 2.15, including the order of deferred hard
+# links, the "N blocks" accounting and the exit statuses: 2 for any error that
+# survives (a missing input name, an uncreatable file), 64 for a bad option.
+# An archive being read is held in memory, and so is each file being archived,
+# so memory use follows the largest archive or file.
+
 # A fatal failure ends the run at once with status 2. Failures GNU cpio counts as
 # errors but survives (a file that cannot be created, a missing input name) only
 # set `Run.failed`, which decides the final status after the block count.
@@ -165,9 +179,63 @@ const TYPE_BLOCK = 0o060000
 const TYPE_FIFO = 0o010000
 const TYPE_SOCKET = 0o140000
 const HEX_DIGITS = "0123456789ABCDEF"
-const CHUNK = 1048576
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 const HALF_YEAR_SECONDS = 15778476
+
+type LongOption = {name: Str, key: Str, argument: Bool}
+
+const LONG_OPTIONS: List[LongOption] = [
+  {name: "create", key: "o", argument: false},
+  {name: "extract", key: "i", argument: false},
+  {name: "pass-through", key: "p", argument: false},
+  {name: "list", key: "t", argument: false},
+  {name: "directory", key: "D", argument: true},
+  {name: "force-local", key: "force-local", argument: false},
+  {name: "format", key: "H", argument: true},
+  {name: "block-size", key: "block-size", argument: true},
+  {name: "dot", key: "V", argument: false},
+  {name: "io-size", key: "C", argument: true},
+  {name: "quiet", key: "quiet", argument: false},
+  {name: "verbose", key: "v", argument: false},
+  {name: "warning", key: "W", argument: true},
+  {name: "owner", key: "R", argument: true},
+  {name: "file", key: "F", argument: true},
+  {name: "message", key: "M", argument: true},
+  {name: "rsh-command", key: "rsh-command", argument: true},
+  {name: "nonmatching", key: "f", argument: false},
+  {name: "numeric-uid-gid", key: "n", argument: false},
+  {name: "pattern-file", key: "E", argument: true},
+  {name: "only-verify-crc", key: "only-verify-crc", argument: false},
+  {name: "rename", key: "r", argument: false},
+  {name: "rename-batch-file", key: "rename-batch-file", argument: true},
+  {name: "swap", key: "b", argument: false},
+  {name: "swap-bytes", key: "s", argument: false},
+  {name: "swap-halfwords", key: "S", argument: false},
+  {name: "to-stdout", key: "to-stdout", argument: false},
+  {name: "append", key: "A", argument: false},
+  {name: "renumber-inodes", key: "renumber-inodes", argument: false},
+  {name: "ignore-devno", key: "ignore-devno", argument: false},
+  {name: "ignore-dirnlink", key: "ignore-dirnlink", argument: false},
+  {name: "device-independent", key: "device-independent", argument: false},
+  {name: "reproducible", key: "device-independent", argument: false},
+  {name: "link", key: "l", argument: false},
+  {name: "absolute-filenames", key: "absolute-filenames", argument: false},
+  {name: "no-absolute-filenames", key: "no-absolute-filenames", argument: false},
+  {name: "null", key: "0", argument: false},
+  {name: "dereference", key: "L", argument: false},
+  {name: "reset-access-time", key: "a", argument: false},
+  {name: "preserve-modification-time", key: "m", argument: false},
+  {name: "make-directories", key: "d", argument: false},
+  {name: "no-preserve-owner", key: "no-preserve-owner", argument: false},
+  {name: "unconditional", key: "u", argument: false},
+  {name: "sparse", key: "sparse", argument: false},
+  {name: "help", key: "?", argument: false},
+  {name: "usage", key: "usage", argument: false},
+  {name: "version", key: "version", argument: false},
+]
+
+const SHORT_FLAGS = "ioptBcvVbfnrsSAl0aLdmu?"
+const SHORT_ARGUMENTS = "CDHRWFMIOE"
 
 # Two uppercase hex digits for every byte value, so a 32-bit header field costs
 # four lookups instead of eight digit extractions.
@@ -213,9 +281,6 @@ type Options = {
   no_preserve_owner: Bool,
   sparse: Bool,
   unconditional: Bool,
-  help: Bool,
-  usage: Bool,
-  version: Bool,
   operands: List[Str],
 }
 
@@ -272,7 +337,7 @@ type Bracket = {valid: Bool, matched: Bool, next: Int}
 type UserSpec = {uid: Int?, gid: Int?}
 
 # The display form of a raw name for messages: invalid UTF-8 is replaced.
-proc shown(name: Bytes) [process] -> Str {
+pure shown(name: Bytes) -> Str {
   match Path.parse_bytes(name) {
     Ok(parsed) => parsed.display()
     Err(_) => name.utf8() ?? "?"
@@ -387,7 +452,7 @@ pure hex_text(value: Int) -> Str {
 pure octal_text(value: Int, digits: Int) -> Str {
   var left = value
   var text = ""
-  for _ in range(digits) {
+  repeat digits times {
     text = f"{"01234567".byte_slice(left % 8, length: 1)}{text}"
     left = left / 8
   }
@@ -396,7 +461,7 @@ pure octal_text(value: Int, digits: Int) -> Str {
 
 pure fits_octal(value: Int, digits: Int) -> Bool {
   var limit = 1
-  for _ in range(digits) { limit = limit * 8 }
+  repeat digits times { limit = limit * 8 }
   value < limit
 }
 
@@ -713,6 +778,8 @@ proc encode_header(format: Str, header: Header, truncate_warnings: Bool) [proces
       {label: "gid", value: header.gid},
       {label: "number of links", value: header.nlink},
     ]
+    # GNU cpio reports a truncated inode number twice in this format.
+    if header.ino > 65535 { gnu.error(f"{shown_name}: truncating inode number") }
     for field in narrow {
       if field.value > 65535 { gnu.error(f"{shown_name}: truncating {field.label}") }
     }
@@ -866,7 +933,6 @@ pure bracket_match(pattern: Bytes, start: Int, byte: Int) -> Bracket {
     at += 1
   }
   var matched = false
-  var open = true
   var begin = true
   while at < pattern.len() {
     let current = pattern.byte_at(at) ?? 0
@@ -904,8 +970,7 @@ pure bracket_match(pattern: Bytes, start: Int, byte: Int) -> Bracket {
       at += 1
     }
   }
-  open = false
-  {valid: open, matched: false, next: start}
+  {valid: false, matched: false, next: start}
 }
 
 # fnmatch(pattern, name, 0): '*' and '?' also match '/' and a leading '.'.
@@ -1163,7 +1228,7 @@ proc create_parents(st: Run, opts: Options, file: Path) [fs, process, env] -> Cr
     }
   }
   for directory in missing {
-    match directory.mkdir() {
+    match directory.mkdir(parents: false) {
       Ok(_) => {
         if opts.warn_interdir { gnu.error(f"Creating intermediate directory `{directory.display()}'") }
       }
@@ -1335,61 +1400,6 @@ proc write_file(file: Path, data: Bytes, sparse: Bool) [fs, error] -> Result[Uni
 # Option parsing
 # ---------------------------------------------------------------------------
 
-type LongOption = {name: Str, key: Str, argument: Bool}
-
-const LONG_OPTIONS: List[LongOption] = [
-  {name: "create", key: "o", argument: false},
-  {name: "extract", key: "i", argument: false},
-  {name: "pass-through", key: "p", argument: false},
-  {name: "list", key: "t", argument: false},
-  {name: "directory", key: "D", argument: true},
-  {name: "force-local", key: "force-local", argument: false},
-  {name: "format", key: "H", argument: true},
-  {name: "block-size", key: "block-size", argument: true},
-  {name: "dot", key: "V", argument: false},
-  {name: "io-size", key: "C", argument: true},
-  {name: "quiet", key: "quiet", argument: false},
-  {name: "verbose", key: "v", argument: false},
-  {name: "warning", key: "W", argument: true},
-  {name: "owner", key: "R", argument: true},
-  {name: "file", key: "F", argument: true},
-  {name: "message", key: "M", argument: true},
-  {name: "rsh-command", key: "rsh-command", argument: true},
-  {name: "nonmatching", key: "f", argument: false},
-  {name: "numeric-uid-gid", key: "n", argument: false},
-  {name: "pattern-file", key: "E", argument: true},
-  {name: "only-verify-crc", key: "only-verify-crc", argument: false},
-  {name: "rename", key: "r", argument: false},
-  {name: "rename-batch-file", key: "rename-batch-file", argument: true},
-  {name: "swap", key: "b", argument: false},
-  {name: "swap-bytes", key: "s", argument: false},
-  {name: "swap-halfwords", key: "S", argument: false},
-  {name: "to-stdout", key: "to-stdout", argument: false},
-  {name: "append", key: "A", argument: false},
-  {name: "renumber-inodes", key: "renumber-inodes", argument: false},
-  {name: "ignore-devno", key: "ignore-devno", argument: false},
-  {name: "ignore-dirnlink", key: "ignore-dirnlink", argument: false},
-  {name: "device-independent", key: "device-independent", argument: false},
-  {name: "reproducible", key: "device-independent", argument: false},
-  {name: "link", key: "l", argument: false},
-  {name: "absolute-filenames", key: "absolute-filenames", argument: false},
-  {name: "no-absolute-filenames", key: "no-absolute-filenames", argument: false},
-  {name: "null", key: "0", argument: false},
-  {name: "dereference", key: "L", argument: false},
-  {name: "reset-access-time", key: "a", argument: false},
-  {name: "preserve-modification-time", key: "m", argument: false},
-  {name: "make-directories", key: "d", argument: false},
-  {name: "no-preserve-owner", key: "no-preserve-owner", argument: false},
-  {name: "unconditional", key: "u", argument: false},
-  {name: "sparse", key: "sparse", argument: false},
-  {name: "help", key: "?", argument: false},
-  {name: "usage", key: "usage", argument: false},
-  {name: "version", key: "version", argument: false},
-]
-
-const SHORT_FLAGS = "ioptBcvVbfnrsSAl0aLdmu?"
-const SHORT_ARGUMENTS = "CDHRWFMIOE"
-
 # USER[:.][GROUP] as chown reads it. A bare number is accepted for an id with
 # no database entry.
 proc parse_owner(spec: Str) [fs, process, env] -> Result[UserSpec, Str] {
@@ -1487,7 +1497,7 @@ proc apply_warning(opts: Options, flag: Str) [process, env] -> Options {
   }
 }
 
-proc apply_option(opts: Options, key: Str, value: Str) [fs, process, env] -> Options {
+proc apply_option(opts: Options, key: Str, value: Str) [fs, io, process, env] -> Options {
   match key {
     "o" => choose_mode(opts, "out")
     "i" => choose_mode(opts, "in")
@@ -1576,16 +1586,25 @@ proc apply_option(opts: Options, key: Str, value: Str) [fs, process, env] -> Opt
     }
     "u" => {...opts, unconditional: true}
     "sparse" => {...opts, sparse: true}
-    "?" => {...opts, help: true}
-    "usage" => {...opts, usage: true}
-    "version" => {...opts, version: true}
+    "?" => {
+      gnu.help(USAGE)
+      exit 0
+    }
+    "usage" => {
+      gnu.help(SHORT_USAGE)
+      exit 0
+    }
+    "version" => {
+      gnu.version("cpio")
+      exit 0
+    }
     _ => opts
   }
 }
 
 # argp's grammar: bundled short flags, long options by unambiguous prefix,
 # --name=value or --name value. Errors use argp wording and status 64.
-proc parse_command_line(argv: List[Str]) [fs, process, env] -> Options {
+proc parse_command_line(argv: List[Str]) [fs, io, process, env] -> Options {
   var opts: Options = {
     mode: "", table: false, verbose: false, dot: false, quiet: false, format: "", block_size: 512,
     directory: null, force_local: false, owner: null, group: null, warn_truncate: false,
@@ -1595,7 +1614,7 @@ proc parse_command_line(argv: List[Str]) [fs, process, env] -> Options {
     append: false, renumber: false, ignore_devno: false, ignore_dirnlink: false, link: false,
     no_abs: false, null: false, reset_time: false, dereference: false, make_dirs: false,
     preserve_mtime: false, no_preserve_owner: false, sparse: false, unconditional: false,
-    help: false, usage: false, version: false, operands: [],
+    operands: [],
   }
   var index = 0
   var only_operands = false
@@ -1679,7 +1698,7 @@ proc parse_command_line(argv: List[Str]) [fs, process, env] -> Options {
 }
 
 # Option combinations that are meaningless for the chosen mode.
-proc meaningless(opts: Options, active: Bool, flag: Str, mode_flag: Str) [process, env] -> Unit {
+proc meaningless(active: Bool, flag: Str, mode_flag: Str) [process, env] -> Unit {
   if active { usage_failure(f"{flag} is meaningless with {mode_flag}", 2) }
 }
 
@@ -1694,19 +1713,19 @@ proc validate_options(opts: Options) [process, env] -> Options {
     }
   }
   if checked.mode == "in" {
-    meaningless(checked, checked.link, "--link", "--extract")
-    meaningless(checked, checked.reset_time, "--reset", "--extract")
-    meaningless(checked, checked.dereference, "--dereference", "--extract")
-    meaningless(checked, checked.append, "--append", "--extract")
-    meaningless(checked, checked.output_archive != null, "-O", "--extract")
-    meaningless(checked, checked.renumber, "--renumber-inodes", "--extract")
-    meaningless(checked, checked.ignore_devno, "--ignore-devno", "--extract")
+    meaningless(checked.link, "--link", "--extract")
+    meaningless(checked.reset_time, "--reset", "--extract")
+    meaningless(checked.dereference, "--dereference", "--extract")
+    meaningless(checked.append, "--append", "--extract")
+    meaningless(checked.output_archive != null, "-O", "--extract")
+    meaningless(checked.renumber, "--renumber-inodes", "--extract")
+    meaningless(checked.ignore_devno, "--ignore-devno", "--extract")
     if checked.to_stdout {
-      meaningless(checked, checked.make_dirs, "--make-directories", "--to-stdout")
-      meaningless(checked, checked.rename, "--rename", "--to-stdout")
-      meaningless(checked, checked.no_preserve_owner, "--no-preserve-owner", "--to-stdout")
-      meaningless(checked, checked.owner != null or checked.group != null, "--owner", "--to-stdout")
-      meaningless(checked, checked.preserve_mtime, "--preserve-modification-time", "--to-stdout")
+      meaningless(checked.make_dirs, "--make-directories", "--to-stdout")
+      meaningless(checked.rename, "--rename", "--to-stdout")
+      meaningless(checked.no_preserve_owner, "--no-preserve-owner", "--to-stdout")
+      meaningless(checked.owner != null or checked.group != null, "--owner", "--to-stdout")
+      meaningless(checked.preserve_mtime, "--preserve-modification-time", "--to-stdout")
     }
     if checked.archive != null and checked.input_archive != null {
       usage_failure("Both -I and -F are used in copy-in mode", 2)
@@ -1714,22 +1733,22 @@ proc validate_options(opts: Options) [process, env] -> Options {
     if checked.input_archive != null { checked = {...checked, archive: checked.input_archive} }
   } else if checked.mode == "out" {
     if ! checked.operands.is_empty() { usage_failure("Too many arguments", 2) }
-    meaningless(checked, checked.make_dirs, "--make-directories", "--create")
-    meaningless(checked, checked.rename, "--rename", "--create")
-    meaningless(checked, checked.table, "--list", "--create")
-    meaningless(checked, checked.unconditional, "--unconditional", "--create")
-    meaningless(checked, checked.link, "--link", "--create")
-    meaningless(checked, checked.sparse, "--sparse", "--create")
-    meaningless(checked, checked.preserve_mtime, "--preserve-modification-time", "--create")
-    meaningless(checked, checked.no_preserve_owner, "--no-preserve-owner", "--create")
-    meaningless(checked, checked.swap_bytes, "--swap-bytes (--swap)", "--create")
-    meaningless(checked, checked.swap_halfwords, "--swap-halfwords (--swap)", "--create")
-    meaningless(checked, checked.to_stdout, "--to-stdout", "--create")
+    meaningless(checked.make_dirs, "--make-directories", "--create")
+    meaningless(checked.rename, "--rename", "--create")
+    meaningless(checked.table, "--list", "--create")
+    meaningless(checked.unconditional, "--unconditional", "--create")
+    meaningless(checked.link, "--link", "--create")
+    meaningless(checked.sparse, "--sparse", "--create")
+    meaningless(checked.preserve_mtime, "--preserve-modification-time", "--create")
+    meaningless(checked.no_preserve_owner, "--no-preserve-owner", "--create")
+    meaningless(checked.swap_bytes, "--swap-bytes (--swap)", "--create")
+    meaningless(checked.swap_halfwords, "--swap-halfwords (--swap)", "--create")
+    meaningless(checked.to_stdout, "--to-stdout", "--create")
     if checked.append and checked.archive == null and checked.output_archive == null {
       usage_failure("--append is used but no archive file name is given (use -F or -O options)", 2)
     }
-    meaningless(checked, checked.rename_batch != null, "--rename-batch-file", "--create")
-    meaningless(checked, checked.input_archive != null, "-I", "--create")
+    meaningless(checked.rename_batch != null, "--rename-batch-file", "--create")
+    meaningless(checked.input_archive != null, "-I", "--create")
     if checked.archive != null and checked.output_archive != null {
       usage_failure("Both -O and -F are used in copy-out mode", 2)
     }
@@ -1741,16 +1760,16 @@ proc validate_options(opts: Options) [process, env] -> Options {
     if checked.format != "" {
       usage_failure("Archive format is not specified in copy-pass mode (use --format option)", 2)
     }
-    meaningless(checked, checked.swap_bytes, "--swap-bytes (--swap)", "--pass-through")
-    meaningless(checked, checked.swap_halfwords, "--swap-halfwords (--swap)", "--pass-through")
-    meaningless(checked, checked.table, "--list", "--pass-through")
-    meaningless(checked, checked.rename, "--rename", "--pass-through")
-    meaningless(checked, checked.append, "--append", "--pass-through")
-    meaningless(checked, checked.rename_batch != null, "--rename-batch-file", "--pass-through")
-    meaningless(checked, checked.no_abs, "--no-absolute-pathnames", "--pass-through")
-    meaningless(checked, checked.to_stdout, "--to-stdout", "--pass-through")
-    meaningless(checked, checked.renumber, "--renumber-inodes", "--pass-through")
-    meaningless(checked, checked.ignore_devno, "--ignore-devno", "--pass-through")
+    meaningless(checked.swap_bytes, "--swap-bytes (--swap)", "--pass-through")
+    meaningless(checked.swap_halfwords, "--swap-halfwords (--swap)", "--pass-through")
+    meaningless(checked.table, "--list", "--pass-through")
+    meaningless(checked.rename, "--rename", "--pass-through")
+    meaningless(checked.append, "--append", "--pass-through")
+    meaningless(checked.rename_batch != null, "--rename-batch-file", "--pass-through")
+    meaningless(checked.no_abs, "--no-absolute-pathnames", "--pass-through")
+    meaningless(checked.to_stdout, "--to-stdout", "--pass-through")
+    meaningless(checked.renumber, "--renumber-inodes", "--pass-through")
+    meaningless(checked.ignore_devno, "--ignore-devno", "--pass-through")
     if checked.archive != null {
       die("-F can be used only with --create or --extract")
     }
@@ -1774,11 +1793,11 @@ proc create_directory(st: Run, opts: Options, header: Header, existing: Bool, ch
   }
   var state = st
   if ! existing {
-    var result = file.mkdir()
+    var result = file.mkdir(parents: false)
     if result is Err(_) and opts.make_dirs {
       let made = create_parents(state, opts, file)
       state = made.st
-      result = file.mkdir()
+      result = file.mkdir(parents: false)
     }
     match result {
       Ok(_) => {}
@@ -2827,18 +2846,6 @@ proc execute(opts: Options, plan: Plan, chown_enabled: Bool) [fs, io, error, pro
 
 proc main(...argv: List[Str]) [fs, io, error, process, env, time] {
   let parsed = parse_command_line(argv)
-  if parsed.help {
-    gnu.help(USAGE)
-    return
-  }
-  if parsed.usage {
-    gnu.help(SHORT_USAGE)
-    return
-  }
-  if parsed.version {
-    gnu.version("cpio")
-    return
-  }
   let opts = validate_options(parsed)
   let identity = match unix.id() {
     Ok(value) => value

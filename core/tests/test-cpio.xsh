@@ -474,3 +474,108 @@ test test_cpio_reads_reversed_byte_order_binary_archives { |ctx|
   assert ran.status == 0
   assert fp"{out}/ab".read_bytes()? == b"wxyz"
 }
+
+test test_cpio_rename_batch_file_renames_or_skips_members { |ctx|
+  let root = test.temp_dir(ctx, name: "cpio-rename")?
+  fp"{root}/a".write(b"A")?
+  fp"{root}/b".write(b"B")?
+  let both = cpio(ctx, root, ["-oH", "odc", "--quiet"], b"a\nb\n")?
+  fp"{root}/names".write("first\n\n")?
+  let out = test.temp_dir(ctx, name: "cpio-rename-out")?
+  let ran = cpio(ctx, out, ["-iv", "--rename-batch-file", f"{root}/names"], both.stdout)?
+  assert ran.status == 0
+  assert ran.stderr == "first\n1 block\n"
+  assert fp"{out}/first".read_text()? == "A"
+  assert ! fp"{out}/a".exists()?
+  assert ! fp"{out}/b".exists()?
+}
+
+test test_cpio_directories_keep_modes_and_times { |ctx|
+  let root = test.temp_dir(ctx, name: "cpio-dirs")?
+  let source = fp"{root}/src"
+  source.mkdir()?
+  fp"{source}/closed".mkdir()?
+  fp"{source}/closed/file".write(b"inside")?
+  fp"{source}/closed".chmod(0o555)?
+  fs.set_times(fp"{source}/closed", mtime_ns: MTIME_NS)?
+  let packed_archive = cpio(ctx, source, ["-o", "-H", "newc", "--quiet"], b"closed\nclosed/file\n")?
+  fp"{source}/closed".chmod(0o755)?
+  let out = test.temp_dir(ctx, name: "cpio-dirs-out")?
+  let ran = cpio(ctx, out, ["-idm", "--quiet"], packed_archive.stdout)?
+  assert ran.status == 0
+  # The directory is finished after its contents, so it can be read-only.
+  assert fs.stat(fp"{out}/closed")?.mode.bit_and(0o777) == 0o555
+  assert fs.stat(fp"{out}/closed")?.mtime_ns == fs.stat(fp"{source}/closed")?.mtime_ns
+  assert fp"{out}/closed/file".read_text()? == "inside"
+  fp"{out}/closed".chmod(0o755)?
+}
+
+test test_cpio_owner_option_and_header_truncation_warnings { |ctx|
+  let root = test.temp_dir(ctx, name: "cpio-owner")?
+  fp"{root}/f".write(b"x")?
+  let owned = cpio(ctx, root, ["-o", "-H", "newc", "-R", "7:8", "--quiet"], b"f\n")?
+  let listed = cpio(ctx, root, ["-itvn", "--quiet"], owned.stdout)?
+  assert "     7        8 " in listed.stdout.utf8()? or " 7        8 " in listed.stdout.utf8()?
+  let wide = cpio(ctx, root, ["-o", "-H", "bin", "-R", "70000:1", "--renumber-inodes", "--quiet"], b"f\n")?
+  assert wide.stderr == ""
+  let warned = cpio(ctx, root, ["-o", "-H", "bin", "-R", "70000:1", "-W", "truncate", "--renumber-inodes", "--quiet"], b"f\n")?
+  assert warned.stderr == "cpio: f: truncating uid\n"
+  assert warned.stdout == wide.stdout
+  let none = cpio(ctx, root, ["-o", "-H", "bin", "-R", "70000:1", "-W", "all", "-W", "none", "--quiet"], b"f\n")?
+  assert none.stderr == ""
+  let refused = cpio(ctx, root, ["-i", "--no-preserve-owner", "-R", "1"])?
+  assert refused.status == 2
+  assert refused.stderr.starts_with("cpio: --owner cannot be used with --no-preserve-owner\n")
+  let unknown = cpio(ctx, root, ["-i", "-R", "no-such-user-here:"])?
+  assert unknown.stderr.starts_with("cpio: no-such-user-here:: invalid user\n")
+}
+
+test test_cpio_unsupported_features_fail_explicitly { |ctx|
+  let root = test.temp_dir(ctx, name: "cpio-unsupported")?
+  for args in [["-o", "-H", "tar"], ["-o", "-H", "ustar"], ["-o", "-M", "next"], ["-o", "--rsh-command=ssh"]] {
+    let ran = cpio(ctx, root, args)?
+    assert ran.status == 64, args.join(" ")
+    assert "not supported" in ran.stderr, args.join(" ")
+  }
+  let remote = cpio(ctx, root, ["-o", "-O", "host:archive"], b"")?
+  assert remote.status == 2
+  assert remote.stderr == "cpio: host:archive: remote archives are not supported\n"
+  fp"{root}/colon:name".write(b"")?
+  let local = cpio(ctx, root, ["-o", "--force-local", "-O", "colon:name", "--quiet"], b"")?
+  assert local.status == 0
+  let tarball = bytes.concat([bytes.zero(257)?, b"ustar\x0000", bytes.zero(512 - 264)?])
+  let tar = cpio(ctx, root, ["-t"], tarball)?
+  assert tar.status == 2
+  assert tar.stderr == "cpio: tar and ustar archives are not supported\n"
+}
+
+test test_cpio_sparse_extraction_and_symlink_targets { |ctx|
+  let root = test.temp_dir(ctx, name: "cpio-sparse")?
+  let hole = bytes.zero(1048576)?
+  fp"{root}/holey".write(bytes.concat([b"head", hole, b"tail"]))?
+  fp"{root}/dotted".symlink(to: p"./holey")?
+  let packed_archive = cpio(ctx, root, ["-o", "-H", "newc", "--quiet"], b"holey\ndotted\n")?
+  let out = test.temp_dir(ctx, name: "cpio-sparse-out")?
+  let ran = cpio(ctx, out, ["-id", "--sparse", "--quiet"], packed_archive.stdout)?
+  assert ran.status == 0
+  assert fp"{out}/holey".read_bytes()? == fp"{root}/holey".read_bytes()?
+  assert fs.stat(fp"{out}/holey")?.blocks_512 < 100
+  # A leading "./" is dropped from a symbolic link target when archiving.
+  assert fp"{out}/dotted".readlink()? == p"holey"
+  let dereferenced = cpio(ctx, root, ["-o", "-L", "-H", "newc", "--quiet"], b"dotted\n")?
+  let listed = cpio(ctx, root, ["-itvn", "--quiet"], dereferenced.stdout)?
+  assert listed.stdout.utf8()?.starts_with("-rw")
+}
+
+test test_cpio_name_lists_ignore_blank_lines_and_report_missing_files { |ctx|
+  let root = test.temp_dir(ctx, name: "cpio-names")?
+  fp"{root}/one".write(b"1")?
+  let ran = cpio(ctx, root, ["-o", "-H", "newc", "--quiet", "-v"], b"one\n\nmissing\none\n")?
+  assert ran.status == 2
+  assert ran.stderr == "one\ncpio: blank line ignored\ncpio: missing: Cannot stat: No such file or directory\none\n"
+  let listed = cpio(ctx, root, ["-it", "--quiet"], ran.stdout)?
+  assert listed.stdout == b"one\none\n"
+  let null_terminated = cpio(ctx, root, ["-o0", "-H", "newc", "--quiet"], b"one\0missing\0")?
+  assert null_terminated.status == 2
+  assert "cpio: missing: Cannot stat" in null_terminated.stderr
+}
