@@ -140,6 +140,19 @@ Tooling added for it:
 - `dev/compat/docker-xsht.sh -- test FILE...` runs `xsht` from a lane worktree
   inside the `xsh-test` image, same options for capabilities.
 
+Gate 5 audit against real GNU: `check_gnu_help_surface.py UTIL...` compares
+the option spellings GNU coreutils 9.11 prints in `--help` (in the oracle
+container) with the applet's `cli.applet` schema, and probes every spelling the
+schema does not declare by running the applet. It covers the nine utilities
+`check_option_surface.py` cannot parse (`cp`, `dd`, `dir`, `env`, `ls`,
+`printf`, `stty`, `test`, `vdir`) and all 106 present utilities. First run: eight
+of the nine match; the real gaps across the whole set are `cp
+--keep-directory-symlink`, `ln -F/--directory`, `mv --context`, `sort
+--field-separator/--parallel`, `tail --debug`, `df -v` and `stat --cached`, each
+a one-utility gap lane. (`hostname`, `uptime`, `more` and `kill` differ from the
+oracle's net-tools, procps and util-linux builds, not from GNU coreutils; `cut`
+and `numfmt` `-M` are range syntax in the help text.)
+
 Lane rules for new commands: native typed API first (Rust only for the syscall,
 ioctl or netlink boundary, added in new files where possible), the applet in
 XSH over it, `core/tests/test-CMD.xsh` pinned to the reference tool's output on
