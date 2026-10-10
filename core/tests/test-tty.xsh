@@ -42,6 +42,18 @@ test test_tty_usage_errors_exit_with_status_two { |ctx|
   assert bad.stderr == "tty: invalid option -- 'x'\nTry 'tty --help' for more information.\n", bad.stderr
 }
 
+test test_tty_stdout_write_failure_exits_three { |ctx|
+  if ! p"/dev/full".exists()? { test.skip("requires /dev/full"); return }
+
+  let root = test.temp_dir(ctx, name: "tty-full")?
+  let err = fp"{root}/stderr"
+  let argv = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/tty.xsh".display()]
+  let status = process.run(process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C"}, b"", p"/dev/full", err))?
+
+  assert status.exit_code()? == 3
+  assert err.read_text()? == "tty: write error: No space left on device\n", err.read_text()?
+}
+
 test test_tty_help_and_version { |ctx|
   let help = applet_run(ctx, ["--help"])?
   assert help.status == 0
