@@ -33,6 +33,16 @@ test test_yes_streams_past_the_old_output_cap { |ctx|
   assert two == "abcdef\nabcdef\n"
 }
 
+test test_yes_joins_operands_and_repeats_whole_lines { |ctx|
+  let joined = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/yes.xsh".display(), "a", "bar", "c"]
+  let text = run.text --accept=[0, 141] @joined | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-c", "12"])
+  assert text == "a bar c\na ba", text
+
+  let defaulted = [ctx.xsh_bin.display(), fp"{ctx.core_dir}/yes.xsh".display()]
+  let plain = run.text --accept=[0, 141] @defaulted | run @([ctx.xsh_bin.display(), fp"{ctx.core_dir}/head.xsh".display(), "-n", "2"])
+  assert plain == "y\ny\n", plain
+}
+
 test test_yes_help_version_and_invalid_options { |ctx|
   let help = applet_run(ctx, ["--help"])?
   assert help.status == 0
