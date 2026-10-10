@@ -140,7 +140,12 @@ test test_zstd_levels_and_corrupt_frames { |ctx|
     let truncated = bytes.concat([packed.stdout[0..packed.stdout.len() - 1]])
     assert invoke(ctx, "zstd", ["-t"], truncated)?.status == 1
   }
-  assert invoke(ctx, "zstd", ["-20c"], b"x")?.status == 1
+  # Levels past the ceiling are reduced with a warning, as the reference tool
+  # does, instead of being refused.
+  let reduced = invoke(ctx, "zstd", ["-20c"], b"x")?
+  assert reduced.status == 0, reduced.stderr
+  assert "reduced to 19" in reduced.stderr, reduced.stderr
+  assert invoke(ctx, "unzstd", ["-c"], reduced.stdout)?.stdout == b"x"
   assert invoke(ctx, "zstd", ["--fast=0", "-c"], b"x")?.status == 1
 }
 
@@ -989,4 +994,421 @@ test test_zstd_list_counts_skippable_frames_and_rejects_plain_files { |ctx|
   assert missing.status == 1
   let stdin = invoke_in(ctx, "zstd", ["-l"], root, frame)?
   assert stdin.status == 1 and stdin.stdout == b""
+}
+
+pure seed_text() -> Bytes { b"hello hello hello hello\nworld\n" }
+
+# A working directory for the option tests: one top-level file and a small
+# tree below `d`, so recursion and plain operands can be told apart.
+proc seed(ctx: TestContext, label: Str) [fs, error] -> Result[Path] {
+  let root = test.temp_dir(ctx, name: label)?
+  fp"{root}/plain".write(seed_text())
+  fp"{root}/d/e".mkdir(parents: true)?
+  fp"{root}/d/a".write(b"aaaa aaaa\n")
+  fp"{root}/d/e/b".write(b"bbbb\n")
+  Ok(root)
+}
+
+# The regular files below `root`, as `./`-relative names in sorted order.
+proc files_under(root: Path) [fs, error] -> Result[List[Str]] {
+  var found: List[Str] = []
+  for entry in fs.walk(root, hidden: true)? |> sort-by .path {
+    if entry.kind == "file" { found += [f"./{entry.path.relative_to(root).display()}"] }
+  }
+  Ok(found)
+}
+
+type Seeded = {ran: Ran, root: Path}
+
+proc run_in_seed(ctx: TestContext, label: Str, tool: Str, args: List[Str], input = b"") [fs, process, error] -> Result[Seeded] {
+  let root = seed(ctx, label)?
+  Ok({ran: invoke_in(ctx, tool, args, root, input)?, root: root})
+}
+
+# What the reference tools do for each invocation below was recorded from
+# zstd 1.5.7: the exit status, whether an output file appeared, and its
+# content after decoding.
+test test_zstd_output_file_option { |ctx|
+  let single = run_in_seed(ctx, "zstd-o", "zstd", ["-q", "plain", "-o", "x.zst"])?
+  assert single.ran.status == 0, single.ran.stderr
+  assert files_under(single.root)? == ["./d/a", "./d/e/b", "./plain", "./x.zst"]
+  assert invoke_in(ctx, "unzstd", ["-c", "x.zst"], single.root)?.stdout == seed_text()
+  assert invoke_in(ctx, "unzstd", ["-q", "x.zst", "-o", "restored"], single.root)?.status == 0
+  assert fp"{single.root}/restored".read_bytes()? == seed_text()
+
+  # The later of -c and -o picks the destination.
+  let file_last = run_in_seed(ctx, "zstd-c-o", "zstd", ["-c", "plain", "-o", "x.zst"])?
+  assert file_last.ran.status == 0 and file_last.ran.stdout == b""
+  assert files_under(file_last.root)? == ["./d/a", "./d/e/b", "./plain", "./x.zst"]
+  let stdout_last = run_in_seed(ctx, "zstd-o-c", "zstd", ["-o", "x.zst", "-c", "plain"])?
+  assert stdout_last.ran.status == 0 and stdout_last.ran.stdout != b""
+  assert files_under(stdout_last.root)? == ["./d/a", "./d/e/b", "./plain"]
+
+  # --rm applies to the named input once its output is published.
+  let removed = run_in_seed(ctx, "zstd-o-rm", "zstd", ["--rm", "plain", "-o", "x.zst"])?
+  assert removed.ran.status == 0
+  assert files_under(removed.root)? == ["./d/a", "./d/e/b", "./x.zst"]
+
+  for bad in [["plain", "-o"], ["-o", "-", "plain"], ["-o", "-f", "plain"]] {
+    let refused = run_in_seed(ctx, "zstd-o-bad", "zstd", bad)?
+    assert refused.ran.status == 1, bad.join(" ")
+    assert files_under(refused.root)? == ["./d/a", "./d/e/b", "./plain"], bad.join(" ")
+  }
+
+  # An existing output is kept without -f; the input is never its own output.
+  let kept = run_in_seed(ctx, "zstd-o-exists", "zstd", ["plain", "-o", "d/a"])?
+  assert kept.ran.status == 1
+  assert fp"{kept.root}/d/a".read_bytes()? == b"aaaa aaaa\n"
+  let forced = run_in_seed(ctx, "zstd-o-force", "zstd", ["-f", "plain", "-o", "d/a"])?
+  assert forced.ran.status == 0
+  assert invoke_in(ctx, "unzstd", ["-c", "d/a"], forced.root)?.stdout == seed_text()
+  let itself = run_in_seed(ctx, "zstd-o-self", "zstd", ["-f", "plain", "-o", "plain"])?
+  assert itself.ran.status == 1
+  assert fp"{itself.root}/plain".read_bytes()? == seed_text()
+}
+
+test test_zstd_output_file_concatenates_several_inputs { |ctx|
+  # Without -f the reference tool would ask first; a script cannot answer, so
+  # it stops and writes nothing.
+  let refused = run_in_seed(ctx, "zstd-cat-refused", "zstd", ["plain", "d/a", "-o", "x.zst"])?
+  assert refused.ran.status == 1
+  assert files_under(refused.root)? == ["./d/a", "./d/e/b", "./plain"]
+  let joined = run_in_seed(ctx, "zstd-cat", "zstd", ["-f", "plain", "d/a", "-o", "x.zst"])?
+  assert joined.ran.status == 0, joined.ran.stderr
+  assert "concatenated into a single output file" in joined.ran.stderr
+  assert invoke_in(ctx, "unzstd", ["-c", "x.zst"], joined.root)?.stdout == bytes.concat([seed_text(), b"aaaa aaaa\n"])
+  let quiet = run_in_seed(ctx, "zstd-cat-quiet", "zstd", ["-qf", "plain", "d/a", "-o", "x.zst"])?
+  assert quiet.ran.status == 0 and quiet.ran.stderr == ""
+  let consuming = run_in_seed(ctx, "zstd-cat-rm", "zstd", ["--rm", "-f", "plain", "d/a", "-o", "x.zst"])?
+  assert consuming.ran.status == 0
+  assert files_under(consuming.root)? == ["./d/e/b", "./x.zst"]
+  let decoded = invoke_in(ctx, "zstd", ["-df", "x.zst", "-o", "out"], consuming.root)?
+  assert decoded.status == 0, decoded.stderr
+  assert fp"{consuming.root}/out".read_bytes()? == bytes.concat([seed_text(), b"aaaa aaaa\n"])
+}
+
+test test_zstd_tuning_options_are_accepted_and_validated { |ctx|
+  for args in [["-T2"], ["-T0"], ["-T"], ["-3T2"], ["--threads=2"], ["--threads", "2"], ["--threads=1K"], ["--long"], ["--long="], ["--long=10"], ["--long=31"], ["--no-progress"], ["--progress"], ["--format=zstd"], ["--adapt"], ["--rsyncable"], ["--single-thread"], ["-B64"], ["--no-sparse"], ["--ultra", "-22"]] {
+    let packed = invoke(ctx, "zstd", args.extend(["-c"]), seed_text())?
+    assert packed.status == 0, f"{args.join(" ")}: {packed.stderr}"
+    assert invoke(ctx, "unzstd", ["-c"], packed.stdout)?.stdout == seed_text(), args.join(" ")
+  }
+  for case in [
+    {args: ["--threads=abc"], status: 1},
+    {args: ["--threads=-1"], status: 1},
+    {args: ["--long=9"], status: 11},
+    {args: ["--long=32"], status: 11},
+    {args: ["--format=gzip"], status: 1},
+    {args: ["--format=bogus"], status: 1},
+    {args: ["--fast=0"], status: 1},
+    {args: ["-T-1"], status: 1},
+    {args: ["--no-check"], status: 1},
+    {args: ["--train"], status: 1},
+    {args: ["-D", "dictionary"], status: 1},
+    {args: ["-M10"], status: 1},
+  ] {
+    let refused = invoke(ctx, "zstd", case.args.extend(["-c"]), seed_text())?
+    assert refused.status == case.status, f"{case.args.join(" ")}: {refused.status}"
+    assert refused.stdout == b"", case.args.join(" ")
+  }
+  # --long takes its value with `=` only; a following word is an operand.
+  let operand = invoke(ctx, "zstd", ["--long", "20", "-c"], seed_text())?
+  assert operand.status == 1
+  # --fast past the limit is clamped like the reference tool.
+  assert invoke(ctx, "zstd", ["--fast=131073", "-c"], seed_text())?.status == 0
+  # Levels past the ceiling reduce with a warning: 19 without --ultra, 22 with it.
+  let capped = invoke(ctx, "zstd", ["-23", "-c"], seed_text())?
+  assert capped.status == 0 and "reduced to 19" in capped.stderr
+  let ultra = invoke(ctx, "zstd", ["--ultra", "-23", "-c"], seed_text())?
+  assert ultra.status == 0 and "reduced to 22" in ultra.stderr
+  assert invoke(ctx, "zstd", ["--ultra", "-22", "-c"], seed_text())?.stderr == ""
+}
+
+test test_zstd_recursive_operands { |ctx|
+  let compressed = run_in_seed(ctx, "zstd-r", "zstd", ["-r", "d"])?
+  assert compressed.ran.status == 0, compressed.ran.stderr
+  assert files_under(compressed.root)? == ["./d/a", "./d/a.zst", "./d/e/b", "./d/e/b.zst", "./plain"]
+  # Every file below the directory is tried, so a second pass also encodes the
+  # archives it made, as the reference tool does.
+  let second = invoke_in(ctx, "zstd", ["-r", "d"], compressed.root)?
+  assert "d/a.zst" in second.stderr, "the existing archive is not overwritten"
+  assert fp"{compressed.root}/d/a.zst.zst".exists()?
+  let consumed = run_in_seed(ctx, "zstd-r-rm", "zstd", ["--rm", "-r", "d", "plain"])?
+  assert consumed.ran.status == 0
+  assert files_under(consumed.root)? == ["./d/a.zst", "./d/e/b.zst", "./plain.zst"]
+  let restored = invoke_in(ctx, "zstd", ["--rm", "-rd", "d"], consumed.root)?
+  assert restored.status == 0, restored.stderr
+  assert files_under(consumed.root)? == ["./d/a", "./d/e/b", "./plain.zst"]
+  let streamed = run_in_seed(ctx, "zstd-r-c", "zstd", ["-rc", "d"])?
+  assert streamed.ran.status == 0
+  assert invoke(ctx, "unzstd", ["-c"], streamed.ran.stdout)?.stdout == b"aaaa aaaa\nbbbb\n"
+  let missing = run_in_seed(ctx, "zstd-r-missing", "zstd", ["-r", "nosuch"])?
+  assert missing.ran.status == 1
+  # Decoding names with no recognized suffix fails the file, not the run.
+  let unsuffixed = run_in_seed(ctx, "zstd-rd", "zstd", ["-rd", "d"])?
+  assert unsuffixed.ran.status == 1
+  assert files_under(unsuffixed.root)? == ["./d/a", "./d/e/b", "./plain"]
+}
+
+test test_gzip_recursive_and_suffix_options { |ctx|
+  let packed = run_in_seed(ctx, "gzip-r", "gzip", ["-r", "d"])?
+  assert packed.ran.status == 0, packed.ran.stderr
+  assert files_under(packed.root)? == ["./d/a.gz", "./d/e/b.gz", "./plain"]
+  # Already-suffixed files below a directory are skipped without a message.
+  let again = invoke_in(ctx, "gzip", ["-r", "d"], packed.root)?
+  assert again.status == 0 and again.stderr == ""
+  assert files_under(packed.root)? == ["./d/a.gz", "./d/e/b.gz", "./plain"]
+  let listed = invoke_in(ctx, "gzip", ["-rl", "d"], packed.root)?
+  assert listed.status == 0
+  assert "d/e/b" in listed.stdout as Str
+  assert invoke_in(ctx, "gzip", ["-rtv", "d"], packed.root)?.status == 0
+  assert invoke_in(ctx, "gzip", ["-rd", "d"], packed.root)?.status == 0
+  assert files_under(packed.root)? == ["./d/a", "./d/e/b", "./plain"]
+  # Unsuffixed files are left alone when decoding a tree.
+  let quiet = invoke_in(ctx, "gzip", ["-rd", "d"], packed.root)?
+  assert quiet.status == 0 and quiet.stderr == ""
+  let kept = run_in_seed(ctx, "gzip-rk", "gzip", ["-rk", "d"])?
+  assert files_under(kept.root)? == ["./d/a", "./d/a.gz", "./d/e/b", "./d/e/b.gz", "./plain"]
+  assert run_in_seed(ctx, "gzip-r-file", "gzip", ["-r", "plain"])?.ran.status == 0
+
+  for form in [["-S", ".foo"], ["-S.foo"], ["--suffix=.foo"], ["--suffix", ".foo"]] {
+    let named = run_in_seed(ctx, "gzip-suffix", "gzip", form.extend(["plain"]))?
+    assert named.ran.status == 0, f"{form.join(" ")}: {named.ran.stderr}"
+    assert files_under(named.root)? == ["./d/a", "./d/e/b", "./plain.foo"], form.join(" ")
+    # With the same suffix the output decodes; with the default one it is unknown.
+    assert invoke_in(ctx, "gzip", ["-d", "-S", ".foo", "plain.foo"], named.root)?.status == 0
+    assert fp"{named.root}/plain".read_bytes()? == seed_text()
+  }
+  let wrong = run_in_seed(ctx, "gzip-suffix-wrong", "gzip", ["-S", ".foo", "plain"])?
+  let unknown = invoke_in(ctx, "gzip", ["-d", "plain.foo"], wrong.root)?
+  assert unknown.status == 1 and "unknown suffix" in unknown.stderr
+  let twice = invoke_in(ctx, "gzip", ["-S", ".foo", "plain.foo"], wrong.root)?
+  assert "already has .foo suffix" in twice.stderr
+  let empty = run_in_seed(ctx, "gzip-suffix-empty", "gzip", ["-S", "", "plain"])?
+  assert empty.ran.status == 1
+  assert files_under(empty.root)? == ["./d/a", "./d/e/b", "./plain"]
+}
+
+test test_gzip_accepts_its_documented_tuning_flags_and_refuses_the_rest { |ctx|
+  for flag in ["--rsyncable", "--synchronous"] {
+    let packed = invoke(ctx, "gzip", [flag, "-c"], seed_text())?
+    assert packed.status == 0, f"{flag}: {packed.stderr}"
+    assert invoke(ctx, "gunzip", ["-c"], packed.stdout)?.stdout == seed_text()
+  }
+  let license = invoke(ctx, "gzip", ["-L"], b"")?
+  assert license.status == 0 and license.stdout != b""
+  # gzip has no thread or block-size options and says so by failing.
+  for refused in [["-T2"], ["--threads=2"], ["--block-size=1"], ["-Q"], ["-0"]] {
+    let result = invoke(ctx, "gzip", refused.extend(["-c"]), seed_text())?
+    assert result.status == 1, refused.join(" ")
+    assert result.stdout == b"", refused.join(" ")
+  }
+}
+
+test test_xz_thread_and_block_options_validate_like_the_reference { |ctx|
+  for args in [["-T2"], ["-T0"], ["-T", "2"], ["-3T1"], ["--threads=2"], ["--threads", "0"], ["--block-size=1000"], ["--block-size=1MiB"], ["--block-size", "1G"], ["-e"], ["-0e"], ["--extreme", "-9"], ["-T4", "--block-size=64"], ["--no-sparse"], ["-C", "crc64"], ["--check=crc64"], ["-Q"], ["-qQ"]] {
+    for tool in ["xz", "lzma"] {
+      let packed = invoke(ctx, tool, args.extend(["-c"]), seed_text())?
+      assert packed.status == 0, f"{tool} {args.join(" ")}: {packed.stderr}"
+      let decoder = if tool == "xz" { "unxz" } else { "unlzma" }
+      assert invoke(ctx, decoder, ["-c"], packed.stdout)?.stdout == seed_text(), f"{tool} {args.join(" ")}"
+    }
+  }
+  for case in [
+    {args: ["--threads=abc"], message: "abc: Value is not a non-negative decimal integer"},
+    {args: ["-T-1"], message: "-1: Value is not a non-negative decimal integer"},
+    {args: ["--threads=99999"], message: "Value of the option 'threads' must be in the range [0, 16384]"},
+    {args: ["--block-size=x"], message: "x: Value is not a non-negative decimal integer"},
+    {args: ["--block-size=1Q"], message: "Q: Invalid multiplier suffix"},
+    {args: ["--block-size=99999999999999999999"], message: "Value of the option 'block-size' must be in the range [0, 9223372036854775807]"},
+    {args: ["--check=bogus"], message: "bogus: Unsupported integrity check type"},
+    {args: ["--format=gzip"], message: "gzip: Unknown file format type"},
+  ] {
+    let result = invoke(ctx, "xz", case.args.extend(["-c"]), seed_text())?
+    assert result.status == 1, case.args.join(" ")
+    assert case.message in result.stderr, f"{case.args.join(" ")}: {result.stderr}"
+    assert result.stdout == b"", case.args.join(" ")
+  }
+  # -T consumes the next word, so `-T plain` is a bad number, not an operand.
+  let swallowed = run_in_seed(ctx, "xz-T-plain", "xz", ["-T", "plain"])?
+  assert swallowed.ran.status == 1
+  assert files_under(swallowed.root)? == ["./d/a", "./d/e/b", "./plain"]
+  # What the codec cannot honor fails by name instead of being skipped.
+  for refused in [["-M", "100MiB"], ["--memlimit=10MiB"], ["--lzma2=preset=1"], ["--files"], ["-C", "crc32"], ["--check=sha256"], ["--format=raw"], ["--x86"], ["--robot"]] {
+    let result = invoke(ctx, "xz", refused.extend(["-c"]), seed_text())?
+    assert result.status == 1, refused.join(" ")
+    assert "not supported" in result.stderr, f"{refused.join(" ")}: {result.stderr}"
+    assert result.stdout == b"", refused.join(" ")
+  }
+}
+
+test test_xz_format_and_suffix_options_choose_the_container { |ctx|
+  for case in [
+    {args: ["-F", "lzma"], made: "plain.lzma"},
+    {args: ["--format=lzma"], made: "plain.lzma"},
+    {args: ["--format=alone"], made: "plain.lzma"},
+    {args: ["--format=xz"], made: "plain.xz"},
+    {args: ["-Fauto"], made: "plain.xz"},
+    {args: ["-S", ".foo"], made: "plain.foo"},
+    {args: ["--suffix=.foo"], made: "plain.foo"},
+    {args: ["--suffix", ".foo"], made: "plain.foo"},
+  ] {
+    let packed = run_in_seed(ctx, "xz-format", "xz", case.args.extend(["plain"]))?
+    assert packed.ran.status == 0, f"{case.args.join(" ")}: {packed.ran.stderr}"
+    assert files_under(packed.root)? == ["./d/a", "./d/e/b", f"./{case.made}"], case.args.join(" ")
+    let decoded = invoke_in(ctx, "xz", ["-d"].extend(case.args).extend([case.made]), packed.root)?
+    assert decoded.status == 0, f"{case.args.join(" ")}: {decoded.stderr}"
+    assert fp"{packed.root}/plain".read_bytes()? == seed_text()
+  }
+  # A pinned container no longer accepts the other one's files.
+  let lzma = run_in_seed(ctx, "xz-pinned", "lzma", ["plain"])?
+  assert invoke_in(ctx, "xz", ["-d", "-F", "xz", "-c", "plain.lzma"], lzma.root)?.status == 1
+  assert invoke_in(ctx, "xz", ["-d", "-c", "plain.lzma"], lzma.root)?.status == 0
+  let converted = run_in_seed(ctx, "lzma-as-xz", "lzma", ["-F", "xz", "plain"])?
+  assert files_under(converted.root)? == ["./d/a", "./d/e/b", "./plain.xz"]
+}
+
+test test_xz_no_warn_keeps_warnings_out_of_the_exit_status { |ctx|
+  let root = seed(ctx, "xz-Q")?
+  let warned = invoke_in(ctx, "xz", ["d"], root)?
+  assert warned.status == 2 and warned.stderr != ""
+  let hushed = invoke_in(ctx, "xz", ["-Q", "d"], root)?
+  assert hushed.status == 0 and hushed.stderr != ""
+  # An error stays an error under -Q.
+  assert invoke_in(ctx, "xz", ["-Q", "nosuch"], root)?.status == 1
+  assert invoke_in(ctx, "xz", ["--no-warn", "d"], root)?.status == 0
+  assert invoke_in(ctx, "lzma", ["-Q", "d"], root)?.status == 0
+}
+
+test test_bzip2_license_and_redundant_flags { |ctx|
+  for flag in ["-L", "--license"] {
+    let result = invoke(ctx, "bzip2", [flag], b"")?
+    assert result.status == 0, flag
+    assert result.stdout != b"", flag
+  }
+  for flag in ["--repetitive-fast", "--repetitive-best"] {
+    let packed = invoke(ctx, "bzip2", [flag, "-c"], seed_text())?
+    assert packed.status == 0, packed.stderr
+    assert f"{flag} is redundant" in packed.stderr
+    assert invoke(ctx, "bunzip2", ["-c"], packed.stdout)?.stdout == seed_text()
+  }
+  assert invoke(ctx, "bzip2", ["--exponential", "-c"], seed_text())?.status == 0
+  # bzip2 has no thread, recursion, suffix or level-0 options.
+  for refused in [["-T2"], ["--threads=2"], ["-r"], ["-S", ".foo"], ["-0"]] {
+    let result = invoke(ctx, "bzip2", refused.extend(["-c"]), seed_text())?
+    assert result.status == 1, refused.join(" ")
+    assert result.stdout == b"", refused.join(" ")
+  }
+}
+
+# -q hides warnings in every tool; errors survive one -q everywhere and a second
+# one removes them in xz and zstd only (gzip and bzip2 never silence errors).
+# Each row is what the reference tool printed: exit status and whether stderr
+# held anything.
+test test_quiet_levels_match_the_reference_tools { |ctx|
+  for case in [
+    {tool: "gzip", args: ["nosuch"], status: 1, noisy: true},
+    {tool: "gzip", args: ["-q", "nosuch"], status: 1, noisy: true},
+    {tool: "gzip", args: ["-qq", "nosuch"], status: 1, noisy: true},
+    {tool: "gzip", args: ["d"], status: 2, noisy: true},
+    {tool: "gzip", args: ["-q", "d"], status: 2, noisy: false},
+    {tool: "bzip2", args: ["nosuch"], status: 1, noisy: true},
+    {tool: "bzip2", args: ["-q", "nosuch"], status: 1, noisy: true},
+    {tool: "bzip2", args: ["-qq", "nosuch"], status: 1, noisy: true},
+    {tool: "bzip2", args: ["-q", "/dev/null"], status: 1, noisy: false},
+    {tool: "xz", args: ["nosuch"], status: 1, noisy: true},
+    {tool: "xz", args: ["-q", "nosuch"], status: 1, noisy: true},
+    {tool: "xz", args: ["-qq", "nosuch"], status: 1, noisy: false},
+    {tool: "xz", args: ["d"], status: 2, noisy: true},
+    {tool: "xz", args: ["-q", "d"], status: 2, noisy: false},
+    {tool: "lzma", args: ["-q", "nosuch"], status: 1, noisy: true},
+    {tool: "lzma", args: ["-qq", "nosuch"], status: 1, noisy: false},
+    {tool: "zstd", args: ["nosuch"], status: 1, noisy: true},
+    {tool: "zstd", args: ["-q", "nosuch"], status: 1, noisy: true},
+    {tool: "zstd", args: ["-qq", "nosuch"], status: 1, noisy: false},
+    {tool: "zstd", args: ["-q", "d"], status: 1, noisy: true},
+    {tool: "zstd", args: ["-qq", "d"], status: 1, noisy: false},
+    {tool: "zstd", args: ["--quiet", "--quiet", "nosuch"], status: 1, noisy: false},
+  ] {
+    let root = seed(ctx, "quiet-levels")?
+    let result = invoke_in(ctx, case.tool, case.args, root)?
+    let label = f"{case.tool} {case.args.join(" ")}"
+    assert result.status == case.status, f"{label}: {result.status} {result.stderr}"
+    let noisy = result.stderr != ""
+    assert noisy == case.noisy, f"{label}: {result.stderr}"
+  }
+}
+
+# Every invocation below is run by the reference tools in the oracle image and
+# by the XSH applet in a fresh copy of the same tree; the exit status and the
+# set of files left behind must agree.
+type MatrixCase = {tool: Str, args: List[Str]}
+
+pure matrix_cases() -> List[MatrixCase] {
+  collect {
+    for entry in [
+      ["zstd", "-q plain"], ["zstd", "plain -o x.zst"], ["zstd", "-f plain -o x.zst"], ["zstd", "-c plain -o x.zst"],
+      ["zstd", "-o x.zst -c plain"], ["zstd", "-f plain d/a -o x.zst"], ["zstd", "plain d/a -o x.zst"],
+      ["zstd", "--rm plain -o x.zst"], ["zstd", "-f plain -o plain"], ["zstd", "plain -o"], ["zstd", "-T2 plain"],
+      ["zstd", "-T0 plain"], ["zstd", "-T plain"], ["zstd", "-3T2 plain"], ["zstd", "--threads=2 plain"],
+      ["zstd", "--threads 2 plain"], ["zstd", "--threads=abc plain"], ["zstd", "--long plain"],
+      ["zstd", "--long=20 plain"], ["zstd", "--long=31 plain"], ["zstd", "--long=9 plain"], ["zstd", "--long=40 plain"],
+      ["zstd", "--long 20 plain"], ["zstd", "--ultra -22 plain"], ["zstd", "--ultra -23 plain"], ["zstd", "-23 plain"],
+      ["zstd", "-20 plain"], ["zstd", "--fast=131073 plain"], ["zstd", "--fast=0 plain"], ["zstd", "-0 plain"],
+      ["zstd", "--no-progress plain"], ["zstd", "--progress plain"], ["zstd", "--format=zstd plain"],
+      ["zstd", "--format=gzip plain"], ["zstd", "-r d"], ["zstd", "-rd d"], ["zstd", "--rm -r d"], ["zstd", "-rc d"],
+      ["zstd", "-r nosuch"], ["zstd", "-qq nosuch"], ["zstd", "-q d"], ["zstd", "-x plain"], ["zstd", "--bogus plain"],
+      ["zstd", "-k --rm plain"], ["zstd", "--rm -k plain"], ["zstd", "-T-1 plain"],
+      ["gzip", "-q nosuch"], ["gzip", "-r d"], ["gzip", "-rk d"], ["gzip", "-rc d"], ["gzip", "-r plain"],
+      ["gzip", "-S .foo plain"], ["gzip", "--suffix=.foo plain"], ["gzip", "--suffix .foo plain"],
+      ["gzip", "-cS .foo plain"], ["gzip", "--rsyncable plain"], ["gzip", "--synchronous plain"],
+      ["gzip", "-T2 plain"], ["gzip", "--threads=2 plain"], ["gzip", "--block-size=1 plain"], ["gzip", "-Q plain"],
+      ["gzip", "-0 plain"], ["gzip", "-q d"], ["gzip", "-rd d"], ["gzip", "-rtv d"],
+      ["bzip2", "-r d"], ["bzip2", "-T2 plain"], ["bzip2", "--threads=2 plain"], ["bzip2", "-s plain"],
+      ["bzip2", "--repetitive-fast plain"], ["bzip2", "--repetitive-best plain"], ["bzip2", "--exponential plain"],
+      ["bzip2", "-S .foo plain"], ["bzip2", "-0 plain"], ["bzip2", "-q nosuch"], ["bzip2", "--small -9 plain"],
+      ["xz", "-q nosuch"], ["xz", "-qq nosuch"], ["xz", "-Q d"], ["xz", "-q d"], ["xz", "d"], ["xz", "-T2 plain"],
+      ["xz", "-T0 plain"], ["xz", "-T plain"], ["xz", "--threads=2 plain"], ["xz", "--threads=abc plain"],
+      ["xz", "-T-1 plain"], ["xz", "--block-size=1000 plain"], ["xz", "--block-size=1MiB plain"],
+      ["xz", "--block-size=1Q plain"], ["xz", "-e plain"], ["xz", "-0e plain"], ["xz", "--extreme -9 plain"],
+      ["xz", "-F lzma plain"], ["xz", "--format=lzma plain"], ["xz", "--format=xz plain"], ["xz", "--format=gzip plain"],
+      ["xz", "-S .foo plain"], ["xz", "--suffix=.foo plain"], ["xz", "--suffix .foo plain"], ["xz", "-C crc64 plain"],
+      ["xz", "--check=bogus plain"], ["xz", "-Q -q plain"], ["xz", "-qQ plain"], ["xz", "--no-sparse plain"],
+      ["lzma", "-T2 plain"], ["lzma", "--threads=2 plain"], ["lzma", "--block-size=1000 plain"], ["lzma", "-e plain"],
+      ["lzma", "-F xz plain"], ["lzma", "-q nosuch"], ["lzma", "-Q d"],
+    ] {
+      yield {tool: entry[0], args: entry[1].split(" ")}
+    }
+  }
+}
+
+proc matrix_script(cases: List[MatrixCase]) -> Str {
+  var script = ""
+  var index = 0
+  for case in cases {
+    let fixtures = r"printf 'hello hello hello hello\nworld\n' > plain; mkdir -p d/e; printf 'aaaa aaaa\n' > d/a; printf 'bbbb\n' > d/e/b"
+    script += f"mkdir c{index}; cd c{index}; {fixtures}; {case.tool} {case.args.join(" ")} >/dev/null 2>&1 </dev/null; echo \"{index} $?\"; find . -type f | sort | tr '\\n' ' '; echo; cd ..\n"
+    index += 1
+  }
+  script
+}
+
+test test_option_matrix_matches_the_reference_tools { |ctx|
+  test.timeout(ctx, 300s)
+  guard let oracle = oracle_script(ctx)? else { test.skip(ORACLE_SKIP); return }
+  let cases = matrix_cases()
+  let root = test.temp_dir(ctx, name: "oracle-option-matrix")?
+  root.chmod(0o777)
+  let script = matrix_script(cases)
+  let reference = run.text $oracle --mount $root --rw -- sh -c $script
+  var ours = ""
+  var index = 0
+  for case in cases {
+    let work = seed(ctx, "matrix-case")?
+    let result = invoke_in(ctx, case.tool, case.args, work)?
+    let files = files_under(work)?
+    ours += f"{index} {result.status}\n{files.join(" ")}{if files.is_empty() { "" } else { " " }}\n"
+    index += 1
+  }
+  assert reference == ours, "XSH and the reference tools disagree on exit status or resulting files"
 }

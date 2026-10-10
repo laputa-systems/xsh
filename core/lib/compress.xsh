@@ -2,34 +2,77 @@
 ##! complete codec operation. Source removal follows successful publication.
 use gnu
 
-type OptionToken = {kind: Str, name: Str, value: Str}
+# `has_value` separates `--long=` (an empty value) from `--long`.
+type OptionToken = {kind: Str, name: Str, value: Str, has_value: Bool}
+
+# Short options that consume a value: the rest of the cluster or, when nothing
+# follows, the next argument. zstd's -o takes only the next argument, so a
+# glued `-ofile` reads as flags the way the reference tool does.
+pure short_takes_value(format: Str, option: Str) -> Bool {
+  if format in ["xz", "lzma"] { option in ["T", "S", "F", "C"] } else if format == "gz" { option == "S" } else { format == "zstd" and option in ["o", "D"] }
+}
+
+# Long options that take their value from the next argument when no `=` is
+# given. Options with only an optional value (`--long`, `--fast`) need `=`.
+pure long_takes_value(format: Str, option: Str) -> Bool {
+  if format in ["xz", "lzma"] { option in ["threads", "block-size", "suffix", "format", "check"] } else if format == "gz" { option == "suffix" } else { format == "zstd" and option == "threads" }
+}
+
+pure digit(text: Str) -> Bool { "0123456789".find(text) != null }
 
 # Compression levels begin with digits, which generic flag tokenization treats
 # as negative-number operands. Interpret them as options until an explicit --.
 pure option_tokens(argv: List[Str], format: Str) -> List[OptionToken] {
   var operands_only = false
+  var next_arg = 0
   collect {
-    for arg in argv {
+    while next_arg < argv.len() {
+      let arg = argv[next_arg]
+      next_arg += 1
       if ! operands_only and arg == "--" { operands_only = true; continue }
       if operands_only or arg == "-" or ! arg.starts_with("-") {
-        yield {kind: "operand", name: arg, value: ""}
+        yield {kind: "operand", name: arg, value: "", has_value: false}
       } else if arg.starts_with("--") {
         let raw = arg.byte_slice(2)
         let equals = raw.find("=")
         if equals != null {
-          yield {kind: "long", name: raw.byte_slice(0, length: equals), value: raw.byte_slice(equals + 1)}
+          yield {kind: "long", name: raw.byte_slice(0, length: equals), value: raw.byte_slice(equals + 1), has_value: true}
+        } else if long_takes_value(format, raw) and next_arg < argv.len() {
+          yield {kind: "long", name: raw, value: argv[next_arg], has_value: true}
+          next_arg += 1
         } else {
-          yield {kind: "long", name: raw, value: ""}
+          yield {kind: "long", name: raw, value: "", has_value: false}
         }
       } else {
         var at = 1
         while at < arg.byte_len() {
           let start = at
           at += 1
-          if format == "zstd" and "0123456789".find(arg.byte_slice(start, length: 1)) != null {
-            while at < arg.byte_len() and "0123456789".find(arg.byte_slice(at, length: 1)) != null { at += 1 }
+          let letter = arg.byte_slice(start, length: 1)
+          # zstd levels and its -T and -B counts are digit runs glued to the flag.
+          if format == "zstd" and (digit(letter) or letter in ["T", "B"]) {
+            let leading = digit(letter)
+            let digits_from = if leading { start } else { at }
+            while at < arg.byte_len() and digit(arg.byte_slice(at, length: 1)) { at += 1 }
+            let digits = arg.byte_slice(digits_from, length: at - digits_from)
+            if leading {
+              yield {kind: "short", name: digits, value: "", has_value: false}
+            } else {
+              yield {kind: "short", name: letter, value: digits, has_value: digits != ""}
+            }
+          } else if short_takes_value(format, letter) {
+            if at < arg.byte_len() and format != "zstd" {
+              yield {kind: "short", name: letter, value: arg.byte_slice(at), has_value: true}
+              at = arg.byte_len()
+            } else if at >= arg.byte_len() and next_arg < argv.len() {
+              yield {kind: "short", name: letter, value: argv[next_arg], has_value: true}
+              next_arg += 1
+            } else {
+              yield {kind: "short", name: letter, value: "", has_value: false}
+            }
+          } else {
+            yield {kind: "short", name: letter, value: "", has_value: false}
           }
-          yield {kind: "short", name: arg.byte_slice(start, length: at - start), value: ""}
         }
       }
     }
@@ -40,7 +83,14 @@ pure suffix(format: Str) -> Str {
   match format { "gz" => ".gz", "bz2" => ".bz2", "xz" => ".xz", "zstd" => ".zst", _ => ".lzma" }
 }
 
-pure decoded_name(name: Str, format: Str) -> Str? {
+# The name a compressed file decodes to. A custom suffix (-S) is the only
+# suffix recognized; `auto` lets xz also strip the lzma suffixes, which it
+# decodes too until --format pins one container.
+pure decoded_name(name: Str, format: Str, custom: Str?, auto: Bool) -> Str? {
+  if custom != null {
+    if name.ends_with(custom) and name.byte_len() > custom.byte_len() { return name.byte_slice(0, length: name.byte_len() - custom.byte_len()) }
+    return null
+  }
   let ending = suffix(format)
   if name.ends_with(ending) and name.byte_len() > ending.byte_len() {
     return name.byte_slice(0, length: name.byte_len() - ending.byte_len())
@@ -50,9 +100,8 @@ pure decoded_name(name: Str, format: Str) -> Str? {
   if format == "bz2" and name.ends_with(".tbz") { return name.byte_slice(0, length: name.byte_len() - 4) + ".tar" }
   if format == "bz2" and name.ends_with(".bz") { return name.byte_slice(0, length: name.byte_len() - 3) }
   if format == "xz" and name.ends_with(".txz") { return name.byte_slice(0, length: name.byte_len() - 4) + ".tar" }
-  # xz decodes .lzma content too, so it also strips the lzma suffixes.
-  if format == "xz" and name.ends_with(".lzma") and name.byte_len() > 5 { return name.byte_slice(0, length: name.byte_len() - 5) }
-  if format == "xz" and name.ends_with(".tlz") { return name.byte_slice(0, length: name.byte_len() - 4) + ".tar" }
+  if format == "xz" and auto and name.ends_with(".lzma") and name.byte_len() > 5 { return name.byte_slice(0, length: name.byte_len() - 5) }
+  if format == "xz" and auto and name.ends_with(".tlz") { return name.byte_slice(0, length: name.byte_len() - 4) + ".tar" }
   if format == "lzma" and name.ends_with(".tlz") { return name.byte_slice(0, length: name.byte_len() - 4) + ".tar" }
   if format == "zstd" and name.ends_with(".tzst") { return name.byte_slice(0, length: name.byte_len() - 5) + ".tar" }
   null
@@ -458,27 +507,221 @@ proc list_zstd(names: List[Str]) [fs, io, error, process, env] -> Result[Int] {
   Ok(status)
 }
 
+# xz option values are plain decimals; sizes may carry a binary multiplier. The
+# numbers only bound what the codec is asked to do, so they are validated and
+# otherwise left to the encoder's defaults.
+proc xz_number(text: Str, option: Str, sizes: Bool) [error, process, env] -> Result[Int] {
+  var end = 0
+  while end < text.byte_len() and digit(text.byte_slice(end, length: 1)) { end += 1 }
+  if end == 0 {
+    gnu.error(f"{text}: Value is not a non-negative decimal integer")
+    exit 1
+  }
+  let tail = text.byte_slice(end)
+  if tail != "" {
+    if ! sizes {
+      gnu.error(f"{text}: Value is not a non-negative decimal integer")
+      exit 1
+    }
+    if tail not in ["k", "kB", "K", "KB", "KiB", "M", "MB", "MiB", "G", "GB", "GiB"] {
+      gnu.error(f"{tail}: Invalid multiplier suffix")
+      gnu.error("Valid suffixes are 'KiB' (2^10), 'MiB' (2^20), and 'GiB' (2^30).")
+      exit 1
+    }
+  }
+  if end > 18 {
+    gnu.error(f"Value of the option '{option}' must be in the range [0, {if sizes { "9223372036854775807" } else { "16384" }}]")
+    exit 1
+  }
+  let value = text.byte_slice(0, length: end).parse_int()?
+  if ! sizes and value > 16384 {
+    gnu.error(f"Value of the option '{option}' must be in the range [0, 16384]")
+    exit 1
+  }
+  Ok(value)
+}
+
+# Options the reference tool documents that this front end cannot honor. They
+# fail by name instead of being skipped, because dropping them would change
+# what the archive contains or which limits apply.
+pure unsupported_option(format: Str, option: Str) -> Bool {
+  if format == "zstd" {
+    option in ["D", "b", "train", "train-cover", "train-fastcover", "train-legacy", "patch-from", "filelist", "output-dir-flat", "output-dir-mirror", "no-check", "trace", "exclude-compressed", "M", "memory", "maxdict", "dictID"]
+  } else if format in ["xz", "lzma"] {
+    option in ["M", "memlimit", "memory", "memlimit-compress", "memlimit-decompress", "memlimit-mt-decompress", "lzma1", "lzma2", "files", "files0", "block-list", "single-stream", "ignore-check", "robot", "no-adjust", "flush-timeout", "filters", "x86", "powerpc", "ia64", "arm", "armthumb", "arm64", "sparc", "riscv", "delta"]
+  } else {
+    false
+  }
+}
+
+# Search tuning that never changes what the decoded stream contains. Each is
+# accepted so scripts written for the reference tool keep working; the encoder
+# here picks its own parameters, so the result is a valid archive that need not
+# match the reference byte for byte.
+pure tuning_option(format: Str, option: Str) -> Bool {
+  if format == "zstd" {
+    option in ["progress", "no-progress", "adapt", "rsyncable", "single-thread", "auto-threads", "check", "compress-literals", "no-compress-literals", "row-match-finder", "no-row-match-finder", "asyncio", "no-asyncio", "mmap-dict", "no-mmap-dict", "sparse", "no-sparse", "stream-size", "size-hint", "target-compressed-block-size", "B", "no-dictID"]
+  } else if format in ["xz", "lzma"] {
+    option in ["e", "extreme", "no-sparse"]
+  } else if format == "gz" {
+    option in ["rsyncable", "synchronous"]
+  } else {
+    option == "exponential"
+  }
+}
+
+type Expansion = {names: List[Str], status: Int}
+
+# -r replaces each directory operand with the regular files below it, in name
+# order, spelled relative to the operand as typed. gzip leaves out files that
+# are not its kind of input (already suffixed when compressing, unsuffixed when
+# decoding) unless forced; it says so, and counts it as a warning, only when it
+# is verbose or testing, which is how it can be pointed at a mixed tree. zstd
+# tries every file.
+proc expand_directories(names: List[Str], format: Str, decode: Bool, custom: Str?, auto: Bool, force: Bool, explain: Bool) [fs, process, env, error] -> Result[Expansion] {
+  var expanded: List[Str] = []
+  var status = 0
+  for name in names {
+    if name == "-" or ! (fp"{name}".is_dir() ?? false) {
+      expanded += [name]
+      continue
+    }
+    let prefix = if name.ends_with("/") { name } else { f"{name}/" }
+    var top = ""
+    for entry in fs.walk(fp"{name}", hidden: true)? |> sort-by .path {
+      let text = entry.path.display()
+      # Entries come back absolute and sorted, so the directory itself is first
+      # and every other path extends it.
+      if top == "" { top = text }
+      if entry.kind == "dir" { continue }
+      let found = f"{prefix}{text.byte_slice(top.byte_len() + 1)}"
+      if format == "gz" and ! force {
+        if decode and decoded_name(found, format, custom, auto) == null {
+          if explain {
+            gnu.error(f"{found}: unknown suffix -- ignored")
+            status = 2
+          }
+          continue
+        }
+        if ! decode and found.ends_with(custom ?? suffix(format)) {
+          if explain { gnu.error(f"{found} already has {custom ?? suffix(format)} suffix -- unchanged") }
+          continue
+        }
+      }
+      expanded += [found]
+    }
+  }
+  Ok({names: expanded, status: status})
+}
+
+# zstd -o with several inputs writes one file holding every input's frames in
+# order. Frames concatenate, so each input is encoded on its own and the results
+# are joined. The reference tool asks before doing this, which a script cannot
+# answer, so -f stands in for the confirmation. Returns the exit status.
+proc write_concatenated(names: List[Str], output: Str, codec: Str, decode: Bool, level: Int, force: Bool, keep: Bool, show_errors: Bool, show_warnings: Bool) [fs, io, error, process, env] -> Int {
+  if show_warnings {
+    gnu.error(f"WARNING: all input files will be processed and concatenated into a single output file: {output}")
+    gnu.error("The concatenated output CANNOT regenerate original file names nor directory structure.")
+  }
+  if ! force {
+    gnu.error("Proceed? (y/n): Aborting...")
+    return 1
+  }
+  let scratch = fs.tempdir()?
+  defer scratch.close()
+  let part = fp"{scratch.host_path()?}/part"
+  var joined: List[Bytes] = []
+  var consumed: List[Str] = []
+  var status = 0
+  for name in names {
+    if name == output {
+      if show_errors { gnu.error("Refusing to open an output file which will overwrite the input file") }
+      status = 1
+      continue
+    }
+    var source: Path? = null
+    if name != "-" {
+      guard let info = fs.stat(fp"{name}") else { |failure|
+        if show_errors { gnu.error(f"can't stat {name} : {gnu.strerror(failure)} -- ignored") }
+        status = 1
+        continue
+      }
+      if info.kind != "file" {
+        if show_errors { gnu.error(f"{name} is not a regular file -- ignored") }
+        status = 1
+        continue
+      }
+      source = fp"{name}"
+    }
+    match compression.transform(source, part, codec, decode: decode, level: level, test: false, metadata: false, overwrite: true, pass_through: false) {
+      Ok(_) => {
+        joined += [part.read_bytes()?]
+        if name != "-" { consumed += [name] }
+      }
+      Err(failure) => {
+        if show_errors { gnu.name_error(name, failure) }
+        status = 1
+      }
+    }
+  }
+  if joined.is_empty() { return status }
+  fp"{output}".write_atomic(bytes.concat(joined))?
+  if ! keep {
+    for name in consumed {
+      if let Err(failure) = fp"{name}".remove(missing_ok: false) {
+        if show_errors { gnu.name_error(name, failure) }
+        status = 1
+      }
+    }
+  }
+  status
+}
+
 ## Run one compression applet with the supplied codec and alias defaults.
-export proc execute(argv: List[Str], format: Str, decoding: Bool, cat: Bool) [fs, io, error, process, env] {
+export proc execute(argv: List[Str], tool: Str, decoding: Bool, cat: Bool) [fs, io, error, process, env] {
+  # --format can move an xz or lzma applet to the other container, so the
+  # family below is a variable; `tool` only picks the option grammar.
+  var format = tool
+  var auto_format = tool == "xz"
   var decode = decoding
   var stdout = cat
   var keep = format == "zstd"
   var force = false
+  var pass_through = false
   var testing = false
-  var quiet = false
+  var quiet = 0
+  var no_warn = false
   var verbose = false
   var listing = false
+  var recursive = false
   var stored_names = false
+  var output_file: Str? = null
+  var custom_suffix: Str? = null
   var name_mode: Bool? = null
   var level = if format == "bz2" { 9 } else if format == "zstd" { 3 } else { 6 }
   var ultra = false
   var names = []
-  for token in option_tokens(argv, format) {
+  for token in option_tokens(argv, tool) {
     if token.kind == "operand" { names += [token.name]; continue }
     let option = token.name
-    if token.value != "" and ! (format == "zstd" and option == "fast") { gnu.usage_error(f"option '--{option}' does not allow an argument") }
+    let shown = f"{if token.kind == "short" { "-" } else { "--" }}{option}"
+    if unsupported_option(format, option) {
+      gnu.error(f"option '{shown}' is not supported")
+      exit 1
+    }
+    let needs_value = if token.kind == "short" { short_takes_value(format, option) } else { long_takes_value(format, option) }
+    if needs_value and ! token.has_value {
+      if format == "zstd" and option == "o" {
+        gnu.error("error: missing command argument")
+        exit 1
+      }
+      gnu.usage_error(f"option '{shown}' requires an argument")
+    }
+    let optional_value = format == "zstd" and option in ["fast", "long", "format", "auto-threads", "stream-size", "size-hint", "target-compressed-block-size"]
+    if token.kind == "long" and token.has_value and ! (needs_value or optional_value) { gnu.usage_error(f"option '--{option}' does not allow an argument") }
     if option in ["c", "stdout", "to-stdout"] {
       stdout = true
+      output_file = null
     } else if option in ["d", "decompress", "uncompress"] {
       decode = true
     } else if option in ["z", "compress"] {
@@ -503,102 +746,231 @@ export proc execute(argv: List[Str], format: Str, decoding: Bool, cat: Bool) [fs
       # bzip2 -s trades speed for memory; the codec here has no such mode.
       continue
     } else if option in ["q", "quiet"] {
-      quiet = true
+      quiet += 1
     } else if option in ["v", "verbose"] {
       verbose = true
+    } else if option == "o" and format == "zstd" {
+      # A following option or "-" is not a file name: the reference tool
+      # reports the pair as separated by another command.
+      if token.value.starts_with("-") {
+        gnu.error("error: command cannot be separated from its argument by another command")
+        exit 1
+      }
+      output_file = token.value
+      stdout = false
+    } else if (option == "r" and format in ["gz", "zstd"]) or (option == "recursive" and format == "gz") {
+      recursive = true
+    } else if option in ["T", "threads"] and format in ["xz", "lzma"] {
+      # Threads only split the work; the stream decodes the same.
+      let _ = xz_number(token.value, "threads", false)?
+    } else if option in ["T", "threads"] and format == "zstd" {
+      if token.kind == "long" and ! rx"^[0-9]+(K|KB|KiB|M|MB|MiB)?$".matches(token.value) {
+        gnu.error("error: only numeric values with optional suffixes K, KB, KiB, M, MB, MiB are allowed")
+        exit 1
+      }
+    } else if option == "block-size" and format in ["xz", "lzma"] {
+      let _ = xz_number(token.value, "block-size", true)?
+    } else if option in ["Q", "no-warn"] and format in ["xz", "lzma"] {
+      no_warn = true
+    } else if option in ["F", "format"] and format in ["xz", "lzma"] {
+      if token.value == "auto" {
+        format = "xz"
+        auto_format = true
+      } else if token.value == "xz" {
+        format = "xz"
+        auto_format = false
+      } else if token.value in ["lzma", "alone"] {
+        format = "lzma"
+        auto_format = false
+      } else if token.value == "raw" {
+        gnu.error("option '--format=raw' is not supported")
+        exit 1
+      } else {
+        gnu.error(f"{token.value}: Unknown file format type")
+        exit 1
+      }
+    } else if option in ["C", "check"] and format in ["xz", "lzma"] {
+      # The codec always writes CRC64; naming it is accepted, any other check
+      # would silently produce a different archive.
+      if token.value in ["crc32", "sha256", "none"] {
+        gnu.error(f"option '--check={token.value}' is not supported")
+        exit 1
+      } else if token.value != "crc64" {
+        gnu.error(f"{token.value}: Unsupported integrity check type")
+        exit 1
+      }
+    } else if option in ["S", "suffix"] and format in ["gz", "xz", "lzma"] {
+      if token.value == "" or token.value.byte_len() > 30 {
+        gnu.error(f"'{token.value}': invalid suffix")
+        exit 1
+      }
+      custom_suffix = token.value
+    } else if option == "format" and format == "zstd" {
+      if token.value != "zstd" {
+        gnu.error(f"Incorrect parameter: --format={token.value}")
+        exit 1
+      }
+    } else if option == "long" and format == "zstd" {
+      # The window log is a compression hint, so a valid value changes nothing
+      # the decoder sees; the reference tool also lets a non-number through.
+      if rx"^[0-9]+$".matches(token.value) {
+        let window = token.value.parse_int()?
+        if window < 10 or window > 31 {
+          gnu.error("error 11 : Parameter is out of bound")
+          exit 11
+        }
+      }
+    } else if option == "pass-through" and format == "zstd" {
+      pass_through = true
+    } else if option == "no-pass-through" and format == "zstd" {
+      pass_through = false
     } else if option == "fast" {
       if format == "zstd" {
         let speed = if token.value == "" { 1 } else { token.value.parse_int()? }
-        if speed < 1 or speed > 131072 { gnu.usage_error("fast level must be between 1 and 131072") }
-        level = -speed
+        if speed < 1 { gnu.usage_error("fast level must be at least 1") }
+        level = -(if speed > 131072 { 131072 } else { speed })
       } else { level = 1 }
     } else if option == "ultra" and format == "zstd" {
       ultra = true
     } else if option == "best" {
       level = 9
+    } else if tuning_option(format, option) {
+      continue
     } else if token.kind == "short" and rx"^[0-9]+$".matches(option) {
       level = option.parse_int()?
-      if level > (if format == "zstd" { 22 } else { 9 }) or (format in ["gz", "bz2"] and level == 0) { gnu.usage_error("invalid compression level") }
-    } else if option in ["h", "help"] {
+      if (format != "zstd" and level > 9) or (format in ["gz", "bz2"] and level == 0) { gnu.usage_error("invalid compression level") }
+    } else if option in ["repetitive-fast", "repetitive-best"] and format == "bz2" {
+      if quiet == 0 { gnu.error(f"--{option} is redundant in versions 0.9.5 and above") }
+    } else if option in ["h", "help", "H", "long-help"] {
       gnu.help(f"Usage: {gnu.prog()} [OPTION]... [FILE]...\nCompress or decompress files; no FILE or '-' reads standard input.\n  -c, --stdout      write to standard output\n  -d, --decompress  decompress\n  -k, --keep        keep input files\n  -f, --force       overwrite output files\n  -t, --test        check compressed data integrity\n  -1 .. -9          compression level\n")
       return
-    } else if option in ["V", "version"] { gnu.version(gnu.prog()); return } else { gnu.usage_error(f"unrecognized option '{if token.kind == "short" { "-" } else { "--" }}{option}'") }
+    } else if option in ["V", "version"] or (option in ["L", "license"] and format in ["gz", "bz2"]) {
+      gnu.version(gnu.prog())
+      return
+    } else {
+      gnu.usage_error(f"unrecognized option '{shown}'")
+    }
   }
-  if format == "zstd" and level > 19 and ! ultra { gnu.usage_error("levels above 19 require --ultra") }
+  # -q hides warnings; errors survive one -q in xz and zstd, and gzip and
+  # bzip2 never silence them.
+  let show_warnings = quiet == 0
+  let show_errors = format in ["gz", "bz2"] or quiet < 2
+  # What a skipped operand does to the exit status: xz and gzip call it a
+  # warning (status 2, which xz -Q turns into 0); bzip2 and zstd call it an error.
+  let skip_status = if format in ["bz2", "zstd"] { 1 } else if no_warn { 0 } else { 2 }
+  if format == "zstd" {
+    let ceiling = if ultra { 22 } else { 19 }
+    if level > ceiling {
+      if show_warnings { gnu.error(f"Warning : compression level higher than max, reduced to {ceiling}") }
+      level = ceiling
+    }
+  }
   let metadata = name_mode ?? ! decode
   if names.is_empty() { names = ["-"] }
+  var status = 0
+  if recursive {
+    let expansion = expand_directories(names, format, decode or listing, custom_suffix, auto_format, force, (verbose or testing) and show_warnings)?
+    names = expansion.names
+    status = expansion.status
+  }
   if listing and verbose { gnu.usage_error("--verbose cannot be combined with --list") }
   if listing {
-    match if format == "xz" { list_xz(names) } else if format == "zstd" { list_zstd(names) } else { list_gzip(names, quiet, stored_names) } {
+    match if format == "xz" { list_xz(names) } else if format == "zstd" { list_zstd(names) } else { list_gzip(names, quiet > 0, stored_names) } {
       Ok(failed) => { exit failed }
       Err(failure) => { gnu.error(gnu.strerror(failure)); exit 1 }
     }
   }
-  var status = 0
+  # xz also reads .lzma content, so a decoding xz applet lets the codec pick
+  # between the two from the stream itself; every other applet names its format.
+  let codec = if decode and format == "xz" and auto_format { "xz,lzma" } else { format }
+  var fixed: Path? = null
+  if let target = output_file {
+    if names.len() > 1 and ! testing {
+      exit write_concatenated(names, target, codec, decode, level, force, keep, show_errors, show_warnings)
+    }
+    fixed = fp"{target}"
+  }
+  let active_suffix = custom_suffix ?? suffix(format)
   for name in names {
-    let to_stdout = stdout or name == "-"
+    let to_stdout = fixed == null and (stdout or name == "-")
     let source: Path? = if name == "-" { null } else { fp"{name}" }
-    var destination: Path? = null
-    if ! to_stdout and ! testing {
+    var destination: Path? = if testing { null } else { fixed }
+    if ! to_stdout and ! testing and name != "-" {
       guard let info = fs.stat(fp"{name}", follow_symlinks: force) else { |failure|
-        if ! quiet { gnu.name_error(name, failure) }
+        if show_errors { gnu.name_error(name, failure) }
         status = combined_status(status, 1, format)
         continue
       }
-      if info.kind != "file" or (! force and info.nlink > 1) {
-        if ! quiet { gnu.error(f"{name}: not a regular file with one link -- skipped") }
-        status = combined_status(status, if format in ["bz2", "zstd"] { 1 } else { 2 }, format)
+      # zstd compresses hard-linked files, and says so when it skips one.
+      if info.kind != "file" or (! force and info.nlink > 1 and format != "zstd") {
+        if format == "zstd" {
+          if show_errors { gnu.error(f"{name} {if info.kind == "dir" { "is a directory" } else { "is not a regular file" }} -- ignored") }
+        } else if show_warnings {
+          gnu.error(f"{name}: not a regular file with one link -- skipped")
+        }
+        status = combined_status(status, skip_status, format)
         continue
       }
-      if decode {
-        let output = decoded_name(name, format)
-        if output == null {
-          if ! quiet { gnu.error(f"{name}: unknown suffix - ignored") }
-          status = combined_status(status, 1, format)
-          continue
-        }
-        destination = fp"{output}"
-        if format == "gz" and metadata {
-          match compression.gzip_name(fp"{name}") {
-            Ok(original) => { if original != null { destination = fp"{fp"{name}".parent()}/{original}" } }
-            Err(failure) => { if ! quiet { gnu.name_error(name, failure) }; status = combined_status(status, 1, format); continue }
+      if output_file == name {
+        if show_errors { gnu.error("Refusing to open an output file which will overwrite the input file") }
+        status = combined_status(status, 1, format)
+        continue
+      }
+      if fixed == null {
+        if decode {
+          let output = decoded_name(name, format, custom_suffix, auto_format)
+          if output == null {
+            # gzip calls an unknown suffix a warning; the others fail the file.
+            if format == "gz" {
+              if show_warnings { gnu.error(f"{name}: unknown suffix - ignored") }
+              status = combined_status(status, 1, format)
+            } else {
+              if show_errors { gnu.error(f"{name}: unknown suffix - ignored") }
+              status = combined_status(status, 1, format)
+            }
+            continue
           }
+          destination = fp"{output}"
+          if format == "gz" and metadata {
+            match compression.gzip_name(fp"{name}") {
+              Ok(original) => { if original != null { destination = fp"{fp"{name}".parent()}/{original}" } }
+              Err(failure) => { if show_errors { gnu.name_error(name, failure) }; status = combined_status(status, 1, format); continue }
+            }
+          }
+        } else {
+          # zstd compresses an already-suffixed name again, as the reference does.
+          if format != "zstd" and name.ends_with(active_suffix) and (format != "gz" or ! force) {
+            if show_warnings { gnu.error(f"{name} already has {active_suffix} suffix -- unchanged") }
+            status = combined_status(status, skip_status, format)
+            continue
+          }
+          destination = fp"{name}{active_suffix}"
         }
-      } else {
-        if name.ends_with(suffix(format)) and (format != "gz" or ! force) {
-          if ! quiet { gnu.error(f"{name} already has {suffix(format)} suffix -- unchanged") }
-          status = combined_status(status, if format in ["bz2", "zstd"] { 1 } else { 2 }, format)
-          continue
-        }
-        destination = fp"{name}{suffix(format)}"
       }
     }
     if source == null and ! testing and ! decode and unix.isatty(0) and ! force {
-      if ! quiet { gnu.error("compressed data not read from a terminal; use -f to force") }
+      if show_errors { gnu.error("compressed data not read from a terminal; use -f to force") }
       status = combined_status(status, 1, format)
       continue
     }
     if to_stdout and ! testing and ! decode and unix.isatty(1) and ! force {
-      if ! quiet { gnu.error("compressed data not written to a terminal; use -f to force") }
+      if show_errors { gnu.error("compressed data not written to a terminal; use -f to force") }
       status = combined_status(status, 1, format)
       continue
     }
-    let passing_through = force and decode and to_stdout and ! testing
-    # xz also reads .lzma content, so a decoding xz applet lets the codec pick
-    # between the two from the stream itself; every other applet names its format.
-    let codec = if decode and format == "xz" { "xz,lzma" } else { format }
+    let passing_through = (force or pass_through) and decode and to_stdout and ! testing
     match compression.transform(source, destination, codec, decode: decode, level: level, test: testing, metadata: metadata, overwrite: force, pass_through: passing_through) {
       Ok(_) => {
-        if destination != null and ! keep {
+        if destination != null and source != null and ! keep {
           if let Err(failure) = fp"{name}".remove(missing_ok: false) {
-            if ! quiet { gnu.name_error(name, failure) }
+            if show_errors { gnu.name_error(name, failure) }
             status = combined_status(status, 1, format)
           }
         }
-        if verbose and ! quiet { gnu.error(f"{name}: {if testing { "OK" } else { "done" }}") }
+        if verbose and show_warnings { gnu.error(f"{name}: {if testing { "OK" } else { "done" }}") }
       }
       Err(failure) => {
-        if ! quiet {
+        if show_errors {
           # A codec failure has no OS error number; these BusyBox-worded
           # diagnostics replace the codec's own text for bzip2 and lzma input.
           if decode and gnu.errno(failure) == 0 and format in ["bz2", "lzma"] {
