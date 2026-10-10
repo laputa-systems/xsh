@@ -138,7 +138,7 @@ test test_printf_matches_c_field_width_limits { |ctx|
     assert "invalid field width" in diagnostic
     assert width in diagnostic
     if width == "9223372036854775808" {
-      assert "Result not representable" in diagnostic
+      assert "Numerical result out of range" in diagnostic
     }
   }
 
@@ -432,10 +432,10 @@ test test_printf_reports_float_overflow_and_underflow { |ctx|
 
     assert overflow.status == 1
     assert overflow.stdout == "inf"
-    assert overflow.stderr == "printf: '5e8123456789012345678': Result not representable\n"
+    assert overflow.stderr == "printf: '5e8123456789012345678': Numerical result out of range\n"
     assert underflow.status == 1
     assert underflow.stdout == underflow_output
-    assert underflow.stderr == "printf: '7E-8123456789012345678': Result not representable\n"
+    assert underflow.stderr == "printf: '7E-8123456789012345678': Numerical result out of range\n"
   }
 }
 
@@ -514,4 +514,37 @@ test test_printf_escape_sequences_and_backslash_b { |ctx|
   assert expanded.stdout == "[x\tA"
   assert formatted_zero.stdout == "\u{0}1_"
   assert expanded_octal.stdout == "\u{1}_"
+}
+
+test test_printf_exact_decimal_digits_beyond_double_precision { |ctx|
+  let literal = printf_run(ctx, ["%.30f", "0.1"])?
+  let negative = printf_run(ctx, ["%.20f", "-0.25"])?
+  let rounded = printf_run(ctx, ["%.18f", "0.1234567890123456789012"])?
+  let tie_to_even = printf_run(ctx, ["%.18f", "0.1234567890123456765"])?
+  let tie_to_even_up = printf_run(ctx, ["%.18f", "0.1234567890123456775"])?
+
+  assert literal.status == 0, literal.stderr
+  assert literal.stdout == "0.100000000000000000000000000000"
+  assert negative.status == 0, negative.stderr
+  assert negative.stdout == "-0.25000000000000000000"
+  assert rounded.stdout == "0.123456789012345679"
+  assert tie_to_even.stdout == "0.123456789012345676"
+  assert tie_to_even_up.stdout == "0.123456789012345678"
+  assert literal.stderr == "" and rounded.stderr == ""
+}
+
+test test_printf_integer_minimum_is_representable { |ctx|
+  let precision = printf_run(ctx, ["|%.*d|", "-9223372036854775808", "10"])?
+  let value = printf_run(ctx, ["%d", "-9223372036854775808"])?
+  let past_maximum = printf_run(ctx, ["%d", "9223372036854775808"])?
+
+  assert precision.status == 0, precision.stderr
+  assert precision.stdout == "|10|"
+  assert precision.stderr == ""
+  assert value.status == 0, value.stderr
+  assert value.stdout == "-9223372036854775808"
+  assert value.stderr == ""
+  assert past_maximum.status == 1
+  assert past_maximum.stdout == "9223372036854775807"
+  assert past_maximum.stderr == "printf: '9223372036854775808': Numerical result out of range\n"
 }
