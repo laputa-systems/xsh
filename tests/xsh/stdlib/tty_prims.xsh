@@ -76,6 +76,35 @@ test test_open_fd_names_the_path_and_close_fd_protects_the_standard_streams {
   assert ! unix.isatty(fd)
 }
 
+test test_open_fd_flags_are_a_closed_set_and_reach_open {
+  test.error_kind(unix.open_fd(/dev/null, flags: ["cloexec"]), "invalid-argument")
+
+  # directory fails on a file, and a name that is a directory opens with it.
+  let refused = unix.open_fd(/dev/null, nonblock: false, flags: ["directory"])
+  assert errno_of(refused) == 20
+  let directory = unix.open_fd(/dev, nonblock: false, flags: ["directory"])?
+  unix.close_fd(directory)
+
+  # A direct descriptor moves bytes through an aligned buffer, so a script's
+  # unaligned Bytes still reach the file.
+  let file = fp"{env.get_or("TMPDIR", "/tmp") ?? "/tmp"}/xsh-open-fd-direct-{process.current_pid()?}"
+  file.write(bytes.zero(8192)?)
+  defer file.remove()
+  match unix.open_fd(file, write: true, nonblock: false, flags: ["direct"]) {
+    Err(failure) => {
+      assert failure.errno == 22, "an unsupported filesystem rejects O_DIRECT with EINVAL"
+      test.skip("the filesystem does not support O_DIRECT")
+    }
+    Ok(fd) => {
+      defer unix.close_fd(fd)
+      let payload = bytes.from_ints([1 + index % 200 for index in range(4096)])?
+      assert unix.write_fd(fd, payload)? == 4096
+      let _ = unix.seek_fd(fd, 0)?
+      assert unix.read_fd(fd, 4096)? == payload
+    }
+  }
+}
+
 test test_the_controlling_terminal_is_a_device_or_absent {
   match unix.controlling_tty() {
     Ok(name) => assert name.starts_with("/dev/")

@@ -81,6 +81,20 @@ impl<'a> Args<'a> {
         }
     }
 
+    pub(crate) fn strs(&self, index: usize) -> Result<Vec<String>, RuntimeError> {
+        match self.get(index) {
+            Some(Value::List(values)) => values
+                .iter()
+                .map(|value| match value {
+                    Value::Str(value) => Ok(value.to_string()),
+                    other => Err(self.type_error("Str", other)),
+                })
+                .collect(),
+            Some(other) => Err(self.type_error("List[Str]", other)),
+            None => Ok(Vec::new()),
+        }
+    }
+
     pub(crate) fn int_or(&self, index: usize, default: i64) -> Result<i64, RuntimeError> {
         match self.get(index) {
             Some(Value::Int(value)) => Ok(*value),

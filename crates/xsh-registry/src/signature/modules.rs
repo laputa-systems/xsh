@@ -3164,6 +3164,7 @@ fn unix_module() -> ModuleSig {
                     param("path", Type::Path),
                     default_param("write", Type::Bool),
                     default_param("nonblock", Type::Bool),
+                    default_param("flags", Type::List(Box::new(Type::Str))),
                 ],
                 result(Type::Int),
                 false,

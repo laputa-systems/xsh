@@ -1494,7 +1494,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("unix", "open_fd" | "close_fd") => Some((
             "Opens a path as a bare descriptor number, or closes one.",
-            "The descriptor is for the termios and window-size calls, never becomes the controlling terminal, and is closed on exec; it is not owned by any scope, so the script must close it, and the standard streams cannot be closed.",
+            "The descriptor is for the termios, window-size, and raw read and write calls, never becomes the controlling terminal, and is closed on exec; it is not owned by any scope, so the script must close it, and the standard streams cannot be closed. flags adds open flags by name (direct, noatime, nofollow, directory, dsync, sync, append, nonblock, noctty); read_fd and write_fd move the bytes of a direct descriptor through an aligned buffer.",
             &["unix", "fd", "host-resource"],
         )),
         ("unix", "open_pty") => Some((

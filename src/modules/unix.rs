@@ -1446,14 +1446,62 @@ pub(crate) fn cpu_features() -> Value {
     Value::List(features)
 }
 
+// O_DIRECT transfers must start at an aligned address, which the allocator
+// does not promise for script bytes, so a direct descriptor moves its data
+// through a page-aligned bounce buffer.
+const DIRECT_ALIGNMENT: usize = 4096;
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn is_direct(fd: libc::c_int) -> bool {
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    flags >= 0 && flags & libc::O_DIRECT != 0
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn is_direct(_fd: libc::c_int) -> bool {
+    false
+}
+
+struct AlignedBuffer {
+    backing: Vec<u8>,
+    start: usize,
+    len: usize,
+}
+
+impl AlignedBuffer {
+    fn new(len: usize) -> Result<Self, std::collections::TryReserveError> {
+        let mut backing = Vec::new();
+        backing.try_reserve_exact(len + DIRECT_ALIGNMENT)?;
+        backing.resize(len + DIRECT_ALIGNMENT, 0);
+        let start = backing.as_ptr().align_offset(DIRECT_ALIGNMENT);
+        Ok(Self { backing, start, len })
+    }
+
+    fn bytes(&mut self) -> &mut [u8] {
+        &mut self.backing[self.start..self.start + self.len]
+    }
+}
+
 // A single descriptor write exposes short writes to the caller instead of
 // hiding stream progress behind a buffer or retry loop.
 fn write_fd_native(fd: i64, data: &[u8], span: Span) -> Result<usize, RuntimeError> {
     let kind = "unix-write-fd";
     let fd = raw_fd_arg(fd, kind, span)?;
     let count = data.len().min(isize::MAX as usize);
+    let mut bounce = if is_direct(fd) && count > 0 {
+        let mut buffer = AlignedBuffer::new(count)
+            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+        buffer.bytes().copy_from_slice(&data[..count]);
+        Some(buffer)
+    } else {
+        None
+    };
+    let source = match bounce.as_mut() {
+        Some(buffer) => buffer.bytes().as_ptr(),
+        None => data.as_ptr(),
+    };
     loop {
-        let written = unsafe { libc::write(fd, data.as_ptr().cast(), count) };
+        let written = unsafe { libc::write(fd, source.cast(), count) };
         if written >= 0 {
             return Ok(written as usize);
         }
@@ -1493,14 +1541,32 @@ fn read_fd_native(fd: i64, max_bytes: i64, span: Span) -> Result<Vec<u8>, Runtim
     let fd = raw_fd_arg(fd, kind, span)?;
     let count = usize::try_from(max_bytes).ok().filter(|count| *count > 0)
         .ok_or_else(|| RuntimeError::new(kind, "max_bytes must be positive").with_span(span))?;
+    let mut bounce = if is_direct(fd) {
+        Some(
+            AlignedBuffer::new(count)
+                .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?,
+        )
+    } else {
+        None
+    };
     let mut data = Vec::new();
-    data.try_reserve_exact(count)
-        .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
-    data.resize(count, 0);
+    if bounce.is_none() {
+        data.try_reserve_exact(count)
+            .map_err(|error| RuntimeError::new(kind, error.to_string()).with_span(span))?;
+        data.resize(count, 0);
+    }
     loop {
-        let read = unsafe { libc::read(fd, data.as_mut_ptr().cast(), data.len()) };
+        let (target, capacity) = match bounce.as_mut() {
+            Some(buffer) => (buffer.bytes().as_mut_ptr(), count),
+            None => (data.as_mut_ptr(), data.len()),
+        };
+        let read = unsafe { libc::read(fd, target.cast(), capacity) };
         if read >= 0 {
-            data.truncate(read as usize);
+            let read = read as usize;
+            if let Some(buffer) = bounce.as_mut() {
+                return Ok(buffer.bytes()[..read].to_vec());
+            }
+            data.truncate(read);
             return Ok(data);
         }
         let error = io::Error::last_os_error();
