@@ -4243,7 +4243,10 @@ Contracts worth knowing without consulting the reference:
   it. `fs.stat` returns every `lstat` field (`follow_symlinks: true` gives
   `stat`): full file kind (`fifo`, `socket`, `block`, `char`), `nlink`, `dev`,
   `ino`, `rdev`, and nanosecond `atime_ns`/`mtime_ns`/`ctime_ns`; two paths are
-  one file when `dev` and `ino` match. `fs.set_owner`, `fs.set_times` (explicit
+  one file when `dev` and `ino` match. A relative path is passed to the kernel
+  as written while the evaluator's directory is the process directory (one
+  `lstat` or `stat` of the operand); inside a `cd` scope it is anchored at the
+  scope's directory. `fs.set_owner`, `fs.set_times` (explicit
   nanoseconds, whole seconds with a nanosecond part for instants outside the
   signed nanosecond range, kernel "now", or unchanged per field), and
   `fs.link` take `follow_symlinks`, and so does the method `PATH.chmod(mode,

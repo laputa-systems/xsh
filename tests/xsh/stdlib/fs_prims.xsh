@@ -51,6 +51,23 @@ test test_stat_reports_every_lstat_field { |ctx|
   assert fs.stat(/dev/null)?.kind == "char"
 }
 
+test test_stat_resolves_relative_paths_against_the_evaluator_directory { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-stat-relative")?
+  fp"{root}/inner".mkdir()
+  fp"{root}/inner/file".write("abc")
+  fp"{root}/file".write("a")
+  cd root {
+    assert fs.stat(p"file")?.size == 1
+    assert fs.stat(p"inner/file")?.size == 3
+    cd (fp"{root}/inner") {
+      assert fs.stat(p"file")?.size == 3
+      assert fs.stat(p"../file")?.size == 1
+    }
+    assert fs.stat(p"file")?.size == 1
+  }
+  assert fs.stat(p"missing-relative-operand") is Err(_)
+}
+
 test test_stat_follows_symlinks_only_when_asked { |ctx|
   let root = test.temp_dir(ctx, name: "fs-stat-link")?
   let file = fp"{root}/file"

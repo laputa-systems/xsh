@@ -744,7 +744,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("fs", "stat") => Some((
             "Reads complete metadata for a path without following a final symlink unless asked.",
-            "The record is a point-in-time snapshot with nanosecond times, link count, device and inode identity, and the full file kind; fs.metadata keeps the narrower FsEntry shape.",
+            "The record is a point-in-time snapshot with nanosecond times, link count, device and inode identity, and the full file kind; fs.metadata keeps the narrower FsEntry shape. A relative path reaches the kernel unchanged (one lstat or stat of the operand, errors naming it as written) while the evaluator's directory is the process directory, and is anchored at the evaluator's directory inside a cd scope.",
             &["filesystem", "metadata", "inspection"],
         )),
         ("fs", "set_owner") => Some((

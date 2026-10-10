@@ -5834,7 +5834,7 @@ impl Evaluator {
             RuntimeOp::FsStat if (1..=2).contains(&values.len()) => {
                 let follow = lowered_bool_arg_or(values.get(1).cloned(), false, "fs.stat", span)?;
                 let path = lowered_path_arg(values.remove(0), "fs.stat", span)?;
-                lowered_runtime_result(fs_module::stat(self.host_path(&path), follow, span), span)?
+                lowered_runtime_result(fs_module::stat(self.kernel_path(&path), follow, span), span)?
             }
             RuntimeOp::FsSetOwner if (1..=4).contains(&values.len()) => {
                 let follow =
