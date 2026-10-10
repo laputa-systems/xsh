@@ -81,3 +81,48 @@ test test_find_symbolic_and_octal_permissions { |ctx|
   assert any.status.exited_with(0)
   assert any.stdout == ""
 }
+
+use core.lib.findutils_fixture as fixture
+
+# Every command line of the recorded GNU find corpus, in six shares that run
+# in parallel; the corpus and the fixture tree are described in
+# tests/data/findutils/regen.xsh.
+proc check_share(ctx: TestContext, part: Int) [fs, process, time, error] -> Result[Unit, Error] {
+  let root = test.temp_dir(ctx, name: f"find-corpus-{part}")?
+  let work = test.temp_dir(ctx, name: f"find-corpus-out-{part}")?
+  fixture.build(root)?
+  fixture.build_hostile(root)?
+  defer fixture.restore(root)
+  let corpus = fp"{ctx.core_dir}/tests/data/findutils/find.jsonl"
+  let failures = fixture.run_corpus(ctx.xsh_bin, fp"{ctx.core_dir}/find.xsh", corpus, root, work, part, 6)?
+  assert failures.is_empty(), failures.join("\n")
+  Ok()
+}
+
+test test_find_matches_recorded_gnu_output_0 { |ctx| check_share(ctx, 0)? }
+test test_find_matches_recorded_gnu_output_1 { |ctx| check_share(ctx, 1)? }
+test test_find_matches_recorded_gnu_output_2 { |ctx| check_share(ctx, 2)? }
+test test_find_matches_recorded_gnu_output_3 { |ctx| check_share(ctx, 3)? }
+test test_find_matches_recorded_gnu_output_4 { |ctx| check_share(ctx, 4)? }
+test test_find_matches_recorded_gnu_output_5 { |ctx| check_share(ctx, 5)? }
+
+# Operands that are not valid UTF-8 reach the applet as raw bytes: start
+# points, name patterns and -exec arguments are matched and passed unchanged.
+test test_find_accepts_non_utf8_operands { |ctx|
+  let root = test.temp_dir(ctx, name: "find-raw-operands")?
+  let dir = Path.parse_bytes(bytes.concat([root.bytes(), b"/d\xff"]))?
+  dir.mkdir()?
+  Path.parse_bytes(bytes.concat([dir.bytes(), b"/n\xfe.txt"]))?.write("x")?
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/find.xsh"
+  let pattern = Path.parse_bytes(b"n\xfe*")?
+  let plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, p"--", script, p"--", dir, p"-name", pattern, p"-printf", p"%f\\n"], root, {LC_ALL: "C"}, b"", out, err)
+  let status = process.run(plan)?
+  assert status.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == b"n\xfe.txt\n"
+  let exec_plan = process.command_argv(ctx.xsh_bin, [ctx.xsh_bin, p"--", script, p"--", dir, p"-type", p"f", p"-exec", p"printf", p"[%s]", p"{}", p";"], root, {LC_ALL: "C"}, b"", out, err)
+  let exec_status = process.run(exec_plan)?
+  assert exec_status.exited_with(0), err.read_text()?
+  assert out.read_bytes()? == bytes.concat([b"[", dir.bytes(), b"/n\xfe.txt]"])
+}
