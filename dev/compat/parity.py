@@ -116,7 +116,16 @@ def native_tests(util: str, impl: str | None) -> str | None:
         shared = CORE / "tests" / f"test-{base}.xsh"
         if shared.exists():
             return f"core/tests/test-{base}.xsh"
-    return None
+    # A family test file (test-procps, test-compress, test-storage) covers its
+    # commands by name; take the file that mentions the command most, with at
+    # least two uses so a passing mention in an unrelated test does not count.
+    word = re.compile(r"(?<![\w-])" + re.escape(util) + r"(?![\w-])")
+    best: tuple[int, str] | None = None
+    for path in sorted((CORE / "tests").glob("test-*.xsh")):
+        hits = len(word.findall(path.read_text(errors="replace")))
+        if hits >= 2 and (best is None or hits > best[0]):
+            best = (hits, path.name)
+    return f"core/tests/{best[1]}" if best else None
 
 
 def suite_summary(report: dict, util: str) -> dict | None:

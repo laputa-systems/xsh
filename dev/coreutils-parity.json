@@ -3062,33 +3062,22 @@
   "linux_surface": {
     "totals": {
       "commands": 125,
-      "present": 101,
+      "present": 112,
       "optional": 6,
       "missing": [
         "arp",
-        "chrt",
-        "cpio",
-        "curl",
         "ethtool",
         "ifconfig",
-        "ionice",
         "iw",
-        "lsns",
         "nc",
-        "nsenter",
         "nvme",
         "ping",
         "ping6",
-        "prlimit",
         "route",
-        "setpriv",
         "smartctl",
         "ss",
-        "taskset",
         "tracepath",
-        "traceroute",
-        "unshare",
-        "wget"
+        "traceroute"
       ]
     },
     "commands": [
@@ -3150,7 +3139,7 @@
         "optional": false,
         "xsh_implementation": "core/swapon.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "swapoff",
@@ -3160,7 +3149,7 @@
         "optional": false,
         "xsh_implementation": "core/swapoff.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "mkswap",
@@ -3170,7 +3159,7 @@
         "optional": false,
         "xsh_implementation": "core/mkswap.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "dmesg",
@@ -3340,7 +3329,7 @@
         "optional": false,
         "xsh_implementation": "core/ps.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "pgrep",
@@ -3350,7 +3339,7 @@
         "optional": false,
         "xsh_implementation": "core/pgrep.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "pkill",
@@ -3370,7 +3359,7 @@
         "optional": false,
         "xsh_implementation": "core/pidof.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "free",
@@ -3380,7 +3369,7 @@
         "optional": false,
         "xsh_implementation": "core/free.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "top",
@@ -3390,7 +3379,7 @@
         "optional": false,
         "xsh_implementation": "core/top.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-cp.xsh"
       },
       {
         "command": "watch",
@@ -3410,7 +3399,7 @@
         "optional": false,
         "xsh_implementation": "core/vmstat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "killall",
@@ -3450,7 +3439,7 @@
         "optional": false,
         "xsh_implementation": "core/lsof.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-procps.xsh"
       },
       {
         "command": "iostat",
@@ -3530,7 +3519,7 @@
         "optional": true,
         "xsh_implementation": null,
         "present": false,
-        "native_tests": null
+        "native_tests": "core/tests/test-ip.xsh"
       },
       {
         "command": "arp",
@@ -3680,7 +3669,7 @@
         "optional": false,
         "xsh_implementation": "core/gzip.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "gunzip",
@@ -3710,7 +3699,7 @@
         "optional": false,
         "xsh_implementation": "core/bzip2.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "bunzip2",
@@ -3740,7 +3729,7 @@
         "optional": false,
         "xsh_implementation": "core/xz.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "unxz",
@@ -3750,7 +3739,7 @@
         "optional": false,
         "xsh_implementation": "core/unxz.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "xzcat",
@@ -3770,7 +3759,7 @@
         "optional": false,
         "xsh_implementation": "core/lzma.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "unlzma",
@@ -3800,7 +3789,7 @@
         "optional": false,
         "xsh_implementation": "core/zstd.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "unzstd",
@@ -3810,7 +3799,7 @@
         "optional": false,
         "xsh_implementation": "core/unzstd.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "zstdcat",
@@ -3820,7 +3809,7 @@
         "optional": false,
         "xsh_implementation": "core/zstdcat.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-compress.xsh"
       },
       {
         "command": "file",
@@ -3870,7 +3859,7 @@
         "optional": false,
         "xsh_implementation": "core/lsblk.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "blkid",
@@ -3880,7 +3869,7 @@
         "optional": false,
         "xsh_implementation": "core/blkid.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "findmnt",
@@ -3890,7 +3879,7 @@
         "optional": false,
         "xsh_implementation": "core/findmnt.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "mount",
@@ -3900,7 +3889,7 @@
         "optional": false,
         "xsh_implementation": "core/mount.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "umount",
@@ -3920,7 +3909,7 @@
         "optional": false,
         "xsh_implementation": "core/losetup.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "blockdev",
@@ -3930,7 +3919,7 @@
         "optional": false,
         "xsh_implementation": "core/blockdev.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "wipefs",
@@ -3940,7 +3929,7 @@
         "optional": false,
         "xsh_implementation": "core/wipefs.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "partx",
@@ -3980,7 +3969,7 @@
         "optional": false,
         "xsh_implementation": "core/fsfreeze.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "sfdisk",
@@ -3990,7 +3979,7 @@
         "optional": false,
         "xsh_implementation": "core/sfdisk.xsh",
         "present": true,
-        "native_tests": null
+        "native_tests": "core/tests/test-storage.xsh"
       },
       {
         "command": "fdisk",
@@ -4150,7 +4139,7 @@
         "optional": false,
         "xsh_implementation": null,
         "present": false,
-        "native_tests": null
+        "native_tests": "core/tests/test-sys-pci.xsh"
       },
       {
         "command": "nsenter",
@@ -4158,9 +4147,9 @@
         "domain": "linux.namespace",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/nsenter.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-nsenter.xsh"
       },
       {
         "command": "unshare",
@@ -4168,9 +4157,9 @@
         "domain": "linux.namespace",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/unshare.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-unshare.xsh"
       },
       {
         "command": "lsns",
@@ -4178,9 +4167,9 @@
         "domain": "linux.namespace",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/lsns.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-lsns.xsh"
       },
       {
         "command": "taskset",
@@ -4188,9 +4177,9 @@
         "domain": "linux.process",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/taskset.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-taskset.xsh"
       },
       {
         "command": "chrt",
@@ -4198,9 +4187,9 @@
         "domain": "linux.process",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/chrt.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-chrt.xsh"
       },
       {
         "command": "ionice",
@@ -4208,9 +4197,9 @@
         "domain": "linux.process",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/ionice.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ionice.xsh"
       },
       {
         "command": "prlimit",
@@ -4218,9 +4207,9 @@
         "domain": "linux.process",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/prlimit.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-prlimit.xsh"
       },
       {
         "command": "setpriv",
@@ -4228,9 +4217,9 @@
         "domain": "linux.capability",
         "reference": "util-linux",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/setpriv.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-setpriv.xsh"
       },
       {
         "command": "ethtool",
@@ -4300,7 +4289,7 @@
         "optional": false,
         "xsh_implementation": null,
         "present": false,
-        "native_tests": null
+        "native_tests": "core/tests/test-sed.xsh"
       },
       {
         "command": "curl",
@@ -4308,9 +4297,9 @@
         "domain": "xsh.net",
         "reference": "curl",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/curl.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-curl.xsh"
       },
       {
         "command": "wget",
@@ -4318,9 +4307,9 @@
         "domain": "xsh.net",
         "reference": "curl",
         "optional": true,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/wget.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-wget.xsh"
       },
       {
         "command": "cpio",
@@ -4328,9 +4317,9 @@
         "domain": "archive",
         "reference": "cpio",
         "optional": false,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/cpio.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-cpio.xsh"
       },
       {
         "command": "efibootmgr",
