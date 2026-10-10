@@ -102,6 +102,10 @@ Rules:
   checks; `docs/TESTING.md`, `dev/coreutils-parity.json` and the generated
   docs that name the harness change in the same lane.
 
+Standing instruction (owner, 2026-10-10): when the expanded-campaign gates close,
+continue automatically into this port and the harness retirement without waiting
+for another request. Spawn lanes on Haiku 5.5 at high effort.
+
 Order: freeze commit and manifest generator; one Haiku lane per utility
 (`core/tests/test-U.xsh`, gate = every mapped ID present and passing); GNU and
 BusyBox groups after the license decision; ratchet; retirement lane.
