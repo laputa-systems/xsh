@@ -58,6 +58,13 @@ proc render_operand_error(argv: List[Bytes], arg_index: Int, message: Str, span_
   exit status
 }
 
+# The shared count parser clamps a decimal that overflows Int to the largest Int.
+# Block sizes can be one less than that, so a plain decimal is read again exactly.
+pure exact_plain_decimal(text: Str, clamped: Int) -> Int {
+  return clamped when clamped != 9223372036854775807 or ! rx"^[0-9]+$".matches(text)
+  text.parse_int() ?? clamped
+}
+
 pure assignment_separator(arg: Bytes) -> Int? {
   for at in range(arg.len()) { if arg.byte_at(at) == 61 { return at } }
   null
@@ -92,10 +99,12 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
       }
       let number_start = key.byte_len() + 1
       let number_help = "a number may be followed by a multiplier: c, w, b, then K, M, G and so on for 1024, kB, MB, GB for 1000"
-      guard let n = amount(text) else { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1); exit 1 }
+      guard let clamped = amount(text) else { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1); exit 1 }
+      let n = if key in ["ibs", "obs", "bs"] { exact_plain_decimal(text, clamped) } else { clamped }
       # amount() clamps an overflowing count to the largest Int, so only text that is
-      # not exactly that value is an overflow.
-      if n == 9223372036854775807 and ! rx"^9223372036854775807$".matches(text) { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}: Value too large for defined data type", number_start, text.byte_len(), null, number_help, false, 1) }
+      # not exactly that value is an overflow. Block sizes stop one short of it, as
+      # GNU bounds them below SSIZE_MAX, so the exact value is an overflow for them.
+      if n == 9223372036854775807 and (key in ["ibs", "obs", "bs"] or ! rx"^9223372036854775807$".matches(text)) { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}: Value too large for defined data type", number_start, text.byte_len(), null, number_help, false, 1) }
       if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1) }
       let byte_count = [factor for factor in text.split("x") if rx"^[0-9]+B$".matches(factor)].len() > 0
       if key == "bs" { opts = {...opts, ibs: n, obs: n, bs: n} } else if key == "ibs" { opts = {...opts, ibs: n} } else if key == "obs" { opts = {...opts, obs: n} } else if key == "cbs" { opts = {...opts, cbs: n} } else if key == "count" { opts = {...opts, count: n, count_bytes: byte_count} } else if key in ["skip", "iseek"] { opts = {...opts, skip: n, skip_bytes: byte_count} } else { opts = {...opts, seek: n, seek_bytes: byte_count} }
@@ -209,6 +218,42 @@ pure transform(records: List[Bytes], opts: Options) -> Result[Converted] {
     return Ok({data: encode_charset(bytes.concat(out), opts)?, blocks: [], truncated: 0})
   }
   Ok({data: encode_charset(mapped, opts)?, blocks: [], truncated: 0})
+}
+
+# XSH allocates each transfer buffer eagerly, so a block size above this bound is
+# refused before the copy starts. It is the largest size the reference host gives
+# GNU dd a buffer for, and larger sizes end in the runtime's allocation failure.
+const BUFFER_LIMIT = 68719476736
+
+# A buffer size in GNU's allocation-failure form: binary units, one decimal place
+# below ten units, rounded to nearest with ties to even. VALUE is at least one
+# kibibyte; the carry from a rounded 1023.x unit moves into the next unit.
+pure buffer_size(value: Int) -> Str {
+  let letters = ["", "K", "M", "G", "T", "P", "E"]
+  var exponent = 0
+  var unit = 1
+  while exponent < 6 and value >= unit * 1024 {
+    unit *= 1024
+    exponent += 1
+  }
+  var whole = value / unit
+  let rest = value % unit
+  if whole >= 10 {
+    if rest * 2 > unit or (rest * 2 == unit and whole % 2 == 1) { whole += 1 }
+    return f"1.0 {letters[exponent + 1]}iB" when whole == 1024 and exponent < 6
+    return f"{whole} {letters[exponent]}iB"
+  }
+  let half = unit / 2
+  let scaled = rest * 5
+  var tenths = scaled / half
+  let left = scaled % half
+  if left * 2 > half or (left * 2 == half and tenths % 2 == 1) { tenths += 1 }
+  if tenths == 10 {
+    tenths = 0
+    whole += 1
+  }
+  return f"{whole} {letters[exponent]}iB" when whole >= 10
+  f"{whole}.{tenths} {letters[exponent]}iB"
 }
 
 pure human_size(size: Int, base: Int, binary: Bool) -> Str {
@@ -549,8 +594,14 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   if b"--version" in argv { gnu.version("dd"); return }
   let started = time.now()
   let opts = parse(argv)
+  # GNU allocates the input buffer, then the output buffer, when the first record is
+  # requested, so a zero count allocates nothing and an unallocatable size fails
+  # before any operand is opened.
+  if opts.count != 0 {
+    if opts.ibs > BUFFER_LIMIT { gnu.error(f"memory exhausted by input buffer of size {opts.ibs} bytes ({buffer_size(opts.ibs)})"); exit 1 }
+    if opts.obs > BUFFER_LIMIT { gnu.error(f"memory exhausted by output buffer of size {opts.obs} bytes ({buffer_size(opts.obs)})"); exit 1 }
+  }
   if "sync" in opts.conv and opts.ibs > 67108864 { gnu.error("memory exhausted"); exit 1 }
-  if opts.obs > 67108864 and opts.bs == 0 { gnu.error("memory exhausted"); exit 1 }
   if opts.skip > 0 and ! opts.skip_bytes and opts.skip > 9223372036854775807 / opts.ibs { gnu.error("Value too large for defined data type"); exit 1 }
   if opts.seek > 0 and ! opts.seek_bytes and opts.seek > 9223372036854775807 / opts.obs { gnu.error("Value too large for defined data type"); exit 1 }
   let skip = if opts.skip_bytes { opts.skip } else { opts.skip * opts.ibs }

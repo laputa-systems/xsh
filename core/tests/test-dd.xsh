@@ -475,3 +475,39 @@ test test_dd_sync_pads_a_partial_fifo_record { |ctx|
   assert result.stderr == ""
   assert (wait writer?).exited_with(0)
 }
+
+test test_dd_block_size_beyond_the_representable_range_is_an_invalid_number { |ctx|
+  for arg in ["bs=9223372036854775807", "ibs=9223372036854775807", "obs=99999999999999999999"] {
+    let result = invoke(ctx, [arg])?
+    assert result.status == 1, result.stderr
+    assert result.stdout == b"", arg
+    assert result.stderr.starts_with("dd: invalid number: '"), result.stderr
+    assert result.stderr.ends_with("': Value too large for defined data type\n"), result.stderr
+  }
+}
+
+test test_dd_unallocatable_block_sizes_report_gnu_buffer_errors { |ctx|
+  for case in [
+    ["bs=9223372036854775806", "dd: memory exhausted by input buffer of size 9223372036854775806 bytes (8.0 EiB)\n"],
+    ["bs=4E", "dd: memory exhausted by input buffer of size 4611686018427387904 bytes (4.0 EiB)\n"],
+    ["ibs=1EB", "dd: memory exhausted by input buffer of size 1000000000000000000 bytes (888 PiB)\n"],
+    ["obs=1PB", "dd: memory exhausted by output buffer of size 1000000000000000 bytes (909 TiB)\n"],
+    ["obs=4E", "dd: memory exhausted by output buffer of size 4611686018427387904 bytes (4.0 EiB)\n"],
+    ["bs=1023G", "dd: memory exhausted by input buffer of size 1098437885952 bytes (1023 GiB)\n"],
+    ["bs=1099468678103", "dd: memory exhausted by input buffer of size 1099468678103 bytes (1.0 TiB)\n"],
+    ["bs=10929145580093", "dd: memory exhausted by input buffer of size 10929145580093 bytes (9.9 TiB)\n"],
+  ] {
+    let result = invoke(ctx, [case[0]])?
+    assert result.status == 1, result.stderr
+    assert result.stderr == case[1], result.stderr
+  }
+}
+
+test test_dd_zero_count_allocates_no_block_buffer { |ctx|
+  for arg in ["bs=1PB", "ibs=1PB", "obs=1PB"] {
+    let result = invoke(ctx, [arg, "count=0", "status=none"])?
+    assert result.status == 0, result.stderr
+    assert result.stdout == b""
+    assert result.stderr == "", arg
+  }
+}
