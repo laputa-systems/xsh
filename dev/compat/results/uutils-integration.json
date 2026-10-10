@@ -70,21 +70,26 @@
       "applet": true
     },
     "chgrp": {
-      "pass": 27,
-      "fail": 4,
+      "pass": 22,
+      "fail": 9,
       "skip": 0,
       "excluded": 0,
       "failing": [
+        "test_chgrp::test_from_option",
+        "test_chgrp::test_from_with_reference",
         "test_chgrp::test_help",
         "test_chgrp::test_help_ref",
         "test_chgrp::test_missing_files",
-        "test_chgrp::test_ref_help"
+        "test_chgrp::test_numeric_group_formats",
+        "test_chgrp::test_permission_denied",
+        "test_chgrp::test_ref_help",
+        "test_chgrp::test_subdir_permission_denied"
       ],
       "applet": true
     },
     "chmod": {
-      "pass": 48,
-      "fail": 15,
+      "pass": 47,
+      "fail": 16,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -102,6 +107,7 @@
         "test_chmod::test_chmod_recursive",
         "test_chmod::test_chmod_recursive_correct_exit_code",
         "test_chmod::test_chmod_symlink_non_existing_file",
+        "test_chmod::test_chmod_symlink_non_existing_file_recursive",
         "test_chmod::test_no_operands"
       ],
       "applet": true
@@ -147,8 +153,8 @@
       "applet": true
     },
     "cp": {
-      "pass": 359,
-      "fail": 19,
+      "pass": 357,
+      "fail": 21,
       "skip": 0,
       "excluded": 8,
       "failing": [
@@ -158,6 +164,7 @@
         "test_cp::test_cp_circular_symbolic_links_in_directory",
         "test_cp::test_cp_conflicting_update",
         "test_cp::test_cp_dir_vs_file",
+        "test_cp::test_cp_gnu_preserve_mode",
         "test_cp::test_cp_no_file",
         "test_cp::test_cp_parents_recursive_source_ending_in_parent_dir",
         "test_cp::test_cp_recursive_char_device_no_permission::case_1_recursive",
@@ -167,6 +174,7 @@
         "test_cp::test_cp_reflink_bad",
         "test_cp::test_cp_reflink_insufficient_permission",
         "test_cp::test_cp_reflink_never",
+        "test_cp::test_cp_xattr_failure_keeps_dest_contents",
         "test_cp::test_non_utf8_dest",
         "test_cp::test_non_utf8_src",
         "test_cp::test_non_utf8_target",
@@ -201,25 +209,18 @@
       "applet": true
     },
     "date": {
-      "pass": 152,
-      "fail": 14,
+      "pass": 159,
+      "fail": 7,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_date::test_date_for_file_with_non_utf8_path",
-        "test_date::test_date_invalid_utf8_byte_rejected",
-        "test_date::test_date_reference_is_non_utf8_path",
-        "test_date::test_format_percent_before_non_utf8_byte",
-        "test_date::test_format_with_gb18030_bytes",
-        "test_date::test_format_with_non_utf8_bytes",
         "test_date::test_large_year_default_output",
         "test_date::test_large_year_default_output_boundary",
         "test_date::test_locale_abbreviated_month_names",
         "test_date::test_locale_calendar_conversions",
         "test_date::test_locale_day_names",
         "test_date::test_locale_month_names",
-        "test_date::test_locale_names_for_several_dates_in_one_run",
-        "test_date::test_non_utf8_operands_are_octal_escaped"
+        "test_date::test_locale_names_for_several_dates_in_one_run"
       ],
       "applet": true
     },
@@ -244,11 +245,13 @@
       "applet": true
     },
     "df": {
-      "pass": 65,
-      "fail": 0,
+      "pass": 64,
+      "fail": 1,
       "skip": 0,
       "excluded": 0,
-      "failing": [],
+      "failing": [
+        "test_df::test_df_masked_proc_fallback"
+      ],
       "applet": true
     },
     "dir": {
@@ -263,13 +266,11 @@
       "applet": true
     },
     "dircolors": {
-      "pass": 18,
-      "fail": 1,
+      "pass": 19,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_dircolors::test_dircolors_non_utf8_paths"
-      ],
+      "failing": [],
       "applet": true
     },
     "dirname": {
@@ -281,21 +282,23 @@
       "applet": true
     },
     "du": {
-      "pass": 120,
-      "fail": 0,
-      "skip": 0,
-      "excluded": 0,
-      "failing": [],
-      "applet": true
-    },
-    "echo": {
-      "pass": 63,
+      "pass": 118,
       "fail": 2,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_echo::full_version_argument",
-        "test_echo::non_utf_8"
+        "test_du::test_du_dereference_args",
+        "test_du::test_du_long_path_from_unreadable"
+      ],
+      "applet": true
+    },
+    "echo": {
+      "pass": 64,
+      "fail": 1,
+      "skip": 0,
+      "excluded": 0,
+      "failing": [
+        "test_echo::full_version_argument"
       ],
       "applet": true
     },
@@ -452,25 +455,26 @@
       "applet": true
     },
     "install": {
-      "pass": 120,
-      "fail": 1,
+      "pass": 117,
+      "fail": 4,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_install::test_install_basic_try_reflink"
+        "test_install::test_install_ancestors_mode_directories",
+        "test_install::test_install_ancestors_mode_directories_with_file",
+        "test_install::test_install_basic_try_reflink",
+        "test_install::test_install_failed_chown_does_not_leave_setuid"
       ],
       "applet": true
     },
     "join": {
-      "pass": 41,
-      "fail": 5,
+      "pass": 43,
+      "fail": 3,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_join::diagnostics::test_snippet_points_at_the_failing_field_of_a_list",
         "test_join::diagnostics::test_snippet_points_inside_a_glued_short_option",
-        "test_join::non_unicode",
-        "test_join::test_join_non_utf8_paths",
         "test_join::test_locale_collation"
       ],
       "applet": true
@@ -512,8 +516,8 @@
       "applet": true
     },
     "ls": {
-      "pass": 185,
-      "fail": 22,
+      "pass": 184,
+      "fail": 23,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -530,6 +534,7 @@
         "test_ls::test_ls_dired_normal_style_offsets",
         "test_ls::test_ls_hyperlink_symlink_target_handling",
         "test_ls::test_ls_ignore_hide",
+        "test_ls::test_ls_long_format",
         "test_ls::test_ls_long_symlink_color",
         "test_ls::test_ls_sort_dot_first_utf8_locale",
         "test_ls::test_ls_time_styles",
@@ -551,14 +556,19 @@
       "applet": true
     },
     "mkdir": {
-      "pass": 43,
-      "fail": 4,
+      "pass": 38,
+      "fail": 9,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_mkdir::diagnostics::test_snippet_points_at_the_bad_operator",
         "test_mkdir::diagnostics::test_snippet_points_into_the_second_clause",
+        "test_mkdir::test_mkdir_acl",
+        "test_mkdir::test_mkdir_parent_mode",
+        "test_mkdir::test_mkdir_parent_mode_check_existing_parent",
+        "test_mkdir::test_mkdir_parent_mode_with_explicit_mode",
         "test_mkdir::test_no_arg",
+        "test_mkdir::test_umask_compliance",
         "test_mkdir::test_version_no_path"
       ],
       "applet": true
@@ -651,8 +661,8 @@
       "applet": true
     },
     "numfmt": {
-      "pass": 163,
-      "fail": 31,
+      "pass": 164,
+      "fail": 30,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -684,7 +694,6 @@
         "test_numfmt::test_delimiter_to_si",
         "test_numfmt::test_delimiter_with_padding",
         "test_numfmt::test_delimiter_with_padding_and_fields",
-        "test_numfmt::test_non_utf8_delimiter",
         "test_numfmt::test_numfmt_negative_treated_as_option",
         "test_numfmt::test_transform_with_suffix_and_delimiter"
       ],
@@ -703,13 +712,11 @@
       "applet": true
     },
     "paste": {
-      "pass": 26,
-      "fail": 1,
+      "pass": 27,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_paste::test_non_utf8_delimiter"
-      ],
+      "failing": [],
       "applet": true
     },
     "pathchk": {
@@ -729,29 +736,14 @@
       "applet": true
     },
     "pr": {
-      "pass": 58,
-      "fail": 26,
+      "pass": 73,
+      "fail": 11,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_pr::test_columns",
-        "test_pr::test_columns_fewer_lines_than_columns",
-        "test_pr::test_columns_last_page",
-        "test_pr::test_columns_partly_filled_page",
-        "test_pr::test_columns_partly_filled_page_across",
         "test_pr::test_invalid_expand_tab_arguments",
-        "test_pr::test_merge",
-        "test_pr::test_merge_one_long_one_short",
         "test_pr::test_negative_expand_tabs",
         "test_pr::test_number_width_too_large",
-        "test_pr::test_with_columns",
-        "test_pr::test_with_columns_across_option_and_column_separator",
-        "test_pr::test_with_columns_and_across_option",
-        "test_pr::test_with_date_format_env",
-        "test_pr::test_with_join_lines_option",
-        "test_pr::test_with_mpr",
-        "test_pr::test_with_offset_space_option",
-        "test_pr::test_with_suppress_error_option",
         "test_pr::test_with_valid_page_ranges",
         "test_pr::test_zero_column_width",
         "test_pr::test_zero_columns",
@@ -776,8 +768,8 @@
       "applet": true
     },
     "printf": {
-      "pass": 142,
-      "fail": 10,
+      "pass": 145,
+      "fail": 7,
       "skip": 0,
       "excluded": 0,
       "failing": [
@@ -787,9 +779,6 @@
         "test_printf::diagnostics::test_snippet_points_at_the_bad_spec",
         "test_printf::diagnostics::test_snippet_points_at_the_incomplete_hex_escape",
         "test_printf::diagnostics::test_snippet_points_inside_a_quoted_format",
-        "test_printf::float_large_precision",
-        "test_printf::sub_any_asterisk_second_param_with_integer",
-        "test_printf::test_extreme_exponent_does_not_overflow",
         "test_printf::test_large_width_format"
       ],
       "applet": true
@@ -920,14 +909,12 @@
       "applet": true
     },
     "shuf": {
-      "pass": 67,
-      "fail": 10,
+      "pass": 69,
+      "fail": 8,
       "skip": 0,
       "excluded": 0,
       "failing": [
-        "test_shuf::test_echo_invalid_unicode_in_arguments",
         "test_shuf::test_getrandom_fail",
-        "test_shuf::test_invalid_unicode_in_filename",
         "test_shuf::test_range_permute_no_overflow_0_max",
         "test_shuf::test_seed_args_no_repeat",
         "test_shuf::test_seed_args_repeat",
@@ -939,14 +926,12 @@
       "applet": true
     },
     "sleep": {
-      "pass": 47,
-      "fail": 6,
+      "pass": 49,
+      "fail": 4,
       "skip": 0,
       "excluded": 1,
       "failing": [
         "test_sleep::test_sleep_no_argument",
-        "test_sleep::test_sleep_stops_after_sigbus",
-        "test_sleep::test_sleep_stops_after_sigsegv",
         "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_2_only_tab",
         "test_sleep::test_sleep_when_input_has_only_whitespace_then_error::case_3_only_newline",
         "test_sleep::test_sleep_when_input_has_trailing_whitespace_then_error::case_2_mixed_newlines_spaces_tabs"
@@ -1036,14 +1021,13 @@
       "applet": true
     },
     "stdbuf": {
-      "pass": 6,
-      "fail": 9,
+      "pass": 7,
+      "fail": 8,
       "skip": 0,
       "excluded": 0,
       "failing": [
         "test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit",
         "test_stdbuf::diagnostics::test_snippet_points_inside_a_long_option_value",
-        "test_stdbuf::test_no_such",
         "test_stdbuf::test_stdbuf_child_execs_command",
         "test_stdbuf::test_stdbuf_no_buffer_option_fails",
         "test_stdbuf::test_stdbuf_no_command_fails_with_125",
@@ -1349,25 +1333,17 @@
       "applet": true
     },
     "yes": {
-      "pass": 3,
-      "fail": 7,
+      "pass": 10,
+      "fail": 0,
       "skip": 0,
       "excluded": 0,
-      "failing": [
-        "test_yes::test_args",
-        "test_yes::test_long_input",
-        "test_yes::test_long_line_exceeds_pipe_capacity",
-        "test_yes::test_long_odd_output",
-        "test_yes::test_long_output",
-        "test_yes::test_non_utf8",
-        "test_yes::test_simple"
-      ],
+      "failing": [],
       "applet": true
     }
   },
   "totals": {
-    "pass": 5491,
-    "fail": 450,
+    "pass": 5514,
+    "fail": 427,
     "skip": 0,
     "excluded": 12
   }
