@@ -170,6 +170,8 @@ def brief(util: str, donor: str | None) -> str:
                      f"output. They are read-only. Also the GNU manual behavior for the applet.")
     else:
         spec_text = " and ".join(f"{UUTILS_ROOT}/src/uu/{u}/ with {UUTILS_ROOT}/tests/by-util/test_{u}.rs" for u in utils)
+    goal_text = (info["goal"] + "\nThe gate runs: " + "; ".join(info.get("checks", [])) if info.get("goal") else
+                 f"make these {suite} tests pass ({len(fix)} total; all currently fail on master).")
     native = bool(info.get("native"))
     target_dir = LANES_ROOT / "_targets" / util
     cargo_rule = "" if native else "cargo, "
@@ -217,7 +219,7 @@ You own exactly (use absolute paths under the worktree):
 Never edit anything else (other core/lib/*, dev/*, src/*, crates/*, docs/*, results, gaps.json).
 Anything you need elsewhere goes in your report under Requests: with the exact symbol or file.
 
-Goal: make these {suite} tests pass ({len(fix)} total; all currently fail on master).
+Goal: {goal_text}
 Some tests may be impossible for a host reason (a permission or group the unprivileged test user lacks):
 if a test fails identically on an untouched copy, say so under Requests: as `host-conflict` and move on.
 {shown}{more}
@@ -260,7 +262,8 @@ Report (under 150 words): gate result line, tests fixed vs unresolved, Requests:
 
 
 def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[str], watch: list[str],
-        native: bool = False, suite: str = "uutils") -> None:
+        native: bool = False, suite: str = "uutils", checks: list[str] | None = None,
+        goal: str | None = None) -> None:
     if utils and len(lanes) != 1:
         sys.exit("--utils describes exactly one lane")
     for util in lanes:
@@ -269,7 +272,8 @@ def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[
             sys.exit(f"{wt} already exists")
         (SCRATCH / util).mkdir(parents=True, exist_ok=True)
         (SCRATCH / util / "lane.json").write_text(json.dumps(
-            {"utils": utils or [util], "own": own, "watch": watch, "donor": donor, "native": native, "suite": suite}))
+            {"utils": utils if utils is not None else ([] if goal else [util]), "own": own, "watch": watch, "donor": donor, "native": native, "suite": suite,
+             "checks": checks or [], "goal": goal}))
         git("worktree", "add", "-b", f"claude/{util}", str(wt), "master", cwd=MASTER)
         text = brief(util, donor)
         (SCRATCH / util / "brief.txt").write_text(text)
@@ -353,6 +357,15 @@ def gate(util: str, committed: bool) -> int:
                 if name in utils and suite == primary else []
             if remaining:
                 lines.append(f"still failing from the target list ({len(remaining)}): " + ", ".join(remaining[:20]))
+    for command in spec(util).get("checks", []):
+        done = subprocess.run(["sh", "-c", command], cwd=wt, env=env, capture_output=True, text=True,
+                              stdin=subprocess.DEVNULL, timeout=3600)
+        if done.returncode != 0:
+            tail = "\n".join((done.stdout + done.stderr).splitlines()[-15:])
+            fail.append(f"check failed: {command}\n{tail}")
+        else:
+            lines.append(f"check passed: {command}")
+            gained = True
     summary = "\n".join(lines)
     if not gained and not fail:
         summary += "\n(no gain)"
@@ -407,6 +420,9 @@ def main() -> int:
             p.add_argument("--watch", nargs="+", default=[])
             p.add_argument("--native", action="store_true")
             p.add_argument("--suite", choices=list(SUITES), default="uutils")
+            p.add_argument("--check", dest="checks", nargs="+", default=[],
+                           help="shell commands (run in the lane worktree) that the gate must see pass")
+            p.add_argument("--goal", help="a language/runtime lane's goal text, shown in the brief")
     p = sub.add_parser("gate")
     p.add_argument("util")
     p.add_argument("--committed", action="store_true")
@@ -420,7 +436,7 @@ def main() -> int:
     if args.cmd == "plan":
         plan(args.donor)
     elif args.cmd == "new":
-        new(args.utils, args.donor, args.members, args.own, args.watch, args.native, args.suite)
+        new(args.utils, args.donor, args.members, args.own, args.watch, args.native, args.suite, args.checks, args.goal)
     elif args.cmd == "brief":
         print(brief(args.utils[0], args.donor))
     elif args.cmd == "gate":
