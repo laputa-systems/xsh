@@ -264,3 +264,22 @@ test test_split_numbered_virtual_input_is_rejected_before_read { |ctx|
     assert ! fp"{root}/xaa".exists()?
   }
 }
+
+test test_split_round_robin_fits_under_a_small_descriptor_limit { |ctx|
+  let root = test.temp_dir(ctx, name: "split")?
+  fp"{root}/input".write(bytes.concat([bytes.from_text(f"{n}\n") for n in range(100)]))
+
+  # Forty round-robin outputs under a descriptor limit of nine: the pieces
+  # cannot all stay open at once.
+  let argv = [
+    "sh", "-c", "ulimit -n 9; exec \"$@\"", "sh",
+    ctx.xsh_bin.display(), fp"{ctx.core_dir}/split.xsh".display(),
+    "-n", "r/40", "input",
+  ]
+  let err = fp"{root}/.err"
+  let plan = process.command_argv("sh", argv, root, {XSH_EXECUTION_PHRASE: "", LC_ALL: "C"}, b"", fp"{root}/.out", err)
+
+  assert process.run(plan)?.exit_code()? == 0, err.read_text()?
+  assert piece(root, "xaa")? == b"0\n40\n80\n"
+  assert piece(root, "xbn")? == b"39\n79\n"
+}
