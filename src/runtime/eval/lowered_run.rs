@@ -6939,6 +6939,20 @@ impl Evaluator {
                     ),
                 }
             }
+            RuntimeOp::EnvEntries if values.is_empty() => {
+                let items = self
+                    .env
+                    .snapshot()
+                    .iter()
+                    .map(|(name, value)| {
+                        LoweredValue::Record(Arc::new(BTreeMap::from([
+                            (Arc::from("name"), LoweredValue::Bytes(name.clone().into())),
+                            (Arc::from("value"), LoweredValue::Bytes(value.clone().into())),
+                        ])))
+                    })
+                    .collect();
+                lowered_result_ok(LoweredValue::List(items))
+            }
             RuntimeOp::EnvList if values.is_empty() => {
                 let mut items = Vec::new();
                 for (name, value) in self.env.snapshot() {
@@ -9231,6 +9245,7 @@ impl Evaluator {
                             (Arc::from("name"), Value::Str("root".into())),
                         ]))]),
                     ),
+                    (Arc::from("supplementary"), Value::List(vec![Value::Int(0)])),
                 ]))))
             }
             RuntimeOp::UnixTtyAttrs if self.unix_fake_active() => {

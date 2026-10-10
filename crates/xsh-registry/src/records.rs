@@ -37,6 +37,7 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("ElfDynamicTag", elf_dynamic_tag_type()),
         ("ElfInfo", elf_info_type()),
         ("EnvEntry", env_entry_type()),
+        ("EnvRawEntry", env_raw_entry_type()),
         ("EnvPathEntry", env_path_entry_type()),
         ("FsCopyFileResult", fs_copy_file_result_type()),
         ("FsCopyTreeResult", fs_copy_tree_result_type()),
@@ -618,6 +619,13 @@ pub fn env_entry_type() -> Type {
     ]))
 }
 
+pub fn env_raw_entry_type() -> Type {
+    Type::Record(name_type_map(vec![
+        ("name".to_string(), Type::Bytes),
+        ("value".to_string(), Type::Bytes),
+    ]))
+}
+
 pub fn linux_meminfo_type() -> Type {
     Type::Record(name_type_map(vec![
         ("total".to_string(), Type::Int),
@@ -1018,6 +1026,10 @@ pub fn unix_id_type() -> Type {
         (
             "groups".to_string(),
             Type::List(Box::new(unix_group_id_type())),
+        ),
+        (
+            "supplementary".to_string(),
+            Type::List(Box::new(Type::Int)),
         ),
     ]))
 }

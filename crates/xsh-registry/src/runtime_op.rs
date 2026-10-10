@@ -220,6 +220,7 @@ pub enum RuntimeOp {
     EnvPath,
     EnvInt,
     EnvList,
+    EnvEntries,
     EnvPathList,
     EnvPathEntries,
     FsWalk,

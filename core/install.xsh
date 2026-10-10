@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.file_publish as files
+use lib.selinux
 
 type Options = {
   directory: Bool, parents: Bool, mode: Str, owner: Str?, group_name: Str?,
@@ -15,13 +16,6 @@ type Options = {
 const NO_CONTEXT_VALUE = "\0"
 
 enum InstallOutcome { Installed, Unchanged, Failed }
-
-# libselinux reports SELinux as enabled when the kernel lists selinuxfs. Labelling
-# is not implemented, so a context request is refused there instead of being
-# dropped; on kernels without SELinux GNU's no-op is exact.
-proc selinux_enabled() -> Result[Bool] {
-  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
-}
 
 # Installation modes start from zero, so omitted classes cannot inherit source
 # permissions or the caller's umask.
@@ -283,9 +277,11 @@ proc main(...argv: List[Bytes]) {
     version: {form: "--version", default: false, stop: true},
     operands: {form: "...SOURCE"},
   })?
+  # Labelling is not implemented, so a context request is refused where SELinux
+  # is enabled instead of being dropped; elsewhere GNU's no-op is exact.
+  let enabled = selinux.enabled()?
   # Warnings come before --help so that options parsed ahead of it still report, as in GNU.
-  let selinux = selinux_enabled()?
-  if ! selinux {
+  if ! enabled {
     for context in opts.context {
       if context != NO_CONTEXT_VALUE { gnu.error("warning: ignoring --context; it requires an SELinux-enabled kernel") }
     }
@@ -293,7 +289,7 @@ proc main(...argv: List[Bytes]) {
   }
   if opts.help { gnu.help("Usage: install [OPTION]... SOURCE... DEST\n  or: install -d [OPTION]... DIRECTORY...\nCopy files and set their attributes."); return }
   if opts.version { gnu.version("install"); return }
-  if selinux and (opts.security_context or opts.preserve_context or ! opts.context.is_empty()) {
+  if enabled and (opts.security_context or opts.preserve_context or ! opts.context.is_empty()) {
     gnu.error("security contexts are not supported on SELinux-enabled systems")
     exit 1
   }

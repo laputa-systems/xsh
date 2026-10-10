@@ -98,6 +98,7 @@ ELF file-format inspection and dynamic dependency metadata.
 Environment variable and PATH manipulation.
 
 - `env.bool(name: Str, fallback: Bool = default) -> Result[Bool, Error]` — Reads and converts one environment variable to a typed value.
+- `env.entries() -> Result[List[{name: Bytes, value: Bytes}], Error]` — Reads every environment variable with its name and value as raw bytes.
 - `env.get(name: Str) -> Result[Str, Error]` — Reads one environment variable as text.
 - `env.get_or(name: Str, fallback: Str = default) -> Result[Str, Error]` — Reads an environment variable with an explicit fallback.
 - `env.int(name: Str, fallback: Int = default) -> Result[Int, Error]` — Reads and converts one environment variable to a typed value.
@@ -577,7 +578,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default, block_signals: List[Str] = default) -> Result[Unit, Error] (+1 overloads)` — Replaces the current process with an explicit environment and optional argv0.
 - `unix.fadvise(fd: Int, offset: Int, length: Int, advice: Str) -> Result[Unit, Error]` — Tells the kernel how a byte range of an open descriptor will be used.
 - `unix.foreground_group(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
-- `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
+- `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], supplementary: List[Int], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
 - `unix.isatty(fd: Int = default) -> Bool` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.
 - `unix.kill_all(name: Str, signal: Str = default) -> Result[{matched: Int, signaled: Int}, Error]` — Sends a signal to a Unix process group or selected process set.
 - `unix.kill_process_group(pid: Int, signal: Str) -> Result[Unit, Error]` — Sends a signal to a Unix process group or selected process set.
@@ -896,6 +897,7 @@ Process-scoped utility helpers.
 - `ElfInfo {class: Str, dynamic_tags: List[{tag: Str, value: Int}], endian: Str, flags: List[Str], interpreter: Str, machine: Str, needed: List[Str], os_abi: Str, path: Path, rpath: Str, runpath: Str, soname: Str, type: Str}` — Describes ELF headers and dynamic dependencies.
 - `EnvEntry {name: Str, value: Str}` — Describes one environment variable entry.
 - `EnvPathEntry {empty: Bool, index: Int, path: Path, raw: Str}` — Describes one component of an environment path list.
+- `EnvRawEntry {name: Bytes, value: Bytes}` — Describes one environment variable entry as host bytes.
 - `FsCopyFileResult {bytes: Int, destination_replaced: Bool, hole_bytes: Int, method: Str}` — Reports how fs.copy_file moved bytes into the destination.
 - `FsCopyTreeResult {dirs: Int, files: Int, symlinks: Int}` — Reports files and directories copied by a tree operation.
 - `FsDataRange {length: Int, offset: Int}` — Describes one run of allocated data in a file.
@@ -981,7 +983,7 @@ Process-scoped utility helpers.
 - `Uname {machine: Str, nodename: Str, release: Str, sysname: Str, version: Str}` — Describes the host kernel identity returned by uname.
 - `UnixChildEvent {pid: Int, status: Status}` — Describes one reaped Unix child event.
 - `UnixGroupId {gid: Int, name: Str}` — Describes Unix group identity numbers.
-- `UnixId {egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}` — Describes Unix user and group identity numbers.
+- `UnixId {egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], supplementary: List[Int], uid: Int}` — Describes Unix user and group identity numbers.
 - `UnixKillAllResult {matched: Int, signaled: Int}` — Reports a Unix process-set signal operation.
 - `UnixLoadAverage {fifteen: Float, five: Float, one: Float}` — Reports the system load averages over one, five, and fifteen minutes.
 - `UnixLoggedProcessGroup {argv: List[Str], command: Str, detach: Bool, ignore_hup: Bool, log_pid: Int, new_session: Bool, pid: Int}` — Represents an owned Unix process group with logging.

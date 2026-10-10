@@ -133,17 +133,19 @@ proc number_argument(text: Str, what: Str, low: Int, high: Int) [process, env] -
   parsed.value
 }
 
-# The task ids of a process, ascending, or null when it has no task directory.
-proc task_ids(pid: Int) [fs, error] -> List[Int]? {
-  match fs.children(fp"/proc/{pid}/task") {
-    Ok(entries) => {
+# The task ids of a process, ascending, or null when the process does not exist
+# (a live process always has at least its main task).
+proc task_ids(pid: Int) [process, error] -> List[Int]? {
+  match process.threads(pid) {
+    Ok(threads) => {
+      let rows: List[ProcessThread] = threads |> collect
       var ids: List[Int] = []
 
-      for entry in entries {
-        ids += [entry.name.parse_int_decimal() ?? 0]
+      for row in rows {
+        ids += [row.thread_id]
       }
 
-      ids |> sort
+      if ids.is_empty() { null } else { ids |> sort }
     }
     Err(_) => null
   }

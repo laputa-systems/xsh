@@ -30,6 +30,7 @@ CATEGORIES = {
     "clap-wording": "asserts clap's diagnostic wording; XSH follows GNU getopt_long wording",
     "gnu-semantics": "asserts behavior that conflicts with the pinned GNU behavior XSH follows",
     "uutils-extension": "asserts a uutils extension GNU does not have; XSH follows GNU",
+    "thread-model": "traces the process with strace without -f and expects a syscall on the main thread; XSH evaluates scripts on one worker thread",
 }
 ID = re.compile(r"^test_([a-z0-9_]+)::([A-Za-z0-9_:]+)$")
 RSTEST_CASE = re.compile(r"^case_(\d+)_(\w+)$")

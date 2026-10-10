@@ -25,3 +25,14 @@ test test_dmesg_notime_removes_only_a_leading_kernel_timestamp {
   assert control.kernel_message("driver [12.003] ready", true) == "driver [12.003] ready"
   assert control.kernel_message("[device] ready", true) == "[device] ready"
 }
+
+# The linux fake always permits the read, so this runs against the real host
+# and is only meaningful where an unprivileged reader is denied the buffer.
+test test_dmesg_reports_a_denied_kernel_buffer_as_a_diagnostic { |ctx|
+  let output = test.run_script(ctx, fp"{ctx.core_dir}/dmesg.xsh".read_text()?, [], {XSH_MODULE_PATH: ctx.core_dir.display()}, b"", "dmesg")?
+  if output.success { test.skip("the host permits reading the kernel buffer") }
+  assert output.status == 1, output.stderr
+  assert output.stderr.ends_with(": read kernel buffer failed: Operation not permitted\n"), output.stderr
+  assert "traceback" not in output.stderr and "call path" not in output.stderr, output.stderr
+  assert output.stdout == ""
+}

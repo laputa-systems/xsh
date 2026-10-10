@@ -1,3 +1,5 @@
+use core.lib.selinux
+
 test test_mkdir { |ctx|
   let root = test.temp_dir(ctx, name: "mkdir")?
   let nested = fp"{root}/a/b"
@@ -134,4 +136,14 @@ test test_mkdir_context_warning_precedes_help_and_is_not_reached_after_help { |c
   let quiet = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mkdir.xsh" -- --help --context=x
   assert quiet.status.exited_with(0), quiet.stderr
   assert quiet.stderr == ""
+}
+
+test test_selinux_helpers_agree_with_the_kernel_filesystem_list {
+  var listed = false
+  for line in fp"/proc/filesystems".lines()? {
+    if "selinuxfs" in line { listed = true }
+  }
+  assert selinux.enabled()? == listed
+  # A mounted selinuxfs is only possible on a kernel that lists it.
+  assert ! selinux.mounted() or listed
 }

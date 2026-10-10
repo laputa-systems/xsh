@@ -92,6 +92,6 @@ RUN apk add --no-cache python3 \
 # Unprivileged test children search PATH, which includes root's cargo bin
 # directory: without search permission on /root a missing program reports
 # "found but not executable" (126) instead of "not found" (127).
-RUN apk add --no-cache e2fsprogs-extra \
+RUN apk add --no-cache e2fsprogs-extra curl \
     && ln -sf /bin/bash /bin/sh \
     && chmod 711 /root

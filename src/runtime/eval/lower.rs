@@ -389,6 +389,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::EnvInt
             | RuntimeOp::EnvPath
             | RuntimeOp::EnvList
+            | RuntimeOp::EnvEntries
             | RuntimeOp::EnvPathList
             | RuntimeOp::EnvPathEntries
             | RuntimeOp::HashParseCheckLine

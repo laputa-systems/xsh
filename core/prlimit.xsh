@@ -496,10 +496,10 @@ proc read_options(argv: List[Str]) [process, env, error, io] -> Invocation {
   {requests: requests, pid: pid, output: output, noheadings: noheadings, raw: raw, verbose: verbose, rest: argv[at..]}
 }
 
-proc nr_open() [fs] -> Int? {
+proc nr_open() [process] -> Int? {
   var found: Int? = null
 
-  if let Ok(text) = fp"/proc/sys/fs/nr_open".read_text() {
+  if let Ok(text) = linux.sysctl_get("fs.nr_open") {
     if let Ok(value) = text.trim().parse_int_decimal() {
       found = value
     }

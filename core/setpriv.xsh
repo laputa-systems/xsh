@@ -559,27 +559,12 @@ proc apply_gids(request: Request) [process, env, error] {
   if let Err(failure) = applied { die_with("setresgid failed", failure) }
 }
 
-proc supplementary_groups() [fs, error] -> Result[List[Int]] {
-  let text = p"/proc/self/status".read_text()?
-  var ids: List[Int] = []
-  for line in text.lines() {
-    if line.starts_with("Groups:") {
-      for word in line.byte_slice(7).trim().split(" ") {
-        if word != "" { ids += [word.parse_int() ?? 0] }
-      }
-    }
-  }
-  ids
-}
-
 proc dump(level: Int) [fs, process, env, io, error] {
   let state = read_state()
   let identity = unix.id()
   if let Err(failure) = identity { die_with("read credentials", failure) }
   let ids = identity?
-  let groups = supplementary_groups()
-  if let Err(failure) = groups { die_with("read groups", failure) }
-  let listed = groups?
+  let listed = ids.supplementary
   var lines = [
     f"uid: {ids.uid}",
     f"euid: {ids.euid}",

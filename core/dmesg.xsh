@@ -11,7 +11,16 @@ proc main(...argv: List[Str]) {
   if opts.help { gnu.help("Usage: dmesg [-t]\nDisplay available kernel log messages."); return }
   if opts.version { gnu.version("dmesg"); return }
   if ! opts.operands.is_empty() { gnu.extra_operand(opts.operands[0]) }
-  for message in linux.dmesg()? {
+  # Opening the kernel buffer fails for an unprivileged reader when the host
+  # restricts it; that is a diagnostic and status 1, not a runtime error.
+  let messages = match linux.dmesg() {
+    Ok(buffer) => buffer
+    Err(failure) => {
+      gnu.error(f"read kernel buffer failed: {gnu.strerror(failure)}")
+      exit 1
+    }
+  }
+  for message in messages {
     let text = control.kernel_message(message, opts.no_time)
     gnu.write_text(text + "\n")
   }

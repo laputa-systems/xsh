@@ -101,8 +101,8 @@ fn request(args: &Args<'_>) -> Result<Value, RuntimeError> {
 
 /// Sends one request and reads until the reply is complete: NLMSG_DONE, an
 /// acknowledgement, or (when no acknowledgement was asked for) a message that
-/// is not part of a multipart reply. A negative NLMSG_ERROR code is the
-/// request's errno.
+/// is not part of a multipart reply. A negative NLMSG_ERROR code, or a
+/// negative status carried by NLMSG_DONE, is the request's errno.
 fn exchange(
     args: &Args<'_>,
     fd: BorrowedFd<'_>,
@@ -166,7 +166,19 @@ fn exchange(
             }
             match message.kind {
                 NLMSG_NOOP => {}
-                NLMSG_DONE => finished = true,
+                NLMSG_DONE => {
+                    // A dump the kernel could not complete ends with a
+                    // negative errno in the DONE payload, which is the only
+                    // place it reports that the protocol has no handler.
+                    let code = message
+                        .payload
+                        .get(..4)
+                        .map(|bytes| i32::from_ne_bytes(bytes.try_into().unwrap()));
+                    if let Some(code) = code.filter(|code| *code < 0) {
+                        return Err(args.errno(io::Error::from_raw_os_error(-code)));
+                    }
+                    finished = true;
+                }
                 NLMSG_ERROR => {
                     let code = message
                         .payload

@@ -18,6 +18,20 @@ move/link/install publication, `lib/fs_misc.xsh` for path and size policy,
 binary encodings and conversion, `lib/checksums.xsh` for checksum formats and
 verification, and `lib/proc_launch.xsh` for executable lookup and exit status.
 
+An applet never spells a `/proc` or `/sys` path itself
+(`dev/compat/check_kernel_reads.py` fails the build when one does); it asks the
+owner of that kernel interface. Beyond the native modules, those owners are
+`lib/selinux.xsh` (whether the kernel lists or mounts selinuxfs, shared by
+`mkdir`, `mknod`, `mv`, `install` and `ss`), `lib/proc_target.xsh` (the
+namespace, root and working-directory files of a target pid, for `nsenter`),
+`lib/efivars.xsh` (the efivarfs directory and whether the platform has one),
+and `lib/net_sockets.xsh` (the socket counters, local port range and cgroup ids
+`ss` prints, and the raw-socket table it falls back to when the kernel has no
+raw_diag handler). Process task ids come from `process.threads`, the
+supplementary group list from `unix.id().supplementary`, the file-descriptor
+limit ceiling from `linux.sysctl_get`, and the inherited environment as bytes
+from `env.entries()`.
+
 Shared semantic libraries remain XSH: `lib/awk.xsh` owns its lexer, parser and
 interpreter, `lib/sed.xsh` owns addressing and execution, the `lib/fat*.xsh`
 family owns geometry and checking, and `lib/date_parse.xsh` owns human date

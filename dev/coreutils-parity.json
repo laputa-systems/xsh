@@ -3062,13 +3062,9 @@
   "linux_surface": {
     "totals": {
       "commands": 125,
-      "present": 122,
+      "present": 125,
       "optional": 6,
-      "missing": [
-        "arp",
-        "ifconfig",
-        "route"
-      ]
+      "missing": []
     },
     "commands": [
       {
@@ -3497,9 +3493,9 @@
         "domain": "linux.net",
         "reference": "net-tools",
         "optional": true,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/ifconfig.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-ifconfig.xsh"
       },
       {
         "command": "route",
@@ -3507,9 +3503,9 @@
         "domain": "linux.net",
         "reference": "net-tools",
         "optional": true,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": "core/tests/test-ip.xsh"
+        "xsh_implementation": "core/route.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-route.xsh"
       },
       {
         "command": "arp",
@@ -3517,9 +3513,9 @@
         "domain": "linux.net",
         "reference": "net-tools",
         "optional": true,
-        "xsh_implementation": null,
-        "present": false,
-        "native_tests": null
+        "xsh_implementation": "core/arp.xsh",
+        "present": true,
+        "native_tests": "core/tests/test-arp.xsh"
       },
       {
         "command": "udevadm",
