@@ -3,6 +3,7 @@ use lib.gnu
 use lib.search
 use lib.gnudiff
 use lib.diffrender
+use lib.textio_a1 as tio
 
 const HELP = """Usage: diff [OPTION]... FILES
 Compare FILES line by line.
@@ -449,8 +450,31 @@ pure render_merged(cfg: Settings, first: gnudiff.Source, second: gnudiff.Source,
   diffrender.render(first, second, script, cfg.fmt, top)
 }
 
+error DeviceError = TooLarge(message: Str)
+
+# The most a device operand may supply: comparing an endless device such as
+# /dev/zero cannot finish, so it stops with an error rather than exhausting
+# memory.
+const DEVICE_LIMIT = 67108864
+
+# Read a character or block device in chunks until it ends or passes the limit.
+proc read_device(name: Str) [fs, io, error] -> Result[Bytes, Error] {
+  let source = tio.open_source(name)?
+  var parts: List[Bytes] = []
+  var total = 0
+  while true {
+    let chunk = tio.read_chunk(source, total, 65536)?
+    if chunk.is_empty() { break }
+    parts += [chunk]
+    total += chunk.len()
+    if total >= DEVICE_LIMIT { return Err(DeviceError.TooLarge(message: "input is unbounded or too large to compare")) }
+  }
+  Ok(bytes.concat(parts))
+}
+
 proc read_side(item: Probe) [fs, io, error] -> Result[Bytes, Error] {
   if item.kind == "absent" { return Ok(b"") }
+  if item.kind == "char" or item.kind == "block" { return read_device(item.name) }
   gnu.read_operand(item.name)
 }
 
