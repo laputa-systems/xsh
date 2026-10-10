@@ -852,7 +852,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
     if !opts.dry_run { message += f" -- saving rejects to file {q(opts, reject_name)}" }
     note(opts, message + "\n")
     if !opts.dry_run {
-      if let Err(failure) = write_rejects(opts, scan, outcome, reject_name, strip) {
+      if let Err(failure) = write_rejects(opts, scan, outcome, reject_name, strip, scan.cr_header and first_changes(lines, scan)) {
         pfatal(f"Can't create file {reject_name}", failure)
       }
     }
@@ -934,7 +934,7 @@ proc make_backup(opts: Options, name: Str, exists: Bool, original: Bytes, mode: 
   if mode >= 0 { fp"{target}".write(original, mode) } else { fp"{target}".write(original) }
 }
 
-proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reject_name: Str, strip: Int) [fs, io, process, env, error] -> Result[Unit, Error] {
+proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reject_name: Str, strip: Int, cr_marked: Bool) [fs, io, process, env, error] -> Result[Unit, Error] {
   let as_context = if opts.reject_format != null { opts.reject_format == "context" } else { scan.kind != "unified" and scan.kind != "git" }
   var parts: List[Bytes] = []
   let old_header = if outcome.reversed { scan.new_name } else { scan.old_name }
@@ -947,7 +947,7 @@ proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reje
   }
   if as_context {
     parts += [bytes.from_text(f"*** {header_old}\n--- {header_new}\n")]
-    for hunk in outcome.rejected { parts += [patch_reject.context_reject(hunk, scan.kind == "normal", scan.cr_header)] }
+    for hunk in outcome.rejected { parts += [patch_reject.context_reject(hunk, scan.kind == "normal", cr_marked)] }
   } else {
     parts += [bytes.from_text(f"--- {header_old}\n+++ {header_new}\n")]
     for hunk in outcome.rejected { parts += [patch_reject.unified_reject(hunk)] }
@@ -962,6 +962,26 @@ pure shifted(hunk: patch_parse.Hunk, by: Int) -> patch_parse.Hunk {
   out.old_first += by
   out.new_first += by
   out
+}
+
+# Whether the first hunk of the patch has a group that both removes and adds
+# lines, which a context diff shows with `!` marks.
+pure first_changes(lines: List[Bytes], scan: patch_parse.Scan) -> Bool {
+  if scan.kind != "context" { return false }
+  let read = read_one(lines, scan.body, scan.kind, true)
+  let hunk = read.hunk
+  if hunk == null { return false }
+  let kinds = (hunk ?? patch_parse.EMPTY_HUNK).kinds
+  var removed = false
+  var added = false
+  for kind in kinds {
+    if kind == 0 {
+      if removed and added { return true }
+      removed = false
+      added = false
+    } else if kind == 1 { removed = true } else { added = true }
+  }
+  removed and added
 }
 
 # The name a reject header shows for a patch header name: `/dev/null` stays,

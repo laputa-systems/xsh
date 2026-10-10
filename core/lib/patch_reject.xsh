@@ -33,8 +33,8 @@ pure context_range(first: Int, count: Int) -> Str {
 
 ## One failed hunk as context-diff text. A hunk read from a normal diff has no
 ## context lines and prints the bare ranges GNU patch prints for such hunks;
-## `cr_stripped` marks a patch whose lines end in carriage returns.
-export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool, cr_stripped: Bool) -> Bytes {
+## `cr_marked` is set for a CRLF context patch whose first hunk changes lines.
+export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool, cr_marked: Bool) -> Bytes {
   var old_lines: List[Bytes] = []
   var new_lines: List[Bytes] = []
   let kinds = hunk.kinds
@@ -74,12 +74,18 @@ export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool, cr_strippe
   var parts: List[Bytes] = [bytes.from_text("***************"), hunk.function, b"\n"]
   let old_range = if from_normal and hunk.old_count == 0 { "0" } else { context_range(hunk.old_first, hunk.old_count) }
   let new_range = if from_normal and hunk.new_count == 0 { "0" } else { context_range(hunk.new_first, hunk.new_count) }
-  # A context diff whose lines end in carriage returns comes back with bare
-  # old ranges, and with a longer new-range rule when the hunk removes lines.
+  # In a context diff with carriage returns whose first hunk changes lines,
+  # the hunks that add text come back with bare old ranges, and with a longer
+  # new-range rule when they also remove lines.
   var has_removal = false
-  for kind in hunk.kinds { if kind == 1 { has_removal = true } }
-  let old_tail = if from_normal or cr_stripped { "" } else { " ****" }
-  let new_tail = if from_normal or (cr_stripped and has_removal) { " -----" } else { " ----" }
+  var has_addition = false
+  for kind in hunk.kinds {
+    if kind == 1 { has_removal = true }
+    if kind == 2 { has_addition = true }
+  }
+  let bare = cr_marked and has_addition
+  let old_tail = if from_normal or bare { "" } else { " ****" }
+  let new_tail = if from_normal or (bare and has_removal) { " -----" } else { " ----" }
   parts += [bytes.from_text(f"*** {old_range}{old_tail}\n")]
   parts += old_lines
   parts += [bytes.from_text(f"--- {new_range}{new_tail}\n")]
