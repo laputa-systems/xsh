@@ -2,7 +2,7 @@
 use lib.gnu
 use lib.diffutils
 
-type Options = {unified: Bool, context: Str?, long_context: Str?, brief: Bool, report_same: Bool, text: Bool, label: Str?, help: Bool, version: Bool, files: List[Str]}
+type Options = {unified: Bool, context: Str?, long_context: Str?, brief: Bool, report_same: Bool, text: Bool, ignore_space_change: Bool, ignore_blank: Bool, label: Str?, help: Bool, version: Bool, files: List[Str]}
 
 pure binary(data: Bytes) -> Bool {
   for index in range(data.len()) { if data.byte_at(index) == 0 { return true } }
@@ -33,8 +33,8 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
     label: {form: "-L --label LABEL"},
     ignore_case: {form: "-i --ignore-case", unsupported: true},
     ignore_space: {form: "-w --ignore-all-space", unsupported: true},
-    ignore_space_change: {form: "-b --ignore-space-change", unsupported: true},
-    ignore_blank: {form: "-B --ignore-blank-lines", unsupported: true},
+    ignore_space_change: {form: "-b --ignore-space-change", default: false},
+    ignore_blank: {form: "-B --ignore-blank-lines", default: false},
     recursive: {form: "-r --recursive", unsupported: true},
     context_diff: {form: "-c --context[=LINES]", unsupported: true},
     ed: {form: "-e --ed", unsupported: true},
@@ -71,23 +71,35 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
     if opts.report_same { gnu.write_text(f"Files {left_name} and {right_name} are identical\n") }
     return
   }
-  if opts.brief { gnu.write_text(f"Files {left_name} and {right_name} differ\n"); exit 1 }
+  let ignoring = opts.ignore_space_change or opts.ignore_blank
+  if opts.brief and !ignoring { gnu.write_text(f"Files {left_name} and {right_name} differ\n"); exit 1 }
   if !opts.text and (binary(left) or binary(right)) { gnu.write_text(f"Binary files {left_name} and {right_name} differ\n"); exit 1 }
-  let scratch = fs.tempdir()?
-  defer scratch.close()
-  scratch.write(p"original", left)
-  scratch.write(p"modified", right)
-  let root = scratch.host_path()?
-  let result = diff.unified(fp"{root}/original", fp"{root}/modified", context: if opts.unified or opts.context != null or opts.long_context != null { context } else { 0 })
-  if let Err(failure) = result { gnu.error(gnu.strerror(failure)); exit 2 }
-  let changed = result?
+  let wanted = if opts.unified or opts.context != null or opts.long_context != null { context } else { 0 }
+  let rendered = if ignoring {
+    if left.utf8() is Err(_) or right.utf8() is Err(_) { gnu.error("ignoring white space requires UTF-8 text"); exit 2 }
+    diffutils.unified_ignoring(left.utf8()?, right.utf8()?, wanted, opts.ignore_space_change, opts.ignore_blank)?
+  } else {
+    let scratch = fs.tempdir()?
+    defer scratch.close()
+    scratch.write(p"original", left)
+    scratch.write(p"modified", right)
+    let root = scratch.host_path()?
+    let result = diff.unified(fp"{root}/original", fp"{root}/modified", context: wanted)
+    if let Err(failure) = result { gnu.error(gnu.strerror(failure)); exit 2 }
+    result?.text
+  }
+  if rendered == "" {
+    if opts.report_same { gnu.write_text(f"Files {left_name} and {right_name} are identical\n") }
+    return
+  }
+  if opts.brief { gnu.write_text(f"Files {left_name} and {right_name} differ\n"); exit 1 }
   if opts.unified or opts.context != null or opts.long_context != null {
     let names = labels(argv)
     let first_label = names.get(0) ?? left_name
     let second_label = names.get(1) ?? right_name
-    let lines = changed.text.lines().collect()
+    let lines = rendered.lines().collect()
     gnu.write_text(f"--- {first_label}\n+++ {second_label}\n")
     for index in range(2, lines.len()) { gnu.write_text(lines[index] + "\n") }
-  } else { gnu.write_text(diffutils.normal(changed.text)) }
+  } else { gnu.write_text(diffutils.normal(rendered)) }
   exit 1
 }
