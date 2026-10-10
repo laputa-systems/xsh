@@ -1336,6 +1336,63 @@ proc format_delimited(line: Str, delimiter: Str, settings: Settings) [env] -> Re
   {text: out, err: ""}
 }
 
+type ByteRendered = {text: Bytes, err: Str}
+
+# A delimiter that is not UTF-8 can only be matched on bytes, so fields are
+# split and rejoined as raw bytes; unselected fields are copied unchanged.
+pure split_bytes(line: Bytes, delimiter: Bytes) -> List[Bytes] {
+  return [line] when delimiter.len() == 0
+
+  var pieces: List[Bytes] = []
+  var start = 0
+  var at = 0
+
+  while at + delimiter.len() <= line.len() {
+    if line[at..at + delimiter.len()] == delimiter {
+      pieces += [line[start..at]]
+      at += delimiter.len()
+      start = at
+    } else {
+      at += 1
+    }
+  }
+
+  pieces += [line[start..line.len()]]
+  pieces
+}
+
+pure invalid_utf8(value: Bytes) -> Bool {
+  match value.utf8() {
+    Ok(_) => false
+    Err(_) => true
+  }
+}
+
+proc format_delimited_bytes(line: Bytes, delimiter: Bytes, settings: Settings) [env] -> ByteRendered {
+  var out: List[Bytes] = []
+  let pieces = split_bytes(line, delimiter)
+
+  for index in range(pieces.len()) {
+    let field = pieces[index]
+
+    if index > 0 { out += [delimiter] }
+
+    if field_selected(settings, index + 1) {
+      guard let text = field.utf8() else {
+        return {text: bytes.concat(out), err: f"invalid number: {gnu.quote(escape_line(field))}"}
+      }
+
+      let formatted = format_string(trim_start(text), settings, null)
+      return {text: bytes.concat(out), err: formatted.err} when formatted.err != ""
+      out += [bytes.from_text(formatted.text)]
+    } else {
+      out += [field]
+    }
+  }
+
+  {text: bytes.concat(out), err: ""}
+}
+
 # The first `e` or `E` followed by a digit marks scientific notation.
 pure is_scientific(line: Str) -> Bool {
   let at = rx"[eE]".find(line)
@@ -1518,7 +1575,7 @@ proc unit_option(value: Str, option: Str, allow_auto: Bool) [process, env] -> St
   value
 }
 
-proc settings_from(opts: NumfmtOptions) [process, env, io] -> Settings {
+proc settings_from(opts: NumfmtOptions, byte_delimiter: Bool) [process, env, io] -> Settings {
   let from = unit_option(opts.from, "from", true)
   let to = unit_option(opts.to, "to", false)
   let from_unit = parse_unit_size(opts.from_unit)
@@ -1599,7 +1656,7 @@ proc settings_from(opts: NumfmtOptions) [process, env, io] -> Settings {
   }
 
   if let delimiter = opts.delimiter {
-    if delimiter.count_chars() > 1 {
+    if delimiter.count_chars() > 1 and ! byte_delimiter {
       option_error("the delimiter must be a single character")
     }
   }
@@ -1639,9 +1696,19 @@ proc settings_from(opts: NumfmtOptions) [process, env, io] -> Settings {
   }
 }
 
-proc main(...argv: List[Str]) [process, env, error, io] {
+proc main(...argv: List[Bytes]) [process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
+
+  # The text parser cannot read an undecodable option, so an attached raw
+  # option value such as `-d\xFF` is refused rather than read as an operand.
+  for argument in prepared.raw {
+    if argument.value.byte_at(0) == 45 {
+      gnu.usage_error(f"invalid option {gnu.quote_bytes(argument.value)}")
+    }
+  }
+
   let opts: NumfmtOptions = cli.applet(
-    argv,
+    prepared.text,
     {
       gnu: {status: 1},
       debug: {form: "--debug", default: false},
@@ -1676,7 +1743,9 @@ proc main(...argv: List[Str]) [process, env, error, io] {
     return
   }
 
-  let settings = settings_from(opts)
+  let delimiter_bytes = gnu.argument_bytes(opts.delimiter ?? "", prepared.raw)
+  let byte_delimiter = opts.delimiter != null and invalid_utf8(delimiter_bytes)
+  let settings = settings_from(opts, byte_delimiter)
 
   if settings.debug {
     if settings.from == "none" and settings.to == "none" and settings.padding == 0 and ! settings.grouping {
@@ -1697,7 +1766,7 @@ proc main(...argv: List[Str]) [process, env, error, io] {
   var ends: List[Bool] = []
 
   if ! opts.numbers.is_empty() {
-    lines = [bytes.from_text(item) for item in opts.numbers]
+    lines = [gnu.argument_bytes(item, prepared.raw) for item in opts.numbers]
     ends = [true for item in opts.numbers]
   } else {
     var data = b""
@@ -1722,6 +1791,56 @@ proc main(...argv: List[Str]) [process, env, error, io] {
       lines += [data[start..data.len()]]
       ends += [false]
     }
+  }
+
+  if byte_delimiter {
+    let terminator_bytes = bytes.from_text(if settings.zero { "\0" } else { "\n" })
+    var output: List[Bytes] = []
+    var failed = false
+    var saw_invalid = false
+
+    for index in range(lines.len()) {
+      let raw = lines[index]
+      let eol = if ends[index] { terminator_bytes } else { b"" }
+
+      if opts.numbers.is_empty() and index < settings.header {
+        output += [raw, eol]
+        continue
+      }
+
+      let result = format_delimited_bytes(raw, delimiter_bytes, settings)
+
+      if result.err == "" {
+        output += [result.text, eol]
+      } else if settings.invalid == "abort" {
+        output += [result.text]
+        gnu.write_bytes(bytes.concat(output))
+        gnu.error(result.err)
+        exit 2
+      } else {
+        if settings.invalid == "fail" {
+          gnu.error(result.err)
+          failed = true
+        } else if settings.invalid == "warn" {
+          gnu.error(result.err)
+        }
+
+        saw_invalid = true
+        output += [raw, eol]
+      }
+    }
+
+    gnu.write_bytes(bytes.concat(output))
+
+    if settings.debug and saw_invalid {
+      gnu.error("failed to convert some of the input numbers")
+    }
+
+    if failed {
+      exit 2
+    }
+
+    return
   }
 
   var out = ""
