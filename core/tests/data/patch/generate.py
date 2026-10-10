@@ -118,6 +118,12 @@ def run_case(item, out_root):
     work = tempfile.mkdtemp(prefix="patch-case-")
     try:
         shutil.copytree(os.path.join(out, "in"), os.path.join(work, "w"), symlinks=True)
+        # File names with spaces are stored with `%20` so paths stay free of
+        # white space in the repository; the run sees the real names.
+        for base, dirs, names in os.walk(os.path.join(work, "w"), topdown=False):
+            for entry in dirs + names:
+                if "%20" in entry:
+                    os.rename(os.path.join(base, entry), os.path.join(base, entry.replace("%20", " ")))
         if item["stdin"] is not None:
             shutil.copy(os.path.join(out, "stdin"), os.path.join(work, "stdin"))
         else:
@@ -165,10 +171,10 @@ def run_case(item, out_root):
                     if rel in mtimes:
                         line += " mtime=%d" % int(info.st_mtime)
                     manifest.append(line)
-                    original = os.path.join(out, "in", rel)
+                    original = os.path.join(out, "in", rel.replace(" ", "%20"))
                     same = os.path.isfile(original) and open(original, "rb").read() == open(full, "rb").read()
                     if not same:
-                        target = os.path.join(out, "out", "tree", rel)
+                        target = os.path.join(out, "out", "tree", rel.replace(" ", "%20"))
                         os.makedirs(os.path.dirname(target), exist_ok=True)
                         shutil.copy(full, target)
         with open(os.path.join(out, "out", "manifest"), "w") as handle:
