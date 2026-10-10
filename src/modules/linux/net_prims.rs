@@ -18,6 +18,8 @@ use std::sync::Arc;
 #[cfg(target_os = "linux")]
 mod address;
 #[cfg(target_os = "linux")]
+mod fake;
+#[cfg(target_os = "linux")]
 mod ioctl;
 #[cfg(target_os = "linux")]
 mod netlink;
@@ -27,6 +29,21 @@ mod sockets;
 /// Whether `op` is one of the socket, netlink, or ioctl primitives.
 pub(crate) fn handles(op: RuntimeOp) -> bool {
     operation_kind(op).is_some()
+}
+
+/// Whether a native-test fake with a netlink fixture may answer `op`. The
+/// fake answers only for descriptors it opened itself; every other descriptor
+/// stays on the real primitive.
+pub(crate) fn fakeable(op: RuntimeOp) -> bool {
+    matches!(
+        op,
+        RuntimeOp::LinuxNetlinkOpen
+            | RuntimeOp::LinuxNetlinkRequest
+            | RuntimeOp::LinuxGenlFamilyId
+            | RuntimeOp::LinuxRecvfrom
+            | RuntimeOp::LinuxSetsockoptInt
+            | RuntimeOp::LinuxSetSocketTimeout
+    )
 }
 
 /// The error kind of an operation, which is also the label in argument errors.
@@ -198,6 +215,32 @@ pub(crate) fn call(
         | RuntimeOp::LinuxGenlFamilyId => netlink::call(op, &args),
         _ => sockets::call(op, &args),
     }
+}
+
+/// Answers `op` from the recorded netlink fixture at `fixture`, or returns
+/// `None` when the descriptor is not one the fake opened.
+#[cfg(target_os = "linux")]
+pub(crate) fn fake_call(
+    op: RuntimeOp,
+    values: &[Option<Value>],
+    fixture: &std::path::Path,
+    log: &mut fake::Log<'_>,
+    span: Span,
+) -> Option<Result<Value, RuntimeError>> {
+    let kind = operation_kind(op)?;
+    let args = Args { kind, values, span };
+    fake::call(op, &args, fixture, log)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn fake_call(
+    _op: RuntimeOp,
+    _values: &[Option<Value>],
+    _fixture: &std::path::Path,
+    _log: &mut dyn FnMut(&str, &[(&str, String)]) -> Result<(), RuntimeError>,
+    _span: Span,
+) -> Option<Result<Value, RuntimeError>> {
+    None
 }
 
 fn constants() -> Value {
