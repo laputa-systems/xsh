@@ -364,20 +364,37 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
   loop {
     let scan = patch_parse.scan(lines, position, allowed)
     if scan.kind == "none" {
+      report_partial_last_line(lines, position, seen > 0)
       if seen == 0 { fatal("Only garbage was found in the patch input.") }
       if opts.verbose { say("Hmm...  Ignoring the trailing garbage.\n") }
       break
     }
-    if opts.verbose { announce(lines, scan, seen == 0) }
+    var working = lines
+    if scan.indent > 0 {
+      working = patch_parse.deindent(lines, scan.start, scan.indent)
+      say(f"(Patch is indented {scan.indent} space{plural(scan.indent)}.)\n")
+    }
+    if opts.verbose { announce(working, scan, seen == 0) }
     if scan.cr_header and !opts.binary { say("(Stripping trailing CRs from patch; use --binary to disable.)\n") }
     seen += 1
-    let outcome = one_patch(opts, strip, max_fuzz, lines, scan, named)
+    let outcome = one_patch(opts, strip, max_fuzz, working, scan, named)
     if outcome.status > status { status = outcome.status }
     position = outcome.next
     if position >= lines.len() { break }
   }
   if opts.verbose { say("done\n") }
   exit status
+}
+
+# A patch whose last line has no line end is reported when that line is read:
+# once while looking for another patch, and once more when the line came
+# directly after the last hunk, where it is looked at first as hunk text.
+proc report_partial_last_line(lines: List[Bytes], position: Int, after_hunk: Bool) [process, env, io, error] {
+  if lines.is_empty() { return }
+  let last = lines[lines.len() - 1]
+  if last.ends_with(b"\n") or last.starts_with(b"\\") { return }
+  say("patch unexpectedly ends in middle of line\n")
+  if after_hunk and position == lines.len() - 1 { say("patch unexpectedly ends in middle of line\n") }
 }
 
 # The `--verbose` description of the patch about to be applied.

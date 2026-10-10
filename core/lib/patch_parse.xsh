@@ -66,9 +66,10 @@ export type Scan = {
   git: GitHeader,
   prereq: Str,
   cr_header: Bool,
+  indent: Int,
 }
 
-const HUNK_RE = rx"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$"
+const HUNK_RE = rx"^@@ -(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@(.*)$"
 const CONTEXT_RANGE_RE = rx"^\*\*\* (\d+)(?:,(\d+))? \*\*\*\*"
 const CONTEXT_NEW_RANGE_RE = rx"^--- (\d+)(?:,(\d+))? ----"
 const NORMAL_RE = rx"^(\d+)(?:,(\d+))?([acd])(\d+)(?:,(\d+))?$"
@@ -300,7 +301,7 @@ pure format_allowed(allowed: Str, kind: Str) -> Bool {
 type Header = {old_name: HeaderName, new_name: HeaderName, index_name: Str, git: GitHeader, prereq: Str}
 
 pure found(kind: Str, start: Int, body: Int, header: Header, cr: Bool) -> Scan {
-  {kind: kind, start: start, body: body, old_name: header.old_name, new_name: header.new_name, index_name: header.index_name, git: header.git, prereq: header.prereq, cr_header: cr}
+  {kind: kind, start: start, body: body, old_name: header.old_name, new_name: header.new_name, index_name: header.index_name, git: header.git, prereq: header.prereq, cr_header: cr, indent: 0}
 }
 
 # The extended header lines of a Git diff after its `diff --git` line, and
@@ -322,6 +323,28 @@ pure read_git_header(lines: List[Bytes], at: Int) -> GitRead {
   {info: info, next: j}
 }
 
+## The lines from `from` on with up to `width` leading blanks removed from
+## each, which is how an indented patch is read.
+export pure deindent(lines: List[Bytes], from: Int, width: Int) -> List[Bytes] {
+  var output: List[Bytes] = []
+  for index in range(lines.len()) {
+    var line = lines[index]
+    if index >= from {
+      var cut = 0
+      while cut < width and cut < line.len() and (line.byte_at(cut) == 32 or line.byte_at(cut) == 9) { cut += 1 }
+      line = line[cut..]
+    }
+    output += [line]
+  }
+  output
+}
+
+pure leading_blanks(text: Str) -> Int {
+  var count = 0
+  while count < text.byte_len() and (text.byte_slice(count, length: 1) == " " or text.byte_slice(count, length: 1) == "\t") { count += 1 }
+  count
+}
+
 ## Find the next file patch at or after line `from`. `allowed` restricts the
 ## recognized format. A Git header is recognized whether or not hunks follow
 ## it, so renames and mode changes are patches of their own.
@@ -335,6 +358,17 @@ export pure scan(lines: List[Bytes], from: Int, allowed: Str) -> Scan {
     let text = body_text(lines[i])
     let crlf = lines[i].ends_with(b"\r\n")
     let next_text = if i + 1 < total { body_text(lines[i + 1]) } else { "" }
+    let lead = leading_blanks(text)
+    let marker = text.byte_slice(lead)
+    if lead > 0 and (marker.starts_with("--- ") or marker.starts_with("+++ ") or marker.starts_with("*** ") or marker.starts_with("@@ -") or marker.starts_with("diff --git ")) {
+      # An indented patch: read it with the indentation taken off.
+      var inner = scan(deindent(lines, i, lead), i, allowed)
+      if inner.kind != "none" {
+        inner.start = start
+        inner.indent = lead
+        return inner
+      }
+    }
     if text.starts_with("Index: ") and header.index_name == "" {
       header.index_name = fetch_name(text.byte_slice(7)).name
     } else if text.starts_with("Prereq: ") {

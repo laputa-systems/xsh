@@ -159,24 +159,37 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
 
 # Each directory under data/patch is one case recorded from GNU patch: the
 # starting tree, the arguments, standard input, and the exact standard
-# output, standard error, exit status, and resulting tree.
-test test_patch_matches_recorded_gnu_patch_results { |ctx|
+# output, standard error, exit status, and resulting tree. The cases are
+# split over several tests so the runner can work on them in parallel.
+proc run_shard(ctx: TestContext, shard: Int, shards: Int) [fs, process, env, error] -> Result[Unit, Error] {
   let corpus = fp"{ctx.core_dir}/tests/data/patch"
-  var problems: List[Str] = []
-  var count = 0
   var names: List[Str] = []
   for entry in fs.children(corpus, stat: true)? {
     if entry.kind == "dir" { names += [entry.name] }
   }
   let ordered = names |> sort
-  for name in ordered {
+  var problems: List[Str] = []
+  var count = 0
+  for index in range(ordered.len()) {
+    if index % shards != shard { continue }
+    let name = ordered[index]
     if !fp"{corpus}/{name}/out/status".exists()? { continue }
     count += 1
     problems += check_case(ctx, fp"{corpus}/{name}")?
   }
-  assert count > 0, "no recorded cases found"
+  assert count > 0, "no recorded cases in this shard"
   assert problems.is_empty(), f"{problems.len()} differences in {count} cases:\n{problems.join("\n")}"
+  Ok()
 }
+
+test test_patch_recorded_results_shard_0 { |ctx| run_shard(ctx, 0, 8)? }
+test test_patch_recorded_results_shard_1 { |ctx| run_shard(ctx, 1, 8)? }
+test test_patch_recorded_results_shard_2 { |ctx| run_shard(ctx, 2, 8)? }
+test test_patch_recorded_results_shard_3 { |ctx| run_shard(ctx, 3, 8)? }
+test test_patch_recorded_results_shard_4 { |ctx| run_shard(ctx, 4, 8)? }
+test test_patch_recorded_results_shard_5 { |ctx| run_shard(ctx, 5, 8)? }
+test test_patch_recorded_results_shard_6 { |ctx| run_shard(ctx, 6, 8)? }
+test test_patch_recorded_results_shard_7 { |ctx| run_shard(ctx, 7, 8)? }
 
 # GNU patch prints its own copyright banner; the applets here announce
 # themselves with the project's common version line instead.
