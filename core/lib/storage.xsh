@@ -78,6 +78,13 @@ proc arguments(argv: List[Str], booleans: List[Str], valued: List[Str]) -> Argum
   {flags: flags, values: values, multiple: multiple, operands: operands}
 }
 
+# Name the operand that failed: with several operands, a bare kernel message
+# cannot say which one was refused. Ends the applet with status 1.
+proc operand_failed(name: Str, reason: Str) {
+  gnu.error(f"{name}: {reason}")
+  exit 1
+}
+
 proc require_operands(args: Arguments, minimum: Int, maximum: Int) {
   if args.operands.len() < minimum { gnu.usage_error("missing operand") }
   if maximum >= 0 and args.operands.len() > maximum { gnu.extra_operand(args.operands[maximum]) }
@@ -481,7 +488,15 @@ proc umount(argv: List[Str]) {
   }
   require_operands(args, 1, -1)
   if "-t" in args.values { unsupported("filesystem type filter for explicit unmount targets") }
-  for name in args.operands { linux.umount(fp"{name}", lazy: "-l" in args.flags, force: "-f" in args.flags)? }
+  # Every operand is attempted so one refused target does not hide the rest.
+  var failed = false
+  for name in args.operands {
+    if let Err(failure) = linux.umount(fp"{name}", lazy: "-l" in args.flags, force: "-f" in args.flags) {
+      gnu.error(f"{name}: {gnu.strerror(failure)}")
+      failed = true
+    }
+  }
+  if failed { exit 1 }
 }
 
 proc blockdev(argv: List[Str]) {
@@ -511,14 +526,34 @@ proc byte_count(value: Str) -> UInt {
   0
 }
 
+# fstrim names the option whose value it could not parse and, like the
+# util-linux tool, does not follow that with a usage hint.
+proc fstrim_bytes(value: Str, what: Str) -> UInt {
+  if ! rx"^[0-9]+[KMGT]?$".matches(value) {
+    gnu.error(f"failed to parse {what}: {gnu.quote(value)}: Invalid argument")
+    exit 1
+  }
+  byte_count(value)
+}
+
 proc fstrim(argv: List[Str]) {
   let args = arguments(argv, ["-v --verbose"], ["-o --offset", "-l --length", "-m --minimum"])
-  require_operands(args, 1, 1)
-  let offset = byte_count(args.values.get("-o") ?? "0")
-  let minimum = byte_count(args.values.get("-m") ?? "0")
-  let length: UInt? = if "-l" in args.values { byte_count(args.values.get("-l")?) } else { null }
-  let trimmed = linux.fstrim(fp"{args.operands[0]}", offset: offset, length: length, minlen: minimum)?
-  if "-v" in args.flags { gnu.write_text(f"{args.operands[0]}: {trimmed} bytes trimmed\n") }
+  if args.operands.is_empty() { gnu.error("no mountpoint specified"); exit 1 }
+  if args.operands.len() > 1 { gnu.usage_error("unexpected number of arguments") }
+  let name = args.operands[0]
+  let offset = fstrim_bytes(args.values.get("-o") ?? "0", "offset")
+  let minimum = fstrim_bytes(args.values.get("-m") ?? "0", "minimum extent length")
+  let length: UInt? = if "-l" in args.values { fstrim_bytes(args.values.get("-l")?, "length") } else { null }
+  let result = linux.fstrim(fp"{name}", offset: offset, length: length, minlen: minimum)
+  if let Err(failure) = result {
+    # ENOTTY and EOPNOTSUPP both mean the filesystem has no discard support.
+    let errno = failure.errno ?? -1
+    if errno == 2 { gnu.error(f"stat of {name} failed: {gnu.strerror(failure)}"); exit 1 }
+    if errno == 25 or errno == 95 { operand_failed(name, "the discard operation is not supported") }
+    operand_failed(name, f"FITRIM ioctl failed: {gnu.strerror(failure)}")
+  }
+  let trimmed = result?
+  if "-v" in args.flags { gnu.write_text(f"{name}: {trimmed} bytes trimmed\n") }
 }
 
 proc fsfreeze(argv: List[Str]) {
@@ -534,9 +569,15 @@ proc partprobe(argv: List[Str]) {
   let args = arguments(argv, ["-d --dry-run", "-s --summary"], [])
   require_operands(args, 1, -1)
   for name in args.operands {
-    let table = linux.partition_table(fp"{name}")?
-    if "-s" in args.flags { gnu.write_text(f"{name}: {table.label} partitions " + [f"{item.index}" for item in table.partitions].join(" ") + "\n") }
-    if "-d" not in args.flags { linux.blockdev_reread_partition_table(fp"{name}")? }
+    let loaded = linux.partition_table(fp"{name}")
+    if let Err(failure) = loaded { operand_failed(name, gnu.strerror(failure)) }
+    let table = loaded?
+    # Summarize only after the kernel accepted the reread, so a refused
+    # device never prints a partition list.
+    if "-d" not in args.flags {
+      if let Err(failure) = linux.blockdev_reread_partition_table(fp"{name}") { operand_failed(name, gnu.strerror(failure)) }
+    }
+    if "-s" in args.flags { gnu.write_text(f"{name}: {table.label} partitions" + [f" {item.index}" for item in table.partitions].join("") + "\n") }
   }
 }
 
@@ -655,7 +696,13 @@ proc partition_command(command: Str, argv: List[Str]) {
   if ("-n" in args.flags and command == "sfdisk") or "--label" in args.values { gnu.usage_error("write options cannot be combined with inspection modes") }
   let cols = columns(args.values.get("-o") ?? "NR,START,END,SECTORS,SIZE,NAME,UUID,TYPE", ["NR", "START", "END", "SECTORS", "SIZE", "NAME", "UUID", "TYPE"])
   for name in args.operands {
-    let table = linux.partition_table(fp"{name}")?
+    let loaded = linux.partition_table(fp"{name}")
+    if let Err(failure) = loaded {
+      if command == "fdisk" { gnu.error(f"cannot open {name}: {gnu.strerror(failure)}"); exit 1 }
+      operand_failed(name, gnu.strerror(failure))
+    }
+    let table = loaded?
+    if command == "partx" and table.label == "none" { operand_failed(name, "failed to read partition table") }
     if "-J" in args.flags {
       var partitions: List[Str] = []
       for item in table.partitions {
