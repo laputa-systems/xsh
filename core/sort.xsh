@@ -23,7 +23,8 @@ type SortOptions = {
   compress_program: Str?,
   debug: Bool,
   key: List[Str],
-  delimiter: Str,
+  delimiter: List[Str],
+  parallel: List[Str],
   output: List[Str],
   check: Str,
   short_check: Bool,
@@ -506,8 +507,14 @@ pure primary_key_spec(opts: SortOptions) -> Str {
   opts.key.get(0) ?? ""
 }
 
+## `\0` names the NUL byte as a separator; every other spelling is taken literally.
+pure separator_value(raw: Str) -> Str {
+  if raw == "\\0" { "\0" } else { raw }
+}
+
+## The last separator given wins; `main` rejects a set of separators that disagree.
 pure sort_delimiter(opts: SortOptions) -> Str {
-  if opts.delimiter == "\\0" { "\0" } else { opts.delimiter }
+  if opts.delimiter.is_empty() { "" } else { separator_value(opts.delimiter[opts.delimiter.len() - 1]) }
 }
 
 pure key_character_offset(spec: Str) -> Int {
@@ -1653,6 +1660,35 @@ proc validate_batch_size(value: Str) [process, env, error] -> Unit {
   }
 }
 
+## The count is parsed the way GNU's strtoumax-based check does: leading blanks and
+## one '+' may precede the digits, a '-' is rejected, and any trailing text is a
+## suffix error. The value only sizes the thread pool, so a valid count is accepted
+## without changing the output. The value is quoted with plain quotes, as GNU does.
+proc validate_parallel(value: Str) [process] -> Unit {
+  let raw = bytes.from_text(value)
+  var start = 0
+  while start < raw.len() and (raw.byte_at(start) ?? 0) in [32, 9, 10, 11, 12, 13] { start += 1 }
+  if start < raw.len() and raw.byte_at(start) == 43 { start += 1 }
+  var digits = start
+  while digits < raw.len() and is_ascii_digit(raw.byte_at(digits) ?? 0) { digits += 1 }
+  if digits == start {
+    gnu.error(f"invalid --parallel argument '{value}'")
+    exit 2
+  }
+  if digits != raw.len() {
+    gnu.error(f"invalid suffix in --parallel argument '{value}'")
+    exit 2
+  }
+  var zero = true
+  for at in range(start, digits) {
+    if (raw.byte_at(at) ?? 0) != 48 { zero = false }
+  }
+  if zero {
+    gnu.error("number in parallel must be nonzero")
+    exit 2
+  }
+}
+
 proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
   let raw = bytes.from_text(value)
   # Leading white space is skipped, as strtoumax does for the size operand.
@@ -2161,8 +2197,12 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         repeated: true,
       },
       delimiter: {
-        form: "-t DELIMITER",
-        default: "",
+        form: "-t --field-separator DELIMITER",
+        repeated: true,
+      },
+      parallel: {
+        form: "--parallel N",
+        repeated: true,
       },
       output: {
         form: "-o FILE",
@@ -2210,6 +2250,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     gnu.version("sort")
     return
   }
+
+  for count in opts.parallel { validate_parallel(count) }
 
   for spec in opts.key {
     if let issue = key_spec_error(spec) {
@@ -2320,9 +2362,23 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let silent_check = opts.silent_check or check_mode in ["silent", "quiet", "silen", "quie", "s", "q"]
   let delimiter = sort_delimiter(opts)
   let paths = opts.paths
-  if delimiter != "" and delimiter.count_chars() != 1 {
-    gnu.error(f"separator must be exactly one character long: {gnu.quote(delimiter)}")
-    exit 2
+  # Every occurrence is checked in order, as GNU does while parsing; a separator
+  # given again must name the same character as the first one.
+  for index in range(opts.delimiter.len()) {
+    let raw = opts.delimiter[index]
+    if raw == "" {
+      gnu.error("empty tab")
+      exit 2
+    }
+    let value = separator_value(raw)
+    if value.count_chars() != 1 {
+      gnu.error(f"separator must be exactly one character long: {gnu.quote(value)}")
+      exit 2
+    }
+    if value != separator_value(opts.delimiter[0]) {
+      gnu.error("incompatible tabs")
+      exit 2
+    }
   }
 
   let check_is_silent = check_mode in ["silent", "quiet", "silen", "quie", "s", "q"]
