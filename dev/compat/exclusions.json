@@ -1334,6 +1334,12 @@
       "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
     },
     {
+      "id": "test_stat::test_printf_incomplete_hex",
+      "utility": "stat",
+      "category": "gnu-semantics",
+      "reason": "expects uutils' 'warning: incomplete hex escape' for a bare \\x in --printf; GNU stat 9.11 (clean Alpine container) prints \"warning: unrecognized escape '\\x'\", which XSH matches"
+    },
+    {
       "id": "test_stdbuf::diagnostics::test_snippet_points_at_the_unknown_unit",
       "utility": "stdbuf",
       "category": "clap-wording",

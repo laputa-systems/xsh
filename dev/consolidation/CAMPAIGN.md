@@ -1,8 +1,13 @@
 # XSH Consolidation Campaign
 
-Status: planned, not started (drafted 2026-10-10; the owner decided the
-questions under "Decisions" the same day). Nothing in this document has been
-implemented.
+Status: planned, not ready to start (drafted 2026-10-10). The decisions under
+"Decisions" are made. The designs under "Designs" are not all written, and
+the campaign does not start until each is written and approved. Nothing in
+this document has been implemented.
+
+The campaign runs unattended: once started it never waits for the owner.
+Every question it would otherwise ask is answered here or in a design file
+before it starts, or it is parked under the rules in "Unattended operation".
 
 ## Start condition and sequence
 
@@ -56,15 +61,16 @@ lands in a few large files, so isolation is scheduled, not free: Setup
 partitions those files, and items that still collide run in series.
 
 **Tests are the oracle.** No lane weakens, skips, deletes, or rewrites the
-expected text of an existing test to pass. The only way a test stops counting
-is an exact-ID entry with a reason in `dev/consolidation/exceptions.json`,
-proposed by the integrator and approved by the owner.
+expected text of an existing test to pass. There are no exceptions during the
+campaign. A lane that believes a test is wrong parks its item with the
+evidence. The one sanctioned change to existing tests is a migration a design
+file names, applied by the lint rule that design defines.
 
 **Acceptance.** The same mechanical gate accepts a lane and its merge:
 
 1. Changed paths are inside the lane's file set.
 2. The gate the item names is green on release binaries.
-3. No test was removed or weakened, outside approved exceptions.
+3. No test was removed or weakened.
 4. No ratchet rose, and the item's target metric reached its stated value.
 5. Net non-test Rust lines are within the item's budget. The default budget
    is zero or negative: a lane that adds a path for an existing decision
@@ -73,21 +79,55 @@ proposed by the integrator and approved by the owner.
 
 A behavior-preserving item additionally changes nothing in
 `docs/templates/SPEC.md`, the registry signatures, or any expected text in a
-native test. A defect fix starts from a failing native test that stays in the
-tree.
+native test. One in the checker, the loader, or lint must also leave the
+output of `xsht check` and `xsht lint` over this repository and Laputa
+byte-identical to the output of the binaries built from the batch's base. A
+defect fix starts from a failing native test that stays in the tree.
 
 **No new surface.** No new syntax, keyword, stage, or standard-module entry
-during the campaign, except the one spelling decision D4 allows. A gap a
-lane finds is recorded in `TODO.md`.
+during the campaign, with no exception. A gap a lane finds is recorded in
+`TODO.md`.
 
 **Performance boundary.** In scope: redundant work in the compiler and tools.
 Out of scope: how fast any utility in `core/` runs, and any native primitive
 added for speed. A lane that finds one records it for the later
 compatibility performance phase.
 
-**Contract changes** (APIs, types, diagnostics, SPEC wording, gate commands)
-go to the owner before a lane starts. The integrator drafts each design;
-lanes implement the approved result. Nothing is pushed.
+**Contract changes.** Every change this campaign makes to an API, a type, a
+diagnostic, SPEC wording, or a gate command is written down before it starts:
+in "Decisions" and in the design files. Approving those approves the changes.
+A lane makes no other contract change. One that turns out to be needed parks
+the item. Nothing is pushed.
+
+## Unattended operation
+
+- **Branch.** The integrator works on a branch named `consolidation` cut from
+  the start commit. Lanes merge there. Nothing merges to `master` and nothing
+  is pushed; the owner merges at close. Laputa migrations go to a branch of
+  the same name in that repository under the same rule.
+- **Revalidate the designs.** Each design file lists the facts about the code
+  it relies on, as symbols and behaviors a search can confirm. Before a
+  workstream starts, the integrator checks those facts at the start commit.
+  A design whose facts no longer hold is not repaired: its workstream is
+  parked whole.
+- **Park, never ask.** An item is parked, with its evidence, when it would
+  need a contract change that was not approved, when a test appears to be
+  wrong, when it reaches twice its size budget, or when its gate cannot be
+  made green. The lane's branch is kept and the worktree removed. Work that
+  does not depend on a parked item continues. Three parked items in one
+  workstream park the rest of that workstream.
+- **Batches.** After each batch of merges the integrator runs the full gate
+  sequence. If it fails, the integrator finds the merge responsible, reverts
+  it, parks that item, and runs the sequence again.
+- **Halt.** The campaign stops and writes its report when the gate is not
+  green at the start commit, when the branch cannot be returned to green by
+  reverting the last batch, or when no unparked item remains.
+- **Resumable.** The integrator adds a dated entry to "Handoff log" after
+  every batch: what merged, the ratchet values, what is parked and why. A new
+  session resumes from that entry alone.
+- **Close.** The report lists each workstream as closed or parked with its
+  closing check, the start and end value of every ratchet, and each parked
+  item with the decision it needs.
 
 ## Planning figures
 
@@ -96,9 +136,9 @@ value may only fall.
 
 | Measure | 2026-10-10 | End state |
 |---|---|---|
-| Instructions whose behavior on operand values is written separately in each evaluator | not yet counted; 27 expression and 2 statement tags have an arm in both | 0 |
-| Stream stages written both in the materializing pipeline arm and in `serial_pipeline.rs` | 17 of 46, not yet classified | 0 with separate per-item behavior |
-| Places where the recursive evaluator starts a nested frame evaluator | more than 20 | 0 |
+| Instructions whose behavior on operand values differs in substance between the two evaluators | 5 kinds, of 27 expression and 2 statement tags with an arm in both | 0 |
+| Stream stages with separate per-item code in the materializing pipeline arm and in `serial_pipeline.rs` | 17 of 46 | 0 |
+| Places that start a nested frame machine on the native stack | about 20 kinds of site | only those `designs/evaluator.md` leaves, each bounded by a counter |
 | Wildcard arms that hand an instruction from the frame evaluator to the recursive one | 2 | 0 |
 | Hand-ordered payload reads in the executors (`indexed_raw`, `indexed_decode`, `indexed_finish`) | about 930 | 0 outside generated code |
 | Definitions of the static type test | 3, with observable differences | 1 |
@@ -107,7 +147,7 @@ value may only fall.
 | Name-resolution models | 3 | 1 authority |
 | `match` over arena kinds that names 8 or more variants and ends in a wildcard | 56 | 0 |
 | Separate recursive descents in lint | at least 7 | 1 |
-| Checks of a shared module in one `xsht lint` run | once per importing root, again per fix round | 1 |
+| Checks of a shared module in one `xsht lint` run without `--fix` | once per importing root: 778 module checks per pass for 90 modules | once per module |
 | Whole-program copies made to lower one stage that names a callable | 1 | 0 |
 | `xsht lint` on this repository | about 17 s against a 15 s budget | inside the budget, measured alone |
 | Wall time of the full gate sequence | about 8 minutes on the 32-thread machine, before the two targets Setup adds | lower than the start value measured with those targets included |
@@ -150,10 +190,9 @@ Run by the integrator, in series, before any workstream.
   (`cargo dev coverage`). An arm or decode path no test reaches gets a native
   test before any lane rewrites it; a behavior-preserving rewrite of
   unexercised code has no oracle.
-- **Classify the paired arms.** For each instruction and stream stage with an
-  arm in both evaluators, record whether the two arms share their value-level
-  helper or carry separate behavior. This sets the first two rows of the
-  table and sizes workstream 2.
+- **Recount the paired arms.** `designs/evaluator.md` classifies the
+  instructions and stages with an arm in both evaluators as of 2026-10-10.
+  Repeat the count at the start commit for the table.
 - **Item list.** This document is a charter, not yet a lane plan. Once the
   files are partitioned, the integrator writes the items for each workstream
   with a file set, a gate, and a size budget, in `dev/consolidation/ITEMS.md`.
@@ -165,9 +204,8 @@ Run by the integrator, in series, before any workstream.
   functions that no longer exist), the benchmark section of
   `docs/TESTING.md` and `dev/bench.xsh` (they name a bench target that is not
   in the tree), and the line counts in `TODO.md`.
-- **Skill and exceptions file.** Write
-  `.claude/skills/xsh-consolidation-campaign/SKILL.md` from this document and
-  create an empty `exceptions.json`.
+- **Skill.** Write `.claude/skills/xsh-consolidation-campaign/SKILL.md` from
+  this document.
 
 ## Workstreams
 
@@ -204,45 +242,44 @@ regression.
 
 ### 2. One definition of each instruction's behavior
 
+Design: `designs/evaluator.md`.
+
 **Evidence.** Two evaluators run the same `FullProgram`: the frame evaluator
 (`ExplicitFrames` in `explicit_run.rs`) and a recursive one
 (`eval_indexed_expr_inner`, `eval_indexed_stmt_inner` in `indexed_run.rs`).
-Each falls through to the other. Twenty-seven expression tags and two
-statement tags have an arm in both, and seventeen stream stages exist both in
-the materializing pipeline arm and in `serial_pipeline.rs`.
+The frame evaluator hands every tag it has no arm for to the recursive one.
+The recursive one cannot push work onto the machine that called it, so when
+it reaches a call, a block, or a stage callback it builds a new frame machine
+and runs it on the native stack. Script recursion through anything the
+recursive evaluator owns therefore uses native stack per level; the open
+defect "recursion through a stage block aborts at 100 to 150 levels" is one
+case of about twenty.
 
-The paired arms are not copies. Each is a different way of evaluating
-operands, scheduled on frames with continuations or in place by recursion,
-around helpers that are only partly shared. `ExprBinary` and `ExprRecord`
-share theirs (`lowered_binary_value`, `finish_record_entries`). `ExprField`
-does not: the frame arm calls `lowered_record_field_value`, and the recursive
-arm has its own match over value shapes with its own errors. Whether an
-operand can be evaluated in place is a property of that operand, not of the
-instruction's tag, and the frame evaluator already tests it per operand
-(`leaf_operand`). Only three pairs have been read; Setup classifies the rest.
-
-No test pins the pairs against each other, which invariant 2 of
-`docs/ARCHITECTURE.md` requires of two routes that must agree. The open
-defect "recursion through a stage block aborts at 100 to 150 levels" follows
-from the structure: the recursive evaluator starts a nested frame evaluator
-on the native stack.
+Twenty-seven expression tags and two statement tags have an arm in both.
+Most pairs already share one value-level helper and differ only in how
+operands are scheduled; five kinds differ in substance. Seventeen stream
+stages are written twice with no shared per-item code, and `flat-map`
+behaves differently on a list and on a live stream. No test forces one route
+or compares the two, which invariant 2 of `docs/ARCHITECTURE.md` requires of
+routes that must agree.
 
 **End state** (D1).
 
 - An instruction's behavior on operand values is one function, called by
-  whichever evaluator scheduled the operands.
+  whichever scheduler evaluated the operands.
 - An operand is evaluated in place only when the verifier has marked that
-  instruction instance as unable to run script code. The in-place evaluator
-  therefore never starts a frame evaluator, and script recursion depth never
-  becomes native stack depth.
-- The frame evaluator hands an operand over by that mark, explicitly. Neither
-  evaluator has a wildcard arm.
-- A stream stage's per-item behavior is one function, whether the pipeline
-  materializes or pulls one item at a time.
+  instruction instance as unable to run script code. The in-place scheduler
+  therefore never starts a frame machine.
+- Neither scheduler has a wildcard arm.
+- One pipeline engine, with one function per stage for its per-item
+  behavior.
+- A place that still starts a nested machine is bounded by a counter and
+  fails with `stack-overflow`.
 
-**Closes when** the three counts in the table and the wildcard count are
-zero, the stage-block recursion limit is a `stack-overflow` diagnostic with a
-native test, and `docs/ARCHITECTURE.md` describes the result. Follows
+**Closes when** the three counts in the table and the wildcard count reach
+their end state, recursion through a stage block is a `stack-overflow`
+diagnostic with a native test, the native suite passes under both
+schedulers, and `docs/ARCHITECTURE.md` describes the result. Follows
 workstream 1.
 
 ### 3. One reading of a value and of a type
@@ -266,8 +303,10 @@ direction between `Type` and `LoweredType`. Each of the paired operations has
 one definition.
 
 **Closes when** the three counts in the table reach their end state. Any
-observable difference between today's copies is settled by the SPEC, with a
-native test, before the copies merge. Follows workstreams 2 and 4.
+observable difference between today's copies is settled before the copies
+merge, with a native test: by the SPEC where it speaks, and otherwise by the
+copy the executor runs today, since that is the behavior programs have.
+Follows workstreams 2 and 4.
 
 ### 4. Checker structure and the open defects
 
@@ -331,8 +370,9 @@ offered and the lint explains the manual rewrite: `lint.prefer-fail` first.
 
 **Closes when** the rule table drives `xsht lint --list`, the six call
 places are one, and every entry under "Formatter and lint" in `TODO.md` is
-closed. Any rule that starts or stops firing because the two lists merged is
-a behavior change reported to the owner. Follows workstream 5.
+closed. The merged list is the union of the two, so a rule that ran at only
+one level now runs at both; a finding that appears in this repository or
+Laputa is fixed in the same lane. Follows workstream 5.
 
 ### 7. Grammar and parser
 
@@ -363,9 +403,8 @@ finds no new disagreement.
 
 ### 8. Contracts: resources, `Any`, effects
 
-The directions are decided (D3 to D6). Each still changes a contract: the
-integrator drafts the detailed design, the owner approves it, and only then
-do lanes start.
+The directions are decided (D3 to D6, D12). The detailed contracts are in
+`designs/resources.md`, `designs/any.md`, and `designs/effects.md`.
 
 **Evidence.** SPEC 11.8 states one ownership rule and the implementation has
 several. `ProcessHandle` and `NetJob` are tracked by owner scope and
@@ -386,6 +425,13 @@ difference and the corpus pays for it. Outside test files, `core/`, `dev/`,
 as often, and take a lock 8 times; none of those sites uses a `with` scope
 (text counts, 2026-10-10). The reason the SPEC gives for the split is that
 closing a root and releasing a lock can fail, not a host constraint.
+
+The ownership that does exist loses handles and costs every call. A handle
+created in a middle block and assigned outward from a deeper one is released
+while still reachable, as is a handle a producer yields. A process handle or
+lock used in a `par-map` worker indexes the worker's own table. And every
+successful function return copies the returned value into the host
+representation to look for handles, whatever its type.
 
 `Any` can be navigated by field, index, slice, method, and iteration without
 validation. Effects are static claims only, which SPEC 9.6 states. One gap
@@ -450,8 +496,7 @@ and has no design yet. A module's check depends on its bundle today in four
 ways: type definitions are indexes into the bundle's arena, effect inference
 is one fixed point over every proc in the bundle, the type of the builtin
 `args` follows the entry's `main`, and each entry point passes different
-options. The integrator drafts the design and the owner approves it before
-any lane starts.
+options. The design is `designs/module-check.md`.
 
 **Closes when** the two counts and the lint time in the table reach their
 end state and the 16,000-field spread has a native test with a time bound.
@@ -505,7 +550,7 @@ decided after the others.
 | D1 | End state of the two evaluators | One function per instruction for its behavior on operand values; two ways of scheduling operands, on frames or in place; an in-place operand only where the verifier has marked that instruction instance as unable to run script code. Decided on the corrected proposal, after the first wording (a frame or leaf class per tag) proved impossible: `ExprBinary` is in place for some operands and scheduled for others. Not frames only |
 | D2 | Shared child enumerators, reversing "no generic AST visitor" | Yes, as enumeration only |
 | D3 | Resource table | `FsLock` becomes opaque; one outcome for a repeated consuming operation, `cancel` excepted; streams enter the owner tables |
-| D4 | Affine checking and opaque `Any` during the freeze on new surface | Both are built. Affine checking starts without parameter syntax. The escape hatch for `Any` is the one new spelling |
+| D4 | Affine checking and opaque `Any` during the freeze on new surface | Both are built. Affine checking starts without parameter syntax. The escape hatch for `Any` turned out to exist already (`json.get`), so neither adds a spelling |
 | D5 | Raw descriptors | Stay `Int`, as a stated exception |
 | D6 | Runtime enforcement of effects | None |
 | D7 | On-disk checked-interface cache | Not in this campaign; in-process only |
@@ -513,19 +558,43 @@ decided after the others.
 | D9 | Comparators for the workload suite | dash, Bash, Nushell, YSH, Elvish, Python |
 | D10 | Test build profile; splitting the root crate | Profile yes; no crate split |
 | D11 | Coordinator model | The session model |
-| D12 | Whether `FsRoot` and `FsLock` are released when their owner scope exits, as process handles and network jobs are | Yes. Ownership moves outward on return and outer assignment as it does for the other handles, and `with` stays as the way to observe a failed release. A lint with an autofix removes the hand-written `.close()` and `fs.unlock` calls this makes redundant. Condition: the design draft first counts the sites where a root or lock is left open on purpose while only a `Path` from it escapes (a `fs.tempdir` root closed that way removes a directory the caller still uses). If that count is not near zero, the decision falls back to a check that every root and lock is released, escapes, or is bound by `with`, and returns to the owner |
+| D12 | Whether `FsRoot` and `FsLock` are released when their owner scope exits, as process handles and network jobs are | Yes, after the scope's defers, so a defer can still use them; `with` stays as the way to observe a failed release. The condition was a count of sites where a root or lock is left open while only a value derived from it escapes: of 731 sites on 2026-10-10 there are none. The integrator recounts at the start commit; above five, the campaign builds the alternative without asking: a check that every root and lock is released, escapes, or is bound by `with` |
 
-Still open, each settled in its design draft before lanes start:
+## Designs
 
-- the spelling of the `Any` escape hatch;
-- the error a repeated consuming operation reports, and whether the existing
-  kinds (`net-job-not-live`, `fs-root`, `fs-lock`, `ProcessError.Unknown`)
-  remain as names for it;
-- how a parameter says it borrows a handle or takes it, which affine checking
-  needs once it goes past one scope and is not part of this campaign;
-- the settings of the test build profile;
-- the design for checking a module once (workstream 9);
-- the site count that D12 is conditional on.
+Files in `dev/consolidation/designs/`. A design states its contract precisely
+enough that a lane needs no judgment about it, lists the facts about the code
+it relies on, and names the tests that prove it. A measurement that can only
+be taken at the start commit is written as a rule with its threshold, not
+left open.
+
+Four change what a user of the language or its tools sees, and two are
+internal but costly to get wrong. All six are written and approved before
+the campaign starts.
+
+| File | Settles | Status |
+|---|---|---|
+| `any.md` | What an `Any` permits and the migration. The escape hatch is the existing `json.get`, so no spelling is added | proposed |
+| `check-session.md` | One set of check diagnostics for every tool; which stage reports what; one code for an unresolved import | proposed |
+| `resources.md` | The one resource rule and its table; `FsLock` as a type; scope ownership of roots, locks, and streams; moving ownership by type; `check.use-after-release`; the migration | proposed |
+| `effects.md` | Socket calls in `linux` and `unix` need `net` | proposed |
+| `module-check.md` | Checking a module once: what a module's check depends on, the three defects that make it depend on its importer, the per-module driver, reuse | proposed |
+| `evaluator.md` | The in-place mark and what the verifier proves; apply functions; the order in which nested machines are removed | proposed |
+
+Three are internal shapes with no contract and no decision left for the
+owner. The integrator writes each in Setup, within the end state its
+workstream already states:
+
+| File | Settles |
+|---|---|
+| `instruction-table.md` | The table entry and what is generated from it |
+| `lint-rules.md` | The rule declaration and the single walker |
+| `traversal.md` | The child enumerators |
+
+Decided here and needing no file: affine checking does not go past one scope
+in this campaign, so no parameter syntax is designed; the test build profile
+is whichever of the candidates Setup measures gives the lowest sum of build
+time and native-suite time, with thin LTO excluded.
 
 ## Review traceability
 
