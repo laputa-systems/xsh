@@ -758,6 +758,42 @@
       "reason": "Runs `tee -h` expecting the --help text; GNU tee's short options are only -a, -i and -p (src/tee.c getopt string \"aip\"), so -h is a uutils extension and XSH follows GNU. --help is covered by core/tests/test-tee.xsh."
     },
     {
+      "id": "test_test::diagnostics::test_bracket_form_reports_under_its_own_name",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_dash_t_advises_about_descriptors_not_comparisons",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_extra_argument_points_past_the_expression",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_extra_operand_suggests_quoting_the_variable",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_integer_comparison_keeps_its_own_advice",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
+      "id": "test_test::diagnostics::test_missing_operand_suggests_quoting_the_variable",
+      "utility": "test",
+      "category": "clap-wording",
+      "reason": "asserts uutils' framed source-snippet diagnostic rendering; XSH follows GNU wording"
+    },
+    {
       "id": "test_test::diagnostics::test_snippet_points_at_the_offending_argument",
       "utility": "test",
       "category": "clap-wording",
