@@ -157,7 +157,8 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     columns = ["source", "itotal", "iused", "iavail", "ipcent", "target"]
   } else { columns = ["source", "size", "used", "avail", "pcent", "target"] }
   if opts.show_type { columns = ["source", "fstype"].extend(columns[1..]) }
-  let headings: Map[Str] = {source: "Filesystem", fstype: "Type", size: units.label, used: "Used", avail: if units.human != 0 { "Avail" } else { "Available" }, pcent: if opts.portable { "Capacity" } else { "Use%" }, target: "Mounted on", file: "File", itotal: "Inodes", iused: "IUsed", iavail: "IFree", ipcent: "IUse%"}
+  # GNU labels the avail column "Avail" under --output and -h, and "Available" otherwise.
+  let headings: Map[Str] = {source: "Filesystem", fstype: "Type", size: units.label, used: "Used", avail: if units.human != 0 or ! opts.output.is_empty() { "Avail" } else { "Available" }, pcent: if opts.portable { "Capacity" } else { "Use%" }, target: "Mounted on", file: "File", itotal: "Inodes", iused: "IUsed", iavail: "IFree", ipcent: "IUse%"}
   var unique: List[Str] = []
   for column in columns {
     if column not in headings { gnu.usage_error(f"field {gnu.quote_value(column)} unknown") }
@@ -244,8 +245,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
       let padding = [" " for _ in range(widths[index] - text.count_chars())].join("")
       cells += [if left_column(field) { text + (if index == columns.len() - 1 { "" } else { padding }) } else { padding + text }]
     }
-    let prefix = if left_column(columns[0]) { "" } else { " " }
-    gnu.write_text(prefix + cells.join(" ") + "\n")
+    gnu.write_text(cells.join(" ") + "\n")
   }
   if failed { exit 1 }
 }

@@ -255,6 +255,43 @@ test test_du_preserves_names_with_spaces_and_null_records { |ctx|
   assert nul.stdout == f"3\t{file}\0"
 }
 
+test test_du_files0_from_reports_gnu_open_and_operand_errors { |ctx|
+  let root = test.temp_dir(ctx, name: "du-files0-errors")?
+  let missing = fp"{root}/missing"
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/du.xsh"
+  let missing_run = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), f"--files0-from={missing}"],
+    root, {LC_ALL: "C"}, b"", out, err))?
+  assert missing_run.exited_with(1)
+  assert err.read_text()? == f"du: cannot open '{missing}' for reading: No such file or directory\n"
+  let extra_run = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "--files0-from=-", "no-such"],
+    root, {LC_ALL: "C"}, b"", out, err))?
+  assert extra_run.exited_with(1)
+  assert err.read_text()? == "du: extra operand 'no-such'\nfile operands cannot be combined with --files0-from\nTry 'du --help' for more information.\n"
+}
+
+test test_du_dotdot_operand_is_its_own_anchor { |ctx|
+  let root = test.temp_dir(ctx, name: "du-dotdot")?
+  let sub = fp"{root}/sub"
+  sub.mkdir()
+  fp"{sub}/t".mkdir()
+  fp"{sub}/t/file".write("abc")
+  let out = fp"{root}/out"
+  let err = fp"{root}/err"
+  let script = fp"{ctx.core_dir}/du.xsh"
+  let status = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), script.display(), "-s", ".."],
+    sub, {LC_ALL: "C"}, b"", out, err))?
+  assert status.exited_with(0), err.read_text()?
+  assert err.read_text()? == ""
+  let lines = out.read_text()?.lines().collect()
+  assert lines.len() == 1, out.read_text()?
+  assert lines[0].ends_with("\t.."), lines[0]
+}
+
 test test_du_walks_long_paths_from_unreadable_cwd { |ctx|
   let root = test.temp_dir(ctx, name: "du-path-limit")?
   let tree = fp"{root}/tree"

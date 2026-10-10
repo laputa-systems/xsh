@@ -93,7 +93,9 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
       let number_start = key.byte_len() + 1
       let number_help = "a number may be followed by a multiplier: c, w, b, then K, M, G and so on for 1024, kB, MB, GB for 1000"
       guard let n = amount(text) else { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1); exit 1 }
-      if n == 9223372036854775807 { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}: Value too large for defined data type", number_start, text.byte_len(), null, number_help, false, 1) }
+      # amount() clamps an overflowing count to the largest Int, so only text that is
+      # not exactly that value is an overflow.
+      if n == 9223372036854775807 and ! rx"^9223372036854775807$".matches(text) { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}: Value too large for defined data type", number_start, text.byte_len(), null, number_help, false, 1) }
       if n == 0 and key in ["ibs", "obs", "bs", "cbs"] { render_operand_error(argv, arg_index, f"invalid number: {gnu.quote(text)}", number_start, text.byte_len(), null, number_help, false, 1) }
       let byte_count = [factor for factor in text.split("x") if rx"^[0-9]+B$".matches(factor)].len() > 0
       if key == "bs" { opts = {...opts, ibs: n, obs: n, bs: n} } else if key == "ibs" { opts = {...opts, ibs: n} } else if key == "obs" { opts = {...opts, obs: n} } else if key == "cbs" { opts = {...opts, cbs: n} } else if key == "count" { opts = {...opts, count: n, count_bytes: byte_count} } else if key in ["skip", "iseek"] { opts = {...opts, skip: n, skip_bytes: byte_count} } else { opts = {...opts, seek: n, seek_bytes: byte_count} }
@@ -113,7 +115,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
             render_operand_error(argv, arg_index, f"invalid conversion: {gnu.quote(flag)}", start, flag.byte_len(), "not a known conversion", "conv= is one of ascii, ebcdic, ibm, lcase, ucase, block, unblock, swab, sync, noerror, sparse, excl, nocreat, notrunc, fdatasync or fsync", true, 1)
           }
         } else {
-          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "noatime", "dsync", "sync", "nofollow"] { opts = if key == "iflag" { {...opts, input_flags: opts.input_flags.extend([flag])} } else { {...opts, output_flags: opts.output_flags.extend([flag])} } } else if flag == "nocache" { opts = if key == "iflag" { {...opts, input_nocache: true} } else { {...opts, output_nocache: true} } } else if flag in ["directory", "append", "nonblock", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
+          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if key == "oflag" and flag == "append" { opts = {...opts, output_flags: opts.output_flags.extend([flag])} } else if flag in ["direct", "noatime", "dsync", "sync", "nofollow"] { opts = if key == "iflag" { {...opts, input_flags: opts.input_flags.extend([flag])} } else { {...opts, output_flags: opts.output_flags.extend([flag])} } } else if flag == "nocache" { opts = if key == "iflag" { {...opts, input_nocache: true} } else { {...opts, output_nocache: true} } } else if flag in ["directory", "append", "nonblock", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
             var start = key.byte_len() + 1
             for list_flag in text.split(",") {
               if list_flag == flag { break }
@@ -344,7 +346,7 @@ proc reopen_without_direct(fd: Int, dest: Path, offset: Int, flags: List[Str]) [
 }
 
 proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
-  let dest = if let output = opts.output { output } else { p"" }
+  let dest = if let output = opts.output { output } else { fp"/dev/stdout" }
   var output_fd: Int? = null
   var output_kind = 0
   if opts.output != null {
@@ -359,6 +361,10 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       if ! ("notrunc" in opts.conv) { dest.truncate(seek)? }
       if let fd = output_fd { let _ = unix.seek_fd(fd, seek)? }
     }
+  } else if "append" in opts.output_flags {
+    # Standard output has no descriptor flags XSH can set, so an append
+    # transfer writes through a new descriptor for the same file.
+    output_fd = unix.open_fd(fp"/dev/stdout", write: true, nonblock: false, flags: opts.output_flags)?
   }
   var source: tio.Source? = null
   if let input = opts.input { source = open_dd_source(input)? }
@@ -367,7 +373,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
     if file.kind in [1, 2, 6] or ! opts.input_flags.is_empty() { input_fd = unix.open_fd(file.path, nonblock: false, flags: opts.input_flags)? }
     if file.mode == "file" and opts.output != null and output_kind == 8 and ! ("sparse" in opts.conv) and opts.input_flags.is_empty() and opts.output_flags.is_empty() {
       let size = file.path.metadata()?.size
-      if skip > size {
+      if skip > size and opts.status != "none" {
         let input = opts.input ?? p""
         gnu.error(f"{quoted_path(input)}: cannot skip to specified offset")
       }
@@ -402,7 +408,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       break when block.is_empty()
       discarded += block.len()
     }
-    if discarded < skip { gnu.error("'standard input': cannot skip to specified offset") }
+    if discarded < skip and opts.status != "none" { gnu.error("'standard input': cannot skip to specified offset") }
   }
   var total = 0
   var complete = 0
@@ -412,7 +418,9 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   var output_chunks: List[Bytes] = []
   var output_length = 0
   var output_position = 0
-  let sparse_output = output_kind == 8 and "sparse" in opts.conv and ! ("notrunc" in opts.conv)
+  # A NUL output block is skipped by seeking, which leaves existing bytes in place
+  # under notrunc, so notrunc does not disable it.
+  let sparse_output = "sparse" in opts.conv and (output_kind == 8 or (opts.output == null and output_fd != null))
   while failure == null {
     let finished_count = if large_input { total / opts.ibs >= opts.count } else { complete + partial >= opts.count }
     break when total >= limit or (opts.count >= 0 and ! opts.count_bytes and finished_count)
@@ -447,15 +455,18 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       complete = total / opts.ibs
       partial = if total % opts.ibs == 0 { 0 } else { 1 }
     } else if block.len() == opts.ibs { complete += 1 } else { partial += 1 }
-    if opts.output == null {
+    if opts.output == null and output_fd == null {
       gnu.write_bytes(block)
       io.flush_stdout()?
       written += block.len()
     } else if let fd = output_fd {
       var rest = block
       while ! rest.is_empty() and failure == null {
-        let record_remaining = opts.obs - output_position % opts.obs
-        let chunk_limit = if record_remaining < 65536 { record_remaining } else { 65536 }
+        # The limit is measured from where the pending chunk starts, so it stays fixed
+        # while the chunk fills. Sparse output decides per output block, so a sparse
+        # block is never split.
+        let record_remaining = opts.obs - (output_position - output_length) % opts.obs
+        let chunk_limit = if sparse_output or record_remaining < 65536 { record_remaining } else { 65536 }
         let needed = chunk_limit - output_length
         let width = if rest.len() < needed { rest.len() } else { needed }
         output_chunks += [rest.slice(0, length: width)]
@@ -491,7 +502,12 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       failure = outcome.failure
     }
   }
-  if sparse_output and failure == null { dest.truncate(seek + output_position)? }
+  # A trailing NUL block was skipped by seeking, so the file may need extending,
+  # but never shrinking: notrunc keeps any bytes past the copy.
+  if sparse_output and opts.output != null and failure == null {
+    let end = seek + output_position
+    if dest.metadata()?.size < end { dest.truncate(end)? }
+  }
   if let fd = input_fd { unix.close_fd(fd)? }
   if let fd = output_fd { unix.close_fd(fd)? }
   Ok({complete: complete, partial: partial, written: written, failure: failure, discard_failed: discard_caches(opts)})
@@ -517,6 +533,15 @@ proc require_directory_input(input: Path?) [fs, process, env, error, io] {
     gnu.error("setting flags for 'standard input': Not a directory")
   }
   exit 1
+}
+
+## The records of a block conversion with their padding, joined for one write.
+proc joined_records(blocks: List[BlockOutput]) [error] -> Result[Bytes] {
+  var pieces: List[Bytes] = []
+  for record in blocks {
+    pieces += [record.data, bytes.from_ints([record.pad_byte for _ in range(record.padding)])?]
+  }
+  Ok(bytes.concat(pieces))
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
@@ -645,7 +670,16 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   let converted = transform(records, opts)?
   var written = 0
   var write_failure: Str? = null
-  if opts.output == null {
+  if opts.output == null and "append" in opts.output_flags {
+    # Append mode belongs to the open file description, so standard output is
+    # written through /dev/stdout, as the plain path does.
+    let stdout_fd = unix.open_fd(fp"/dev/stdout", write: true, nonblock: false, flags: opts.output_flags)?
+    let data = if converted.blocks.is_empty() { converted.data } else { joined_records(converted.blocks)? }
+    let outcome = write_fd_all(stdout_fd, data)
+    written = outcome.written
+    write_failure = outcome.failure
+    unix.close_fd(stdout_fd)?
+  } else if opts.output == null {
     if converted.blocks.is_empty() {
       gnu.write_bytes(converted.data)
       written = converted.data.len()
@@ -746,20 +780,27 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
   if discard_failed { exit 1 }
 }
 
-proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: Int, started: Int, output_failed = false) [time] {
+# The status report is the only output after the copy, so a failed write to
+# standard error ends the run with a failure status, as GNU dd does.
+proc status_line(text: Str) [io, process, env, error] {
+  if let Err(failure) = io.write_stderr(f"{text}\n") { gnu.write_failed(failure) }
+  if let Err(failure) = io.flush_stderr() { gnu.write_failed(failure) }
+}
+
+proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: Int, started: Int, output_failed = false) [time, io, process, env, error] {
   if opts.status != "none" {
-    eprint f"{complete}+{partial} records in"
+    status_line(f"{complete}+{partial} records in")
     let output_complete = if opts.bs > 0 and truncated == 0 and ! output_failed { complete } else { size / opts.obs }
     let output_partial = if opts.bs > 0 and truncated == 0 and ! output_failed { partial } else if size % opts.obs == 0 { 0 } else { 1 }
-    eprint f"{output_complete}+{output_partial} records out"
-    if truncated > 0 { eprint f"{truncated} truncated {if truncated == 1 { "record" } else { "records" }}" }
+    status_line(f"{output_complete}+{output_partial} records out")
+    if truncated > 0 { status_line(f"{truncated} truncated {if truncated == 1 { "record" } else { "records" }}") }
     if opts.status != "noxfer" {
       let elapsed = time.now() - started
       let millis = if elapsed < 1 { 1 } else { elapsed }
       let si = if size >= 1000 { human_size(size, 1000, false) } else { "" }
       let iec = if size >= 1024 { human_size(size, 1024, true) } else { "" }
       let units = if si == "" { "" } else if iec == "" { f" ({si})" } else { f" ({si}, {iec})" }
-      eprint f"{size} bytes{units} copied, {millis / 1000}.{millis % 1000:03} s, {if size == 0 { "0.0 B" } else { human_size(size * 1000 / millis, 1000, false) }}/s"
+      status_line(f"{size} bytes{units} copied, {millis / 1000}.{millis % 1000:03} s, {if size == 0 { "0.0 B" } else { human_size(size * 1000 / millis, 1000, false) }}/s")
     }
   }
 }

@@ -187,3 +187,16 @@ test test_df_verbose_option_has_no_effect { |ctx|
     assert verbose.stderr == plain.stderr, f"df {args.join(" ")}: {verbose.stderr}"
   }
 }
+
+test test_df_output_columns_are_separated_without_a_leading_space { |ctx|
+  let root = test.temp_dir(ctx, name: "df-output-align")?
+  let good = fp"{root}/good"
+  good.write("file")
+  let sized = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -k --output=avail $good
+  assert sized.status.exited_with(0), sized.stderr
+  let lines = sized.stdout.lines().collect()
+  assert lines.len() == 2, sized.stdout
+  assert lines[0].trim() == "Avail", lines[0]
+  assert rx"^[0-9]+$".matches(lines[1].trim()), lines[1]
+  assert lines[1].byte_len() == lines[0].byte_len(), "the value is right-aligned to the heading's column width"
+}
