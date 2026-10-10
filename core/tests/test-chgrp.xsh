@@ -61,6 +61,18 @@ test test_chgrp_validates_from_before_group_operand { |ctx|
   assert result.stderr == "chgrp: invalid user: 'xsh-missing-user'\n"
 }
 
+test test_chgrp_from_filters_by_group_id { |ctx|
+  let current = user.current()?
+  let groups = user.groups(current.name, primary_gid: current.gid)?
+  if groups.len() < 2 { test.skip("needs two groups the user belongs to") }
+  let target = test.temp_file(ctx, name: "from-group-id", contents: b"x")?
+  assert perm_run(ctx, [f"{groups[0]}", target.display()])?.status == 0
+  assert perm_run(ctx, ["--from", f"{groups[0]}", f"{groups[1]}", target.display()])?.status == 0
+  assert fs.stat(target)?.gid == groups[1]
+  assert perm_run(ctx, ["--from", f"{groups[0]}", f"{groups[0]}", target.display()])?.status == 0
+  assert fs.stat(target)?.gid == groups[1], "a --from group the file is not in changes nothing"
+}
+
 test test_chgrp_verbose_permission_error_is_reported_on_stderr { |ctx|
   if user.current()?.uid == 0 { test.skip("root can change the target group"); return }
 

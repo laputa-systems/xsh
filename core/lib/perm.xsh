@@ -156,6 +156,13 @@ export proc gid(raw: Str) [fs, error] -> Result[Int, Error] {
   group.lookup(raw)?.gid
 }
 
+## Parse a chgrp --from filter: a group name or ID, where a leading colon forces an ID.
+export proc group_filter(raw: Str) [fs, error] -> Result[Owner, Error] {
+  let resolved = gid(if raw.starts_with(":") { raw.byte_slice(1) } else { raw })
+  return Err(PermError.Invalid("invalid user")) when resolved is Err(_)
+  {uid: null, gid: resolved?}
+}
+
 ## Parse owner and optional group; a trailing colon selects the login group.
 export proc owner(raw: Str, group_only = false) [fs, error, process] -> Result[Owner, Error] {
   if group_only {
@@ -304,7 +311,8 @@ export proc ownership(argv: List[Bytes], group_only = false) [fs, error, process
       gnu.error(f"invalid owner filter: {gnu.quote_bytes(spec)}")
       exit 1
     }
-    match owner(owner_filter) {
+    let parsed_filter = if group_only { group_filter(owner_filter) } else { owner(owner_filter) }
+    match parsed_filter {
       Ok(parsed) => filter = parsed
       Err(failure) => { gnu.error(f"{failure.message}: {gnu.quote(owner_filter)}"); exit 1 }
     }
