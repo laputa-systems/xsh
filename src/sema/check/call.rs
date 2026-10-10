@@ -2094,6 +2094,7 @@ impl Checker {
             "ignore_hup",
             "cpu_max",
             "accept",
+            "same_group",
         ];
         if !(2..=names.len()).contains(&args.len()) {
             self.error(
@@ -2102,7 +2103,7 @@ impl Checker {
                 DiagnosticCode::CheckArity,
             );
         }
-        let mut slots: [Option<&ArenaCallArgKind>; 15] = [None; 15];
+        let mut slots: [Option<&ArenaCallArgKind>; 16] = [None; 16];
         let mut next_positional = 0;
         for arg in args {
             match &arg.kind {
@@ -2186,6 +2187,7 @@ impl Checker {
             Type::Bool,
             Type::Int,
             Type::List(Box::new(Type::Int)),
+            Type::Bool,
         ];
         for (offset, expected) in expected.iter().enumerate() {
             if offset + 2 == 4 {

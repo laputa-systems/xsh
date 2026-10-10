@@ -57,6 +57,13 @@ proc interrupt(ctx: TestContext, signal: Str) [fs, process, time, error] -> Resu
   Ok({status, stdout: out.read_text()?, stderr: err.read_text()?})
 }
 
+proc alive(pid: Int) [process] -> Bool {
+  if let Err(_) = process.kill(pid, signal: "0") {
+    return false
+  }
+  true
+}
+
 test timeout_preserves_normal_exit_and_command_arguments { |ctx|
   assert invoke(ctx, ["2", "sh", "-c", "exit 7"])?.status == 7
   assert invoke(ctx, ["2", "printf", "%s", "--help"])?.stdout == "--help"
@@ -166,11 +173,38 @@ test timeout_invalid_interval_diagnostics_use_gnu_locale_quotes { |ctx|
   assert "invalid time interval '\\'1'" in apostrophe.stderr, apostrophe.stderr
 }
 
-test timeout_foreground_requires_a_waitable_child_in_the_callers_group { |ctx|
-  let result = invoke(ctx, ["--foreground", ".05", "sleep", "10"])?
-  assert result.status == 125
-  assert "managed children require their own process group" in result.stderr
+# GNU timeout --foreground signals only the command, not its process group, so a
+# descendant the command started outlives the timeout.
+test timeout_foreground_signals_only_the_command { |ctx|
+  let root = test.temp_dir(ctx, name: "timeout-foreground")?
+  let grandchild = fp"{root}/grandchild"
+  let result = invoke(ctx, ["--foreground", ".3", "sh", "-c", r"sleep 30 & printf %s $! > $1; wait", "sh", grandchild.display()])?
+  assert result.status == 124
   assert result.stdout == ""
+  assert result.stderr == ""
+  let pid = grandchild.read_text()?.parse_int() ?? -1
+  defer process.kill(pid, signal: "KILL")
+  process.kill(pid, signal: "0")?
+}
+
+test timeout_without_foreground_signals_the_commands_group { |ctx|
+  let root = test.temp_dir(ctx, name: "timeout-group")?
+  let grandchild = fp"{root}/grandchild"
+  let result = invoke(ctx, [".3", "sh", "-c", r"sleep 30 & printf %s $! > $1; wait", "sh", grandchild.display()])?
+  assert result.status == 124
+  let pid = grandchild.read_text()?.parse_int() ?? -1
+  # The group signal is delivered before timeout exits, but the grandchild's
+  # exit is observable only once its new parent has reaped it.
+  let started = time.now()
+  while time.now() - started < 2000 and alive(pid) {
+    time.sleep(10ms)?
+  }
+  test.error_kind(process.kill(pid, signal: "0"), "process-missing")
+}
+
+test timeout_foreground_applies_kill_after_to_the_command { |ctx|
+  assert invoke(ctx, ["--foreground", "-s0", "-k.1", ".1", "sleep", "10"])?.status == 137
+  assert invoke(ctx, ["-f", "-s", "STOP", "-k.1", ".1", "sleep", "10"])?.status == 137
 }
 
 test timeout_accepts_hex_intervals_and_saturates_large_intervals { |ctx|

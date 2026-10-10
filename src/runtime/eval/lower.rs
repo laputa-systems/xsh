@@ -171,6 +171,7 @@ struct LoweredProcessCommandArgvArgs {
     ignore_hup: Option<ExprId>,
     cpu_max: Option<ExprId>,
     accept: Option<ExprId>,
+    same_group: Option<ExprId>,
 }
 
 fn positional_call_args(args: &[ArenaCallArg]) -> Option<Vec<ExprId>> {
@@ -237,6 +238,7 @@ fn lower_process_command_argv_args(
         ignore_hup: args.get("ignore_hup"),
         cpu_max: args.get("cpu_max"),
         accept: args.get("accept"),
+        same_group: args.get("same_group"),
     })
 }
 
@@ -10530,6 +10532,15 @@ impl<'p> CompactLowerConstructProbe<'p, '_> {
                                 None => None,
                             },
                             accept: match options.accept {
+                                Some(expr) => Some(self.lower_expr(
+                                    expr,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?),
+                                None => None,
+                            },
+                            same_group: match options.same_group {
                                 Some(expr) => Some(self.lower_expr(
                                     expr,
                                     slots,

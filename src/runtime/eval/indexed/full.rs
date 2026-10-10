@@ -7190,6 +7190,7 @@ impl FullCodec for LoweredProcessCommandArgv {
         self.ignore_hup.encode(builder, output)?;
         self.cpu_max.encode(builder, output)?;
         self.accept.encode(builder, output)?;
+        self.same_group.encode(builder, output)?;
         self.span.encode(builder, output)
     }
 
@@ -7213,6 +7214,7 @@ impl FullCodec for LoweredProcessCommandArgv {
             ignore_hup: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
             accept: Option::decode(decoder, input)?,
+            same_group: Option::decode(decoder, input)?,
             span: Span::decode(decoder, input)?,
         })
     }

@@ -376,7 +376,7 @@ Process discovery, command construction, execution, spawning, and signals.
 
 - `process.argv_words(text: Str) -> Result[List[Str], Error]` — Splits a command string into an argv vector.
 - `process.command() -> Command` — Builds a typed command plan without starting it.
-- `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
+- `process.command_argv(target: Str, argv: List[Str], cwd: Path = default, env: Record = default, stdin: Path = default, stdout: Path = default, stderr: Path = default, stdout_append: Bool = default, stderr_append: Bool = default, timeout: Duration = default, detach: Bool = default, new_session: Bool = default, ignore_hup: Bool = default, cpu_max: Int = default, accept: List[Int] = default, same_group: Bool = default) -> Command (+7 overloads)` — Builds a command plan from an executable and argv list.
 - `process.current_pid() -> Result[Int, Error]` — Returns the current process ID.
 - `process.group_id(pid: Int = default) -> Result[Int, Error]` — Reads the process group or session ID of a process, or of this one for 0.
 - `process.kill(pid: Int, signal: Str = default) -> Result[Unit, Error]` — Sends a selected signal to a process.

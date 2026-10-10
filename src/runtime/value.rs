@@ -1079,6 +1079,9 @@ pub struct CommandPlan {
     pub detach: bool,
     pub new_session: bool,
     pub ignore_hup: bool,
+    /// Keep the child in the caller's process group rather than its own.
+    /// Contradicts `detach` and `new_session`, which create a group or session.
+    pub same_group: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
