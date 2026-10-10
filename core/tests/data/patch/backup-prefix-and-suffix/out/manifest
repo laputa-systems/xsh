@@ -1,0 +1,5 @@
+d 7 bk
+d 7 bk/sub
+d 7 sub
+f 6 bk/sub/t.x
+f 6 sub/t

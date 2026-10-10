@@ -1,0 +1,13 @@
+can't find file to patch at input line 5
+Perhaps you should have used the -p or --strip option?
+The text leading up to this was:
+--------------------------
+|Index: ix
+|===
+|--- ix.orig
+|+++ ix.new
+--------------------------
+File to patch: 
+Skip this patch? [y] 
+Skipping patch.
+1 out of 1 hunk ignored

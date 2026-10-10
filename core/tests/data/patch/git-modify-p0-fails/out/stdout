@@ -1,0 +1,13 @@
+can't find file to patch at input line 5
+Perhaps you used the wrong -p or --strip option?
+The text leading up to this was:
+--------------------------
+|diff --git a/a b/a
+|index 1111111..2222222 100644
+|--- a/a
+|+++ b/a
+--------------------------
+File to patch: 
+Skip this patch? [y] 
+Skipping patch.
+1 out of 1 hunk ignored

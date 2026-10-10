@@ -1,0 +1,4 @@
+patching file -
+Hunk #1 FAILED at 1.
+Cannot stat file -, skipping backup
+1 out of 1 hunk FAILED -- saving rejects to file -.rej

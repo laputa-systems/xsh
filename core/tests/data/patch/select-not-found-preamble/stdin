@@ -1,0 +1,6 @@
+some preamble
+--- nf
++++ nf
+@@ -1 +1 @@
+-a
++z

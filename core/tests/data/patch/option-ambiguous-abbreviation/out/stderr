@@ -1,0 +1,2 @@
+patch: option '--re' is ambiguous; possibilities: '--remove-empty-files' '--reject-file' '--reverse' '--reject-format' '--read-only'
+patch: Try 'patch --help' for more information.

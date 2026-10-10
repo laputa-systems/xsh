@@ -1,0 +1,6 @@
+The next patch would create the file n,
+which already exists!  Assuming -R.
+patching file n
+Hunk #1 FAILED at 1.
+Not deleting file n as content differs from patch
+1 out of 1 hunk FAILED -- saving rejects to file n.rej

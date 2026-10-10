@@ -1,0 +1,9 @@
+can't find file to patch at input line 3
+Perhaps you should have used the -p or --strip option?
+The text leading up to this was:
+--------------------------
+|--- nof
+|+++ nof
+--------------------------
+No file to patch.  Skipping patch.
+1 out of 1 hunk ignored

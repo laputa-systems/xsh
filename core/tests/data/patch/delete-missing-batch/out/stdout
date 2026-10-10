@@ -1,0 +1,3 @@
+The next patch would delete the file d,
+which does not exist!  Assuming -R.
+patching file d

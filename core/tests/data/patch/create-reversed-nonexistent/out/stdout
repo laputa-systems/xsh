@@ -1,0 +1,5 @@
+The next patch, when reversed, would delete the file n,
+which does not exist!  Ignore -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+1 out of 1 hunk ignored

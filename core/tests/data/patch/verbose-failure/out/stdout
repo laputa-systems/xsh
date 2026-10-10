@@ -1,0 +1,10 @@
+Hmm...  Looks like a unified diff to me...
+The text leading up to this was:
+--------------------------
+|--- f
+|+++ f
+--------------------------
+patching file t
+Hunk #1 FAILED at 1.
+1 out of 1 hunk FAILED -- saving rejects to file t.rej
+done

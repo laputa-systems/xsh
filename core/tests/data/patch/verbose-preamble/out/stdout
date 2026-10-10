@@ -1,0 +1,11 @@
+Hmm...  Looks like a unified diff to me...
+The text leading up to this was:
+--------------------------
+|hello
+|there
+|--- f
+|+++ f
+--------------------------
+patching file t
+Hunk #1 succeeded at 1.
+done

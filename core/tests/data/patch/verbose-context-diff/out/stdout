@@ -1,0 +1,9 @@
+Hmm...  Looks like a new-style context diff to me...
+The text leading up to this was:
+--------------------------
+|*** f
+|--- f
+--------------------------
+patching file t
+Hunk #1 succeeded at 1.
+done

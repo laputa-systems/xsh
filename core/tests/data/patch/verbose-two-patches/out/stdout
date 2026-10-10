@@ -1,0 +1,21 @@
+Hmm...  Looks like a unified diff to me...
+The text leading up to this was:
+--------------------------
+|--- f
+|+++ f
+--------------------------
+patching file t
+Hunk #1 succeeded at 1.
+Hmm...  The next patch looks like a unified diff to me...
+The text leading up to this was:
+--------------------------
+|--- f
+|+++ f
+--------------------------
+patching file t
+Reversed (or previously applied) patch detected!  Assume -R? [n] 
+Apply anyway? [n] 
+Skipping patch.
+Hunk #1 ignored at 1.
+1 out of 1 hunk ignored -- saving rejects to file t.rej
+done
