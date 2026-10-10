@@ -52,7 +52,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       gnu.error(f"{gnu.quote_value(name)}: no such user")
       ok = false
     } else {
-      idtools.unsupported_user_groups(name)
+      let who = idtools.account_ids(name)?
+
+      gnu.write_text(f"{name} : ")
+      ok = idtools.print_group_list(who, true, " ") and ok
+      gnu.write_text("\n")
     }
   }
 

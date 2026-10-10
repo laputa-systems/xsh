@@ -33,15 +33,18 @@ test test_groups_lists_the_current_process_groups { |ctx|
   assert result.stdout == f"{current_groups()?}\n"
 }
 
-test test_groups_reports_unknown_users_and_refuses_other_users_groups { |ctx|
+test test_groups_reports_unknown_users_and_lists_named_user_groups { |ctx|
   let missing = applet_run(ctx, ["no_such_user_xsh"])?
   assert missing.status == 1
   assert missing.stdout == ""
   assert missing.stderr == "groups: 'no_such_user_xsh': no such user\n", missing.stderr
 
   let named = applet_run(ctx, ["root"])?
-  assert named.status == 1
-  assert "not supported yet" in named.stderr
+  let primary = group.by_gid(user.lookup("root")?.gid)?.name
+  assert named.status == 0
+  assert named.stdout.starts_with(f"root : {primary}"), named.stdout
+  assert named.stdout.ends_with("\n")
+  assert applet_run(ctx, ["root", "root"])?.stdout == f"{named.stdout}{named.stdout}", "each operand gets its own line"
 }
 
 test test_groups_help_version_and_errors { |ctx|

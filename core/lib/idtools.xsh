@@ -25,6 +25,22 @@ export proc process_ids() [process, error] -> Result[Process, Error] {
   })
 }
 
+## The ids of the account `name`: the primary gid is both real and effective,
+## and `groups` holds the other memberships. `user.groups` returns them sorted
+## by gid rather than in getgrouplist order.
+export proc account_ids(name: Str) [fs, process, error] -> Result[Process, Error] {
+  let account = user.lookup(name)?
+  let memberships = user.groups(name)?
+
+  Ok({
+    ruid: account.uid,
+    euid: account.uid,
+    rgid: account.gid,
+    egid: account.gid,
+    groups: [gid for gid in memberships if gid != account.gid],
+  })
+}
+
 ## The name of user ID `uid`, or null without a database entry.
 export proc user_name(uid: Int) [fs] -> Str? {
   guard let account = user.by_uid(uid) else {
@@ -91,9 +107,9 @@ export proc print_group_list(who: Process, use_names: Bool, delimiter: Str) [fs,
   ok
 }
 
-## End the applet: another user's supplementary groups need `getgrouplist`,
-## which no typed API exposes (request: `user.groups`).
+## End the applet: `id USER` does not list another user's groups yet. `groups`
+## lists them through `account_ids`; `id` has not been moved onto it.
 export proc unsupported_user_groups(name: Str) [process, env] -> Unit {
-  gnu.error(f"cannot list the groups of {gnu.quote(name)}: not supported yet (no getgrouplist API)")
+  gnu.error(f"cannot list the groups of {gnu.quote(name)}: not supported yet for id")
   exit 1
 }
