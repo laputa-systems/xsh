@@ -166,6 +166,23 @@ test test_chmod_verbose_missing_file_reports_access_failure { |ctx|
   assert result.stdout.find("could not be accessed") != null
 }
 
+test test_chmod_verbose_dangling_symlink_reports_failed_mode_line { |ctx|
+  let root = test.temp_dir(ctx, name: "dangling-verbose")?
+  let link = fp"{root}/link"
+  link.symlink(to: fp"{root}/absent")
+  let verbose = perm_run(ctx, ["-v", "755", link.display()])?
+  assert verbose.status == 1
+  assert verbose.stdout == f"failed to change mode of '{link}' from 0000 (---------) to 1500 (r-x-----T)\n", verbose.stdout
+  assert verbose.stderr.find(f"cannot operate on dangling symlink '{link}'") != null, verbose.stderr
+  let quiet = perm_run(ctx, ["-v", "-f", "755", link.display()])?
+  assert quiet.status == 1
+  assert quiet.stderr == ""
+  assert quiet.stdout == verbose.stdout
+  let plain = perm_run(ctx, ["755", link.display()])?
+  assert plain.stdout == ""
+  assert plain.stderr.find(f"cannot operate on dangling symlink '{link}'") != null, plain.stderr
+}
+
 test test_chmod_multiple_option_modes_accumulate_actions { |ctx|
   let target = test.temp_file(ctx, name: "mode-actions", contents: b"x")?
   target.chmod(0o777)
