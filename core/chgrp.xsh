@@ -7,7 +7,7 @@ proc main(...argv: List[Bytes]) [fs, error, process, env, io] {
   if ! opts.help and ! opts.version {
     if let spec = opts.from {
       if let Ok(text) = spec.utf8() {
-        if let Err(failure) = perm.owner(text) {
+        if let Err(failure) = perm.group_filter(text) {
           gnu.error(f"{failure.message}: {gnu.quote(text)}")
           exit 1
         }
