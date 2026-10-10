@@ -3026,7 +3026,8 @@ fn unix_module() -> ModuleSig {
                 RuntimeOp::UnixKillProcessGroup,
             ),
         ),
-        ("exec_env", sig(vec![param("command", Type::Command), param("environment", Type::Map(Box::new(Type::Str), Box::new(Type::Str))), default_param("argv0", Type::Optional(Box::new(Type::Str)))], result(Type::Unit), false, RuntimeOp::UnixExecEnv)),
+        ("exec_env", sig(vec![param("command", Type::Command), param("environment", Type::Map(Box::new(Type::Str), Box::new(Type::Str))), default_param("argv0", Type::Optional(Box::new(Type::Str))), default_param("block_signals", Type::List(Box::new(Type::Str)))], result(Type::Unit), false, RuntimeOp::UnixExecEnv)),
+        ("exec_env", sig(vec![param("command", Type::Command), param("environment", Type::Map(Box::new(Type::Str), Box::new(Type::Bytes))), default_param("argv0", Type::Optional(Box::new(Type::Str))), default_param("block_signals", Type::List(Box::new(Type::Str)))], result(Type::Unit), false, RuntimeOp::UnixExecEnv)),
         (
             "exec",
             sig(

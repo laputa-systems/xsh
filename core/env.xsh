@@ -167,20 +167,43 @@ pure byte_prefix(arg: Bytes, prefix: Bytes) -> Bool {
   arg.len() >= prefix.len() and arg[0..prefix.len()] == prefix
 }
 
-proc print_environment(environment: Map[Str, Str], null_delimited: Bool) [error, io] {
+proc print_environment(environment: Map[Str, Bytes], null_delimited: Bool) [process, env, error, io] {
+  let ending = if null_delimited { b"\0" } else { b"\n" }
   for name in environment.keys() {
-    let value = environment.get(name) ?? ""
-    io.write_stdout(f"{name}={value}{if null_delimited { "\0" } else { "\n" }}")
+    let value = environment.get(name) ?? b""
+    gnu.write_bytes(bytes.concat([bytes.from_text(name), b"=", value, ending]))
   }
 }
 
-proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments: Map[Str, Str]) [env, error] -> Result[Map[Str, Str]] {
-  var environment: Map[Str, Str] = {}
-  if ! ignore_inherited {
-    for item in env.list()? { environment[item.name] = item.value }
+# The inherited environment with its values as raw bytes: `env.list` rejects a
+# value that is not valid UTF-8, and env passes such values through unchanged.
+# The block is read from /proc where there is one; elsewhere `env.list` stands
+# in and carries only text.
+proc inherited_environment() [fs, env, error] -> Result[Map[Str, Bytes]] {
+  var environment: Map[Str, Bytes] = {}
+  match fp"/proc/self/environ".read_bytes() {
+    Ok(raw) => {
+      var begin = 0
+      for index in range(raw.len() + 1) {
+        if index != raw.len() and raw.byte_at(index) != 0 { continue }
+        let entry = raw.slice(begin, length: index - begin)
+        begin = index + 1
+        let separator = assignment_separator(entry)
+        if let at = separator { if at > 0 { environment[entry[0..at].utf8()?] = entry[at + 1..] } }
+      }
+    }
+    Err(_) => {
+      for item in env.list()? { environment[item.name] = bytes.from_text(item.value) }
+    }
   }
+  Ok(environment)
+}
+
+proc environment_map(ignore_inherited: Bool, unset_names: List[Str], assignments: Map[Str, Bytes]) [fs, env, error] -> Result[Map[Str, Bytes]] {
+  var environment: Map[Str, Bytes] = {}
+  if ! ignore_inherited { environment = inherited_environment()? }
   for name in unset_names { environment = environment.remove(name) }
-  for name in assignments.keys() { environment[name] = assignments.get(name) ?? "" }
+  for name in assignments.keys() { environment[name] = assignments.get(name) ?? b"" }
   Ok(environment)
 }
 
@@ -232,18 +255,35 @@ proc apply_signal_actions(options: List[SignalActionOption]) [process, env, erro
   }
 }
 
-proc list_signal_actions() [process, error, io] {
+proc list_signal_actions(blocked: List[Str]) [process, error, io] {
   for signal in process.signals() {
     if signal.number == 0 { continue }
-    let action = process.signal_action(signal.name)?
-    if action != "ignore" { continue }
+    let is_blocked = signal.name in blocked
+    let is_ignored = process.signal_action(signal.name)? == "ignore"
+    if ! is_blocked and ! is_ignored { continue }
 
     var name_field = signal.name
     while name_field.byte_len() < 10 { name_field += " " }
     let number = f"{signal.number}"
     let number_field = if number.byte_len() < 2 { f" {number}" } else { number }
-    io.write_stderr(f"{name_field} ({number_field}): IGNORE\n")
+    io.write_stderr(f"{name_field} ({number_field}):{if is_blocked { " BLOCKED" } else { "" }}{if is_ignored { " IGNORE" } else { "" }}\n")
   }
+}
+
+# The signal names a run of --block-signal options blocks: an option without a
+# list stands for every signal.
+proc blocked_signal_names(options: List[SignalActionOption]) [process] -> List[Str] {
+  var blocked: List[Str] = []
+  for option in options {
+    if let names = option.names {
+      blocked = blocked.extend(names)
+    } else {
+      for signal in process.signals() {
+        if signal.number != 0 { blocked += [signal.name] }
+      }
+    }
+  }
+  blocked
 }
 
 proc split_words(source: Bytes, verbose: Bool) [process, env, error, io] -> List[Bytes] {
@@ -257,7 +297,7 @@ proc split_words(source: Bytes, verbose: Bool) [process, env, error, io] -> List
   collect { for word in words { yield bytes.from_text(word) } }
 }
 
-proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, Str], argv0: Bytes?, verbose: Bool, ignore_inherited: Bool) [fs, process, env, error, io] {
+proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, Bytes], argv0: Bytes?, blocked: List[Str], verbose: Bool, ignore_inherited: Bool) [fs, process, env, error, io] {
   if command_argv[0] == b"" {
     gnu.error("'': No such file or directory")
     exit 127
@@ -301,7 +341,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, St
 
   var search_environment: Map[Str, Str] = {}
   if let Ok(path_value) = environment.get("PATH") {
-    search_environment["PATH"] = path_value
+    search_environment["PATH"] = text_if_utf8(path_value)
   } else if ! ignore_inherited {
     if let Ok(path_value) = env.get("PATH") {
       search_environment["PATH"] = path_value
@@ -322,7 +362,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, St
     } else {
       process.command_argv(executable, words)
     }
-    match unix.exec_env(command, environment, argv0: argv0_text) {
+    match unix.exec_env(command, environment, argv0: argv0_text, block_signals: blocked) {
       Ok(_) => return
       Err(failure) => {
         let number = gnu.errno(failure)
@@ -355,7 +395,7 @@ proc run_command(command_argv: List[Bytes], cwd: Path?, environment: Map[Str, St
   }
 }
 
-proc main(...raw: List[Bytes]) [process, env, error, io] {
+proc main(...raw: List[Bytes]) [fs, process, env, error, io] {
   var argv = raw
   var cwd: Path? = null
   var null_delimited = false
@@ -363,8 +403,9 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
   var verbose = false
   var argv0: Bytes? = null
   var unset_names: List[Str] = []
-  var assignments: Map[Str, Str] = {}
+  var assignments: Map[Str, Bytes] = {}
   var signal_actions: List[SignalActionOption] = []
+  var block_options: List[SignalActionOption] = []
   var list_signal_handling = false
   var option_index = 0
 
@@ -417,7 +458,9 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
       continue
     }
 
-    if raw_word == b"--split-string" or byte_prefix(raw_word, b"--split-string=") {
+    # The `--split-string STRING` form also arrives as one word when a shebang
+    # line passes everything after the interpreter as a single argument.
+    if raw_word == b"--split-string" or byte_prefix(raw_word, b"--split-string=") or byte_prefix(raw_word, b"--split-string ") {
       var source = b""
       var consumed = 1
       if raw_word == b"--split-string" {
@@ -449,11 +492,16 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
       continue
     }
     if raw_word == b"--block-signal" or byte_prefix(raw_word, b"--block-signal=") {
-      # Names are checked first so an unknown name reports "invalid signal" as GNU
-      # does; only a valid request reaches the unsupported-operation error.
-      if byte_prefix(raw_word, b"--block-signal=") { validate_signal_names(signal_names(raw_word[15..].utf8()?)) }
-      gnu.error("signal mask operations are unavailable in this runtime")
-      exit 125
+      let names: List[Str]? = if raw_word == b"--block-signal" {
+        null
+      } else {
+        let listed = signal_names(raw_word[15..].utf8()?)
+        validate_signal_names(listed)
+        listed
+      }
+      block_options += [{action: "block", names}]
+      option_index += 1
+      continue
     }
 
     if raw_word.byte_at(0) == 45 and raw_word.len() > 1 {
@@ -504,7 +552,7 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
   while assignment_index < argv.len() and assignment_separator(argv[assignment_index]) != null {
     let separator = assignment_separator(argv[assignment_index]) ?? 0
     let name = argv[assignment_index][0..separator].utf8()?
-    let value = argv[assignment_index][separator + 1..].utf8()?
+    let value = argv[assignment_index][separator + 1..]
     if name == "" { gnu.error("cannot set '': Invalid argument"); exit 125 }
     assignments[name] = value
     assignment_index += 1
@@ -520,6 +568,7 @@ proc main(...raw: List[Bytes]) [process, env, error, io] {
   }
   if null_delimited { gnu.error("cannot specify --null (-0) with command"); exit 125 }
   apply_signal_actions(signal_actions)
-  if list_signal_handling { list_signal_actions() }
-  run_command(argv, cwd, environment, argv0, verbose, ignore_inherited)
+  let blocked = blocked_signal_names(block_options)
+  if list_signal_handling { list_signal_actions(blocked) }
+  run_command(argv, cwd, environment, argv0, blocked, verbose, ignore_inherited)
 }

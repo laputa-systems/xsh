@@ -437,7 +437,12 @@ pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, 
     Ok(io_error("unix-exec", error, span))
 }
 
-pub(crate) fn exec_env(invocation: &ProcessInvocation, argv0: Option<&str>, span: Span) -> Result<Value, RuntimeError> {
+pub(crate) fn exec_env(
+    invocation: &ProcessInvocation,
+    argv0: Option<&str>,
+    block_signals: &[i32],
+    span: Span,
+) -> Result<Value, RuntimeError> {
     if invocation.env.keys().any(|key| key.is_empty() || key.contains(&0) || key.contains(&b'='))
         || invocation.env.values().any(|value| value.contains(&0))
         || argv0.is_some_and(|value| value.as_bytes().contains(&0))
@@ -455,7 +460,34 @@ pub(crate) fn exec_env(invocation: &ProcessInvocation, argv0: Option<&str>, span
         return Ok(Value::err(Value::Error(Box::new(error))));
     }
     keep_script_sigpipe_disposition(&mut command);
+    block_signals_in_child(&mut command, block_signals);
     Ok(io_error("unix-exec-env", command.exec(), span))
+}
+
+// std empties the signal mask of a command it starts; the hook runs after that
+// and adds the signals the caller asked to have blocked. SIGKILL and SIGSTOP
+// cannot be blocked, which the kernel enforces by ignoring them in the set.
+fn block_signals_in_child(command: &mut Command, signals: &[i32]) {
+    if signals.is_empty() {
+        return;
+    }
+    let mut set: libc::sigset_t = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::sigemptyset(&mut set);
+        for signal in signals {
+            libc::sigaddset(&mut set, *signal);
+        }
+    }
+    // SAFETY: the hook only calls the async-signal-safe sigprocmask.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::sigprocmask(libc::SIG_BLOCK, &set, std::ptr::null_mut()) == 0 {
+                Ok(())
+            } else {
+                Err(io::Error::last_os_error())
+            }
+        });
+    }
 }
 
 // std resets SIGPIPE to the default action in every command it starts, which

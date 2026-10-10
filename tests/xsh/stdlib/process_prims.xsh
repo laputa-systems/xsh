@@ -327,3 +327,30 @@ test test_flush_stdout_is_a_no_op_for_captured_output {
   io.write_stdout("captured")
   io.flush_stdout()
 }
+
+test test_unix_exec_env_passes_bytes_values_through { |ctx|
+  let result = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "printf %s \"$RAW\" | od -An -tx1"])
+let environment: Map[Str, Bytes] = {"RAW": b"a\x80b"}
+unix.exec_env(command, environment)?
+""", status: 0)?
+  assert result.stdout.trim() == "61 80 62"
+}
+
+test test_unix_exec_env_blocks_the_named_signals { |ctx|
+  if ! p"/proc/self/status".exists()? {
+    test.skip("the host has no /proc/self/status")
+  }
+
+  let result = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "grep SigBlk /proc/self/status"])
+let environment: Map[Str, Str] = {}
+unix.exec_env(command, environment, block_signals: ["USR1", "SIGTERM"])?
+""", status: 0)?
+  # USR1 is signal 10 and TERM is 15: bits 9 and 14 of the mask.
+  assert result.stdout.trim() == "SigBlk:\t0000000000004200", result.stdout
+
+  let unnamed = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "grep SigBlk /proc/self/status"])
+let environment: Map[Str, Str] = {}
+unix.exec_env(command, environment)?
+""", status: 0)?
+  assert unnamed.stdout.trim() == "SigBlk:\t0000000000000000", unnamed.stdout
+}
