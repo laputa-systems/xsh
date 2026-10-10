@@ -553,9 +553,6 @@ test test_compress_missing_operand_does_not_stop_later_operands { |ctx|
 
 test test_compress_alias_force_passes_plain_input_through { |ctx|
   for family in families() {
-    # A raw lzma stream has no magic, so telling it from plain data needs the
-    # header; that is only possible for file operands (the next test).
-    continue when family.tool == "lzma"
     let plain = b"not compressed\0\xff\n"
     let passed = invoke(ctx, family.cat, ["-f"], plain)?
     assert passed.status == 0, f"{family.cat} -f: {passed.stderr}"
@@ -596,6 +593,35 @@ test test_xz_applets_detect_lzma_files_by_content { |ctx|
     assert refused.status != 0 and refused.stdout == b"", f"{entry} without -f"
   }
   assert invoke(ctx, "lzcat", [xz_archive.display()])?.status != 0, "lzcat must not read .xz"
+}
+
+test test_xz_applets_detect_lzma_and_xz_on_standard_input { |ctx|
+  let lzma_fixture = family_named("lzma").lines.base64_decode()?
+  let xz_fixture = family_named("xz").lines.base64_decode()?
+  for entry in [{name: "xz", args: ["-dc"]}, {name: "unxz", args: ["-c"]}, {name: "xzcat", args: []}] {
+    for packed in [xz_fixture, lzma_fixture] {
+      let result = invoke(ctx, entry.name, entry.args, packed)?
+      assert result.status == 0, f"{entry.name}: {result.stderr}"
+      assert result.stdout == plain_lines(), f"{entry.name} must read .xz and .lzma from a pipe"
+    }
+  }
+  assert invoke(ctx, "xz", ["-t"], lzma_fixture)?.status == 0
+  # Neither lzma applet reads .xz, and both copy it through under -f like the
+  # reference tool does for input in the wrong container.
+  for entry in ["lzcat", "unlzma"] {
+    let refused = invoke(ctx, entry, ["-c"], xz_fixture)?
+    assert refused.status != 0 and refused.stdout == b"", entry
+    let forced = invoke(ctx, entry, ["-cf"], xz_fixture)?
+    assert forced.status == 0, f"{entry} -cf: {forced.stderr}"
+    assert forced.stdout == xz_fixture, entry
+  }
+  # xz detects only xz and lzma: other containers are rejected, or copied
+  # through under -f.
+  let gzip_fixture = family_named("gzip").lines.base64_decode()?
+  let rejected = invoke(ctx, "xz", ["-dc"], gzip_fixture)?
+  assert rejected.status != 0 and rejected.stdout == b""
+  let forced = invoke(ctx, "xz", ["-dcf"], gzip_fixture)?
+  assert forced.status == 0 and forced.stdout == gzip_fixture
 }
 
 test test_compress_decoder_aliases_name_the_output_after_the_archive { |ctx|
