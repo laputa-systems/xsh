@@ -2,10 +2,11 @@
 ##! SMART data and threshold pages, the error, self-test, selective self-test and
 ##! directory logs, and the NVMe identify and SMART/health pages.
 ##!
-##! Every function here is a pure decoder over raw device pages. Presentation
-##! lives in `smart_ata`, `smart_nvme` and `smart_scsi` (smartctl's text layout
-##! and JSON members) over the ordered writer in `smart_json`; device access
-##! lives in the `smartctl` applet.
+##! Every function here is a pure decoder over raw device pages, apart from
+##! `present_candidates`, which only stats device nodes. Presentation lives in
+##! `smart_ata`, `smart_nvme` and `smart_scsi` (smartctl's text layout and JSON
+##! members) over the ordered writer in `smart_json`; device access lives in
+##! the `smartctl` applet.
 
 ## Largest attribute table a SMART data page carries.
 export const ATTRIBUTE_SLOTS = 30
@@ -981,4 +982,19 @@ export pure self_test_exec_name(status: Int) -> Str {
     15 => f"in progress, {status % 16}0% remaining"
     _ => "reserved"
   }
+}
+
+## One discovered storage device, as `linux.storage_candidates` reports it.
+export type Candidate = {
+  controller: Path?, firmware: Str?, kind: Str, model: Str?, name: Str, path: Path,
+  protocol: Str, removable: Bool?, rotational: Bool?, serial: Str?, size_bytes: UInt?,
+}
+
+## The storage devices a scan may offer: those whose device node exists under
+## `dev_root`. sysfs lists NVMe controllers and disks that have no node (a
+## container shares /sys but not /dev), and an entry that cannot be opened
+## must not be presented as a scan result.
+export proc present_candidates(sys_root: Path, dev_root: Path) -> Result[List[Candidate], Error] {
+  let found = linux.storage_candidates(sys_root:, dev_root:)?
+  Ok([candidate for candidate in found if candidate.path.exists()?])
 }

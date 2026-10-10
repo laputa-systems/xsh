@@ -52,15 +52,6 @@ test test_storage_mount_and_swap_translate_named_targets { |ctx|
   assert "\"op\":\"swapon\"" in output
 }
 
-test test_storage_partition_json_is_conventional_machine_interface { |ctx|
-  let log = test.temp_file(ctx, name: "partition-json-log", contents: b"")?
-  let output = run_storage(ctx, "sfdisk", ["--json", "/owned/disk"], log)
-  assert output.success, output.stderr
-  assert "\"partitiontable\"" in output.stdout
-  assert "\"sectorsize\"" in output.stdout
-  assert "\"start\"" in output.stdout and "\"size\"" in output.stdout
-}
-
 test test_storage_filesystem_type_filter_supports_exclusions {
   assert storage.type_matches("ext4", "ext4,xfs")
   assert ! storage.type_matches("tmpfs", "ext4,xfs")
@@ -140,14 +131,83 @@ test test_storage_wipefs_selectively_erases_owned_signature_only { |ctx|
   let source = fp"{ctx.core_dir}/wipefs.xsh".read_text()?
   let listing = test.run_script(ctx, source, ["--json", f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
   assert listing.success, listing.stderr
-  assert "\"type\":\"xfs\"" in listing.stdout
-  assert "\"offset\":\"0x0\"" in listing.stdout
+  assert "\"offset\": \"0x0\"" in listing.stdout
+  assert "\"type\": \"xfs\"" in listing.stdout
+  assert "\"uuid\": null" in listing.stdout
   let dry = test.run_script(ctx, source, ["--no-act", "--offset", "0x0", f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
   assert dry.success, dry.stderr
   assert image.read_bytes()? == b"XFSBpayload-preserved"
   let erased = test.run_script(ctx, source, ["--offset", "0x0", f"{image}"], {XSH_MODULE_PATH: ctx.core_dir}, b"", "wipefs")?
   assert erased.success, erased.stderr
   assert image.read_bytes()? == b"\0\0\0\0payload-preserved"
+}
+
+# A FAT boot sector carries three magics: the FATnn type string, the jump byte
+# at offset 0 and the 0x55aa trailer. Erasing only the type string leaves the
+# trailer, which a probe then reports as a DOS partition table.
+test test_storage_wipefs_erases_every_magic_of_a_fat_filesystem { |ctx|
+  let image = test.temp_file(ctx, name: "wipefs-fat.img", contents: b"")?
+  image.truncate(2097152)
+  let made = run_real(ctx, "mkfs.fat", ["-F", "12", "-n", "TESTFAT", f"{image}"])
+  assert made.success, made.stderr
+  let listed = run_real(ctx, "wipefs", [f"{image}"])
+  assert listed.success, listed.stderr
+  let rows = [line.words() for line in listed.stdout.lines()]
+  assert rows[0] == ["DEVICE", "OFFSET", "TYPE", "UUID", "LABEL"]
+  assert [rows[at][1] for at in range(1, rows.len())] == ["0x36", "0x0", "0x1fe"]
+  assert [rows[at][2] for at in range(1, rows.len())] == ["vfat", "vfat", "vfat"]
+  assert rows[1][4] == "TESTFAT"
+
+  let expected = test.temp_file(ctx, name: "wipefs-fat-expected.img", contents: image.read_bytes()?)?
+  let _ = bytes.zero_at(expected, 54, 8)?
+  let _ = bytes.zero_at(expected, 0, 1)?
+  let _ = bytes.zero_at(expected, 510, 2)?
+  let dry = run_real(ctx, "wipefs", ["-n", "-a", f"{image}"])
+  assert dry.success, dry.stderr
+  assert dry.stdout.lines().len() == 3
+  assert image.read_bytes()? != expected.read_bytes()?
+
+  let erased = run_real(ctx, "wipefs", ["-a", f"{image}"])
+  assert erased.success, erased.stderr
+  assert erased.stdout.lines() == [
+    f"{image}: 8 bytes were erased at offset 0x00000036 (vfat): 46 41 54 31 32 20 20 20",
+    f"{image}: 1 byte was erased at offset 0x00000000 (vfat): eb",
+    f"{image}: 2 bytes were erased at offset 0x000001fe (vfat): 55 aa",
+  ]
+  assert image.read_bytes()? == expected.read_bytes()?
+  let probed = run_real(ctx, "blkid", [f"{image}"])
+  assert probed.status == 2
+  assert probed.stdout == ""
+  assert run_real(ctx, "wipefs", [f"{image}"]).stdout == ""
+}
+
+test test_storage_wipefs_lists_gpt_headers_before_the_protective_mbr { |ctx|
+  let image = partitioned_image(ctx, "gpt")
+  let listed = run_real(ctx, "wipefs", ["-O", "OFFSET,TYPE,LENGTH,USAGE", f"{image}"])
+  assert listed.success, listed.stderr
+  assert [line.words() for line in listed.stdout.lines()] == [
+    ["OFFSET", "TYPE", "LENGTH", "USAGE"],
+    ["0x200", "gpt", "8", "partition-table"],
+    ["0x7ffe00", "gpt", "8", "partition-table"],
+    ["0x1fe", "PMBR", "2", "partition-table"],
+  ]
+  let erased = run_real(ctx, "wipefs", ["--all", f"{image}"])
+  assert erased.success, erased.stderr
+  assert erased.stdout.lines() == [
+    f"{image}: 8 bytes were erased at offset 0x00000200 (gpt): 45 46 49 20 50 41 52 54",
+    f"{image}: 8 bytes were erased at offset 0x007ffe00 (gpt): 45 46 49 20 50 41 52 54",
+    f"{image}: 2 bytes were erased at offset 0x000001fe (PMBR): 55 aa",
+  ]
+  assert run_real(ctx, "blkid", [f"{image}"]).status == 2
+}
+
+test test_storage_wipefs_names_an_unreadable_operand { |ctx|
+  let dir = test.temp_dir(ctx, name: "wipefs-missing")?
+  let missing = fp"{dir}/missing.img"
+  let result = run_real(ctx, "wipefs", [f"{missing}"])
+  assert result.status == 1
+  assert result.stdout == ""
+  assert diagnostics(result)[0].starts_with(f"error: {missing}: probing initialization failed: ")
 }
 
 test test_storage_wipefs_rejects_invalid_modes_before_erasing { |ctx|
@@ -250,31 +310,80 @@ proc partitioned_image(ctx: TestContext, label: Str) -> Path {
   image
 }
 
-test test_storage_fdisk_list_reports_reference_extents_for_gpt_and_dos { |ctx|
-  for label in ["gpt", "dos"] {
-    let image = partitioned_image(ctx, label)
-    let before = image.read_bytes()?
-    let listed = run_real(ctx, "fdisk", ["-l", "-o", "NR,START,END,SECTORS", f"{image}"])
-    assert listed.success, listed.stderr
-    assert listed.stdout == f"Disk {image}: disklabel type: {label}\nNR START END SECTORS\n1 2048 6143 4096\n2 8192 10239 2048\n"
-    assert image.read_bytes()? == before
-  }
+# The text util-linux fdisk prints above a table for the 8 MiB images of
+# `partitioned_image`.
+pure disk_heading(image: Path, label: Str, identifier: Str) -> List[Str] {
+  [
+    f"Disk {image}: 8 MiB, 8388608 bytes, 16384 sectors",
+    "Units: sectors of 1 * 512 = 512 bytes",
+    "Sector size (logical/physical): 512 bytes / 512 bytes",
+    "I/O size (minimum/optimal): 512 bytes / 512 bytes",
+    f"Disklabel type: {label}",
+    f"Disk identifier: {identifier}",
+  ]
 }
 
-test test_storage_fdisk_list_reports_gpt_identity_and_dos_type_codes { |ctx|
+# The device column is as wide as its longest node once that outgrows the
+# heading, and every other field keeps util-linux's fixed alignment. Test image
+# names end in a digit, so their partition nodes carry the `p` separator.
+test test_storage_fdisk_list_reports_the_util_linux_layout_for_gpt_and_dos { |ctx|
   let gpt = partitioned_image(ctx, "gpt")
-  let identity = run_real(ctx, "fdisk", ["-l", "-o", "NR,NAME,UUID,TYPE", f"{gpt}"])
-  assert identity.success, identity.stderr
-  let rows = identity.stdout.lines()
-  assert rows.len() == 4
-  assert rows[2] == "1 root aaaaaaaa-0000-0000-0000-000000000001 0fc63daf-8483-4772-8e79-3d69d8477de4"
-  assert rows[3].starts_with("2 ")
-  assert "aaaaaaaa-0000-0000-0000-000000000002 c12a7328-f81f-11d2-ba4b-00a0c93ec93b" in rows[3]
+  let before = gpt.read_bytes()?
+  let listed = run_real(ctx, "fdisk", ["-l", f"{gpt}"])
+  assert listed.success, listed.stderr
+  assert listed.stdout.lines() == disk_heading(gpt, "gpt", "11111111-2222-3333-4444-555555555555") + [
+    "",
+    tui.right_pad("Device", f"{gpt}p1".count_chars()) + " Start   End Sectors Size Type",
+    f"{gpt}p1" + "  2048  6143    4096   2M Linux filesystem",
+    f"{gpt}p2" + "  8192 10239    2048   1M EFI System",
+  ]
+  assert gpt.read_bytes()? == before
 
   let dos = partitioned_image(ctx, "dos")
-  let types = run_real(ctx, "fdisk", ["-l", "-o", "NR,TYPE", f"{dos}"])
+  let boot = run_real(ctx, "fdisk", ["-l", f"{dos}"])
+  assert boot.success, boot.stderr
+  assert boot.stdout.lines() == disk_heading(dos, "dos", "0x1234abcd") + [
+    "",
+    tui.right_pad("Device", f"{dos}p1".count_chars()) + " Boot Start   End Sectors Size Id Type",
+    f"{dos}p1" + "       2048  6143    4096   2M 83 Linux",
+    f"{dos}p2" + "       8192 10239    2048   1M ef EFI (FAT-12/16/32)",
+  ]
+}
+
+test test_storage_fdisk_list_selects_columns_and_names_the_ones_a_label_lacks { |ctx|
+  let gpt = partitioned_image(ctx, "gpt")
+  let identity = run_real(ctx, "fdisk", ["-l", "-o", "device,name,UUID,Type-UUID", f"{gpt}"])
+  assert identity.success, identity.stderr
+  let rows = identity.stdout.lines()
+  assert rows.len() == 10
+  assert rows[7].words() == ["Device", "Name", "UUID", "Type-UUID"]
+  assert rows[8].words() == [f"{gpt}p1", "root", "AAAAAAAA-0000-0000-0000-000000000001", "0FC63DAF-8483-4772-8E79-3D69D8477DE4"]
+  assert rows[9].words() == [f"{gpt}p2", "AAAAAAAA-0000-0000-0000-000000000002", "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"]
+  let extended = run_real(ctx, "fdisk", ["-l", "-o", "+Name", f"{gpt}"])
+  assert extended.stdout.lines()[7].words() == ["Device", "Start", "End", "Sectors", "Size", "Type", "Name"]
+
+  let dos = partitioned_image(ctx, "dos")
+  let types = run_real(ctx, "fdisk", ["-l", "-o", "Device,Id,Type", f"{dos}"])
   assert types.success, types.stderr
-  assert types.stdout.lines() == [f"Disk {dos}: disklabel type: dos", "NR TYPE", "1 83", "2 ef"]
+  assert types.stdout.lines()[8].words() == [f"{dos}p1", "83", "Linux"]
+  assert types.stdout.lines()[9].words() == [f"{dos}p2", "ef", "EFI", "(FAT-12/16/32)"]
+  # The heading is printed before a column the label cannot supply is refused.
+  let lacking = run_real(ctx, "fdisk", ["-l", "-o", "Device,Name", f"{dos}"])
+  assert ! lacking.success
+  assert lacking.stdout.lines() == disk_heading(dos, "dos", "0x1234abcd")
+  assert diagnostics(lacking)[0] == "dos unknown column: Name"
+}
+
+test test_storage_fdisk_sizes_use_the_util_linux_unit_rounding { |ctx|
+  let image = test.temp_file(ctx, name: "fdisk-sizes.img", contents: b"")?
+  image.truncate(1048576)
+  let written = run_real(ctx, "sfdisk", [f"{image}"], b"label: dos\nunit: sectors\nstart=1,size=1\nstart=10,size=5\nstart=20,size=6\nstart=100,size=1000\n")
+  assert written.success, written.stderr
+  let listed = run_real(ctx, "fdisk", ["-l", "-o", "Sectors,Size", f"{image}"])
+  assert listed.success, listed.stderr
+  assert listed.stdout.lines()[0] == f"Disk {image}: 1 MiB, 1048576 bytes, 2048 sectors"
+  let rows = listed.stdout.lines()
+  assert [rows[at].words().join(" ") for at in range(8, rows.len())] == ["1 512B", "5 2.5K", "6 3K", "1000 500K"]
 }
 
 test test_storage_partition_listings_agree_on_extents { |ctx|
@@ -286,8 +395,8 @@ test test_storage_partition_listings_agree_on_extents { |ctx|
     assert partx.success, partx.stderr
     assert partx.stdout == "2048 4096\n8192 2048\n"
     let fdisk_rows = fdisk.stdout.lines()
-    assert fdisk_rows.len() == 4
-    assert [fdisk_rows[2], fdisk_rows[3]] == partx.stdout.lines()
+    assert fdisk_rows.len() == 10
+    assert [fdisk_rows[8].words().join(" "), fdisk_rows[9].words().join(" ")] == partx.stdout.lines()
     let json_listing = run_real(ctx, "sfdisk", ["-J", f"{image}"])
     assert json_listing.success, json_listing.stderr
     let table = json.decode(json_listing.stdout)?.require(ListedDisk)?
@@ -300,9 +409,71 @@ test test_storage_partition_listings_agree_on_extents { |ctx|
 test test_storage_fdisk_lists_unpartitioned_image_without_rows { |ctx|
   let image = test.temp_file(ctx, name: "fdisk-blank.img", contents: b"")?
   image.truncate(1048576)
-  let listed = run_real(ctx, "fdisk", ["-l", "-o", "NR,START", f"{image}"])
+  let listed = run_real(ctx, "fdisk", ["-l", f"{image}"])
   assert listed.success, listed.stderr
-  assert listed.stdout == f"Disk {image}: disklabel type: none\nNR START\n"
+  assert listed.stdout == f"Disk {image}: 1 MiB, 1048576 bytes, 2048 sectors\nUnits: sectors of 1 * 512 = 512 bytes\nSector size (logical/physical): 512 bytes / 512 bytes\nI/O size (minimum/optimal): 512 bytes / 512 bytes\n"
+}
+
+test test_storage_fdisk_separates_several_devices_with_two_blank_lines { |ctx|
+  let gpt = partitioned_image(ctx, "gpt")
+  let dos = partitioned_image(ctx, "dos")
+  let listed = run_real(ctx, "fdisk", ["-l", f"{gpt}", f"{dos}"])
+  assert listed.success, listed.stderr
+  let rows = listed.stdout.lines()
+  assert rows[10] == "" and rows[11] == ""
+  assert rows[12] == f"Disk {dos}: 8 MiB, 8388608 bytes, 16384 sectors"
+}
+
+# sfdisk --dump is the text sfdisk reads back, so its field layout is exact:
+# only the headers a label has, start and size padded to twelve columns, and
+# only the per-partition fields that exist.
+test test_storage_sfdisk_dump_matches_the_util_linux_layout { |ctx|
+  let gpt = partitioned_image(ctx, "gpt")
+  let dump = run_real(ctx, "sfdisk", ["--dump", f"{gpt}"])
+  assert dump.success, dump.stderr
+  assert dump.stdout == f"label: gpt\nlabel-id: 11111111-2222-3333-4444-555555555555\ndevice: {gpt}\nunit: sectors\nfirst-lba: 34\nlast-lba: 16350\nsector-size: 512\n\n{gpt}p1 : start=        2048, size=        4096, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=AAAAAAAA-0000-0000-0000-000000000001, name=\"root\"\n{gpt}p2 : start=        8192, size=        2048, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=AAAAAAAA-0000-0000-0000-000000000002\n"
+
+  let dos = partitioned_image(ctx, "dos")
+  let _ = bytes.write_at(dos, 446, b"\x80")?
+  let flagged = run_real(ctx, "sfdisk", ["-d", f"{dos}"])
+  assert flagged.success, flagged.stderr
+  assert flagged.stdout == f"label: dos\nlabel-id: 0x1234abcd\ndevice: {dos}\nunit: sectors\nsector-size: 512\n\n{dos}p1 : start=        2048, size=        4096, type=83, bootable\n{dos}p2 : start=        8192, size=        2048, type=ef\n"
+  let table = run_real(ctx, "fdisk", ["-l", "-o", "Device,Boot", f"{dos}"])
+  assert table.stdout.lines()[8].words() == [f"{dos}p1", "*"]
+  assert table.stdout.lines()[9].words() == [f"{dos}p2"]
+}
+
+test test_storage_sfdisk_dump_records_the_small_disk_grain { |ctx|
+  let image = test.temp_file(ctx, name: "sfdisk-grain.img", contents: b"")?
+  image.truncate(2097152)
+  let written = run_real(ctx, "sfdisk", [f"{image}"], b"label: dos\nlabel-id: 0x00c0ffee\nunit: sectors\nstart=34,size=100,type=c\n")
+  assert written.success, written.stderr
+  let dump = run_real(ctx, "sfdisk", ["-d", f"{image}"])
+  assert dump.stdout == f"label: dos\nlabel-id: 0x00c0ffee\ndevice: {image}\nunit: sectors\ngrain: 512\nsector-size: 512\n\n{image}p1 : start=          34, size=         100, type=c\n"
+  let json_dump = run_real(ctx, "sfdisk", ["--json", f"{image}"])
+  assert json_dump.stdout == f"{{\n   \"partitiontable\": {{\n      \"label\": \"dos\",\n      \"id\": \"0x00c0ffee\",\n      \"device\": {json.encode(f"{image}")?},\n      \"unit\": \"sectors\",\n      \"grain\": \"512\",\n      \"sectorsize\": 512,\n      \"partitions\": [\n         {{\n            \"node\": {json.encode(f"{image}p1")?},\n            \"start\": 34,\n            \"size\": 100,\n            \"type\": \"c\"\n         }}\n      ]\n   }}\n}}\n"
+  # Restoring a dump of a small disk must accept its grain header.
+  let restored = run_real(ctx, "sfdisk", [f"{image}"], dump.stdout_bytes)
+  assert restored.success, restored.stderr
+  assert run_real(ctx, "sfdisk", ["-d", f"{image}"]).stdout == dump.stdout
+}
+
+test test_storage_sfdisk_json_is_the_util_linux_machine_interface { |ctx|
+  let gpt = partitioned_image(ctx, "gpt")
+  let listed = run_real(ctx, "sfdisk", ["--json", f"{gpt}"])
+  assert listed.success, listed.stderr
+  assert listed.stdout == f"{{\n   \"partitiontable\": {{\n      \"label\": \"gpt\",\n      \"id\": \"11111111-2222-3333-4444-555555555555\",\n      \"device\": {json.encode(f"{gpt}")?},\n      \"unit\": \"sectors\",\n      \"firstlba\": 34,\n      \"lastlba\": 16350,\n      \"sectorsize\": 512,\n      \"partitions\": [\n         {{\n            \"node\": {json.encode(f"{gpt}p1")?},\n            \"start\": 2048,\n            \"size\": 4096,\n            \"type\": \"0FC63DAF-8483-4772-8E79-3D69D8477DE4\",\n            \"uuid\": \"AAAAAAAA-0000-0000-0000-000000000001\",\n            \"name\": \"root\"\n         }},{{\n            \"node\": {json.encode(f"{gpt}p2")?},\n            \"start\": 8192,\n            \"size\": 2048,\n            \"type\": \"C12A7328-F81F-11D2-BA4B-00A0C93EC93B\",\n            \"uuid\": \"AAAAAAAA-0000-0000-0000-000000000002\"\n         }}\n      ]\n   }}\n}}\n"
+}
+
+test test_storage_sfdisk_dump_refuses_an_image_without_a_partition_table { |ctx|
+  let image = test.temp_file(ctx, name: "sfdisk-blank.img", contents: b"")?
+  image.truncate(1048576)
+  for flag in ["-d", "-J"] {
+    let refused = run_real(ctx, "sfdisk", [flag, f"{image}"])
+    assert refused.status == 1
+    assert refused.stdout == ""
+    assert diagnostics(refused) == [f"{image}: does not contain a recognized partition table"]
+  }
 }
 
 test test_storage_fdisk_refuses_editing_and_unsupported_listing_modes_without_writing { |ctx|

@@ -1061,7 +1061,7 @@ proc scan(options: Options) [fs, process, error] -> Session {
   var text = ""
   var devices: List[j.Object] = []
   var messages: List[Str] = []
-  let found = linux.storage_candidates()?
+  let found = smart.present_candidates(fp"/sys", fp"/dev")?
   for candidate in found {
     # Controllers carry the NVMe admin node; namespaces are reached through
     # them.

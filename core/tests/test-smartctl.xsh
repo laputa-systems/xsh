@@ -1004,6 +1004,23 @@ test test_scan_lists_candidates_in_smartctl_format { |ctx|
   assert json.get(parsed, ["devices"])? is List[Any]
 }
 
+# sysfs lists devices whose node was never created (a container shares /sys
+# but not /dev); a scan must offer only nodes that exist.
+test test_scan_offers_only_devices_that_have_a_node { |ctx|
+  let root = test.temp_dir(ctx, name: "scan-roots")?
+  let sys = fp"{root}/sys"
+  let dev = fp"{root}/dev"
+  for name in ["sda", "sdb", "nvme0n1", "nvme1n1"] { fp"{sys}/block/{name}".mkdir() }
+  for name in ["nvme0", "nvme1"] { fp"{sys}/class/nvme/{name}".mkdir() }
+  dev.mkdir()
+  for name in ["sda", "nvme0", "nvme0n1"] { fp"{dev}/{name}".write(b"") }
+  let present = smart.present_candidates(sys, dev)?
+  assert [item.name for item in present] == ["sda", "nvme0", "nvme0n1"]
+  assert [item.path for item in present] == [fp"{dev}/sda", fp"{dev}/nvme0", fp"{dev}/nvme0n1"]
+  for name in ["sdb", "nvme1", "nvme1n1"] { fp"{dev}/{name}".write(b"") }
+  assert smart.present_candidates(sys, dev)?.len() == 6
+}
+
 test test_option_abbreviations_and_bundles { |ctx|
   let out = smartctl(ctx, ata_fixture(smart_data_page(200)), ["--dev=sat", "-iH", "--hea"])
   assert out.status == 0, out.stderr
