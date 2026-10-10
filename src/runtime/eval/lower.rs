@@ -323,6 +323,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
     }
     if crate::modules::process::is_prim(op)
         || crate::modules::unix::is_prim(op)
+        || crate::modules::linux::storage::handles(op)
         || matches!(op, RuntimeOp::ProcessWaitTimeout | RuntimeOp::IoFlushStdout | RuntimeOp::IoFlushStderr)
     {
         return true;

@@ -17,10 +17,12 @@ pub struct LinuxFake {
 
 #[cfg(feature = "native-tests")]
 impl LinuxFake {
-    /// Settings a fake accepts: the call log path and the fixed values some
-    /// queries report.
-    pub const KEYS: [&'static str; 7] = [
+    /// Settings a fake accepts: the call log path, the fixed values some
+    /// queries report, and `storage_fixture`, the file of recorded device
+    /// command/response pairs that answers the storage transport primitives.
+    pub const KEYS: [&'static str; 8] = [
         "log",
+        "storage_fixture",
         "root_device",
         "sysctl_value",
         "file_attrs_flags",
@@ -82,6 +84,34 @@ impl Evaluator {
         return self.linux_fake.is_some();
         #[cfg(not(feature = "native-tests"))]
         false
+    }
+
+    /// Runs a storage transport primitive. Under a fake it answers from the
+    /// recorded fixture and logs the call; it never reaches a descriptor.
+    pub(in crate::runtime::eval) fn linux_storage_call(
+        &self,
+        op: crate::modules::RuntimeOp,
+        values: &[Option<crate::runtime::value::Value>],
+        span: Span,
+    ) -> Result<crate::runtime::value::Value, RuntimeError> {
+        use crate::modules::linux::storage;
+        let backend = if !self.linux_fake_active() {
+            storage::Backend::Kernel
+        } else {
+            match self.linux_fake_setting("storage_fixture") {
+                Some(path) => storage::Backend::Fixture(std::path::PathBuf::from(path)),
+                None => storage::Backend::FixtureMissing,
+            }
+        };
+        if self.linux_fake_active() {
+            let fd = match values.first() {
+                Some(Some(crate::runtime::value::Value::Int(fd))) => fd.to_string(),
+                _ => String::new(),
+            };
+            let name = storage::label(op).expect("storage primitive expected");
+            self.linux_fake_log(name, &[("fd", fd)], span)?;
+        }
+        storage::call(op, values, &backend, span)
     }
 
     pub(in crate::runtime::eval) fn linux_fake_value(&self, key: &str, default: &str) -> String {

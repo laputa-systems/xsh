@@ -1,5 +1,10 @@
 use crate::types::Type;
+mod linux_storage;
 mod sampling;
+pub use linux_storage::{
+    linux_ata_result_type, linux_ata_smart_status_type, linux_nvme_command_type, linux_sg_io_type,
+    linux_storage_candidate_type,
+};
 pub use sampling::{linux_sample_type, linux_cpu_sample_type, linux_disk_sample_type, linux_process_sample_type};
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -64,6 +69,11 @@ pub fn record_schemas() -> BTreeMap<&'static str, Type> {
         ("LinuxProcessSample", linux_process_sample_type()),
         ("LinuxModulePlan", linux_module_plan_type()),
         ("LinuxBlockdevInfo", linux_blockdev_info_type()),
+        ("LinuxSgIo", linux_sg_io_type()),
+        ("LinuxAtaResult", linux_ata_result_type()),
+        ("LinuxAtaSmartStatus", linux_ata_smart_status_type()),
+        ("LinuxNvmeCommand", linux_nvme_command_type()),
+        ("LinuxStorageCandidate", linux_storage_candidate_type()),
         ("LinuxBlkid", linux_blkid_type()),
         ("LinuxFsck", linux_fsck_type()),
         ("LinuxModinfo", linux_modinfo_type()),

@@ -4189,6 +4189,9 @@ impl Evaluator {
             }
         }
         let values = values.into_host_values(self, span)?;
+        if linux_module::storage::handles(op) {
+            return lowered_module_result_value(self.linux_storage_call(op, &values, span), span);
+        }
         let args = process_module::Args::new(op, &values, span);
         let result = if process_module::is_prim(op) {
             process_module::prim_call(op, &args)
@@ -4425,7 +4428,10 @@ impl Evaluator {
         span: Span,
         cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-        if process_module::is_prim(op) || unix_module::is_prim(op) {
+        if process_module::is_prim(op)
+            || unix_module::is_prim(op)
+            || linux_module::storage::handles(op)
+        {
             return Ok(ControlFlow::Continue(
                 self.eval_host_primitive(op, values, span)?,
             ));

@@ -168,6 +168,7 @@ use unsupported as imp;
 
 mod block_control;
 pub(crate) mod sampling;
+pub(crate) mod storage;
 pub(crate) use block_control::{block_signatures, wipe_block_signatures, umount, blockdev_info, blockdev_set_read_only, blockdev_flush, blockdev_reread_partition_table, fstrim, fsfreeze};
 #[cfg(target_os = "linux")]
 pub(crate) use api::{module_plan, modprobe};

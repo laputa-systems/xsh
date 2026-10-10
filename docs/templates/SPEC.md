@@ -4362,6 +4362,30 @@ Contracts worth knowing without consulting the reference:
   switch; the `process` effect is what makes these calls explicit. On other
   platforms every entry fails with `linux-unsupported`. Native tests use
   `test.linux_fake` (§17) instead of the host.
+- The `linux` storage transport sends commands to a device descriptor
+  (`unix.open_fd`) and returns what the device reported. `sg_io` and
+  `sg_io_command` issue SCSI commands through `SG_IO` on SCSI generic, block,
+  and bsg nodes; the result record carries `status`, `host_status`,
+  `driver_status`, `sense`, `data` (only the bytes transferred), and `resid`,
+  and a CHECK CONDITION is data, while a failing ioctl fails with
+  `failure.errno`. `ata_identify` and the `ata_smart_*` helpers wrap ATA
+  PASS-THROUGH (12 or 16 byte, `cdb_size`) and return raw 512-byte pages with
+  the ATA status, error and LBA registers read from the status return
+  descriptor; a device that sets ERR or DF is an error whose message holds
+  the SCSI, host, and ATA status. `nvme_admin`, `nvme_namespace_id` and the
+  `nvme_identify_*`, `nvme_log_page`, `nvme_get_feature` helpers drive
+  `NVME_IOCTL_ADMIN_CMD` and `NVME_IOCTL_ID`; raw `nvme_admin` reports the
+  controller status as data and the typed helpers fail on a nonzero status.
+  Reading and mutating are separate names. `sg_io` accepts only SCSI
+  operation codes known to leave the device unchanged and `nvme_admin` only
+  Get Log Page, Identify and Get Features; ATA pass-through is reachable only
+  through the `ata_*` helpers. `sg_io_command`, `nvme_admin_command`,
+  `ata_smart_enable`, `ata_smart_disable`, `ata_smart_start_self_test`, and
+  `nvme_set_feature` can change a device. `storage_candidates` lists SCSI
+  disks, NVMe namespaces and NVMe controllers from sysfs without opening any
+  node. Under `test.linux_fake` these functions never touch the descriptor:
+  they answer from the `storage_fixture` file (§17) and fail with
+  `linux-storage-fake` when no line matches or no fixture is set.
 - `unix` entries likewise act on the host when called: `set_hostname`,
   `set_tty_attrs`, `pid1_setup`, process-group spawns and signals, and `exec`
   have no environment gate or dry-run switch. Native tests use
@@ -4639,9 +4663,34 @@ double for the rest of the test and for scripts the test runs through
 never touches the host: every entry returns fixed data, and each call appends a
 JSON line naming its operation and arguments to the `log` setting. The other
 settings (`root_device`, `sysctl_value`, `file_attrs_flags`, `file_version`,
-`hwclock_epoch_ms`) choose the values some queries report; unknown settings
-fail with `test-linux-fake`. Only the test harness can install the fake: no
+`hwclock_epoch_ms`) choose the values some queries report; `storage_fixture`
+names the recorded device exchanges that answer the storage transport
+functions (below); unknown settings fail with `test-linux-fake`. Only the test harness can install the fake: no
 environment variable or `xsh` option enables it.
+
+The `storage_fixture` setting names a JSON Lines file of recorded device
+exchanges for the `linux` storage transport (§15). Under the fake no storage
+function reads its descriptor: each command is matched against the file, which
+is re-read on every call, and the first matching line answers it. A command
+with no matching line, or any storage call under a fake with no fixture, fails
+with `linux-storage-fake`, so a test cannot reach a device by accident; a line
+with an unknown field or a binary field that is not base64 text is reported
+with its line number. Each line has an `op`:
+
+- `sg_io` (every SCSI and ATA command): request `cdb`, `direction` (`none`,
+  `from_device`, or `to_device`; default `none`), and `data_len` or
+  `data_out`; response `status`, `host_status`, `driver_status`, `sense`,
+  `data`, and `resid`, each defaulting to zero or empty (`resid` to the length
+  the data fell short by).
+- `nvme_admin`: request `opcode`, `nsid`, `cdw10` through `cdw15` (default
+  0), `direction`, and `data_len` or `data_out`; response `status`, `result`,
+  and `data`.
+- `nvme_namespace_id`: response `nsid`.
+
+`cdb`, `data_out`, `sense`, and `data` are base64 text. A line with `errno`
+instead of response fields fails the matching call with that kernel errno, as
+a real ioctl would. The call log (`log`) records each storage call by function
+name and descriptor number, including calls the function then refused.
 
 `test.unix_fake(ctx, settings)` does the same for `unix`, with the same scope
 and harness-only installation. It covers the process-group, PID 1, tty,
