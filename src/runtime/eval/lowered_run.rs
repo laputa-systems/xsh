@@ -4168,9 +4168,9 @@ impl Evaluator {
         }
     }
 
-    /// Dispatches the typed process, terminal, and session primitives of
-    /// `modules::process::prims`, `modules::unix::tty`, and
-    /// `modules::unix::sessions`.
+    /// Dispatches the typed process, terminal, session, and socket primitives
+    /// of `modules::process::prims`, `modules::unix::tty`,
+    /// `modules::unix::sessions`, and `modules::linux::net_prims`.
     fn eval_host_primitive(
         &mut self,
         op: RuntimeOp,
@@ -4194,7 +4194,9 @@ impl Evaluator {
             return lowered_module_result_value(self.linux_storage_call(op, &values, span), span);
         }
         let args = process_module::Args::new(op, &values, span);
-        let result = if process_module::is_prim(op) {
+        let result = if linux_module::is_net_prim(op) {
+            linux_module::net_prim_call(op, &values, span)
+        } else if process_module::is_prim(op) {
             process_module::prim_call(op, &args)
         } else if linux_module::is_prim(op) {
             linux_module::prim_call(op, &args)
@@ -4434,6 +4436,7 @@ impl Evaluator {
         if process_module::is_prim(op)
             || unix_module::is_prim(op)
             || linux_module::is_prim(op)
+            || linux_module::is_net_prim(op)
             || linux_module::storage::handles(op)
         {
             return Ok(ControlFlow::Continue(
