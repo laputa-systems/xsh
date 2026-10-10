@@ -78,12 +78,13 @@ impl Propagation {
     }
 
     #[cfg(target_os = "linux")]
-    fn mount_flag(self) -> Option<libc::c_ulong> {
+    fn mount_flag(self) -> Option<rustix::mount::MountPropagationFlags> {
+        use rustix::mount::MountPropagationFlags as Flags;
         match self {
             Self::Unchanged => None,
-            Self::Private => Some(libc::MS_PRIVATE),
-            Self::Shared => Some(libc::MS_SHARED),
-            Self::Slave => Some(libc::MS_SLAVE),
+            Self::Private => Some(Flags::PRIVATE),
+            Self::Shared => Some(Flags::SHARED),
+            Self::Slave => Some(Flags::DOWNSTREAM),
         }
     }
 }
@@ -250,9 +251,13 @@ pub use unsupported::prepare;
 mod linux {
     use super::{ERRNO_MASK, NamespaceEntry, STEP_SHIFT, Step, strerror};
     use crate::runtime::value::RunError;
+    use rustix::fs::{Mode, OFlags};
+    use rustix::io::Errno;
+    use rustix::mount::{MountFlags, MountPropagationFlags};
+    use rustix::process::{self as rprocess, Pid, Signal, WaitOptions};
     use std::ffi::CString;
     use std::io;
-    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+    use std::os::fd::{AsRawFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::process::CommandExt;
     use std::path::Path;
@@ -276,7 +281,7 @@ mod linux {
         join: Vec<OwnedFd>,
         user_map: Option<UserMap>,
         fork: bool,
-        propagation: Option<libc::c_ulong>,
+        propagation: Option<MountPropagationFlags>,
         mount_proc: Option<CString>,
         root: Option<OwnedFd>,
         cwd: Option<OwnedFd>,
@@ -302,16 +307,10 @@ mod linux {
             .map_err(|_| RunError::new("spawn", format!("{}: path contains NUL", path.display())))
     }
 
-    fn open_fd(path: &Path, flags: libc::c_int) -> Result<OwnedFd, RunError> {
+    fn open_fd(path: &Path, flags: OFlags) -> Result<OwnedFd, RunError> {
         let c_path = cstring(path)?;
-        // SAFETY: `c_path` is a valid NUL-terminated string; the returned
-        // descriptor is owned by the new OwnedFd.
-        let fd = unsafe { libc::open(c_path.as_ptr(), flags | libc::O_CLOEXEC) };
-        if fd < 0 {
-            return Err(open_error(path, io::Error::last_os_error()));
-        }
-        // SAFETY: `fd` was just opened and nothing else owns it.
-        Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+        rustix::fs::open(c_path.as_c_str(), flags | OFlags::CLOEXEC, Mode::empty())
+            .map_err(|errno| open_error(path, io::Error::from(errno)))
     }
 
     impl ChildPlan {
@@ -319,27 +318,26 @@ mod linux {
             // The directories open first, then the namespace files, so the
             // first failure reported is the first one a user asked for.
             let root = match &entry.root {
-                Some(path) => Some(open_fd(path, libc::O_RDONLY)?),
+                Some(path) => Some(open_fd(path, OFlags::RDONLY)?),
                 None => None,
             };
             let cwd = match &entry.cwd {
-                Some(path) => Some(open_fd(path, libc::O_RDONLY)?),
+                Some(path) => Some(open_fd(path, OFlags::RDONLY)?),
                 None => None,
             };
             let mut join = Vec::with_capacity(entry.join.len());
             for path in &entry.join {
-                join.push(open_fd(path, libc::O_RDONLY)?);
+                join.push(open_fd(path, OFlags::RDONLY)?);
             }
             let mut unshare_flags = 0;
             for kind in &entry.unshare {
                 unshare_flags |= kind.clone_flag();
             }
-            // SAFETY: geteuid and getegid cannot fail. They are read before
-            // the user namespace exists, where they still name the caller's
-            // own identity.
+            // Read before the user namespace exists, where the effective
+            // identity still names the caller's own.
             let user_map = entry.map_root_user.then(|| UserMap {
-                uid: format!("0 {} 1\n", unsafe { libc::geteuid() }).into_bytes(),
-                gid: format!("0 {} 1\n", unsafe { libc::getegid() }).into_bytes(),
+                uid: format!("0 {} 1\n", rprocess::geteuid().as_raw()).into_bytes(),
+                gid: format!("0 {} 1\n", rprocess::getegid().as_raw()).into_bytes(),
             });
             let mount_proc = match &entry.mount_proc {
                 Some(path) => Some(cstring(path)?),
@@ -387,39 +385,36 @@ mod linux {
                     fork_and_relay()?;
                 }
                 if let Some(flag) = self.propagation
-                    && libc::mount(
-                        std::ptr::null(),
-                        c"/".as_ptr(),
-                        std::ptr::null(),
-                        libc::MS_REC | flag,
-                        std::ptr::null(),
-                    ) != 0
+                    && let Err(errno) = rustix::mount::mount_change(
+                        c"/",
+                        MountPropagationFlags::REC | flag,
+                    )
                 {
-                    return fail(Step::Propagation);
+                    return fail_with(Step::Propagation, errno);
                 }
                 if let Some(target) = &self.mount_proc
-                    && libc::mount(
-                        c"proc".as_ptr(),
-                        target.as_ptr(),
-                        c"proc".as_ptr(),
-                        libc::MS_NOSUID | libc::MS_NOEXEC | libc::MS_NODEV,
-                        std::ptr::null(),
-                    ) != 0
+                    && let Err(errno) = rustix::mount::mount(
+                        c"proc",
+                        target.as_c_str(),
+                        c"proc",
+                        MountFlags::NOSUID | MountFlags::NOEXEC | MountFlags::NODEV,
+                        None,
+                    )
                 {
-                    return fail(Step::MountProc);
+                    return fail_with(Step::MountProc, errno);
                 }
                 if let Some(root) = &self.root {
-                    if libc::fchdir(root.as_raw_fd()) != 0 {
-                        return fail(Step::RootDirectory);
+                    if let Err(errno) = rprocess::fchdir(root) {
+                        return fail_with(Step::RootDirectory, errno);
                     }
-                    if libc::chroot(c".".as_ptr()) != 0 {
-                        return fail(Step::Chroot);
+                    if let Err(errno) = rprocess::chroot(c".") {
+                        return fail_with(Step::Chroot, errno);
                     }
                 }
                 if let Some(cwd) = &self.cwd
-                    && libc::fchdir(cwd.as_raw_fd()) != 0
+                    && let Err(errno) = rprocess::fchdir(cwd)
                 {
-                    return fail(Step::WorkingDirectory);
+                    return fail_with(Step::WorkingDirectory, errno);
                 }
                 if self.drop_groups && libc::setgroups(0, std::ptr::null()) != 0 {
                     return fail(Step::Setgroups);
@@ -448,24 +443,26 @@ mod linux {
         ))
     }
 
-    unsafe fn write_file(path: &std::ffi::CStr, bytes: &[u8], step: Step) -> io::Result<()> {
-        // SAFETY: `path` is NUL-terminated and `bytes` is a valid slice.
-        unsafe {
-            let fd = libc::open(path.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
-            if fd < 0 {
-                return fail(step);
-            }
-            let written = libc::write(fd, bytes.as_ptr().cast(), bytes.len());
-            let kept = io::Error::last_os_error();
-            libc::close(fd);
-            if written < 0 || written as usize != bytes.len() {
-                return Err(io::Error::from_raw_os_error(
-                    ((step as i32) << STEP_SHIFT)
-                        | (kept.raw_os_error().unwrap_or(libc::EIO) & ERRNO_MASK),
-                ));
-            }
+    /// As `fail`, for a call that returned its error number instead of
+    /// leaving it in the C library's errno.
+    fn fail_with(step: Step, errno: Errno) -> io::Result<()> {
+        Err(step_error(step, errno))
+    }
+
+    fn step_error(step: Step, errno: Errno) -> io::Error {
+        io::Error::from_raw_os_error(
+            ((step as i32) << STEP_SHIFT) | (errno.raw_os_error() & ERRNO_MASK),
+        )
+    }
+
+    fn write_file(path: &std::ffi::CStr, bytes: &[u8], step: Step) -> io::Result<()> {
+        let file = rustix::fs::open(path, OFlags::WRONLY | OFlags::CLOEXEC, Mode::empty())
+            .map_err(|errno| step_error(step, errno))?;
+        match rustix::io::write(&file, bytes) {
+            Ok(written) if written == bytes.len() => Ok(()),
+            Ok(_) => fail_with(step, Errno::IO),
+            Err(errno) => fail_with(step, errno),
         }
-        Ok(())
     }
 
     /// Forks once more so the command, not this process, is the first child of
@@ -488,30 +485,33 @@ mod linux {
         unsafe {
             if libc::syscall(libc::SYS_close_range, 3, u32::MAX, 0) != 0 {
                 for fd in 3..4096 {
-                    libc::close(fd);
+                    // A descriptor that is not open is the common case here.
+                    rustix::io::close(fd);
                 }
             }
-            let mut status: libc::c_int = 0;
-            loop {
-                let waited = libc::waitpid(pid, &mut status, 0);
-                if waited == pid {
-                    break;
+            // The child was just forked, so its pid is a positive process id.
+            let child = Pid::from_raw_unchecked(pid);
+            let status = loop {
+                match rprocess::waitpid(Some(child), WaitOptions::empty()) {
+                    Ok(Some((_, status))) => break status,
+                    Err(Errno::INTR) => continue,
+                    Ok(None) | Err(_) => libc::_exit(1),
                 }
-                if waited < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-                    libc::_exit(1);
-                }
-            }
-            if libc::WIFSIGNALED(status) {
-                let signal = libc::WTERMSIG(status);
+            };
+            if let Some(signal) = status.terminating_signal() {
                 libc::signal(signal, libc::SIG_DFL);
                 let mut set: libc::sigset_t = std::mem::zeroed();
                 libc::sigemptyset(&mut set);
                 libc::sigaddset(&mut set, signal);
                 libc::sigprocmask(libc::SIG_UNBLOCK, &set, std::ptr::null_mut());
-                libc::kill(libc::getpid(), signal);
+                // The signal number came from the kernel's wait status.
+                let _ = rprocess::kill_process(
+                    rprocess::getpid(),
+                    Signal::from_raw_unchecked(signal),
+                );
                 libc::_exit(128 + signal);
             }
-            libc::_exit(libc::WEXITSTATUS(status));
+            libc::_exit(status.exit_status().unwrap_or(1));
         }
     }
 }
