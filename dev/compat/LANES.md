@@ -4,10 +4,14 @@ How the campaign in [`CAMPAIGN.md`](CAMPAIGN.md) is parallelized without
 turning into a merge-conflict campaign. One **integrator** (the main session)
 owns the integration branch, the shared files and every merge. Each lane is
 a Codex subagent in its own git worktree with an exclusive file set.
-Every campaign subagent uses **`gpt-6-luna` at `xhigh`**, including mechanical
-inventories, test-list work, implementation, and review. Pass
-`model: "gpt-6-luna"` and `reasoning_effort: "xhigh"` explicitly when spawning;
-do not substitute another model or effort level.
+In a Codex session every campaign subagent uses **`gpt-6-luna` at `xhigh`**,
+including mechanical inventories, test-list work, implementation, and review.
+Pass `model: "gpt-6-luna"` and `reasoning_effort: "xhigh"` explicitly when
+spawning; do not substitute another model or effort level. A Claude Code
+session follows `.claude/skills/xsh-compat-campaign/SKILL.md` instead: one
+utility per lane, Haiku 5.5 at high effort, coordinated and integrated by
+Sonnet 5.5 at high effort. Ownership, gates and integrator-owned paths in this
+file apply to both.
 
 The compatibility branch was merged into `master` on 2026-10-05. The current
 handoff and verified claims are in `CAMPAIGN.md` and `CLAIMS.md`; the lane
@@ -47,9 +51,10 @@ as campaign gates.
    process sampling, nvme, ...) has exactly one owning lane at a time; applet
    lanes consume it and request missing fields through the integrator. Native
    domain lanes land before the applet lanes that depend on them.
-7. **Subagent model.** Use only `gpt-6-luna` at `xhigh` for every campaign
-   subagent. Set both explicitly on every spawn; no other model or effort level
-   is permitted.
+7. **Subagent model.** In a Codex session use only `gpt-6-luna` at `xhigh` for
+   every campaign subagent. Set both explicitly on every spawn; no other model
+   or effort level is permitted there. Claude Code sessions use the model
+   policy in `.claude/skills/xsh-compat-campaign/SKILL.md`.
 
 ## Integrator-owned paths
 

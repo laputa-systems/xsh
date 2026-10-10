@@ -5,8 +5,10 @@ Tooling for the campaign in [`CAMPAIGN.md`](CAMPAIGN.md); lane process in
 
 ## Campaign subagents
 
-Use only **`gpt-6-luna` at `xhigh`** for every campaign subagent, including
-routine work. Set both explicitly when spawning.
+In a Codex session use only **`gpt-6-luna` at `xhigh`** for every campaign
+subagent, including routine work. Set both explicitly when spawning. A Claude
+Code session uses `.claude/skills/xsh-compat-campaign/SKILL.md`, which also
+provides `lane.py` for per-utility worktrees, briefs and the lane gate.
 `python3 dev/compat/lanes.py brief LANE` renders this requirement and paths
 for the current checkout; see `LANES.md` for ownership and integration.
 
