@@ -170,13 +170,26 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
       mounts += [{source: found.filesystem, target: found.mounted_on, kind: found.fstype, dev: found.device, file: "-"}]
     }
   } else {
+    # Filters and -a/-l classify mounts from the table, so they cannot run without it;
+    # a plain operand is still measured from its own statvfs counters.
+    let fallback_allowed = ! opts.all and ! opts.local and opts.include.is_empty() and opts.exclude.is_empty()
     for name in opts.targets {
       match fp"{name}".resolve() {
         Ok(resolved) => {
           match fs.mount_for(resolved) {
             Ok(found) => mounts += [{source: found.filesystem, target: found.mounted_on, kind: found.fstype, dev: found.device, file: name}]
-            Err(failure) => { gnu.name_error(name, failure)
-              failed = true }
+            Err(failure) => {
+              match fs.mounts() {
+                Ok(_) => { gnu.name_error(name, failure)
+                  failed = true }
+                Err(table_failure) => {
+                  gnu.error(f"cannot read table of mounted file systems: {gnu.strerror(table_failure)}")
+                  if ! fallback_allowed { exit 1 }
+                  # dev is only compared when listing the whole table, so an operand has no device identity.
+                  mounts += [{source: "-", target: fp"{name}", kind: "-", dev: 0, file: name}]
+                }
+              }
+            }
           }
         }
         Err(failure) => { gnu.name_error(name, failure)

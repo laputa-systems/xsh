@@ -153,3 +153,22 @@ test test_df_block_size_errors_point_into_terminal_arguments { |ctx|
   assert "df:1:17" in zero.stderr, zero.stderr
   assert ! ("not a known unit" in zero.stderr), zero.stderr
 }
+
+# Hiding /proc behind an empty tmpfs needs a private mount namespace, so this
+# runs df through unshare and skips where unprivileged namespaces are off.
+test test_df_operand_is_measured_when_mount_table_is_unreadable { |ctx|
+  let probe = run.status unshare -rm true
+  if ! probe.exited_with(0) { test.skip("user namespaces are unavailable"); return }
+  let root = test.temp_dir(ctx, name: "df-masked-proc")?
+  let helper = fp"{root}/mask-proc"
+  helper.write("#!/bin/sh\nmount -t tmpfs tmpfs /proc || exit 99\nexec \"$@\"\n", mode: 0o755)
+  let plain = run.capture --text unshare -rm ${helper} ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- .
+  assert plain.status.exited_with(0), plain.stderr
+  assert "cannot read table of mounted file systems" in plain.stderr, plain.stderr
+  assert plain.stdout.lines().collect()[0].words()[0] == "Filesystem", plain.stdout
+  for args in [["-a", "."], ["-l", "."], ["-t", "ext4", "."], ["-x", "tmpfs", "."]] {
+    let filtered = run.capture --text unshare -rm ${helper} ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- ${args}
+    assert filtered.status.exited_with(1), f"df {args.join(" ")}: {filtered.stdout}"
+    assert "cannot read table of mounted file systems" in filtered.stderr, filtered.stderr
+  }
+}
