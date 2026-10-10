@@ -156,18 +156,26 @@ def run_case(item, out_root):
             shutil.copy(os.path.join(work, name), os.path.join(out, "out", name))
         manifest = []
         wroot = os.path.join(work, "w")
+        # Record permissions first, then make everything readable for the copy.
+        modes = {}
+        for base, dirs, names in os.walk(wroot):
+            for entry in dirs + names:
+                full = os.path.join(base, entry)
+                modes[full] = os.lstat(full).st_mode
+        subprocess.run(["chmod", "-R", "u+rwX", wroot], check=False, stderr=subprocess.DEVNULL)
         mtimes = set(item["mtimes"])
         for base, dirs, names in os.walk(wroot):
             for entry in dirs + names:
                 full = os.path.join(base, entry)
                 rel = os.path.relpath(full, wroot)
                 info = os.lstat(full)
+                owner = (modes.get(full, info.st_mode) >> 6) & 7
                 if os.path.islink(full):
                     manifest.append("l 0 %s -> %s" % (rel, os.readlink(full)))
                 elif os.path.isdir(full):
-                    manifest.append("d %d %s" % ((info.st_mode >> 6) & 7, rel))
+                    manifest.append("d %d %s" % (owner, rel))
                 else:
-                    line = "f %d %s" % ((info.st_mode >> 6) & 7, rel)
+                    line = "f %d %s" % (owner, rel)
                     if rel in mtimes:
                         line += " mtime=%d" % int(info.st_mtime)
                     manifest.append(line)

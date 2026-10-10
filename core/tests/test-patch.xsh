@@ -134,6 +134,8 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
   }
   for row in expected_manifest {
     if !row.starts_with("f ") { continue }
+    # An unreadable file's content cannot be compared.
+    if (row.byte_slice(2, length: 1).parse_int() ?? 0) < 4 { continue }
     var relative = row.byte_slice(4)
     let stamp = relative.find(" mtime=") ?? -1
     if stamp >= 0 { relative = relative.byte_slice(0, stamp) }
@@ -143,6 +145,13 @@ proc check_case(ctx: TestContext, root: Path) [fs, process, env, error] -> Resul
     let actual = fp"{work}/w/{relative}".read_bytes()?
     if actual != wanted {
       problems += [f"{name}: content of {relative} differs\n--- expected\n{wanted.utf8() ?? "(binary)"}--- actual\n{actual.utf8() ?? "(binary)"}"]
+    }
+  }
+  # Cases that leave unwritable directories must not block cleanup.
+  for row in expected_manifest {
+    if row.starts_with("d ") {
+      let relative = row.byte_slice(4)
+      if fp"{work}/w/{relative}".exists()? { fp"{work}/w/{relative}".chmod(493)? }
     }
   }
   Ok(problems)

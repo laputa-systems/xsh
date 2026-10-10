@@ -29,7 +29,7 @@ export type Hunk = {
 ## Outcome of reading one hunk. `bad_line` is the 1-based patch line number of
 ## a malformed construct (0 when the hunk is well formed); `bad_text` is the
 ## text GNU patch echoes for it.
-export type HunkRead = {hunk: Hunk?, next: Int, bad_line: Int, bad_text: Bytes, truncated: Bool}
+export type HunkRead = {hunk: Hunk?, next: Int, bad_line: Int, bad_text: Bytes, truncated: Bool, partial: Bool}
 
 ## A file name field of a patch header: `name` is the text before the
 ## timestamp, `stamp` the rest of the line, and `present` tells a missing
@@ -72,7 +72,7 @@ const HUNK_RE = rx"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$"
 const CONTEXT_RANGE_RE = rx"^\*\*\* (\d+)(?:,(\d+))? \*\*\*\*"
 const CONTEXT_NEW_RANGE_RE = rx"^--- (\d+)(?:,(\d+))? ----"
 const NORMAL_RE = rx"^(\d+)(?:,(\d+))?([acd])(\d+)(?:,(\d+))?$"
-const ED_RE = rx"^(\d+)(?:,(\d+))?([acd])$"
+const ED_RE = rx"^(\d+)(?:,(\d+))?([acdi])$"
 
 ## A header name that was not present.
 export const NO_NAME: HeaderName = {name: "", stamp: "", present: false}
@@ -435,7 +435,13 @@ pure without_terminator(text: Bytes) -> Bytes {
 }
 
 pure failed_read(line: Int, text: Bytes) -> HunkRead {
-  {hunk: null, next: 0, bad_line: line, bad_text: text, truncated: false}
+  {hunk: null, next: 0, bad_line: line, bad_text: text, truncated: false, partial: false}
+}
+
+# The patch ended inside a body line, which GNU patch reports separately
+# before calling the patch malformed.
+pure partial_read(line: Int) -> HunkRead {
+  {hunk: null, next: 0, bad_line: line, bad_text: b" \n", truncated: false, partial: true}
 }
 
 ## Read one unified hunk whose `@@` line is `lines[at]`. With `strip` a
@@ -461,6 +467,7 @@ export pure read_unified(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
     var line = lines[i]
     if strip { line = strip_cr(line) }
     let lead = first_byte(line)
+    if i == lines.len() - 1 and !lines[i].ends_with(b"\n") and (lead == 32 or lead == 45 or lead == 43) { return partial_read(i) }
     if lead == 32 { kinds += [0]; texts += [line[1..]]; old_seen += 1; new_seen += 1 } else if lead == 45 { kinds += [1]; texts += [line[1..]]; old_seen += 1 } else if lead == 43 { kinds += [2]; texts += [line[1..]]; new_seen += 1 } else if lead == 10 { kinds += [0]; texts += [line]; old_seen += 1; new_seen += 1 } else if lead == 92 {
       if !texts.is_empty() { texts[texts.len() - 1] = without_terminator(texts[texts.len() - 1]) }
     } else { return failed_read(i + 1, lines[i]) }
@@ -493,7 +500,7 @@ export pure read_unified(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   }
   finished.old_count = old_count
   finished.new_count = new_count
-  {hunk: finished, next: i, bad_line: 0, bad_text: b"", truncated: truncated}
+  {hunk: finished, next: i, bad_line: 0, bad_text: b"", truncated: truncated, partial: false}
 }
 
 # One line of a context-diff half: the marker character and the text after it.
@@ -616,7 +623,7 @@ export pure read_context(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   hunk.line = at + 1
   hunk.old_start = old_start
   hunk.new_start = new_start
-  {hunk: finish(hunk), next: i, bad_line: 0, bad_text: b"", truncated: false}
+  {hunk: finish(hunk), next: i, bad_line: 0, bad_text: b"", truncated: false, partial: false}
 }
 
 ## Read one normal-format hunk whose command line is `lines[at]`.
@@ -675,7 +682,7 @@ export pure read_normal(lines: List[Bytes], at: Int, strip: Bool) -> HunkRead {
   hunk.line = at + 1
   hunk.old_start = old_start
   hunk.new_start = new_start
-  {hunk: hunk, next: i, bad_line: 0, bad_text: b"", truncated: false}
+  {hunk: hunk, next: i, bad_line: 0, bad_text: b"", truncated: false, partial: false}
 }
 
 ## Result of running an ed script: the new content, or the text of the first
@@ -703,6 +710,12 @@ export pure run_ed(lines: List[Bytes], at: Int, input: List[Bytes]) -> EdResult 
   var i = at
   while i < lines.len() {
     let text = body_text(lines[i])
+    # GNU patch hands the editor only the commands that start with a digit
+    # (and the text that follows them); anything else is dropped.
+    if !rx"^[0-9]".matches(text) {
+      i += 1
+      continue
+    }
     let c = ED_ADDRESS_RE.captures(text)
     if c.is_empty() { return {output: buffer, failed: text, next: i} }
     let command = c[3]

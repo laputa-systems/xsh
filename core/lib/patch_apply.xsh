@@ -20,12 +20,14 @@ pure is_blank(byte: Int) -> Bool {
 }
 
 ## The comparison key of one line. With `loose_space`, runs of blanks collapse
-## to one space and blanks at the end of the line are ignored.
+## to one space and blanks at the end of the line, line end included, are
+## ignored.
 export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
   var text = line
   if !loose_space { return text }
-  let terminated = text.ends_with(b"\n")
-  let content = if terminated { text[0..text.len() - 1] } else { text }
+  # Loose matching also ignores the line end: a final line without one
+  # matches the same line with one.
+  let content = if text.ends_with(b"\n") { text[0..text.len() - 1] } else { text }
   var pieces: List[Int] = []
   var in_blanks = false
   for byte in content {
@@ -37,8 +39,7 @@ export pure line_key(line: Bytes, loose_space: Bool) -> Bytes {
       pieces += [byte]
     }
   }
-  let squeezed = bytes.from_ints(pieces) ?? b""
-  if terminated { bytes.concat([squeezed, b"\n"]) } else { squeezed }
+  bytes.from_ints(pieces) ?? b""
 }
 
 ## The old-side lines of a hunk: its context and removed lines.

@@ -59,6 +59,7 @@ type Outcome = {
   next: Int,
   fatal_line: Int,
   fatal_text: Bytes,
+  partial: Bool,
   reversed: Bool,
 }
 
@@ -437,13 +438,13 @@ proc main(...argv: List[Str]) [fs, io, process, env, error] {
   if opts.files.len() > 2 { usage_failure(f"{gnu.prog()}: {opts.files[2]}: extra operand") }
   var strip = -1
   if let text = opts.strip {
-    let count = text.parse_int() ?? -2
-    if count == -2 { fatal(f"strip count {text} is not a number") }
-    if count < 0 { fatal(f"strip count {text} is negative") }
-    strip = count
+    if !rx"^[+-]?[0-9]+$".matches(text) { fatal(f"strip count {text} is not a number") }
+    if text.starts_with("-") { fatal(f"strip count {text} is negative") }
+    strip = text.parse_int() ?? 2147483647
   }
-  let max_fuzz = opts.fuzz.parse_int() ?? -1
-  if max_fuzz < 0 { fatal(f"fuzz factor {opts.fuzz} is not a number") }
+  if !rx"^[+-]?[0-9]+$".matches(opts.fuzz) { fatal(f"fuzz factor {opts.fuzz} is not a number") }
+  if opts.fuzz.starts_with("-") { fatal(f"fuzz factor {opts.fuzz} is negative") }
+  let max_fuzz = opts.fuzz.parse_int() ?? 2147483647
   if let style = opts.version_control {
     if version_style(style) == "" {
       eprint f"{gnu.prog()}: invalid argument '{style}' for '--version-control or -V option'"
@@ -489,7 +490,10 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
   if input_name == "-" { patch_bytes = io.stdin_bytes()? } else {
     match fp"{input_name}".read_bytes() {
       Ok(data) => { patch_bytes = data }
-      Err(failure) => pfatal(f"Can't open patch file {input_name}", failure)
+      Err(failure) => {
+        if gnu.errno(failure) == 21 { pfatal("read error", failure) }
+        pfatal(f"Can't open patch file {input_name}", failure)
+      }
     }
   }
   let lines = patch_parse.split_lines(patch_bytes)
@@ -681,7 +685,7 @@ proc skip_hunks(lines: List[Bytes], scan: patch_parse.Scan) -> Skipped {
 }
 
 pure read_one(lines: List[Bytes], position: Int, kind: Str, strip_cr: Bool) -> patch_parse.HunkRead {
-  let none: patch_parse.HunkRead = {hunk: null, next: position, bad_line: 0, bad_text: b"", truncated: false}
+  let none: patch_parse.HunkRead = {hunk: null, next: position, bad_line: 0, bad_text: b"", truncated: false, partial: false}
   if position >= lines.len() { return none }
   let text = patch_parse.body_text(lines[position])
   if kind == "unified" or kind == "git" {
@@ -824,13 +828,18 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
     fatal("unexpected end of file in patch")
   }
   let symlink = target.mode >= 0 and target.mode / 4096 == 10
+  if opts.output != null and opts.output != "-" and !opts.dry_run and blocked == "" {
+    # The output file is opened before anything is reported.
+    let created = fp"{outname}".write(b"", 384)
+    if let Err(failure) = created { pfatal(f"Can't create file {outname}", failure) }
+  }
   if !opts.quiet and blocked == "" and scan.kind != "ed" {
     let verb = if opts.dry_run { "checking" } else { "patching" }
     var tail = ""
     if target.action != "" { tail = f" ({target.action} from {q(opts, name)})" } else if opts.output != null { tail = f" (read from {name})" }
     note(opts, f"{verb} {if symlink { "symbolic link" } else { "file" }} {q(opts, outname)}{tail}\n")
   }
-  var outcome: Outcome = {output: [], rejected: [], total: 0, mismatch: false, skipped: false, next: 0, fatal_line: 0, fatal_text: b"", reversed: false}
+  var outcome: Outcome = {output: [], rejected: [], total: 0, mismatch: false, skipped: false, next: 0, fatal_line: 0, fatal_text: b"", partial: false, reversed: false}
   if scan.kind == "ed" and blocked == "" {
     # The ed script runs against the whole file; nothing can be rejected.
     let edited = patch_parse.run_ed(lines, scan.body, input_lines)
@@ -838,12 +847,13 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
       eprint f"{gnu.prog()}: **** /bin/ed FAILED"
       exit 2
     }
-    outcome = {output: edited.output, rejected: [], total: 0, mismatch: false, skipped: false, next: lines.len(), fatal_line: 0, fatal_text: b"", reversed: false}
+    outcome = {output: edited.output, rejected: [], total: 0, mismatch: false, skipped: false, next: lines.len(), fatal_line: 0, fatal_text: b"", partial: false, reversed: false}
   } else {
     outcome = run_hunks(opts, max_fuzz, lines, scan, input_lines, reverse, facts, reverse != opts.reverse, blocked != "")
   }
   if outcome.fatal_line == -1 { fatal("unexpected end of file in patch") }
   if outcome.fatal_line > 0 {
+    if outcome.partial { note(opts, "patch unexpectedly ends in middle of line\n") }
     eprint f"{gnu.prog()}: **** malformed patch at line {outcome.fatal_line}: {outcome.fatal_text.utf8() ?? ""}"
     exit 2
   }
@@ -855,7 +865,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
   let content = bytes.concat(outcome.output)
   var status = 0
   if !opts.dry_run and !outcome.skipped {
-    if outname == "-" { gnu.write_bytes(content) } else {
+    if opts.output == "-" { gnu.write_bytes(content) } else {
       let removes = if outcome.reversed { facts.old_missing and facts.creating } else { facts.new_missing and facts.deleting }
       let posix = opts.posix or (env.get_or("POSIXLY_CORRECT", "\u{1}unset") ?? "\u{1}unset") != "\u{1}unset"
       # A file that was not there is only backed up, empty, after a failure.
@@ -874,17 +884,16 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
         }
         if opts.output != null or (exists and (content != original or target.write != target.read)) or (!exists and (content.len() > 0 or failed == 0)) {
           let parent = dirname_of(outname)
-          if parent != "" and !file_exists(parent) { fp"{parent}".mkdir(true)? }
+          if opts.output == null and parent != "" and !file_exists(parent) { fp"{parent}".mkdir(true)? }
           if symlink {
             let link = content.utf8() ?? ""
             let text = if link.ends_with("\n") { link.byte_slice(0, link.byte_len() - 1) } else { link }
-            fp"{outname}".symlink(to: fp"{text}")?
-          } else if opts.output != null {
-            fp"{outname}".write(content, 384)?
-          } else if exists and outname == name {
-            fp"{outname}".write_atomic(content)?
+            if let Err(failure) = fp"{outname}".symlink(to: fp"{text}") { pfatal(f"Can't create file {outname}", failure) }
           } else {
-            fp"{outname}".write(content)?
+            # An -o file is private like GNU patch's temporary file; patching
+            # in place goes through a rename so read-only files work.
+            let written = if opts.output != null { fp"{outname}".write(content, 384) } else if exists and outname == name { fp"{outname}".write_atomic(content) } else { fp"{outname}".write(content) }
+            if let Err(failure) = written { pfatal(f"Can't create file {outname}", failure) }
           }
         }
         if target.mode >= 0 and !symlink and opts.output == null {
@@ -896,7 +905,7 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
       }
     }
   }
-  if (opts.set_time or opts.set_utc) and failed == 0 and !opts.dry_run and !outcome.skipped and outname != "-" {
+  if (opts.set_time or opts.set_utc) and failed == 0 and !opts.dry_run and !outcome.skipped and opts.output != "-" {
     let old_stamp = patch_parse.parse_stamp(if outcome.reversed { scan.new_name.stamp } else { scan.old_name.stamp })
     let new_stamp = patch_parse.parse_stamp(if outcome.reversed { scan.old_name.stamp } else { scan.new_name.stamp })
     let seen = old_stamp.valid and exists and original_mtime != old_stamp.seconds * 1000000000 + old_stamp.nanos
@@ -911,11 +920,13 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
   if failed > 0 {
     let word = if outcome.skipped { "ignored" } else { "FAILED" }
     var message = f"{failed} out of {outcome.total} hunk{plural(outcome.total)} {word}"
-    if !opts.dry_run {
-      message += f" -- saving rejects to file {q(opts, reject_name)}"
-      write_rejects(opts, scan, outcome, reject_name, strip)?
-    }
+    if !opts.dry_run { message += f" -- saving rejects to file {q(opts, reject_name)}" }
     note(opts, message + "\n")
+    if !opts.dry_run {
+      if let Err(failure) = write_rejects(opts, scan, outcome, reject_name, strip) {
+        pfatal(f"Can't create file {reject_name}", failure)
+      }
+    }
     return {status: 1, next: outcome.next}
   }
   {status: status, next: outcome.next}
@@ -1053,7 +1064,7 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
     if position >= lines.len() { break }
     let read = read_one(lines, position, scan.kind, strip_cr)
     if read.bad_line != 0 {
-      return {output: output, rejected: rejected, total: total, mismatch: mismatch, skipped: skip, next: position, fatal_line: read.bad_line, fatal_text: read.bad_text, reversed: reverse}
+      return {output: output, rejected: rejected, total: total, mismatch: mismatch, skipped: skip, next: position, fatal_line: read.bad_line, fatal_text: read.bad_text, partial: read.partial, reversed: reverse}
     }
     let parsed = read.hunk
     if parsed == null { break }
@@ -1179,5 +1190,11 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
     output += [input_lines[index]]
     index += 1
   }
-  {output: output, rejected: rejected, total: total, mismatch: mismatch, skipped: skip, next: position, fatal_line: 0, fatal_text: b"", reversed: reverse}
+  # A last input line that had no line end gets one when text follows it.
+  if output.len() > 1 {
+    for position in range(output.len() - 1) {
+      if !output[position].ends_with(b"\n") { output[position] = bytes.concat([output[position], b"\n"]) }
+    }
+  }
+  {output: output, rejected: rejected, total: total, mismatch: mismatch, skipped: skip, next: position, fatal_line: 0, fatal_text: b"", partial: false, reversed: reverse}
 }
