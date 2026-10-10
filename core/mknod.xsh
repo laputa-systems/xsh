@@ -2,8 +2,19 @@
 use lib.gnu
 use lib.fs_misc
 
-type Options = {mode: Str?, help: Bool, version: Bool, operands: List[Str]}
+type Options = {mode: Str?, help: Bool, version: Bool, operands: List[Str], context_flag: Bool, context: Str?}
 type ModeSource = {index: Int, start: Int}
+
+# argv strings cannot contain NUL, so this value can only come from a bare --context
+# (no `=`), which GNU accepts silently; an empty `--context=` is a real value.
+const BARE_CONTEXT = "\0"
+
+# libselinux treats SELinux as enabled when the kernel lists selinuxfs. Labelling the
+# created node is not implemented, so a context value is only tolerated where there is
+# no SELinux policy to apply it, which is also where GNU ignores it.
+proc selinux_enabled() -> Result[Bool] {
+  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
+}
 
 pure mode_source(argv: List[Str]) -> ModeSource {
   for index in range(argv.len()) {
@@ -53,20 +64,29 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     if arg.starts_with("--") {
       let option_name = arg.split("=")[0]
       var recognized = false
-      for option in ["--mode", "--help", "--version"] {
-        if option.starts_with(arg) or (option == "--mode" and option.starts_with(option_name)) { recognized = true }
+      for option in ["--mode", "--help", "--version", "--context"] {
+        if option.starts_with(arg) or (option in ["--mode", "--context"] and option.starts_with(option_name)) { recognized = true }
       }
       if ! recognized { gnu.error(f"unexpected argument {gnu.quote(arg)} found"); exit 1 }
     }
     option_at += 1
   }
   let opts: Options = cli.applet(argv, {
-    gnu: {status: 1, unsupported: {"-Z": "security labels require a native security context API", "--context": "security labels require a native security context API"}},
+    gnu: {status: 1},
     mode: {form: "-m --mode MODE"},
+    context_flag: {form: "-Z", default: false},
+    context: {form: "--context[=CONTEXT]", optional_default: BARE_CONTEXT},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     operands: {form: "...ARG"},
   })?
+  if opts.context != null and opts.context != BARE_CONTEXT {
+    if selinux_enabled()? {
+      gnu.error("--context is not supported on SELinux-enabled systems")
+      exit 1
+    }
+    gnu.error("warning: ignoring --context; it requires an SELinux/SMACK-enabled kernel")
+  }
   if opts.help { gnu.help("Usage: mknod [OPTION]... NAME TYPE [MAJOR MINOR]\nCreate a special file.\n  -m, --mode=MODE  set permission bits\nTYPE is b (block), c or u (character), or p (FIFO).\n"); return }
   if opts.version { gnu.version("mknod"); return }
   let args = opts.operands
