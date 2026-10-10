@@ -30,6 +30,8 @@ type SortOptions = {
   zero_terminated: Bool,
   files0_from: Str?,
   version: Bool,
+  random: Bool,
+  random_source: Str?,
   paths: List[Str],
 }
 
@@ -557,6 +559,7 @@ pure key_effective_options(spec: Str, opts: SortOptions) -> SortOptions {
     month: "M" in flags,
     general_numeric: "g" in flags,
     version_sort: "V" in flags,
+    random: "R" in flags,
     sort_mode: [],
     fold_case: "f" in flags,
     dictionary: "d" in flags,
@@ -1113,14 +1116,7 @@ pure debug_key_text(line: Str, opts: SortOptions, spec: Str) -> Str {
 }
 
 pure debug_visible_line(line: Str) -> Str {
-  let input = bytes.from_text(line)
-  var at = 0
-  var visible = ""
-  while at < input.len() and (input.byte_at(at) == 32 or input.byte_at(at) == 9) {
-    visible += if input.byte_at(at) == 9 { ">" } else { " " }
-    at += 1
-  }
-  visible + line.byte_slice(at)
+  line.replace("\t", with: ">")
 }
 
 pure leading_blank_count(line: Str) -> Int {
@@ -1164,6 +1160,48 @@ pure debug_sort_text(lines: List[Str], opts: SortOptions, has_key: Bool, key_fie
     }
   }
   output
+}
+
+pure has_random_key(opts: SortOptions) -> Bool {
+  for spec in opts.key {
+    if "R" in key_flags(spec) { return true }
+  }
+  false
+}
+
+## Random order compares an MD5 digest of the salt and the key, so equal keys get
+## equal digests and stay adjacent for -u. Only the first key is hashed.
+pure random_sort_lines(lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int, salt: Bytes) -> List[Str] {
+  lines |> sort-by(desc: opts.reverse) { |line| {
+    digest: bytes.concat([salt, bytes.from_text(character_order_key(if has_key { key_field_value(line, sort_delimiter(opts), primary_key_spec(opts), opts) } else { line }, opts.dictionary, opts.ignore_nonprinting, opts.fold_case))]).md5().hex(),
+    raw: if opts.stable { "" } else { line },
+  }}
+}
+
+## GNU reads one 16-byte salt per run; a shorter regular-file source is an error
+## rather than a weaker salt.
+proc random_salt(source: Str?) [fs, process, env, error] -> Bytes {
+  let name = source ?? "/dev/urandom"
+  let source_path = fp"{name}"
+  match fs.stat(source_path, follow_symlinks: true) {
+    Ok(metadata) => {
+      if metadata.mode / 4096 % 16 == 8 and metadata.size < 16 {
+        gnu.error(f"{gnu.quote(name)}: end of file")
+        exit 2
+      }
+    }
+    Err(failure) => {
+      gnu.error(f"{gnu.quote(name)}: {gnu.strerror(failure)}")
+      exit 2
+    }
+  }
+  match bytes.read_at(source_path, 0, 16) {
+    Ok(salt) => salt
+    Err(failure) => {
+      gnu.error(f"{gnu.quote(name)}: {gnu.strerror(failure)}")
+      exit 2
+    }
+  }
 }
 
 pure sort_input_lines(input_lines: List[Str], opts: SortOptions, has_key: Bool, key_field: Int) -> List[Str] {
@@ -1488,14 +1526,17 @@ proc validate_batch_size(value: Str) [process, env, error] -> Unit {
 
 proc parse_buffer_size(value: Str) [fs, env, process, error] -> Int {
   let raw = bytes.from_text(value)
-  var digits = 0
+  # Leading white space is skipped, as strtoumax does for the size operand.
+  var start = 0
+  while start < raw.len() and (raw.byte_at(start) ?? 0) in [32, 9, 10, 11, 12, 13] { start += 1 }
+  var digits = start
   while digits < raw.len() and is_ascii_digit(raw.byte_at(digits) ?? 0) { digits += 1 }
-  if digits == 0 {
+  if digits == start {
     gnu.error(f"invalid --buffer-size argument {gnu.quote(value)}")
     exit 2
   }
 
-  let number_text = value.byte_slice(0, length: digits)
+  let number_text = value.byte_slice(start, length: digits - start)
   let number = match number_text.parse_int() {
     Ok(number) => number
     Err(_) => {
@@ -1606,9 +1647,10 @@ proc write_sort_run(root: FsRoot, name: Str, records: List[Str], opts: SortOptio
   fp"{root.host_path()?}/{name}"
 }
 
+# A fan-in below two cannot reduce the number of runs, so the batch limit never drops under two.
 proc sort_merge_batch_limit(opts: SortOptions) [process, error] -> Int {
   let limit = process.rlimit("nofile")?
-  let available = if let soft = limit.soft { if soft > 6 { soft - 6 } else { 2 } } else { 32 }
+  let available = if let soft = limit.soft { if soft > 8 { soft - 6 } else { 2 } } else { 32 }
   let bounded = if available > 64 { 64 } else { available }
   if let requested = opts.batch_size {
     let size = requested.parse_int()?
@@ -1949,6 +1991,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
         default: false,
         stop: true,
       },
+      random: {
+        form: "-R --random-sort",
+        default: false,
+      },
+      random_source: {
+        form: "--random-source FILE",
+      },
       paths: {
         form: "...FILE",
       },
@@ -1999,7 +2048,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let selected_mode = selected_sort_mode(opts)
   let general_numeric = is_general_numeric_sort(opts)
   let human_numeric = is_human_numeric_sort(opts)
-  if selected_mode != "" and ! selected_mode.starts_with("v") and ! is_human_numeric_mode(selected_mode) and ! is_month_mode(selected_mode) and ! is_general_numeric_mode(selected_mode) and selected_mode not in ["n", "numeric"] {
+  if selected_mode != "" and ! selected_mode.starts_with("v") and ! is_human_numeric_mode(selected_mode) and ! is_month_mode(selected_mode) and ! is_general_numeric_mode(selected_mode) and selected_mode not in ["n", "numeric", "random"] {
     gnu.error(f"invalid argument {gnu.quote_maybe(selected_mode)} for '--sort'")
     exit 2
   }
@@ -2008,6 +2057,20 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let general_numeric_requested = opts.general_numeric or general_numeric
   let human_numeric_requested = opts.human_numeric or human_numeric
   let month_requested = opts.month or is_month_sort(opts)
+  let random_requested = opts.random or selected_mode == "random" or has_random_key(opts)
+  if random_requested and (general_numeric_requested or human_numeric_requested or month_requested or numeric_requested) {
+    # Letters follow GNU's order; the ignore-nonprinting flag is not part of this list.
+    var letters = ""
+    if opts.dictionary { letters += "d" }
+    if opts.fold_case { letters += "f" }
+    if general_numeric_requested { letters += "g" }
+    if human_numeric_requested { letters += "h" }
+    if month_requested { letters += "M" }
+    if numeric_requested { letters += "n" }
+    letters += "R"
+    gnu.error(f"options '-{letters}' are incompatible")
+    exit 2
+  }
   if numeric_requested and general_numeric_requested {
     gnu.error("options '-gn' are incompatible")
     exit 2
@@ -2146,7 +2209,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if let size = buffer_size {
-    if ! opts.merge and ! check_enabled and ! opts.debug {
+    if ! opts.merge and ! check_enabled and ! opts.debug and ! random_requested {
       buffered_sort(inputs, opts, size, has_key, key_field, output, has_output)
       return
     }
@@ -2187,7 +2250,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
     return
   }
 
-  let sorted = sort_input_lines(input_lines, opts, has_key, key_field)
+  let sorted = if random_requested {
+    random_sort_lines(input_lines, opts, has_key, key_field, random_salt(opts.random_source))
+  } else {
+    sort_input_lines(input_lines, opts, has_key, key_field)
+  }
   let lines = unique_sorted_lines(sorted, opts, has_key)
 
   let line_ending = if opts.zero_terminated { "\0" } else { "\n" }

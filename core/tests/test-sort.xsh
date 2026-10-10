@@ -351,6 +351,85 @@ test test_sort_buffer_size_rejects_percent_after_suffix { |ctx|
   assert stdout.read_bytes()?.is_empty()
 }
 
+test test_sort_buffer_size_accepts_leading_blanks { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-buffer-size-blanks")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"b\na\n")?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-S", " 5K", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == "a\nb\n"
+}
+
+test test_sort_batched_merge_progresses_under_small_descriptor_limit { |ctx|
+  if ! p"/bin/sh".exists() { test.skip("requires /bin/sh"); return }
+  let root = test.temp_dir(ctx, name: "sort-batch-descriptors")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let first = fp"{root}/first"
+  let second = fp"{root}/second"
+  let third = fp"{root}/third"
+  first.write("a\n")
+  second.write("b\n")
+  third.write("c\n")
+  let status = process.run(process.command_argv(p"/bin/sh",
+    ["sh", "-c", "ulimit -n 7 && exec \"$@\"", "sort-limit", ctx.xsh_bin.display(), "--", script.display(),
+      "--batch-size=2", "-m", first.display(), second.display(), third.display()],
+    root, {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert status.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == "a\nb\nc\n"
+  assert stderr.read_bytes()?.is_empty()
+}
+
+test test_sort_random_order_is_seeded_by_the_random_source { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-random-source")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"b\na\nc\nd\n")?
+  let source = test.temp_file(ctx, name: "source", contents: b"0123456789abcdef")?
+  let short = test.temp_file(ctx, name: "short", contents: b"0123456789abcde")?
+  let first = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-R", f"--random-source={source}", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert first.exit_code()? == 0, stderr.read_text()?
+  let first_out = stdout.read_text()?
+  let second = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-R", f"--random-source={source}", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert second.exit_code()? == 0
+  assert stdout.read_text()? == first_out
+  assert first_out.lines().len() == 4
+
+  let too_short = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-R", f"--random-source={short}", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert too_short.exit_code()? == 2
+  assert stderr.read_text()? == f"sort: '{short}': end of file\n"
+  assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_random_option_conflicts_match_gnu { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-random-conflicts")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let cases = [["-nR"], ["--sort=random", "-n"], ["-dfgiMnR"]]
+  let letters = ["-nR", "-nR", "-dfgMnR"]
+  for index in range(cases.len()) {
+    let result = process.run(process.command_argv(ctx.xsh_bin,
+      [ctx.xsh_bin.display(), "--", script.display()] + cases[index], root,
+      {LC_ALL: "C"}, b"", stdout, stderr))?
+    assert result.exit_code()? == 2
+    assert stderr.read_text()? == f"sort: options '{letters[index]}' are incompatible\n"
+    assert stdout.read_bytes()?.is_empty()
+  }
+}
+
 test test_sort_buffer_size_spills_sorted_runs { |ctx|
   let root = test.temp_dir(ctx, name: "sort-buffer-spill")?
   let script = fp"{ctx.core_dir}/sort.xsh"
@@ -942,6 +1021,19 @@ test test_sort_reports_default_stdout_write_failure { |ctx|
   assert status.exit_code()? == 2, stderr.read_text()?
   assert stderr.read_text()? == "sort: write failed: 'standard output': No space left on device\n"
   assert stdout.read_bytes()?.is_empty()
+}
+
+test test_sort_debug_shows_every_tab_as_a_marker { |ctx|
+  let root = test.temp_dir(ctx, name: "sort-debug-tabs")?
+  let script = fp"{ctx.core_dir}/sort.xsh"
+  let stdout = fp"{root}/stdout"
+  let stderr = fp"{root}/stderr"
+  let input = test.temp_file(ctx, name: "input", contents: b"A\tchr10\n\tb\n")?
+  let result = process.run(process.command_argv(ctx.xsh_bin,
+    [ctx.xsh_bin.display(), "--", script.display(), "-s", "--debug", input.display()], root,
+    {LC_ALL: "C"}, b"", stdout, stderr))?
+  assert result.exit_code()? == 0, stderr.read_text()?
+  assert stdout.read_text()? == ">b\n__\nA>chr10\n_______\n"
 }
 
 test test_sort_blank_debug_annotations_skip_leading_blanks { |ctx|
