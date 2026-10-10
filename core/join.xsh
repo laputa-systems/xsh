@@ -181,9 +181,40 @@ pure fold(text: Bytes) -> Bytes {
   text.lower()
 }
 
-proc read_input(name: Str) [fs, process, env, error, io] -> Bytes {
-  guard let data = gnu.read_operand(name) else { |failure|
-    gnu.name_error(name, failure)
+# A file name in input-order messages: its text, or its quoted bytes when it is
+# not valid UTF-8.
+proc shown_name(raw: Bytes) [env] -> Str {
+  if let Ok(text) = raw.utf8() {
+    return text
+  }
+
+  gnu.quote_bytes(raw, always: false)
+}
+
+# An operand in usage messages, quoted as `quote` does for text.
+proc quoted_operand(raw: Bytes) [env] -> Str {
+  if let Ok(text) = raw.utf8() {
+    return gnu.quote(text)
+  }
+
+  gnu.quote_bytes(raw, always: true)
+}
+
+# Text names go through the text reader; other names are opened by their bytes
+# so the file system receives the exact operand.
+proc read_input(name: Bytes) [fs, process, env, error, io] -> Bytes {
+  if let Ok(text) = name.utf8() {
+    guard let data = gnu.read_operand(text) else { |failure|
+      gnu.name_error(text, failure)
+      exit 1
+    }
+
+    return data
+  }
+
+  let target = Path.parse_bytes(name)?
+  guard let data = target.read_bytes() else { |failure|
+    gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
     exit 1
   }
 
@@ -382,9 +413,10 @@ pure modernize(argv: List[Str]) -> List[Str] {
   out
 }
 
-proc main(...argv: List[Str]) [fs, process, env, error, io] {
+proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(argv)
   let opts: JoinOptions = cli.applet(
-    modernize(argv),
+    modernize(prepared.text),
     {
       gnu: {status: 1},
       unpaired: {form: "-a FILENUM", repeated: true},
@@ -421,11 +453,11 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   }
 
   if opts.files.len() == 1 {
-    gnu.missing_operand_after(opts.files[0])
+    gnu.usage_error(f"missing operand after {quoted_operand(gnu.argument_bytes(opts.files[0], prepared.raw))}")
   }
 
   if opts.files.len() > 2 {
-    gnu.extra_operand(opts.files[2])
+    gnu.usage_error(f"extra operand {quoted_operand(gnu.argument_bytes(opts.files[2], prepared.raw))}")
   }
 
   var key1 = -1
@@ -482,17 +514,26 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
 
   if opts.tab != null {
     let tab = opts.tab
+    let tab_bytes = gnu.argument_bytes(tab, prepared.raw)
 
     if tab == "" {
       mode = "line"
     } else if tab == "\\0" {
       mode = "sep"
       sep = b"\0"
-    } else if tab.count_chars() == 1 {
+    } else if tab_bytes.len() == 1 {
       mode = "sep"
-      sep = bytes.from_text(tab)
+      sep = tab_bytes
+    } else if let Ok(valid_tab) = tab_bytes.utf8() {
+      if valid_tab.count_chars() == 1 {
+        mode = "sep"
+        sep = tab_bytes
+      } else {
+        gnu.error(f"multi-character tab {gnu.quote(tab)}")
+        exit 1
+      }
     } else {
-      gnu.error(f"multi-character tab {gnu.quote(tab)}")
+      gnu.error("non-UTF-8 multi-byte tab")
       exit 1
     }
   }
@@ -527,7 +568,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       b" "
     },
     specs: parse_format(items),
-    filler: bytes.from_text(opts.empty),
+    filler: gnu.argument_bytes(opts.empty, prepared.raw),
     keys: [if key1 < 0 { 0 } else { key1 }, if key2 < 0 { 0 } else { key2 }],
   )
 
@@ -535,8 +576,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
   let eol = bytes.from_ints([eol_value])?
   let inputs: List[Input] = collect {
     for side in [0, 1] {
-      let name = opts.files[side]
-      let texts = split_records(read_input(name), eol_value)
+      let raw_name = gnu.argument_bytes(opts.files[side], prepared.raw)
+      let texts = split_records(read_input(raw_name), eol_value)
       let fields = [split_fields(text, layout) for text in texts]
       let keys = [
         field_value(row, layout.keys[side], b"")
@@ -544,7 +585,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] {
       ]
 
       yield {
-        name: name,
+        name: shown_name(raw_name),
         texts: texts,
         fields: fields,
         keys: if opts.ignore_case { [fold(key) for key in keys] } else { keys },
