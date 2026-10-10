@@ -265,3 +265,29 @@ test test_mv_progress_option_accepts_verbose_hardlink_batch { |ctx|
   assert fp"{target}/third".read_text()? == "other"
   assert fs.stat(fp"{target}/first")?.ino == fs.stat(fp"{target}/second")?.ino
 }
+
+test test_mv_context_option_is_accepted_without_selinux { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/mv.xsh"
+  for flag in ["-Z", "--context", "--cont"] {
+    let source = fp"{root}/source"
+    let dest = fp"{root}/dest"
+    source.write("data")
+    let result = run.capture --text ${ctx.xsh_bin} $script -- $flag $source $dest
+    assert result.status.exited_with(0), f"mv {flag}: {result.stderr}"
+    assert result.stdout == "" and result.stderr == ""
+    assert ! source.exists()?
+    assert dest.read_text()? == "data"
+    dest.remove()?
+  }
+}
+
+test test_mv_context_rejects_an_argument_like_gnu { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("data")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/mv.xsh" -- --context=unconfined_u:object_r:user_tmp_t:s0 $source fp"{root}/dest"
+  assert result.status.exited_with(1)
+  assert result.stderr == "mv: option '--context' doesn't allow an argument\nTry 'mv --help' for more information.\n"
+  assert source.read_text()? == "data"
+}

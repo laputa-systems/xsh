@@ -6,7 +6,7 @@ type Options = {
   no_target_directory: Bool, no_clobber: Bool, force: Bool, interactive: Bool, exchange: Bool,
   target: Str?, verbose: Bool, debug: Bool, progress: Bool, update: Str?, older: Bool,
   backup: Str?, simple_backup: Bool, suffix: Str?, strip_slashes: Bool,
-  help: Bool, version: Bool, operands: List[Str],
+  help: Bool, version: Bool, operands: List[Str], context: Bool,
 }
 
 enum MoveOutcome { Moved, Skipped, Failed }
@@ -30,6 +30,13 @@ pure permission_text(mode: Int) -> Str {
     text += letter
   }
   text
+}
+
+# libselinux treats SELinux as enabled when the kernel lists selinuxfs. Labelling
+# the destination is not implemented, so --context is only accepted when there is
+# no SELinux to label for; GNU's no-op in that case is then exact.
+proc selinux_enabled() -> Result[Bool] {
+  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
 }
 
 proc usage_error(message: Str) -> Unit {
@@ -311,8 +318,8 @@ proc main(...argv: List[Str]) {
   var opts: Options = cli.applet(argv, {
     gnu: {status: 1, unsupported: {
       "--no-copy": "cross-device copy is not available",
-      "-Z": "security contexts are not available",
     }},
+    context: {form: "-Z --context", default: false},
     exchange: {form: "--exchange", default: false},
     no_target_directory: {form: "-T --no-target-directory", default: false},
     no_clobber: {form: "-n --no-clobber", default: false},
@@ -376,6 +383,10 @@ proc main(...argv: List[Str]) {
     gnu.usage_error("cannot combine --backup with -n/--no-clobber or --update=none-fail")
   }
   files.validate_backup(backup, opts.suffix ?? env.get_or("SIMPLE_BACKUP_SUFFIX", "~") ?? "~")
+  if opts.context and selinux_enabled()? {
+    gnu.error("--context (-Z) is not supported on SELinux-enabled systems")
+    exit 1
+  }
   var failed = false
   var seen: List[Path] = []
   var copies: List[FileIdentity] = []
