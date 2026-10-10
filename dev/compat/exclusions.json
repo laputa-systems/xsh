@@ -1004,6 +1004,12 @@
       "reason": "expects uutils' own write-error text; GNU prints '<util>: write error: <strerror>', which XSH matches"
     },
     {
+      "id": "test_ptx::test_unicode_padding_alignment",
+      "utility": "ptx",
+      "category": "gnu-semantics",
+      "reason": "expects the input 'a\\n\u00e9' to be two one-word contexts; GNU coreutils 9.11 (run in a clean Alpine container) treats it as one sentence and prints '        a \\303/' for -w 10, which XSH matches"
+    },
+    {
       "id": "test_rm::test_preserve_root_rejects_unknown_value",
       "utility": "rm",
       "category": "clap-wording",

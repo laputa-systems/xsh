@@ -60,7 +60,17 @@ export proc read_chunk(source: Source, offset: Int, count = CHUNK) [fs, error, i
 
     let left = source.size - offset
 
-    return bytes.read_at(source.path, offset, if left < count { left } else { count })
+    # A regular file can report a stat size larger than the bytes it yields (sysfs
+    # attributes report 4096), so the full-count read fails near its real end. The
+    # file is then read to its end and sliced, as a read(2) loop would see it.
+    match bytes.read_at(source.path, offset, if left < count { left } else { count }) {
+      Ok(data) => return Ok(data)
+      Err(failure) => if failure.message.find("failed to fill") == null { return Err(failure) }
+    }
+
+    let whole = source.path.read_bytes()?
+
+    return Ok(if offset >= whole.len() { b"" } else { whole[offset..] })
   }
 
   if offset >= DEVICE_LIMIT {
