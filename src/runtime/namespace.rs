@@ -257,7 +257,8 @@ mod linux {
     use rustix::process::{self as rprocess, Pid, Signal, WaitOptions};
     use std::ffi::CString;
     use std::io;
-    use std::os::fd::{AsRawFd, OwnedFd};
+    use rustix::thread::UnshareFlags;
+    use std::os::fd::{AsFd, OwnedFd};
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::process::CommandExt;
     use std::path::Path;
@@ -368,12 +369,16 @@ mod linux {
             // SAFETY: each call below is a raw system call or an
             // async-signal-safe libc wrapper over valid, preallocated data.
             unsafe {
-                if self.unshare_flags != 0 && libc::unshare(self.unshare_flags) != 0 {
-                    return fail(Step::Unshare);
+                if self.unshare_flags != 0
+                    && let Err(errno) = rustix::thread::unshare_unsafe(
+                        UnshareFlags::from_bits_retain(self.unshare_flags as u32),
+                    )
+                {
+                    return fail_with(Step::Unshare, errno);
                 }
                 for fd in &self.join {
-                    if libc::setns(fd.as_raw_fd(), 0) != 0 {
-                        return fail(Step::Join);
+                    if let Err(errno) = rustix::thread::move_into_link_name_space(fd.as_fd(), None) {
+                        return fail_with(Step::Join, errno);
                     }
                 }
                 if let Some(map) = &self.user_map {
