@@ -12,7 +12,8 @@ use std::os::unix::fs::OpenOptionsExt;
 pub(crate) fn handles(op: RuntimeOp) -> bool {
     matches!(op, RuntimeOp::UnixRedirectFd | RuntimeOp::UnixDupFd
         | RuntimeOp::UnixSetGroups | RuntimeOp::UnixSetCredentials
-        | RuntimeOp::UnixSetUid | RuntimeOp::UnixSetGid)
+        | RuntimeOp::UnixSetUid | RuntimeOp::UnixSetGid
+        | RuntimeOp::UnixSetResuid | RuntimeOp::UnixSetResgid)
 }
 
 pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError> {
@@ -21,6 +22,8 @@ pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
         RuntimeOp::UnixDupFd => dup_fd(args),
         RuntimeOp::UnixSetUid => set_identity(args, true),
         RuntimeOp::UnixSetGid => set_identity(args, false),
+        RuntimeOp::UnixSetResuid => set_resid(args, true),
+        RuntimeOp::UnixSetResgid => set_resid(args, false),
         RuntimeOp::UnixSetGroups => set_groups(args),
         RuntimeOp::UnixSetCredentials => set_credentials(args),
         _ => unreachable!("Unix process primitive expected"),
@@ -145,6 +148,29 @@ fn set_identity(args: &Args<'_>, user: bool) -> Result<Value, RuntimeError> {
     };
     if result == -1 {
         return Err(host_error(kind, io::Error::last_os_error(), args.span()));
+    }
+    Ok(Value::ok(Value::Unit))
+}
+
+/// Sets the real, effective and saved IDs in one call; a `null` ID stays as it
+/// is. The three IDs are independent, unlike setuid and setgid, which a
+/// privileged process applies to all three.
+fn set_resid(args: &Args<'_>, user: bool) -> Result<Value, RuntimeError> {
+    let kind = if user { "unix-set-resuid" } else { "unix-set-resgid" };
+    let span = args.span();
+    // All-ones is the kernel's "leave unchanged" value.
+    let unchanged = u32::MAX;
+    let mut ids = [unchanged; 3];
+    for (index, id) in ids.iter_mut().enumerate() {
+        if let Some(value) = args.int_or_null(index)? {
+            *id = identity(value, kind, span)?;
+        }
+    }
+    let result = unsafe {
+        if user { libc::setresuid(ids[0], ids[1], ids[2]) } else { libc::setresgid(ids[0], ids[1], ids[2]) }
+    };
+    if result == -1 {
+        return Err(host_error(kind, io::Error::last_os_error(), span));
     }
     Ok(Value::ok(Value::Unit))
 }

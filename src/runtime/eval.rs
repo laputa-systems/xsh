@@ -8190,12 +8190,45 @@ fn zero_span() -> Span {
     Span::new(crate::source::SourceId::new(0), 0, 0)
 }
 
+/// The parent-death signal of the calling thread, 0 when none is requested.
+/// The kernel keeps it per thread and clears it in a new thread, so a script
+/// would otherwise never see the signal its process inherited across exec.
+#[cfg(target_os = "linux")]
+fn inherited_parent_death_signal() -> libc::c_int {
+    let mut signal: libc::c_int = 0;
+    // PR_GET_PDEATHSIG (2) stores the signal through the pointer in arg2.
+    if unsafe { libc::prctl(2, std::ptr::addr_of_mut!(signal) as libc::c_ulong, 0, 0, 0) } == -1 {
+        return 0;
+    }
+    signal
+}
+
+#[cfg(not(target_os = "linux"))]
+fn inherited_parent_death_signal() -> libc::c_int {
+    0
+}
+
+/// Gives the evaluation thread the parent-death signal the process was started
+/// with; the thread stands for the process, and exec carries its value on.
+#[cfg(target_os = "linux")]
+fn restore_parent_death_signal(signal: libc::c_int) {
+    if signal != 0 {
+        // PR_SET_PDEATHSIG (1). Failure leaves the cleared default.
+        let _ = unsafe { libc::prctl(1, signal as libc::c_ulong, 0, 0, 0) };
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn restore_parent_death_signal(_signal: libc::c_int) {}
+
 fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
     const EVAL_STACK_SIZE: usize = 12 * 1024 * 1024;
+    let parent_death_signal = inherited_parent_death_signal();
     std::thread::scope(|scope| {
         std::thread::Builder::new()
             .stack_size(debug_test_eval_stack_size(EVAL_STACK_SIZE))
             .spawn_scoped(scope, || {
+                restore_parent_death_signal(parent_death_signal);
                 // The script's execution happens on this thread, so its
                 // allocation traffic is measured here; the diagnostics report
                 // reads it through `mem_track`. Both calls are inert unless the

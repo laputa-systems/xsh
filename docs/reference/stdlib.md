@@ -262,6 +262,7 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.dhcp_socket(interface: Str) -> Result[Int, Error]` — Performs one stage of the Linux DHCP socket lifecycle.
 - `linux.disk_usage(path: Path = default) -> Result[Stream[{available: Int, device: Str, fstype: Str, mount: Str, total: Int, used: Int}], Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.dmesg() -> Result[Stream[Str], Error]` — Reads a Linux host-state record or inspection stream.
+- `linux.drop_bounding_capability(capability: Int) -> Result[Unit, Error]` — Removes one capability from the bounding set of the calling thread.
 - `linux.file_attrs(path: Path) -> Result[{append_only: Bool, compression_requested: Bool, dirsync: Bool, flags: Int, immutable: Bool, indexed_directory: Bool, journaled_data: Bool, no_atime: Bool, no_dump: Bool, no_tailmerging: Bool, secure_deletion: Bool, sync: Bool, top_of_directory_hierarchies: Bool, undelete: Bool}, Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.file_project(path: Path) -> Result[Int, Error]` — Reads Linux sysctl configuration values.
 - `linux.file_version(path: Path) -> Result[Int, Error]` — Reads a Linux host-state record or inspection stream.
@@ -294,6 +295,7 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.partition_table(device: Path) -> Result[{id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}, Error]` — Reads a Linux host-state record or inspection stream.
 - `linux.pivot_root(new_root: Path, put_old: Path) -> Result[Unit, Error]` — Changes the Linux process root or root-transition state.
 - `linux.poweroff() -> Result[Unit, Error]` — Requests a Linux system power-state transition.
+- `linux.privileges() -> Result[{ambient: List[Int], bounding: List[Int], effective: List[Int], inheritable: List[Int], last_capability: Int, no_new_privs: Bool, parent_death_signal: Int, permitted: List[Int], securebits: List[Str]}, Error]` — Reads the capability sets, securebits, no_new_privs and parent-death signal of the calling thread.
 - `linux.read_device(device: Path, dest: Path, bytes: Int) -> Result[Unit, Error]` — Reads or changes Linux block-device state.
 - `linux.reboot() -> Result[Unit, Error]` — Requests a Linux system power-state transition.
 - `linux.rfkill_block(id: Int) -> Result[Unit, Error]` — Blocks or unblocks a Linux radio device.
@@ -303,11 +305,18 @@ Linux-specific boot, mount, device, and shutdown operations.
 - `linux.root_device() -> Result[Str, Error]` — Reads or changes Linux block-device state.
 - `linux.routes() -> Result[Stream[{dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}], Error]` — Reads Linux network interface or route records.
 - `linux.sample(proc_root: Path? = default) -> Result[{blocked: Int, context_switches: Int, cpu: {idle: Int, iowait: Int, irq: Int, nice: Int, softirq: Int, steal: Int, system: Int, user: Int}, disks: List[{in_flight: Int, io_ms: Int, major: Int, minor: Int, name: Str, read_ms: Int, reads_completed: Int, reads_merged: Int, sectors_read: Int, sectors_written: Int, weighted_io_ms: Int, write_ms: Int, writes_completed: Int, writes_merged: Int}], interrupts: Int, memory: {available: Int, buffers: Int, cached: Int, free: Int, shared: Int, sreclaimable: Int, swap_free: Int, swap_total: Int, total: Int}, page_in_kib: Int, page_out_kib: Int, page_size: Int, processes: List[{argv: Str, argv0: Str, command: Str, cpu_ticks: Int, nice: Int, parent_pid: Int, pgrp: Int, pid: Int, priority: Int, processor: Int, rss_bytes: Int, runtime_seconds: Int, session: Int, start_ticks: Int, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int, thread_count: Int, ticks_per_second: Int, tty: Str, tty_number: Int, uid: Int, user: Str, user_ticks: Int, vsize_bytes: Int}], processes_created: Int, running: Int, sampled_at_ms: Int, swap_in_pages: Int, swap_out_pages: Int, ticks_per_second: Int, uptime_ms: Int}, Error]` — Samples Linux CPU, memory, process and disk counters.
+- `linux.set_ambient_capability(capability: Int, enabled: Bool) -> Result[Unit, Error]` — Raises or lowers one ambient capability of the calling thread.
+- `linux.set_capabilities(effective: List[Int], permitted: List[Int], inheritable: List[Int]) -> Result[Unit, Error]` — Replaces the effective, permitted and inheritable capability sets of the calling thread.
 - `linux.set_file_attrs(path: Path, flags: Int) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
 - `linux.set_file_project(path: Path, project: Int) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
 - `linux.set_file_version(path: Path, version: Int) -> Result[Unit, Error]` — Changes Linux kernel or filesystem attributes.
 - `linux.set_hwclock(epoch_ms: Int) -> Result[Unit, Error]` — Reads or changes Linux hardware and system clock state.
 - `linux.set_ipv4_address(interface: Str, address: Str, netmask: Str) -> Result[Unit, Error]` — Changes Linux network link or route configuration.
+- `linux.set_keep_capabilities(enabled: Bool) -> Result[Unit, Error]` — Sets whether the permitted capabilities survive a switch from UID 0 to a non-zero UID.
+- `linux.set_no_new_privs() -> Result[Unit, Error]` — Sets the no_new_privs attribute so that exec can never grant new privileges.
+- `linux.set_parent_death_signal(signal: Int) -> Result[Unit, Error]` — Chooses the signal the calling thread receives when its parent thread exits.
+- `linux.set_ptracer(pid: Int) -> Result[Unit, Error]` — Names the process allowed to trace the calling process under the Yama policy.
+- `linux.set_securebits(flags: List[Str]) -> Result[Unit, Error]` — Replaces the securebits of the calling thread with exactly the named flags.
 - `linux.set_system_clock(epoch_ms: Int) -> Result[Unit, Error]` — Reads or changes Linux hardware and system clock state.
 - `linux.swapoff(device: Path) -> Result[Unit, Error]` — Changes Linux mount or swap state.
 - `linux.swapoff_all() -> Result[Unit, Error]` — Changes Linux mount or swap state.
@@ -541,6 +550,8 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.set_gid(gid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
 - `unix.set_groups(groups: List[Int]) -> Result[Unit, Error]` — Replaces the current process supplementary groups with explicit numeric IDs.
 - `unix.set_hostname(hostname: Str) -> Result[Unit, Error]` — Changes the Unix host name.
+- `unix.set_resgid(real: Int?, effective: Int?, saved: Int?) -> Result[Unit, Error]` — Sets the real, effective and saved user or group ID of the current process independently.
+- `unix.set_resuid(real: Int?, effective: Int?, saved: Int?) -> Result[Unit, Error]` — Sets the real, effective and saved user or group ID of the current process independently.
 - `unix.set_tty_attrs(attrs: Record, fd: Int = default, when: Str = default) -> Result[Unit, Error]` — Reads or changes Unix terminal state.
 - `unix.set_uid(uid: Int) -> Result[Unit, Error]` — Changes an explicit current process user or primary group ID.
 - `unix.set_window_size(rows: Int, cols: Int, xpixel: Int = default, ypixel: Int = default, fd: Int = default) -> Result[Unit, Error]` — Reads or sets a terminal's window size.
@@ -879,6 +890,7 @@ Process-scoped utility helpers.
 - `LinuxOpenFile {access: Str, command: Str, dev: Int?, fd: Int, fd_label: Str, inode: Int, local: Str, path: Path, pid: Int, protocol: Str, remote: Str, type: Str}` — Describes one open file held by a Linux process.
 - `LinuxPartition {end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}` — Describes one Linux partition.
 - `LinuxPartitionTable {id: Str, label: Str, partitions: List[{end: Int, index: Int, name: Str, size: Int, start: Int, type: Str, uuid: Str}], sector_size: Int}` — Describes a Linux partition table.
+- `LinuxPrivileges {ambient: List[Int], bounding: List[Int], effective: List[Int], inheritable: List[Int], last_capability: Int, no_new_privs: Bool, parent_death_signal: Int, permitted: List[Int], securebits: List[Str]}` — The privilege state of the calling thread.
 - `LinuxProcessSample {argv: Str, argv0: Str, command: Str, cpu_ticks: Int, nice: Int, parent_pid: Int, pgrp: Int, pid: Int, priority: Int, processor: Int, rss_bytes: Int, runtime_seconds: Int, session: Int, start_ticks: Int, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int, thread_count: Int, ticks_per_second: Int, tty: Str, tty_number: Int, uid: Int, user: Str, user_ticks: Int, vsize_bytes: Int}` — Linux counters from a bounded host snapshot.
 - `LinuxRfkill {hard_blocked: Bool, id: Int, name: Str, soft_blocked: Bool, type: Str}` — Describes Linux radio-block state.
 - `LinuxRoute {dev: Str, dst: Str, family: Str, flags: List[Str], gateway: Str, metric: Int, prefix_len: Int}` — Describes one Linux routing-table entry.
