@@ -435,9 +435,10 @@ pure finish(hunk: Hunk) -> Hunk {
   out
 }
 
+# The "no newline at end of file" marker removes only the line feed: a
+# carriage return before it is part of the line and stays.
 pure without_terminator(text: Bytes) -> Bytes {
   let size = text.len()
-  if size >= 2 and text.byte_at(size - 1) == 10 and text.byte_at(size - 2) == 13 { return text[0..size - 2] }
   if size >= 1 and text.byte_at(size - 1) == 10 { return text[0..size - 1] }
   text
 }

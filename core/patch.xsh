@@ -1041,10 +1041,14 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
       mismatch = true
       var blame = ""
       if !opts.quiet {
-        # GNU patch blames line endings when the first input line and the
-        # first hunk line end differently.
-        let input_crlf = !input_lines.is_empty() and input_lines[0].ends_with(b"\r\n")
-        let hunk_crlf = !hunk.texts.is_empty() and hunk.texts[0].ends_with(b"\r\n")
+        # GNU patch blames line endings when the input line at the reported
+        # position (the last line when that is past the end) and the hunk's
+        # first old line end differently.
+        var guess = hunk.old_first + out_offset - 1
+        if guess >= input_lines.len() { guess = input_lines.len() - 1 }
+        let input_crlf = guess >= 0 and input_lines[guess].ends_with(b"\r\n")
+        let first_old = patch_apply.pattern(hunk)
+        let hunk_crlf = if first_old.is_empty() { !hunk.texts.is_empty() and hunk.texts[0].ends_with(b"\r\n") } else { first_old[0].ends_with(b"\r\n") }
         if input_crlf != hunk_crlf { blame = " (different line endings)" }
         note(opts, f"Hunk #{total} FAILED at {hunk.old_first + out_offset}{blame}.\n")
       }

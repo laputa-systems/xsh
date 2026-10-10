@@ -15,8 +15,10 @@ export pure keys(lines: List[Bytes], loose_space: Bool) -> List[Bytes] {
   output
 }
 
+# Loose matching treats only spaces and tabs as blanks; a carriage return
+# still has to match.
 pure is_blank(byte: Int) -> Bool {
-  byte == 32 or byte == 9 or byte == 11 or byte == 12 or byte == 13
+  byte == 32 or byte == 9
 }
 
 ## The comparison key of one line. With `loose_space`, runs of blanks collapse
