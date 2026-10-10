@@ -327,3 +327,16 @@ test test_date_rfc_and_iso_formats_ignore_calendar_locale { |ctx|
   let iso = run.text env LC_ALL=fa_IR.UTF-8 TZ=UTC0 ${ctx.xsh_bin} $script -- -I -d 2026-03-21
   assert iso == "2026-03-21\n"
 }
+
+test test_date_clock_with_zone_offset_and_signed_day_counts { |ctx|
+  let script = fp"{ctx.core_dir}/date.xsh"
+  let zoned = run.text ${ctx.xsh_bin} $script -- -u -d "2020-01-02 21:04 +0100" "+%F %R"
+  assert zoned == "2020-01-02 20:04\n", zoned
+  let bare_clock = run.text ${ctx.xsh_bin} $script -- -u -d "21:04 +0100" "+%R"
+  assert bare_clock == "20:04\n", bare_clock
+  let day_before = run.text ${ctx.xsh_bin} $script -- -u -d "12:00 today -2 days" "+%F %R"
+  let two_days_ago = run.text ${ctx.xsh_bin} $script -- -u -d "2 days ago" "+%F"
+  assert day_before == f"{two_days_ago.trim()} 12:00\n", day_before
+  let earlier = run.text ${ctx.xsh_bin} $script -- -u -d "12:00 today" "+%F %R"
+  assert earlier.ends_with(" 12:00\n"), earlier
+}

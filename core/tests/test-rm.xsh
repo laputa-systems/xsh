@@ -294,3 +294,36 @@ test test_rm_recursive_removes_hierarchy_deeper_than_path_max { |ctx|
   assert removed.stderr == ""
   assert ! deep.exists()?
 }
+
+test test_rm_force_ignores_a_file_used_as_a_directory { |ctx|
+  let root = test.temp_dir(ctx, name: "rm-enotdir")?
+  let file = fp"{root}/file"
+  file.write("")
+  let operand = fp"{file}/child"
+  let forced = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- -f $operand
+  assert forced.status.exited_with(0), forced.stderr
+  assert forced.stderr == ""
+  let plain = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- $operand
+  assert plain.status.exited_with(1)
+  assert plain.stderr == f"rm: cannot remove '{operand}': Not a directory\n", plain.stderr
+  assert file.exists()?
+}
+
+test test_rm_interactive_once_prompts_for_write_protected_files_on_a_terminal { |ctx|
+  let root = test.temp_dir(ctx, name: "rm-once-protected")?
+  let file = fp"{root}/file"
+  let no = test.temp_file(ctx, name: "no", contents: b"n\n")?
+  file.write("")
+  file.chmod(0)
+  let effective_root = unix.id()?.euid == 0
+  let declined = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- ---presume-input-tty -I $file < $no
+  assert declined.status.exited_with(0), declined.stderr
+  if effective_root {
+    assert ! file.exists()?
+    assert declined.stderr == ""
+  } else {
+    assert file.exists()?
+    assert declined.stderr == f"rm: remove write-protected regular empty file '{file}'? "
+    file.chmod(0o600)
+  }
+}

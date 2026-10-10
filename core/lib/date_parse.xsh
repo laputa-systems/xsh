@@ -203,7 +203,9 @@ pure zone_suffix(text: Str) -> Result[Zoned] {
   }
   if text.lower().ends_with("z") { return Ok({text: text.byte_slice(0, text.byte_len() - 1).trim(), offset: 0}) }
   let fields = rx"^(.*[0-9])\s*([+-])([0-9]{1,2})(?::?([0-9]{2}))?(?::?([0-9]{2}))?$".captures(text)
-  if ! fields.is_empty() and fields[1].byte_len() > 9 {
+  # A bare clock such as "21:04 +0100" is short, so it is recognised by its shape;
+  # any longer prefix is taken as a zone offset regardless of its form.
+  if ! fields.is_empty() and (fields[1].byte_len() > 9 or rx"[0-9]:[0-9]{2}$".matches(fields[1])) {
     let hours = decimal(fields[3])?
     let minutes = optional_decimal(fields[4])?
     let seconds = optional_decimal(fields[5])?
@@ -334,6 +336,12 @@ proc absolute(text: Str, utc: Bool, base: Instant) -> Result[Instant] {
       let today = calendar(midnight, zone_utc)?
       return civil_epoch(today.year, today.month, today.day, body.byte_slice(word.byte_len() + 1), zone_utc, zone.offset)
     }
+    if body.lower().ends_with(f" {word}") {
+      let zone_utc = utc or zone.offset != null
+      let midnight = parse_instant(word, utc: zone_utc, base:)?
+      let day = calendar(midnight, zone_utc)?
+      return civil_epoch(day.year, day.month, day.day, body.byte_slice(0, body.byte_len() - word.byte_len() - 1), zone_utc, zone.offset)
+    }
   }
   let current = calendar(base, utc)?
   let iso = rx"^([0-9]{4,})[-/]([0-9]{1,2})[-/]([0-9]{1,2})(?:[Tt ](.+))?$".captures(body)
@@ -437,7 +445,11 @@ export proc parse_instant(text: Str, utc = false, base: Instant? = null) -> Resu
       match decimal(previous) {
         Ok(number) => { count = number; prefix_end = end - 2 }
         Err(problem) => {
-          if previous in ["next", "last", "this"] { count = if previous == "last" { -1 } else if previous == "this" { 0 } else { 1 }; prefix_end = end - 2 }
+          # A signed count attached to its number, as in "today -2 days".
+          if rx"^[+-][0-9]+$".matches(previous) {
+            count = decimal(previous.byte_slice(1))? * (if previous.starts_with("-") { -1 } else { 1 })
+            prefix_end = end - 2
+          } else if previous in ["next", "last", "this"] { count = if previous == "last" { -1 } else if previous == "this" { 0 } else { 1 }; prefix_end = end - 2 }
         }
       }
     }

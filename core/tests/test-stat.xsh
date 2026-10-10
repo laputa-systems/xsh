@@ -283,3 +283,29 @@ test test_stat_cached_is_checked_in_option_order { |ctx|
   assert no_operand.status.exited_with(1), no_operand.stderr
   assert no_operand.stderr.starts_with("stat: invalid argument 'bogus' for '--cached'\n"), no_operand.stderr
 }
+
+# GNU keeps going after an unrecognized escape: the character is printed and a
+# warning is issued for each one, in format order.
+test test_stat_printf_warns_for_each_unrecognized_escape { |ctx|
+  let file = test.temp_file(ctx, name: "stat-escape-warning", contents: b"text")?
+  let result = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- "--printf=\\e\\\"\\q\\x" $file
+  assert result.status.exited_with(0), result.stderr
+  assert bytes.from_text(result.stdout) == b"\x1b\"qx", result.stdout
+  assert result.stderr == "stat: warning: unrecognized escape '\\q'\nstat: warning: unrecognized escape '\\x'\n", result.stderr
+  let trailing = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- "--printf=\\" $file
+  assert trailing.stdout == "\\", trailing.stdout
+  assert trailing.stderr == "stat: warning: backslash at end of format\n", trailing.stderr
+}
+
+# QUOTING_STYLE is validated only when a directive quotes the name, and "%%"
+# is a literal percent rather than the start of a directive.
+test test_stat_quoting_style_is_checked_only_for_quoting_directives { |ctx|
+  let file = test.temp_file(ctx, name: "stat-quoting-style", contents: b"text")?
+  let literal = run.capture --text LC_ALL=C QUOTING_STYLE=bogus ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%%N" $file
+  assert literal.status.exited_with(0), literal.stderr
+  assert literal.stdout == "%N\n"
+  assert literal.stderr == ""
+  let quoted = run.capture --text LC_ALL=C QUOTING_STYLE=bogus ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%N" $file
+  assert quoted.status.exited_with(0), quoted.stderr
+  assert quoted.stderr == f"stat: ignoring invalid value of environment variable QUOTING_STYLE: 'bogus'\n", quoted.stderr
+}

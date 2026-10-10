@@ -38,6 +38,18 @@ pure normalize_date_displacement(text: Str) -> Str {
   if signed.is_empty() { text } else { f"{signed[1]} {signed[2]} {signed[3]}" }
 }
 
+# The obsolete [MMDDhhmm[YY]][.ss] operand as the equivalent [[CC]YY]MMDDhhmm[.ss]
+# stamp. A trailing year is accepted only from 69 to 99, which means 1969-1999;
+# any other operand stays an ordinary file name.
+pure obsolete_stamp(operand: Str) -> Str? {
+  let parts = rx"^([0-9]{8})([0-9]{2})?(\.[0-9]{2})?$".captures(operand)
+  return null when parts.is_empty()
+  let year = parts[2]
+  return f"{parts[1]}{parts[3]}" when year == ""
+  return null when (year.parse_int() ?? 0) < 69
+  f"{year}{parts[1]}{parts[3]}"
+}
+
 # Sets the selected timestamps: an explicit instant, or the kernel's current
 # time when none was given; the unselected one is left unchanged.
 proc set_times(target: Path, atime: date_parse.Instant?, mtime: date_parse.Instant?, access: Bool, modify: Bool, follow_symlinks: Bool) [fs] -> Result[Unit, Error] {
@@ -137,13 +149,16 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     }
   }
   let posix_version = (env.get_or("_POSIX2_VERSION", "200809") ?? "200809").parse_int() ?? 200809
-  if stamp == null and opts.reference == null and posix_version <= 199209 and paths.len() > 1 {
-    let legacy = paths[0]
-    if rx"^[0-9]{8}([0-9]{2})?$".matches(legacy) {
-      # The obsolete positional form puts its optional year after minutes;
-      # the explicit timestamp form puts its year before the month.
-      stamp = if legacy.byte_len() == 10 { legacy.byte_slice(8) + legacy.byte_slice(0, length: 8) } else { legacy }
-      paths = paths[1..]
+  if stamp == null and opts.reference == null and posix_version < 200112 and paths.len() > 1 {
+    if let candidate = obsolete_stamp(paths[0]) {
+      if let Ok(instant) = date_parse.parse_instant(candidate) {
+        if env.get("POSIXLY_CORRECT") is Err(_) {
+          let local = date_parse.calendar(instant, utc: false)?
+          gnu.error(f"warning: 'touch {paths[0]}' is obsolete; use 'touch -t {local.year:04}{local.month:02}{local.day:02}{local.hour:02}{local.minute:02}.{local.second:02}'")
+        }
+        stamp = candidate
+        paths = paths[1..]
+      }
     }
   }
   if let text = stamp {

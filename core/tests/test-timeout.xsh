@@ -224,3 +224,11 @@ test timeout_options_after_duration_stop_at_command { |ctx|
 test timeout_continues_a_stopped_command_after_signaling { |ctx|
   assert invoke(ctx, ["-s", "STOP", ".05", "sleep", ".1"])?.status == 124
 }
+
+# A negative value that underflows keeps its sign and is rejected, while a
+# positive underflow is a tiny positive deadline and a bare zero disables it.
+test timeout_underflowing_intervals_keep_their_sign { |ctx|
+  assert invoke(ctx, [" -1e-10000", "true"])?.status == 125
+  assert invoke(ctx, ["1.5e-10000", "sleep", "10"])?.status == 124
+  assert invoke(ctx, [" -0", "true"])?.status == 0
+}

@@ -64,6 +64,15 @@ pure mode_for(spec: Str, current: Int, directory: Bool, umask: Int) -> Result[In
       return Err(ModeError.Invalid("invalid mode")) when ! (op in "+-=")
       at += 1
       let begin = at
+      # Without a class, digits after the operator are a whole mode, as in GNU's
+      # "[-+=][0-7]+" form, and they must end the clause. A class makes them invalid.
+      if omitted and at < clause.byte_len() and clause.byte_slice(at, length: 1) in "01234567" {
+        while at < clause.byte_len() and clause.byte_slice(at, length: 1) in "01234567" { at += 1 }
+        return Err(ModeError.Invalid("invalid mode")) when at < clause.byte_len()
+        let value = octal(clause.byte_slice(begin, length: at - begin))?
+        if op == "+" { mode = mode.bit_or(value) } else if op == "-" { mode = mode.clear_bits(value) } else { mode = value }
+        continue
+      }
       while at < clause.byte_len() and ! (clause.byte_slice(at, length: 1) in "+-=") { at += 1 }
       let permissions = clause.byte_slice(begin, length: at - begin)
       var bits = permission_bits(permissions, who, mode, directory)?

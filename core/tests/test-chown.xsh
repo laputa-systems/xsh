@@ -171,3 +171,19 @@ test test_chown_recursive_preserves_non_utf8_child_names { |ctx|
   assert result.status == 0, result.stderr
   assert fs.stat(child)?.uid == 12345
 }
+
+# A dangling link named with --dereference is a dereference failure; a missing
+# name is an access failure.
+test test_chown_dereference_of_dangling_link_names_the_link { |ctx|
+  let root = test.temp_dir(ctx, name: "chown-dangling")?
+  let link = fp"{root}/dangle"
+  link.symlink(to: p"no-such")
+  let owner = unix.id()?.euid
+  let dereferenced = perm_run(ctx, ["--dereference", f"{owner}", link])?
+  assert dereferenced.status == 1
+  assert dereferenced.stderr.starts_with(f"chown: cannot dereference '{link}': "), dereferenced.stderr
+  let missing = fp"{root}/absent"
+  let accessed = perm_run(ctx, [f"{owner}", missing])?
+  assert accessed.status == 1
+  assert accessed.stderr.starts_with(f"chown: cannot access '{missing}': "), accessed.stderr
+}

@@ -158,3 +158,38 @@ test test_touch_missing_file_trailing_slash { |ctx|
   assert failed.stderr == f"touch: cannot touch '{target}': No such file or directory\n"
   assert ! fp"{target}".exists()?
 }
+
+# The operands are relative to the test directory, so the obsolete form is
+# matched against names the script would otherwise create.
+test test_touch_obsolete_operand_uses_posix_version_and_yearly_range { |ctx|
+  let root = test.temp_dir(ctx, name: "touch-obsolete")?
+  cd $root {
+    let posix = run.capture --text env _POSIX2_VERSION=199209 POSIXLY_CORRECT=1 LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- "0101000099" "with-year"
+    assert posix.status.exited_with(0), posix.stderr
+    assert posix.stderr == ""
+    let no_year = run.capture --text env _POSIX2_VERSION=199209 POSIXLY_CORRECT=1 LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- "01010000" "no-year"
+    assert no_year.status.exited_with(0), no_year.stderr
+    assert ! fp"{root}/01010000".exists()?
+    let early_year = run.capture --text env _POSIX2_VERSION=199209 POSIXLY_CORRECT=1 LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- "0101000068" "after"
+    assert early_year.status.exited_with(0), early_year.stderr
+    let modern = run.capture --text env _POSIX2_VERSION=200809 LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- "01010000" "modern"
+    assert modern.status.exited_with(0), modern.stderr
+  }
+  assert ! fp"{root}/0101000099".exists()?
+  assert fp"{root}/with-year".exists()?
+  assert fp"{root}/no-year".exists()?
+  assert fp"{root}/0101000068".exists()?
+  assert fp"{root}/after".exists()?
+  assert fp"{root}/01010000".exists()?
+}
+
+test test_touch_obsolete_operand_warns_without_posixly_correct { |ctx|
+  let root = test.temp_dir(ctx, name: "touch-obsolete-warning")?
+  cd $root {
+    let warned = run.capture --text env -u POSIXLY_CORRECT _POSIX2_VERSION=199209 LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/touch.xsh" -- "01010000" "target"
+    assert warned.status.exited_with(0), warned.stderr
+    assert warned.stderr.starts_with("touch: warning: 'touch 01010000' is obsolete; use 'touch -t "), warned.stderr
+    assert warned.stderr.ends_with(".00'\n"), warned.stderr
+  }
+  assert fp"{root}/target".exists()?
+}

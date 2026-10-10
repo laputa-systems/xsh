@@ -125,6 +125,10 @@ export pure interval(text: Str) -> Duration? {
   let body = if numeric.trim().starts_with("+") { numeric.trim().byte_slice(1) } else { numeric.trim() }
   let hex = HEXADECIMAL.captures(body)
   let mantissa = if hex.is_empty() { body.lower().split("e", maxsplit: 1)[0] } else { hex[1] + hex[2] + hex[3] }
-  return 0ms when millis == 0.0 and ! rx"[1-9a-fA-F]".matches(mantissa)
+  # Zero is tested with two inequalities because -0.0 is not equal to 0.0 here.
+  let zero = millis <= 0.0 and millis >= 0.0
+  # A negative mantissa that underflows keeps its sign, so it is not a valid interval.
+  return null when zero and body.starts_with("-") and rx"[1-9a-fA-F]".matches(mantissa)
+  return 0ms when zero and ! rx"[1-9a-fA-F]".matches(mantissa)
   time.millis(if millis < 1.0 { 1 } else { millis.ceil() ?? 9223372036854 })
 }

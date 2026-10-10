@@ -63,7 +63,7 @@ pure hex(value: Int) -> Str {
   out
 }
 
-type FormatResult = {output: Bytes, invalid: Str?, warning: Str?}
+type FormatResult = {output: Bytes, invalid: Str?, warnings: List[Str]}
 # Format parsing reports the invalid directive text; recover its source position from the selected argv value.
 type ValueLocation = {index: Int, offset: Int}
 type RawArgument = {marker: Str, value: Bytes}
@@ -248,6 +248,34 @@ proc stat_quote_bytes(name: Bytes, always = false) [env] -> Bytes {
   }
 }
 
+# Whether a format renders a quoted file name (%N, or %Qn). A "%%" is a literal
+# percent, so "%%N" does not quote. QUOTING_STYLE is only consulted when a
+# quoting directive is present, which is why a bad value is silent otherwise.
+pure quotes_name(format: Str) -> Bool {
+  var after_percent = false
+  var after_quote = false
+  for ch in format {
+    if after_quote {
+      return true when ch == "n"
+      after_quote = false
+      after_percent = false
+      continue
+    }
+    if after_percent {
+      return true when ch == "N"
+      if ch == "Q" {
+        after_quote = true
+        continue
+      }
+      continue when ch in ["-", "#", "0", "+", " ", ".", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+      after_percent = false
+      continue
+    }
+    after_percent = ch == "%"
+  }
+  false
+}
+
 proc stat_mount_point(target: Path) [fs, error] -> Str {
   let resolved = target.resolve()?
   let mount = fs.mount_for(resolved)?
@@ -276,7 +304,7 @@ proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, 
     }
     let origin = at
     at += 1
-    if at == length { return {output: bytes.concat([output, b"%"]), invalid: null, warning: null} }
+    if at == length { return {output: bytes.concat([output, b"%"]), invalid: null, warnings: []} }
     let code = stat_format_byte(data, at)
     at += 1
     if code == "%" {
@@ -289,7 +317,7 @@ proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, 
       f"Q{next}"
     } else { code }
     if specifier not in ["a", "b", "c", "d", "f", "i", "l", "n", "s", "S", "t", "T", "Qn"] {
-      return {output: output, invalid: data[origin..at].utf8() ?? "", warning: null}
+      return {output: output, invalid: data[origin..at].utf8() ?? "", warnings: []}
     }
     let value = match specifier {
       "a" => f"{stats.blocks_available}"
@@ -309,7 +337,7 @@ proc render_fs_format(fmt: Str, target: Path, name: Bytes, printf = false) [fs, 
     let rendered = if specifier == "n" { name } else if specifier == "Qn" { stat_quote_bytes(name) } else { bytes.from_text(value) }
     output = bytes.concat([output, rendered])
   }
-  {output: output, invalid: null, warning: null}
+  {output: output, invalid: null, warnings: []}
 }
 
 proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = false) [fs, env, time, error] -> FormatResult {
@@ -326,7 +354,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
 
   var at = 0
   var output = b""
-  var warning: Str? = null
+  var warnings: List[Str] = []
   let data = bytes.from_text(fmt)
   let length = data.len()
   while at < length {
@@ -342,12 +370,17 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
     if ch == "\\" {
       at += 1
       if at >= length {
+        warnings += ["backslash at end of format"]
         output = bytes.concat([output, b"\\"])
         break
       }
       let escape = stat_format_byte(data, at)
       at += 1
-      if escape in ["a", "b", "f", "n", "r", "t", "v", "\\"] {
+      if escape == "e" {
+        output = bytes.concat([output, bytes.from_ints([27])?])
+      } else if escape == "\"" {
+        output = bytes.concat([output, b"\""])
+      } else if escape in ["a", "b", "f", "n", "r", "t", "v", "\\"] {
         let byte = if escape == "a" { 7 } else if escape == "b" { 8 } else if escape == "f" { 12 } else if escape == "n" { 10 } else if escape == "r" { 13 } else if escape == "t" { 9 } else if escape == "v" { 11 } else { 92 }
         output = bytes.concat([output, bytes.from_ints([byte])?])
       } else if escape == "x" {
@@ -360,7 +393,10 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
           at += 1
           digits += 1
         }
-        if digits == 0 { warning = warning ?? "incomplete hex escape" } else { output = bytes.concat([output, bytes.from_ints([value])?]) }
+        if digits == 0 {
+          warnings += ["unrecognized escape '\\x'"]
+          output = bytes.concat([output, b"x"])
+        } else { output = bytes.concat([output, bytes.from_ints([value])?]) }
       } else if escape in ["0", "1", "2", "3", "4", "5", "6", "7"] {
         var value = escape.parse_int() ?? 0
         var digits = 1
@@ -373,13 +409,14 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
         }
         output = bytes.concat([output, bytes.from_ints([value % 256])?])
       } else {
+        warnings += [f"unrecognized escape '\\{escape}'"]
         output = bytes.concat([output, bytes.from_text(escape)])
       }
       continue
     }
     let origin = at
     at += 1
-    if at == length { return {output: bytes.concat([output, b"%"]), invalid: null, warning: warning} }
+    if at == length { return {output: bytes.concat([output, b"%"]), invalid: null, warnings: warnings} }
     if stat_format_byte(data, at) == "%" {
       output = bytes.concat([output, b"%"])
       at += 1
@@ -421,12 +458,12 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       modifier = "Q"
       at += 1
     }
-    if at >= length { return {output: output, invalid: data[origin..].utf8() ?? "", warning: warning} }
+    if at >= length { return {output: output, invalid: data[origin..].utf8() ?? "", warnings: warnings} }
     let code = stat_format_byte(data, at)
     at += 1
     let specifier = if modifier == "I" { code } else { f"{modifier}{code}" }
     if specifier not in ["Hd", "Ld", "Hr", "Lr", "s", "b", "B", "f", "a", "A", "u", "g", "U", "G", "h", "i", "d", "D", "o", "r", "R", "t", "T", "X", "Y", "Z", "w", "W", "x", "y", "z", "m", "F", "n", "N", "Qn"] {
-      return {output: output, invalid: data[origin..at].utf8() ?? "", warning: warning}
+      return {output: output, invalid: data[origin..at].utf8() ?? "", warnings: warnings}
     }
     let numeric = code in ["s", "b", "B", "f", "a", "u", "g", "h", "i", "d", "D", "o", "r", "R", "t", "T", "X", "Y", "Z", "w", "W"]
     let value = match specifier {
@@ -487,7 +524,7 @@ proc render_format(fmt: Str, target: Path, name: Bytes, meta: FsStat, printf = f
       output = bytes.concat([output, bytes.from_text(pad_stat(value, width, left, zero, numeric))])
     }
   }
-  {output: output, invalid: null, warning: warning}
+  {output: output, invalid: null, warnings: warnings}
 }
 
 type StatOptions = {format: Str, printf: Str?, file_system: Bool, terse: Bool, dereference: Bool, cached: List[Str], help: Bool, version: Bool, paths: List[Str]}
@@ -546,7 +583,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
   }
 
   let fmt = printf ?? format
-  if fmt.find("%N") != null or fmt.find("%Qn") != null {
+  if quotes_name(fmt) {
     if let Ok(style) = env.get("QUOTING_STYLE") {
       if ! valid_stat_quote_style(style) {
         gnu.error(f"ignoring invalid value of environment variable QUOTING_STYLE: '{style}'")
@@ -570,7 +607,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
       let mount = fs.mount_for(target.resolve()?)?
       if terse {
         let selected = if format != "" or printf != null { render_fs_format(fmt, target, item_bytes, printf != null) } else {
-          {output: bytes.concat([stat_quote_bytes(item_bytes), bytes.from_text(f" {stats.blocks} {stats.files} {hex(stats.fsid)} {stats.name_max} {stats.block_size} {stats.fragment_size} {hex(stats.type_magic ?? 0)} {mount.fstype}")]), invalid: null, warning: null}
+          {output: bytes.concat([stat_quote_bytes(item_bytes), bytes.from_text(f" {stats.blocks} {stats.files} {hex(stats.fsid)} {stats.name_max} {stats.block_size} {stats.fragment_size} {hex(stats.type_magic ?? 0)} {mount.fstype}")]), invalid: null, warnings: []}
         }
         gnu.write_bytes(selected.output)
         if printf == null and selected.invalid == null { gnu.write_bytes(b"\n") }
@@ -599,7 +636,7 @@ proc main(...argv: List[Bytes]) [fs, env, io, time, error] {
     } else if printf != null {
       let rendered = render_format(fmt, target, item_bytes, meta, printf: true)
       gnu.write_bytes(rendered.output)
-      if let warning = rendered.warning { gnu.error(f"warning: {warning}") }
+      for warning in rendered.warnings { gnu.error(f"warning: {warning}") }
       if let invalid = rendered.invalid { report_format_error(prepared.text, fmt, true, invalid); exit 1 }
     } else if format != "" {
       let rendered = render_format(fmt, target, item_bytes, meta)
