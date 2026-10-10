@@ -8,7 +8,7 @@ type Options = {
   update: Str, target: Str?, no_target: Bool, hardlink: Bool, symlink: Bool,
   mode: Bool, no_mode: Bool, xattr: Str, context: Str, owner: Bool, times: Bool, links: Bool, parents: Bool,
   remove: Bool, backup: Str, suffix: Str, sparse: Str, reflink: Str,
-  verbose: Bool, attributes: Bool, one_fs: Bool, strip: Bool, copy_contents: Bool, debug: Bool,
+  verbose: Bool, attributes: Bool, one_fs: Bool, strip: Bool, copy_contents: Bool, keep_directory_symlink: Bool, debug: Bool,
 }
 type FileIdentity = {dev: Int, ino: Int, path: Path, kind: Str}
 type Outcome = {copies: List[FileIdentity], failed: Bool}
@@ -243,7 +243,7 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
   }
   let exists = existence?
   var created = ! exists
-  let dest_kind = if exists { fs.stat(target)?.kind } else { "" }
+  var dest_kind = if exists { fs.stat(target)?.kind } else { "" }
   var copies = saved
   let parent = target.parent().resolve()
   if let Err(failure) = parent {
@@ -279,6 +279,15 @@ proc copy_node(source: Path, target: Path, opts: Options, command_line: Bool,
     }
     if command_line and inside(source, target) {
       invalid(f"cannot copy a directory, {gnu.quote_bytes(source.bytes())}, into itself, {gnu.quote_bytes(target.bytes())}")?
+    }
+    # GNU follows a destination symlink to a directory only when --copy-contents is
+    # also given. A dangling link counts as existing, so creating the directory
+    # over it fails with EEXIST rather than replacing the link.
+    if exists and dest_kind == "symlink" and opts.keep_directory_symlink and opts.copy_contents {
+      match fs.stat(target, follow_symlinks: true) {
+        Ok(followed) => dest_kind = followed.kind
+        Err(_) => invalid(f"cannot create directory {gnu.quote_bytes(target.bytes())}: File exists")?
+      }
     }
     if exists and dest_kind != "dir" {
       invalid(f"cannot overwrite non-directory {gnu.quote_bytes(target.bytes())} with directory {gnu.quote_bytes(source.bytes())}")?
@@ -527,14 +536,15 @@ proc main(...raw_argv: List[Bytes]) {
     update: "all", target: null, no_target: false, hardlink: false, symlink: false,
     mode: false, no_mode: false, xattr: "none", context: "none", owner: false, times: false, links: false, parents: false,
     remove: false, backup: "none", suffix: e"SIMPLE_BACKUP_SUFFIX" ?? "~", sparse: "auto", reflink: "auto",
-    verbose: false, attributes: false, one_fs: false, strip: false, copy_contents: false, debug: false}
+    verbose: false, attributes: false, one_fs: false, strip: false, copy_contents: false, keep_directory_symlink: false, debug: false}
   var operands: List[Str] = []
   var at = 0
   var ended = false
   let names = ["archive", "recursive", "no-clobber", "force", "interactive", "update", "no-target-directory",
     "target-directory", "link", "symbolic-link", "no-dereference", "dereference", "preserve", "no-preserve",
     "parents", "remove-destination", "backup", "suffix", "sparse", "reflink", "verbose", "attributes-only",
-    "one-file-system", "strip-trailing-slashes", "help", "version", "copy-contents", "context", "debug"]
+    "one-file-system", "strip-trailing-slashes", "help", "version", "copy-contents", "context", "debug",
+    "keep-directory-symlink"]
   while at < argv.len() {
     let arg = argv[at]
     at += 1
@@ -632,6 +642,7 @@ proc main(...raw_argv: List[Bytes]) {
         "help" => { gnu.help("Usage: cp [OPTION]... SOURCE... DEST\nCopy SOURCE to DEST, or multiple SOURCE(s) to DIRECTORY."); return }
         "version" => { gnu.version("cp"); return }
         "copy-contents" => opts.copy_contents = true
+        "keep-directory-symlink" => opts.keep_directory_symlink = true
         "debug" => { opts.debug = true; opts.verbose = true }
         "context" | "Z" => gnu.usage_error(f"option {gnu.quote(arg)} is not supported")
         _ => gnu.usage_error(f"invalid option -- {gnu.quote(flag)}")

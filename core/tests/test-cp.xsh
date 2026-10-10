@@ -874,3 +874,79 @@ test test_cp_debug_reports_copy_policy_statuses { |ctx|
   assert holes.status.ok
   assert holes.stdout.find("copy offload: unknown, reflink: no, sparse detection: SEEK_HOLE") != null
 }
+
+# Shared fixture: a source directory with one file and one subdirectory, plus an
+# existing directory that the destination symlink points at.
+proc keep_link_fixture(ctx: TestContext, name: Str) [fs, env, error] -> Result[Path] {
+  let root = test.temp_dir(ctx, name:)?
+  let source = fp"{root}/origin/src"
+  source.parent().mkdir()
+  source.mkdir()
+  fp"{source}/top".write("top\n")
+  fp"{source}/sub".mkdir()
+  fp"{source}/sub/f".write("f\n")
+  let elsewhere = fp"{root}/elsewhere"
+  elsewhere.mkdir()
+  fp"{elsewhere}/pre".write("pre\n")
+  let dest = fp"{root}/dest"
+  dest.mkdir()
+  fp"{dest}/src".symlink(to: elsewhere)
+  Ok(root)
+}
+
+test test_cp_keep_directory_symlink_with_copy_contents_merges_into_linked_directory { |ctx|
+  let root = keep_link_fixture(ctx, "cp-keep-link")?
+  let source = fp"{root}/origin/src"
+  let dest = fp"{root}/dest"
+  let elsewhere = fp"{root}/elsewhere"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -r --copy-contents --keep-directory-symlink $source $dest
+  assert fs.stat(fp"{dest}/src")?.kind == "symlink"
+  assert fp"{elsewhere}/top".read_text()? == "top\n"
+  assert fp"{elsewhere}/sub/f".read_text()? == "f\n"
+  assert fp"{elsewhere}/pre".read_text()? == "pre\n"
+}
+
+test test_cp_keep_directory_symlink_archive_sets_linked_directory_mode { |ctx|
+  let root = keep_link_fixture(ctx, "cp-keep-link-archive")?
+  let source = fp"{root}/origin/src"
+  let elsewhere = fp"{root}/elsewhere"
+  source.chmod(0o700)
+  elsewhere.chmod(0o750)
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -a --copy-contents --keep-directory-symlink $source fp"{root}/dest"
+  assert fs.stat(elsewhere)?.mode.bit_and(0o7777) == 0o700
+  assert fp"{elsewhere}/sub/f".read_text()? == "f\n"
+}
+
+test test_cp_keep_directory_symlink_alone_still_rejects_directory_over_link { |ctx|
+  let root = keep_link_fixture(ctx, "cp-keep-link-alone")?
+  let source = fp"{root}/origin/src"
+  let dest = fp"{root}/dest"
+  let elsewhere = fp"{root}/elsewhere"
+  for flags in [["-r", "--keep-directory-symlink"], ["-r", "--copy-contents"]] {
+    let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- @flags $source $dest
+    assert result.status.exited_with(1)
+    assert result.stderr.find("cannot overwrite non-directory") != null, result.stderr
+    assert ! fp"{elsewhere}/top".exists()?
+  }
+}
+
+test test_cp_keep_directory_symlink_dangling_link_reports_existing_file { |ctx|
+  let root = keep_link_fixture(ctx, "cp-keep-link-dangling")?
+  let source = fp"{root}/origin/src"
+  let dest = fp"{root}/dest"
+  fp"{dest}/src".remove()
+  fp"{dest}/src".symlink(to: fp"{root}/missing")
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -r --copy-contents --keep-directory-symlink $source $dest
+  assert result.status.exited_with(1)
+  assert result.stderr.find("cannot create directory") != null, result.stderr
+  assert result.stderr.find("File exists") != null, result.stderr
+  assert fs.stat(fp"{dest}/src")?.kind == "symlink"
+  assert ! fp"{root}/missing".exists()?
+}
+
+test test_cp_keep_directory_symlink_accepts_unique_abbreviation { |ctx|
+  let root = keep_link_fixture(ctx, "cp-keep-link-abbrev")?
+  let source = fp"{root}/origin/src"
+  run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/cp.xsh" -- -r --copy-contents --keep $source fp"{root}/dest"
+  assert fp"{root}/elsewhere/top".read_text()? == "top\n"
+}
