@@ -33,7 +33,7 @@ set -u
 # uutils build-gnu.sh needs GNU readlink -m and friends; BusyBox lacks them. Only
 # `prepare` gets GNU coreutils, so test runs see the image as it is.
 case "${1:-all}" in prepare|all)
-	apk add -q --no-cache coreutils >/dev/null || exit 1
+	apk add -q --no-cache coreutils sed grep findutils gawk diffutils patch >/dev/null || exit 1
 	[ -e /usr/bin/false ] || ln -sf /bin/false /usr/bin/false ;;
 esac
 dev/compat/run-gnu.sh "$@"
