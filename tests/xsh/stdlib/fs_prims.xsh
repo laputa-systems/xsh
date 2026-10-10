@@ -699,6 +699,21 @@ test test_copy_file_streams_to_devices_without_truncating_or_claiming_holes { |c
   }
 }
 
+test test_copy_file_reflink_always_reports_the_kernel_errno_for_devices { |ctx|
+  let root = test.temp_dir(ctx, name: "fs-copy-reflink-device")?
+  if p"/dev/full".exists()? {
+    let device = fs.copy_file(/dev/null, /dev/full, reflink: "always")
+    assert device is Err(_)
+    test.error_kind(device, "fs-copy")
+    if let Err(failure) = device { assert failure.errno == 22 }
+  }
+  let target = fp"{root}/target"
+  let crossing = fs.copy_file(/dev/null, target, reflink: "always")
+  assert crossing is Err(_)
+  if let Err(failure) = crossing { assert failure.errno == 18 }
+  assert ! target.exists()?
+}
+
 test test_copy_file_streams_every_byte_to_a_fifo_destination { |ctx|
   let root = test.temp_dir(ctx, name: "fs-copy-fifo-output")?
   let source = fp"{root}/source"

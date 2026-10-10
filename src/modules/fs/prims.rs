@@ -593,9 +593,6 @@ fn copy_file_unnamed(
             if !(kind.is_file() || kind.is_fifo() || kind.is_char_device() || kind.is_block_device()) {
                 return Err(fail("destination is not a regular file, FIFO, or device"));
             }
-            if !kind.is_file() && options.reflink == Policy::Always {
-                return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
-            }
             true
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => match std::fs::symlink_metadata(&dest) {
@@ -613,10 +610,19 @@ fn copy_file_unnamed(
         }
         Err(error) => return Err(host(error)),
     };
-    if !kind.is_file() && options.reflink == Policy::Always {
-        return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
-    }
-    let input = File::open(&source).map_err(host)?;
+    // A clone request never transfers bytes, so opening a FIFO must not wait
+    // for its peer: the kernel's refusal (or ENXIO without a reader) is the
+    // answer.
+    let open_flags = if options.reflink == Policy::Always {
+        libc::O_NONBLOCK
+    } else {
+        0
+    };
+    let input = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(open_flags)
+        .open(&source)
+        .map_err(host)?;
     let metadata = input.metadata().map_err(host)?;
     let opened_kind = metadata.file_type();
     if !(opened_kind.is_file() || opened_kind.is_fifo() || opened_kind.is_char_device() || opened_kind.is_block_device()) {
@@ -633,6 +639,7 @@ fn copy_file_unnamed(
             .create_new(!options.overwrite)
             .truncate(false)
             .mode(mode)
+            .custom_flags(open_flags)
             .open(&dest)
     };
     let mut destination_replaced = false;
@@ -676,7 +683,10 @@ fn copy_file_unnamed(
         output.set_len(0).map_err(host)?;
         transfer(&input, &output, &metadata, len, &options, span)
     } else if options.reflink == Policy::Always {
-        Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)))
+        // The kernel names why a non-regular destination cannot be a clone
+        // (EINVAL on a device, EXDEV across mounts); the call reports that
+        // errno rather than a generic refusal chosen here.
+        clone_always(&input, &output, len, span)
     } else {
         copy_special_destination(&input, &output)
             .map(|bytes| (METHOD_USER, bytes, 0))
@@ -694,6 +704,27 @@ fn copy_file_unnamed(
     ])))
 }
 
+/// Clones `input` into `output` or fails with the kernel's errno: a clone
+/// request that cannot be honoured is an error, never a fallback to copying.
+fn clone_always(
+    input: &File,
+    output: &File,
+    len: u64,
+    span: Span,
+) -> Result<(&'static str, u64, u64), RuntimeError> {
+    #[cfg(target_os = "linux")]
+    let cloned: std::io::Result<()> = rfs::ioctl_ficlone(output, input).map_err(Into::into);
+    #[cfg(not(target_os = "linux"))]
+    let cloned: std::io::Result<()> = {
+        let _ = (input, output);
+        Err(std::io::Error::from_raw_os_error(libc::ENOTSUP))
+    };
+    match cloned {
+        Ok(()) => Ok((METHOD_CLONE, len, 0)),
+        Err(error) => Err(RuntimeError::host("fs-copy", &error).with_span(span)),
+    }
+}
+
 fn transfer(
     input: &File,
     output: &File,
@@ -703,17 +734,12 @@ fn transfer(
     span: Span,
 ) -> Result<(&'static str, u64, u64), RuntimeError> {
     let host = |error: std::io::Error| RuntimeError::host("fs-copy", &error).with_span(span);
-    #[cfg(target_os = "linux")]
-    if options.reflink != Policy::Never {
-        match rfs::ioctl_ficlone(output, input) {
-            Ok(()) => return Ok((METHOD_CLONE, len, 0)),
-            Err(error) if options.reflink == Policy::Always => return Err(host(error.into())),
-            Err(_) => {}
-        }
-    }
-    #[cfg(not(target_os = "linux"))]
     if options.reflink == Policy::Always {
-        return Err(host(std::io::Error::from_raw_os_error(libc::ENOTSUP)));
+        return clone_always(input, output, len, span);
+    }
+    #[cfg(target_os = "linux")]
+    if options.reflink == Policy::Auto && rfs::ioctl_ficlone(output, input).is_ok() {
+        return Ok((METHOD_CLONE, len, 0));
     }
     if stream_source(input, metadata).map_err(host)? || options.sparse == Policy::Always {
         let (bytes, written) = copy_stream(input, output, options.sparse == Policy::Always).map_err(host)?;

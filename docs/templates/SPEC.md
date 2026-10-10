@@ -4268,7 +4268,9 @@ Contracts worth knowing without consulting the reference:
   `fs.copy_file` also streams virtual files, FIFOs, and devices with bounded
   buffers. A FIFO or device destination receives all bytes under every sparse
   policy, keeps its file type, and reports zero hole bytes; `reflink: "always"`
-  fails there. Equal source/destination identities are refused before any
+  still asks the kernel to clone, so it fails there with the kernel's errno
+  (`EINVAL` for a device destination, `EXDEV` across mounts) and never copies
+  by another method. Equal source/destination identities are refused before any
   truncation. `force: true` retries only a failed destination open, after the
   source is pinned, and never overrides `overwrite: false`.
 - `fs.xattr_list/get/set/remove` use raw `Bytes` values on Linux and macOS;
