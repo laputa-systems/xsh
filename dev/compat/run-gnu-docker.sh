@@ -32,10 +32,13 @@ inner='
 set -u
 # uutils build-gnu.sh needs GNU readlink -m and friends; BusyBox lacks them. Only
 # `prepare` gets GNU coreutils, so test runs see the image as it is.
-case "${1:-all}" in prepare|all) apk add -q --no-cache coreutils >/dev/null || exit 1 ;; esac
+case "${1:-all}" in prepare|all)
+	apk add -q --no-cache coreutils >/dev/null || exit 1
+	[ -e /usr/bin/false ] || ln -sf /bin/false /usr/bin/false ;;
+esac
 dev/compat/run-gnu.sh "$@"
 status=$?
-chown -R "$HOST_UID:$HOST_GID" "$GNU_ROOT" "$COMPAT_RESULTS_DIR" 2>/dev/null
+chown -R "$HOST_UID:$HOST_GID" "$GNU_ROOT" "$COMPAT_RESULTS_DIR" "$UUTILS_ROOT/target" 2>/dev/null
 exit $status
 '
 
