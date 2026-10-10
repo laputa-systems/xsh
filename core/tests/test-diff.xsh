@@ -55,3 +55,53 @@ test test_diff_unified_short_context_takes_separate_value { |ctx|
   assert result.status == 1, result.stderr
   assert result.stdout.find("@@ -2 +2 @@") != null
 }
+
+test test_diff_ignore_space_change_compares_whitespace_runs { |ctx|
+  let old = test.temp_file(ctx, name: "space-old", contents: b"a \t c\n")?
+  let same = invoke(ctx, ["-ub", old.display(), "-"], b"a\t \tc\n")?
+  assert same.status == 0, same.stderr
+  assert same.stdout == ""
+
+  let trailing = invoke(ctx, ["-ub", old.display(), "-"], b"a \t c   \n")?
+  assert trailing.status == 0
+
+  let indented = invoke(ctx, ["-b", old.display(), "-"], b" a \t c\n")?
+  assert indented.status == 1, "leading whitespace is a change"
+}
+
+test test_diff_ignore_space_change_at_end_of_file { |ctx|
+  let old = test.temp_file(ctx, name: "eof-old", contents: b"abc")?
+  let result = invoke(ctx, ["-ub", old.display(), "-"], b"abc ")?
+  assert result.status == 0, result.stderr
+  assert result.stdout == ""
+}
+
+test test_diff_ignore_space_change_takes_context_from_old_file { |ctx|
+  let input = test.temp_file(ctx, name: "context-new", contents: b"abc\na  c\ndef\n")?
+  let result = invoke(ctx, ["-ub", "-", input.display()], b"a c\n")?
+  assert result.status == 1, result.stderr
+  assert result.stdout == "--- -\n+++ " + input.display() + "\n@@ -1 +1,3 @@\n+abc\n a c\n+def\n", result.stdout
+}
+
+test test_diff_ignore_blank_lines_drops_only_blank_changes { |ctx|
+  let input = test.temp_file(ctx, name: "blank-new", contents: b"a\n")?
+  let blank_only = invoke(ctx, ["-uB", "-", input.display()], b"\na\n\n")?
+  assert blank_only.status == 0, blank_only.stderr
+  assert blank_only.stdout == ""
+
+  let mixed = invoke(ctx, ["-uB", "-", input.display()], b"\nb\n\n")?
+  assert mixed.status == 1
+  assert mixed.stdout == "--- -\n+++ " + input.display() + "\n@@ -1,3 +1 @@\n-\n-b\n-\n+a\n", mixed.stdout
+}
+
+test test_diff_ignore_blank_lines_brief_and_single_line { |ctx|
+  let input = test.temp_file(ctx, name: "single-new", contents: b"1\n")?
+  let blank = invoke(ctx, ["-qB", "-", input.display()], b"\n1\n")?
+  assert blank.status == 0
+  assert blank.stdout == ""
+
+  let changed = test.temp_file(ctx, name: "single-changed", contents: b"0\n")?
+  let text = invoke(ctx, ["-qB", "-", changed.display()], b"1\n")?
+  assert text.status == 1
+  assert text.stdout == "Files - and " + changed.display() + " differ\n", text.stdout
+}
