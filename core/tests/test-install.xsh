@@ -440,3 +440,83 @@ test test_install_target_and_no_target_directory_are_mutually_exclusive { |ctx|
   assert result.status.exited_with(1)
   assert "Options --target-directory and --no-target-directory are mutually exclusive" in result.stderr
 }
+
+test test_install_context_flags_are_silent_without_selinux { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  for flag in ["-Z", "--context", "--cont"] {
+    let source = fp"{root}/source"
+    let dest = fp"{root}/dest"
+    source.write("data")
+    let result = run.capture --text ${ctx.xsh_bin} $script -- $flag $source $dest
+    assert result.status.exited_with(0), f"install {flag}: {result.stderr}"
+    assert result.stdout == "" and result.stderr == ""
+    assert dest.read_text()? == "data"
+    dest.remove()?
+  }
+}
+
+test test_install_context_value_warns_and_continues { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let source = fp"{root}/source"
+  source.write("data")
+  let dest = fp"{root}/dest"
+  let result = run.capture --text ${ctx.xsh_bin} $script -- --context=unconfined_u:object_r:user_tmp_t:s0 $source $dest
+  assert result.status.exited_with(0)
+  assert result.stdout == ""
+  assert result.stderr == "install: warning: ignoring --context; it requires an SELinux-enabled kernel\n"
+  assert dest.read_text()? == "data"
+}
+
+test test_install_empty_context_value_still_warns { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let source = fp"{root}/source"
+  source.write("data")
+  let dest = fp"{root}/dest"
+  let result = run.capture --text ${ctx.xsh_bin} $script -- --context= $source $dest
+  assert result.status.exited_with(0)
+  assert result.stderr == "install: warning: ignoring --context; it requires an SELinux-enabled kernel\n"
+  assert dest.read_text()? == "data"
+}
+
+test test_install_each_context_value_warns_per_occurrence { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let source = fp"{root}/source"
+  source.write("data")
+  let dest = fp"{root}/dest"
+  let result = run.capture --text ${ctx.xsh_bin} $script -- --context=a -Z --context --context=b $source $dest
+  assert result.status.exited_with(0)
+  let warning = "install: warning: ignoring --context; it requires an SELinux-enabled kernel\n"
+  assert result.stderr == warning + warning
+}
+
+test test_install_preserve_context_warns_and_continues { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let source = fp"{root}/source"
+  source.write("data")
+  let dest = fp"{root}/dest"
+  let result = run.capture --text ${ctx.xsh_bin} $script -- --preserve-context $source $dest
+  assert result.status.exited_with(0)
+  assert result.stderr == "install: WARNING: ignoring --preserve-context; this kernel is not SELinux-enabled\n"
+  assert dest.read_text()? == "data"
+}
+
+test test_install_context_warning_precedes_missing_operand_error { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let result = run.capture --text ${ctx.xsh_bin} $script -- --context=x
+  assert result.status.exited_with(1)
+  assert result.stderr == "install: warning: ignoring --context; it requires an SELinux-enabled kernel\ninstall: missing file operand\nTry 'install --help' for more information.\n"
+}
+
+test test_install_help_before_context_suppresses_warning { |ctx|
+  let script = fp"{ctx.core_dir}/install.xsh"
+  let result = run.capture --text ${ctx.xsh_bin} $script -- --help --context=x
+  assert result.status.exited_with(0)
+  assert "Usage: install" in result.stdout
+  assert result.stderr == ""
+}

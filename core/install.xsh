@@ -7,10 +7,21 @@ type Options = {
   preserve: Bool, compare: Bool, verbose: Bool, target: Str?, no_target_directory: Bool,
   backup: Str?, simple_backup: Bool, suffix: Str?, copy: Bool, unprivileged: Bool,
   strip: Bool, strip_program: Str?,
+  security_context: Bool, context: List[Str], preserve_context: Bool,
   help: Bool, version: Bool, operands: List[Str],
 }
 
+# argv cannot contain a NUL byte, so this marks a bare --context, which carries no value.
+const NO_CONTEXT_VALUE = "\0"
+
 enum InstallOutcome { Installed, Unchanged, Failed }
+
+# libselinux reports SELinux as enabled when the kernel lists selinuxfs. Labelling
+# is not implemented, so a context request is refused there instead of being
+# dropped; on kernels without SELinux GNU's no-op is exact.
+proc selinux_enabled() -> Result[Bool] {
+  Ok("selinuxfs" in fp"/proc/filesystems".read_text()?)
+}
 
 # Installation modes start from zero, so omitted classes cannot inherit source
 # permissions or the caller's umask.
@@ -246,10 +257,11 @@ proc main(...argv: List[Bytes]) {
   }
   let opts: Options = cli.applet(prepared.text, {
     gnu: {status: 1, unsupported: {
-      "-Z": "security contexts are not available",
-      "--context": "security contexts are not available", "--preserve-context": "security contexts are not available",
       "--debug": "copy diagnostics are not available",
     }},
+    security_context: {form: "-Z", default: false},
+    context: {form: "--context[=CONTEXT]", repeated: true, optional_default: NO_CONTEXT_VALUE},
+    preserve_context: {form: "--preserve-context", default: false},
     directory: {form: "-d --directory", default: false},
     parents: {form: "-D", default: false},
     mode: {form: "-m --mode MODE", default: "755"},
@@ -271,8 +283,20 @@ proc main(...argv: List[Bytes]) {
     version: {form: "--version", default: false, stop: true},
     operands: {form: "...SOURCE"},
   })?
+  # Warnings come before --help so that options parsed ahead of it still report, as in GNU.
+  let selinux = selinux_enabled()?
+  if ! selinux {
+    for context in opts.context {
+      if context != NO_CONTEXT_VALUE { gnu.error("warning: ignoring --context; it requires an SELinux-enabled kernel") }
+    }
+    if opts.preserve_context { gnu.error("WARNING: ignoring --preserve-context; this kernel is not SELinux-enabled") }
+  }
   if opts.help { gnu.help("Usage: install [OPTION]... SOURCE... DEST\n  or: install -d [OPTION]... DIRECTORY...\nCopy files and set their attributes."); return }
   if opts.version { gnu.version("install"); return }
+  if selinux and (opts.security_context or opts.preserve_context or ! opts.context.is_empty()) {
+    gnu.error("security contexts are not supported on SELinux-enabled systems")
+    exit 1
+  }
   if opts.operands.is_empty() { gnu.usage_error("missing file operand") }
   if opts.strip_program != null and ! opts.strip { gnu.error("WARNING: ignoring --strip-program option as -s option was not specified") }
   let mode_bytes = gnu.argument_bytes(opts.mode, prepared.raw)
