@@ -3,7 +3,7 @@ use lib.gnu
 use lib.bytes_enc_dd as charset
 use lib.textio_a1 as tio
 
-type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, input_directory: Bool, bs: Int, input_flags: List[Str], output_flags: List[Str]}
+type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, input_directory: Bool, bs: Int, input_flags: List[Str], output_flags: List[Str], input_nocache: Bool, output_nocache: Bool}
 type BlockOutput = {data: Bytes, padding: Int, pad_byte: Int}
 type Converted = {data: Bytes, blocks: List[BlockOutput], truncated: Int}
 
@@ -64,7 +64,7 @@ pure assignment_separator(arg: Bytes) -> Int? {
 }
 
 proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
-  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, input_directory: false, bs: 0, input_flags: [], output_flags: []}
+  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, input_directory: false, bs: 0, input_flags: [], output_flags: [], input_nocache: false, output_nocache: false}
   for arg_index in range(argv.len()) {
     let raw_arg = argv[arg_index]
     let separator = assignment_separator(raw_arg)
@@ -113,7 +113,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
             render_operand_error(argv, arg_index, f"invalid conversion: {gnu.quote(flag)}", start, flag.byte_len(), "not a known conversion", "conv= is one of ascii, ebcdic, ibm, lcase, ucase, block, unblock, swab, sync, noerror, sparse, excl, nocreat, notrunc, fdatasync or fsync", true, 1)
           }
         } else {
-          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "noatime"] { opts = if key == "iflag" { {...opts, input_flags: opts.input_flags.extend([flag])} } else { {...opts, output_flags: opts.output_flags.extend([flag])} } } else if flag in ["directory", "dsync", "sync", "append", "nonblock", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
+          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "noatime", "dsync", "sync", "nofollow"] { opts = if key == "iflag" { {...opts, input_flags: opts.input_flags.extend([flag])} } else { {...opts, output_flags: opts.output_flags.extend([flag])} } } else if flag == "nocache" { opts = if key == "iflag" { {...opts, input_nocache: true} } else { {...opts, output_nocache: true} } } else if flag in ["directory", "append", "nonblock", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
             var start = key.byte_len() + 1
             for list_flag in text.split(",") {
               if list_flag == flag { break }
@@ -223,7 +223,7 @@ pure human_size(size: Int, base: Int, binary: Bool) -> Str {
 }
 
 type WriteOutcome = {written: Int, failure: Str?}
-type Copied = {complete: Int, partial: Int, written: Int, failure: Str?}
+type Copied = {complete: Int, partial: Int, written: Int, failure: Str?, discard_failed: Bool}
 
 proc write_fd_all(fd: Int, data: Bytes) [process] -> WriteOutcome {
   var offset = 0
@@ -283,6 +283,53 @@ proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, er
   Ok()
 }
 
+## iflag=nocache and oflag=nocache drop the file's pages from the cache once
+## the transfer is done (an advice length of zero means to the end of the
+## file). A failure is reported and fails the run, but the transfer stands.
+## Standard streams are advised through their descriptors, a named file
+## through a descriptor opened for the purpose. A character device such as
+## /dev/null holds no cache and is not a failure, except as standard input,
+## which dd requires to be a seekable file.
+proc discard_cache(target: Path?, standard_fd: Int, label: Str) [fs, process, env] -> Bool {
+  let inspected: Path? = if let file = target { file } else if standard_fd == 1 { fp"/dev/stdout" } else { null }
+  if let device = inspected {
+    if let Ok(info) = device.metadata() {
+      return false when info.mode / 4096 % 16 == 2
+    }
+  }
+  var fd = standard_fd
+  var opened = false
+  if let file = target {
+    match unix.open_fd(file, nonblock: true) {
+      Ok(handle) => { fd = handle; opened = true }
+      Err(failure) => {
+        gnu.error(f"failed to discard cache for: {quoted_path(file)}: {gnu.strerror(failure)}")
+        return true
+      }
+    }
+  }
+  let advised = unix.fadvise(fd, 0, 0, "dontneed")
+  if opened { let _ = unix.close_fd(fd) }
+  if let Err(failure) = advised {
+    gnu.error(f"failed to discard cache for: {label}: {gnu.strerror(failure)}")
+    return true
+  }
+  false
+}
+
+proc discard_caches(opts: Options) [fs, process, env] -> Bool {
+  var failed = false
+  if opts.input_nocache {
+    let label = if let input = opts.input { quoted_path(input) } else { gnu.quote("standard input") }
+    if discard_cache(opts.input, 0, label) { failed = true }
+  }
+  if opts.output_nocache {
+    let label = if let output = opts.output { quoted_path(output) } else { gnu.quote("standard output") }
+    if discard_cache(opts.output, 1, label) { failed = true }
+  }
+  failed
+}
+
 # O_DIRECT transfers whole sectors, so a transfer's partial last sector goes
 # through a descriptor opened without the flag, the way GNU dd drops it for
 # that one write.
@@ -328,7 +375,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
       let length = if available < limit { available } else { limit }
       if let fd = output_fd { unix.close_fd(fd)?; output_fd = null }
       let copied = bytes.copy_file(file.path, dest.resolve()?, source_offset: skip, dest_offset: seek, length: length, create: ! ("nocreat" in opts.conv))?
-      return Ok({complete: copied.bytes / opts.ibs, partial: if copied.bytes % opts.ibs == 0 { 0 } else { 1 }, written: copied.bytes, failure: null})
+      return Ok({complete: copied.bytes / opts.ibs, partial: if copied.bytes % opts.ibs == 0 { 0 } else { 1 }, written: copied.bytes, failure: null, discard_failed: discard_caches(opts)})
     }
   }
   let large_input = if let file = source { opts.ibs > 67108864 and file.kind != 1 } else { false }
@@ -447,7 +494,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   if sparse_output and failure == null { dest.truncate(seek + output_position)? }
   if let fd = input_fd { unix.close_fd(fd)? }
   if let fd = output_fd { unix.close_fd(fd)? }
-  Ok({complete: complete, partial: partial, written: written, failure: failure})
+  Ok({complete: complete, partial: partial, written: written, failure: failure, discard_failed: discard_caches(opts)})
 }
 
 ## iflag=directory has no XSH open flag. Checking the file type before any read
@@ -473,7 +520,7 @@ proc require_directory_input(input: Path?) [fs, process, env, error, io] {
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
-  if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock,direct,noatime\n  oflag=seek_bytes,direct,noatime\nOther descriptor flags are not supported."); return }
+  if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock,direct,noatime,dsync,sync,nofollow,nocache\n  oflag=seek_bytes,direct,noatime,dsync,sync,nofollow,nocache\nOther descriptor flags are not supported."); return }
   if b"--version" in argv { gnu.version("dd"); return }
   let started = time.now()
   let opts = parse(argv)
@@ -500,6 +547,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     guard let copied = plain_copy(opts, skip, seek, limit) else { |failure| gnu.error(gnu.strerror(failure)); exit 1 }
     report(opts, copied.written, copied.complete, copied.partial, 0, started, output_failed: copied.failure != null)
     if let failure = copied.failure { gnu.error(failure); exit 1 }
+    if copied.discard_failed { exit 1 }
     return
   }
   var records: List[Bytes] = []
@@ -692,8 +740,10 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
       }
     }
   }
+  let discard_failed = discard_caches(opts)
   report(opts, written, complete, records.len() - complete, converted.truncated, started, output_failed: write_failure != null)
   if let failure = write_failure { gnu.error(failure); exit 1 }
+  if discard_failed { exit 1 }
 }
 
 proc report(opts: Options, size: Int, complete: Int, partial: Int, truncated: Int, started: Int, output_failed = false) [time] {

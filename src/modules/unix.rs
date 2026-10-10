@@ -1443,6 +1443,84 @@ pub(crate) fn write_fd(fd: i64, data: &[u8], span: Span) -> Result<Value, Runtim
     }
 }
 
+/// Tells the kernel how a byte range of a descriptor will be used. A length of
+/// zero means to the end of the file. The call reports the error number
+/// posix_fadvise returns, which is ESPIPE for a pipe, and the same for any
+/// descriptor that is neither a regular file nor a block device.
+pub(crate) fn fadvise(
+    fd: i64,
+    offset: i64,
+    length: i64,
+    advice: &str,
+    span: Span,
+) -> Result<Value, RuntimeError> {
+    match fadvise_native(fd, offset, length, advice, span) {
+        Ok(()) => Ok(Value::ok(Value::Unit)),
+        Err(error) => Ok(Value::err(Value::Error(Box::new(error)))),
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn fadvise_native(
+    fd: i64,
+    offset: i64,
+    length: i64,
+    advice: &str,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let kind = "unix-fadvise";
+    let fd = raw_fd_arg(fd, kind, span)?;
+    let advice = match advice {
+        "normal" => libc::POSIX_FADV_NORMAL,
+        "sequential" => libc::POSIX_FADV_SEQUENTIAL,
+        "random" => libc::POSIX_FADV_RANDOM,
+        "noreuse" => libc::POSIX_FADV_NOREUSE,
+        "willneed" => libc::POSIX_FADV_WILLNEED,
+        "dontneed" => libc::POSIX_FADV_DONTNEED,
+        other => {
+            return Err(RuntimeError::new(
+                "invalid-argument",
+                format!("advice must be normal, sequential, random, noreuse, willneed or dontneed, found `{other}`"),
+            )
+            .with_span(span));
+        }
+    };
+    if offset < 0 || length < 0 {
+        return Err(RuntimeError::new(kind, "offset and length must be non-negative").with_span(span));
+    }
+    let offset = libc::off_t::try_from(offset)
+        .map_err(|_| RuntimeError::new(kind, "offset is outside the host range").with_span(span))?;
+    let length = libc::off_t::try_from(length)
+        .map_err(|_| RuntimeError::new(kind, "length is outside the host range").with_span(span))?;
+    // The kernel accepts advice for a character device or socket and does
+    // nothing with it; the call reports the unseekable kinds the way it does a
+    // pipe, so a caller learns that no cache was affected.
+    let mut status = std::mem::MaybeUninit::<libc::stat>::uninit();
+    if unsafe { libc::fstat(fd, status.as_mut_ptr()) } != 0 {
+        return Err(RuntimeError::host(kind, &io::Error::last_os_error()).with_span(span));
+    }
+    let file_kind = unsafe { status.assume_init() }.st_mode & libc::S_IFMT;
+    if file_kind != libc::S_IFREG && file_kind != libc::S_IFBLK {
+        return Err(RuntimeError::host(kind, &io::Error::from_raw_os_error(libc::ESPIPE)).with_span(span));
+    }
+    // posix_fadvise returns the error number instead of setting errno.
+    match unsafe { libc::posix_fadvise(fd, offset, length, advice) } {
+        0 => Ok(()),
+        number => Err(RuntimeError::host(kind, &io::Error::from_raw_os_error(number)).with_span(span)),
+    }
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+fn fadvise_native(
+    _fd: i64,
+    _offset: i64,
+    _length: i64,
+    _advice: &str,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    Err(RuntimeError::host("unix-fadvise", &io::Error::from_raw_os_error(libc::ENOSYS)).with_span(span))
+}
+
 pub(crate) fn seek_fd(fd: i64, offset: i64, span: Span) -> Result<Value, RuntimeError> {
     match seek_fd_native(fd, offset, span) {
         Ok(position) => Ok(Value::ok(Value::Int(position))),

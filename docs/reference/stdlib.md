@@ -518,6 +518,7 @@ Unix process-group, PID 1, hostname, uptime, exec, and reaping helpers.
 - `unix.dup_fd(source: Int, target: Int) -> Result[Unit, Error]` — Duplicates a current process descriptor onto another descriptor.
 - `unix.exec(command: Command) -> Result[Unit, Error]` — Replaces the current Unix process with a typed command.
 - `unix.exec_env(command: Command, environment: Map[Str], argv0: Str? = default, block_signals: List[Str] = default) -> Result[Unit, Error] (+1 overloads)` — Replaces the current process with an explicit environment and optional argv0.
+- `unix.fadvise(fd: Int, offset: Int, length: Int, advice: Str) -> Result[Unit, Error]` — Tells the kernel how a byte range of an open descriptor will be used.
 - `unix.foreground_group(fd: Int = default) -> Result[Int, Error]` — Reads or changes the foreground process group of a terminal, or its session.
 - `unix.id() -> Result[{egid: Int, euid: Int, gid: Int, groups: List[{gid: Int, name: Str}], uid: Int}, Error]` — Returns Unix identity information for the selected process or user.
 - `unix.isatty(fd: Int = default) -> Bool` — Identifies a terminal: whether a descriptor is one, its device name, or the controlling one.

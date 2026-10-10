@@ -566,6 +566,7 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::UnixReadFd
             | RuntimeOp::UnixWriteFd
             | RuntimeOp::UnixSeekFd
+            | RuntimeOp::UnixFadvise
             | RuntimeOp::UnixCpuFeatures
             | RuntimeOp::CompressionTransform
             | RuntimeOp::CompressionGzipName

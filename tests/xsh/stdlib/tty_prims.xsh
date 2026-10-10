@@ -105,6 +105,29 @@ test test_open_fd_flags_are_a_closed_set_and_reach_open {
   }
 }
 
+test test_fadvise_reports_the_error_of_posix_fadvise { |ctx|
+  let root = test.temp_dir(ctx, name: "fadvise")?
+  let file = fp"{root}/data"
+  file.write(bytes.zero(8192)?)
+  let fd = unix.open_fd(file, nonblock: false)?
+  defer unix.close_fd(fd)
+  unix.fadvise(fd, 0, 0, "dontneed")?
+  unix.fadvise(fd, 4096, 4096, "sequential")?
+  test.error_kind(unix.fadvise(fd, 0, 0, "forever"), "invalid-argument")
+  test.error_kind(unix.fadvise(fd, -1, 0, "normal"), "unix-fadvise")
+  test.error_kind(unix.fadvise(-1, 0, 0, "normal"), "unix-fadvise")
+
+  let fifo = fp"{root}/pipe"
+  fs.mkfifo(fifo, mode: 384)?
+  let reader = unix.open_fd(fifo, nonblock: true)?
+  defer unix.close_fd(reader)
+  assert errno_of(unix.fadvise(reader, 0, 0, "dontneed")) == 29
+
+  let sink = unix.open_fd(fp"/dev/null", write: true, nonblock: false)?
+  defer unix.close_fd(sink)
+  assert errno_of(unix.fadvise(sink, 0, 0, "dontneed")) == 29
+}
+
 test test_the_controlling_terminal_is_a_device_or_absent {
   match unix.controlling_tty() {
     Ok(name) => assert name.starts_with("/dev/")
