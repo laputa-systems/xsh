@@ -475,6 +475,33 @@ test test_fuser_kill_sends_the_requested_signal_to_holders_only { |ctx|
   assert alive(bystander.pid)
 }
 
+# A connection this process closed first leaves a TIME_WAIT row with inode 0
+# in the host TCP table. Descriptors of other kinds must not be matched to it,
+# so lsof still lists a held regular file as REG and never as sock.
+test test_lsof_lists_a_regular_file_as_reg_while_tcp_time_wait_rows_exist { |ctx|
+  let c = linux.net_constants()
+  let listener = linux.socket(c.AF_INET, c.SOCK_STREAM)?
+  defer unix.close_fd(listener)
+  linux.bind(listener, {family: "inet", address: "127.0.0.1", port: 0})?
+  linux.listen(listener, 1)?
+  let address = linux.getsockname(listener)?
+  let client = linux.socket(c.AF_INET, c.SOCK_STREAM)?
+  linux.connect(client, address)?
+  let peer = linux.accept(listener)?
+  unix.close_fd(peer.fd)?
+  unix.close_fd(client)?
+
+  let held = test.temp_file(ctx, name: "lsof-held.txt", contents: bytes.from_text("held"))?
+  let holder = start_sleeper(ctx, "l", reading: held)?
+  defer stop(holder)
+  let pid = holder.pid
+  let operand = f"{held}"
+  let listing = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/lsof.xsh" -- -p $pid $operand
+  let rows = listing.lines() |> where operand in . |> collect
+  assert rows.len() == 1, listing
+  assert " REG " in rows[0] and " sock " not in rows[0], rows[0]
+}
+
 test test_fuser_namespace_finds_the_owner_of_a_listening_port { |ctx|
   let c = linux.net_constants()
   let server = linux.socket(c.AF_INET, c.SOCK_STREAM)?

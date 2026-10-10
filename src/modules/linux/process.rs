@@ -58,20 +58,27 @@ impl LiveStream for OpenFilesStream {
                         continue;
                     };
                     let target_text = target.to_string_lossy().into_owned();
-                    let (mut kind, inode, protocol, local, remote) = describe_fd_target(
-                        &target_text,
-                        self.sockets.get(&socket_inode(&target_text)),
-                    );
                     let metadata = fs::metadata(&path).ok();
-                    if let Some(metadata) = &metadata {
-                        let file_type = metadata.file_type();
-                        if file_type.is_char_device() { kind = "character".to_string(); }
-                        else if file_type.is_block_device() { kind = "block".to_string(); }
-                        else if file_type.is_dir() { kind = "directory".to_string(); }
-                        else if file_type.is_fifo() { kind = "pipe".to_string(); }
-                    }
+                    let kind = descriptor_kind(
+                        &target_text,
+                        metadata.as_ref().map(fs::Metadata::file_type),
+                    );
+                    let inode = metadata
+                        .as_ref()
+                        .map_or_else(|| link_inode(&target_text), |metadata| metadata.ino() as i64);
                     let device = metadata.as_ref().map(|metadata| metadata.dev());
-                    let inode = metadata.as_ref().map_or(inode, |metadata| metadata.ino() as i64);
+                    // Only a descriptor that is itself a socket consults the socket tables:
+                    // table rows with inode 0 (for example TCP connections in TIME_WAIT) must
+                    // never leak onto descriptors of other kinds.
+                    let (protocol, local, remote) = match kind {
+                        "socket" => self.sockets.get(&inode).map_or_else(
+                            Default::default,
+                            |socket| {
+                                (socket.protocol.clone(), socket.local.clone(), socket.remote.clone())
+                            },
+                        ),
+                        _ => Default::default(),
+                    };
                     return Ok(Some(Value::Record(crate::runtime::value::RecordMap::from(
                         [
                             (Arc::from("pid"), Value::Int(current.pid as i64)),
@@ -79,7 +86,7 @@ impl LiveStream for OpenFilesStream {
                             (Arc::from("fd"), Value::Int(fd)),
                             (Arc::from("fd_label"), str_value(fd_label)),
                             (Arc::from("access"), str_value(descriptor_access(&path))),
-                            (Arc::from("type"), str_value(kind)),
+                            (Arc::from("type"), str_value(kind.to_string())),
                             (Arc::from("path"), Value::Path(path_value(&target, span)?)),
                             (Arc::from("inode"), Value::Int(inode)),
                             (Arc::from("dev"), device.map(|device| Value::Int(device as i64)).unwrap_or(Value::Null)),
@@ -145,7 +152,15 @@ fn socket_index() -> FxHashMap<i64, SocketInfo> {
     read_inet_sockets("/proc/net/tcp6", "tcp6", true, &mut sockets);
     read_inet_sockets("/proc/net/udp", "udp", false, &mut sockets);
     read_inet_sockets("/proc/net/udp6", "udp6", true, &mut sockets);
+    read_inet_sockets("/proc/net/udplite", "udplite", false, &mut sockets);
+    read_inet_sockets("/proc/net/udplite6", "udplite6", true, &mut sockets);
+    read_inet_sockets("/proc/net/raw", "raw", false, &mut sockets);
+    read_inet_sockets("/proc/net/raw6", "raw6", true, &mut sockets);
+    read_inet_sockets("/proc/net/icmp", "icmp", false, &mut sockets);
+    read_inet_sockets("/proc/net/icmp6", "icmp6", true, &mut sockets);
     read_unix_sockets(&mut sockets);
+    read_netlink_sockets(&mut sockets);
+    read_packet_sockets(&mut sockets);
     sockets
 }
 
@@ -197,6 +212,51 @@ fn read_unix_sockets(sockets: &mut FxHashMap<i64, SocketInfo>) {
     }
 }
 
+// Columns: sk Eth Pid Groups Rmem Wmem Dump Locks Drops Inode. The local address is the
+// netlink port id.
+fn read_netlink_sockets(sockets: &mut FxHashMap<i64, SocketInfo>) {
+    let Ok(text) = fs::read_to_string("/proc/net/netlink") else {
+        return;
+    };
+    for line in text.lines().skip(1) {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.len() >= 10
+            && let Ok(inode) = fields[9].parse::<i64>()
+        {
+            sockets.insert(
+                inode,
+                SocketInfo {
+                    protocol: "netlink".to_string(),
+                    local: fields[2].to_string(),
+                    remote: String::new(),
+                },
+            );
+        }
+    }
+}
+
+// Columns: sk RefCnt Type Proto Iface R Rmem User Inode.
+fn read_packet_sockets(sockets: &mut FxHashMap<i64, SocketInfo>) {
+    let Ok(text) = fs::read_to_string("/proc/net/packet") else {
+        return;
+    };
+    for line in text.lines().skip(1) {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        if fields.len() >= 9
+            && let Ok(inode) = fields[8].parse::<i64>()
+        {
+            sockets.insert(
+                inode,
+                SocketInfo {
+                    protocol: "packet".to_string(),
+                    local: String::new(),
+                    remote: String::new(),
+                },
+            );
+        }
+    }
+}
+
 fn format_inet_addr(value: &str, ipv6: bool) -> String {
     let Some((addr, port)) = value.split_once(':') else {
         return value.to_string();
@@ -220,50 +280,41 @@ fn process_command(pid: i32) -> String {
         .unwrap_or_default()
 }
 
-fn socket_inode(target: &str) -> i64 {
+// The inode embedded in a `kind:[inode]` link target (sockets, pipes, anon inodes).
+fn link_inode(target: &str) -> i64 {
     target
-        .strip_prefix("socket:[")
-        .and_then(|value| value.strip_suffix(']'))
+        .split_once(":[")
+        .and_then(|(_, rest)| rest.strip_suffix(']'))
         .and_then(|value| value.parse().ok())
         .unwrap_or(0)
 }
 
-fn describe_fd_target(
-    target: &str,
-    socket: Option<&SocketInfo>,
-) -> (String, i64, String, String, String) {
-    if let Some(socket) = socket {
-        return (
-            "socket".to_string(),
-            socket_inode(target),
-            socket.protocol.clone(),
-            socket.local.clone(),
-            socket.remote.clone(),
-        );
+// The kind comes from the descriptor's own type (file type of the link target), with the
+// link text only deciding anonymous inodes and the case where the target cannot be stat'ed.
+fn descriptor_kind(target: &str, file_type: Option<fs::FileType>) -> &'static str {
+    if target.starts_with("anon_inode:") {
+        return "anon";
     }
-    if target.starts_with("pipe:[") {
-        (
-            "pipe".to_string(),
-            socket_inode(target),
-            String::new(),
-            String::new(),
-            String::new(),
-        )
-    } else if target.starts_with("anon_inode:") {
-        (
-            "anon".to_string(),
-            0,
-            String::new(),
-            String::new(),
-            String::new(),
-        )
+    if let Some(file_type) = file_type {
+        return if file_type.is_socket() {
+            "socket"
+        } else if file_type.is_char_device() {
+            "character"
+        } else if file_type.is_block_device() {
+            "block"
+        } else if file_type.is_dir() {
+            "directory"
+        } else if file_type.is_fifo() {
+            "pipe"
+        } else {
+            "file"
+        };
+    }
+    if target.starts_with("socket:[") {
+        "socket"
+    } else if target.starts_with("pipe:[") {
+        "pipe"
     } else {
-        (
-            "file".to_string(),
-            0,
-            String::new(),
-            String::new(),
-            String::new(),
-        )
+        "file"
     }
 }
