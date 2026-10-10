@@ -1146,8 +1146,8 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
   }
   # A last input line that had no line end gets one when text follows it.
   if output.len() > 1 {
-    for position in range(output.len() - 1) {
-      if !output[position].ends_with(b"\n") { output[position] = bytes.concat([output[position], b"\n"]) }
+    for slot in range(output.len() - 1) {
+      if !output[slot].ends_with(b"\n") { output[slot] = bytes.concat([output[slot], b"\n"]) }
     }
   }
   {output: output, rejected: rejected, total: total, mismatch: mismatch, skipped: skip, next: position, fatal_line: 0, fatal_text: b"", partial: false, reversed: reverse}

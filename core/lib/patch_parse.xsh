@@ -344,7 +344,7 @@ export pure scan(lines: List[Bytes], from: Int, allowed: Str) -> Scan {
     let crlf = lines[i].ends_with(b"\r\n")
     let next_text = if i + 1 < total { body_text(lines[i + 1]) } else { "" }
     let lead = leading_blanks(text)
-    let marker = (bytes.from_text(text)[lead..].utf8() ?? "")
+    let marker = bytes.from_text(text)[lead..].utf8() ?? ""
     if lead > 0 and (marker.starts_with("--- ") or marker.starts_with("+++ ") or marker.starts_with("*** ") or marker.starts_with("@@ -") or marker.starts_with("diff --git ")) {
       # An indented patch: read it with the indentation taken off.
       var inner = scan(deindent(lines, i, lead), i, allowed)

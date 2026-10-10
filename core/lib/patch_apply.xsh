@@ -91,26 +91,26 @@ export pure reversed(hunk: patch_parse.Hunk) -> patch_parse.Hunk {
   out
 }
 
-pure matches_at(input: List[Bytes], pattern: List[Bytes], base: Int, prefix_fuzz: Int, suffix_fuzz: Int) -> Bool {
-  let lines = pattern.len() - suffix_fuzz
+pure matches_at(input: List[Bytes], wanted: List[Bytes], base: Int, prefix_fuzz: Int, suffix_fuzz: Int) -> Bool {
+  let lines = wanted.len() - suffix_fuzz
   var p = prefix_fuzz
   var i = base + prefix_fuzz
   let total = input.len()
   while p < lines {
     if i < 1 or i > total { return false }
-    if input[i - 1] != pattern[p] { return false }
+    if input[i - 1] != wanted[p] { return false }
     p += 1
     i += 1
   }
   true
 }
 
-## Where `hunk` applies at the given fuzz, or 0. `input` and `pattern` are
+## Where `hunk` applies at the given fuzz, or 0. `input` and `wanted` are
 ## canonical keys; `in_offset` is the offset of the previous placed hunk and
 ## `last_frozen` the last input line already consumed.
-export pure locate(input: List[Bytes], pattern: List[Bytes], hunk: patch_parse.Hunk, fuzz: Int, in_offset: Int, last_frozen: Int) -> Int {
+export pure locate(input: List[Bytes], wanted: List[Bytes], hunk: patch_parse.Hunk, fuzz: Int, in_offset: Int, last_frozen: Int) -> Int {
   let first_guess = hunk.old_first + in_offset
-  let pat_lines = pattern.len()
+  let pat_lines = wanted.len()
   if pat_lines == 0 { return first_guess }
   let context = if hunk.prefix < hunk.suffix { hunk.suffix } else { hunk.prefix }
   let prefix_fuzz = fuzz + hunk.prefix - context
@@ -130,20 +130,20 @@ export pure locate(input: List[Bytes], pattern: List[Bytes], hunk: patch_parse.H
     # Fewer leading than trailing context: the hunk starts the file.
     let offset = 1 - first_guess
     if offset > max_pos_offset or -offset > max_neg_offset { return 0 }
-    if matches_at(input, pattern, first_guess + offset, 0, suffix_fuzz) { return first_guess + offset }
+    if matches_at(input, wanted, first_guess + offset, 0, suffix_fuzz) { return first_guess + offset }
     return 0
   }
   if suffix_fuzz < 0 {
     # Fewer trailing than leading context: the hunk ends the file.
     let offset = input_lines - pat_lines + 1 - first_guess
     if offset > max_pos_offset or -offset > max_neg_offset { return 0 }
-    if matches_at(input, pattern, first_guess + offset, prefix_fuzz, 0) { return first_guess + offset }
+    if matches_at(input, wanted, first_guess + offset, prefix_fuzz, 0) { return first_guess + offset }
     return 0
   }
   var offset = 0
   while offset <= max_offset {
-    if offset <= max_pos_offset and matches_at(input, pattern, first_guess + offset, prefix_fuzz, suffix_fuzz) { return first_guess + offset }
-    if offset > 0 and offset <= max_neg_offset and matches_at(input, pattern, first_guess - offset, prefix_fuzz, suffix_fuzz) { return first_guess - offset }
+    if offset <= max_pos_offset and matches_at(input, wanted, first_guess + offset, prefix_fuzz, suffix_fuzz) { return first_guess + offset }
+    if offset > 0 and offset <= max_neg_offset and matches_at(input, wanted, first_guess - offset, prefix_fuzz, suffix_fuzz) { return first_guess - offset }
     offset += 1
   }
   0
