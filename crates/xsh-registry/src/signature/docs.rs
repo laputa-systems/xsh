@@ -1497,6 +1497,11 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "The descriptor is for the termios, window-size, and raw read and write calls, never becomes the controlling terminal, and is closed on exec; it is not owned by any scope, so the script must close it, and the standard streams cannot be closed. flags adds open flags by name (direct, noatime, nofollow, directory, dsync, sync, append, nonblock, noctty); read_fd and write_fd move the bytes of a direct descriptor through an aligned buffer.",
             &["unix", "fd", "host-resource"],
         )),
+        ("unix", "fadvise") => Some((
+            "Tells the kernel how a byte range of an open descriptor will be used.",
+            "The advice is one of normal, sequential, random, noreuse, willneed, or dontneed, and a length of zero covers the rest of the file; dontneed asks for the cached pages to be dropped. Only a regular file or block device holds a cache the advice can act on: a pipe, character device, or socket fails with ESPIPE, and a host without posix_fadvise fails with ENOSYS.",
+            &["unix", "fd", "host-resource"],
+        )),
         ("unix", "open_pty") => Some((
             "Opens a pseudo-terminal pair.",
             "The two descriptors and the replica's path are host resources the script must close with unix.close_fd.",

@@ -122,6 +122,7 @@ pub enum RuntimeOp {
     UnixReadFd,
     UnixWriteFd,
     UnixSeekFd,
+    UnixFadvise,
     UnixCpuFeatures,
 
     CompressionTransform,

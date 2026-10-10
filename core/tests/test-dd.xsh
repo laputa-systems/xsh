@@ -121,7 +121,7 @@ test test_dd_seek_bytes_on_regular_output { |ctx|
 }
 
 test test_dd_unsupported_flags_fail_explicitly { |ctx|
-  let result = invoke(ctx, ["iflag=dsync"])?
+  let result = invoke(ctx, ["iflag=append"])?
   assert result.status == 1
   assert "unsupported" in result.stderr
 }
@@ -150,6 +150,25 @@ test test_dd_direct_flags_transfer_whole_and_partial_blocks { |ctx|
   let blocks = invoke(ctx, ["status=none", "oflag=direct", "cbs=4", "conv=block", f"of={out}"], b"a\n")?
   assert blocks.status == 1
   assert "cannot be combined" in blocks.stderr
+}
+
+test test_dd_nocache_drops_the_cache_and_reports_what_it_cannot { |ctx|
+  let source = test.temp_file(ctx, name: "dd-nocache-in", contents: b"abcdef")?
+  let out = test.temp_file(ctx, name: "dd-nocache-out", contents: b"")?
+  let copied = invoke(ctx, ["status=none", f"if={source}", f"of={out}", "iflag=nocache", "oflag=nocache,sync", "bs=4"])?
+  assert copied.status == 0, copied.stderr
+  assert out.read_bytes()? == b"abcdef"
+
+  # A character device holds no cache, so advising it is not a failure.
+  let device = invoke(ctx, ["status=none", "if=/dev/zero", "of=/dev/null", "count=1", "iflag=nocache", "oflag=nocache"])?
+  assert device.status == 0, device.stderr
+  assert device.stderr == ""
+
+  # Standard input is a pipe here, which has no cache to drop.
+  let piped = invoke(ctx, ["iflag=nocache", "count=0", "status=noxfer"])?
+  assert piped.status == 1
+  assert piped.stderr.starts_with("dd: failed to discard cache for: 'standard input': "), piped.stderr
+  assert piped.stderr.ends_with("0+0 records in\n0+0 records out\n"), piped.stderr
 }
 
 test test_dd_noatime_flags_read_and_write { |ctx|
