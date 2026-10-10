@@ -4884,7 +4884,7 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
         ),
         "NetResponse" => (
             "Describes one structured HTTP response.",
-            "Status, headers, and body are separate data; a non-success status is not silently converted into a transport error.",
+            "Status, headers, and body are separate data; a non-success status is not silently converted into a transport error. url is the URL the request was submitted with, effective_url is the URL the response came from after redirects were followed, and redirect_count is how many were followed.",
             &["net", "http", "status-data"],
         ),
         "PatchResult" => (

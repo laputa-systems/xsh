@@ -400,13 +400,13 @@ HTTP request, transfer, and connection-pool helpers.
 
 - `net.close_all_pools() -> Result[Unit, Error]` — Closes one or all evaluator-owned HTTP connection pools.
 - `net.close_pool(name: Str = default) -> Result[Unit, Error]` — Closes one or all evaluator-owned HTTP connection pools.
-- `net.download(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` — Downloads one HTTP response to a destination path.
-- `net.download_many(batch: Record) -> Result[List[Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]], Error]` — Executes a bounded batch of network operations with ordered results.
+- `net.download(request: Record) -> Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Downloads one HTTP response to a destination path.
+- `net.download_many(batch: Record) -> Result[List[Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]], Error]` — Executes a bounded batch of network operations with ordered results.
 - `net.pool(name: Str = default, max_idle_per_host: Int = default, idle_timeout: Duration = default) -> Result[{idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}, Error]` — Creates a named HTTP connection pool.
-- `net.request(request: Record) -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` — Performs one structured HTTP request.
-- `net.request_many(batch: Record) -> Result[List[Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]], Error]` — Executes a bounded batch of network operations with ordered results.
+- `net.request(request: Record) -> Result[{body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Performs one structured HTTP request.
+- `net.request_many(batch: Record) -> Result[List[Result[{body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]], Error]` — Executes a bounded batch of network operations with ordered results.
 - `net.start(request: Record) -> Result[NetJob, Error]` — Starts an owned HTTP request and returns its NetJob handle.
-- `net.upload(request: Record) -> Result[{bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` — Uploads a path or byte source in one structured HTTP request.
+- `net.upload(request: Record) -> Result[{bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Uploads a path or byte source in one structured HTTP request.
 
 ### `patch`
 
@@ -745,7 +745,7 @@ Process-scoped utility helpers.
 ### NetJob
 
 - `NetJob.cancel() -> Result[Unit, Error]` — Cancels and consumes an owned network job.
-- `NetJob.wait() -> Result[{body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}, Error]` — Consumes an owned network job and returns its buffered response.
+- `NetJob.wait() -> Result[{body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}, Error]` — Consumes an owned network job and returns its buffered response.
 
 ### NonEmpty
 
@@ -961,7 +961,7 @@ Process-scoped utility helpers.
 - `MimeParse {params: Map[Str], type: Str}` — Describes parsed media-type components.
 - `NetHeader {name: Str, value: Str}` — Describes one HTTP header.
 - `NetPool {idle_timeout_ms: Int, max_idle_per_host: Int, name: Str}` — Represents an evaluator-owned HTTP connection pool.
-- `NetResponse {body: Bytes, bytes: Int, headers: List[{name: Str, value: Str}], reason: Str, status: Int, url: Str}` — Describes one structured HTTP response.
+- `NetResponse {body: Bytes, bytes: Int, effective_url: Str, headers: List[{name: Str, value: Str}], reason: Str, redirect_count: Int, status: Int, url: Str}` — Describes one structured HTTP response.
 - `PatchResult {files: Int, hunks: Int}` — Reports files changed by a rooted patch.
 - `ProcessEntry {argv: Str, argv0: Str, command: Str, cpu_ticks: Int?, nice: Int?, parent_pid: Int, pgrp: Int?, pid: Int, priority: Int?, processor: Int?, rss_bytes: Int?, runtime_seconds: Int, session: Int?, start_ticks: Int?, start_time: Str, start_time_ms: Int, status: Str, system_ticks: Int?, thread_count: Int?, ticks_per_second: Int?, tty: Str?, tty_number: Int?, uid: Int, user: Str, user_ticks: Int?, vsize_bytes: Int?}` — Describes one process-table entry.
 - `ProcessIoPriority {class: Str, level: Int}` — Describes the I/O scheduling class and level of a process.

@@ -491,7 +491,7 @@ proc emit(text: Str, to_stdout: Bool) [io, error] {
 }
 
 # One finished request's observable facts, enough for -w and -D.
-type Outcome = {status: Int, reason: Str, headers: List[Header], bytes: Int, url: Str, millis: Int, code: Int}
+type Outcome = {status: Int, reason: Str, headers: List[Header], bytes: Int, url: Str, redirects: Int, millis: Int, code: Int}
 
 pure status_line(status: Int, reason: Str) -> Str {
   if reason == "" { f"HTTP/1.1 {status}" } else { f"HTTP/1.1 {status} {reason}" }
@@ -600,7 +600,7 @@ type Rendered = {stdout: Str, stderr: Str}
 # `-w` rendering: `%{name}`, `%header{name}`, `%%` and backslash escapes. A
 # variable this implementation cannot know is reported the way curl reports an
 # unknown one and prints nothing.
-proc render_write_out(format: Str, outcome: Outcome, method: Str, location: Bool) [io, error] -> Rendered {
+proc render_write_out(format: Str, outcome: Outcome, method: Str) [io, error] -> Rendered {
   var out = ""
   var err = ""
   var to_err = false
@@ -639,7 +639,7 @@ proc render_write_out(format: Str, outcome: Outcome, method: Str, location: Bool
         } else if name == "stdout" {
           to_err = false
         } else {
-          piece = write_out_value(name, outcome, method, location)
+          piece = write_out_value(name, outcome, method)
         }
       }
     } else {
@@ -651,7 +651,7 @@ proc render_write_out(format: Str, outcome: Outcome, method: Str, location: Bool
   {stdout: out, stderr: err}
 }
 
-proc write_out_value(name: Str, outcome: Outcome, method: Str, location: Bool) [io, error] -> Str {
+proc write_out_value(name: Str, outcome: Outcome, method: Str) [io, error] -> Str {
   let size_header = header_block(outcome.status, outcome.reason, outcome.headers).byte_len()
   match name {
     "http_code" | "response_code" => if outcome.status == 0 { "000" } else { f"{outcome.status}" }
@@ -666,10 +666,20 @@ proc write_out_value(name: Str, outcome: Outcome, method: Str, location: Bool) [
     "http_version" => "1.1"
     "time_total" => http_transfer.seconds_text(outcome.millis)
     "speed_download" => f"{if outcome.millis < 1 { outcome.bytes * 1000 } else { outcome.bytes * 1000 / outcome.millis }}"
-    "num_redirects" => if location { unknown_variable(name) } else { "0" }
-    "redirect_url" => if location { unknown_variable(name) } else { "" }
+    "num_redirects" => f"{outcome.redirects}"
+    "redirect_url" => redirect_url(outcome)
     _ => unknown_variable(name)
   }
+}
+
+# The URL a redirect answer points at, which is empty for any other status.
+pure redirect_url(outcome: Outcome) -> Str {
+  if outcome.status not in [301, 302, 303, 307, 308] { return "" }
+
+  if let target = http_transfer.header_value(outcome.headers, "location") {
+    return http_transfer.resolve_location(outcome.url, target)
+  }
+  ""
 }
 
 proc unknown_variable(name: Str) [io, error] -> Str {
@@ -697,7 +707,7 @@ proc warn(settings: Settings, message: Str) [io, error] {
 type Failure = {code: Int, message: Str, again: Str?}
 
 # The exit status, message and retry class of a failed transfer.
-proc describe_failure(failure: http_transfer.TransferFailure, request: Request, host: Str, millis: Int, follows: Bool) -> Failure {
+proc describe_failure(failure: http_transfer.TransferFailure, request: Request, host: Str, millis: Int) -> Failure {
   match failure {
     http_transfer.TransferFailure.Dns => {code: 6, message: f"Could not resolve host: {host} (Domain name not found)", again: null}
     http_transfer.TransferFailure.Connect => {
@@ -714,11 +724,7 @@ proc describe_failure(failure: http_transfer.TransferFailure, request: Request, 
     }
     http_transfer.TransferFailure.Handshake => {code: 35, message: "TLS connect error: handshake failure", again: null}
     http_transfer.TransferFailure.EmptyReply => {code: 52, message: "Empty reply from server", again: "empty reply"}
-    http_transfer.TransferFailure.Redirects => {
-      code: 47,
-      message: if follows { f"Maximum ({request.redirects}) redirects followed" } else { "Received a redirect response, which this build can only follow (use -L)" },
-      again: null,
-    }
+    http_transfer.TransferFailure.Redirects => {code: 47, message: f"Maximum ({request.redirects}) redirects followed", again: null}
     http_transfer.TransferFailure.Status {code} => {code: 22, message: f"The requested URL returned error: {code}", again: if code in TRANSIENT_STATUS { "HTTP error" } else { null }}
     http_transfer.TransferFailure.Scheme {message} => {code: 4, message: f"{message}", again: null}
     http_transfer.TransferFailure.Write => {code: 23, message: "client returned ERROR on write", again: null}
@@ -880,6 +886,7 @@ proc transfer(settings: Settings, raw_url: Str, output: Str) [net, fs, process, 
       connect_timeout: settings.connect_timeout,
       idle_timeout: null,
       redirects: if settings.location { settings.max_redirs } else { 0 },
+      return_redirects: !settings.location,
       verify: !settings.insecure,
       cacert: settings.cacert,
       fail_status: settings.fail and !settings.fail_with_body and dest != null and !reply_needs_buffer,
@@ -937,11 +944,11 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
 
   match result {
     Err(failure) => {
-      let described = describe_failure(failure, request, host, elapsed, settings.location)
+      let described = describe_failure(failure, request, host, elapsed)
       if meter or bar { emit("\n", settings.stderr_to_stdout) }
       show_error(settings, described.code, described.message)
       if settings.write_out != null {
-        let outcome: Outcome = {status: 0, reason: "", headers: [], bytes: 0, url: request.url, millis: elapsed, code: described.code}
+        let outcome: Outcome = {status: 0, reason: "", headers: [], bytes: 0, url: request.url, redirects: 0, millis: elapsed, code: described.code}
         finish_write_out(settings, outcome, method)
       }
       return {code: described.code, again: described.again}
@@ -1051,7 +1058,7 @@ proc attempt(settings: Settings, request: Request, dest: Path?, resume_from: Int
       }
       if bar { emit(f"\r{BAR} 100.0%\n", settings.stderr_to_stdout) }
       if settings.write_out != null {
-        let outcome: Outcome = {status: reply.status, reason: reply.reason, headers: reply.headers, bytes: shown, url: request.url, millis: elapsed, code: code}
+        let outcome: Outcome = {status: reply.status, reason: reply.reason, headers: reply.headers, bytes: shown, url: reply.url, redirects: reply.redirects, millis: elapsed, code: code}
         finish_write_out(settings, outcome, method)
       }
       if failed { show_error(settings, 22, f"The requested URL returned error: {reply.status}") }
@@ -1079,7 +1086,7 @@ proc finish_write_out(settings: Settings, outcome: Outcome, method: Str) [fs, io
     let text = if name == "-" { io.stdin_text() } else { fp"{name}".read_text() }
     format = text ?? ""
   }
-  let rendered = render_write_out(format, outcome, method, settings.location)
+  let rendered = render_write_out(format, outcome, method)
   if rendered.stdout != "" { emit(rendered.stdout, true) }
   if rendered.stderr != "" { emit(rendered.stderr, settings.stderr_to_stdout) }
 }

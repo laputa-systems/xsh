@@ -395,7 +395,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("net", "request") => Some((
             "Performs one structured HTTP request.",
-            "Network, timeout, and response failures remain typed error data; do not collapse them into booleans.",
+            "Network, timeout, and response failures remain typed error data: a NetError variant (Dns, Connect, ConnectTimeout, Timeout, Tls, Certificate, TrustStore, EmptyReply, Status, Redirect, Unsupported, Write, Io, Other) to branch on, never a boolean. redirects bounds how many redirects are followed (default 3) and redirect_limit selects what happens to a redirect that is not followed: error (default) fails with NetError.Redirect, return hands back the 3xx response with its Location header. A followed 301 or 302 answer to POST, and a 303 answer to any method but GET and HEAD, is repeated as GET without a body; 307 and 308 repeat the method and body; Authorization, Cookie and an explicit Host header are dropped when the redirect leaves the origin.",
             &["net", "http", "status-data"],
         )),
         ("net", "start") => Some((
@@ -1106,7 +1106,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("net", "download") => Some((
             "Downloads one HTTP response to a destination path.",
-            "The destination write and response status are explicit failures; a network response is not implicitly text.",
+            "The destination write and response status are explicit failures; a network response is not implicitly text. redirects, redirect_limit and fail_status behave as for net.request, and effective_url and redirect_count describe the redirects followed.",
             &["net", "http", "filesystem"],
         )),
         ("net", "upload") => Some((

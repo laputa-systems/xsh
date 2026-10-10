@@ -1193,7 +1193,7 @@ async fn run_transport(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{NetAgentKey, NetBody};
+    use crate::{NetAgentKey, NetBody, RedirectLimit};
 
     #[test]
     fn runtime_is_lazy_and_shutdown_is_stopped_not_failed() {
@@ -1227,6 +1227,7 @@ mod tests {
                     headers_timeout: None,
                     body_idle_timeout: None,
                     redirects: 0,
+                    redirect_limit: RedirectLimit::Error,
                     fail_status: false,
                     max_body_bytes: 1024,
                 },
@@ -1320,6 +1321,7 @@ mod tests {
                     headers_timeout: None,
                     body_idle_timeout: None,
                     redirects: 0,
+                    redirect_limit: RedirectLimit::Error,
                     fail_status: false,
                     max_body_bytes: 1024,
                 },
@@ -1347,6 +1349,7 @@ mod tests {
                     headers_timeout: None,
                     body_idle_timeout: None,
                     redirects: 0,
+                    redirect_limit: RedirectLimit::Error,
                     fail_status: false,
                     max_body_bytes: 1024,
                 },
@@ -1411,6 +1414,7 @@ mod tests {
                     headers_timeout: None,
                     body_idle_timeout: None,
                     redirects: 0,
+                    redirect_limit: RedirectLimit::Error,
                     fail_status: false,
                     max_body_bytes: 1024,
                 },
@@ -1497,6 +1501,7 @@ mod tests {
             headers_timeout: None,
             body_idle_timeout: None,
             redirects: 0,
+            redirect_limit: RedirectLimit::Error,
             fail_status: false,
             max_body_bytes: 1024,
         };

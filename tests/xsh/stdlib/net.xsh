@@ -10,6 +10,8 @@ test test_net_module_with_mocks { |ctx|
       },
     ],
     url: "https://example.test/",
+    effective_url: "https://example.test/",
+    redirect_count: 0,
     body: b"ok",
   }
 
@@ -32,6 +34,8 @@ test test_net_module_with_mocks { |ctx|
       bytes: 2,
       headers: [{name: "content-type", value: "text/plain"}],
       url: "https://example.test/file",
+      effective_url: "https://example.test/file",
+      redirect_count: 0,
     }),
   )
 
@@ -47,6 +51,8 @@ test test_net_module_with_mocks { |ctx|
           bytes: 2,
           headers: [{name: "content-type", value: "text/plain"}],
           url: "https://example.test/file",
+          effective_url: "https://example.test/file",
+          redirect_count: 0,
         }),
       ],
     ),
@@ -62,6 +68,8 @@ test test_net_module_with_mocks { |ctx|
       bytes: 2,
       headers: [{name: "content-type", value: "text/plain"}],
       url: "https://example.test/upload",
+      effective_url: "https://example.test/upload",
+      redirect_count: 0,
     }),
   )
 
@@ -105,6 +113,8 @@ test test_net_start_mock_job_is_single_consumption { |ctx|
     bytes: 2,
     headers: [],
     url: "https://example.test/",
+    effective_url: "https://example.test/",
+    redirect_count: 0,
     body: b"ok",
   }
   test.mock(ctx, "net.start", {url: "https://example.test/"}, Ok(response))
@@ -146,6 +156,8 @@ test test_net_start_transfers_returned_job_ownership { |ctx|
     bytes: 2,
     headers: [],
     url: "https://example.test/returned-job",
+    effective_url: "https://example.test/returned-job",
+    redirect_count: 0,
     body: b"ok",
   }
   test.mock(ctx, "net.start", {url: "https://example.test/returned-job"}, Ok(response))
@@ -161,6 +173,8 @@ test test_net_start_aliases_share_one_consumption { |ctx|
     bytes: 0,
     headers: [],
     url: "https://example.test/alias",
+    effective_url: "https://example.test/alias",
+    redirect_count: 0,
     body: b"",
   }
   test.mock(ctx, "net.start", {url: "https://example.test/alias"}, Ok(response))
@@ -179,6 +193,8 @@ test test_net_start_enforces_live_job_capacity { |ctx|
     bytes: 0,
     headers: [],
     url: "https://example.test/capacity",
+    effective_url: "https://example.test/capacity",
+    redirect_count: 0,
     body: b"",
   }
   test.mock(ctx, "net.start", {url: "https://example.test/capacity"}, Ok(response), 66)
@@ -187,6 +203,8 @@ test test_net_start_enforces_live_job_capacity { |ctx|
     net.start({
       method: "GET",
       url: "https://example.test/capacity",
+      effective_url: "https://example.test/capacity",
+      redirect_count: 0,
       max_body_bytes: 67108865,
     }),
     "net-overload",
@@ -196,6 +214,8 @@ test test_net_start_enforces_live_job_capacity { |ctx|
     net.start({
       method: "GET",
       url: "https://example.test/capacity",
+      effective_url: "https://example.test/capacity",
+      redirect_count: 0,
       max_body_bytes: 1,
     })?
     for _ in range(64)
@@ -216,6 +236,8 @@ test test_net_start_scope_cleanup_releases_admission { |ctx|
     bytes: 0,
     headers: [],
     url: "https://example.test/cleanup",
+    effective_url: "https://example.test/cleanup",
+    redirect_count: 0,
     body: b"",
   }
   test.mock(ctx, "net.start", {url: "https://example.test/cleanup"}, Ok(response), 65)
@@ -226,6 +248,8 @@ test test_net_start_scope_cleanup_releases_admission { |ctx|
       net.start({
         method: "GET",
         url: "https://example.test/cleanup",
+        effective_url: "https://example.test/cleanup",
+        redirect_count: 0,
         max_body_bytes: 1,
       })?
       for _ in range(64)
@@ -248,6 +272,8 @@ test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
     bytes: 0,
     headers: [],
     url: "https://example.test/loop-cleanup",
+    effective_url: "https://example.test/loop-cleanup",
+    redirect_count: 0,
     body: b"",
   }
   test.mock(
@@ -265,6 +291,8 @@ test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
     let _ = net.start({
       method: "GET",
       url: "https://example.test/loop-cleanup",
+      effective_url: "https://example.test/loop-cleanup",
+      redirect_count: 0,
       max_body_bytes: 1,
     })?
     break
@@ -274,6 +302,8 @@ test test_net_start_loop_control_cleans_lexical_job_scopes { |ctx|
     let _ = net.start({
       method: "GET",
       url: "https://example.test/loop-cleanup",
+      effective_url: "https://example.test/loop-cleanup",
+      redirect_count: 0,
       max_body_bytes: 1,
     })?
     continue
@@ -529,6 +559,12 @@ test test_net_transport_rejects_invalid_shapes { |ctx|
   )
   assert_invalid_net_input(
     ctx,
+    """let _ = net.request({method: "GET", url: "http://127.0.0.1:9/", redirect_limit: "sometimes"})
+""",
+    "range-error",
+  )
+  assert_invalid_net_input(
+    ctx,
     """let _ = net.download({url: "http://127.0.0.1:9/", dest: p"missing", max_body_bytes: -1})
 """,
     "range-error",
@@ -726,7 +762,9 @@ test test_net_transport_tls_contracts {
     ca_certificate: fp"{ca}",
   })?
 
-  test.error_kind(rejected, "net-tls")
+  # A certificate the trust store rejects is a `net-certificate` failure,
+  # distinct from other handshake failures (`net-tls`).
+  test.error_kind(rejected, "net-certificate")
   assert unverified.body as Str == "secure"
   assert verified.body as Str == "secure"
 }

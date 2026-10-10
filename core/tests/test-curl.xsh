@@ -74,6 +74,8 @@ sub handle {
     } else {
       reply($sock, $method, 200, 'OK', [], "arrived\n");
     }
+  } elsif ($path =~ m{^/moved/(30[1-8])$}) {
+    reply($sock, $method, $1, 'Redirect', ['Location: /echo'], "moved\n");
   } elsif ($path =~ m{^/bytes/(\d+)$}) {
     reply($sock, $method, 200, 'OK', ['Content-Type: application/octet-stream'], 'x' x $1);
   } elsif ($path eq '/slow') {
@@ -183,19 +185,40 @@ pure cause(failure: http_transfer.TransferFailure) -> Str {
   }
 }
 
-test test_curl_classifies_net_failure_messages {
-  assert cause(http_transfer.classify("Connection refused (os error 111)", true)) == "connect"
-  assert cause(http_transfer.classify("failed to lookup address information: Name does not resolve", true)) == "dns"
-  assert cause(http_transfer.classify("request timed out", true)) == "timeout"
-  assert cause(http_transfer.classify("TCP connection establishment timed out", true)) == "connect-timeout"
-  assert cause(http_transfer.classify("request dispatch failed", true)) == "empty-reply"
-  assert cause(http_transfer.classify("too many redirects", true)) == "redirects"
-  assert cause(http_transfer.classify("HTTP status 404", true)) == "status-404"
-  assert cause(http_transfer.classify("TLS negotiation or certificate validation failed", true)) == "certificate"
-  assert cause(http_transfer.classify("TLS negotiation or certificate validation failed", false)) == "handshake"
-  assert cause(http_transfer.classify("no certificates found", true)) == "trust-store"
-  assert cause(http_transfer.classify("URL scheme must be http or https", true)) == "scheme"
-  assert cause(http_transfer.classify("No such file or directory (os error 2)", true)) == "write"
+pure net_failure(variant: Str, status: Int? = null) -> Error {
+  match variant {
+    "dns" => NetError.Dns(message: "m", status: null)
+    "connect" => NetError.Connect(message: "m", status: null)
+    "connect-timeout" => NetError.ConnectTimeout(message: "m", status: null)
+    "timeout" => NetError.Timeout(message: "m", status: null)
+    "tls" => NetError.Tls(message: "m", status: null)
+    "certificate" => NetError.Certificate(message: "m", status: null)
+    "trust-store" => NetError.TrustStore(message: "m", status: null)
+    "empty-reply" => NetError.EmptyReply(message: "m", status: null)
+    "status" => NetError.Status(message: "m", status: status)
+    "redirect" => NetError.Redirect(message: "m", status: null)
+    "unsupported" => NetError.Unsupported(message: "m", status: null)
+    "write" => NetError.Write(message: "m", status: null)
+    "io" => NetError.Io(message: "m", status: null)
+    _ => NetError.Other(message: "m", status: null)
+  }
+}
+
+test test_curl_classifies_net_error_variants {
+  assert cause(http_transfer.classify(net_failure("dns"))) == "dns"
+  assert cause(http_transfer.classify(net_failure("connect"))) == "connect"
+  assert cause(http_transfer.classify(net_failure("connect-timeout"))) == "connect-timeout"
+  assert cause(http_transfer.classify(net_failure("timeout"))) == "timeout"
+  assert cause(http_transfer.classify(net_failure("empty-reply"))) == "empty-reply"
+  assert cause(http_transfer.classify(net_failure("redirect"))) == "redirects"
+  assert cause(http_transfer.classify(net_failure("status", 404))) == "status-404"
+  assert cause(http_transfer.classify(net_failure("certificate"))) == "certificate"
+  assert cause(http_transfer.classify(net_failure("tls"))) == "handshake"
+  assert cause(http_transfer.classify(net_failure("trust-store"))) == "trust-store"
+  assert cause(http_transfer.classify(net_failure("unsupported"))) == "scheme"
+  assert cause(http_transfer.classify(net_failure("write"))) == "write"
+  assert cause(http_transfer.classify(net_failure("io"))) == "other"
+  assert cause(http_transfer.classify(error.failure("not a net failure"))) == "other"
 }
 
 test test_curl_url_helpers {
@@ -409,7 +432,7 @@ test test_curl_basic_credentials_prompt_for_a_missing_password { |ctx|
   assert result.stderr == "Enter host password for user 'user':"
 }
 
-test test_curl_redirects_need_location { |ctx|
+test test_curl_redirects_are_followed_only_with_location { |ctx|
   let server = start_server(ctx)?
   guard let fixture = server else { test.skip(SKIP); return }
   defer fixture.handle.cancel(kill_after: 100ms)
@@ -422,9 +445,42 @@ test test_curl_redirects_need_location { |ctx|
   assert capped.status == 47
   assert capped.stderr == "curl: (47) Maximum (1) redirects followed\n", capped.stderr
 
-  let refused = curl(ctx, ["-sS", f"{fixture.base}/redir/1"])?
-  assert refused.status == 47
-  assert refused.stdout == ""
+  # Without -L the redirect is the response: its body is printed and the
+  # transfer succeeds.
+  let returned = curl(ctx, ["-sS", f"{fixture.base}/redir/1"])?
+  assert returned.status == 0, returned.stderr
+  assert returned.stdout == "moved\n"
+}
+
+test test_curl_write_out_reports_the_redirect_chain { |ctx|
+  let server = start_server(ctx)?
+  guard let fixture = server else { test.skip(SKIP); return }
+  defer fixture.handle.cancel(kill_after: 100ms)
+  let format = "%{http_code} %{num_redirects} %{url_effective} [%{redirect_url}]"
+
+  let single = curl(ctx, ["-s", "-o", "/dev/null", "-w", format, f"{fixture.base}/redir/1"])?
+  assert single.stdout == f"302 0 {fixture.base}/redir/1 [{fixture.base}/redir/0]", single.stdout
+
+  let chain = curl(ctx, ["-sL", "-o", "/dev/null", "-w", format, f"{fixture.base}/redir/2"])?
+  assert chain.stdout == f"200 2 {fixture.base}/redir/0 []", chain.stdout
+}
+
+test test_curl_redirect_rewrites_post_like_curl { |ctx|
+  let server = start_server(ctx)?
+  guard let fixture = server else { test.skip(SKIP); return }
+  defer fixture.handle.cancel(kill_after: 100ms)
+
+  for code in ["301", "302", "303"] {
+    let rewritten = curl(ctx, ["-sL", "-d", "a=b", f"{fixture.base}/moved/{code}"])?
+    assert rewritten.stdout.starts_with("GET /echo\n"), f"{code}: {rewritten.stdout}"
+    assert rewritten.stdout.ends_with("\n--\n"), f"{code}: {rewritten.stdout}"
+    assert "Content-Length" not in rewritten.stdout and "Content-Type" not in rewritten.stdout, f"{code}: {rewritten.stdout}"
+  }
+  for code in ["307", "308"] {
+    let kept = curl(ctx, ["-sL", "-d", "a=b", f"{fixture.base}/moved/{code}"])?
+    assert kept.stdout.starts_with("POST /echo\n"), f"{code}: {kept.stdout}"
+    assert kept.stdout.ends_with("\n--\na=b"), f"{code}: {kept.stdout}"
+  }
 }
 
 test test_curl_output_names { |ctx|

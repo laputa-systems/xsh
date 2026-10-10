@@ -1061,6 +1061,20 @@ with an `Error` that implements the one facet its OS error kind maps to in the
 table above, or otherwise `HostIo`. `Err(is NotFound)` and `error is NotFound`
 match a missing file alike.
 
+`NetError` is the family of failures the `net` module's transfer functions
+return. Every variant carries `message` and `status: Int?`, the HTTP status of
+`Status` and `null` otherwise. `Dns` is a name that does not resolve,
+`Connect` a refused or unreachable peer, `ConnectTimeout` and `Timeout` the
+phase that ran out of time (both implement the `Timeout` facet), `Certificate`
+a rejected peer certificate, `Tls` any other handshake failure, `TrustStore`
+an unusable `ca_certificate` file, `EmptyReply` a connection closed before a
+response, `Status` a response that `fail_status` turned into a failure,
+`Redirect` a redirect that was not followed (more than `redirects` of them, or
+none naming a `Location`), `Unsupported` a scheme or method the module does not
+send, `Write` a failure on the destination file (it implements `HostIo`), `Io`
+a failure on an established connection, and `Other` the rest, such as a
+malformed request. Callers branch on the variant: `Err(NetError.Connect)`.
+
 A failed `assert` produces `AssertionError.Failed(message: Str)`.
 
 ### 4.11 Runtime-owned values
@@ -4152,6 +4166,17 @@ complete, generated index is `docs/reference/stdlib.md`, and
 
 Contracts worth knowing without consulting the reference:
 
+- `net.request`, `net.download` and `net.upload` follow up to `redirects`
+  redirects (default 3). `redirect_limit: "return"` makes a redirect they will
+  not follow the result instead of a `NetError.Redirect` failure, so a caller
+  can read its `Location` and follow it itself; the default `"error"` is
+  unchanged. A followed 301 or 302 answer to POST, and a 303 answer to any
+  method but GET and HEAD, is repeated as GET without a body, as curl does;
+  307 and 308 repeat the method and body. `Authorization`, `Cookie` and an
+  explicit `Host` header are dropped when a redirect leaves the origin. A
+  response's `url` is the URL the request was submitted with, `effective_url`
+  the URL it came from after redirects, and `redirect_count` how many were
+  followed.
 - Standard API failures are structured errors located at the call site.
 - `fs.walk`, `fs.files`, and `fs.dirs` skip hidden entries and honor
   `.gitignore` by default (`hidden: true`, `gitignore: false` change that).

@@ -66,6 +66,8 @@ sub handle {
   } elsif ($path =~ m{^/status/(\d+)$}) {
     my %reasons = (200 => 'OK', 404 => 'Not Found', 500 => 'Internal Server Error', 503 => 'Service Unavailable');
     reply($sock, $method, $1, $reasons{$1} // 'Status', [], "status $1\n");
+  } elsif ($path =~ m{^/moved/(30[1-8])$}) {
+    reply($sock, $method, $1, 'Redirect', ['Location: /echo'], "moved\n");
   } elsif ($path =~ m{^/redir/(\d+)$}) {
     if ($1 > 0) {
       reply($sock, $method, 302, 'Found', ['Location: /redir/' . ($1 - 1)], "moved\n");
@@ -416,6 +418,45 @@ test test_wget_no_clobber_and_redirect_limit { |ctx|
   let capped = wget(ctx, ["--max-redirect=1", "-O", "capped.txt", f"{fixture.base}/redir/3"])?
   assert capped.status == 8
   assert capped.stderr.ends_with("1 redirections exceeded.\n"), capped.stderr
+}
+
+test test_wget_announces_each_redirect_hop { |ctx|
+  let server = start_server(ctx)?
+  guard let fixture = server else { test.skip(SKIP); return }
+  defer fixture.handle.cancel(kill_after: 100ms)
+
+  let host = fixture.base.byte_slice(7)
+  let first = f"{fixture.base}/redir/2"
+  let followed = wget(ctx, ["-O", "out.txt", first])?
+  assert followed.status == 0, followed.stderr
+  assert fp"{followed.dir}/out.txt".read_text()? == "arrived\n"
+  let hop = "HTTP request sent, awaiting response... 302 Found\nLocation:"
+  let expected = f"--TS--  {first}\nConnecting to {host}... connected.\n{hop} /redir/1 [following]\n--TS--  {fixture.base}/redir/1\nConnecting to {host}... connected.\n{hop} /redir/0 [following]\n--TS--  {fixture.base}/redir/0\nConnecting to {host}... connected.\nHTTP request sent, awaiting response... 200 OK\nLength: 8 [text/plain]\nSaving to: 'out.txt'\n\n     0K                                                       100% RATE=ELAPSED\n\nTS (RATE) - 'out.txt' saved [8/8]\n\n"
+  assert steady(followed.stderr) == expected, steady(followed.stderr)
+
+  let capped = wget(ctx, ["--max-redirect=1", "-O", "capped.txt", f"{fixture.base}/redir/3"])?
+  assert capped.status == 8
+  assert steady(capped.stderr).ends_with("302 Found\nLocation: /redir/1 [following]\n1 redirections exceeded.\n"), capped.stderr
+
+  let spider = wget(ctx, ["--spider", f"{fixture.base}/redir/1"])?
+  assert spider.status == 0, spider.stderr
+  assert spider.stderr.starts_with("Spider mode enabled. Check if remote file exists.\n"), spider.stderr
+  assert "Location: /redir/0 [following]\nSpider mode enabled. Check if remote file exists.\n" in spider.stderr, spider.stderr
+}
+
+test test_wget_post_data_follows_redirects_like_wget { |ctx|
+  let server = start_server(ctx)?
+  guard let fixture = server else { test.skip(SKIP); return }
+  defer fixture.handle.cancel(kill_after: 100ms)
+
+  let rewritten = wget(ctx, ["-qO-", "--post-data=a=b", f"{fixture.base}/moved/302"])?
+  assert rewritten.stdout.starts_with("GET /echo\n"), rewritten.stdout
+  assert rewritten.stdout.ends_with("\n--\n"), rewritten.stdout
+  assert "Content-Length" not in rewritten.stdout and "Content-Type" not in rewritten.stdout, rewritten.stdout
+
+  let kept = wget(ctx, ["-qO-", "--post-data=a=b", f"{fixture.base}/moved/307"])?
+  assert kept.stdout.starts_with("POST /echo\n"), kept.stdout
+  assert kept.stdout.ends_with("\n--\na=b"), kept.stdout
 }
 
 test test_wget_usage_errors { |ctx|

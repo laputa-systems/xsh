@@ -14,6 +14,7 @@ use std::time::Duration;
 pub(crate) use xsh_net::{
     NetAgent, NetAgentKey, NetBody, NetCallOptions, NetDownload, NetHeader, NetOperation,
     NetOperationMetrics, NetPoolOptions, NetProtocol, NetRequest, NetRuntimeOwner, NetUpload,
+    RedirectLimit,
 };
 
 #[cfg(not(feature = "net"))]
@@ -42,6 +43,13 @@ pub(crate) struct NetOperation;
 pub(crate) enum NetProtocol {
     Http1,
     Auto,
+}
+
+#[cfg(not(feature = "net"))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum RedirectLimit {
+    Error,
+    Return,
 }
 
 #[cfg(not(feature = "net"))]
@@ -86,6 +94,7 @@ pub(crate) struct NetRequest {
     pub(crate) headers_timeout: Option<Duration>,
     pub(crate) body_idle_timeout: Option<Duration>,
     pub(crate) redirects: usize,
+    pub(crate) redirect_limit: RedirectLimit,
     pub(crate) fail_status: bool,
     pub(crate) max_body_bytes: u64,
 }
@@ -104,6 +113,7 @@ pub(crate) struct NetDownload {
     pub(crate) headers_timeout: Option<Duration>,
     pub(crate) body_idle_timeout: Option<Duration>,
     pub(crate) redirects: usize,
+    pub(crate) redirect_limit: RedirectLimit,
     pub(crate) fail_status: bool,
     pub(crate) max_body_bytes: Option<u64>,
     pub(crate) atomic: bool,
@@ -125,6 +135,7 @@ pub(crate) struct NetUpload {
     pub(crate) headers_timeout: Option<Duration>,
     pub(crate) body_idle_timeout: Option<Duration>,
     pub(crate) redirects: usize,
+    pub(crate) redirect_limit: RedirectLimit,
     pub(crate) fail_status: bool,
     pub(crate) max_body_bytes: u64,
 }
@@ -320,6 +331,11 @@ pub(crate) fn response_value(response: xsh_net::NetResponse) -> Value {
         (Arc::from("bytes"), Value::Int(response.bytes)),
         (Arc::from("headers"), Value::List(headers)),
         (Arc::from("url"), Value::Str(response.url.into())),
+        (
+            Arc::from("effective_url"),
+            Value::Str(response.effective_url.into()),
+        ),
+        (Arc::from("redirect_count"), Value::Int(response.redirect_count)),
     ]);
     if let Some(body) = response.body {
         fields.insert(Arc::from("body"), Value::Bytes(body));
@@ -327,9 +343,50 @@ pub(crate) fn response_value(response: xsh_net::NetResponse) -> Value {
     Value::Record(RecordMap::from(fields))
 }
 
+/// The `NetError` variant a transport failure kind belongs to. The engine's
+/// kind string stays on the error as its payload `kind`, which traces and
+/// `test.error_kind` report.
 #[cfg(feature = "net")]
-fn runtime_error(error: xsh_net::NetError, span: Span) -> RuntimeError {
-    RuntimeError::new(error.kind, error.message).with_span(span)
+fn net_error_variant(kind: &str) -> &'static str {
+    match kind {
+        "dns-not-found" | "dns-lookup" => "Dns",
+        "dns-timeout" | "net-dns-timeout" | "net-connect-timeout" => "ConnectTimeout",
+        "net-timeout" | "net-headers-timeout" | "net-tls-timeout" | "net-body-idle-timeout" => {
+            "Timeout"
+        }
+        "net-connect" => "Connect",
+        "net-tls" => "Tls",
+        "net-certificate" => "Certificate",
+        "net-ca-certificate" => "TrustStore",
+        "net-empty-reply" => "EmptyReply",
+        "net-status" => "Status",
+        "net-redirect" => "Redirect",
+        "net-scheme" | "net-method" => "Unsupported",
+        "net-write" | "net-dest" | "net-rename" => "Write",
+        "net-io" => "Io",
+        _ => "Other",
+    }
+}
+
+/// Converts an engine failure to the `NetError` value scripts match on.
+#[cfg(feature = "net")]
+pub(crate) fn runtime_error(error: xsh_net::NetError, span: Span) -> RuntimeError {
+    let variant = net_error_variant(&error.kind);
+    let facets = xsh_registry::errors::net_error_facets(variant)
+        .iter()
+        .map(|facet| facet.name().to_string())
+        .collect();
+    let payload = RecordMap::from([
+        (Arc::from("message"), Value::Str(error.message.as_str().into())),
+        (
+            Arc::from("status"),
+            error
+                .status
+                .map_or(Value::Null, |status| Value::Int(i64::from(status))),
+        ),
+        (Arc::from("kind"), Value::Str(error.kind.as_str().into())),
+    ]);
+    RuntimeError::structured("NetError", variant, payload, facets, error.message).with_span(span)
 }
 
 #[cfg(not(feature = "net"))]

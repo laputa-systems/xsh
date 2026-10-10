@@ -242,6 +242,8 @@ test test_net_mock { |ctx|
       bytes: 2,
       headers: [{name: "content-type", value: "text/plain"}],
       url: "https://example.test/",
+      effective_url: "https://example.test/",
+      redirect_count: 0,
       body: b"ok",
     }),
   )
