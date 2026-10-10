@@ -1310,6 +1310,18 @@
       "reason": "asserts clap's usage-error wording ('the following required arguments were not provided', 'unexpected argument', 'invalid value'); XSH prints GNU getopt_long wording"
     },
     {
+      "id": "test_stty::save_and_all",
+      "utility": "stty",
+      "category": "gnu-semantics",
+      "reason": "expects the mutual-exclusion message on one line; GNU stty 9.11 (clean Alpine container) wraps it ('...output styles are' newline 'mutually exclusive') for both argument orders, which XSH matches"
+    },
+    {
+      "id": "test_stty::test_stdin_not_tty_fails",
+      "utility": "stty",
+      "category": "gnu-semantics",
+      "reason": "expects the unquoted operand name 'standard input: Not a tty'; GNU stty 9.11 prints \"'standard input': Not a tty\" on musl, which XSH matches"
+    },
+    {
       "id": "test_tac::test_failed_write_is_reported",
       "utility": "tac",
       "category": "gnu-semantics",
