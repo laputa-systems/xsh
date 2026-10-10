@@ -1,0 +1,53 @@
+abc
+aabbcc
+abcabc
+a.c
+a+c
+a|b
+(ab)
+a{2}
+ab{2}
+a b
+word wordy sword
+foo-bar
+the end
+THE END
+x
+xx
+xxx
+123 456
+tab	here
+  indented
+ends with space 
+UPPER lower
+
+aaa
+bbb
+abab
+baab
+ca_t cat
+a1b2
+__
+a\b
+[x]
+^caret
+dollar$
+star*
+q?
+b-c
+zz zz
+Hello, World
+hello hello
+abcdefabcdef
+aXbXc
+one two three
+abcabc abc
+aaa bbb ccc
+ab ab ab
+xyz xyz
+a1 b2 c3
+  a  b  
+abab
+cbacba
+x_y z
+a.b*c
