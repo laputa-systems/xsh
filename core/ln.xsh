@@ -6,20 +6,24 @@ type Options = {
   symbolic: Bool, force: Bool, interactive: Bool, no_dereference: Bool,
   no_target_directory: Bool, target: Str?, logical: Bool, physical: Bool,
   relative: Bool, verbose: Bool, backup: Str?, simple_backup: Bool, suffix: Str?,
-  help: Bool, version: Bool, paths: List[Str],
+  hard_dir: Bool, help: Bool, version: Bool, paths: List[Str],
 }
 
 proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: Str) -> Result[Bool] {
   if ! opts.symbolic {
+    # The source is still statted for directories so a missing source fails before the destination changes.
     let source_meta = fs.stat(source, follow_symlinks: opts.logical)?
-    if source_meta.kind == "dir" { gnu.error(f"{gnu.quote_bytes(source.bytes())}: hard link not allowed for directory"); return false }
+    if source_meta.kind == "dir" and ! opts.hard_dir { gnu.error(f"{gnu.quote_bytes(source.bytes())}: hard link not allowed for directory"); return false }
   }
   var existing = files.present(target)?
-  if existing and fs.stat(target)?.kind == "dir" {
-    gnu.error(f"{gnu.quote_bytes(target.bytes())}: cannot overwrite directory")
+  # Only -f, -i, or a backup may remove the destination. Without them an existing
+  # destination reaches link(2), which reports EEXIST, so no overwrite diagnostics apply.
+  let replacing = policy != "default" or backup != "none"
+  if existing and replacing and fs.stat(target)?.kind == "dir" {
+    gnu.error(f"{gnu.quote_bytes(target.bytes(), always: false)}: cannot overwrite directory")
     exit 1
   }
-  if existing and files.same_entry(source, target)? {
+  if existing and replacing and files.same_entry(source, target)? {
     gnu.error(f"{gnu.quote_bytes(source.bytes())} and {gnu.quote_bytes(target.bytes())} are the same file")
     exit 1
   }
@@ -55,7 +59,7 @@ proc link_one(source: Path, target: Path, opts: Options, policy: Str, backup: St
 proc main(...argv: List[Bytes]) {
   let prepared = gnu.prepare_arguments(argv)
   var opts: Options = cli.applet(prepared.text, {
-    gnu: {status: 1, unsupported: {"-d": "hard links to directories are not supported"}},
+    gnu: {status: 1},
     symbolic: {form: "-s --symbolic", default: false},
     force: {form: "-f --force", default: false},
     interactive: {form: "-i --interactive", default: false},
@@ -69,6 +73,7 @@ proc main(...argv: List[Bytes]) {
     backup: {form: "--backup[=CONTROL]", optional_default: "existing"},
     simple_backup: {form: "-b", default: false},
     suffix: {form: "-S --suffix SUFFIX"},
+    hard_dir: {form: "-d -F --directory", default: false},
     help: {form: "--help", default: false, stop: true},
     version: {form: "--version", default: false, stop: true},
     paths: {form: "...TARGET"},
@@ -123,8 +128,14 @@ proc main(...argv: List[Bytes]) {
       Ok(created) => { if created { seen += [target] } else { failed = true } }
       Err(failure) => {
         let kind = if opts.symbolic { "symbolic link" } else { "hard link" }
-        if opts.logical and ! opts.symbolic and gnu.errno(failure) == 2 and files.present(source)? {
+        let code = gnu.errno(failure)
+        # A missing source keeps the destination-only wording; a failed-access report for it is not produced yet.
+        let source_missing = code == 2 and ! files.present(source)?
+        if opts.logical and ! opts.symbolic and code == 2 and files.present(source)? {
           gnu.error(f"failed to access {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
+        } else if ! opts.symbolic and code != 17 and ! source_missing {
+          # EEXIST (17) names only the destination; other hard-link failures also name the source.
+          gnu.error(f"failed to create hard link {gnu.quote_bytes(target.bytes())} => {gnu.quote_bytes(source.bytes())}: {gnu.strerror(failure)}")
         } else { gnu.error(f"failed to create {kind} {gnu.quote_bytes(target.bytes())}: {gnu.strerror(failure)}") }
         failed = true
       }
