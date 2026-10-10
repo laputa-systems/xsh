@@ -190,3 +190,94 @@ test test_ln_backup_suffix_cannot_escape_target_directory { |ctx|
   assert fp"{target}~".read_text()? == "old"
   assert ! fp"{root}/escape".exists()?
 }
+
+test test_ln_directory_option_attempts_hard_link_and_reports_kernel_error { |ctx|
+  let root = test.temp_dir(ctx)?
+  let directory = fp"{root}/dir"
+  directory.mkdir()
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  for option in ["-d", "-F", "--directory", "--dir"] {
+    let link = fp"{root}/link-{option}"
+    let result = run.capture --text ${ctx.xsh_bin} $script -- $option $directory $link
+    assert result.status.exited_with(1)
+    assert result.stderr == f"ln: failed to create hard link '{link}' => '{directory}': Operation not permitted\n", result.stderr
+    assert ! link.exists()?
+  }
+}
+
+test test_ln_directory_option_keeps_existing_destination { |ctx|
+  let root = test.temp_dir(ctx)?
+  let directory = fp"{root}/dir"
+  directory.mkdir()
+  let dest = fp"{root}/dest"
+  dest.write("keep")
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let existing = run.capture --text ${ctx.xsh_bin} $script -- -d $directory $dest
+  assert existing.status.exited_with(1)
+  assert existing.stderr == f"ln: failed to create hard link '{dest}': File exists\n", existing.stderr
+
+  let forced = run.capture --text ${ctx.xsh_bin} $script -- -fd $directory $dest
+  assert forced.status.exited_with(1)
+  assert forced.stderr == f"ln: failed to create hard link '{dest}' => '{directory}': Operation not permitted\n", forced.stderr
+  assert dest.read_text()? == "keep"
+}
+
+test test_ln_directory_option_still_links_files_and_ignores_symbolic_links { |ctx|
+  let root = test.temp_dir(ctx)?
+  let source = fp"{root}/source"
+  source.write("data")
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  for option in ["-d", "-F", "--directory"] {
+    let link = fp"{root}/hard-{option}"
+    run.text ${ctx.xsh_bin} $script -- $option $source $link
+    assert fs.stat(link)?.ino == fs.stat(source)?.ino
+  }
+
+  let symbolic = fp"{root}/symbolic"
+  let directory = fp"{root}/dir"
+  directory.mkdir()
+  run.text ${ctx.xsh_bin} $script -- -sd $directory $symbolic
+  assert symbolic.readlink()? == directory
+}
+
+test test_ln_directory_option_rejects_attached_value { |ctx|
+  let root = test.temp_dir(ctx)?
+  let directory = fp"{root}/dir"
+  directory.mkdir()
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let result = run.capture --text ${ctx.xsh_bin} $script -- --directory=x $directory fp"{root}/link"
+  assert result.status.exited_with(1)
+  assert result.stderr.starts_with("ln: option '--directory' doesn't allow an argument\n"), result.stderr
+}
+
+test test_ln_directory_option_with_implicit_destination_reports_existing_name { |ctx|
+  let root = test.temp_dir(ctx)?
+  let directory = fp"{root}/dir"
+  directory.mkdir()
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  cd root {
+    let plain = run.capture --text ${ctx.xsh_bin} $script -- -d dir
+    assert plain.status.exited_with(1)
+    assert plain.stderr == "ln: failed to create hard link './dir': File exists\n", plain.stderr
+
+    let forced = run.capture --text ${ctx.xsh_bin} $script -- -fd dir
+    assert forced.status.exited_with(1)
+    assert forced.stderr == "ln: ./dir: cannot overwrite directory\n", forced.stderr
+  }
+  assert directory.exists()?
+}
+
+test test_ln_same_file_without_replacement_reports_existing_destination { |ctx|
+  let root = test.temp_dir(ctx)?
+  let file = fp"{root}/file"
+  file.write("keep")
+  let script = fp"{ctx.core_dir}/ln.xsh"
+  let hard = run.capture --text ${ctx.xsh_bin} $script -- $file $file
+  assert hard.status.exited_with(1)
+  assert hard.stderr == f"ln: failed to create hard link '{file}': File exists\n", hard.stderr
+
+  let forced = run.capture --text ${ctx.xsh_bin} $script -- -f $file $file
+  assert forced.status.exited_with(1)
+  assert forced.stderr == f"ln: '{file}' and '{file}' are the same file\n", forced.stderr
+  assert file.read_text()? == "keep"
+}
