@@ -59,6 +59,8 @@ type TailOptions = {
 # `from_start` is `+NUM`: output starting at unit NUM instead of the last NUM.
 type Spec = {value: Int, from_start: Bool, bytes: Bool}
 type FollowFile = {label: Str, fd: Int, offset: Int}
+# A followed name; `dev` and `ino` identify the file it named when last read.
+type NameFile = {name: Str, label: Str, dev: Int, ino: Int, offset: Int}
 
 # Where output begins: `data` holds the whole input for sources that are read
 # at once, and `start` is an offset into it (or into the file when chunked).
@@ -282,12 +284,34 @@ proc stdout_pollable() [fs, error] -> Result[Bool] {
   Ok(metadata.kind in ["fifo", "socket"])
 }
 
+# Writes the `==> NAME <==` line that introduces output from a file. `previous`
+# is the label of the last banner, "" before any output; a banner after earlier
+# output starts on a new line.
+proc write_banner(label: Str, previous: Str) [process, env, io] {
+  let separator = if previous == "" { "" } else { "\n" }
+  gnu.write_text(f"{separator}==> {gnu.quote_maybe(label)} <==\n")
+}
+
+# Warnings are written before any operand is read. A stderr write that fails
+# cannot be reported on stderr, so the status alone carries the failure.
+proc warn(message: Str) [process, env, io] {
+  if let Err(_) = io.write_stderr(f"{gnu.prog()}: warning: {message}\n") {
+    exit 1
+  }
+
+  if let Err(_) = io.flush_stderr() {
+    exit 1
+  }
+}
+
 # Follow already-open regular files from their current offsets. Reading each
 # descriptor once per pass lets every operand make progress while another file
-# is idle.
-proc follow_descriptors(files: List[FollowFile], pid: Int, interval: Duration) [fs, process, time, error, io] -> Bool {
+# is idle. `after` is the label of the last banner already written; a banner is
+# written whenever output switches to another file.
+proc follow_descriptors(files: List[FollowFile], pid: Int, interval: Duration, headers: Bool, after: Str) [fs, process, time, error, io] -> Bool {
   var active = files
   var failed = false
+  var last = after
   let poll_stdout = stdout_pollable()?
 
   loop {
@@ -300,6 +324,11 @@ proc follow_descriptors(files: List[FollowFile], pid: Int, interval: Duration) [
           if chunk.is_empty() {
             next += [file]
           } else {
+            if headers and file.label != last {
+              write_banner(file.label, last)
+              last = file.label
+            }
+
             gnu.write_bytes(chunk)
             next += [{...file, offset: file.offset + chunk.len()}]
             produced = true
@@ -326,6 +355,63 @@ proc follow_descriptors(files: List[FollowFile], pid: Int, interval: Duration) [
   }
 
   for file in active { unix.close_fd(file.fd)? }
+  failed
+}
+
+# Follow named files by checking each name every interval. A name whose file
+# identity (device and inode) changed is read from its start, which also covers
+# a file that appears after it was missing. A file that became shorter than the
+# offset already read is reported as truncated and read from its start. A name
+# that cannot be stat'ed is skipped until it can be again.
+proc follow_names(files: List[NameFile], headers: Bool, pid: Int, interval: Duration, after: Str) [fs, process, time, error, io] -> Bool {
+  var active = files
+  var failed = false
+  var last = after
+
+  loop {
+    var next: List[NameFile] = []
+
+    for file in active {
+      var current = file
+
+      if let Ok(entry) = fs.stat(fp"{file.name}", follow_symlinks: true) {
+        if entry.dev != file.dev or entry.ino != file.ino {
+          current = {...current, dev: entry.dev, ino: entry.ino, offset: 0}
+        }
+
+        if entry.size < current.offset {
+          gnu.error(f"{gnu.quote_maybe(file.label)}: file truncated")
+          current = {...current, offset: 0}
+        }
+
+        if entry.size > current.offset {
+          match bytes.read_at(fp"{file.name}", current.offset, entry.size - current.offset) {
+            Ok(data) => {
+              if headers and file.label != last {
+                write_banner(file.label, last)
+                last = file.label
+              }
+
+              gnu.write_bytes(data)
+              current = {...current, offset: current.offset + data.len()}
+            }
+            Err(failure) => {
+              gnu.error_reading(file.label, failure)
+              failed = true
+            }
+          }
+        }
+      }
+
+      next += [current]
+    }
+
+    active = next
+    let alive = pid == 0 or ! [entry for entry in process.list()? if entry.pid == pid].is_empty()
+    break when ! alive
+    time.sleep(interval)?
+  }
+
   failed
 }
 
@@ -408,17 +494,25 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   }
 
   if retrying and ! following {
-    gnu.error("warning: --retry ignored; --retry is useful only when following")
+    warn("--retry ignored; --retry is useful only when following")
   }
 
   if opts.pid != "" and ! following {
-    gnu.error("warning: PID ignored; --pid=PID is useful only when following")
+    warn("PID ignored; --pid=PID is useful only when following")
   }
 
   # Preserve warning order when stderr and stdout share the same destination.
   if ! following and (retrying or opts.pid != "") { io.flush_stderr()? }
 
   let operands = if opts.files.is_empty() { ["-"] } else { opts.files }
+
+  if retrying and follow_mode == "descriptor" {
+    warn("--retry only effective for the initial open")
+  }
+
+  if following and unix.isatty(0) and "-" in operands {
+    warn("following standard input indefinitely is ineffective")
+  }
 
   if follow_mode == "name" and "-" in operands {
     gnu.error("cannot follow '-' by name")
@@ -428,9 +522,10 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
   return when ! following and spec.value == 0 and ! spec.from_start
 
   let headers = opts.verbose or (operands.len() > 1 and ! opts.quiet)
-  var first = true
+  var last = ""
   var failed = false
   var growing: List[Str] = []
+  var name_files: List[NameFile] = []
   var follow_files: List[FollowFile] = []
 
   for name in operands {
@@ -439,7 +534,13 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     guard let source = tio.open_source(name) else { |failure|
       gnu.cannot_open(name, failure)
       failed = true
-      growing += if retrying and following { [name] } else { [] }
+
+      if retrying and following and follow_mode == "name" {
+        name_files += [{name: name, label: label, dev: 0, ino: 0, offset: 0}]
+      } else if retrying and following {
+        growing += [name]
+      }
+
       continue
     }
 
@@ -452,8 +553,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       }
 
       if headers {
-        gnu.write_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n")
-        first = false
+        write_banner(label, last)
+        last = label
       }
       gnu.write_bytes(data)
       continue
@@ -462,8 +563,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     guard let plan = prepare(source, spec, opts.zero) else { |failure|
       if tio.is_directory(failure) {
         if headers {
-          gnu.write_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n")
-          first = false
+          write_banner(label, last)
+          last = label
         }
 
         gnu.error_reading(label, failure)
@@ -480,8 +581,8 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
     }
 
     if headers {
-      gnu.write_text(f"{if first { "" } else { "\n" }}==> {gnu.quote_maybe(label)} <==\n")
-      first = false
+      write_banner(label, last)
+      last = label
     }
 
     var follow_offset = 0
@@ -514,14 +615,22 @@ proc main(...argv: List[Str]) [fs, process, env, error, io, time] {
       }
       let _ = unix.seek_fd(fd, follow_offset)?
       follow_files += [{label: label, fd: fd, offset: follow_offset}]
-    } else if following and ((follow_mode == "name" and source.kind == 8) or (name == "-" and tio.standard_file(0) != "")) {
+    } else if following and follow_mode == "name" and source.kind == 8 {
+      let entry = fs.stat(source.path, follow_symlinks: true)?
+      name_files += [{name: name, label: label, dev: entry.dev, ino: entry.ino, offset: follow_offset}]
+    } else if following and name == "-" and tio.standard_file(0) != "" {
       growing += [name]
     }
   }
 
   if following and follow_mode == "descriptor" and ! follow_files.is_empty() {
     let interval = if let sleep_interval = opts.sleep { proc_launch.interval(sleep_interval) ?? 1s } else { 1s }
-    failed = follow_descriptors(follow_files, pid, interval) or failed
+    failed = follow_descriptors(follow_files, pid, interval, headers, last) or failed
+  }
+
+  if following and follow_mode == "name" and ! name_files.is_empty() {
+    let interval = if let sleep_interval = opts.sleep { proc_launch.interval(sleep_interval) ?? 1s } else { 1s }
+    failed = follow_names(name_files, headers, pid, interval, last) or failed
   }
 
   if following and ! growing.is_empty() {

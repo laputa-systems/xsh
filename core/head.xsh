@@ -1,6 +1,7 @@
 #!/bin/xsh
 use lib.gnu
 use lib.textio_a1 as tio
+use unix
 
 const USAGE = """Usage: head [OPTION]... [FILE]...
 Print the first 10 lines of each FILE to standard output.
@@ -116,6 +117,27 @@ pure modernize(argv: List[Str]) -> List[Str] {
   [unit, parts[1], @extra, @argv[1..]]
 }
 
+# A write failure on standard output is reported with head's own wording; a
+# closed reader ends the applet with the SIGPIPE status.
+proc output_failed(failure: Error) [process, env] {
+  if gnu.errno(failure) == 32 {
+    exit 141
+  }
+
+  gnu.error(f"error writing {gnu.quote("standard output")}: {gnu.strerror(failure)}")
+  exit 1
+}
+
+proc write_output(data: Bytes) [process, env, error, io] {
+  if let Err(failure) = io.write_stdout_bytes(data) {
+    output_failed(failure)
+  }
+
+  if let Err(failure) = io.flush_stdout() {
+    output_failed(failure)
+  }
+}
+
 proc parse_count(text: Str, what: Str) [process, env] -> Count {
   let elide = text.starts_with("-")
   let digits = if elide or text.starts_with("+") { text.byte_slice(1) } else { text }
@@ -192,7 +214,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
     var shown = false
 
     loop {
-      let step = if wants { tio.read_chunk(source, offset) } else { Ok(b"") }
+      # Standard input is read only as far as the output needs, so the bytes after
+      # the printed part stay unread for the next reader of the same descriptor.
+      # Elided output must read to the end, and is rewound afterwards instead.
+      let count = if source.mode == "stdin" and ! elide {
+        if by_bytes {
+          if left < tio.CHUNK { left } else { tio.CHUNK }
+        } else {
+          1
+        }
+      } else {
+        tio.CHUNK
+      }
+      let step = if wants { tio.read_chunk(source, offset, count) } else { Ok(b"") }
 
       guard let chunk = step else { |failure|
         if offset == 0 and ! tio.is_directory(failure) {
@@ -226,7 +260,7 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
         let data = bytes.concat([held, chunk])
 
         if data.len() > total {
-          gnu.write_bytes(data[..data.len() - total])
+          write_output(data[..data.len() - total])
           held = data[data.len() - total..]
         } else {
           held = data
@@ -238,26 +272,30 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io] {
 
         if lines > total {
           let cut = ends[lines - total - 1]
-          gnu.write_bytes(data[..cut])
+          write_output(data[..cut])
           held = data[cut..]
         } else {
           held = data
         }
       } else if by_bytes {
-        gnu.write_bytes(chunk[..left])
+        write_output(chunk[..left])
         left -= chunk.len()
         break when left <= 0
       } else {
         let ends = tio.line_ends(chunk, opts.zero)
 
         if left <= ends.len() {
-          gnu.write_bytes(chunk[..ends[left - 1]])
+          write_output(chunk[..ends[left - 1]])
           break
         }
 
-        gnu.write_bytes(chunk)
+        write_output(chunk)
         left -= ends.len()
       }
+    }
+
+    if elide and source.mode == "stdin" and held.len() > 0 and tio.standard_file(0) != "" {
+      let _ = unix.seek_fd(0, tio.stdin_offset()? - held.len())?
     }
   }
 
