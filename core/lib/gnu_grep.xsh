@@ -7,8 +7,8 @@
 ##! error occurred unless `-q` found a match first.
 
 use gnu
-use search
 use gnu_regex
+use search
 
 const USAGE_HINT = "Usage: grep [OPTION]... PATTERNS [FILE]...\nTry 'grep --help' for more information.\n"
 const HELP = """Usage: grep [OPTION]... PATTERNS [FILE]...
@@ -859,7 +859,7 @@ proc finish_input(ctx: Context, progress: Run, scanned: Scan, label: Bytes, show
   out
 }
 
-proc search_input(ctx: Context, progress: Run, display: Bytes, real: Path?, show_name: Bool, command_line: Bool, label: Bytes) [fs, io, error] -> Run {
+proc search_input(ctx: Context, progress: Run, real: Path?, show_name: Bool, label: Bytes) [fs, io, error] -> Run {
   var mode = "stdin"
   var size = 0
   var width = 0
@@ -962,7 +962,7 @@ proc visit(ctx: Context, progress: Run, display: Bytes, walk_name: Bytes, real: 
   if stat_kind != "file" and (o.devices == "skip" or (! command_line and o.devices != "read")) { return progress }
   if excluded_file(o.excludes, name, ! command_line) { return progress }
   let show_names = show == 1
-  search_input(ctx, progress, display, real, show_names, command_line, display)
+  search_input(ctx, progress, real, show_names, display)
 }
 
 proc color_enabled(mode: Int) [env, io, process, error] -> Bool {
@@ -1201,7 +1201,7 @@ export proc grep_main(args: List[Bytes], flag: Str, wrapper: Str) [fs, io, proce
   var progress: Run = {used: false, selected: false, failed: false}
   for target in targets {
     if target == b"-" and ! implicit_root {
-      progress = search_input(ctx, progress, b"", null, show == 1, true, o.label)
+      progress = search_input(ctx, progress, null, show == 1, o.label)
       continue
     }
     let rooted = if implicit_root { b"" } else { fts_root_name(target) }

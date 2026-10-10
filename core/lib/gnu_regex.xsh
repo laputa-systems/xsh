@@ -420,10 +420,6 @@ pure parse_interval(pc: List[Int], start: Int, ere: Bool) -> Interval {
   {kind: 0, min: low, max: high, next: next, error: ""}
 }
 
-pure add_node(nodes: List[Node], kind: Int, a: Int, b: Int, kids: List[Int]) -> List[Node] {
-  nodes + [{kind: kind, a: a, b: b, kids: kids}]
-}
-
 pure union(left: List[Int], right: List[Int]) -> List[Int] {
   var out = left
   for item in right { if item not in out { out += [item] } }
