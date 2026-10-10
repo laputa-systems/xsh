@@ -584,6 +584,24 @@ test test_ls_color_fallback_requires_a_known_terminal { |ctx|
   assert colorterm.text == "\u{1b}[0m\u{1b}[01;32mexe\u{1b}[0m\n", colorterm.text
 }
 
+test test_ls_color_requires_a_capable_term_even_with_ls_colors { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/exe".write("", mode: 0o755)
+
+  let dumb = ls_in(ctx, work, ["--color=always", "exe"], {LC_ALL: "C", TZ: "UTC", LS_COLORS: "ex=1;31", TERM: "dumb", COLORTERM: ""})?
+  assert dumb.text == "exe\n", dumb.text
+}
+
+test test_ls_no_style_precedes_the_total_line { |ctx|
+  let work = sandbox(ctx)?
+  fp"{work}/d".mkdir()
+  fp"{work}/d/f".write("")
+
+  let vars = {LC_ALL: "C", TZ: "UTC", LS_COLORS: "no=35", TERM: "xterm", COLORTERM: ""}
+  let result = ls_in(ctx, work, ["-l", "--color=always", "d"], vars)?
+  assert result.text.starts_with("\u{1b}[0m\u{1b}[35mtotal 0\n"), result.text
+}
+
 test test_ls_explicit_color_survives_format_options { |ctx|
   let work = sandbox(ctx)?
   fp"{work}/dir".mkdir()
