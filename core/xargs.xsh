@@ -100,7 +100,7 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
     if byte == 0 { nul = true }
     if current.escaped {
       current.escaped = false
-      current.row_words = true; current.trailing_space = false
+      current.row_words = true; current.trailing_space = byte == 32 or byte == 9
       current.word = bytes.concat([current.word, data[at..at + 1]]); current.started = true
       continue
     }
@@ -136,8 +136,11 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
       if current.started { items += [{data: current.word, line: current.word_line}] }
       current.word = b""; current.started = false
       if byte == 10 {
-        if ! (current.row_words and current.trailing_space) { current.line += 1 }
-        current.row_words = false; current.trailing_space = false
+        # Only a line with arguments that does not end in a blank closes a
+        # logical line; blank lines leave a continued line open.
+        if current.row_words and (replace or ! current.trailing_space) { current.line += 1 }
+        if current.row_words { current.trailing_space = false }
+        current.row_words = false
       } else if current.row_words { current.trailing_space = true }
     } else if ! (replace and blank and ! current.started) {
       if ! current.started { current.word_line = current.line }
@@ -156,7 +159,9 @@ pure lex(data: Bytes, state: Lexer, delimiter: Int, replace: Bool, eof: Bool) ->
       let kind = if current.quote == 39 { "single" } else { "double" }
       return {state: current, items: items, nul: nul, failure: f"unmatched {kind} quote; by default quotes are special to xargs unless you use the -0 option"}
     }
-    if current.started { items += [{data: current.word, line: current.word_line}] }
+    # An empty word left by quotes at the very end of input is dropped, while
+    # one before a newline is kept.
+    if current.started and (delimiter >= 0 or ! current.word.is_empty()) { items += [{data: current.word, line: current.word_line}] }
     current.word = b""; current.started = false
   }
   {state: current, items: items, nul: nul, failure: ""}
@@ -343,8 +348,11 @@ proc build_argv(items: List[Item], command: List[Str], replace: Bool, marker: By
   }
   if ! replace { for item in items { argv += [Path.parse_bytes(c_string(item.data))?] } }
   var total = 0
-  for word in argv { total += word.bytes().len() + 1 }
-  if replace and total > max_chars { search.reject("command too long")? }
+  for word in argv {
+    total += word.bytes().len() + 1
+    if replace and word.bytes().len() + 1 >= max_chars { search.reject("command too long")? }
+  }
+  if replace and total > max_chars { search.reject("argument list too long")? }
   Ok(argv)
 }
 
@@ -359,11 +367,30 @@ proc start(argv: List[Path], inherit_stdin: Bool, use_tty: Bool, slot_var: Str?,
   Ok(handle)
 }
 
+# A word as the shell would need it written. Words with an apostrophe use
+# double quotes unless they also hold a character that is special inside
+# them or in single quotes, in which case the apostrophes are spelled '\\''.
+proc shell_quote(raw: Bytes) [env] -> Str {
+  var apostrophe = false
+  var printable = true
+  var special = false
+  for at in range(raw.len()) {
+    let byte = raw.byte_at(at) ?? 0
+    if byte == 39 { apostrophe = true }
+    if byte < 32 or byte > 126 { printable = false }
+    if byte in [33, 34, 35, 36, 38, 40, 41, 42, 59, 60, 61, 62, 91, 92, 94, 96, 123, 124, 125, 126] { special = true }
+  }
+  if ! apostrophe or ! printable { return gnu.quote_bytes(raw, always: false) }
+  let text = raw.utf8() ?? ""
+  if ! special { return f"\"{text}\"" }
+  f"'{text.replace("'", with: "'\\''")}'"
+}
+
 # Show the command line on standard error (-t) and, for -p, ask whether to
 # run it. Returns whether the command should run.
 proc announce(argv: List[Path], interactive: Bool) [io, process, env, error] -> Result[Bool, Error] {
   var texts: List[Str] = []
-  for word in argv { texts += [gnu.quote_bytes(word.bytes(), always: false)] }
+  for word in argv { texts += [shell_quote(word.bytes())] }
   if interactive { return ask(texts.join(" ")) }
   eprint texts.join(" ")
   Ok(true)
@@ -416,7 +443,7 @@ proc main(...args: List[Str]) {
     let upper = 2097152 - environment_bytes - 2048
     eprint f"Your environment variables take up {environment_bytes} bytes\nPOSIX upper limit on argument length (this system): {upper}\nPOSIX smallest allowable upper limit on argument length (all systems): 4096\nMaximum length of command we could actually use: {upper - initial_size}\nSize of command buffer we are actually using: {cfg.max_chars}\nMaximum parallelism (--max-procs must be no greater): 2147483647"
   }
-  if initial_size >= cfg.max_chars { gnu.error("cannot fit single argument within argument list size limit"); exit 1 }
+  if initial_size > cfg.max_chars { gnu.error("cannot fit single argument within argument list size limit"); exit 1 }
   if cfg.open_tty and fs.access(p"/dev/tty", read: true) is Err(_) { gnu.error(f"{gnu.quote("/dev/tty")}: No such device or address"); exit 1 }
   var state: Lexer = {word: b"", quote: 0, escaped: false, started: false, line: 0, word_line: 0, row_words: false, trailing_space: false}
   var batch: List[Item] = []
@@ -463,7 +490,10 @@ proc main(...args: List[Str]) {
         if cfg.eof != "" and cfg.delimiter < 0 and item.data == bytes.from_text(cfg.eof) { stopped = true; marker_seen = true; break }
         any_input = true
         let length = c_string(item.data).len()
-        if ! replace and length + initial_size + 1 > cfg.max_chars { search.reject("argument line too long")? }
+        if length == 0 and initial_size + 1 > cfg.max_chars { gnu.error("cannot fit single argument within argument list size limit"); exit 1 }
+        let too_long = if replace { length + 1 > cfg.max_chars } else { length + initial_size + 1 > cfg.max_chars }
+        if too_long and cfg.exit_on_overflow { gnu.error("argument line too long"); exit 1 }
+        if too_long { failure = "argument line too long"; break }
         let counted = cfg.max_args > 0 or cfg.max_lines > 0 or replace
         let too_many = cfg.max_args > 0 and batch.len() >= cfg.max_args
         let too_many_lines = (cfg.max_lines > 0 or replace) and ! batch.is_empty() and item.line != previous_line and (replace or batch_lines >= cfg.max_lines)
@@ -501,8 +531,8 @@ proc main(...args: List[Str]) {
         if item.line != previous_line { batch_lines += 1; previous_line = item.line }
         batch += [item]; size += length + 1
       }
-      if decoded.failure != "" { failure = decoded.failure; break }
-      if eof { break }
+      if failure == "" and decoded.failure != "" { failure = decoded.failure }
+      if failure != "" or eof { break }
     }
     if (! stopped or marker_seen) and (! batch.is_empty() or (! any_input and ! cfg.no_run_if_empty and ! replace and failure == "")) {
       let argv = build_argv(batch, command, replace, marker, cfg.max_chars)?
