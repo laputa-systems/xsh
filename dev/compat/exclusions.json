@@ -557,19 +557,19 @@
       "id": "test_ls::test_ls_color_clear_to_eol",
       "utility": "ls",
       "category": "gnu-semantics",
-      "reason": "asserts a uutils color-sequence form that differs from the sequence the native test pins; the native expectation is the one XSH keeps"
+      "reason": "expects the style '0;31;42' rewritten to '31;42'; GNU ls 9.11 (clean Alpine container) keeps the LS_COLORS value verbatim and prints ESC[0m ESC[0;31;42m name ESC[0m ESC[K, which XSH matches"
     },
     {
       "id": "test_ls::test_ls_color_empty_style",
       "utility": "ls",
       "category": "gnu-semantics",
-      "reason": "asserts a uutils color-sequence form that differs from the sequence the native test pins; the native expectation is the one XSH keeps"
+      "reason": "expects 'no=39' to print no color sequence; GNU ls 9.11 prints ESC[0m ESC[39m f ESC[0m, which XSH matches"
     },
     {
       "id": "test_ls::test_ls_color_norm",
       "utility": "ls",
       "category": "gnu-semantics",
-      "reason": "asserts a uutils color-sequence form that differs from the sequence the native test pins; the native expectation is the one XSH keeps"
+      "reason": "expects 'no=7' rendered as ESC[07m; GNU ls 9.11 prints the value verbatim (ESC[7m) followed by ESC[m, which XSH matches"
     },
     {
       "id": "test_ls::test_ls_hyperlink_symlink_target_handling",
@@ -593,7 +593,7 @@
       "id": "test_ls::test_ls_time_styles",
       "utility": "ls",
       "category": "gnu-semantics",
-      "reason": "expects posix-full-iso to differ from the locale style in the C locale and abbreviated style names; the native test pins GNU's behavior that they match"
+      "reason": "expects posix-full-iso to differ from the locale style in the C locale; GNU ls 9.11 prints identical output for both, which XSH matches"
     },
     {
       "id": "test_ls::test_time_style_unambiguous_prefixes",
