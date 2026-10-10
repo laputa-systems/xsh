@@ -6,7 +6,7 @@ type DfOptions = {
   all: Bool, kilo: Bool, mega: Bool, human: Bool, si: Bool, block: List[Str],
   portable: Bool, inodes: Bool, show_type: Bool, local: Bool, total: Bool,
   sync: Bool, no_sync: Bool, include: List[Str], exclude: List[Str],
-  output: List[Str], help: Bool, version: Bool, targets: List[Str],
+  output: List[Str], verbose: Bool, help: Bool, version: Bool, targets: List[Str],
 }
 type Mount = {source: Str, target: Path, kind: Str, dev: Int, file: Str}
 type Counters = {size: Int, used: Int, avail: Int, files: Int, iused: Int, ifree: Int}
@@ -111,6 +111,7 @@ proc validate_block_sizes(argv: List[Str]) [env, process, error] {
 }
 
 proc main(...argv: List[Str]) [fs, env, process, io, error] {
+  # GNU df accepts -v and ignores it; it is parsed so scripts that pass it still run and produce identical output.
   let opts: DfOptions = cli.applet(argv, {
     gnu: {status: 1},
     all: {form: "-a --all", default: false},
@@ -126,6 +127,7 @@ proc main(...argv: List[Str]) [fs, env, process, io, error] {
     include: {form: "-t --type TYPE", repeated: true}, exclude: {form: "-x --exclude-type TYPE", repeated: true},
     output: {form: "--output[=FIELD_LIST]", repeated: true, optional_default: "source,fstype,itotal,iused,iavail,ipcent,size,used,avail,pcent,file,target"},
     help: {form: "--help", default: false, stop: true}, version: {form: "--version", default: false, stop: true},
+    verbose: {form: "-v", default: false},
     targets: {form: "...FILE"},
   })?
   if opts.help {

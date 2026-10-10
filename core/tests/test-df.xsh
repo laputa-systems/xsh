@@ -172,3 +172,18 @@ test test_df_operand_is_measured_when_mount_table_is_unreadable { |ctx|
     assert "cannot read table of mounted file systems" in filtered.stderr, filtered.stderr
   }
 }
+
+# GNU df accepts -v and ignores it; the output must match the run without it.
+test test_df_verbose_option_has_no_effect { |ctx|
+  let root = test.temp_dir(ctx, name: "df-verbose")?
+  let good = fp"{root}/good"
+  good.write("file")
+  let plain = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- -k --output=file,target $good
+  assert plain.status.exited_with(0), plain.stderr
+  for args in [["-v", "-k"], ["-kv"], ["-vk"]] {
+    let verbose = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/df.xsh" -- ${args} --output=file,target $good
+    assert verbose.status.exited_with(0), f"df {args.join(" ")}: {verbose.stderr}"
+    assert verbose.stdout == plain.stdout, f"df {args.join(" ")}: {verbose.stdout}"
+    assert verbose.stderr == plain.stderr, f"df {args.join(" ")}: {verbose.stderr}"
+  }
+}
