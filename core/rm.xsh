@@ -7,6 +7,9 @@ type RawArgument = {marker: Str, value: Bytes}
 type RmArguments = {argv: List[Str], raw: List[RawArgument], presume_input_tty: Bool}
 type Removal = {ok: Bool, removed: Bool, write_error: Error?}
 
+# Operand names longer than this are removed natively; see `remove_target`.
+const DEEP_NAME_BYTES = 1024
+
 pure prepare_arguments(argv: List[Bytes], posix: Bool) -> RmArguments {
   var text: List[Str] = []
   var raw: List[RawArgument] = []
@@ -93,6 +96,17 @@ proc remove_target(target: Path, name: Bytes, opts: RmOptions, device: Int, inte
     }
   }
   let protection = if protected { "write-protected " } else { "" }
+  # Walking entry by entry builds ever longer paths and fails at PATH_MAX.
+  # Once a subtree is that deep and nothing needs a prompt or a report per
+  # entry, the native removal (descriptor-relative, no path length limit)
+  # takes over the whole subtree and reports one failure for it.
+  if meta.kind == "dir" and opts.recursive and name.len() > DEEP_NAME_BYTES and ! interactive and ! protected and ! opts.verbose and ! opts.progress and ! opts.one_file_system {
+    if let Err(failure) = target.remove() {
+      gnu.error(f"cannot remove {gnu.quote_bytes(name)}: {gnu.strerror(failure)}")
+      return {ok: false, removed: false, write_error: null}
+    }
+    return {ok: true, removed: true, write_error: null}
+  }
   if meta.kind == "dir" and opts.recursive {
     guard let children = fs.children(target, stat: false) else { |failure|
       if gnu.errno(failure) == 13 {

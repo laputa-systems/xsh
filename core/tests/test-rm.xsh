@@ -271,3 +271,26 @@ test test_rm_unreadable_empty_directory_and_first_failure { |ctx|
     outer.chmod(0o755)
   }
 }
+
+# 5000 levels is far past PATH_MAX and past RLIMIT_NOFILE for one descriptor
+# per level: the tree is built through nested rooted capabilities because no
+# path to the bottom exists.
+test test_rm_recursive_removes_hierarchy_deeper_than_path_max { |ctx|
+  let base = test.temp_dir(ctx, name: "rm-deep")?
+  let levels = ["a" for _ in range(1000)]
+  let chain = fp"{levels.join("/")}"
+  var top = fs.open_root(base)?
+  top.mkdir(p"deep")?
+  var floor = top.open_root(p"deep")?
+  for _ in range(5) {
+    floor.mkdir(chain, parents: true)?
+    floor = floor.open_root(chain)?
+  }
+  floor.write(p"leaf", "bottom")?
+  let deep = fp"{base}/deep"
+  let removed = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/rm.xsh" -- -rf $deep
+  assert removed.status.exited_with(0), removed.stderr
+  assert removed.stdout == ""
+  assert removed.stderr == ""
+  assert ! deep.exists()?
+}
