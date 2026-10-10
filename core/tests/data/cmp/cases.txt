@@ -1,0 +1,618 @@
+# Expected results of the applet on the fixtures next to this file,
+# generated with GNU diffutils 3.12 (C locale, TZ=UTC, LC_ALL=C).
+# '@ID<TAB>ARG...' starts a case; 'in NAME' feeds a fixture on stdin;
+# 'lc LOCALE' sets LC_ALL (C by default);
+# 'scrub' drops header timestamps; 'status N'; 'o:'/'e:' are stdout and
+# stderr lines, 'O:'/'E:' a final line without a newline; '\\' and '\xHH' escapes.
+@cmp_377	-n	2	-l	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_227	--ignore-initial=1	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_004	empty	empty
+status 0
+@cmp_558	t1	d1
+status 2
+e:cmp: d1: Is a directory
+@cmp_286	--quiet	t1	t1
+status 0
+@cmp_487	-l	one	two	0x10
+status 1
+e:cmp: EOF on 'one' which is empty
+@cmp_237	--ignore-initial=1	one	two
+status 1
+e:cmp: EOF on 'one' after byte 4, line 1
+@cmp_393	-nK	5	t1	empty
+status 2
+e:cmp: invalid --ignore-initial value 'empty'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_299	--quiet	case1	case2
+status 1
+@cmp_066	-lb	nonl1	nonl3
+status 1
+o:3 142 b    143 c
+@cmp_127	-n	1	crlf1	lf1
+status 0
+@cmp_284	--verbose	case1	case2
+status 1
+o:\x201 110 150
+o:\x207 127 167
+o:13 101 141
+o:14 114 154
+o:15 120 160
+o:16 110 150
+o:17 101 141
+o:19 142 102
+o:20 145 105
+o:21 164 124
+o:22 141 101
+@cmp_550	-i	1:	t1	t2
+status 2
+e:cmp: invalid --ignore-initial value ''
+e:cmp: Try 'cmp --help' for more information.
+@cmp_521	-l	t1	
+in t1
+status 2
+e:cmp: '': No such file or directory
+@cmp_556	-l	nonexist	t1
+status 2
+e:cmp: nonexist: No such file or directory
+@cmp_485	-l	one	two	1	2	3
+status 2
+e:cmp: extra operand '3'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_415	-i	1K	utf1	utf2
+status 0
+@cmp_266	--print-bytes	long1	long2
+status 1
+o:long1 long2 differ: byte 201, line 1 is 101 A 102 B
+@cmp_182	-i	1:2	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_539	t1
+status 1
+e:cmp: EOF on '-' which is empty
+@cmp_141	-n	100	nonl1	nonl3
+status 1
+o:nonl1 nonl3 differ: char 3, line 2
+@cmp_576	/dev/null	t1
+status 1
+e:cmp: EOF on '/dev/null' which is empty
+@cmp_596	-n	1b	t1	t2
+status 2
+e:cmp: invalid --bytes value '1b'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_018	-b	t1	empty
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_590	-n	1GB	t1	t2
+status 1
+o:t1 t2 differ: char 3, line 2
+@cmp_078	-bl	t1	empty
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_512	-	-
+in t1
+status 0
+@cmp_418	-i	1K	tab1	tab2
+status 0
+@cmp_083	-bl	bin1	bin2
+status 1
+o:3 142 b    143 c
+@cmp_466	t1	t2	0x10
+status 1
+o:t1 t2 differ: char 1, line 1
+@cmp_422	-i	0	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_076	-bl	t1	t1
+status 0
+@cmp_241	--ignore-initial=1:3	t1	t1
+status 1
+o:t1 t1 differ: char 2, line 2
+@cmp_091	-n	3	t1	t1
+status 0
+@cmp_452	t1	t2	1	2
+status 1
+o:t1 t2 differ: char 1, line 1
+@cmp_380	-n	2	-l	nonl1	nonl2
+status 0
+@cmp_027	-b	one	two
+status 1
+e:cmp: EOF on 'one' after byte 5, line 1
+@cmp_225	--ignore-initial=1	t1	t2
+status 1
+o:t1 t2 differ: char 2, line 2
+@cmp_112	-n	0	crlf1	lf1
+status 0
+@cmp_423	-i	0	t1	empty
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_509	-l	nonl1	nonl2	010
+status 1
+e:cmp: EOF on 'nonl1' which is empty
+@cmp_058	-s	tab1	tab2
+status 1
+@cmp_351	-l	-i	1:2	nonl1	nonl3
+status 1
+o:1  12 143
+e:cmp: EOF on 'nonl3' after byte 1
+@cmp_419	-i	1K	case1	case2
+status 0
+@cmp_212	--bytes=4	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_535	-b	t1	
+in t1
+status 2
+e:cmp: '': No such file or directory
+@cmp_469	-l	t1	t2	010
+status 1
+o:\x201 145 141
+o:\x203 146 102
+o:\x205 147 143
+o:\x207 150 144
+o:\x209 151 145
+o:11 152 146
+o:13 153 147
+o:15 154 150
+e:cmp: EOF on 't1' after byte 16
+@cmp_543	-n	x	t1	t2
+status 2
+e:cmp: invalid --bytes value 'x'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_064	-lb	empty	empty
+status 0
+@cmp_346	-l	-i	1:2	t1	t1
+status 1
+o:\x201  12 142
+o:\x202 142  12
+o:\x203  12 143
+o:\x204 143  12
+o:\x205  12 144
+o:\x206 144  12
+o:\x207  12 145
+o:\x208 145  12
+o:\x209  12 146
+o:10 146  12
+o:11  12 147
+o:12 147  12
+o:13  12 150
+o:14 150  12
+o:15  12 151
+o:16 151  12
+o:17  12 152
+o:18 152  12
+o:19  12 153
+o:20 153  12
+o:21  12 154
+o:22 154  12
+e:cmp: EOF on 't1' after byte 22
+@cmp_354	-l	-i	1:2	latin1	latin2
+status 1
+o:\x201 141 146
+o:\x202 146 350
+o:\x203 351  12
+o:\x204  12 163
+o:\x205 163 141
+o:\x206 141 155
+o:\x207 155 145
+o:\x208 145  12
+o:\x209  12 170
+o:10 170 377
+o:11 377 375
+o:12 376  12
+e:cmp: EOF on 'latin2' after byte 12
+@cmp_176	-i	2:1	long1	long2
+status 1
+o:long1 long2 differ: char 199, line 1
+@cmp_468	t1	t2	010
+status 1
+o:t1 t2 differ: char 1, line 1
+@cmp_413	-i	1K	bin1	bin2
+status 0
+@cmp_101	-n	3	long1	long2
+status 0
+@cmp_226	--ignore-initial=1	t1	t1
+status 0
+@cmp_360	-s	-n	2	t1	t2
+status 0
+@cmp_188	-i	1:2	bin1	bin2
+status 1
+o:bin1 bin2 differ: char 1, line 1
+@cmp_274	--verbose	empty	empty
+status 0
+@cmp_463	-l	t1	t2	-1
+status 2
+e:cmp: invalid option -- '1'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_094	-n	3	empty	empty
+status 0
+@cmp_345	-l	-i	1:2	t1	t2
+status 1
+o:\x201  12 102
+o:\x202 142  12
+o:\x203  12 143
+o:\x204 143  12
+o:\x205  12 144
+o:\x206 144  12
+o:\x207  12 145
+o:\x208 145  12
+o:\x209  12 146
+o:10 146  12
+o:11  12 147
+o:12 147  12
+o:13  12 150
+o:14 150  12
+o:15  12 151
+o:16 151  12
+o:17  12 152
+o:18 152  12
+o:19  12 113
+o:20 153  12
+o:21  12 154
+o:22 154  12
+o:23  12 155
+e:cmp: EOF on 't1' after byte 23
+@cmp_022	-b	crlf1	lf1
+status 1
+o:crlf1 lf1 differ: byte 2, line 1 is  15 ^M  12 ^J
+@cmp_288	--quiet	t1	empty
+status 1
+@cmp_166	-i	2:1	t1	t1
+status 1
+o:t1 t1 differ: char 1, line 1
+@cmp_092	-n	3	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_411	-i	1K	nonl1	nonl3
+status 0
+@cmp_074	-lb	case1	case2
+status 1
+o:\x201 110 H    150 h
+o:\x207 127 W    167 w
+o:13 101 A    141 a
+o:14 114 L    154 l
+o:15 120 P    160 p
+o:16 110 H    150 h
+o:17 101 A    141 a
+o:19 142 b    102 B
+o:20 145 e    105 E
+o:21 164 t    124 T
+o:22 141 a    101 A
+@cmp_362	-s	-n	2	empty	t1
+status 1
+@cmp_327	-l	-n	5	one	two
+status 0
+@cmp_043	-l	tab1	tab2
+status 1
+o:\x203 142 143
+o:\x205  11  40
+o:\x206 151  40
+o:\x207 156  40
+o:\x208 144  40
+o:\x209 145  40
+o:10 156  40
+o:11 164  40
+o:12  12  40
+o:13 156 151
+o:14 157 156
+o:15  40 144
+o:16 164 145
+o:17 141 156
+o:18 142 164
+o:20  61 156
+o:21  62 157
+o:22  63  40
+o:23  64 164
+o:24  65 141
+o:25  66 142
+o:26  67  12
+o:27  70  61
+o:28  11  62
+o:29 170  63
+o:30  12  64
+o:31 161  65
+o:32  11  66
+o:33 167  67
+o:34  11  70
+o:35 145  11
+o:36  12 171
+e:cmp: EOF on 'tab1' after byte 36
+@cmp_359	-l	-i	1:2	case1	case2
+status 1
+o:\x201 145 154
+o:\x203 154 157
+o:\x204 157  40
+o:\x205  40 167
+o:\x206 127 157
+o:\x207 157 162
+o:\x208 162 154
+o:\x209 154 144
+o:10 144  12
+o:11  12 141
+o:12 101 154
+o:13 114 160
+o:14 120 150
+o:15 110 141
+o:16 101  12
+o:17  12 102
+o:18 142 105
+o:19 145 124
+o:20 164 101
+o:21 141  12
+o:22  12 123
+o:23 123 141
+o:24 141 155
+o:25 155 145
+o:26 145  12
+e:cmp: EOF on 'case2' after byte 26
+@cmp_373	-s	-n	2	tab1	tab2
+status 0
+@cmp_308	--silent	bin1	bin2
+status 1
+@cmp_398	-nK	5	bin1	bin2
+status 2
+e:cmp: invalid --ignore-initial value 'bin2'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_477	-l	one	two	2	0
+status 1
+o:1 154 157
+o:2 171 156
+o:3  12 154
+e:cmp: EOF on 'one' after byte 3
+@cmp_147	-n	100	one	two
+status 1
+e:cmp: EOF on 'one' after byte 5, line 1
+@cmp_409	-i	1K	empty	empty
+status 0
+@cmp_431	-i	0	long1	long2
+status 1
+o:long1 long2 differ: char 201, line 1
+@cmp_028	-b	tab1	tab2
+status 1
+o:tab1 tab2 differ: byte 3, line 1 is 142 b 143 c
+@cmp_461	-l	t1	t2	x
+status 2
+e:cmp: invalid --ignore-initial value 'x'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_133	-n	1	tab1	tab2
+status 0
+@cmp_563	-V
+status 2
+e:cmp: invalid option -- 'V'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_270	--verbose	t1	t2
+status 1
+o:\x203 142 102
+o:21 153 113
+e:cmp: EOF on 't1' after byte 24
+@cmp_494	nonl1	nonl2	0	1
+status 1
+o:nonl1 nonl2 differ: char 1, line 1
+@cmp_126	-n	1	nonl1	nonl3
+status 0
+@cmp_173	-i	2:1	bin1	bin2
+status 1
+o:bin1 bin2 differ: char 1, line 1
+@cmp_268	--print-bytes	tab1	tab2
+status 1
+o:tab1 tab2 differ: byte 3, line 1 is 142 b 143 c
+@cmp_098	-n	3	bin1	bin2
+status 1
+o:bin1 bin2 differ: char 3, line 1
+@cmp_180	-i	1:2	t1	t2
+status 1
+o:t1 t2 differ: char 1, line 1
+@cmp_254	--ignore-initial=1:3	case1	case2
+status 1
+o:case1 case2 differ: char 1, line 1
+@cmp_250	--ignore-initial=1:3	utf1	utf2
+status 1
+o:utf1 utf2 differ: char 1, line 1
+@cmp_206	-i	100	long1	long2
+status 1
+o:long1 long2 differ: char 101, line 1
+@cmp_253	--ignore-initial=1:3	tab1	tab2
+status 1
+o:tab1 tab2 differ: char 1, line 1
+@cmp_041	-l	long1	long2
+status 1
+o:201 101 102
+o:509  12 132
+e:cmp: EOF on 'long1' after byte 509
+@cmp_533	-b	-	-
+in t1
+status 0
+@cmp_012	one	two
+status 1
+e:cmp: EOF on 'one' after byte 5, line 1
+@cmp_438	-n	1kB	t1	empty
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_566	--b=3	t1	t2
+status 1
+o:t1 t2 differ: char 3, line 2
+@cmp_234	--ignore-initial=1	latin1	latin2
+status 1
+o:latin1 latin2 differ: char 3, line 1
+@cmp_407	-i	1K	empty	t1
+status 0
+@cmp_588	-n	1M	t1	t2
+status 1
+o:t1 t2 differ: char 3, line 2
+@cmp_513	-	empty
+in t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_536	-b	t1
+in t2
+status 1
+o:t1 - differ: byte 3, line 2 is 142 b 102 B
+@cmp_030	-l	t1	t2
+status 1
+o:\x203 142 102
+o:21 153 113
+e:cmp: EOF on 't1' after byte 24
+@cmp_324	-l	-n	5	latin1	latin2
+status 1
+o:4 351 350
+@cmp_005	nonl1	nonl2
+status 1
+e:cmp: EOF on 'nonl1' after byte 3, in line 2
+@cmp_542	-n
+status 2
+e:cmp: option requires an argument -- 'n'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_104	-n	3	case1	case2
+status 1
+o:case1 case2 differ: char 1, line 1
+@cmp_165	-i	2:1	t1	t2
+status 1
+o:t1 t2 differ: char 1, line 1
+@cmp_067	-lb	crlf1	lf1
+status 1
+o:2  15 ^M    12 ^J
+o:3  12 ^J   142 b
+o:4 142 b     12 ^J
+o:5  15 ^M   143 c
+e:cmp: EOF on 'lf1' after byte 6
+@cmp_522	-l	t1
+in t2
+status 1
+o:\x203 142 102
+o:21 153 113
+e:cmp: EOF on 't1' after byte 24
+@cmp_095	-n	3	nonl1	nonl2
+status 0
+@cmp_061	-lb	t1	t1
+status 0
+@cmp_108	-n	0	t1	empty
+status 0
+@cmp_239	--ignore-initial=1	case1	case2
+status 1
+o:case1 case2 differ: char 6, line 1
+@cmp_148	-n	100	tab1	tab2
+status 1
+o:tab1 tab2 differ: char 3, line 1
+@cmp_554	nonexist	nonexist2
+status 2
+e:cmp: nonexist: No such file or directory
+@cmp_414	-i	1K	latin1	latin2
+status 0
+@cmp_545	-n	1x	t1	t2
+status 2
+e:cmp: invalid --bytes value '1x'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_456	t1	t2	2	0
+status 1
+o:t1 t2 differ: char 1, line 1
+@cmp_172	-i	2:1	crlf1	lf1
+status 1
+o:crlf1 lf1 differ: char 3, line 2
+@cmp_341	-b	-i	1	long1	long2
+status 1
+o:long1 long2 differ: byte 200, line 1 is 101 A 102 B
+@cmp_003	t1	empty
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_124	-n	1	empty	empty
+status 0
+@cmp_011	long1	long2
+status 1
+o:long1 long2 differ: char 201, line 1
+@cmp_484	one	two	1	2	3
+status 2
+e:cmp: extra operand '3'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_259	--print-bytes	empty	empty
+status 0
+@cmp_365	-s	-n	2	nonl1	nonl2
+status 0
+@cmp_167	-i	2:1	empty	t1
+status 1
+e:cmp: EOF on 'empty' which is empty
+@cmp_540	-x	t1	t2
+status 2
+e:cmp: invalid option -- 'x'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_541	--bogus	t1	t2
+status 2
+e:cmp: unrecognized option '--bogus'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_560	--help
+status 0
+o:Usage: cmp [OPTION]... FILE1 [FILE2 [SKIP1 [SKIP2]]]
+o:Compare two files byte by byte.
+o:
+o:The optional SKIP1 and SKIP2 specify the number of bytes to skip
+o:at the beginning of each file (zero by default).
+o:
+o:Mandatory arguments to long options are mandatory for short options too.
+o:\x20 -b, --print-bytes          print differing bytes
+o:\x20 -i, --ignore-initial=SKIP         skip first SKIP bytes of both inputs
+o:\x20 -i, --ignore-initial=SKIP1:SKIP2  skip first SKIP1 bytes of FILE1 and
+o:\x20                                     first SKIP2 bytes of FILE2
+o:\x20 -l, --verbose              output byte numbers and differing byte values
+o:\x20 -n, --bytes=LIMIT          compare at most LIMIT bytes
+o:\x20 -s, --quiet, --silent      suppress all normal output
+o:\x20     --help                 display this help and exit
+o:\x20 -v, --version              output version information and exit
+o:
+o:SKIP values may be followed by the following multiplicative suffixes:
+o:kB 1000, K 1024, MB 1,000,000, M 1,048,576,
+o:GB 1,000,000,000, G 1,073,741,824, and so on for T, P, E, Z, Y.
+o:
+o:If a FILE is '-' or missing, read standard input.
+o:Exit status is 0 if inputs are the same, 1 if different, 2 if trouble.
+o:
+o:Report bugs to: bug-diffutils@gnu.org
+o:GNU diffutils home page: <https://www.gnu.org/software/diffutils/>
+o:General help using GNU software: <https://www.gnu.org/gethelp/>
+@cmp_564	--hel
+status 0
+o:Usage: cmp [OPTION]... FILE1 [FILE2 [SKIP1 [SKIP2]]]
+o:Compare two files byte by byte.
+o:
+o:The optional SKIP1 and SKIP2 specify the number of bytes to skip
+o:at the beginning of each file (zero by default).
+o:
+o:Mandatory arguments to long options are mandatory for short options too.
+o:\x20 -b, --print-bytes          print differing bytes
+o:\x20 -i, --ignore-initial=SKIP         skip first SKIP bytes of both inputs
+o:\x20 -i, --ignore-initial=SKIP1:SKIP2  skip first SKIP1 bytes of FILE1 and
+o:\x20                                     first SKIP2 bytes of FILE2
+o:\x20 -l, --verbose              output byte numbers and differing byte values
+o:\x20 -n, --bytes=LIMIT          compare at most LIMIT bytes
+o:\x20 -s, --quiet, --silent      suppress all normal output
+o:\x20     --help                 display this help and exit
+o:\x20 -v, --version              output version information and exit
+o:
+o:SKIP values may be followed by the following multiplicative suffixes:
+o:kB 1000, K 1024, MB 1,000,000, M 1,048,576,
+o:GB 1,000,000,000, G 1,073,741,824, and so on for T, P, E, Z, Y.
+o:
+o:If a FILE is '-' or missing, read standard input.
+o:Exit status is 0 if inputs are the same, 1 if different, 2 if trouble.
+o:
+o:Report bugs to: bug-diffutils@gnu.org
+o:GNU diffutils home page: <https://www.gnu.org/software/diffutils/>
+o:General help using GNU software: <https://www.gnu.org/gethelp/>
+@cmp_565	--ver
+status 2
+e:cmp: option '--ver' is ambiguous; possibilities: '--verbose' '--version'
+e:cmp: Try 'cmp --help' for more information.
+@cmp_567	--byt=3	t1	t2
+status 1
+o:t1 t2 differ: char 3, line 2
+@cmp_568	--i=1	t1	t2
+status 1
+o:t1 t2 differ: char 2, line 2
+@cmp_572	-lbs	t1	t2
+status 2
+e:cmp: options -l and -s are incompatible
+e:cmp: Try 'cmp --help' for more information.
+@cmp_573	--	t1	t2
+status 1
+o:t1 t2 differ: char 3, line 2
