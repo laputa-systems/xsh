@@ -432,6 +432,7 @@ pub(crate) fn exec(invocation: &ProcessInvocation, span: Span) -> Result<Value, 
     if let Err(error) = exec_redirections(&mut command, invocation, span) {
         return Ok(Value::err(Value::Error(Box::new(error))));
     }
+    keep_script_sigpipe_disposition(&mut command);
     let error = command.exec();
     Ok(io_error("unix-exec", error, span))
 }
@@ -453,7 +454,21 @@ pub(crate) fn exec_env(invocation: &ProcessInvocation, argv0: Option<&str>, span
     if let Err(error) = exec_redirections(&mut command, invocation, span) {
         return Ok(Value::err(Value::Error(Box::new(error))));
     }
+    keep_script_sigpipe_disposition(&mut command);
     Ok(io_error("unix-exec-env", command.exec(), span))
+}
+
+// std resets SIGPIPE to the default action in every command it starts, which
+// would discard an inherited or script-chosen ignore across exec. The hook
+// runs after that reset.
+fn keep_script_sigpipe_disposition(command: &mut Command) {
+    // SAFETY: the hook only calls async-signal-safe functions.
+    unsafe {
+        command.pre_exec(|| {
+            crate::runtime::process::apply_sigpipe_disposition_to_child();
+            Ok(())
+        });
+    }
 }
 
 // Exec replaces every thread, so bytes input cannot be fed by the usual

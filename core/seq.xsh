@@ -815,6 +815,13 @@ stream sequence_lines(first: Num, step: Num, last: Num, spec: Spec, forward: Boo
 const OUTPUT_CHUNK = 65536
 
 proc main(...argv: List[Bytes]) [process, env, error, io] {
+  # The host ignores SIGPIPE for its own writes; signal_action reports what the
+  # caller started seq with. Unless that was ignore, a closed reader ends seq by
+  # the signal, as it ends any other utility, instead of by a write error.
+  if process.signal_action("PIPE")? == "default" {
+    process.set_signal_action("PIPE", "default")?
+  }
+
   let prepared = prepared_args(argv)
   let opts: SeqOptions = cli.applet(
     protect_numbers(prepared.text),

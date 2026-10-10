@@ -4,6 +4,7 @@
 
 use super::{signal_info, signal_record, signal_table};
 use crate::modules::RuntimeOp;
+use crate::runtime::process::{set_sigpipe_ignored, sigpipe_ignored};
 use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
 use rustix::process::{self as rprocess, Pid, Resource, Rlimit, getrlimit, setrlimit};
@@ -563,12 +564,17 @@ fn signal_action(args: &Args<'_>) -> Result<Value, RuntimeError> {
             args.span(),
         ));
     }
-    let action = if current.sa_sigaction == libc::SIG_IGN {
-        "ignore"
-    } else if current.sa_sigaction == libc::SIG_DFL {
-        "default"
-    } else {
+    // The runtime ignores SIGPIPE for its own writes whatever the process was
+    // started with, so the real disposition is reported for every other signal
+    // and the one children inherit for SIGPIPE.
+    let action = if current.sa_sigaction != libc::SIG_IGN && current.sa_sigaction != libc::SIG_DFL {
         "handler"
+    } else if number == libc::SIGPIPE {
+        if sigpipe_ignored() { "ignore" } else { "default" }
+    } else if current.sa_sigaction == libc::SIG_IGN {
+        "ignore"
+    } else {
+        "default"
     };
     ok(Value::Str(action.into()))
 }
@@ -598,6 +604,9 @@ fn set_signal_action(args: &Args<'_>) -> Result<Value, RuntimeError> {
         libc::sigaction(number, &action, std::ptr::null_mut())
     };
     if status == 0 {
+        if number == libc::SIGPIPE {
+            set_sigpipe_ignored(handler == libc::SIG_IGN);
+        }
         ok(Value::Unit)
     } else {
         Err(host_error(

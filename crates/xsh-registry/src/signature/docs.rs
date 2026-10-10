@@ -1186,7 +1186,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "signal_action" | "set_signal_action") => Some((
             "Reads or changes how this process treats a signal.",
-            "ignore and default survive unix.exec, which is how nohup is built; replacing INT or TERM disables the runtime's cancellation for that signal, and children started with run restore the defaults themselves.",
+            "ignore and default survive unix.exec, which is how nohup is built; replacing INT or TERM disables the runtime's cancellation for that signal, and children started with run restore the defaults themselves. The runtime ignores PIPE for its own writes whatever the process was started with, so PIPE reports, and passes to every child, the action the process was started with until set_signal_action replaces it; default makes the process itself die on a closed pipe.",
             &["process", "signal", "host-state"],
         )),
         ("process", "wait_timeout") => Some((

@@ -195,6 +195,29 @@ test test_seq_reports_stdout_errors_before_expanding_the_remaining_numbers { |ct
   assert stderr.read_text()? == "seq: write error: No space left on device\n"
 }
 
+test test_seq_ends_on_a_closed_pipe_unless_the_caller_ignored_sigpipe { |ctx|
+  let pipeline = """{ "$0" "$1" "$2"; echo "status=$?" >&2; } | head -n1 >/dev/null"""
+  let output = test.run_xsh(
+    ctx,
+    r"""
+let xsh = applet.current_exe()?
+let script = e"SEQ_SCRIPT"?
+let pipeline = e"PIPELINE"?
+for action in ["default", "ignore"] {
+  process.set_signal_action("PIPE", action)?
+  for count in ["inf", "1000000"] {
+    let captured = run.capture --text sh -c $pipeline $xsh $script $count ?
+    print f"{action} {count} {captured.stderr.trim().replace("\n", with: "|")}"
+  }
+}
+""",
+    env: {SEQ_SCRIPT: fp"{ctx.core_dir}/seq.xsh".display(), PIPELINE: pipeline},
+  )?
+  assert output.success, output.stderr
+  let broken = "seq: write error: Broken pipe|status=1"
+  assert output.stdout == f"default inf status=141\ndefault 1000000 status=141\nignore inf {broken}\nignore 1000000 {broken}\n", output.stdout
+}
+
 test test_seq_help_and_version { |ctx|
   let help = seq_run(ctx, ["--help"])?
   assert help.status == 0
