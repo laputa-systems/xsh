@@ -93,6 +93,12 @@ def owned(lane: str) -> set[str]:
     return files
 
 
+def is_owned(lane: str, path: str) -> bool:
+    """A path is owned when it is listed, or lies under an owned directory (an entry ending in /)."""
+    files = owned(lane)
+    return path in files or any(f.endswith("/") and path.startswith(f) for f in files)
+
+
 def results_at(rev: str) -> dict:
     """Per-utility results committed at REV, or {} when REV has none (a branch that never ran the suite)."""
     text = git("show", f"{rev}:{RESULTS_PATH}", cwd=MASTER, check=False)
@@ -147,6 +153,17 @@ def brief(util: str, donor: str | None) -> str:
     proven = targets(utils, donor) if donor else []
     fix = proven + [t for t in fix if t not in set(proven)]
     files = sorted(owned(util))
+    native = bool(info.get("native"))
+    target_dir = LANES_ROOT / "_targets" / util
+    cargo_rule = "" if native else "cargo, "
+    native_block = f"""
+Native lane (Rust under the owned directories is allowed; XSH-first still applies: the smallest primitive only):
+  build: flock {LANES_ROOT}/_targets/cargo.lock env LD_PRELOAD=/usr/lib/libjemalloc.so.2 CARGO_TARGET_DIR={target_dir} \\
+         cargo build --release --target x86_64-unknown-linux-musl -p xsh --bins -p xsht --bin xsht
+  then use XSH_BIN={target_dir}/x86_64-unknown-linux-musl/release/xsh for `xsht test` (its sibling) and for the gate
+  (export XSH_BIN before running lane.py gate). Run the focused Rust tests with `cargo test --release --test NAME`
+  in the same target directory; never a workspace-wide test run. Register every new native function in the
+  registry the way its neighbours are (signature, docs) and add a native XSH test for it.""" if native else ""
     watch = info.get("watch", [])
     watch_note = (f"\nThe gate also runs these consumers of your library files and fails on any regression there: "
                   f"{', '.join(watch)}.") if watch else ""
@@ -220,12 +237,13 @@ Stop and report when GATE PASS and committed, or after 3 failed attempts on one 
 (list it as unresolved and move on), or after 6 gate runs.
 Scope: pass tests. No formatting, linting, refactors, cleanup of unrelated code, or performance work.
 Probes: run `xsh` ad hoc only under `perl -e 'alarm 60; exec @ARGV' ...`. Never run formatters, `xsht fmt`,
-`xsht lint --fix`, cargo, or git push/merge/rebase. Leave no process running.
+`xsht lint --fix`, {cargo_rule}or git push/merge/rebase. Leave no process running.{native_block}
 Report (under 150 words): gate result line, tests fixed vs unresolved, Requests:, Language gaps:, blockers.
 """
 
 
-def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[str], watch: list[str]) -> None:
+def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[str], watch: list[str],
+        native: bool = False) -> None:
     if utils and len(lanes) != 1:
         sys.exit("--utils describes exactly one lane")
     for util in lanes:
@@ -234,7 +252,7 @@ def new(lanes: list[str], donor: str | None, utils: list[str] | None, own: list[
             sys.exit(f"{wt} already exists")
         (SCRATCH / util).mkdir(parents=True, exist_ok=True)
         (SCRATCH / util / "lane.json").write_text(json.dumps(
-            {"utils": utils or [util], "own": own, "watch": watch, "donor": donor}))
+            {"utils": utils or [util], "own": own, "watch": watch, "donor": donor, "native": native}))
         git("worktree", "add", "-b", f"claude/{util}", str(wt), "master", cwd=MASTER)
         text = brief(util, donor)
         (SCRATCH / util / "brief.txt").write_text(text)
@@ -254,7 +272,7 @@ def gate(util: str, committed: bool) -> int:
     changed = set(git("diff", "--name-only", fork, cwd=wt).split())
     status = git("status", "--porcelain", cwd=wt).splitlines()
     changed |= {line[3:] for line in status}
-    stray = sorted(changed - owned(util))
+    stray = sorted(path for path in changed if not is_owned(util, path))
     if stray:
         fail.append(f"ownership: files outside the lane: {', '.join(stray)}")
     if committed and status:
@@ -295,7 +313,9 @@ def gate(util: str, committed: bool) -> int:
     targets_file = SCRATCH / util / "targets.txt"
     target_ids = targets_file.read_text().split() if targets_file.exists() else []
     for name in utils + watched:
-        base = results_at("master")[name]
+        base = results_at("master").get(name)
+        if base is None:
+            continue  # a watched applet outside the uutils suite has no baseline to regress from
         new_entry = report.get(name)
         if new_entry is None:
             fail.append(f"no report entry for {name}")
@@ -362,6 +382,7 @@ def main() -> int:
             p.add_argument("--utils", dest="members", nargs="+")
             p.add_argument("--own", nargs="+", default=[])
             p.add_argument("--watch", nargs="+", default=[])
+            p.add_argument("--native", action="store_true")
     p = sub.add_parser("gate")
     p.add_argument("util")
     p.add_argument("--committed", action="store_true")
@@ -375,7 +396,7 @@ def main() -> int:
     if args.cmd == "plan":
         plan(args.donor)
     elif args.cmd == "new":
-        new(args.utils, args.donor, args.members, args.own, args.watch)
+        new(args.utils, args.donor, args.members, args.own, args.watch, args.native)
     elif args.cmd == "brief":
         print(brief(args.utils[0], args.donor))
     elif args.cmd == "gate":
