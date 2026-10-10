@@ -5314,7 +5314,22 @@ let text = notes.replace("DRAFT", with: "FINAL")
   `user`), and `nice(increment)` act on scheduling priority, and
   `process.rlimit`, `rlimits`, and `set_rlimit` on resource limits, where an
   omitted bound is left unchanged and `null` is unlimited; both are inherited
-  by children. `process.set_signal_action(signal, "ignore"|"default")`
+  by children, and a `pid` argument reads or changes another process through
+  `prlimit(2)` (0 or omitted is the caller). `process.affinity(pid)` lists the
+  CPUs a process may run on in ascending order and `set_affinity(pid, cpus)`
+  replaces them, where CPU numbers the kernel does not configure are ignored
+  and an empty effective set is `EINVAL`. `process.scheduler(pid)` reports the
+  policy (`other`, `fifo`, `rr`, `batch`, `idle`, `deadline`, or `ext`), the
+  real-time priority, the reset-on-fork flag, and the nanosecond time slice or
+  deadline reservation; `set_scheduler(pid, policy, priority, reset_on_fork,
+  runtime_ns, deadline_ns, period_ns)` changes them, and
+  `scheduler_priorities(policy)` is the priority range the kernel accepts for
+  a policy. `process.io_priority(who, which)` and
+  `set_io_priority(who, class, level, which)` read and change the I/O class
+  (`none`, `realtime`, `best-effort`, or `idle`) and level of a process, group,
+  or user. A `pid` of 0 for these calls names the calling thread, which
+  `unix.exec` carries into the new program, and the kernel's answer for a
+  negative or missing pid is reported as the error. `process.set_signal_action(signal, "ignore"|"default")`
   changes how the running process treats a signal and survives `unix.exec`
   (which is how `nohup` is built), while a child started with `run` restores
   the defaults itself; replacing `INT` or `TERM` disables the runtime's

@@ -3792,7 +3792,10 @@ fn process_module() -> ModuleSig {
         (
             "rlimit",
             sig(
-                vec![param("resource", Type::Str)],
+                vec![
+                    param("resource", Type::Str),
+                    default_param("pid", Type::Int),
+                ],
                 result(crate::records::rlimit_type()),
                 false,
                 RuntimeOp::ProcessRlimit,
@@ -3801,7 +3804,7 @@ fn process_module() -> ModuleSig {
         (
             "rlimits",
             sig(
-                Vec::new(),
+                vec![default_param("pid", Type::Int)],
                 result(Type::List(Box::new(crate::records::rlimit_type()))),
                 false,
                 RuntimeOp::ProcessRlimits,
@@ -3814,10 +3817,93 @@ fn process_module() -> ModuleSig {
                     param("resource", Type::Str),
                     default_param("soft", Type::Optional(Box::new(Type::Int))),
                     default_param("hard", Type::Optional(Box::new(Type::Int))),
+                    default_param("pid", Type::Int),
                 ],
                 result(Type::Unit),
                 false,
                 RuntimeOp::ProcessSetRlimit,
+            ),
+        ),
+        (
+            "affinity",
+            sig(
+                vec![default_param("pid", Type::Int)],
+                result(Type::List(Box::new(Type::Int))),
+                false,
+                RuntimeOp::ProcessAffinity,
+            ),
+        ),
+        (
+            "set_affinity",
+            sig(
+                vec![
+                    param("pid", Type::Int),
+                    param("cpus", Type::List(Box::new(Type::Int))),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetAffinity,
+            ),
+        ),
+        (
+            "scheduler",
+            sig(
+                vec![default_param("pid", Type::Int)],
+                result(crate::records::process_scheduler_type()),
+                false,
+                RuntimeOp::ProcessScheduler,
+            ),
+        ),
+        (
+            "set_scheduler",
+            sig(
+                vec![
+                    param("pid", Type::Int),
+                    param("policy", Type::Str),
+                    default_param("priority", Type::Int),
+                    default_param("reset_on_fork", Type::Bool),
+                    default_param("runtime_ns", Type::Int),
+                    default_param("deadline_ns", Type::Int),
+                    default_param("period_ns", Type::Int),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetScheduler,
+            ),
+        ),
+        (
+            "scheduler_priorities",
+            sig(
+                vec![param("policy", Type::Str)],
+                result(crate::records::process_scheduler_range_type()),
+                false,
+                RuntimeOp::ProcessSchedulerPriorities,
+            ),
+        ),
+        (
+            "io_priority",
+            sig(
+                vec![
+                    default_param("who", Type::Int),
+                    default_param("which", Type::Str),
+                ],
+                result(crate::records::process_io_priority_type()),
+                false,
+                RuntimeOp::ProcessIoPriority,
+            ),
+        ),
+        (
+            "set_io_priority",
+            sig(
+                vec![
+                    param("who", Type::Int),
+                    param("class", Type::Str),
+                    default_param("level", Type::Int),
+                    default_param("which", Type::Str),
+                ],
+                result(Type::Unit),
+                false,
+                RuntimeOp::ProcessSetIoPriority,
             ),
         ),
         (
@@ -4714,9 +4800,24 @@ fn record_doc(name: &str) -> Option<RecordDoc> {
             &["process", "thread", "record"],
         ),
         "Rlimit" => (
-            "Describes one resource limit of the calling process.",
+            "Describes one resource limit of a process.",
             "soft and hard are null for unlimited; the limits are process-global state that child processes inherit.",
             &["process", "limits", "record"],
+        ),
+        "ProcessScheduler" => (
+            "Describes the scheduler policy of one process.",
+            "policy is other, fifo, rr, batch, idle, deadline, ext, or unknown; priority is the real-time priority (0 outside fifo and rr); runtime_ns is the time slice of other and batch, and runtime_ns, deadline_ns, and period_ns are the reservation of deadline and 0 otherwise.",
+            &["process", "scheduler", "record"],
+        ),
+        "ProcessSchedulerRange" => (
+            "Describes the priorities a scheduler policy accepts.",
+            "min and max are inclusive; the policies without priorities report 0 for both.",
+            &["process", "scheduler", "record"],
+        ),
+        "ProcessIoPriority" => (
+            "Describes the I/O scheduling class and level of a process.",
+            "class is none, realtime, best-effort, idle, or unknown; level is 0 to 7 for realtime and best-effort and is 0 otherwise, though the kernel stores whatever was set.",
+            &["process", "io", "record"],
         ),
         "UnixTtyFlag" => (
             "Describes one named terminal mode flag of the termios tables.",

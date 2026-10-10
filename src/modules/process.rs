@@ -9,9 +9,28 @@ use crate::source::Span;
 use std::sync::{Arc, LazyLock};
 
 mod prims;
-pub(crate) use prims::{
-    Args, call as prim_call, handles as is_prim, host_error, key, name_error, positive_pid,
-};
+mod rlimit;
+mod sched;
+pub(crate) use prims::{Args, host_error, key, name_error, positive_pid};
+
+/// Whether `op` is a typed process primitive: signals and groups, resource
+/// limits, or CPU, scheduler, and I/O priority control.
+pub(crate) fn is_prim(op: crate::modules::RuntimeOp) -> bool {
+    prims::handles(op) || rlimit::handles(op) || sched::handles(op)
+}
+
+pub(crate) fn prim_call(
+    op: crate::modules::RuntimeOp,
+    args: &Args<'_>,
+) -> Result<Value, RuntimeError> {
+    if rlimit::handles(op) {
+        rlimit::call(op, args)
+    } else if sched::handles(op) {
+        sched::call(op, args)
+    } else {
+        prims::call(op, args)
+    }
+}
 
 static K_PID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("pid"));
 static K_PARENT_PID: LazyLock<Arc<str>> = LazyLock::new(|| Arc::from("parent_pid"));

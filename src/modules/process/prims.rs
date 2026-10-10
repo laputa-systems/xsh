@@ -1,5 +1,5 @@
 //! Typed process-control primitives: the signal table, process groups and
-//! sessions, scheduling priority, resource limits, and signal dispositions.
+//! sessions, niceness, and signal dispositions.
 //! Every failure is a host error that carries its errno.
 
 use super::{signal_info, signal_record, signal_table};
@@ -7,7 +7,7 @@ use crate::modules::RuntimeOp;
 use crate::runtime::process::{set_sigpipe_ignored, sigpipe_ignored};
 use crate::runtime::value::{PathValue, RecordMap, RuntimeError, Value};
 use crate::source::Span;
-use rustix::process::{self as rprocess, Pid, Resource, Rlimit, getrlimit, setrlimit};
+use rustix::process::{self as rprocess, Pid};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -201,7 +201,7 @@ pub(crate) fn optional_int(value: Option<i64>) -> Value {
     value.map_or(Value::Null, Value::Int)
 }
 
-fn invalid(kind: &'static str, message: impl Into<String>, span: Span) -> RuntimeError {
+pub(super) fn invalid(kind: &'static str, message: impl Into<String>, span: Span) -> RuntimeError {
     RuntimeError::new(kind, message.into()).with_span(span)
 }
 
@@ -219,9 +219,6 @@ pub(crate) fn handles(op: RuntimeOp) -> bool {
             | RuntimeOp::ProcessPriority
             | RuntimeOp::ProcessSetPriority
             | RuntimeOp::ProcessNice
-            | RuntimeOp::ProcessRlimit
-            | RuntimeOp::ProcessRlimits
-            | RuntimeOp::ProcessSetRlimit
             | RuntimeOp::ProcessSignalAction
             | RuntimeOp::ProcessSetSignalAction
     )
@@ -239,16 +236,13 @@ pub(crate) fn call(op: RuntimeOp, args: &Args<'_>) -> Result<Value, RuntimeError
         RuntimeOp::ProcessPriority => priority(args),
         RuntimeOp::ProcessSetPriority => set_priority(args),
         RuntimeOp::ProcessNice => nice(args),
-        RuntimeOp::ProcessRlimit => rlimit(args),
-        RuntimeOp::ProcessRlimits => rlimits(),
-        RuntimeOp::ProcessSetRlimit => set_rlimit(args),
         RuntimeOp::ProcessSignalAction => signal_action(args),
         RuntimeOp::ProcessSetSignalAction => set_signal_action(args),
         _ => unreachable!("process primitive expected"),
     }
 }
 
-fn ok(value: Value) -> Result<Value, RuntimeError> {
+pub(super) fn ok(value: Value) -> Result<Value, RuntimeError> {
     Ok(Value::ok(value))
 }
 
@@ -262,7 +256,7 @@ fn signals() -> Value {
 }
 
 /// A pid argument where `0` means the calling process (or its group).
-fn pid_arg(pid: i64, operation: &str, span: Span) -> Result<Option<Pid>, RuntimeError> {
+pub(super) fn pid_arg(pid: i64, operation: &str, span: Span) -> Result<Option<Pid>, RuntimeError> {
     if pid == 0 {
         return Ok(None);
     }
@@ -369,13 +363,13 @@ fn kill_group(args: &Args<'_>) -> Result<Value, RuntimeError> {
 }
 
 #[derive(Clone, Copy)]
-enum Which {
+pub(super) enum Which {
     Process,
     Group,
     User,
 }
 
-fn which(args: &Args<'_>, index: usize) -> Result<Which, RuntimeError> {
+pub(super) fn which(args: &Args<'_>, index: usize) -> Result<Which, RuntimeError> {
     match args.str_or(index, "process")?.as_str() {
         "process" => Ok(Which::Process),
         "group" => Ok(Which::Group),
@@ -388,7 +382,7 @@ fn which(args: &Args<'_>, index: usize) -> Result<Which, RuntimeError> {
     }
 }
 
-fn user_id(id: i64, span: Span) -> Result<rprocess::Uid, RuntimeError> {
+pub(super) fn user_id(id: i64, span: Span) -> Result<rprocess::Uid, RuntimeError> {
     if id == 0 {
         // getpriority(2) reads 0 as the caller's real user.
         return Ok(rprocess::getuid());
@@ -445,113 +439,6 @@ fn nice(args: &Args<'_>) -> Result<Value, RuntimeError> {
     match rprocess::nice(increment) {
         Ok(value) => ok(Value::Int(value as i64)),
         Err(error) => Err(host_error("process-nice", error, span)),
-    }
-}
-
-const RLIMIT_NAMES: &[(&str, Resource)] = &[
-    ("cpu", Resource::Cpu),
-    ("fsize", Resource::Fsize),
-    ("data", Resource::Data),
-    ("stack", Resource::Stack),
-    ("core", Resource::Core),
-    ("rss", Resource::Rss),
-    ("nproc", Resource::Nproc),
-    ("nofile", Resource::Nofile),
-    ("memlock", Resource::Memlock),
-    ("as", Resource::As),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("locks", Resource::Locks),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("sigpending", Resource::Sigpending),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("msgqueue", Resource::Msgqueue),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("nice", Resource::Nice),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("rtprio", Resource::Rtprio),
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    ("rttime", Resource::Rttime),
-];
-
-fn resource_arg(args: &Args<'_>, index: usize) -> Result<(&'static str, Resource), RuntimeError> {
-    let name = args.str(index)?;
-    RLIMIT_NAMES
-        .iter()
-        .find(|(candidate, _)| *candidate == name)
-        .copied()
-        .ok_or_else(|| {
-            invalid(
-                "invalid-argument",
-                format!(
-                    "unknown resource `{name}`; expected one of {}",
-                    RLIMIT_NAMES
-                        .iter()
-                        .map(|(name, _)| *name)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
-                args.span(),
-            )
-        })
-}
-
-/// `None` is unlimited; a finite value beyond `Int` saturates.
-fn limit_value(limit: Option<u64>) -> Value {
-    optional_int(limit.map(|limit| i64::try_from(limit).unwrap_or(i64::MAX)))
-}
-
-fn rlimit_record(name: &str, limit: Rlimit) -> Value {
-    Value::Record(RecordMap::from([
-        (key("resource"), Value::Str(name.into())),
-        (key("soft"), limit_value(limit.current)),
-        (key("hard"), limit_value(limit.maximum)),
-    ]))
-}
-
-fn rlimit(args: &Args<'_>) -> Result<Value, RuntimeError> {
-    let (name, resource) = resource_arg(args, 0)?;
-    ok(rlimit_record(name, getrlimit(resource)))
-}
-
-fn rlimits() -> Result<Value, RuntimeError> {
-    ok(Value::List(
-        RLIMIT_NAMES
-            .iter()
-            .map(|(name, resource)| rlimit_record(name, getrlimit(*resource)))
-            .collect(),
-    ))
-}
-
-/// Sets the soft and hard limits named by non-omitted arguments; `null` is
-/// unlimited. Lowering the hard limit below an omitted soft one lowers the
-/// soft one with it.
-fn set_rlimit(args: &Args<'_>) -> Result<Value, RuntimeError> {
-    let span = args.span();
-    let (_, resource) = resource_arg(args, 0)?;
-    let mut limit = getrlimit(resource);
-    let apply = |slot: Slot<i64>, target: &mut Option<u64>| match slot {
-        Slot::Omitted => Ok(()),
-        Slot::Null => {
-            *target = None;
-            Ok(())
-        }
-        Slot::Value(value) => u64::try_from(value)
-            .map(|value| *target = Some(value))
-            .map_err(|_| invalid("invalid-argument", "limit cannot be negative", span)),
-    };
-    let soft = args.slot(1)?;
-    let hard = args.slot(2)?;
-    apply(soft, &mut limit.current)?;
-    apply(hard, &mut limit.maximum)?;
-    if soft == Slot::Omitted
-        && let Some(maximum) = limit.maximum
-        && limit.current.is_none_or(|current| current > maximum)
-    {
-        limit.current = Some(maximum);
-    }
-    match setrlimit(resource, limit) {
-        Ok(()) => ok(Value::Unit),
-        Err(error) => Err(host_error("process-set-rlimit", error, span)),
     }
 }
 
