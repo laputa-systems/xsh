@@ -35,6 +35,13 @@ test test_env_split_string_as_single_shebang_arg_runs_command { |ctx|
   assert output.trim() == "split"
 }
 
+test test_env_long_split_string_as_single_word_runs_command { |ctx|
+  let script = fp"{ctx.core_dir}/printenv.xsh"
+  let command = f"--split-string XSH_MODULE_PATH=long {ctx.xsh_bin} {script} -- XSH_MODULE_PATH"
+  let output = run.text ${ctx.xsh_bin} fp"{ctx.core_dir}/env.xsh" -- $command
+  assert output.trim() == "long"
+}
+
 test test_env_uses_direct_xsh_shebang { |ctx|
   assert fp"{ctx.core_dir}/env.xsh".read_text()?.starts_with("#!/bin/xsh")
 }
@@ -329,12 +336,38 @@ test test_env_reports_uncatchable_signal_actions { |ctx|
   assert result.stderr == "env: failed to set signal action for signal 9: Invalid argument\n"
 }
 
-test test_env_block_signal_validates_names_before_unsupported { |ctx|
+test test_env_block_signal_validates_names_and_blocks_them_in_the_command { |ctx|
   let invalid = env_run(ctx, ["--block-signal=__ALL__", "/bin/true"])?
-  let valid = env_run(ctx, ["--block-signal=USR1", "/bin/true"])?
-
   assert invalid.status == 125
   assert "'__ALL__': invalid signal" in invalid.stderr, invalid.stderr
-  assert valid.status == 125
-  assert valid.stderr == "env: signal mask operations are unavailable in this runtime\n", valid.stderr
+
+  if ! p"/proc/self/status".exists()? {
+    test.skip("the host has no /proc/self/status")
+  }
+
+  let blocked = env_run(ctx, ["--block-signal=USR1,TERM", "--list-signal-handling", "/bin/sh", "-c", "grep SigBlk /proc/self/status"])?
+  assert blocked.status == 0, blocked.stderr
+  assert blocked.stdout == "SigBlk:\t0000000000004200\n", blocked.stdout
+  assert blocked.stderr == "USR1       (10): BLOCKED\nTERM       (15): BLOCKED\n", blocked.stderr
+
+  # An option without a list blocks every signal that can be blocked.
+  let all = env_run(ctx, ["--block-signal", "/bin/sh", "-c", "grep SigBlk /proc/self/status"])?
+  assert all.status == 0, all.stderr
+  assert all.stdout != "SigBlk:\t0000000000000000\n", all.stdout
+}
+
+test test_env_passes_non_utf8_values_through_unchanged { |ctx|
+  let root = test.temp_dir(ctx, name: "env-raw")?
+  let stdout = fp"{root}/stdout"
+  let raw = Path.parse_bytes(b"a\x80b")?
+  let argv = [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/env.xsh".display()]
+  let listed = process.command_argv(ctx.xsh_bin, argv, root, {LC_ALL: "C", PATH: "/bin:/usr/bin", RAW_VALUE: raw}, b"", stdout, fp"{root}/stderr")
+  assert process.run(listed)?.exit_code()? == 0
+  assert b"RAW_VALUE=a\x80b" in stdout.read_bytes()?.lines()
+
+  # The same bytes reach a command's environment.
+  let probe = [ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/env.xsh".display(), ctx.xsh_bin.display(), "--", fp"{ctx.core_dir}/printenv.xsh".display(), "RAW_VALUE"]
+  let passed = process.command_argv(ctx.xsh_bin, probe, root, {LC_ALL: "C", PATH: "/bin:/usr/bin", RAW_VALUE: raw}, b"", stdout, fp"{root}/stderr")
+  assert process.run(passed)?.exit_code()? == 0
+  assert stdout.read_bytes()? == b"a\x80b\n"
 }

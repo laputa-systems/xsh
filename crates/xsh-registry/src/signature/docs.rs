@@ -1186,7 +1186,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "signal_action" | "set_signal_action") => Some((
             "Reads or changes how this process treats a signal.",
-            "ignore and default survive unix.exec, which is how nohup is built; replacing INT or TERM disables the runtime's cancellation for that signal, and children started with run restore the defaults themselves.",
+            "ignore and default survive unix.exec, which is how nohup is built; replacing INT or TERM disables the runtime's cancellation for that signal, and children started with run restore the defaults themselves. The runtime ignores PIPE for its own writes whatever the process was started with, so PIPE reports, and passes to every child, the action the process was started with until set_signal_action replaces it; default makes the process itself die on a closed pipe.",
             &["process", "signal", "host-state"],
         )),
         ("process", "wait_timeout") => Some((
@@ -1441,7 +1441,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Target selection and signal are explicit host effects; permission and liveness failures remain visible.",
             &["unix", "process", "signal", "privileged"],
         )),
-        ("unix", "exec_env") => Some(("Replaces the current process with an explicit environment and optional argv0.", "The supplied map replaces both inherited and command environment completely. Keys must be nonempty and contain neither NUL nor equals; values and argv0 must contain no NUL. Command cwd and ordered redirections apply. Successful exec does not return; validation, setup and host exec failures remain Result data. argv0 changes the argument presented to the executable, subject to kernel interpreter handling for scripts.", &["unix", "process", "exec"])),
+        ("unix", "exec_env") => Some(("Replaces the current process with an explicit environment and optional argv0.", "The supplied map replaces both inherited and command environment completely. Keys must be nonempty and contain neither NUL nor equals; values and argv0 must contain no NUL. Command cwd and ordered redirections apply. Successful exec does not return; validation, setup and host exec failures remain Result data. argv0 changes the argument presented to the executable, subject to kernel interpreter handling for scripts. Values may be Str or Bytes. block_signals names signals the new image starts with blocked; the host empties the signal mask of a started command, so only the named signals are blocked, and KILL and STOP cannot be.", &["unix", "process", "exec"])),
         ("unix", "exec") => Some((
             "Replaces the current Unix process with a typed command.",
             "Successful execution does not return. Command cwd, environment and ordered file or byte redirections are applied; descriptors without a redirection are inherited. Byte input is materialized before replacement. Setup and exec failures remain errors in the calling process.",
@@ -1494,7 +1494,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("unix", "open_fd" | "close_fd") => Some((
             "Opens a path as a bare descriptor number, or closes one.",
-            "The descriptor is for the termios and window-size calls, never becomes the controlling terminal, and is closed on exec; it is not owned by any scope, so the script must close it, and the standard streams cannot be closed.",
+            "The descriptor is for the termios, window-size, and raw read and write calls, never becomes the controlling terminal, and is closed on exec; it is not owned by any scope, so the script must close it, and the standard streams cannot be closed. flags adds open flags by name (direct, noatime, nofollow, directory, dsync, sync, append, nonblock, noctty); read_fd and write_fd move the bytes of a direct descriptor through an aligned buffer.",
             &["unix", "fd", "host-resource"],
         )),
         ("unix", "open_pty") => Some((

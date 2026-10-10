@@ -9436,16 +9436,21 @@ impl Evaluator {
                 let plan = lowered_command_arg(unix_require_arg(values.first().cloned(), "unix.exec_env", span)?, "unix.exec_env", span)?;
                 let mut invocation = self.invocation_from_command_plan(&plan, span)?;
                 let Some(LoweredValue::Map(environment)) = values.get(1) else {
-                    return Err(RuntimeError::new("type-error", "unix.exec_env expected Map[Str, Str]").with_span(span));
+                    return Err(RuntimeError::new("type-error", "unix.exec_env expected Map[Str, Str] or Map[Str, Bytes]").with_span(span));
                 };
                 let mut replacement = BTreeMap::new();
                 for (key, value) in environment.iter() {
                     let Some(key) = key.as_str() else { return Err(RuntimeError::new("type-error", "unix.exec_env expected Str keys").with_span(span)); };
-                    let LoweredValue::Str(value) = value else { return Err(RuntimeError::new("type-error", "unix.exec_env expected Str values").with_span(span)); };
-                    if key.is_empty() || key.as_bytes().contains(&0) || key.contains('=') || value.as_bytes().contains(&0) {
+                    let value: Vec<u8> = match value {
+                        LoweredValue::Str(value) => value.as_bytes().to_vec(),
+                        LoweredValue::Bytes(value) => value.to_vec(),
+                        LoweredValue::BytesView(value) => value.as_slice().to_vec(),
+                        _ => return Err(RuntimeError::new("type-error", "unix.exec_env expected Str or Bytes values").with_span(span)),
+                    };
+                    if key.is_empty() || key.as_bytes().contains(&0) || key.contains('=') || value.contains(&0) {
                         return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "invalid environment key or value").with_span(span)))));
                     }
-                    replacement.insert(key.as_bytes().to_vec(), value.as_bytes().to_vec());
+                    replacement.insert(key.as_bytes().to_vec(), value);
                 }
                 let argv0 = match values.get(2).cloned() {
                     None | Some(LoweredValue::Null) => None,
@@ -9454,6 +9459,16 @@ impl Evaluator {
                 if argv0.as_ref().is_some_and(|value| value.as_bytes().contains(&0)) {
                     return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", "argv0 contains NUL").with_span(span)))));
                 }
+                let mut block_signals = Vec::new();
+                if let Some(names) = values.get(3).cloned() {
+                    for name in lowered_str_list_arg(Some(names), "unix.exec_env", span)? {
+                        match process_module::signal_info(&name, span) {
+                            Ok(signal) if signal.number > 0 => block_signals.push(signal.number),
+                            Ok(_) => return Ok(Value::err(Value::Error(Box::new(RuntimeError::new("unix-exec-env", format!("cannot block signal {name}")).with_span(span))))),
+                            Err(error) => return Ok(Value::err(Value::Error(Box::new(error)))),
+                        }
+                    }
+                }
                 invocation.env = replacement;
                 invocation.env_overlay.clear();
                 if self.unix_fake_active() {
@@ -9461,7 +9476,7 @@ impl Evaluator {
                     return Ok(Value::ok(Value::Unit));
                 }
                 self.flush_shared_stdio();
-                unix_module::exec_env(&invocation, argv0.as_deref(), span)
+                unix_module::exec_env(&invocation, argv0.as_deref(), &block_signals, span)
             }
             RuntimeOp::UnixExec => {
                 let plan = lowered_command_arg(

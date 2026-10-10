@@ -293,7 +293,64 @@ for name in ["plain", "default"] {
   assert output.stdout == "plain status=41\ndefault status=141\n"
 }
 
+# The runtime ignores SIGPIPE for its own writes, so the real disposition says
+# nothing about the caller. signal_action reports the one the process was
+# started with, and run and exec hand exactly that to their children.
+test test_sigpipe_action_is_the_one_the_process_started_with { |ctx|
+  let root = test.temp_dir(ctx, name: "sigpipe-action")?
+  fp"{root}/report.xsh".write("print process.signal_action(\"PIPE\")?\n")
+  fp"{root}/exec.xsh".write("""let xsh = applet.current_exe()?
+unix.exec(process.command_argv(xsh, [xsh.display(), e"REPORT"?]))?
+""")
+  let output = test.run_xsh(
+    ctx,
+    r"""
+let dir = e"REPORT_DIR"?
+let xsh = applet.current_exe()?
+let report = fp"{dir}/report.xsh"
+let exec_report = fp"{dir}/exec.xsh"
+for action in ["default", "ignore"] {
+  process.set_signal_action("PIPE", action)?
+  assert process.signal_action("PIPE")? == action
+  let ran = run.capture --text $xsh $report ?
+  let execed = run.capture --text $xsh $exec_report ?
+  print f"{action} run={ran.stdout.trim()} exec={execed.stdout.trim()}"
+}
+""",
+    env: {REPORT_DIR: root, REPORT: f"{root}/report.xsh"},
+  )?
+  assert output.success, output.stderr
+  assert output.stdout == "default run=default exec=default\nignore run=ignore exec=ignore\n"
+}
+
 test test_flush_stdout_is_a_no_op_for_captured_output {
   io.write_stdout("captured")
   io.flush_stdout()
+}
+
+test test_unix_exec_env_passes_bytes_values_through { |ctx|
+  let result = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "printf %s \"$RAW\" | od -An -tx1"])
+let environment: Map[Str, Bytes] = {"RAW": b"a\x80b"}
+unix.exec_env(command, environment)?
+""", status: 0)?
+  assert result.stdout.trim() == "61 80 62"
+}
+
+test test_unix_exec_env_blocks_the_named_signals { |ctx|
+  if ! p"/proc/self/status".exists()? {
+    test.skip("the host has no /proc/self/status")
+  }
+
+  let result = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "grep SigBlk /proc/self/status"])
+let environment: Map[Str, Str] = {}
+unix.exec_env(command, environment, block_signals: ["USR1", "SIGTERM"])?
+""", status: 0)?
+  # USR1 is signal 10 and TERM is 15: bits 9 and 14 of the mask.
+  assert result.stdout.trim() == "SigBlk:\t0000000000004200", result.stdout
+
+  let unnamed = test.expect(ctx, r"""let command = process.command_argv(p"/bin/sh", ["sh", "-c", "grep SigBlk /proc/self/status"])
+let environment: Map[Str, Str] = {}
+unix.exec_env(command, environment)?
+""", status: 0)?
+  assert unnamed.stdout.trim() == "SigBlk:\t0000000000000000", unnamed.stdout
 }

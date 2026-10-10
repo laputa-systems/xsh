@@ -124,9 +124,10 @@ fn controlling_tty(args: &Args<'_>) -> Result<Value, RuntimeError> {
     }
 }
 
-/// Opens a path as a bare descriptor number for the termios calls: it never
-/// becomes the controlling terminal and is closed on exec. Non-blocking by
-/// default so that opening a modem line does not wait for carrier.
+/// Opens a path as a bare descriptor number: it never becomes the controlling
+/// terminal and is closed on exec. Non-blocking by default so that opening a
+/// modem line does not wait for carrier. `flags` adds open(2) flags by name;
+/// the set is closed so a script cannot ask for a flag the platform lacks.
 fn open_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     use rustix::fs::{Mode, OFlags};
     let span = args.span();
@@ -140,11 +141,39 @@ fn open_fd(args: &Args<'_>) -> Result<Value, RuntimeError> {
     if args.bool_or(2, true)? {
         flags |= OFlags::NONBLOCK;
     }
+    for name in args.strs(3)? {
+        flags |= open_flag(&name, span)?;
+    }
     let shown = path.display().to_string();
     match rustix::fs::open(&path, flags, Mode::empty()) {
         Ok(fd) => ok(Value::Int(i64::from(fd.into_raw_fd()))),
         Err(error) => Err(name_error(&shown, host_error("unix-open-fd", error, span))),
     }
+}
+
+fn open_flag(name: &str, span: Span) -> Result<rustix::fs::OFlags, RuntimeError> {
+    use rustix::fs::OFlags;
+    Ok(match name {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        "direct" => OFlags::DIRECT,
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        "noatime" => OFlags::NOATIME,
+        "nofollow" => OFlags::NOFOLLOW,
+        "directory" => OFlags::DIRECTORY,
+        "dsync" => OFlags::DSYNC,
+        "sync" => OFlags::SYNC,
+        "append" => OFlags::APPEND,
+        "nonblock" => OFlags::NONBLOCK,
+        "noctty" => OFlags::NOCTTY,
+        other => {
+            return Err(invalid(
+                format!(
+                    "open flag must be one of direct, noatime, nofollow, directory, dsync, sync, append, nonblock or noctty on this platform, found `{other}`"
+                ),
+                span,
+            ));
+        }
+    })
 }
 
 /// Closes a descriptor opened by `unix.open_fd` or `unix.open_pty`. The

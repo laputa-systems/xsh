@@ -121,9 +121,43 @@ test test_dd_seek_bytes_on_regular_output { |ctx|
 }
 
 test test_dd_unsupported_flags_fail_explicitly { |ctx|
-  let result = invoke(ctx, ["iflag=direct"])?
+  let result = invoke(ctx, ["iflag=dsync"])?
   assert result.status == 1
   assert "unsupported" in result.stderr
+}
+
+test test_dd_direct_flags_transfer_whole_and_partial_blocks { |ctx|
+  let data = bytes.from_ints([97 + index % 26 for index in range(8192 * 3 + 511)])?
+  let upper = bytes.from_ints([65 + index % 26 for index in range(8192 * 3 + 511)])?
+  let source = test.temp_file(ctx, name: "dd-direct-in", contents: data)?
+  let out = test.temp_file(ctx, name: "dd-direct-out", contents: b"")?
+  let plain = invoke(ctx, ["status=none", f"if={source}", f"of={out}", "iflag=direct", "oflag=direct", "bs=8192"])?
+  if plain.status != 0 and "Invalid argument" in plain.stderr {
+    test.skip("the filesystem does not support O_DIRECT")
+  }
+  assert plain.status == 0, plain.stderr
+  assert out.read_bytes()? == data
+
+  # A conversion takes the other output path, which has its own partial tail.
+  let converted = invoke(ctx, ["status=none", f"if={source}", f"of={out}", "iflag=direct", "oflag=direct", "bs=8192", "conv=ucase"])?
+  assert converted.status == 0, converted.stderr
+  assert out.read_bytes()? == upper
+
+  let skipped = invoke(ctx, ["status=none", f"if={source}", f"of={out}", "iflag=direct", "bs=4096", "skip=2", "count=1"])?
+  assert skipped.status == 0, skipped.stderr
+  assert out.read_bytes()? == data[8192..12288]
+
+  let blocks = invoke(ctx, ["status=none", "oflag=direct", "cbs=4", "conv=block", f"of={out}"], b"a\n")?
+  assert blocks.status == 1
+  assert "cannot be combined" in blocks.stderr
+}
+
+test test_dd_noatime_flags_read_and_write { |ctx|
+  let source = test.temp_file(ctx, name: "dd-noatime-in", contents: b"abcdef")?
+  let out = test.temp_file(ctx, name: "dd-noatime-out", contents: b"")?
+  let result = invoke(ctx, ["status=none", f"if={source}", f"of={out}", "iflag=noatime", "oflag=noatime", "bs=4"])?
+  assert result.status == 0, result.stderr
+  assert out.read_bytes()? == b"abcdef"
 }
 
 test test_dd_character_set_roundtrip { |ctx|

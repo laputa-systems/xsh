@@ -3,7 +3,7 @@ use lib.gnu
 use lib.bytes_enc_dd as charset
 use lib.textio_a1 as tio
 
-type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, input_directory: Bool, bs: Int}
+type Options = {input: Path?, output: Path?, ibs: Int, obs: Int, cbs: Int, count: Int, skip: Int, seek: Int, count_bytes: Bool, skip_bytes: Bool, seek_bytes: Bool, conv: List[Str], status: Str, fullblock: Bool, input_directory: Bool, bs: Int, input_flags: List[Str], output_flags: List[Str]}
 type BlockOutput = {data: Bytes, padding: Int, pad_byte: Int}
 type Converted = {data: Bytes, blocks: List[BlockOutput], truncated: Int}
 
@@ -64,7 +64,7 @@ pure assignment_separator(arg: Bytes) -> Int? {
 }
 
 proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
-  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, input_directory: false, bs: 0}
+  var opts: Options = {input: null, output: null, ibs: 512, obs: 512, cbs: 0, count: -1, skip: 0, seek: 0, count_bytes: false, skip_bytes: false, seek_bytes: false, conv: [], status: "default", fullblock: false, input_directory: false, bs: 0, input_flags: [], output_flags: []}
   for arg_index in range(argv.len()) {
     let raw_arg = argv[arg_index]
     let separator = assignment_separator(raw_arg)
@@ -113,7 +113,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
             render_operand_error(argv, arg_index, f"invalid conversion: {gnu.quote(flag)}", start, flag.byte_len(), "not a known conversion", "conv= is one of ascii, ebcdic, ibm, lcase, ucase, block, unblock, swab, sync, noerror, sparse, excl, nocreat, notrunc, fdatasync or fsync", true, 1)
           }
         } else {
-          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "directory", "dsync", "sync", "append", "nonblock", "noatime", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
+          if key in ["iflag", "oflag"] and flag == "count_bytes" { opts = {...opts, count_bytes: true} } else if key == "iflag" and flag == "skip_bytes" { opts = {...opts, skip_bytes: true} } else if key == "iflag" and flag == "fullblock" { opts = {...opts, fullblock: true} } else if key == "iflag" and flag == "directory" { opts = {...opts, input_directory: true} } else if key == "oflag" and flag == "seek_bytes" { opts = {...opts, seek_bytes: true} } else if flag in ["direct", "noatime"] { opts = if key == "iflag" { {...opts, input_flags: opts.input_flags.extend([flag])} } else { {...opts, output_flags: opts.output_flags.extend([flag])} } } else if flag in ["directory", "dsync", "sync", "append", "nonblock", "nocache", "nofollow", "nolinks", "cio", "text", "binary", "excl"] { gnu.usage_error(f"unsupported {key} {gnu.quote(flag)}: native descriptor support required") } else {
             var start = key.byte_len() + 1
             for list_flag in text.split(",") {
               if list_flag == flag { break }
@@ -130,6 +130,7 @@ proc parse(argv: List[Bytes]) [process, env, io, error] -> Options {
   }
   if "lcase" in opts.conv and "ucase" in opts.conv { gnu.usage_error("cannot combine lcase and ucase") }
   if "block" in opts.conv and "unblock" in opts.conv { gnu.usage_error("cannot combine block and unblock") }
+  if "direct" in opts.output_flags and ("block" in opts.conv or "unblock" in opts.conv) { gnu.usage_error("oflag=direct cannot be combined with conv=block or conv=unblock") }
   if ("block" in opts.conv or "unblock" in opts.conv) and opts.cbs == 0 { gnu.usage_error("conversion block size must be specified") }
   let sets = [name for name in opts.conv if name in ["ascii", "ebcdic", "ibm"]]
   if sets.len() > 1 { gnu.usage_error("cannot combine any two of {ascii,ebcdic,ibm}") }
@@ -282,6 +283,19 @@ proc seek_output_fifo(dest: Path, offset: Int, block_size: Int) [fs, process, er
   Ok()
 }
 
+# O_DIRECT transfers whole sectors, so a transfer's partial last sector goes
+# through a descriptor opened without the flag, the way GNU dd drops it for
+# that one write.
+const DIRECT_SECTOR = 512
+
+proc reopen_without_direct(fd: Int, dest: Path, offset: Int, flags: List[Str]) [process, error] -> Result[Int] {
+  unix.close_fd(fd)?
+  let kept = [flag for flag in flags if flag != "direct"]
+  let reopened = unix.open_fd(dest, write: true, nonblock: false, flags: kept)?
+  let _ = unix.seek_fd(reopened, offset)?
+  Ok(reopened)
+}
+
 proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io, process, env] -> Result[Copied] {
   let dest = if let output = opts.output { output } else { p"" }
   var output_fd: Int? = null
@@ -292,7 +306,7 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
     output_kind = dest.metadata()?.mode / 4096 % 16
     if output_kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs)? }
     if output_kind in [1, 2, 6, 8] and ! (output_kind == 1 and opts.count == 0) {
-      output_fd = unix.open_fd(dest, write: true, nonblock: false)?
+      output_fd = unix.open_fd(dest, write: true, nonblock: false, flags: opts.output_flags)?
     }
     if output_kind == 8 {
       if ! ("notrunc" in opts.conv) { dest.truncate(seek)? }
@@ -303,8 +317,8 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   if let input = opts.input { source = open_dd_source(input)? }
   var input_fd: Int? = null
   if let file = source {
-    if file.kind in [1, 2, 6] { input_fd = unix.open_fd(file.path, nonblock: false)? }
-    if file.mode == "file" and opts.output != null and output_kind == 8 and ! ("sparse" in opts.conv) {
+    if file.kind in [1, 2, 6] or ! opts.input_flags.is_empty() { input_fd = unix.open_fd(file.path, nonblock: false, flags: opts.input_flags)? }
+    if file.mode == "file" and opts.output != null and output_kind == 8 and ! ("sparse" in opts.conv) and opts.input_flags.is_empty() and opts.output_flags.is_empty() {
       let size = file.path.metadata()?.size
       if skip > size {
         let input = opts.input ?? p""
@@ -319,13 +333,18 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   }
   let large_input = if let file = source { opts.ibs > 67108864 and file.kind != 1 } else { false }
   if let fd = input_fd {
-    var discarded = 0
-    while discarded < skip {
-      let requested = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
-      let want = if requested > 65536 { 65536 } else { requested }
-      let block = unix.read_fd(fd, want)?
-      break when block.is_empty()
-      discarded += block.len()
+    let seekable = if let file = source { file.kind == 8 } else { false }
+    if seekable {
+      if skip > 0 { let _ = unix.seek_fd(fd, skip)? }
+    } else {
+      var discarded = 0
+      while discarded < skip {
+        let requested = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
+        let want = if requested > 65536 { 65536 } else { requested }
+        let block = unix.read_fd(fd, want)?
+        break when block.is_empty()
+        discarded += block.len()
+      }
     }
   } else if source == null {
     var discarded = 0
@@ -414,9 +433,15 @@ proc plain_copy(opts: Options, skip: Int, seek: Int, limit: Int) [fs, error, io,
   if let fd = output_fd {
     if output_length > 0 and failure == null {
       let output_chunk = bytes.concat(output_chunks)
-      let outcome = write_output_chunk(fd, output_chunk, seek + output_position - output_length, sparse_output)?
-        written += outcome.written
-        failure = outcome.failure
+      let tail_offset = seek + output_position - output_length
+      var tail_fd = fd
+      if "direct" in opts.output_flags and output_length % DIRECT_SECTOR != 0 {
+        tail_fd = reopen_without_direct(fd, dest, tail_offset, opts.output_flags)?
+        output_fd = tail_fd
+      }
+      let outcome = write_output_chunk(tail_fd, output_chunk, tail_offset, sparse_output)?
+      written += outcome.written
+      failure = outcome.failure
     }
   }
   if sparse_output and failure == null { dest.truncate(seek + output_position)? }
@@ -448,7 +473,7 @@ proc require_directory_input(input: Path?) [fs, process, env, error, io] {
 }
 
 proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
-  if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock oflag=seek_bytes\nNative descriptor flags are not supported."); return }
+  if b"--help" in argv { gnu.help("Usage: dd [OPERAND]...\nCopy a file, converting and formatting according to the operands.\n\nOperands:\n  if=FILE of=FILE bs=BYTES ibs=BYTES obs=BYTES cbs=BYTES\n  count=N skip=N seek=N status=none|noxfer|progress\n\nConversion options:\n  conv=ascii,ebcdic,ibm,block,unblock,lcase,ucase,swab,sync,sparse,notrunc,nocreat\n  iflag=count_bytes,skip_bytes,fullblock,direct,noatime\n  oflag=seek_bytes,direct,noatime\nOther descriptor flags are not supported."); return }
   if b"--version" in argv { gnu.version("dd"); return }
   let started = time.now()
   let opts = parse(argv)
@@ -478,13 +503,19 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     return
   }
   var records: List[Bytes] = []
-  var fifo_fd: Int? = null
+  var source_fd: Int? = null
+  var source_seekable = false
   if let input = opts.input {
     guard let source = open_dd_source(input) else { |failure| gnu.error(f"failed to open {quoted_path(input)}: {gnu.strerror(failure)}"); exit 1 }
-    if source.kind == 1 { fifo_fd = unix.open_fd(source.path, nonblock: false)? }
+    if source.kind == 1 or ! opts.input_flags.is_empty() { source_fd = unix.open_fd(source.path, nonblock: false, flags: opts.input_flags)? }
+    source_seekable = source.kind == 8
   }
-  if let fd = fifo_fd {
+  if let fd = source_fd {
     var discarded = 0
+    if source_seekable {
+      if skip > 0 { let _ = unix.seek_fd(fd, skip)? }
+      discarded = skip
+    }
     while discarded < skip {
       let want = if skip - discarded < opts.ibs { skip - discarded } else { opts.ibs }
       let block = unix.read_fd(fd, want)?
@@ -596,12 +627,25 @@ proc main(...argv: List[Bytes]) [fs, process, env, error, io, time] {
     if kind == 1 and seek > 0 { seek_output_fifo(dest, seek, opts.obs)? }
     if kind in [1, 2, 6, 8] {
       if kind != 1 or opts.count != 0 {
-        let fd = unix.open_fd(dest, write: true, nonblock: false)?
+        var fd = unix.open_fd(dest, write: true, nonblock: false, flags: opts.output_flags)?
         if kind == 8 { let _ = unix.seek_fd(fd, seek)? }
         if converted.blocks.is_empty() {
-          let outcome = write_fd_all(fd, converted.data)
+          var data = converted.data
+          var tail = b""
+          if "direct" in opts.output_flags and data.len() % DIRECT_SECTOR != 0 {
+            let whole = data.len() - data.len() % DIRECT_SECTOR
+            tail = data[whole..]
+            data = data[0..whole]
+          }
+          var outcome = write_fd_all(fd, data)
           written += outcome.written
           write_failure = outcome.failure
+          if ! tail.is_empty() and write_failure == null {
+            fd = reopen_without_direct(fd, dest, seek + data.len(), opts.output_flags)?
+            outcome = write_fd_all(fd, tail)
+            written += outcome.written
+            write_failure = outcome.failure
+          }
         } else {
           for record in converted.blocks {
             break when write_failure != null

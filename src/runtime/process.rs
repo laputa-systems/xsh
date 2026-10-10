@@ -18,7 +18,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdout, Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
 pub const CAPTURE_LIMIT: usize = 16 * 1024 * 1024;
@@ -26,6 +26,46 @@ const CANCELLATION_GRACE: Duration = Duration::from_millis(150);
 pub(crate) const WAIT_POLL: Duration = Duration::from_millis(10);
 static PRIMARY_SIGNAL: AtomicI32 = AtomicI32::new(0);
 static ESCALATION_SIGNAL: AtomicI32 = AtomicI32::new(0);
+
+/// Whether SIGPIPE is ignored as far as scripts and the processes they start
+/// are concerned. The runtime itself always ignores SIGPIPE so that a closed
+/// pipe surfaces as a write error, which makes the process's real disposition
+/// useless for either purpose. This flag holds the disposition the process was
+/// started with until a script sets another with `process.set_signal_action`.
+static SIGPIPE_IGNORED: AtomicBool = AtomicBool::new(true);
+
+// std sets SIGPIPE to SIG_IGN before `main`, so the disposition the process
+// inherited can only be read from a constructor. Other platforms keep the
+// initial `true`, which is what std leaves behind.
+#[cfg(target_os = "linux")]
+extern "C" fn record_startup_sigpipe_disposition() {
+    let mut current: libc::sigaction = unsafe { std::mem::zeroed() };
+    if unsafe { libc::sigaction(libc::SIGPIPE, std::ptr::null(), &mut current) } == 0 {
+        SIGPIPE_IGNORED.store(current.sa_sigaction == libc::SIG_IGN, Ordering::Relaxed);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[used]
+#[unsafe(link_section = ".init_array")]
+static RECORD_STARTUP_SIGPIPE_DISPOSITION: extern "C" fn() = record_startup_sigpipe_disposition;
+
+pub(crate) fn sigpipe_ignored() -> bool {
+    SIGPIPE_IGNORED.load(Ordering::Relaxed)
+}
+
+pub(crate) fn set_sigpipe_ignored(ignored: bool) {
+    SIGPIPE_IGNORED.store(ignored, Ordering::Relaxed);
+}
+
+/// Gives a child the SIGPIPE disposition scripts see. Async-signal-safe, so it
+/// may run between fork and exec.
+pub(crate) fn apply_sigpipe_disposition_to_child() {
+    let disposition = if sigpipe_ignored() { libc::SIG_IGN } else { libc::SIG_DFL };
+    unsafe {
+        libc::signal(libc::SIGPIPE, disposition);
+    }
+}
 
 pub fn install_cancellation_signal_handlers() -> io::Result<SignalHandlerGuard> {
     SignalHandlerGuard::install_many_preserving_ignored(&[libc::SIGINT, libc::SIGTERM])
@@ -2071,7 +2111,6 @@ fn reset_child_signal_handlers() {
         libc::signal(libc::SIGHUP, libc::SIG_DFL);
         libc::signal(libc::SIGINT, libc::SIG_DFL);
         libc::signal(libc::SIGQUIT, libc::SIG_DFL);
-        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
         libc::signal(libc::SIGTERM, libc::SIG_DFL);
         libc::signal(libc::SIGTSTP, libc::SIG_DFL);
         libc::signal(libc::SIGTTIN, libc::SIG_DFL);
@@ -2082,6 +2121,7 @@ fn reset_child_signal_handlers() {
         libc::signal(libc::SIGXCPU, libc::SIG_DFL);
         libc::signal(libc::SIGXFSZ, libc::SIG_DFL);
     }
+    apply_sigpipe_disposition_to_child();
 }
 
 fn command_with_stdio(
