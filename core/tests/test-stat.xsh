@@ -224,3 +224,62 @@ test test_stat_preserves_non_utf8_names_in_output_bytes { |ctx|
   assert printf.status == 0, printf.stderr
   assert printf.stdout == quoted_name
 }
+
+test test_stat_cached_accepts_gnu_modes_and_unique_prefixes { |ctx|
+  let file = test.temp_file(ctx, name: "stat-cached", contents: b"cached")?
+  let plain = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- -c "%s %n" $file
+  assert plain.status.exited_with(0), plain.stderr
+
+  for mode in ["default", "never", "always", "nev", "a", "d"] {
+    let option = f"--cached={mode}"
+    let result = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- $option -c "%s %n" $file
+    assert result.status.exited_with(0), f"{mode}: {result.stderr}"
+    assert result.stdout == plain.stdout, f"{mode}: {result.stdout}"
+  }
+
+  let separate = run.capture --text LC_ALL=C ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --cached never -c "%s %n" $file
+  assert separate.status.exited_with(0), separate.stderr
+  assert separate.stdout == plain.stdout
+}
+
+test test_stat_cached_rejects_invalid_modes_with_gnu_diagnostics { |ctx|
+  let file = test.temp_file(ctx, name: "stat-cached-invalid", contents: b"invalid")?
+  let choices = "Valid arguments are:\n  - 'default'\n  - 'never'\n  - 'always'\nTry 'stat --help' for more information.\n"
+
+  for mode in ["bogus", "ALWAYS", "x=y"] {
+    let option = f"--cached={mode}"
+    let result = run.capture --text LC_ALL=C XSH_EXECUTION_PHRASE=stat ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- $option $file
+    assert result.status.exited_with(1), result.stderr
+    assert result.stdout == ""
+    assert result.stderr == f"stat: invalid argument '{mode}' for '--cached'\n{choices}", result.stderr
+  }
+
+  let empty = run.capture --text LC_ALL=C XSH_EXECUTION_PHRASE=stat ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --cached= $file
+  assert empty.status.exited_with(1), empty.stderr
+  assert empty.stdout == ""
+  assert empty.stderr == f"stat: ambiguous argument '' for '--cached'\n{choices}", empty.stderr
+
+  let missing = run.capture --text LC_ALL=C XSH_EXECUTION_PHRASE=stat ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --cached
+  assert missing.status.exited_with(1), missing.stderr
+  assert missing.stderr == "stat: option '--cached' requires an argument\nTry 'stat --help' for more information.\n", missing.stderr
+}
+
+test test_stat_cached_is_checked_in_option_order { |ctx|
+  let file = test.temp_file(ctx, name: "stat-cached-order", contents: b"order")?
+
+  let later = run.capture --text LC_ALL=C XSH_EXECUTION_PHRASE=stat ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --cached=never --cached=bogus $file
+  assert later.status.exited_with(1), later.stderr
+  assert later.stderr.starts_with("stat: invalid argument 'bogus' for '--cached'\n"), later.stderr
+
+  let before_help = run.capture --text LC_ALL=C XSH_EXECUTION_PHRASE=stat ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --cached=bogus --help
+  assert before_help.status.exited_with(1), before_help.stderr
+  assert before_help.stderr.starts_with("stat: invalid argument 'bogus' for '--cached'\n"), before_help.stderr
+
+  let help = run.capture --text LC_ALL=C XSH_EXECUTION_PHRASE=stat ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --help --cached=bogus
+  assert help.status.exited_with(0), help.stderr
+  assert help.stdout.starts_with("Usage: stat [OPTION]... FILE...\n"), help.stdout
+
+  let no_operand = run.capture --text LC_ALL=C XSH_EXECUTION_PHRASE=stat ${ctx.xsh_bin} fp"{ctx.core_dir}/stat.xsh" -- --cached=bogus
+  assert no_operand.status.exited_with(1), no_operand.stderr
+  assert no_operand.stderr.starts_with("stat: invalid argument 'bogus' for '--cached'\n"), no_operand.stderr
+}
