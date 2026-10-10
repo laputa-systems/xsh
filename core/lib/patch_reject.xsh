@@ -32,8 +32,9 @@ pure context_range(first: Int, count: Int) -> Str {
 }
 
 ## One failed hunk as context-diff text. A hunk read from a normal diff has no
-## context lines and prints the bare ranges GNU patch prints for such hunks.
-export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool) -> Bytes {
+## context lines and prints the bare ranges GNU patch prints for such hunks;
+## `cr_stripped` marks a patch whose lines end in carriage returns.
+export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool, cr_stripped: Bool) -> Bytes {
   var old_lines: List[Bytes] = []
   var new_lines: List[Bytes] = []
   let kinds = hunk.kinds
@@ -73,8 +74,12 @@ export pure context_reject(hunk: patch_parse.Hunk, from_normal: Bool) -> Bytes {
   var parts: List[Bytes] = [bytes.from_text("***************"), hunk.function, b"\n"]
   let old_range = if from_normal and hunk.old_count == 0 { "0" } else { context_range(hunk.old_first, hunk.old_count) }
   let new_range = if from_normal and hunk.new_count == 0 { "0" } else { context_range(hunk.new_first, hunk.new_count) }
-  let old_tail = if from_normal { "" } else { " ****" }
-  let new_tail = if from_normal { " -----" } else { " ----" }
+  # A context diff whose lines end in carriage returns comes back with bare
+  # old ranges, and with a longer new-range rule when the hunk removes lines.
+  var has_removal = false
+  for kind in hunk.kinds { if kind == 1 { has_removal = true } }
+  let old_tail = if from_normal or cr_stripped { "" } else { " ****" }
+  let new_tail = if from_normal or (cr_stripped and has_removal) { " -----" } else { " ----" }
   parts += [bytes.from_text(f"*** {old_range}{old_tail}\n")]
   parts += old_lines
   parts += [bytes.from_text(f"--- {new_range}{new_tail}\n")]

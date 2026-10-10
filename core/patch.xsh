@@ -380,8 +380,10 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
       working = patch_parse.deindent(lines, scan.start, scan.indent)
       say(f"(Patch is indented {scan.indent} space{plural(scan.indent)}.)\n")
     }
-    if opts.verbose { announce(working, scan, seen == 0) }
-    if scan.cr_header and !opts.binary { say("(Stripping trailing CRs from patch; use --binary to disable.)\n") }
+    let strips_cr = scan.cr_header and !opts.binary and !opts.quiet
+    if opts.verbose { announce(working, scan, seen == 0, strips_cr) } else if strips_cr {
+      say("(Stripping trailing CRs from patch; use --binary to disable.)\n")
+    }
     seen += 1
     let outcome = one_patch(opts, strip, max_fuzz, working, scan, named)
     if outcome.status > status { status = outcome.status }
@@ -390,6 +392,13 @@ proc run_patches(opts: Options, opts_argv: List[Str], strip: Int, max_fuzz: Int)
   }
   if opts.verbose { say("done\n") }
   exit status
+}
+
+# A leading-text line as shown to the user: the line itself, carriage return
+# included, without the line feed.
+pure shown_line(line: Bytes) -> Str {
+  let text = line.utf8() ?? ""
+  if text.ends_with("\n") { text.byte_slice(0, text.byte_len() - 1) } else { text }
 }
 
 # A patch whose last line has no line end is reported when that line is read:
@@ -404,13 +413,14 @@ proc report_partial_last_line(lines: List[Bytes], position: Int, after_hunk: Boo
 }
 
 # The `--verbose` description of the patch about to be applied.
-proc announce(lines: List[Bytes], scan: patch_parse.Scan, first: Bool) [process, env, io, error] {
+proc announce(lines: List[Bytes], scan: patch_parse.Scan, first: Bool, strips_cr: Bool) [process, env, io, error] {
   let what = if scan.kind == "context" { "a new-style context diff" } else if scan.kind == "normal" { "a normal diff" } else if scan.kind == "ed" { "an ed script" } else { "a unified diff" }
   let lead = if first { "Looks like" } else { "The next patch looks like" }
   say(f"Hmm...  {lead} {what} to me...\n")
+  if strips_cr { say("(Stripping trailing CRs from patch; use --binary to disable.)\n") }
   if scan.body > scan.start {
     var shown = ""
-    for index in range(scan.start, scan.body) { shown += "|" + patch_parse.body_text(lines[index]) + "\n" }
+    for index in range(scan.start, scan.body) { shown += "|" + shown_line(lines[index]) + "\n" }
     say(f"The text leading up to this was:\n--------------------------\n{shown}--------------------------\n")
   }
 }
@@ -507,7 +517,7 @@ proc one_patch(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sca
   if !found {
     let first_line = scan.body + 1
     var shown = ""
-    for index in range(scan.start, scan.body) { shown += "|" + patch_parse.body_text(lines[index]) + "\n" }
+    for index in range(scan.start, scan.body) { shown += "|" + shown_line(lines[index]) + "\n" }
     let skipped = skip_hunks(lines, scan)
     let hint = if opts.strip == null { "Perhaps you should have used the -p or --strip option?\n" } else { "Perhaps you used the wrong -p or --strip option?\n" }
     if !opts.quiet or opts.force or opts.batch {
@@ -715,7 +725,8 @@ proc apply_file(opts: Options, strip: Int, max_fuzz: Int, lines: List[Bytes], sc
       note(opts, prompt + "Skipping patch.\n")
       skip_all = true
     } else {
-      note(opts, prompt + (if opts.reverse { "Ignore -R? [n] \n" } else { "Assume -R? [n] \n" }) + "Apply anyway? [n] \nSkipping patch.\n")
+      note(opts, prompt + (if opts.reverse { "Ignore -R? [n] \n" } else { "Assume -R? [n] \n" }) + "Apply anyway? [n] \n")
+      if !opts.quiet { note(opts, "Skipping patch.\n") }
       skip_all = true
     }
   }
@@ -936,7 +947,7 @@ proc write_rejects(opts: Options, scan: patch_parse.Scan, outcome: Outcome, reje
   }
   if as_context {
     parts += [bytes.from_text(f"*** {header_old}\n--- {header_new}\n")]
-    for hunk in outcome.rejected { parts += [patch_reject.context_reject(hunk, scan.kind == "normal")] }
+    for hunk in outcome.rejected { parts += [patch_reject.context_reject(hunk, scan.kind == "normal", scan.cr_header)] }
   } else {
     parts += [bytes.from_text(f"--- {header_old}\n+++ {header_new}\n")]
     for hunk in outcome.rejected { parts += [patch_reject.unified_reject(hunk)] }
@@ -1022,7 +1033,8 @@ proc run_hunks(opts: Options, max_fuzz: Int, lines: List[Bytes], scan: patch_par
             where = found
           } else {
             note(opts, heading + (if reverse { "Ignore -R? [n] \n" } else { "Assume -R? [n] \n" }))
-            note(opts, "Apply anyway? [n] \nSkipping patch.\n")
+            note(opts, "Apply anyway? [n] \n")
+            if !opts.quiet { note(opts, "Skipping patch.\n") }
             skip = true
           }
           break

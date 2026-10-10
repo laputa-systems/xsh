@@ -488,3 +488,16 @@ case("name-with-double-quote", "", stdin="--- \"q\\\"uote\"\n+++ \"q\\\"uote\"\n
 case("name-with-apostrophe", "", stdin="--- \"ap'ostrophe\"\n+++ \"ap'ostrophe\"\n@@ -1 +1 @@\n-1\n+2\n", **{"ap'ostrophe": "1\n"})
 case("name-with-dollar", "", stdin="--- \"dollar$x\"\n+++ \"dollar$x\"\n@@ -1 +1 @@\n-1\n+2\n", **{"dollar$x": "1\n"})
 case("name-with-octal-escape", "", stdin="--- \"a\\303\\251\"\n+++ \"a\\303\\251\"\n@@ -1 +1 @@\n-1\n+2\n", **{"aé": "1\n"})
+
+# CRLF patches, quiet mode, and rejects
+CPC = cdiff(BASE, EDITED).replace("\n", "\r\n")
+bad_target = lines("1", "2", "3", "zz", "5", "6", "7", "8", "yy", "10", "11", "12")
+case("reject-context-from-crlf-patch", "t p", t=bad_target, p=CPC)
+case("reject-context-from-crlf-patch-binary", "--binary t p", t=bad_target, p=CPC)
+case("reject-context-crlf-target-and-patch", "--binary t p", t=bad_target.replace("\n", "\r\n"), p=CPC)
+case("reject-unified-from-crlf-patch", "t p", t=bad_target, p=PU.replace("\n", "\r\n"))
+case("verbose-crlf-patch", "--verbose t p", t=BASE, p=PU.replace("\n", "\r\n"))
+case("crlf-patch-quiet", "-s t p", t=BASE, p=PU.replace("\n", "\r\n"))
+case("reverse-detected-quiet", "-s t p", t=EDITED, p=PU)
+case("create-over-content-quiet", "-s", stdin=PCREATE, n="old\n")
+case("delete-missing-quiet", "-s", stdin=PDELETE)
