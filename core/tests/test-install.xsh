@@ -31,6 +31,47 @@ test test_install_directory_symbolic_mode_and_parents { |ctx|
   assert fs.stat(file)?.mode.bit_and(0o7777) == 0o755
 }
 
+test test_install_intermediate_directories_keep_default_mode { |ctx|
+  let root = test.temp_dir(ctx)?
+  let script = fp"{ctx.core_dir}/install.xsh"
+  # The umask is set in a child shell so the expected mode does not depend on
+  # the umask of the test runner. Setgid is excluded because new directories
+  # inherit it from a setgid parent.
+  let default_mode = 0o777.clear_bits(0o002)
+  let dest = fp"{root}/a/b/c"
+  let directory_command = process.command_argv(p"/bin/sh",
+    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin.display(), script.display(), "--mode=200", "-d", dest.display()],
+    root, {}, b"", fp"{root}/out", fp"{root}/err")
+  assert process.run(directory_command)?.exited_with(0)
+  assert fs.stat(fp"{root}/a")?.mode.bit_and(0o777) == default_mode
+  assert fs.stat(fp"{root}/a/b")?.mode.bit_and(0o777) == default_mode
+  assert fs.stat(dest)?.mode.bit_and(0o7777) == 0o200
+
+  let source = fp"{root}/source"
+  source.write("payload")
+  let file = fp"{root}/d/e/file"
+  let file_command = process.command_argv(p"/bin/sh",
+    ["sh", "-c", "umask 002; exec \"$@\"", "sh", ctx.xsh_bin.display(), script.display(), "--mode=200", "-D", source.display(), file.display()],
+    root, {}, b"", fp"{root}/out", fp"{root}/err")
+  assert process.run(file_command)?.exited_with(0)
+  assert fs.stat(fp"{root}/d")?.mode.bit_and(0o777) == default_mode
+  assert fs.stat(fp"{root}/d/e")?.mode.bit_and(0o777) == default_mode
+  assert fs.stat(file)?.mode.bit_and(0o7777) == 0o200
+}
+
+test test_install_failed_directory_chown_clears_inherited_setgid { |ctx|
+  if user.current()?.uid == 0 { test.skip("requires an unprivileged test process"); return }
+  let root = test.temp_dir(ctx)?
+  let parent = fp"{root}/parent"
+  parent.mkdir()
+  parent.chmod(0o2777)
+  let dir = fp"{parent}/newdir"
+  let result = run.capture --text ${ctx.xsh_bin} fp"{ctx.core_dir}/install.xsh" -- -d -m 4755 -o root $dir
+  assert result.status.exited_with(1)
+  assert dir.is_dir()?
+  assert fs.stat(dir)?.mode.bit_and(0o6000) == 0
+}
+
 test test_install_compare_preserves_inode_and_backup_keeps_previous { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"{root}/source"
