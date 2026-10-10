@@ -190,8 +190,26 @@ pure has_padding(data: Bytes) -> Bool {
   false
 }
 
+# Operands stay bytes until they are opened, so a file name that is not UTF-8
+# reaches the filesystem unchanged. Stdin is the only operand that is not a path.
+proc read_operand(name: Bytes) [fs, error, io] -> Result[Bytes, Error] {
+  return io.stdin_bytes() when name == b"-"
+  let target = Path.parse_bytes(name)?
+  target.read_bytes()
+}
+
+proc report_name_error(name: Bytes, failure: Error) [process, env] {
+  if let Ok(text) = name.utf8() {
+    gnu.name_error(text, failure)
+  } else {
+    gnu.error(f"{gnu.quote_bytes(name, always: false)}: {gnu.strerror(failure)}")
+  }
+}
+
 ## Run an encoding applet with a fixed alphabet, or selectable basenc alphabets.
-export proc execute(argv: List[Str], default_kind: Str) [fs, process, env, error, io] {
+export proc execute(raw_argv: List[Bytes], default_kind: Str) [fs, process, env, error, io] {
+  let prepared = gnu.prepare_arguments(raw_argv)
+  let argv = prepared.text
   var options = true
   for position in range(argv.len()) {
     let arg = argv[position]
@@ -233,12 +251,18 @@ export proc execute(argv: List[Str], default_kind: Str) [fs, process, env, error
   }
   if opts.version { gnu.version(gnu.prog()); return }
   if kind == "" { gnu.usage_error("missing encoding type") }
-  if opts.files.len() > 1 { gnu.extra_operand(opts.files[1]) }
+  if opts.files.len() > 1 {
+    let extra = gnu.argument_bytes(opts.files[1], prepared.raw)
+    match extra.utf8() {
+      Ok(value) => gnu.extra_operand(value)
+      Err(_) => gnu.usage_error(f"extra operand {gnu.quote_bytes(extra, always: true)}")
+    }
+  }
   let width = opts.wrap.parse_int() ?? -1
   if width < 0 { gnu.error(f"invalid wrap size: {gnu.quote(opts.wrap)}"); exit 1 }
-  let name = opts.files.get(0) ?? "-"
-  guard let data = gnu.read_operand(name) else { |failure|
-    if gnu.errno(failure) in [21, 5] { gnu.error(f"read error: {gnu.strerror(failure)}") } else { gnu.name_error(name, failure) }
+  let name = gnu.argument_bytes(opts.files.get(0) ?? "-", prepared.raw)
+  guard let data = read_operand(name) else { |failure|
+    if gnu.errno(failure) in [21, 5] { gnu.error(f"read error: {gnu.strerror(failure)}") } else { report_name_error(name, failure) }
     exit 1
   }
   if opts.decode {
